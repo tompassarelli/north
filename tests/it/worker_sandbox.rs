@@ -180,7 +180,7 @@ fn a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime
     file(&home.path().join(".local/lib/claude/versions/1/token"));
     let north = home.path().join(".local/state/north/runtimes/host/north");
     std::fs::create_dir_all(north.parent().unwrap()).unwrap();
-    std::fs::hard_link(env!("CARGO_BIN_EXE_north"), &north).or_else(|_| std::fs::copy(env!("CARGO_BIN_EXE_north"), &north).map(drop)).unwrap();
+    north_core::foundation::shim::copy_executable(env!("CARGO_BIN_EXE_north"), &north);
 
     for (program, says) in [(&shim, "shim"), (&on_path, "on-path"), (&runtime, "runtime"), (&opencode, "opencode"), (&pi, "pi")] {
         let output = home.run_in_lane_only_by(&north, &[program.to_str().unwrap()]);
@@ -190,4 +190,44 @@ fn a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime
         let output = home.run_in_lane_only_by(&north, &["cat", home.path().join(hidden).to_str().unwrap()]);
         assert!(!output.status.success() && String::from_utf8_lossy(&output.stderr).contains("Permission denied"), "{hidden} was read: {}", String::from_utf8_lossy(&output.stdout));
     }
+}
+
+#[test]
+fn a_lane_created_after_the_session_started_runs_its_scripts_in_a_fresh_domain_that_hides_every_older_lane_north_1033() {
+    let home = Home::new();
+    let scratch = home.path().join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let north = Path::new(env!("CARGO_BIN_EXE_north"));
+    let session = |directory: &Path, fresh: bool, program: &[&str]| {
+        let mut outer = home.outer(directory);
+        outer.arg("--setenv").arg("NORTH_SANDBOX_SCRATCH").arg(&scratch);
+        if fresh {
+            outer.args(["--setenv", "NORTH_WORKER_LANE_ONLY", "1"]);
+        }
+        outer.arg("--").arg(north).args(["--worker-sandbox", "--lane", "--"]).args(program).output().unwrap()
+    };
+    let started = session(&home.lane(), false, &["true"]);
+    assert!(started.status.success(), "{}", String::from_utf8_lossy(&started.stderr));
+
+    let fresh = home.path().join("code/p/worktrees/fresh");
+    let tool = fresh.join("bin/tool");
+    std::fs::create_dir_all(tool.parent().unwrap()).unwrap();
+    north_core::foundation::shim::write_script(&tool, "echo fresh-lane\n");
+    file(&fresh.join("note.txt"));
+    let path = |relative: &str| home.path().join(relative);
+
+    let ran = session(&home.lane(), true, &[tool.to_str().unwrap()]);
+    assert!(ran.status.success() && String::from_utf8_lossy(&ran.stdout).trim() == "fresh-lane", "{}", String::from_utf8_lossy(&ran.stderr));
+    for kept in ["code/p/worktrees/fresh/note.txt", "code/p/main/src.rs"] {
+        let read = session(&home.lane(), true, &["cat", path(kept).to_str().unwrap()]);
+        assert!(read.status.success(), "{kept}: {}", String::from_utf8_lossy(&read.stderr));
+    }
+    for hidden in ["code/p/worktrees/other/work.rs", "code/q/main/.git/HEAD"] {
+        let read = session(&home.lane(), true, &["cat", path(hidden).to_str().unwrap()]);
+        assert!(!read.status.success() && String::from_utf8_lossy(&read.stderr).contains("Permission denied"), "{hidden} was read: {}", String::from_utf8_lossy(&read.stdout));
+    }
+    let elsewhere = session(&path("code/q/main"), true, &["cat", path("code/q/main/.git/HEAD").to_str().unwrap()]);
+    assert!(!elsewhere.status.success() && String::from_utf8_lossy(&elsewhere.stderr).contains("outside the lane of this session"), "{}", String::from_utf8_lossy(&elsewhere.stdout));
+    let older = session(&path("code/p/worktrees/other"), true, &["cat", path("code/p/worktrees/other/work.rs").to_str().unwrap()]);
+    assert!(!older.status.success() && String::from_utf8_lossy(&older.stderr).contains("outside the lane of this session"), "{}", String::from_utf8_lossy(&older.stdout));
 }

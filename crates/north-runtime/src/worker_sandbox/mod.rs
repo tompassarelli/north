@@ -3,6 +3,7 @@ mod broker;
 mod except;
 mod executable;
 mod lane_only;
+mod lane_session;
 mod readable;
 mod removable;
 mod sockets;
@@ -139,18 +140,31 @@ fn program(program: &[String], lift: bool) -> std::process::ExitCode {
     let hidden = confined && hide_sockets(&context);
     let roots = confined.then(|| removable(&context));
     let executable = (!lift).then(|| executable(&context));
-    let readable = if fenced { lane_only::readable_in_lane(&context) } else { readable(&context) };
+    let readable = if fenced { lane_only::readable_in_lane(&context, &[]) } else { readable(&context) };
     report(confine(roots.as_deref(), &readable, executable.as_deref()));
     let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
 }
 
-/// Runs `program` confined to its lane for an agent that is not Claude (OpenCode): removal confined as for a worker, and reading limited to the lane, its project's main checkout, the toolchains and the system, so no other checkout, no private repository, no sops key and no agent state is readable. Its own scratch directory, named by NORTH_SANDBOX_SCRATCH, stays readable.
+/// Runs `program` confined to its lane for an agent that is not Claude (OpenCode): removal confined as for a worker, and reading limited to the lane, its project's main checkout, the toolchains and the system, so no other checkout, no private repository, no sops key and no agent state is readable. Its own scratch directory, named by NORTH_SANDBOX_SCRATCH, stays readable. The session's shell tool asks the outside broker for a fresh domain of this kind for each command, since a lane the session creates after its long-lived domain was built holds no rule there; a fresh domain, known by the lane-only marker already in its environment, keeps what the long-lived one kept plus the lanes created since (lane_session.rs). The broker must answer before the long-lived domain hides the sockets.
 fn in_lane(program: &[String]) -> std::process::ExitCode {
-    let context = Context::from_env(&program.join(" "));
+    broker::ensure();
+    let mut context = Context::from_env(&program.join(" "));
+    let kept = if std::env::var_os(LANE_ONLY).is_some() {
+        match lane_session::admit(&mut context) {
+            Ok(kept) => kept,
+            Err(message) => {
+                eprintln!("{message}");
+                return std::process::ExitCode::from(126);
+            }
+        }
+    } else {
+        lane_session::begin(&context.cwd);
+        Vec::new()
+    };
     let hidden = hide_sockets(&context);
-    report(confine(Some(&removable(&context)), &lane_only::readable_in_lane(&context), Some(&executable(&context))));
+    report(confine(Some(&removable(&context)), &lane_only::readable_in_lane(&context, &kept), Some(&executable(&context))));
     let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").env(LANE_ONLY, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)

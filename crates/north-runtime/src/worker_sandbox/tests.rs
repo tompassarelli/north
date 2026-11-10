@@ -210,7 +210,7 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     for refused in ["sh -c id", "depbox run", "depbox exec -- cargo", "lane exec x", "--worker-sandbox -- sh", "capacity host run --class moderate", "capacity host run --class moderate --", "capacity host status"] {
         assert!(!super::broker::permitted(&words(refused)), "{refused}");
     }
-    for allowed in ["depbox run -- cargo check", "depbox fetch -- cargo fetch", "lane unlock x", "lane stray y", "lane remove z", "--worker-sandbox --built -- ./t", "capacity host run --class moderate --owner o --timeout-seconds 9 -- cargo check"] {
+    for allowed in ["depbox run -- cargo check", "depbox fetch -- cargo fetch", "lane unlock x", "lane stray y", "lane remove z", "--worker-sandbox --built -- ./t", "--worker-sandbox --lane -- /bin/sh -c true", "capacity host run --class moderate --owner o --timeout-seconds 9 -- cargo check"] {
         assert!(super::broker::permitted(&words(allowed)), "{allowed}");
     }
     let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("NORTH_WORKER_REMOVAL_ROOTS", "[\"/\"]"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged"), ("XDG_STATE_HOME", "/tmp/north-opencode-1/state"), ("XDG_CACHE_HOME", "/tmp/north-opencode-1/cache"), ("XDG_DATA_HOME", "/tmp/north-opencode-1/data"), ("XDG_CONFIG_HOME", "/tmp/north-opencode-1/config")];
@@ -261,7 +261,7 @@ fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
     }
     std::os::unix::fs::symlink("runtimes/a", state.join("current")).unwrap();
     let context = Context { home: home.clone(), cwd: home.join("code/north/main"), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: Some(runtimes.clone()) };
-    let hidden: Vec<PathBuf> = super::lane_only::hidden(&context).iter().map(|path| path.canonicalize().unwrap_or_else(|_| path.clone())).collect();
+    let hidden: Vec<PathBuf> = super::lane_only::hidden(&context, &[]).iter().map(|path| path.canonicalize().unwrap_or_else(|_| path.clone())).collect();
     assert!(!hidden.iter().any(|path| runtimes.join("a/tree/bin").starts_with(path)), "the north runtime is hidden: {hidden:?}");
     assert!(hidden.contains(&state.join("profiles")), "the agent state beside the runtime is readable: {hidden:?}");
 }

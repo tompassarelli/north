@@ -30,7 +30,13 @@ Beside the three removal rights the ruleset handles `READ_FILE`, so it can hide 
 
 ## Build output (south#93)
 
-A lane's build output (`target/`, `node_modules/`) runs through the toolchain shims, which enter depbox, or through `north lane exec [--lane CHECKOUT] -- PROGRAM`, which runs a lane's own binary when the lane's lock files equal origin/main's; head-north and verify-north use it for a north built from the tree (crates/north-runtime/src/worker_sandbox/executable.rs, crates/north-lanes/src/lanes/exec.rs).
+A lane's build output (`target/`, `node_modules/`) runs through the toolchain shims, which enter depbox, or through `north lane exec [--lane CHECKOUT] -- PROGRAM`, which runs a lane's own binary when the lane's lock files equal origin/main's, and reruns a lane whose lock files differ in registry versions under `north depbox run -- PROGRAM`, where the dependency code is confined, instead of refusing it; head-north and verify-north use it for a north built from the tree (crates/north-runtime/src/worker_sandbox/executable.rs, crates/north-lanes/src/lanes/exec.rs).
+
+## Lanes created after the session starts (north#1033)
+
+A Landlock rule holds an inode, so a domain built at the start of a turn cannot grant a lane created later. Claude Code builds a fresh domain for every command, so a lane an earlier command created is there when the next one runs. OpenCode and Pi keep one lane-only domain around the whole turn; OpenCode's shell tool runs each command through a `shell` wrapper in the session's scratch directory (crates/north-providers/src/providers/opencode/turns.rs): the wrapper asks the outside broker for `north --worker-sandbox --lane`, which builds a fresh lane-only domain outside the turn's. The harness process and its native file tools stay in the turn's domain.
+
+The fresh domain grants no more than the turn's did, plus the lanes of the session's project created since (crates/north-runtime/src/worker_sandbox/lane_session.rs). The long-lived launch leaves a marker in the scratch directory: its content is the directory the domain was built for and its creation time, which the session cannot set back, is when. A fresh domain recognises itself by the lane-only marker already in its environment and reads that file. It refuses a working directory under `~/code` that is not the session's project `main`, its lane or a lane created after the marker, and of the lanes and projects the command's text names it keeps the session's lane, the new lanes of its project, and its project. Another project, a lane that existed when the session started, and a symlink named like a lane stay hidden and keep their removal rules. The marker sits in the session's own scratch directory, so the rule bounds a command's reach by the session's record of its start.
 
 `north gh-session` runs `gh` with a private config directory that links no `hosts.yml`, since `gh` exits when a config file it finds cannot be read.
 
