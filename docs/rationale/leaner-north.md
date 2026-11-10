@@ -121,6 +121,18 @@ Paste these onto north#970; the issue's own text is edited by whoever holds the 
 - [ ] Cut 13, command-surface audit: count every `north` command in 30 days of transcripts and in every unit Exec line and hook, and file one measured count per command. Done when: the count table is on this issue and every command reading 0 has a retirement box.
 - [ ] Cut 14, the bar: with Tom's named capabilities from cuts 5 to 12, reach at most 211,911 Rust lines. Done when: `git -C /home/tom/code/north/main ls-files '*.rs' | xargs cat | wc -l` is at most 211,911 with Cargo and Harness green.
 
+## Retired mechanisms
+
+Rust lines by `git ls-files "*.rs" | xargs -d "\n" cat | wc -l`: 312,286 on origin/main before the first retirement below (2026-11-10), 309,216 after the last (bb36adcae); the 8-command retirement landed earlier and is counted in neither figure.
+
+| mechanism | measured gain from the ledger | commit | state |
+|---|---|---|---|
+| north-climb, the policy climber (922 lines, `ops climb`) | subsystem ledger 2026-11-07: 9 fix commits, 0 decisions, 0 harness-loss rows in 14 days; its run rejected every call without --dry-run | bce9c6040 | retired |
+| north-frontier, the frontier scoreboard (2,770 lines, `north test frontier`, `north dash --frontier`) | subsystem ledger 2026-11-07: 13 fix commits, 0 decisions in 14 days | bb36adcae | retired |
+| 8 commands with no use (`check provenance audit`, `check provenance inventory`, `config agents usage`, `graph ground hook`, `graph ground import`, `ledger incident import`, `runtime agy`, `test frontier oracle`) | no subsystem-ledger row; command-usage-2026-11.md counts 0 uses of each in 30 days | bef1590fb | retired |
+
+Still open: a third ledger-ranked crate. north-lander-doctor and north-replay each feed a live lander gate or health loop, and north-context-pack has no ledger row, so none retires without a call on its gate.
+
 ## Clean-up of this plan
 
 This note ships no test, fixture or script: the counts come from the tree and the commands in it, so there is
