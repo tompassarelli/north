@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Launcher for the Antigravity CLI runtime installed under ~/.local/lib/agy.
+# The vendor's self-updater stays off so a running version is never replaced
+# underneath a north command that is already executing it.
+set -euo pipefail
+
+runtime="${AGY_RUNTIME:-${HOME:-}/.local/lib/agy/current/bin/agy}"
+[[ -x "$runtime" ]] || { printf 'agy: runtime missing at %s\n' "$runtime" >&2; exit 127; }
+export AGY_CLI_DISABLE_AUTO_UPDATE=1 THREADS_NO_NATIVE=1
+exec "$runtime" "$@"

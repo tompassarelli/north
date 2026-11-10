@@ -9,6 +9,8 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 | File | Lines | Disposition | Reason / note |
 |---|---|---|---|
 | harness/skills/effect-development/scripts/effect-kit.mjs | 322 | stay | drives the target project's own TypeScript compiler and Effect language service (createRequire into the project's node_modules); only JS can load them |
+| bin/agy | 10 | stay | 10-line launcher: exports the Antigravity CLI's no-auto-update flags and execs the runtime selected at ~/.local/lib/agy/current |
+| bin/agy.test.sh | 52 | stay | test of the agy launcher |
 | bin/automation-chrome | 9 | stay | 9-line flock wrapper that execs the Playwright CLI in lib/automation-chrome |
 | bin/automation-chrome.test.sh | 9 | stay | test of the Playwright wrapper |
 | bin/bun | 17 | stay | PATH shadow that routes bun through `north capacity gate` admission, then execs the real bun; must be an executable named bun (<=80-line glue) |
