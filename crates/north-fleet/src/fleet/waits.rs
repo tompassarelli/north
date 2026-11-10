@@ -124,6 +124,15 @@ pub struct Registered {
     pub label: Option<String>,
 }
 
+impl Registered {
+    /// A pid wait an older session host found in its scope and labeled with the command, rather than
+    /// one the session registered with `north fleet wait`; only the session's own wait wakes it, so
+    /// the old run is dropped without a message (north#1055).
+    fn is_unregistered_detached(&self) -> bool {
+        matches!(&self.run, Run::Process { .. }) && self.label.is_some()
+    }
+}
+
 /// Whether a run is over, and how it ended.
 pub trait Probe {
     fn result(&self, wait: &Registered) -> Option<String>;
@@ -195,6 +204,21 @@ impl Waits {
         self.store(session, &kept)
     }
 
+    /// The waits of `session` that are over, dropping a pid wait an older host registered without the session asking.
+    fn over(&self, session: &str, waits: Vec<Registered>, probe: &dyn Probe) -> Vec<(u8, String, Registered, String)> {
+        let mut over = Vec::new();
+        for wait in waits {
+            if wait.is_unregistered_detached() {
+                let _ = self.release(session, &wait.run);
+                continue;
+            }
+            if let Some(result) = probe.result(&wait) {
+                over.push((probe.precedence(session, &wait), session.to_owned(), wait, result));
+            }
+        }
+        over
+    }
+
     /// Tells each session whose registered run is over what it was and how it ended, then forgets
     /// the wait; `tell` revives a parked session. A wait whose message fails stays for the next tick.
     pub fn settle(&self, probe: &dyn Probe, exists: &dyn Fn(&str) -> bool, tell: &dyn Fn(&str, &str) -> NorthResult<()>) -> Vec<Settled> {
@@ -204,11 +228,7 @@ impl Waits {
                 let _ = self.store(&session, &[]);
                 continue;
             }
-            for wait in waits {
-                if let Some(result) = probe.result(&wait) {
-                    over.push((probe.precedence(&session, &wait), session.clone(), wait, result));
-                }
-            }
+            over.extend(self.over(&session, waits, probe));
         }
         over.sort_by_key(|(precedence, _, wait, _)| (*precedence, wait.since_ms));
         let mut told = Vec::new();

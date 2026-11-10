@@ -14,7 +14,7 @@ use north_base::platform::attribution::{self, Cause, Harness};
 use super::books::WatchBooks;
 use super::claims::{self, Claims};
 use super::host::Host;
-use super::detached::{Detached, NoScope, Scope};
+use super::detached::{NoScope, Scope};
 use super::gates::Question;
 use super::checkpoint::{self, Checkpoints};
 use super::idle::{self, Step};
@@ -56,7 +56,6 @@ pub struct TurnWatch {
     unaccepted: Arc<SentPrompts>,
     lanes: Arc<dyn Lanes + Send + Sync>,
     scope: Arc<dyn Scope>,
-    detached: Vec<Detached>,
     quiet: HashMap<String, Quiet>,
     jobs: Arc<dyn JobLeases>,
     tickets: Arc<dyn Tickets>,
@@ -192,7 +191,6 @@ impl TurnWatch {
             unaccepted,
             lanes: Arc::new(NoLanes),
             scope: Arc::new(NoScope),
-            detached: Vec::new(),
             quiet: HashMap::new(),
             jobs: Arc::new(HeldLeases::default()),
             tickets: Arc::new(NoTickets),
@@ -260,20 +258,6 @@ impl TurnWatch {
                 self.finished.insert(conversation.clone(), retires(&reply));
             }
             _ => {}
-        }
-    }
-
-    fn register_detached(&self) {
-        let waits = Waits::in_root(&self.root);
-        for record in host_sessions(&self.root, &self.host_dir) {
-            for run in &self.detached {
-                if !run.is_a_waited_run() {
-                    continue;
-                }
-                if let Err(error) = waits.register(&record.name, run.run(), &record.cwd, Some(&run.command)) {
-                    eprintln!("north session-host: {} holds a detached run without its wait on {}: {}", record.name, run.run(), error.user_message());
-                }
-            }
         }
     }
 
@@ -478,9 +462,6 @@ impl FrameWatch for TurnWatch {
     }
 
     fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest {
-        let live = self.scope.detached();
-        self.detached = live;
-        self.register_detached();
         let finished = !self.finished.is_empty() && self.finished.values().all(|finished| *finished);
         let registered = self.registered_wait();
         let session = idle::Session { idle, in_flight: self.turns.in_flight(), turn_open: self.turns.turn_open(), context: self.turns.context(), rolled_over: self.rolled_over, finished, registered };

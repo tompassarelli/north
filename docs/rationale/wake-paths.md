@@ -45,6 +45,8 @@ session quiet past twice its ETA to its parent.
 | 18 | Host reboot resume | `crates/north-core/src/fleet/rebooted.rs:18`, `:59` | 1 | 0 | is the process event | keep |
 | 19 | Compaction checkpoint question at 250k context and every 50k after | `crates/north-fleet/src/fleet/checkpoint.rs`; `crates/north-fleet/src/fleet/watch.rs` | 0 | n/a | is a message event (a context reading) | keep |
 
+Update 2026-11-10 (north#1055): row 8's automatic pid waits are cut. Only a run the session registers (`north fleet wait`, row 7, or `job-run --notify`, row 15) wakes it; a hook or shell child of the session leaves no wait, so the run-over wake cannot follow an incidental child.
+
 19 paths: 12 keep as process or message events, 1 keeps as the silence check (12, retimed), and 6 are cut
 (4, 5, 6, 9, 10, and 17's repeat, which leaves its first alert as a message event). Rows 1, 2 and 3 are the reason subagents rarely go quiet:
 every wait they have ends in a process event the CLI itself delivers.

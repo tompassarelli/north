@@ -1,12 +1,15 @@
+use std::path::Path;
 use std::sync::Mutex;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::books::{Books, Landing, SessionSpend};
+use crate::fleet::detached::Detached;
 use crate::fleet::gate_lifecycle::GatePhase;
 use crate::fleet::gates::{Closure, Gate, GateBook, GateRequest};
 use crate::fleet::records::write_record;
 use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::RunSink;
+use crate::fleet::waits::Run;
 
 use super::*;
 
@@ -263,38 +266,25 @@ impl crate::fleet::waits::Probe for Closed {
 }
 
 #[test]
-fn a_closed_transport_task_wakes_no_session() {
+fn a_hook_spawned_run_under_the_session_scope_wakes_no_session() {
     let root = tempfile::tempdir().unwrap();
-    let host = root.path().join("worker");
+    let host = root.path().join("proxy");
     std::fs::create_dir_all(&host).unwrap();
-    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": null})).unwrap();
     write_record(&host, &record).unwrap();
-    let transport = Detached { pid: 41, started: 1, command: "ssh: /run/user/1000/north-ssh-demo [mux]".into() };
-    let build = Detached { pid: 42, started: 1, command: "cargo test -p north-fleet".into() };
-    let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host).reading_scope(Arc::new(Transport(vec![transport, build.clone()])));
+    let distill = Detached { pid: 41, started: 1 };
+    let judge = Detached { pid: 42, started: 1 };
+    let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host).reading_scope(Arc::new(Transport(vec![distill, judge])));
     let _ = watch.rest(Duration::from_secs(1), None);
+    let waits = Waits::in_root(root.path());
+    assert!(waits.of("proxy").is_empty(), "a hook child of the session registers no wait");
+    waits.register("proxy", Run::Process { pid: 41, started: 1 }, Path::new("/tmp"), Some("north graph ground distill capture")).unwrap();
     let told = Mutex::new(Vec::new());
-    let settled = Waits::in_root(root.path()).settle(&Closed, &|name| name == "worker", &|name, text| {
+    let settled = waits.settle(&Closed, &|name| name == "proxy", &|name, text| {
         told.lock().unwrap().push((name.to_owned(), text.to_owned()));
         Ok(())
     });
-    assert_eq!(settled.iter().map(|settled| settled.run.clone()).collect::<Vec<_>>(), [build.run()]);
-    let told = told.into_inner().unwrap();
-    assert_eq!(told.len(), 1);
-    assert!(told[0].1.contains("cargo test") && !told[0].1.contains("ssh"), "{told:?}");
-}
-
-#[test]
-fn git_auto_maintenance_is_not_a_waited_run() {
-    let root = tempfile::tempdir().unwrap();
-    let host = root.path().join("worker");
-    std::fs::create_dir_all(&host).unwrap();
-    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
-    write_record(&host, &record).unwrap();
-    let maintenance = Detached { pid: 41, started: 1, command: "/usr/bin/git maintenance run --auto --no-quiet --detach".into() };
-    let build = Detached { pid: 42, started: 1, command: "cargo test -p north-fleet".into() };
-    let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host).reading_scope(Arc::new(Transport(vec![maintenance, build.clone()])));
-    let _ = watch.rest(Duration::from_secs(1), None);
-    let settled = Waits::in_root(root.path()).settle(&Closed, &|name| name == "worker", &|_, _| Ok(()));
-    assert_eq!(settled.iter().map(|settled| settled.run.clone()).collect::<Vec<_>>(), [build.run()]);
+    assert!(settled.is_empty(), "a hook child's end settles no wait: {settled:?}");
+    assert!(told.into_inner().unwrap().is_empty(), "a hook child's end wakes no session");
+    assert!(waits.of("proxy").is_empty(), "the unregistered pid wait is dropped without a message");
 }

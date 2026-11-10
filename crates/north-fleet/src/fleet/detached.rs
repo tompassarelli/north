@@ -2,8 +2,7 @@
 //! the session host's own scope that are neither the host nor its descendants. The CLI's own
 //! background tasks descend from the host and are tracked from its stream instead. A process handed
 //! the host's pid (safe-push's lane reaper) watches the session rather than works for it, and is no run;
-//! nor is a private-text judge a hook left running past its wait, which the session never started, nor
-//! does an ssh control connection or git's own detached auto maintenance end a wait the session holds.
+//! nor is a private-text judge a hook left running past its wait, which the session never started.
 //! A revived session's earlier hosts leave their scopes behind (`host.priors`, one `UNIT PID` per
 //! line) holding only the runs that host's tree did not own; the new host reads those scopes too.
 use std::collections::HashMap;
@@ -12,11 +11,7 @@ use std::path::{Path, PathBuf};
 
 use north_base::platform::private_text;
 
-use super::runtime::summarize;
-use super::waits::Run;
-
 const UNIT_PREFIX: &str = "north-session-";
-const COMMAND_CHARS: usize = 120;
 const PRIORS: &str = "host.priors";
 
 /// A scope an earlier host of the session left behind, and the pid of that host.
@@ -47,33 +42,6 @@ impl Prior {
 pub struct Detached {
     pub pid: u32,
     pub started: u64,
-    pub command: String,
-}
-
-impl Detached {
-    pub fn run(&self) -> Run {
-        Run::Process { pid: self.pid, started: self.started }
-    }
-
-    /// Whether its end can tell the session that a build, test or watch it waits on is over. A
-    /// transport-only connection and git's own auto maintenance run past the session's work.
-    pub fn is_a_waited_run(&self) -> bool {
-        !self.is_transport_only() && !self.is_git_auto_maintenance()
-    }
-
-    fn is_transport_only(&self) -> bool {
-        if self.command.starts_with("ssh: ") && self.command.contains("[mux]") {
-            return true;
-        }
-        let mut words = self.command.split_whitespace();
-        words.next().and_then(|program| Path::new(program).file_name()).is_some_and(|name| name == "ssh") && words.any(|option| option == "-N" || option.starts_with("-O"))
-    }
-
-    fn is_git_auto_maintenance(&self) -> bool {
-        let mut words = self.command.split_whitespace();
-        let program = words.next().and_then(|program| Path::new(program).file_name());
-        program.is_some_and(|name| name == "git") && words.next() == Some("maintenance") && words.next() == Some("run") && words.any(|option| option == "--auto")
-    }
 }
 
 /// The detached runs of one session host.
@@ -131,7 +99,7 @@ impl Procfs {
             .filter(|(pid, stat)| detached(**pid) && !(stats.contains_key(&stat.parent) && detached(stat.parent)))
             .map(|(pid, stat)| (*pid, stat.started, self.arguments(*pid)))
             .filter(|(_, _, arguments)| !arguments.contains(&host.to_string()) && !private_text::is_judge_run(arguments))
-            .map(|(pid, started, arguments)| Detached { pid, started, command: summarize(&arguments.join(" "), COMMAND_CHARS) })
+            .map(|(pid, started, _)| Detached { pid, started })
             .collect();
         roots.sort_by_key(|run| run.pid);
         roots
