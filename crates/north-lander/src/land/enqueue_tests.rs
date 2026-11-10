@@ -246,6 +246,16 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
     for gate in ["cargo clippy --all-targets", "code-health layers", "check experiments", "check citations", "land scan test-admission kills", "code-health habits", "cargo nextest run"] {
         assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
     }
+    let (store, entry) = ("~/.local/share/makgora-build-inputs/store", "14fbf7845b5d9c9705d0f0b4b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0");
+    fs::create_dir_all(repo.join("build-inputs")).unwrap();
+    fs::write(repo.join("build-inputs/impact-assets"), format!("{entry}\n")).unwrap();
+    let mut config = fs::read_to_string(repo.join(".safe-push")).unwrap();
+    config.push_str(&format!("\n[land]\n\thost-input = {store}@build-inputs :: bun wisp map build\n"));
+    fs::write(repo.join(".safe-push"), config).unwrap();
+    commit(repo, "pin makgora's impact-assets entry");
+    let pinned_entry = format!("{store}/impact-assets/{entry}");
+    let pinned = crate::land::slots::select::Config::load(repo, "HEAD");
+    assert_eq!(pinned.host_inputs("bun wisp map build"), [store, pinned_entry.as_str()], "a store declaration names the entries the head pins, not only the store path, so a host whose store lacks one is skipped");
 }
 
 #[test]

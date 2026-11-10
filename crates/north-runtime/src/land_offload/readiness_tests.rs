@@ -69,5 +69,18 @@ fn a_build_host_without_an_input_a_check_declares_is_left_out_of_that_check() {
     assert_eq!(run(&map, &cpx62b, &bin), ["~/.local/share/makgora-build-inputs/store"], "makgora's map-build line never goes to a host without its input store");
     assert_eq!(run(&graph, &gex45, &bin), Vec::<String>::new());
     assert_eq!(run(&map, &gex45, &bin), Vec::<String>::new());
+    const STORE: &str = ".local/share/makgora-build-inputs/store";
+    const IMPACT: &str = "impact-assets/14fbf7845b5d9c9705d0f0b4b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0";
+    const BASE: &str = "base/775f8957e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0";
+    let (cpx62, cpx62b) = (root.path().join("cpx62"), root.path().join("cpx62b"));
+    for (home, entry) in [(&cpx62, IMPACT), (&cpx62b, BASE)] {
+        std::fs::create_dir_all(home.join("code/north/main/.git")).unwrap();
+        std::fs::create_dir_all(home.join(STORE).join(entry)).unwrap();
+    }
+    let entry = format!("~/{STORE}/{IMPACT}");
+    let pinned = super::super::Placement::parse(&["--needs", &entry]).unwrap();
+    let pinned = Needs::default().with_inputs(&pinned.needs);
+    assert_eq!(run(&pinned, &cpx62b, &bin), [entry], "2cdd2aed1's map build was reverted on cpx62b, whose store existed but lacked its impact-assets entry");
+    assert_eq!(run(&pinned, &cpx62, &bin), Vec::<String>::new(), "the store entry the check pins admits the host that holds it");
     assert_eq!(run(&Needs::default(), &cpx62b, &bin), Vec::<String>::new(), "a check that declares no input takes any host");
 }

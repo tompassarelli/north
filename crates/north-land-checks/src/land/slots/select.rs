@@ -8,6 +8,8 @@ use north_base::build_inputs::{ENQUEUE_PATTERN, rust_build_input};
 const SEPARATOR: &str = " :: ";
 const RUST_INPUT: &str = "@rust-input";
 const REF_SHORT: usize = 12;
+const STORE_ENTRY: char = '@';
+const ENTRY_LEN: usize = 64;
 
 #[derive(Clone, Debug, Default)]
 pub struct Config {
@@ -42,6 +44,34 @@ fn blob_values(repo: &Path, head: &str, key: &str) -> Vec<String> {
     git_lines(repo, &["config", "--blob", &blob, "--get-all", key])
 }
 
+/// Expands one `STORE@PINS` host input into the store root and the entries the check's head pins:
+/// `PINS` names a directory at `head` with one file per input family, and each file's content is the
+/// 64-hex name of the store entry that family's build reads, so a host whose store exists but lacks
+/// one of those entries takes no check that reads it (north#892). A declaration that resolves to no
+/// entry stays whole, so the probe reports it missing instead of silently dropping the store.
+fn expand_store_input(repo: &Path, head: &str, input: &str) -> Vec<String> {
+    let Some((store, pins)) = input.split_once(STORE_ENTRY) else { return vec![input.to_owned()] };
+    if store.is_empty() || pins.is_empty() || pins.starts_with('/') {
+        return vec![input.to_owned()];
+    }
+    let mut expanded = vec![store.to_owned()];
+    for family in git_lines(repo, &["ls-tree", "--name-only", &format!("{head}:{pins}")]) {
+        if family.is_empty() || !family.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)) {
+            continue;
+        }
+        let text = git_lines(repo, &["show", &format!("{head}:{pins}/{family}")]).join("\n");
+        let Some(entry) = text.split(|character: char| !character.is_ascii_alphanumeric()).find(|word| word.len() == ENTRY_LEN && word.bytes().all(|byte| byte.is_ascii_hexdigit())) else { continue };
+        expanded.push(format!("{store}/{family}/{entry}"));
+    }
+    if expanded.len() == 1 { vec![input.to_owned()] } else { expanded }
+}
+
+fn expand_host_inputs(repo: &Path, head: &str, line: String) -> String {
+    let Some((inputs, command)) = line.split_once(SEPARATOR) else { return line };
+    let expanded: Vec<String> = inputs.split_whitespace().flat_map(|input| expand_store_input(repo, head, input)).collect();
+    format!("{}{SEPARATOR}{command}", expanded.join(" "))
+}
+
 impl Config {
     pub fn load(repo: &Path, head: &str) -> Self {
         let first = |key: &str| blob_values(repo, head, key).into_iter().next_back();
@@ -59,7 +89,7 @@ impl Config {
             after_only: blob_values(repo, head, "land.after-only"),
             local_only: blob_values(repo, head, "land.local-only"),
             machine_bound: blob_values(repo, head, "land.machine-bound"),
-            host_inputs: blob_values(repo, head, "land.host-input"),
+            host_inputs: blob_values(repo, head, "land.host-input").into_iter().map(|line| expand_host_inputs(repo, head, line)).collect(),
             deadlines: blob_values(repo, head, "land.deadline"),
             inferred,
             local_checks: first("land.check-local").is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "yes" | "on" | "1")),

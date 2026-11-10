@@ -253,12 +253,16 @@ worker updates its own class's line when its lane lands.
 - Invariant: read the source of truth by revision (4). Placement is a function of declared inputs.
 - Mechanism: each land.check and land.after line declares its host inputs. Offload skips a host
   lacking one, a missing input is a host fault, and an input missing everywhere runs the check on
-  the lander host.
-- Replay: `cargo nextest run -p north-runtime land_offload`. The graph-guards line is never placed
-  on a host without graph.db, nor makgora's map-build line on one without its store.
-- Status: in flight. n892-hostinput: makgora's declaration landed as 2eb84969cc, and north's lane
-  149b044696 is queued. Not yet covered: a store that exists but lacks pinned entries (a
-  content-level declaration).
+  the lander host. A `STORE@PINS` input names a content-addressed store and the directory at the
+  check's head that holds one pin file per family, so the declaration resolves to the exact
+  `STORE/FAMILY/ENTRY` the build reads rather than to the store path alone.
+- Replay: `cargo nextest run -p north-runtime land_offload` places no check on a host without
+  graph.db, nor makgora's map-build line on one without its store or with a store that lacks its
+  pinned entry; `cargo nextest run -p north-lander -E 'test(the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_before_its_ticket_is_written)'`
+  resolves a store declaration to the head's pinned entries.
+- Status: landed. n892-hostinput: makgora's declaration landed as 2eb84969cc, north's lane
+  149b044696 carries the placement, and the content-level declaration makes a store that exists
+  but lacks a pinned entry take no check that reads it (north#892).
 
 ### 11. A host cannot queue because a pre-queue check reaches for an unreachable host
 
@@ -350,6 +354,3 @@ These are detected after the fact, not prevented, until the lanes above land:
   failed probes.
 - An interaction failure, where two lanes pass alone and break together, is caught by the merged
   probe by design. That is the probe's job, and bisection (class 4) isolates it.
-- A host whose store holds an input's path but not its pinned content (makgora's map-build store)
-  passes placement and fails the check. Class 9's no verdict keeps that from reverting a lane
-  once n892-hostfault lands.
