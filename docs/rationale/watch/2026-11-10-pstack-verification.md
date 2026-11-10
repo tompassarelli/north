@@ -213,8 +213,9 @@ All measured on 2026-11-10 on gex45. The check is `north check machines --root .
   findings across the same six.
 - **E4, refused moves in a real ledger.** gex45's lifecycle ledger held seven, all a state announced again:
   row-delivery `delivered` five times on 2026-11-07 (fixed by `ef8a44291`), after-landing-run `journaled` once
-  (allowed since `4b6bf5de4`) and after-landing-run `retired` once, which main still refuses. The detector would have
-  filed three boxes; the fixes named settle two, and the third is a box on north#1042.
+  (allowed since `4b6bf5de4`) and after-landing-run `retired` once, which the table now promises (the move
+  `retired --> retired`, settled by `475e2b2693`, north#1042). The detector would have filed three boxes; the fixes
+  named settle all three.
 - **E5, the trigger replayed** (`north check machines --replay --days 30 --root .` at `a990f6e20`). Commits began to
   narrate dated incidents on 2026-11-05 (50 that day, 144 on 2026-11-07, under 10 a day before), so the 30 days hold
   about six days of signal: 486 narrating commits, 87 of them fixes in the code of 11 of the 15 machines.
@@ -266,11 +267,13 @@ bound to the code that admits them.
 - Ideas only; no pstack file copied or adapted.
 - Keep the design above. Do not add a TLA+ toolchain, stateright or Kani for these machines.
 - Boxes on north#1042 for what is not done: promises across instances in the kernel, so fleet session and land
-  ticket fail at `97e4aa682`'s and `f1ff89dde`'s parents; the refusal detector on every host's ledger;
-  after-landing-run's refused `retired`.
+  ticket fail at `97e4aa682`'s and `f1ff89dde`'s parents; the refusal detector on every host's ledger.
 - The two-instance box closed: `fleet-session` and `land-ticket` search a second instance, gated by the name claim
   and the withdrawal check, and the `together` promise names the situations in which it may not start
   (docs/rationale/state-machines.md, two instances).
+- after-landing-run's refused `retired` closed: the table promises the repeat (`retired --> retired`) and
+  `a_second_writer_may_announce_a_retired_head_again_so_the_table_promises_the_repeat` replays the move
+  (`475e2b2693`).
 - No box by hand for the five private machines. The `machine-fix` detector files "Model NAME" for runtime-promotion,
   runtime-canary and threads-spool on its first run (19, 8 and 13 incident fixes in the week), and for
   runtime-landing-judgement and offload-offer when a fix lands in their code.
