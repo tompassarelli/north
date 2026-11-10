@@ -12,12 +12,11 @@ use crate::land::slots::guard_suites::Suites;
 use crate::platform::records_mirror;
 
 mod responsible;
+mod selection_miss;
 
-use responsible::{Blame, responsible};
 
 const USAGE: &str = "usage: north land missed --since DATE [--until DATE] [--repo DIR]
 lists each failing Cargo run on main created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z), its failed tests, and the ones the change graph's after-landing selection for the landing range holding that commit left out; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
-const CLASS: &str = "selection-miss";
 const SETTLED: f64 = 3600.0;
 
 #[derive(Deserialize)]
@@ -26,9 +25,18 @@ struct Run {
     id: u64,
     #[serde(rename = "headSha")]
     sha: String,
-    conclusion: String,
+    conclusion: Conclusion,
     #[serde(rename = "createdAt")]
     created: String,
+}
+
+#[derive(Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum Conclusion {
+    Success,
+    Failure,
+    #[serde(other)]
+    Other,
 }
 
 struct Landing {
@@ -74,7 +82,6 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let landings = landings(&records.home().join("north/land-queue"));
     let suites = Suites::read(&repo).ok();
-    let landed = landed(&records.home().join("safe-push/post-land.tsv"));
     let mut runs = match completed_runs(&repo, &window) {
         Ok(runs) => runs,
         Err(why) => {
@@ -84,126 +91,64 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     runs.sort_by(|left, right| left.created.cmp(&right.created));
     let mut outcomes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    let (mut judged, mut missed, mut unjudged, mut failing) = (0, 0, 0, Vec::new());
+    let (mut tally, mut failing) = (Tally::default(), Vec::new());
     for run in &runs {
-        if run.conclusion != "failure" {
+        if run.conclusion != Conclusion::Failure {
             outcomes.entry(run.sha.clone()).or_default();
             continue;
         }
-        let tests: Vec<String> = log(&repo, run.id).map(|text| check_log::failures(&text).into_iter().filter_map(|failure| if let Failure::Cargo(name) = failure { Some(name) } else { None }).collect()).unwrap_or_default();
+        let tests = failed_tests(&repo, run.id);
         outcomes.entry(run.sha.clone()).or_default().extend(tests.iter().cloned());
         failing.push((run, tests.clone()));
         if tests.is_empty() {
             println!("run {} at {}: its log names no failed test", run.id, short(&run.sha));
             continue;
         }
-        let Some(landing) = landings.iter().find(|landing| holds(&repo, landing, &run.sha)) else {
-            unjudged += tests.len();
-            println!("run {} at {}: {} failed tests, and no after-landing run recorded a change-graph selection for a range holding it: {}", run.id, short(&run.sha), tests.len(), tests.join(", "));
-            continue;
-        };
-        let floor = suites.as_ref().map(|suites| suites.floor(&changed(&repo, &landing.base, &landing.head)));
-        let held = |name: &str| landing.selected.holds(name) || floor.as_ref().is_some_and(|floor| floor.selects(name));
-        let guarded = tests.iter().map(String::as_str).filter(|name| !landing.selected.holds(name) && floor.as_ref().is_some_and(|floor| floor.selects(name))).count();
-        let left: Vec<&str> = tests.iter().map(String::as_str).filter(|name| !held(name)).collect();
-        judged += tests.len();
-        missed += left.len();
-        let detail = if !left.is_empty() {
-            format!("; left out: {}", left.join(", "))
-        } else if guarded > 0 {
-            format!("; {guarded} held by the guard suite")
-        } else {
-            String::new()
-        };
-        println!("run {} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.id, short(&run.sha), tests.len(), tests.len() - left.len(), short(&landing.base), short(&landing.head));
+        tally.add(after_landing(&repo, &landings, suites.as_ref(), run, &tests));
     }
     let failing_count = failing.len();
-    let mut blamed = BTreeSet::new();
-    let mut tellers = Tellers { north: north(), repo: &repo, nodes: None };
-    for (run, tests) in failing {
-        let Some(green) = runs.iter().rev().find(|earlier| earlier.created < run.created && earlier.conclusion == "success" && ancestor(&repo, &earlier.sha, &run.sha)) else {
-            println!("run {} at {}: no Cargo run in the window passed before it, so no lane is named", run.id, short(&run.sha));
-            continue;
-        };
-        let chain = first_parents(&repo, &green.sha, &run.sha);
-        for test in tests {
-            match responsible(&chain, &outcomes, &landed, &test) {
-                Blame::Unjudged(why) => println!("{test} at {}: {why}", short(&run.sha)),
-                Blame::Lane { lane, sha } => {
-                    if blamed.insert((lane.clone(), test.clone())) {
-                        tellers.judge(&landings, &lane, &sha, &test, run);
-                    }
-                }
-            }
-        }
-    }
-    println!("north land missed: {failing_count} failing Cargo runs on main since {}; of {judged} failed tests in a range with a recorded selection, {missed} were left out of it; {unjudged} failed in a range with none", window.since);
-    u8::from(missed > 0)
+    selection_miss::name_lanes(&repo, &runs, failing, &outcomes, &landings, &records.home().join("safe-push/post-land.tsv"));
+    println!("north land missed: {failing_count} failing Cargo runs on main since {}; of {} failed tests in a range with a recorded selection, {} were left out of it; {} failed in a range with none", window.since, tally.judged, tally.missed, tally.unjudged);
+    u8::from(tally.missed > 0)
 }
 
-struct Tellers<'a> {
-    north: PathBuf,
-    repo: &'a Path,
-    nodes: Option<Vec<String>>,
+#[derive(Default)]
+struct Tally {
+    judged: usize,
+    missed: usize,
+    unjudged: usize,
 }
 
-impl Tellers<'_> {
-    fn judge(&mut self, landings: &[Landing], lane: &str, sha: &str, test: &str, run: &Run) {
-        let parent = rev_parse(self.repo, &format!("{sha}^")).unwrap_or_default();
-        let Some(own) = landings.iter().find(|landing| landing.head == sha && landing.base == parent) else {
-            println!("{test}: {lane} at {} turned it red, and no selection of its own landing is stored", short(sha));
-            return;
-        };
-        if own.selected.holds(test) {
-            println!("{test}: {lane} at {} turned it red though its selection held it", short(sha));
-            return;
-        }
-        let files = changed(self.repo, &parent, sha);
-        let key = format!("{CLASS}:{lane}:{test}");
-        let detected = Timestamp::parse_rfc3339(&run.created).map_or_else(records_mirror::now, |at| at.unix_seconds_f64()).to_string();
-        let detail = format!("{test}; {}", files.join(" "));
-        let recorded = self.command(&["ledger", "incident", "record", "--key", &key, "--class", CLASS, "--noticed-by", "lander", "--repo", "north", "--subject", lane, "--detected-at", &detected, "--detail", &detail]);
-        let node = self.node(test);
-        let told = files.iter().filter(|file| self.command(&["graph", "tell", "--writer", CLASS, &node, ":guards", file])).count();
-        println!("{CLASS} {lane} {test}: {} left it out of its selection; {}; told {told} of {} ({node} :guards FILE) edges", short(sha), if recorded { "incident recorded" } else { "the incident record failed" }, files.len());
-    }
-
-    fn command(&self, arguments: &[&str]) -> bool {
-        Command::new(&self.north).args(arguments).stdin(Stdio::null()).stdout(Stdio::null()).status().is_ok_and(|status| status.success())
-    }
-
-    fn node(&mut self, test: &str) -> String {
-        let nodes = self.nodes.get_or_insert_with(|| test_nodes(&self.north));
-        let suffix = format!("::{test}");
-        let mut found = nodes.iter().filter(|node| node.ends_with(&suffix));
-        match (found.next(), found.next()) {
-            (Some(node), None) => node.clone(),
-            _ => format!("test:{test}"),
-        }
+impl Tally {
+    fn add(&mut self, other: Self) {
+        self.judged += other.judged;
+        self.missed += other.missed;
+        self.unjudged += other.unjudged;
     }
 }
 
-fn north() -> PathBuf {
-    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"))
+fn failed_tests(repo: &Path, run: u64) -> Vec<String> {
+    log(repo, run).map(|text| check_log::failures(&text).into_iter().filter_map(|failure| if let Failure::Cargo(name) = failure { Some(name) } else { None }).collect()).unwrap_or_default()
 }
 
-fn test_nodes(north: &Path) -> Vec<String> {
-    let query = r#"{"find":"r","rules":[{"head":{"rel":"r","args":[{"var":"s"}]},"body":[{"rel":"triple","args":[{"var":"s"},["keyword","in-binary"],{"var":"o"}]}]}]}"#;
-    let Ok(output) = Command::new(north).args(["graph", "ask", "--json", query]).stdin(Stdio::null()).stderr(Stdio::null()).output() else { return Vec::new() };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut nodes = Vec::new();
-    collect_strings(&serde_json::from_str(&text).unwrap_or_default(), &mut nodes);
-    nodes.retain(|node| node.starts_with("test:"));
-    nodes
-}
-
-fn collect_strings(value: &serde_json::Value, into: &mut Vec<String>) {
-    match value {
-        serde_json::Value::String(text) => into.push(text.clone()),
-        serde_json::Value::Array(items) => items.iter().for_each(|item| collect_strings(item, into)),
-        serde_json::Value::Object(fields) => fields.values().for_each(|item| collect_strings(item, into)),
-        _ => {}
-    }
+fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run: &Run, tests: &[String]) -> Tally {
+    let Some(landing) = landings.iter().find(|landing| holds(repo, landing, &run.sha)) else {
+        println!("run {} at {}: {} failed tests, and no after-landing run recorded a change-graph selection for a range holding it: {}", run.id, short(&run.sha), tests.len(), tests.join(", "));
+        return Tally { unjudged: tests.len(), ..Tally::default() };
+    };
+    let floor = suites.map(|suites| suites.floor(&changed(repo, &landing.base, &landing.head)));
+    let guards = |name: &str| floor.as_ref().is_some_and(|floor| floor.selects(name));
+    let guarded = tests.iter().filter(|name| !landing.selected.holds(name) && guards(name)).count();
+    let left: Vec<&str> = tests.iter().map(String::as_str).filter(|name| !landing.selected.holds(name) && !guards(name)).collect();
+    let detail = if !left.is_empty() {
+        format!("; left out: {}", left.join(", "))
+    } else if guarded > 0 {
+        format!("; {guarded} held by the guard suite")
+    } else {
+        String::new()
+    };
+    println!("run {} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.id, short(&run.sha), tests.len(), tests.len() - left.len(), short(&landing.base), short(&landing.head));
+    Tally { judged: tests.len(), missed: left.len(), unjudged: 0 }
 }
 
 fn short(sha: &str) -> &str {
@@ -253,31 +198,12 @@ fn completed_runs(repo: &Path, window: &Window) -> Result<Vec<Run>, String> {
         return Err(format!("gh run list: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
     let runs: Vec<Run> = serde_json::from_slice(&output.stdout).map_err(|why| format!("gh run list: {why}"))?;
-    Ok(runs.into_iter().filter(|run| run.conclusion == "success" || run.conclusion == "failure").collect())
-}
-
-fn landed(ledger: &Path) -> BTreeMap<String, Vec<String>> {
-    let text = fs::read_to_string(ledger).unwrap_or_default();
-    text.lines()
-        .filter_map(|line| {
-            let fields: Vec<&str> = line.split('\t').collect();
-            let (sha, lanes) = (fields.get(2)?, fields.get(5)?);
-            (!lanes.is_empty()).then(|| ((*sha).to_owned(), lanes.split(',').map(str::to_owned).collect()))
-        })
-        .collect()
+    Ok(runs.into_iter().filter(|run| run.conclusion != Conclusion::Other).collect())
 }
 
 fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
     let output = Command::new("git").arg("-C").arg(repo).args(arguments).stderr(Stdio::null()).output();
     output.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).lines().filter(|line| !line.is_empty()).map(str::to_owned).collect()).unwrap_or_default()
-}
-
-fn rev_parse(repo: &Path, revision: &str) -> Option<String> {
-    git_lines(repo, &["rev-parse", "--verify", "--quiet", revision]).into_iter().next()
-}
-
-fn first_parents(repo: &Path, green: &str, red: &str) -> Vec<String> {
-    git_lines(repo, &["rev-list", "--first-parent", "--reverse", &format!("{green}..{red}")])
 }
 
 fn changed(repo: &Path, parent: &str, sha: &str) -> Vec<String> {
