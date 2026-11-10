@@ -143,10 +143,22 @@ fn squash_parent(repo: &Path, boundaries: &[String], destination: &str) -> Optio
     })
 }
 
-fn landed_tip(repo: &Path, destination: &str, lane: &[&str]) -> Result<Option<usize>, String> {
+enum Unlanded<'a> {
+    Commits(Vec<&'a str>, Option<String>),
+    Apart(String),
+}
+
+/// The lane's commits that main does not carry yet and the commit they sit on: when main already carries a lane commit by patch id, only the commits after the newest such one are unlanded.
+fn unlanded<'a>(repo: &Path, destination: &str, lane: Vec<&'a str>) -> Result<Unlanded<'a>, String> {
     let cherry = git(repo, &["cherry", destination, "HEAD"])?;
     let landed: BTreeSet<&str> = cherry.lines().filter_map(|line| line.strip_prefix("- ")).collect();
-    Ok(lane.iter().rposition(|oid| landed.contains(oid)))
+    let Some(position) = lane.iter().rposition(|oid| landed.contains(oid)) else { return Ok(Unlanded::Commits(lane, None)) };
+    let tip = lane[position];
+    let later = lane[position + 1..].to_vec();
+    if later.iter().any(|oid| !succeeds(repo, &["merge-base", "--is-ancestor", tip, oid])) {
+        return Ok(Unlanded::Apart(format!("its commit {tip} already landed on {destination} and later commits do not all follow it; landing them as they are")));
+    }
+    Ok(Unlanded::Commits(later, Some(tip.to_owned())))
 }
 
 pub fn squash(repo: &Path, destination: &str, supplied: Option<&str>) -> Result<Squash, String> {
@@ -156,17 +168,11 @@ pub fn squash(repo: &Path, destination: &str, supplied: Option<&str>) -> Result<
     let walk: Vec<&str> = walk.iter().map(String::as_str).collect();
     let listing = git(repo, &walk)?;
     let boundaries: Vec<String> = listing.lines().filter_map(|line| line.strip_prefix('-')).map(str::to_owned).collect();
-    let mut lane: Vec<&str> = listing.lines().filter(|line| !line.starts_with('-') && !line.is_empty()).collect();
-    let mut landed_parent = None;
-    if let Some(position) = landed_tip(repo, destination, &lane)? {
-        let landed = lane[position];
-        let later = lane.split_off(position + 1);
-        if later.iter().any(|oid| !succeeds(repo, &["merge-base", "--is-ancestor", landed, oid])) {
-            return Ok(Squash::Kept(format!("its commit {landed} already landed on {destination} and later commits do not all follow it; landing them as they are")));
-        }
-        landed_parent = Some(landed.to_owned());
-        lane = later;
-    }
+    let lane: Vec<&str> = listing.lines().filter(|line| !line.starts_with('-') && !line.is_empty()).collect();
+    let (lane, landed_parent) = match unlanded(repo, destination, lane)? {
+        Unlanded::Commits(lane, landed_parent) => (lane, landed_parent),
+        Unlanded::Apart(reason) => return Ok(Squash::Kept(reason)),
+    };
     if lane.is_empty() || (lane.len() < 2 && supplied.is_none()) {
         return Ok(Squash::Unchanged);
     }
