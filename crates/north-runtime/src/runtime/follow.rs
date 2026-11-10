@@ -16,7 +16,7 @@ const LANDER_LOCK: &str = "lander-promote.lock";
 const LANDER_REPLAY_LIMIT: Duration = Duration::from_secs(30 * 60);
 const SCOPED: &str = "NORTH_RUNTIME_PROMOTE_SCOPED";
 const SYSTEMD_RUN: &str = "systemd-run";
-const SCOPE: [&str; 4] = ["--user", "--scope", "--quiet", "--collect"];
+const SCOPE: [&str; 5] = ["--user", "--scope", "--slice=agent.slice", "--quiet", "--collect"];
 
 pub(super) fn follow(layout: &Layout, repo: &Path) -> Result<(), Failure> {
     if !names_north(&origin(repo)) {
@@ -34,7 +34,7 @@ pub(super) fn follow(layout: &Layout, repo: &Path) -> Result<(), Failure> {
     Ok(())
 }
 
-/// The lander's unit runs `north land follow` and systemd kills its whole control group when the lander restarts on a new runtime, so the promote runs in a scope of its own.
+/// The lander's unit runs `north land follow` and systemd kills its whole control group when the lander restarts on a new runtime, so the promote runs in a scope of its own, under agent.slice so its runtime build counts against the agent CPU quota: in the default app.slice it compiled outside the 12-CPU desk bound (north#892).
 pub(super) fn own_scope(north: PathBuf) -> Command {
     let scopes = Command::new(SYSTEMD_RUN).args(SCOPE).arg("true").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success());
     if !scopes {
