@@ -99,8 +99,8 @@ mod tests {
         fs::create_dir_all(policy.parent().unwrap()).unwrap();
         fs::write(&policy, "[hosts.here]\n").unwrap();
         let owned = BTreeSet::from(["n870-gone".to_owned()]);
-        fleet.claims.hold("north#870@the first box", "n870-gone").unwrap();
-        fleet.claims.hold("north#870@the second box", "n870-gone").unwrap();
+        fleet.claims.hold("north#870@the first box", "n870-gone", &Default::default()).unwrap();
+        fleet.claims.hold("north#870@the second box", "n870-gone", &Default::default()).unwrap();
         fleet
             .cache_sessions(&[SessionRow {
                 name: "n870-gone".into(),

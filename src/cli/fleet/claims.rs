@@ -1,4 +1,5 @@
 //! The `north threads` adapter behind the fleet's claims: a session holds its task in the ledger dispatch reads.
+use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
@@ -162,9 +163,14 @@ impl ThreadsCli {
 }
 
 impl Claims for ThreadsCli {
-    fn hold(&self, key: &str, session: &str) -> NorthResult<Option<String>> {
+    fn hold(&self, key: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Option<String>> {
         let named = named(key);
-        let words: Vec<&str> = ["claim"].into_iter().chain(named.iter().map(String::as_str)).chain(["--by", session]).collect();
+        let words: Vec<&str> = ["claim"]
+            .into_iter()
+            .chain(named.iter().map(String::as_str))
+            .chain(["--by", session])
+            .chain(ancestors.iter().flat_map(|parent| ["--parent", parent.as_str()]))
+            .collect();
         match self.write(&words) {
             Err(NorthError::Refused(why)) if !why.contains(OWNED) => Err(NorthError::State(why)),
             other => other.map(|said| said.and_then(|said| moved(said.trim(), key, session))),
@@ -218,14 +224,22 @@ mod tests {
         let spooled = Arc::new(Mutex::new(Vec::new()));
         let (_slow, slow) = ledger("sleep 30", &spooled);
         let begun = Instant::now();
-        assert_eq!(slow.hold("north#7", "cpx62-worker").unwrap(), None);
+        assert_eq!(slow.hold("north#7", "cpx62-worker", &BTreeSet::new()).unwrap(), None);
         slow.release("north#7", "cpx62-worker").unwrap();
         assert!(begun.elapsed() < Duration::from_secs(10), "{:?}", begun.elapsed());
         let words: Vec<Vec<String>> = spooled.lock().unwrap().clone();
         assert_eq!(words, [vec!["claim", "north#7", "--by", "cpx62-worker"], vec!["release", "north#7", "--by", "cpx62-worker", "--held-by", "cpx62-worker"]]);
 
+        let ancestors = BTreeSet::from(["proxy".to_owned(), "qp90-lead".to_owned()]);
+        slow.hold("north#902@the box the lead keeps", "n-924-child", &ancestors).unwrap();
+        assert_eq!(
+            spooled.lock().unwrap().last().unwrap(),
+            &vec!["claim", "north#902", "--box", "the box the lead keeps", "--by", "n-924-child", "--parent", "proxy", "--parent", "qp90-lead"],
+            "a claim below its lead names the parent chain so the ledger admits the lead's box"
+        );
+
         let (_refusing, refusing) = ledger("echo 'north#7 is already owned by alice' >&2; exit 1", &spooled);
-        assert!(matches!(refusing.hold("north#7", "cpx62-worker"), Err(NorthError::Refused(_))));
-        assert_eq!(spooled.lock().unwrap().len(), 2, "a refusal that arrives in time is not queued");
+        assert!(matches!(refusing.hold("north#7", "cpx62-worker", &BTreeSet::new()), Err(NorthError::Refused(_))));
+        assert_eq!(spooled.lock().unwrap().len(), 3, "a refusal that arrives in time is not queued");
     }
 }

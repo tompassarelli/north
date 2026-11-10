@@ -41,10 +41,11 @@ struct Args {
     all: bool,
     owners: Vec<String>,
     box_text: Option<String>,
+    parents: Vec<String>,
 }
 
 fn args(argv: &[String]) -> Result<Args, String> {
-    let mut parsed = Args { positional: Vec::new(), by: None, eta: None, json: false, all: false, owners: Vec::new(), box_text: None };
+    let mut parsed = Args { positional: Vec::new(), by: None, eta: None, json: false, all: false, owners: Vec::new(), box_text: None, parents: Vec::new() };
     let mut rest = argv.iter();
     while let Some(arg) = rest.next() {
         let (flag, inline) = arg.split_once('=').map_or((arg.as_str(), None), |(flag, value)| (flag, Some(value.to_owned())));
@@ -53,6 +54,7 @@ fn args(argv: &[String]) -> Result<Args, String> {
             "--by" => parsed.by = Some(value()?),
             "--eta" => parsed.eta = Some(value()?),
             "--owner" => parsed.owners.push(value()?),
+            "--parent" => parsed.parents.push(value()?),
             "--box" => parsed.box_text = Some(value()?),
             "--json" if inline.is_none() => parsed.json = true,
             "--all" if inline.is_none() => parsed.all = true,
@@ -92,7 +94,7 @@ fn github_items<'a>(items: impl Iterator<Item = &'a str>) -> BTreeSet<(String, u
 }
 
 fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
-    let [id] = parsed.positional.as_slice() else { return Err("usage: threads claim REPO#N [--box TEXT] [--by NAME] [--eta MINUTES]".into()) };
+    let [id] = parsed.positional.as_slice() else { return Err("usage: threads claim REPO#N [--box TEXT] [--by NAME] [--parent NAME ...] [--eta MINUTES]".into()) };
     let (repo, number) = CATALOG.parse_ref(id)?;
     if let Some(reason) = context.no_native.filter(|_| CATALOG.is_native(&repo)) {
         return Err(format!("native items are not readable here: {reason}"));
@@ -104,7 +106,9 @@ fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
     let mut db = ledger::open(context.database, true)?;
     let github = context.issues.read(&github_items(std::iter::once(item.as_str())));
     let issue = issue_of(&db, &item, &github);
-    let (taken, held) = ledger::take(&mut db, (&item, slug.as_deref()), &by, eta, issue, context.alive.as_ref(), context.now)?;
+    let ancestors: BTreeSet<String> = parsed.parents.iter().cloned().collect();
+    let claimant = ledger::Claimant { name: &by, ancestors: &ancestors };
+    let (taken, held) = ledger::take(&mut db, (&item, slug.as_deref()), claimant, eta, issue, context.alive.as_ref(), context.now)?;
     drop(db);
     let (_, claimed) = split_key(&held);
     let shown = claimed.map_or_else(|| item.clone(), |slug| format!("{item} box {slug}"));
@@ -152,7 +156,7 @@ fn every_claim(context: &Context) -> Result<Vec<(Claim, Standing)>, String> {
 
 /// The claim rows on the named items and those the `--owner`s hold, as JSON `{item, owner}` rows, whatever their standing.
 fn holder(parsed: &Args, context: &Context) -> Result<String, String> {
-    if (parsed.positional.is_empty() && parsed.owners.is_empty()) || parsed.by.is_some() || parsed.eta.is_some() || parsed.json || parsed.all || parsed.box_text.is_some() {
+    if (parsed.positional.is_empty() && parsed.owners.is_empty()) || parsed.by.is_some() || parsed.eta.is_some() || parsed.json || parsed.all || parsed.box_text.is_some() || !parsed.parents.is_empty() {
         return Err("usage: threads holder [REPO#N ...] [--owner NAME ...]".into());
     }
     let items = parsed.positional.iter().map(|id| CATALOG.parse_ref(id).map(|(repo, number)| format!("{repo}#{number}"))).collect::<Result<Vec<_>, _>>()?;
@@ -172,7 +176,7 @@ fn holder(parsed: &Args, context: &Context) -> Result<String, String> {
 }
 
 fn list(parsed: &Args, context: &Context) -> Result<String, String> {
-    if !parsed.positional.is_empty() || parsed.by.is_some() || parsed.eta.is_some() || parsed.box_text.is_some() || !parsed.owners.is_empty() || (parsed.all && !parsed.json) {
+    if !parsed.positional.is_empty() || parsed.by.is_some() || parsed.eta.is_some() || parsed.box_text.is_some() || !parsed.owners.is_empty() || !parsed.parents.is_empty() || (parsed.all && !parsed.json) {
         return Err("usage: threads list [--json [--all]]".into());
     }
     let claims = if parsed.all { every_claim(context)? } else { standing_claims(context)? };

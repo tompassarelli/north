@@ -31,8 +31,8 @@ pub fn claim_keys(tasks: &[String], box_text: Option<&str>, others: &[String]) -
 }
 
 pub trait Claims: Send + Sync {
-    /// Claims the claim key `item` for `session`; a claim a live owner holds is `NorthError::Refused`, while one an exited owner left or one past its ETA moves to `session`, and Some says from whom and why.
-    fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>>;
+    /// Claims the claim key `item` for `session`; a claim a live owner holds is `NorthError::Refused`, while one an exited owner left or one past its ETA moves to `session`, and Some says from whom and why. A box claim beside a live whole-issue claim is refused unless that claim's owner is one of `ancestors`, the sessions above `session`.
+    fn hold(&self, item: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Option<String>>;
     /// Gives the claim up only while `session` still owns it, so a later owner's claim stays.
     fn release(&self, item: &str, session: &str) -> NorthResult<()>;
     /// The claim rows `rows` names as (item, owner), including those no dispatch or launch honours any more.
@@ -40,9 +40,9 @@ pub trait Claims: Send + Sync {
 }
 
 /// Claims every task before the session starts, so a live holder refuses the launch and nothing is left half-claimed; a ledger that cannot be read waits for the claim `hold_for` makes once the session runs.
-pub fn hold_all(claims: &dyn Claims, tasks: &[String], session: &str) -> NorthResult<()> {
+pub fn hold_all(claims: &dyn Claims, tasks: &[String], session: &str, ancestors: &BTreeSet<String>) -> NorthResult<()> {
     for (index, task) in tasks.iter().enumerate() {
-        match claims.hold(task, session) {
+        match claims.hold(task, session, ancestors) {
             Err(error @ NorthError::Refused(_)) => {
                 for held in &tasks[..index] {
                     let _ = claims.release(held, session);
@@ -57,15 +57,16 @@ pub fn hold_all(claims: &dyn Claims, tasks: &[String], session: &str) -> NorthRe
     Ok(())
 }
 
-/// The tasks a session claims for itself: each one no session above it already holds, so a lead holding an issue keeps
-/// its claim while the children it staffs on that issue's boxes work under it; an unread ledger leaves every task to the claim.
+/// The tasks a session claims for itself: it leaves a whole-issue claim to a session above it, so a lead keeps the
+/// issue while its children staff its boxes, but it always attempts a box claim, which the ledger admits under the
+/// lead's claim and refuses beside anyone else's; an unread ledger leaves every task to the claim.
 pub fn own_tasks(claims: &dyn Claims, tasks: &[String], ancestors: &BTreeSet<String>) -> Vec<String> {
     if ancestors.is_empty() || tasks.is_empty() {
         return tasks.to_vec();
     }
     let issues: Vec<String> = tasks.iter().map(|task| split_key(task).0.to_owned()).collect();
     let above: BTreeSet<String> = claims.holders(Rows::Items(&issues)).unwrap_or_default().into_iter().filter(|(_, owner)| ancestors.contains(owner)).map(|(key, _)| split_key(&key).0.to_owned()).collect();
-    tasks.iter().filter(|task| !above.contains(split_key(task).0)).cloned().collect()
+    tasks.iter().filter(|task| split_key(task).1.is_some() || !above.contains(split_key(task).0)).cloned().collect()
 }
 
 pub fn hold_for(claims: &dyn Claims, record: &SessionRecord, ancestors: &BTreeSet<String>) {
@@ -73,7 +74,7 @@ pub fn hold_for(claims: &dyn Claims, record: &SessionRecord, ancestors: &BTreeSe
         return;
     }
     for task in own_tasks(claims, &record.claim_keys(), ancestors) {
-        if let Err(error) = claims.hold(&task, &record.name) {
+        if let Err(error) = claims.hold(&task, &record.name, ancestors) {
             eprintln!("north fleet: {} does not hold {task}: {}", record.name, error.user_message());
         }
     }
@@ -119,7 +120,7 @@ pub fn release_for(claims: &dyn Claims, record: &SessionRecord) {
 pub struct Held(pub std::sync::Mutex<Vec<(&'static str, String, String)>>);
 
 impl Claims for Held {
-    fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
+    fn hold(&self, item: &str, session: &str, _: &BTreeSet<String>) -> NorthResult<Option<String>> {
         self.0.lock().unwrap().push(("hold", item.to_owned(), session.to_owned()));
         Ok(None)
     }
@@ -156,7 +157,7 @@ mod tests {
     struct Owned<'a>(&'a str, Mutex<Vec<String>>);
 
     impl Claims for Owned<'_> {
-        fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
+        fn hold(&self, item: &str, session: &str, _: &BTreeSet<String>) -> NorthResult<Option<String>> {
             if item == self.0 {
                 return Err(NorthError::Refused(format!("{item} is already owned by tom")));
             }
@@ -174,11 +175,51 @@ mod tests {
         }
     }
 
+    /// A ledger with the box rule: a whole-issue claim refuses a box claim beside it unless its owner is above the
+    /// claimant, and records every claim it admits.
+    #[derive(Default)]
+    struct Beside(Mutex<Vec<(String, String)>>);
+
+    impl Claims for Beside {
+        fn hold(&self, item: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Option<String>> {
+            let (issue, boxed) = split_key(item);
+            let mut held = self.0.lock().unwrap();
+            let outside = held.iter().find(|(claim, owner)| {
+                owner.as_str() != session && split_key(claim).1.is_none() && split_key(claim).0 == issue && !ancestors.contains(owner)
+            });
+            if let (true, Some((_, owner))) = (boxed.is_some(), outside) {
+                return Err(NorthError::Refused(format!("{issue} is already owned by {owner}")));
+            }
+            held.retain(|(claim, owner)| !(claim.as_str() == item && owner.as_str() == session));
+            held.push((item.to_owned(), session.to_owned()));
+            Ok(None)
+        }
+
+        fn release(&self, item: &str, session: &str) -> NorthResult<()> {
+            self.0.lock().unwrap().retain(|(claim, owner)| !(claim.as_str() == item && owner.as_str() == session));
+            Ok(())
+        }
+
+        fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(claim, owner)| match rows {
+                    Rows::Items(items) => items.iter().any(|item| item == split_key(claim).0),
+                    Rows::Owners(owners) => owners.contains(owner),
+                })
+                .cloned()
+                .collect())
+        }
+    }
+
     #[test]
     fn a_launch_naming_an_item_a_live_session_holds_is_refused_and_leaves_no_claim_behind() {
         let claims = Owned("north#9", Mutex::default());
         let tasks = ["north#7".to_owned(), "north#9".to_owned()];
-        let error = hold_all(&claims, &tasks, "worker").unwrap_err();
+        let error = hold_all(&claims, &tasks, "worker", &BTreeSet::new()).unwrap_err();
         assert!(matches!(error, NorthError::Refused(why) if why == "north#9 is already owned by tom"));
         assert_eq!(*claims.1.lock().unwrap(), ["hold north#7 worker", "release north#7 worker"]);
     }
@@ -186,27 +227,34 @@ mod tests {
     #[test]
     fn children_a_lead_staffs_on_boxes_of_its_own_issue_start_and_leave_the_lead_holding_it() {
         let claims = Held::default();
-        claims.hold("north#757", "n-state-machines").unwrap();
+        claims.hold("north#757", "n-state-machines", &BTreeSet::new()).unwrap();
         let tasks = ["north#757".to_owned()];
         let lead = BTreeSet::from(["n-state-machines".to_owned()]);
         for child in ["gex45-n757-gates", "gex45-n757-layers"] {
-            hold_all(&claims, &own_tasks(&claims, &tasks, &lead), child).unwrap();
+            hold_all(&claims, &own_tasks(&claims, &tasks, &lead), child, &lead).unwrap();
         }
         assert_eq!(claims.holders(Rows::Items(&tasks)).unwrap(), [("north#757".to_owned(), "n-state-machines".to_owned())]);
         assert_eq!(own_tasks(&claims, &tasks, &BTreeSet::from(["proxy".to_owned()])), tasks, "a launch outside the lead's tree still claims, so the live holder refuses it");
     }
 
     #[test]
-    fn a_launch_claims_the_box_it_names_on_its_first_task_and_a_lead_holding_the_whole_issue_covers_it() {
+    fn a_launch_claims_the_box_it_names_on_its_first_task_even_beneath_a_lead_holding_the_whole_issue() {
         let tasks = ["north#782".to_owned(), "north#9".to_owned()];
         let keys = claim_keys(&tasks, Some("the staffing replays"), &[]);
         assert_eq!(keys, ["north#782@the staffing replays", "north#9"]);
         assert_eq!(split_key(&keys[0]), ("north#782", Some("the staffing replays")));
-        let claims = Held::default();
-        claims.hold("north#782", "n-lead").unwrap();
+        let claims = Beside::default();
+        claims.hold("north#782", "n-lead", &BTreeSet::new()).unwrap();
         let lead = BTreeSet::from(["n-lead".to_owned()]);
-        assert_eq!(own_tasks(&claims, &keys, &lead), ["north#9"], "the lead's whole claim covers the box its child works");
-        assert_eq!(own_tasks(&claims, &keys, &BTreeSet::new()), keys);
+        assert_eq!(own_tasks(&claims, &["north#782".to_owned()], &lead), Vec::<String>::new(), "the lead keeps the whole issue");
+        assert_eq!(own_tasks(&claims, &keys, &lead), keys, "the child claims the box under the lead, which the ledger admits");
+        hold_all(&claims, &own_tasks(&claims, &keys[..1], &lead), "n-924-child", &lead).unwrap();
+        assert_eq!(claims.holders(Rows::Owners(&BTreeSet::from(["n-924-child".to_owned()]))).unwrap(), [(keys[0].clone(), "n-924-child".to_owned())]);
+
+        let outside = BTreeSet::new();
+        let error = hold_all(&claims, &own_tasks(&claims, &keys[..1], &outside), "n-924-outsider", &outside).unwrap_err();
+        assert!(matches!(error, NorthError::Refused(why) if why == "north#782 is already owned by n-lead"));
+        assert_eq!(own_tasks(&claims, &keys, &outside), keys);
     }
 
     #[test]

@@ -13,6 +13,12 @@ const BUSY: Duration = Duration::from_secs(60);
 const CLAIMS: &str = "SELECT c.item, c.owner, c.since, c.eta_min, \
     (SELECT max(e.ts) FROM events e WHERE e.item = CASE WHEN instr(c.item, '@') > 0 THEN substr(c.item, 1, instr(c.item, '@') - 1) ELSE c.item END AND e.actor = c.owner) FROM claims c";
 
+/// Who takes a claim, and the sessions above them in the fleet tree.
+pub struct Claimant<'a> {
+    pub name: &'a str,
+    pub ancestors: &'a BTreeSet<String>,
+}
+
 /// What `take` did with an item's claim row.
 #[derive(Debug, PartialEq)]
 pub enum Taken {
@@ -105,11 +111,18 @@ fn decide((held, beside): (Option<&Claim>, Option<&Claim>), by: &str, (issue, al
     }
 }
 
+/// Whether `claim` is a live claim beside the one `by` is taking for `target`: a whole-issue claim blocks a box claim
+/// unless its owner is one of `ancestors`, the sessions above `by`, and any claim blocks a whole claim or the same box,
+/// while two boxes of one issue never refuse each other.
+fn blocks(claim: &Claim, by: &str, target: &str, whole: bool, ancestors: &BTreeSet<String>) -> bool {
+    claim.owner != by && claim.key() != target && (whole || claim.slug.is_none()) && !(claim.slug.is_none() && !whole && ancestors.contains(&claim.owner))
+}
+
 /// Claims the whole issue `item`, or its box `slug`, named as `(item, slug)`, for `by` in one immediate transaction, and returns what it did with the claims key it wrote or refused: a new claim, a renewal of `by`'s own, a
 /// replacement of a void claim, a takeover of a stale one, or a refusal by a live one. A box claim refuses beside a live claim on the
-/// whole issue and a whole claim beside a live claim on any box, while two boxes of one issue never refuse each other; a whole claim by
-/// a session that already holds a box of the issue renews that box.
-pub fn take(db: &mut Connection, (item, slug): (&str, Option<&str>), by: &str, eta_min: Option<i64>, issue: Issue, alive: Option<&BTreeSet<String>>, now: i64) -> Result<(Taken, String), String> {
+/// whole issue, unless the whole issue's owner is above `by`, and a whole claim beside a live claim on any box, while two boxes of one
+/// issue never refuse each other; a whole claim by a session that already holds a box of the issue renews that box.
+pub fn take(db: &mut Connection, (item, slug): (&str, Option<&str>), Claimant { name: by, ancestors }: Claimant<'_>, eta_min: Option<i64>, issue: Issue, alive: Option<&BTreeSet<String>>, now: i64) -> Result<(Taken, String), String> {
     let at = Timestamp::from_unix_seconds(now).iso();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
     let mut statement = tx.prepare(&format!("{CLAIMS} WHERE c.item = ?1 OR substr(c.item, 1, length(?1) + 1) = ?1 || '@'")).map_err(|error| error.to_string())?;
@@ -119,7 +132,7 @@ pub fn take(db: &mut Connection, (item, slug): (&str, Option<&str>), by: &str, e
     let target = own_box.map_or_else(|| key(item, slug), Claim::key);
     let whole = slug.is_none() && own_box.is_none();
     let held = on_issue.iter().find(|claim| claim.key() == target);
-    let beside = on_issue.iter().filter(|claim| claim.owner != by && claim.key() != target && (whole || claim.slug.is_none())).find(|claim| matches!(claim.standing(issue, alive, now), Standing::Live));
+    let beside = on_issue.iter().filter(|claim| blocks(claim, by, &target, whole, ancestors)).find(|claim| matches!(claim.standing(issue, alive, now), Standing::Live));
     let taken = decide((held, beside), by, (issue, alive, now));
     let boxed = json!(slug);
     let written = match &taken {
@@ -143,4 +156,43 @@ pub fn take(db: &mut Connection, (item, slug): (&str, Option<&str>), by: &str, e
     written.map_err(|error| error.to_string())?;
     tx.commit().map_err(|error| error.to_string())?;
     Ok((taken, target))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::threads::schema;
+
+    use super::*;
+
+    const NOW: i64 = 1_800_000_000;
+
+    fn ledger() -> (tempfile::TempDir, Connection) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("threads.db");
+        schema::ensure(&path).unwrap();
+        let db = open(&path, true).unwrap();
+        (directory, db)
+    }
+
+    #[test]
+    fn a_child_takes_a_box_of_an_issue_its_lead_holds_whole_and_a_session_outside_the_tree_is_refused() {
+        let (_directory, mut db) = ledger();
+        let alive = Some(BTreeSet::from(["n-924-child".to_owned(), "n-924-outsider".to_owned(), "qp90-lead".to_owned()]));
+        let issue = Issue::Open { opened: NOW - 60 };
+        let nought = BTreeSet::new();
+        let (lead, _) = take(&mut db, ("north#902", None), Claimant { name: "qp90-lead", ancestors: &nought }, None, issue, alive.as_ref(), NOW).unwrap();
+        assert_eq!(lead, Taken::Fresh);
+
+        let beneath = BTreeSet::from(["qp90-lead".to_owned()]);
+        let (child, key) = take(&mut db, ("north#902", Some("the-box")), Claimant { name: "n-924-child", ancestors: &beneath }, None, issue, alive.as_ref(), NOW).unwrap();
+        assert_eq!((child, key.as_str()), (Taken::Fresh, "north#902@the-box"));
+        assert_eq!(
+            holders(&db, &["north#902".to_owned()], &[]).unwrap(),
+            [("north#902".to_owned(), "qp90-lead".to_owned()), ("north#902@the-box".to_owned(), "n-924-child".to_owned())],
+            "the lead keeps the whole issue and the child holds the box it staffs"
+        );
+
+        let (outsider, _) = take(&mut db, ("north#902", Some("the-box")), Claimant { name: "n-924-outsider", ancestors: &nought }, None, issue, alive.as_ref(), NOW).unwrap();
+        assert!(matches!(outsider, Taken::Refused(claim) if claim.owner == "qp90-lead"));
+    }
 }

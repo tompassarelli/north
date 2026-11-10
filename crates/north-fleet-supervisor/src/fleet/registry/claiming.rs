@@ -19,7 +19,13 @@ impl Fleet {
         if verification {
             return Ok(());
         }
-        claims::hold_all(self.claims.as_ref(), &claims::own_tasks(self.claims.as_ref(), tasks, &self.ancestors(request.parent.as_deref())), &request.name)
+        self.claim_tasks(request.parent.as_deref(), &request.name, tasks)
+    }
+
+    /// Claims `tasks` for `name` under `parent`, leaving the whole-issue claims its ancestors hold and taking the boxes.
+    fn claim_tasks(&self, parent: Option<&str>, name: &str, tasks: &[String]) -> NorthResult<()> {
+        let ancestors = self.ancestors(parent);
+        claims::hold_all(self.claims.as_ref(), &claims::own_tasks(self.claims.as_ref(), tasks, &ancestors), name, &ancestors)
     }
 
     /// Starts a fresh session, giving its claims back when it does not start.
@@ -48,7 +54,7 @@ impl Fleet {
             }
             write_record(&session_dir, &record)?;
         }
-        match self.claims.hold(task, name) {
+        match self.claims.hold(task, name, &self.ancestors(record.parent.as_deref())) {
             Ok(Some(moved)) => println!("{moved}"),
             Ok(None) => println!("{name} holds {task}"),
             Err(error) => eprintln!("north fleet: {name} holds {task} in its record, but the threads ledger did not take its claim: {}", error.user_message()),
@@ -108,5 +114,72 @@ impl Fleet {
             .filter(|record| !record.verification && !session_running(record) && self.status(record) == Status::Exited)
             .map(|record| record.name.clone())
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use crate::fleet::claims::Claims;
+    use crate::fleet::fakes::Paper;
+    use crate::fleet::runtimes::Runtimes;
+
+    use super::*;
+
+    /// A ledger with the claim rule: a live whole-issue claim refuses a box claim beside it unless its owner is above
+    /// the claimant.
+    #[derive(Default)]
+    struct Whole(Mutex<Vec<(String, String)>>);
+
+    impl Claims for Whole {
+        fn hold(&self, item: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Option<String>> {
+            let (issue, boxed) = claims::split_key(item);
+            let mut held = self.0.lock().unwrap();
+            let outside = held.iter().find(|(claim, owner)| {
+                owner.as_str() != session && claims::split_key(claim).1.is_none() && claims::split_key(claim).0 == issue && !ancestors.contains(owner)
+            });
+            if let (true, Some((_, owner))) = (boxed.is_some(), outside) {
+                return Err(NorthError::Refused(format!("{issue} is already owned by {owner}")));
+            }
+            held.retain(|(claim, owner)| !(claim.as_str() == item && owner.as_str() == session));
+            held.push((item.to_owned(), session.to_owned()));
+            Ok(None)
+        }
+
+        fn release(&self, item: &str, session: &str) -> NorthResult<()> {
+            self.0.lock().unwrap().retain(|(claim, owner)| !(claim.as_str() == item && owner.as_str() == session));
+            Ok(())
+        }
+
+        fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(claim, owner)| match rows {
+                    Rows::Items(items) => items.iter().any(|item| item == claims::split_key(claim).0),
+                    Rows::Owners(owners) => owners.contains(owner),
+                })
+                .cloned()
+                .collect())
+        }
+    }
+
+    #[test]
+    fn a_lead_holding_an_issue_staffs_a_child_on_its_box_and_refuses_a_launch_outside_its_tree() {
+        let home = tempfile::tempdir().unwrap();
+        let claims = Arc::new(Whole::default());
+        claims.hold("north#902", "qp90-lead", &BTreeSet::new()).unwrap();
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(Vec::new()), Arc::new(Paper::default()), claims.clone()).unwrap();
+        fs::create_dir_all(&fleet.root).unwrap();
+        let boxed = ["north#902@the box the lead keeps".to_owned()];
+
+        fleet.claim_tasks(Some("qp90-lead"), "n-924-child", &boxed).unwrap();
+        assert_eq!(claims.holders(Rows::Owners(&BTreeSet::from(["n-924-child".to_owned()]))).unwrap(), [(boxed[0].clone(), "n-924-child".to_owned())]);
+
+        let refused = fleet.claim_tasks(None, "n-924-outsider", &boxed).unwrap_err();
+        assert!(matches!(refused, NorthError::Refused(why) if why == "north#902 is already owned by qp90-lead"));
     }
 }

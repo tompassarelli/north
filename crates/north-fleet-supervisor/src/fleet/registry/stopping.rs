@@ -217,9 +217,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
         live(&fleet, "n870-a");
-        fleet.claims.hold("north#870@the first box", "n870-a").unwrap();
-        fleet.claims.hold("north#870@the second box", "n870-a").unwrap();
-        fleet.claims.hold("north#871@another box", "n871-b").unwrap();
+        fleet.claims.hold("north#870@the first box", "n870-a", &Default::default()).unwrap();
+        fleet.claims.hold("north#870@the second box", "n870-a", &Default::default()).unwrap();
+        fleet.claims.hold("north#871@another box", "n871-b", &Default::default()).unwrap();
 
         fleet.forget("n870-a").unwrap();
 
