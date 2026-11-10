@@ -96,9 +96,11 @@ fixes in each machine's code from history.
 7. **Threads spool and mirrored-client mode** (88: 44 x 2). `~/.config/threads/remote` presence switches a host to
    snapshot reads and spooled writes (`crates/north-threads/src/threads/client.rs:118-125`). **Converted (north#757):**
    the machine `threads-spool`, one record per spool file in the client's `ledger.db`: queued, sending, sent and
-   refused, the flush's pid holding a sending write. A write the ledger host refuses for good stays in `refused`
-   instead of being retried, its cause naming the verb, and `north health` reports one finding per refused verb, not
-   one per file (north#957). The mirrored-client mode itself stays a file (north#757). Shapes: presence-flag.
+   refused, the flush's pid holding a sending write. A write the ledger host refuses stays in `refused`, its cause
+   naming the verb, and `north health` reports one finding per refused verb, not one per file (north#957). A write the
+   host withheld (a verb off its allowlist, or an exit 126 or 127) is asked again by sending its verb's oldest write an
+   hour after that verb's last refusal, and once a write of the verb is delivered every withheld one goes back to
+   `queued` (north#872). The mirrored-client mode itself stays a file (north#757). Shapes: presence-flag.
 8. **Gates** (84: 28 x 3). Open means `closed_ms IS NULL` in each host's `ledger.db`
    (`crates/north-providers/src/ledger/gates.rs:35-55`); other hosts see a deleted-and-reinserted `fleet_gates`
    snapshot (`crates/north-fleet/src/fleet/store/gates.rs:31`); the answer is delivered after the close with no retry;

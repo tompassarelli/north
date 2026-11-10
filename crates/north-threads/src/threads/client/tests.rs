@@ -27,7 +27,7 @@ struct Rig {
 const FAKE_SSH: &str = r#"for a; do last=$a; done
 printf '%s\n' "$*" >> "$ROOT/ssh.log"
 [ -f "$ROOT/sleep" ] && exec sleep "$(cat "$ROOT/sleep")"
-[ -f "$ROOT/refusal" ] && case "$last" in *"threads job-run"*) cat "$ROOT/refusal" >&2; exit 126 ;; esac
+[ -f "$ROOT/refusal" ] && case "$last" in *"threads $(awk '{print $6}' "$ROOT/refusal")"*) cat "$ROOT/refusal" >&2; exit 126 ;; esac
 case "$last" in
   *ingest) cat >> "$ROOT/ingest.log"; [ -f "$ROOT/ingest-code" ] && exit "$(cat "$ROOT/ingest-code")" ;;
   "north threads snapshot-pages") cat >/dev/null; cat "$ROOT/pages" ;;
@@ -282,6 +282,43 @@ fn a_spooled_write_the_ledger_host_refuses_for_good_is_refused_once_naming_its_v
 
     assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
     assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.contains("threads job-run")).count(), attempts, "a write refused for good is not sent again");
+}
+
+/// On 2026-11-08 the 29 `release` writes gex45's spool held as refused, each by an exit 126 before such an exit was retried, kept the state-machines flow alarmed for their 7-day keep.
+#[test]
+fn a_refused_claim_release_row_is_resent_once_its_claim_frees() {
+    let mut rig = rig(&[]);
+    let start = 1_800_000_000;
+    let now = Arc::new(std::sync::atomic::AtomicI64::new(start));
+    let clock = Arc::clone(&now);
+    rig.client.clock = Arc::new(move || Timestamp::from_unix_seconds(clock.load(std::sync::atomic::Ordering::SeqCst)));
+    let at = |seconds: i64| now.store(start + seconds, std::sync::atomic::Ordering::SeqCst);
+    let release = |issue: &str, session: &str| ["release", issue, "--by", session, "--held-by", session].map(str::to_owned);
+    rig.client.spool_argv(&release("tompassarelli/smashcraft#334", "sc-334"), "the caller's bound passed before the ledger host answered").unwrap();
+    rig.client.spool_argv(&release("tompassarelli/smashcraft#315", "sc-315"), "the caller's bound passed before the ledger host answered").unwrap();
+    fs::write(rig.root.join("refusal"), "remote-serve: refused for gex45: command release is not on the allowlist\n").unwrap();
+    assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
+    rig.client.spool_argv(&release("tompassarelli/smashcraft#324", "sc-324"), "the caller's bound passed before the ledger host answered").unwrap();
+    let ledger = rig.root.join(".local/state/north/ledger.db");
+    let mut spool = spool::Spool::open(&rig.client.spool, &ledger, Timestamp::from_unix_seconds(start)).unwrap();
+    let legacy = spool.queued(Timestamp::from_unix_seconds(start)).unwrap().remove(0);
+    assert!(spool.take(&legacy, Timestamp::from_unix_seconds(start)).unwrap());
+    spool.refuse(&legacy, "the ledger host exited 126", Timestamp::from_unix_seconds(start)).unwrap();
+    let alarmed = |rig: &Rig, seconds: i64| north_base::lifecycle::Store::open(&rig.root.join(".local/state/north/ledger.db")).unwrap().faults(Timestamp::from_unix_seconds(start + seconds)).unwrap().into_iter().filter(|fault| fault.machine == "threads-spool").count();
+    assert_eq!(alarmed(&rig, 1), 3);
+    let sends = |rig: &Rig| log(rig, "ssh.log").iter().filter(|line| line.contains("threads release")).count();
+    let refused = sends(&rig);
+
+    fs::remove_file(rig.root.join("refusal")).unwrap();
+    at(10 * 60);
+    assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
+    assert_eq!(sends(&rig), refused, "a refusal under an hour old is not asked again");
+
+    at(61 * 60);
+    assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
+    assert_eq!(sends(&rig), refused + 3, "one write asks, and its delivery sends the other two");
+    assert!(spooled(&rig).is_empty(), "{:?}", spooled(&rig));
+    assert_eq!(alarmed(&rig, 62 * 60), 0);
 }
 
 #[test]

@@ -1,10 +1,12 @@
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
+use std::ops::ControlFlow;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use north_base::lifecycle::{Lifecycle, Moved, Refusal, State, Store};
+use north_base::lifecycle::{Lifecycle, Moved, Record, Refusal, State, Store};
 
 use super::process::{Input, detach, python_json};
 use super::{Client, Flush, SPOOL_FLUSH};
@@ -15,6 +17,9 @@ use crate::threads::ingest_lock;
 
 const NOT_EXECUTABLE_STATUS: i32 = 126;
 const COMMAND_NOT_FOUND_STATUS: i32 = 127;
+const WILL_NOT_RUN: &str = "the ledger host will not run `";
+/// How long the ledger host's refusal of a verb stands before one of the writes it withheld is sent again to ask.
+const PROBE_AFTER: Duration = Duration::from_secs(3600);
 
 /// Where a write spooled on a mirrored client stands on its way to the ledger host.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,7 +59,10 @@ impl Lifecycle for SpooledWrite {
     fn legal(from: Option<Phase>, to: Phase) -> bool {
         matches!(
             (from, to),
-            (None, Phase::Queued | Phase::Refused) | (Some(Phase::Queued), Phase::Sending) | (Some(Phase::Sending), Phase::Queued | Phase::Sent | Phase::Refused)
+            (None | Some(Phase::Refused), Phase::Queued)
+                | (None, Phase::Refused)
+                | (Some(Phase::Queued), Phase::Sending)
+                | (Some(Phase::Sending), Phase::Queued | Phase::Sent | Phase::Refused)
         )
     }
 
@@ -90,8 +98,18 @@ fn adopted_phase(name: &str) -> Option<Phase> {
     }
 }
 
+/// Whether a refusal was the ledger host declining to run the write, which a later host may not, rather than the ledger refusing the row; an exit 126 or 127 says the host could not run it.
+fn withheld_by_host(cause: &str) -> bool {
+    cause.starts_with(WILL_NOT_RUN) || [NOT_EXECUTABLE_STATUS, COMMAND_NOT_FOUND_STATUS].iter().any(|code| cause == exited(*code))
+}
+
+fn exited(code: i32) -> String {
+    format!("the ledger host exited {code}")
+}
+
 pub(super) struct Spool {
     store: Store,
+    directory: PathBuf,
 }
 
 impl Spool {
@@ -101,7 +119,7 @@ impl Spool {
     }
 
     pub(super) fn adopting(store: Store, directory: &Path, at: Timestamp) -> NorthResult<Self> {
-        let mut spool = Self { store };
+        let mut spool = Self { store, directory: directory.to_path_buf() };
         for entry in std::fs::read_dir(directory)?.filter_map(Result::ok) {
             let name = entry.file_name().to_string_lossy().into_owned();
             let Some(phase) = adopted_phase(&name) else { continue };
@@ -112,8 +130,10 @@ impl Spool {
         Ok(spool)
     }
 
-    /// The names of the writes waiting to be sent, oldest name first, a write whose flush died mid-send among them.
+    /// The names of the writes waiting to be sent, oldest name first, a write whose flush died mid-send among them, and
+    /// one write of each verb the ledger host withheld over `PROBE_AFTER` ago, sent to ask whether it runs the verb now.
     pub(super) fn queued(&mut self, at: Timestamp) -> NorthResult<Vec<String>> {
+        self.probe_withheld(at)?;
         let mut names = Vec::new();
         for record in self.store.instances::<SpooledWrite>()? {
             let record = if record.state == Phase::Sending { self.store.settle::<SpooledWrite>(&record.instance, at)? } else { Some(record) };
@@ -140,8 +160,47 @@ impl Spool {
         self.go(name, Phase::Queued, cause, at)
     }
 
-    pub(super) fn deliver(&mut self, name: &str, at: Timestamp) -> NorthResult<()> {
-        self.go(name, Phase::Sent, "the ledger host took it", at)
+    /// Marks `name` sent and queues every write of its `verb` the ledger host withheld, since the host runs it now; returns their names.
+    pub(super) fn deliver(&mut self, name: &str, verb: Option<&str>, at: Timestamp) -> NorthResult<Vec<String>> {
+        self.go(name, Phase::Sent, "the ledger host took it", at)?;
+        let Some(verb) = verb else { return Ok(Vec::new()) };
+        let mut resent = Vec::new();
+        for (_, record) in self.withheld()?.into_iter().filter(|(withheld, _)| withheld == verb) {
+            self.go(&record.instance, Phase::Queued, &format!("the ledger host ran `{verb}` again, so the write it withheld is sent again"), at)?;
+            resent.push(record.instance);
+        }
+        Ok(resent)
+    }
+
+    fn probe_withheld(&mut self, at: Timestamp) -> NorthResult<()> {
+        let mut verbs: BTreeMap<String, Vec<Record<Phase>>> = BTreeMap::new();
+        for (verb, record) in self.withheld()? {
+            verbs.entry(verb).or_default().push(record);
+        }
+        let stood = |record: &Record<Phase>| at.unix_millis() - record.since.unix_millis() >= PROBE_AFTER.as_millis() as i64;
+        for (verb, records) in verbs {
+            if !records.iter().all(stood) {
+                continue;
+            }
+            if let Some(oldest) = records.iter().map(|record| record.instance.as_str()).min() {
+                self.go(oldest, Phase::Queued, &format!("asking whether the ledger host runs `{verb}` now, an hour or more after it withheld it"), at)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The refused argv writes the ledger host withheld whose files remain, each with its verb.
+    fn withheld(&self) -> NorthResult<Vec<(String, Record<Phase>)>> {
+        let mut found = Vec::new();
+        for record in self.store.instances::<SpooledWrite>()? {
+            if record.state != Phase::Refused || !record.instance.ends_with(".argv") || !withheld_by_host(&record.cause) {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(self.directory.join(&record.instance)) else { continue };
+            let Some(verb) = serde_json::from_str::<Vec<String>>(&text).ok().and_then(|argv| argv.into_iter().next()) else { continue };
+            found.push((verb, record));
+        }
+        Ok(found)
     }
 
     pub(super) fn refuse(&mut self, name: &str, cause: &str, at: Timestamp) -> NorthResult<()> {
@@ -230,7 +289,10 @@ impl Client {
     fn send_queued(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>) -> NorthResult<Flush> {
         let mut spool = self.spool_records()?;
         let started = Instant::now();
-        for name in spool.queued((self.clock)())? {
+        let mut names = spool.queued((self.clock)())?;
+        let mut next = 0;
+        while let Some(name) = names.get(next).cloned() {
+            next += 1;
             if budget.is_some_and(|budget| started.elapsed() >= budget) {
                 return Ok(Flush::Busy);
             }
@@ -243,14 +305,16 @@ impl Client {
             if !spool.take(&name, (self.clock)())? {
                 return Ok(Flush::Busy);
             }
-            if let Some(flush) = self.send_and_settle(&mut spool, &name, &path, file, dest, err)? {
-                return Ok(flush);
+            match self.send_and_settle(&mut spool, &name, &path, file, dest, err)? {
+                ControlFlow::Break(flush) => return Ok(flush),
+                ControlFlow::Continue(resent) => names.extend(resent),
             }
         }
         Ok(Flush::Clear)
     }
 
-    fn send_and_settle(&self, spool: &mut Spool, name: &str, path: &Path, file: File, dest: &str, err: &mut dyn Write) -> NorthResult<Option<Flush>> {
+    /// Sends one write and records how the ledger host answered: stop the flush with how it stands, or go on with the withheld writes the delivery queued again.
+    fn send_and_settle(&self, spool: &mut Spool, name: &str, path: &Path, file: File, dest: &str, err: &mut dyn Write) -> NorthResult<ControlFlow<Flush, Vec<String>>> {
         let sent = match self.send_spooled(path, file, dest, err) {
             Ok(sent) => sent,
             Err(error) => {
@@ -261,32 +325,32 @@ impl Client {
         let code = sent.code;
         if code == TRANSPORT_FAILED_STATUS {
             spool.release(name, "ledger host unreachable", (self.clock)())?;
-            return Ok(Some(Flush::Down));
+            return Ok(ControlFlow::Break(Flush::Down));
         }
         if matches!(code, ingest_lock::RETRY | TIMED_OUT_STATUS) {
             spool.release(name, if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host busy" }, (self.clock)())?;
-            return Ok(Some(Flush::Busy));
+            return Ok(ControlFlow::Break(Flush::Busy));
         }
         let refused_for_good = code == NOT_EXECUTABLE_STATUS && sent.stderr.contains("remote-serve: refused");
-        if let Some(verb) = sent.verb.filter(|_| refused_for_good) {
+        if let Some(verb) = sent.verb.as_deref().filter(|_| refused_for_good) {
             let why = sent.stderr.lines().find(|line| line.contains("remote-serve: refused")).map(str::trim).unwrap_or("the ledger host refused it");
-            spool.refuse(name, &format!("the ledger host will not run `{verb}`: {why}"), (self.clock)())?;
-            writeln!(err, "NorthThreads: the ledger host will not run `{verb}`; {} will not be sent again", path.display())?;
-            return Ok(None);
+            spool.refuse(name, &format!("{WILL_NOT_RUN}{verb}`: {why}"), (self.clock)())?;
+            writeln!(err, "NorthThreads: the ledger host will not run `{verb}`; {} is sent again once it does", path.display())?;
+            return Ok(ControlFlow::Continue(Vec::new()));
         }
         if matches!(code, NOT_EXECUTABLE_STATUS | COMMAND_NOT_FOUND_STATUS) {
             spool.release(name, &format!("the ledger host could not run the ingest (exit {code})"), (self.clock)())?;
-            return Ok(Some(Flush::Busy));
+            return Ok(ControlFlow::Break(Flush::Busy));
         }
         if code != 0 {
-            spool.refuse(name, &format!("the ledger host exited {code}"), (self.clock)())?;
+            spool.refuse(name, &exited(code), (self.clock)())?;
             writeln!(err, "NorthThreads: remote ingest refused {}; it will not be sent again", path.display())?;
-            return Ok(None);
+            return Ok(ControlFlow::Continue(Vec::new()));
         }
-        spool.deliver(name, (self.clock)())?;
+        let resent = spool.deliver(name, sent.verb.as_deref(), (self.clock)())?;
         match fs::remove_file(path) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
-            _ => Ok(None),
+            _ => Ok(ControlFlow::Continue(resent)),
         }
     }
 
@@ -374,7 +438,7 @@ mod spool_lifecycle {
         let mut spool = Spool::adopting(store(&ledger, 10, 0), &directory, at(0)).unwrap();
         spool.queue("1-1.jsonl", "the ledger host was unreachable", at(0)).unwrap();
         assert!(spool.take("1-1.jsonl", at(1)).unwrap());
-        spool.deliver("1-1.jsonl", at(2)).unwrap();
+        spool.deliver("1-1.jsonl", None, at(2)).unwrap();
 
         assert!(spool.queue("1-1.jsonl", "a writer that reused the name", at(3)).is_err());
 
