@@ -11,3 +11,12 @@ pub fn arm(window: u64) -> String {
 pub fn window(brief: &str) -> Option<u64> {
     brief.lines().find_map(|line| line.trim().strip_prefix(ARM)?.strip_suffix('k')?.parse::<u64>().ok()).map(|thousands| thousands * 1000)
 }
+
+/// Whether the provider compacts a session on idle: Claude Code does by default and north leaves it on; other providers have no such compaction.
+pub fn idle_compaction(provider: &str) -> Option<bool> {
+    (provider == "claude").then_some(true)
+}
+
+#[cfg(test)]
+#[path = "compaction_tests.rs"]
+mod tests;

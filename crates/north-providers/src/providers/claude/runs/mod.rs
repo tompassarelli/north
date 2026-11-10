@@ -74,6 +74,7 @@ struct FleetSession {
     role: &'static str,
     effort: Option<String>,
     claim_box: Option<String>,
+    idle_compaction: Option<bool>,
 }
 
 struct Ledger {
@@ -179,11 +180,12 @@ fn fleet_sessions() -> HashMap<String, FleetSession> {
         let role = crate::providers::ledger_rows::node_role(&nodes, node);
         let effort = node["effort"].as_str().map(str::to_owned);
         let claim_box = node["box"].as_str().map(str::to_owned);
+        let idle_compaction = node["idle_compaction"].as_bool();
         let name = node["name"].as_str().unwrap_or_default().to_owned();
         let created = node["created_ms"].as_u64().unwrap_or(0);
         let later = nodes.iter().filter_map(|other| other["created_ms"].as_u64().filter(|at| other["name"] == node["name"] && *at > created));
         let relaunched_ms = later.min().unwrap_or(u64::MAX);
-        sessions.entry(conversation.to_owned()).or_insert(FleetSession { name, relaunched_ms, role, effort, claim_box });
+        sessions.entry(conversation.to_owned()).or_insert(FleetSession { name, relaunched_ms, role, effort, claim_box, idle_compaction });
     }
     sessions
 }
@@ -392,6 +394,7 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
     if let Some(session) = session {
         row.insert("fleet_name".into(), json!(session.name));
         row.insert("box".into(), json!(session.claim_box));
+        row.insert("idle_compaction".into(), json!(session.idle_compaction.map(i32::from)));
     }
     if !matches!(row["status"].as_str(), Some("running" | "stale")) {
         if path.strip_prefix(&root.projects).is_ok_and(|rest| rest.to_string_lossy().starts_with("-tmp-")) {

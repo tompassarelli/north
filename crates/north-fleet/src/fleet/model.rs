@@ -328,6 +328,9 @@ pub struct SessionRecord {
     pub last_sender: Option<LastSender>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_window: Option<u64>,
+    /// Whether Claude Code compacts the session on idle (on by default since v2.1.299), recorded beside its window so the window arm's cost can be read with and without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_compaction: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eta_min: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -392,6 +395,7 @@ impl SessionRecord {
             capacity_need: request.capacity_need.clone(),
             last_sender: None,
             compact_window: request.window(),
+            idle_compaction: super::compaction::idle_compaction(request.provider.label()),
             eta_min: request.eta_min(),
             addressed_since_ms: None,
             role: Some(request.role()),

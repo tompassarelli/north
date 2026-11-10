@@ -196,6 +196,7 @@ pub(super) fn session_json(record: &SessionRecord, status: Status, waits: &Waits
         "conversation": record.conversation,
         "task_ref": record.task_ref,
         "box": record.claim_box,
+        "idle_compaction": record.idle_compaction,
         "tasks": record.tasks().collect::<Vec<_>>(),
         "created_ms": record.created_ms,
         "host_pid": record.host_pid,

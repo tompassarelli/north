@@ -3,8 +3,9 @@ use rusqlite::Connection;
 
 use crate::threads::verb::Failure;
 
-const ADDED: [(&str, &str); 6] = [
+const ADDED: [(&str, &str); 7] = [
     ("box", "TEXT"),
+    ("idle_compaction", "INTEGER CHECK(idle_compaction IN (0, 1))"),
     ("fleet_name", "TEXT"),
     ("stop", "TEXT"),
     ("budget_usd", "REAL"),
