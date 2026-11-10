@@ -13,6 +13,7 @@ use crate::platform::process;
 use crate::fleet::claims::{Claims, Rows, claim_key, split_key};
 use crate::threads::client;
 use crate::fleet::registry::Fleet;
+use crate::fleet::runtime::SESSION_ENV;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::verbs::OWNED;
 
@@ -196,6 +197,16 @@ impl Claims for ThreadsCli {
             .flatten()
             .filter_map(|row| Some((claim_key(row["item"].as_str()?, row["box"].as_str()), row["owner"].as_str()?.to_owned())))
             .collect())
+    }
+}
+
+/// `north fleet hold REPO#N` adds the issue to the calling session's record and claim; `--release REPO#N` drops both, so dispatch staffs it again.
+pub(super) fn hold(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
+    let session = std::env::var(SESSION_ENV).ok().filter(|name| !name.is_empty()).ok_or_else(|| NorthError::Usage(format!("north fleet hold REPO#N: ${SESSION_ENV} is unset, so no session holds it")))?;
+    match words {
+        [task] => fleet.hold_task(&session, task),
+        ["--release", task] => fleet.release_task(&session, task),
+        _ => Err(super::usage::usage()),
     }
 }
 

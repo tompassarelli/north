@@ -105,6 +105,16 @@ pub fn release_exited(claims: &dyn Claims, exited: &BTreeSet<String>, rows: Rows
     Ok(swept)
 }
 
+/// Gives up every claim `session` holds on `task`'s issue, its boxes as well as the whole issue, so once the record drops it too dispatch staffs the issue; returns how many it gave up.
+pub fn release_task(claims: &dyn Claims, session: &str, task: &str) -> NorthResult<usize> {
+    let issues = [split_key(task).0.to_owned()];
+    let held: Vec<String> = claims.holders(Rows::Items(&issues))?.into_iter().filter(|(_, owner)| owner == session).map(|(key, _)| key).collect();
+    for key in &held {
+        claims.release(key, session)?;
+    }
+    Ok(held.len())
+}
+
 pub fn release_for(claims: &dyn Claims, record: &SessionRecord) {
     if record.verification {
         return;
@@ -255,6 +265,24 @@ mod tests {
         let error = hold_all(&claims, &own_tasks(&claims, &keys[..1], &outside), "n-924-outsider", &outside).unwrap_err();
         assert!(matches!(error, NorthError::Refused(why) if why == "north#782 is already owned by n-lead"));
         assert_eq!(own_tasks(&claims, &keys, &outside), keys);
+    }
+
+    /// On 2026-11-10 the proxy held north#722 with `north fleet hold`, and once its cause was fixed nothing could drop it: dispatch kept skipping it as held by the proxy.
+    #[test]
+    fn a_released_hold_empties_the_sessions_row_and_its_claim_so_dispatch_staffs_the_issue() {
+        let mut record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": null})).unwrap();
+        let claims = Held::default();
+        let task = "north#722";
+        assert!(record.hold(task));
+        claims.hold(task, "proxy", &BTreeSet::new()).unwrap();
+        claims.hold("north#722@a box", "proxy", &BTreeSet::new()).unwrap();
+
+        assert!(record.release(task));
+        assert_eq!(release_task(&claims, "proxy", task).unwrap(), 2);
+
+        assert_eq!(record.tasks().count(), 0, "the row still listed {task}");
+        assert!(record.claim_keys().is_empty());
+        assert_eq!(claims.holders(Rows::Items(&[task.to_owned()])).unwrap(), Vec::<(String, String)>::new(), "dispatch still read {task} as held");
     }
 
     #[test]
