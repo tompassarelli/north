@@ -10,7 +10,7 @@ pub mod language;
 pub mod native_ref;
 pub mod secrets;
 
-use self::denylist::Denylist;
+use self::denylist::{Denylist, Stand};
 use self::email::commit_email_scan;
 use self::native_ref::native_ref_scan;
 
@@ -49,13 +49,24 @@ pub fn publication(dir: &Path, base: &str, head: &str) -> Step {
     commit_email_scan(dir, &[range])
 }
 
-pub fn enqueue_gate(root: &Path, base: &str, denylist: &Denylist, origin: &str, destination: &str) -> Result<(), String> {
+/// Whether the enqueue's scans judged the lane, or only lacked the private-kind verdict the lander must ask for again.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Gate {
+    Judged,
+    NoVerdict,
+}
+
+pub fn enqueue_gate(root: &Path, base: &str, denylist: &Denylist, origin: &str, destination: &str) -> Result<Gate, String> {
     if on_path("betterleaks") {
         secrets(root, &format!("{base}..HEAD")).map_err(|_| "secret scan refused the landing".to_owned())?;
     } else {
         println!("safe-push: ⚠ betterleaks is not on PATH here, so this lane was not scanned for secrets before queueing; the lander's scan stays the gate.");
     }
-    denylist.scan(root, origin, base, "HEAD", destination).map_err(|_| "deny-list scan refused the landing".to_owned())
+    match denylist.scan_stand(root, origin, base, "HEAD", destination).map_err(|_| "deny-list scan refused the landing".to_owned())? {
+        Stand::Pass => Ok(Gate::Judged),
+        Stand::NoVerdict => Ok(Gate::NoVerdict),
+        Stand::Refuse => unreachable!("scan_stand returns a refusal as Err"),
+    }
 }
 
 struct NativeRefs {

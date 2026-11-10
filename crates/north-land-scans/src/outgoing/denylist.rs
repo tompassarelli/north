@@ -66,15 +66,23 @@ impl Denylist {
     }
 
     pub fn scan(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step {
+        match self.scan_stand(root, origin_url, base, head, tag)? {
+            Stand::Pass => Ok(()),
+            _ => Err(Refused(NO_VERDICT)),
+        }
+    }
+
+    /// Scans and returns the stand: a pass or a no verdict is `Ok`, while a hard refusal is `Err`. An enqueue queues a
+    /// lane that reached no verdict, without an alone pass, so the lander judges it again before it lands.
+    pub fn scan_stand(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<Stand> {
         let verdict = self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag), || Self::private_kinds(root, base, head, tag));
         if verdict.refused() {
             cancelled()?;
         }
         verdict.lines.iter().for_each(|line| println!("{line}"));
         match verdict.stand {
-            Stand::Pass => Ok(()),
             Stand::Refuse => Err(Refused(1)),
-            Stand::NoVerdict => Err(Refused(NO_VERDICT)),
+            stand => Ok(stand),
         }
     }
 
@@ -149,7 +157,7 @@ impl Denylist {
                 lines.push(format!("safe-push: ✗ PRIVATE KIND for a {visibility} repository, the outgoing messages or docs name private detail; NOT pushed."));
                 DenylistVerdict::refuse(lines)
             }
-            Err(reason) => DenylistVerdict { lines: vec![format!("safe-push: ✗ {reason}, so a {visibility} push has no verdict on private kinds of text yet; NOT pushed, and the next landing round retries it (exit {NO_VERDICT}).")], stand: Stand::NoVerdict },
+            Err(reason) => DenylistVerdict { lines: vec![format!("safe-push: ✗ {reason}, so a {visibility} push has no verdict on private kinds of text yet; the push to main waits, and the next landing round retries it (exit {NO_VERDICT}).")], stand: Stand::NoVerdict },
         }
     }
 
@@ -171,7 +179,7 @@ impl Denylist {
                 return DenylistVerdict {
                     lines: vec![
                         format!("denylist: no verdict: {error}"),
-                        format!("safe-push: ✗ the deny-list is not reachable, so a {visibility} push has no verdict on private values yet; NOT pushed, and the next landing round retries it (exit {NO_VERDICT})."),
+                        format!("safe-push: ✗ the deny-list is not reachable, so a {visibility} push has no verdict on private values yet; the push to main waits, and the next landing round retries it (exit {NO_VERDICT})."),
                     ],
                     stand: Stand::NoVerdict,
                 };

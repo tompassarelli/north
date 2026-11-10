@@ -210,13 +210,16 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         println!("safe-push: regenerated or sorted {} and folded the result into the lane", folded.join(", "));
     }
     let alone_tree = check_lane(&root, &base, &branch, &origin, &destination, environment)?;
+    if alone_tree.is_none() {
+        println!("safe-push: the private-kind judge has no verdict yet, so the lane waits in the landing queue and the lander judges it again in its alone check before it lands.");
+    }
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
     let (squash, several_commits) = match shape {
         Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
         Shape::SeveralCommits { reason } => (Squash::Kept(format!("--several-commits: {reason}")), Some(reason.to_owned())),
     };
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-    let alone = checked_alone(&root, &head, &alone_tree, &base);
+    let alone = checked_alone(&root, &head, alone_tree.as_deref(), &base);
     lane_squash::refuse_unfinished_subject(&root, &branch)?;
     let lander_host = setting::landing(&root, &remote_ref, "landing.lander-host");
     let queue = queue::directory(environment.state_home, &origin);
@@ -257,23 +260,25 @@ fn judged(environment: &Environment, root: &Path, branch: &str, head: &str, gate
     landing_refusals::Lane { at: "enqueue", root: &root.to_string_lossy(), branch, head }.judged(environment.state_home, gate, outcome)
 }
 
-fn checked_alone(root: &Path, head: &str, checked_tree: &str, base: &str) -> Ticket {
-    let passed = git(root, &["rev-parse", "--verify", &format!("{head}^{{tree}}")]).is_ok_and(|tree| tree == checked_tree);
+fn checked_alone(root: &Path, head: &str, checked_tree: Option<&str>, base: &str) -> Ticket {
+    let passed = checked_tree.is_some_and(|checked| git(root, &["rev-parse", "--verify", &format!("{head}^{{tree}}")]).is_ok_and(|tree| tree == checked));
     Ticket { alone_green: passed.then(|| head.to_owned()), alone_base: passed.then(|| base.to_owned()), ..Ticket::default() }
 }
 
-fn check_lane(root: &Path, base: &str, branch: &str, origin: &str, destination: &str, environment: &Environment) -> Result<String, String> {
+/// The checked tree when every gate judged the lane, or `None` when only the private-kind judge had no verdict yet.
+fn check_lane(root: &Path, base: &str, branch: &str, origin: &str, destination: &str, environment: &Environment) -> Result<Option<String>, String> {
     let lane_head = git(root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     if let Err(gate) = refuse_static_gates(root, base, "HEAD") {
         judged(environment, root, branch, &lane_head, gate, Err(format!("{gate} refused the landing")))?;
     }
     let bodies = git(root, &["log", "--format=%B", &format!("{base}..HEAD")])?;
     judged(environment, root, branch, &lane_head, "commit trailers", super::divergence::refuse_malformed(&bodies))?;
-    outgoing::enqueue_gate(root, base, environment.denylist, origin, destination)?;
+    let gate = outgoing::enqueue_gate(root, base, environment.denylist, origin, destination)?;
     runner::fails_first(root, base, &lane_head)?;
     refuse_unfetchable(root, base, &lane_head)?;
     runner::refuse_queue_checks(root, base, &lane_head)?;
-    git(root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])
+    let tree = git(root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])?;
+    Ok((gate == outgoing::Gate::Judged).then_some(tree))
 }
 
 pub fn run(arguments: &[String]) -> u8 {

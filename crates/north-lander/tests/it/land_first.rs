@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::process::{Command, Output, Stdio};
 
 use north_lander::land::queue;
 
@@ -109,6 +110,75 @@ fn vouch(north: &Repository, branch: &str, base: &str) {
     let path = fs::read_dir(&north.queue).unwrap().flatten().map(|entry| entry.path()).find(|path| path.is_file() && queue::read(path).is_ok_and(|ticket| ticket.branch == branch)).unwrap();
     let ticket = queue::read(&path).unwrap();
     queue::write(&path, &queue::Ticket { alone_green: Some(ticket.head.clone()), alone_base: Some(base.to_owned()), ..ticket }).unwrap();
+}
+
+const JUDGE_OUT_ONCE: &str = "#!/bin/sh\nif [ ! -e \"$0.answered\" ]; then\n  : > \"$0.answered\"\n  echo 'the private-text judge could not run (exit 75): no subscription account is available' >&2\n  exit 75\nfi\nexit 0\n";
+
+const NO_SECRETS: &str = "#!/bin/sh\nreport=\nfor arg in \"$@\"; do\n  if [ -n \"$report\" ]; then printf '[]' > \"$arg\"; report=; fi\n  case \"$arg\" in --report-path) report=1 ;; esac\ndone\nexit 0\n";
+
+const PUBLIC_REPO: &str = "#!/bin/sh\necho PUBLIC\n";
+
+/// Queues `lane` through the same `north land enqueue` entry safe-push runs, with a judge that exits 75 once.
+fn enqueue(world: &World, lane: &Path) -> Output {
+    let bin = world.path().join("bin");
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", "serve::enqueue_process", "--nocapture", "--test-threads", "1"])
+        .env("NORTH_LAND_IT_ARGUMENTS", ["--repo", lane.to_str().unwrap()].join("\n"))
+        .env("XDG_STATE_HOME", world.path().join("state"))
+        .env("NORTH_TEST_ROOT", world.path())
+        .env("HOME", world.path())
+        .env("GIT_CONFIG_GLOBAL", world.path().join("gitconfig"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
+        .env("NORTH_BIN", bin.join("judge"))
+        .env("NORTH_LAND_NORTH", bin.join("north"))
+        .env("SAFE_PUSH_DENYLIST", world.path().join("denylist.toml"))
+        .env("NORTH_PRIVATE_KINDS", world.path().join("private-kinds.toml"))
+        .env_remove("SAFE_PUSH_SOUTH")
+        .env_remove("AGENT_CAPACITY_NORTH")
+        .env_remove("NORTH_FLEET_SESSION")
+        .env_remove("NORTH_LAND_SERVING")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command.output().unwrap()
+}
+
+#[test]
+fn a_lane_whose_private_kind_judge_exits_75_is_queued_without_an_alone_pass_and_the_lander_lands_it_once_the_judge_answers() {
+    let world = World::new();
+    let north = world.repository("north");
+    let bin = world.path().join("bin");
+    north_base::foundation::shim::write_executable(&bin.join("judge"), JUDGE_OUT_ONCE);
+    north_base::foundation::shim::write_executable(&bin.join("betterleaks"), NO_SECRETS);
+    north_base::foundation::shim::write_executable(&bin.join("gh"), PUBLIC_REPO);
+    fs::write(world.path().join("denylist.toml"), "[[rules]]\nid = \"fixture\"\n").unwrap();
+    fs::write(world.path().join("private-kinds.toml"), "[[kind]]\nid = \"address\"\n").unwrap();
+    let checker = format!("#!/bin/sh\n{} || exit $?\necho 'safe-push: verdict green'\n", bin.join("judge").display());
+    north_base::foundation::shim::write_executable(&bin.join("checker"), &checker);
+
+    let lane = north.checkout.parent().unwrap().join("worktrees").join("prose");
+    git(&north.checkout, &["worktree", "add", "-q", "-b", "prose", lane.to_str().unwrap(), "origin/main"]);
+    fs::write(lane.join("prose.txt"), "a public note about the method\n").unwrap();
+    git(&lane, &["add", "-A"]);
+    git(&lane, &["commit", "-q", "-m", "Add a public note"]);
+
+    let output = enqueue(&world, &lane);
+    let text = report(&output);
+    assert_eq!(output.status.code(), Some(0), "{text}");
+    assert!(text.contains("Done: queued"), "{text}");
+    assert!(text.contains("the private-kind judge has no verdict yet"), "{text}");
+    assert!(!text.contains("NOT queued"), "{text}");
+    let (_, ticket) = queue::pending(&north.queue).unwrap().pop().unwrap_or_else(|| panic!("no ticket in {}", north.queue.display()));
+    assert_eq!(ticket.branch, "prose");
+    assert_eq!((ticket.alone_green.as_deref(), ticket.alone_base.as_deref()), (None, None), "a lane whose judge had no verdict was vouched for at enqueue");
+
+    let journal = serve(&world, &north);
+    assert!(journal.contains("has no alone pass for its head"), "{journal}");
+    assert!(journal.contains("passed alone on main@"), "the judge answered, so the lander's alone check did not vouch for the lane: {journal}");
+    assert!(verdict(&north, "prose").starts_with("landed "), "{journal}");
+    assert!(subjects(&north).iter().any(|subject| subject == "Add a public note"), "{journal}");
 }
 
 #[test]

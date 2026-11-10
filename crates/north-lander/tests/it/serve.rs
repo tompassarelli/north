@@ -17,6 +17,13 @@ fn lander_process() {
 }
 
 #[test]
+fn enqueue_process() {
+    let Ok(arguments) = std::env::var(ARGUMENTS) else { return };
+    let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
+    std::process::exit(i32::from(north_lander::land::enqueue::run(&arguments)));
+}
+
+#[test]
 fn a_runtime_change_exits_the_lander_instead_of_waiting_for_a_check_in_flight() {
     let world = World::new();
     let repository = world.repository("north");
