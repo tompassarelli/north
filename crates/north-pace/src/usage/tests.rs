@@ -165,6 +165,51 @@ fn a_window_a_newer_reading_of_the_account_postdates_the_reset_of_reads_zero_use
     assert_eq!((unseen["used_pct"].as_f64(), unseen["as_of"].as_str()), (Some(30.0), Some("2026-10-28T09:00:00Z")), "{unseen}");
 }
 
+/// Opened by north#1065: a subscription account whose provider cache carries no scoped Fable row still needs
+/// a Fable meter, because Fable draws on the account's shared weekly window until the provider opens its own.
+#[test]
+fn every_subscription_account_has_a_fable_meter_read_from_its_shared_weekly_window() {
+    let rows = serde_json::json!([
+        ["2026-10-28T11:50:00Z", "claude", "a", "window", "session", 10.0, 300, "2026-10-28T16:00:00Z", null, "x"],
+        ["2026-10-28T11:50:00Z", "claude", "a", "window", "weekly_all", 40.0, 10080, "2026-11-03T00:00:00Z", null, "x"],
+        ["2026-10-28T11:50:00Z", "claude", "b", "window", "session", 5.0, 300, "2026-10-28T16:00:00Z", null, "x"],
+        ["2026-10-28T11:50:00Z", "claude", "b", "window", "weekly_all", 60.0, 10080, "2026-11-03T00:00:00Z", null, "x"],
+    ]);
+    let orchestration = "[accounts.claude.profiles.a]\nhere = {}\n[accounts.claude.profiles.b]\nhere = {}\n";
+    let scratch = Scratch::new(&serde_json::json!({"rows": rows, "orchestration": orchestration}));
+    let report = super::report(&scratch.open(), &scratch.places().policy, frozen()).unwrap();
+    let rows: Vec<Value> = serde_json::from_str(&report).unwrap();
+    for (account, used) in [("a", 40.0), ("b", 60.0)] {
+        let fable = rows
+            .iter()
+            .find(|row| row["account"] == account && row["name"] == "weekly_scoped/Fable")
+            .unwrap_or_else(|| panic!("{account} has no Fable meter: {report}"));
+        assert_eq!(fable["used_pct"], serde_json::json!(used), "{fable}");
+        assert_eq!(fable["resets_at"], serde_json::json!("2026-11-03T00:00:00Z"), "{fable}");
+    }
+}
+
+/// A Fable meter the provider does report has no reset of its own (`resets_at: null` in the recorded cache), so
+/// the table used to drop it. The meter still shows its used percent beside the account's week.
+#[test]
+fn the_table_shows_a_reported_fable_meter_even_when_it_has_no_reset_of_its_own() {
+    let rows = serde_json::json!([
+        ["2026-10-28T11:50:00Z", "claude", "a", "window", "session", 12.5, 300, "2026-10-28T16:00:00Z", null, "claude -p /usage"],
+        ["2026-10-28T11:50:00Z", "claude", "a", "window", "weekly_all", 40.0, 10080, "2026-11-03T00:00:00Z", null, "claude -p /usage"],
+        ["2026-10-28T11:50:00Z", "claude", "a", "window", "weekly_scoped/Opus", 20.0, 10080, "2026-11-03T00:00:00Z", null, "claude -p /usage"],
+        ["2026-10-28T11:50:00Z", "claude", "a", "window", "weekly_scoped/Fable", 3.0, 10080, null, null, "claude -p /usage"],
+    ]);
+    let orchestration = "[accounts.claude.profiles.a]\nhere = {}\n";
+    let scratch = Scratch::new(&serde_json::json!({"rows": rows, "orchestration": orchestration}));
+    let latest = super::store::latest(&scratch.open()).unwrap();
+    let fable = latest.iter().find(|row| row.text("name") == Some("weekly_scoped/Fable")).expect("the Fable row is read");
+    assert_eq!(fable.text("resets_at"), Some("2026-11-03T00:00:00Z"), "the Fable meter takes the account's weekly reset");
+    let (text, code) = super::table::render(&super::table::View { db: &scratch.open(), places: &scratch.places(), now: frozen(), offset_seconds: 0 }).unwrap();
+    assert_eq!(code, 0, "{text}");
+    assert!(text.contains("Opus 20%"), "{text}");
+    assert!(text.contains("Fable 3%"), "{text}");
+}
+
 #[test]
 fn an_api_key_account_profile_gets_the_shared_harness_so_its_workers_run_under_the_same_hooks() {
     let home = tempfile::tempdir().unwrap();

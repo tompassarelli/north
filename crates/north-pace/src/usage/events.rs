@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 
+use super::meter;
 use crate::foundation::clock::Timestamp;
 
 const HEADERS: &str = "Messages response anthropic-ratelimit-unified headers on the account's setup token";
@@ -7,7 +8,6 @@ const HEADER_WINDOWS: [&str; 2] = ["5h", "7d"];
 
 const FIVE_HOUR: (&str, u32) = ("session", 300);
 const WEEK: (&str, u32) = ("weekly_all", 10080);
-const SCOPED_PREFIX: &str = "weekly_scoped/";
 const STREAM: &str = "claude stream rate_limit_event";
 
 pub fn stream_rows(frame: &Value, at: f64) -> Vec<Value> {
@@ -38,15 +38,10 @@ pub fn window_of(key: &str) -> (String, Option<u32>) {
         "five_hour" | "5h" => (FIVE_HOUR.0.to_owned(), Some(FIVE_HOUR.1)),
         "seven_day" | "7d" => (WEEK.0.to_owned(), Some(WEEK.1)),
         scoped => match scoped.strip_prefix("seven_day_") {
-            Some(scope) if !scope.is_empty() => (format!("{SCOPED_PREFIX}{}", capitalised(scope)), Some(WEEK.1)),
+            Some(scope) if !scope.is_empty() => (meter::family(scope).map_or_else(|| format!("weekly_scoped/{scope}"), meter::scoped), Some(WEEK.1)),
             _ => (scoped.to_owned(), None),
         },
     }
-}
-
-fn capitalised(text: &str) -> String {
-    let mut letters = text.chars();
-    letters.next().map(|first| first.to_uppercase().chain(letters).collect()).unwrap_or_default()
 }
 
 pub fn window_row(account: Option<&str>, name: &str, minutes: Option<u32>, used: f64, resets_at: Option<i64>, source: &str, at: f64) -> Value {

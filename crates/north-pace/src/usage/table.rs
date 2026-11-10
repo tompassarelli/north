@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use rusqlite::Connection;
 
 use super::burn::{self, Burn};
+use super::decide::world::ModelFamily;
+use super::meter;
 use super::settings::Plan;
 use super::store::Row;
 use super::plain::{self, GAP, grid};
@@ -62,13 +64,8 @@ fn claude_row(view: &View, account: &str, mine: &[&Row]) -> Result<Vec<String>, 
     let session_cell = session.map_or(NONE.to_owned(), |(used, _)| percent(used));
     let session_resets = session.map_or(NONE.to_owned(), |(_, reset)| plain::clock(reset, view.offset_seconds));
     let mut week_cell = week.map_or(NONE.to_owned(), |(used, _)| if used >= 100.0 { "100% (full)".to_owned() } else { percent(used) });
-    for row in mine {
-        let Some(model) = row.text("name").and_then(|name| name.strip_prefix("weekly_scoped/")) else { continue };
-        if let Some((used, _)) = current_row(row, now)?
-            && used > 0.0
-        {
-            week_cell.push_str(&format!(", {model} {}", percent(used)));
-        }
+    for (label, used) in scoped(mine, now) {
+        week_cell.push_str(&format!(", {label} {}", percent(used)));
     }
     let resets = week.map_or(NONE.to_owned(), |(_, reset)| plain::clock(reset, view.offset_seconds));
     let mut outlook = vec![outlook(view, mine, session, week)?];
@@ -149,6 +146,25 @@ fn period(minutes: i64, suffix: &str) -> String {
         _ if !suffix.is_empty() => suffix.to_owned(),
         _ => plain::span(minutes),
     }
+}
+
+/// Every model-scoped weekly meter beside the account's shared week, even when the provider gave it no
+/// reset of its own: a Fable meter is the row a Fable session's headroom is read from, so it must show.
+fn scoped(mine: &[&Row], now: Timestamp) -> Vec<(String, f64)> {
+    mine.iter()
+        .filter(|row| row.text("kind") == Some("window"))
+        .filter_map(|row| {
+            let display = row.text("name")?.strip_prefix(meter::SCOPED_PREFIX)?;
+            let used = row.number("used_pct")?;
+            if let Some(reset) = row.text("resets_at").filter(|text| !text.is_empty()).and_then(|text| py::parse(text).ok())
+                && reset <= now
+            {
+                return None;
+            }
+            let family = meter::family(display);
+            (used > 0.0 || family == Some(ModelFamily::Fable)).then(|| (family.map_or_else(|| display.to_owned(), |family| meter::label(family).to_owned()), used))
+        })
+        .collect()
 }
 
 fn current(mine: &[&Row], name: &str, now: Timestamp) -> Result<Option<(f64, Timestamp)>, String> {

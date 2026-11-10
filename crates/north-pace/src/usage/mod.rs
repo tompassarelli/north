@@ -19,6 +19,7 @@ mod fast;
 mod gate;
 pub mod breaker;
 pub mod decide;
+pub mod meter;
 pub mod outlook;
 pub mod profiles;
 mod py;

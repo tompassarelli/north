@@ -15,7 +15,7 @@ use crate::land::queue;
 use crate::land_ticket::{Lane, Phase};
 use crate::platform::process::run_within;
 use crate::usage::decide::world::{Credit, Label, LimitEvent, ModelFamily, Percent, Reading, RowId, Source, Unix, Usd, Window};
-use crate::usage::{open_ledger, profiles};
+use crate::usage::{meter, open_ledger, profiles};
 use crate::watch;
 
 const QUERY: Duration = Duration::from_secs(10);
@@ -79,7 +79,7 @@ fn latest_windows(db: &Connection, now_ms: u64) -> Observed {
     let rows = query.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<f64>>(4)?, row.get::<_, Option<String>>(5)?, row.get::<_, Option<String>>(6)?)));
     let seconds = |text: &str| Timestamp::parse(text).ok().map(|at| at.unix_millis().div_euclid(1000));
     for (row, ts, account, name, used, resets_at, source) in rows.into_iter().flatten().flatten() {
-        let (Some(window), Some(read_at), Some(used)) = (window_of(&name), seconds(&ts), used) else { continue };
+        let (Some(window), Some(read_at), Some(used)) = (meter::window(&name), seconds(&ts), used) else { continue };
         let resets_at = resets_at.as_deref().and_then(seconds).map(Unix);
         let source = match source.as_deref() {
             Some("header") => Source::Header,
@@ -93,18 +93,46 @@ fn latest_windows(db: &Connection, now_ms: u64) -> Observed {
         }
         observed.readings.push(Reading { row: RowId(row), account, window, used: Percent(used), resets_at, read_at: Unix(read_at), source });
     }
-    observed
+    with_fable(observed)
 }
 
-fn window_of(name: &str) -> Option<Window> {
-    match name {
-        "session" => Some(Window::FiveHour),
-        "weekly_all" => Some(Window::Week),
-        scoped => {
-            let family = scoped.strip_prefix("weekly_scoped/")?.to_ascii_lowercase();
-            [("fable", ModelFamily::Fable), ("opus", ModelFamily::Opus), ("sonnet", ModelFamily::Sonnet), ("haiku", ModelFamily::Haiku)].into_iter().find(|(word, _)| family.contains(word)).map(|(_, family)| Window::Scoped(family))
+/// One Fable weekly reading for every Claude account with a weekly window but no scoped Fable row: until
+/// the provider opens Fable's own window, its headroom is the account's shared weekly headroom.
+fn with_fable(mut observed: Observed) -> Observed {
+    let week_resets: std::collections::BTreeMap<String, i64> = observed
+        .readings
+        .iter()
+        .filter(|reading| reading.window == Window::Week)
+        .filter_map(|reading| Some((reading.account.0.clone(), reading.resets_at?.0)))
+        .collect();
+    for reading in observed.readings.iter_mut().filter(|reading| reading.window == Window::Scoped(ModelFamily::Fable) && reading.resets_at.is_none()) {
+        if let Some(at) = week_resets.get(&reading.account.0) {
+            reading.resets_at = Some(Unix(*at));
         }
     }
+    let reported: std::collections::BTreeSet<String> = observed
+        .readings
+        .iter()
+        .filter(|reading| reading.window == Window::Scoped(ModelFamily::Fable))
+        .map(|reading| reading.account.0.clone())
+        .collect();
+    let fallbacks: Vec<Reading> = observed
+        .readings
+        .iter()
+        .filter(|reading| reading.window == Window::Week && !reported.contains(&reading.account.0))
+        .enumerate()
+        .map(|(index, week)| Reading {
+            row: RowId(-(index as i64) - 1),
+            account: week.account.clone(),
+            window: Window::Scoped(ModelFamily::Fable),
+            used: week.used,
+            resets_at: week.resets_at,
+            read_at: week.read_at,
+            source: week.source,
+        })
+        .collect();
+    observed.readings.extend(fallbacks);
+    observed
 }
 
 /// Whether a session holds work origin/main lacks: a land ticket of its own the lander has neither landed nor let go,

@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::record::Reading;
 use crate::foundation::clock::Timestamp;
-use crate::usage::{py, web};
+use crate::usage::{meter, py, web};
 use crate::usage::profiles;
 
 const KNOWN: [&str; 6] = ["five_hour", "seven_day", "limits", "extra_usage", "spend", "cedar_ember"];
@@ -124,7 +124,11 @@ fn rows(settings: &Settings, cache: &Value, now: &str) -> Vec<Reading> {
     let mut out = Vec::new();
     for limit in usage["limits"].as_array().into_iter().flatten() {
         let scope = limit["scope"]["model"]["display_name"].as_str().filter(|scope| !scope.is_empty());
-        let name = format!("{}{}", limit["kind"].as_str().unwrap_or_default(), scope.map_or_else(String::new, |scope| format!("/{scope}")));
+        let name = match (limit["kind"].as_str().unwrap_or_default(), scope) {
+            ("weekly_scoped", Some(scope)) => meter::family(scope).map_or_else(|| format!("{}{scope}", meter::SCOPED_PREFIX), meter::scoped),
+            (kind, Some(scope)) => format!("{kind}/{scope}"),
+            (kind, None) => kind.to_owned(),
+        };
         let window = match limit["group"].as_str() {
             Some("session") => json!(300),
             Some("weekly") => json!(10080),
