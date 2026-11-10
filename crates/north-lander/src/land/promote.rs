@@ -244,6 +244,7 @@ enum Outcome {
     Moved(String),
     MovedUnjudged { candidate: String, reason: String },
     Rolled { candidate: String, held: String, reason: String },
+    Kept { gone: String, reason: String },
 }
 
 fn name(target: &Path) -> String {
@@ -334,7 +335,11 @@ fn judge_diverged(options: &Options, runtime: &Runtime, repositories: &[Reposito
 }
 
 /// Moves the link back to the runtime it held before this promotion, so a runtime whose own replay diverged from the recorded verdict no longer runs the lander, and names it refused until current moves on, as the doctor's rollback does.
+/// A held runtime whose binary is gone from disk is never the target: the link stays on the runtime the lander runs now.
 fn roll_back(options: &Options, runtime: &Runtime, held: Option<&Path>, candidate: &Path, reason: String) -> Result<Outcome, String> {
+    if let Some(gone) = held.filter(|held| !runtime.binary(held).is_file()) {
+        return Ok(Outcome::Kept { gone: gone.display().to_string(), reason });
+    }
     if options.dry_run {
         let held = held.map_or_else(|| "no held runtime".to_owned(), |held| held.display().to_string());
         return Ok(Outcome::Rolled { candidate: name(candidate), held, reason });

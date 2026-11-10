@@ -27,11 +27,21 @@ pub fn run(arguments: &[String]) -> u8 {
             NO_VERDICT
         }
         Ok(Outcome::Rolled { candidate, held, reason }) => {
+            if !options.dry_run {
+                link_hold::release_rollback(&runtime.home);
+            }
             let back = if options.dry_run { "would go back" } else { "is back" };
             println!("north land promote: refused: {reason}; the lander link {back} at {held} and {candidate} stays off the lander until current moves on");
             if !options.dry_run {
                 link_hold::held(&runtime.home, telemetry::seconds(), &candidate, &reason);
             }
+            1
+        }
+        Ok(Outcome::Kept { gone, reason }) => {
+            if !options.dry_run {
+                link_hold::release_rollback(&runtime.home);
+            }
+            println!("north land promote: refused: {reason}; the held runtime {gone} is no longer on disk, so the lander link stays on the runtime it runs now");
             1
         }
         Ok(Outcome::Settled(result)) => {

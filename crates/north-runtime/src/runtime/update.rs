@@ -397,6 +397,8 @@ pub(crate) fn collect(layout: &Layout, target: &str, previous: Option<&Path>) ->
     keep.extend(previous.and_then(layout::linked_sha));
     let lander = fs::read_link(layout.lander()).ok();
     keep.extend(lander.as_deref().and_then(layout::linked_sha));
+    let rollback = fs::read_to_string(layout.lander_rollback()).ok();
+    keep.extend(rollback.as_deref().and_then(|target| layout::linked_sha(Path::new(target.trim()))));
     let running = layout::running(Path::new("/proc"), &layout.runtimes());
     keep.extend(running.iter().map(String::as_str));
     let current = fs::canonicalize(layout.current()).ok();

@@ -40,6 +40,23 @@ fn collecting_old_runtimes_keeps_the_runtime_the_lander_link_pins() {
 }
 
 #[test]
+fn collecting_old_runtimes_keeps_the_runtime_a_lander_rollback_would_go_back_to() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_path_buf() };
+    let shas: Vec<String> = (0..7).map(|digit| digit.to_string().repeat(40)).collect();
+    for sha in &shas {
+        fs::create_dir_all(layout.runtime(sha)).unwrap();
+        ticks_past(state.path(), &layout.runtime(sha));
+    }
+    std::os::unix::fs::symlink(layout::link(&shas[6]), layout.lander()).unwrap();
+    std::os::unix::fs::symlink(layout::link(&shas[6]), layout.current()).unwrap();
+    fs::write(layout.lander_rollback(), format!("{}\n", layout::link(&shas[0]).display())).unwrap();
+    collect(&layout, &shas[6], None).unwrap();
+    assert!(layout.runtime(&shas[0]).is_dir());
+    assert!(!layout.runtime(&shas[1]).exists());
+}
+
+#[test]
 fn a_copy_interrupted_over_an_hour_ago_leaves_no_staging_directory_while_a_fresh_one_stays() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_path_buf() };

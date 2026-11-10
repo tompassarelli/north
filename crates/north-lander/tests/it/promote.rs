@@ -512,3 +512,17 @@ fn a_replay_that_hits_a_held_index_lock_beside_matched_rounds_does_not_hold_the_
     assert!(stdout.contains("reported, not held on: round lane-c: error ") && stdout.contains("Another git process"), "{stdout}");
     assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{stdout}");
 }
+
+#[test]
+fn a_rollback_never_points_the_lander_at_a_pruned_runtime() {
+    let chain = Chain::new();
+    let candidate = chain.commit("docs/two.md", "Document another thing");
+    chain.runtime(&candidate, "echo 'replay: verdict failed'");
+    chain.current(&candidate);
+    std::fs::remove_dir_all(chain.state.join(format!("north/runtimes/{}", chain.held))).unwrap();
+    let promoted = chain.promote();
+    let stdout = &promoted.stdout;
+    assert!(!promoted.status, "{stdout}");
+    assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{stdout}");
+    assert!(stdout.contains("is no longer on disk, so the lander link stays on the runtime it runs now"), "{stdout}");
+}

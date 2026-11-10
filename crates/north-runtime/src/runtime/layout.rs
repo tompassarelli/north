@@ -43,6 +43,10 @@ impl Layout {
         self.state.join("lander")
     }
 
+    pub fn lander_rollback(&self) -> PathBuf {
+        self.state.join(north_runtime_follow::LANDER_ROLLBACK)
+    }
+
     pub fn swaps(&self) -> PathBuf {
         self.state.join("runtime-swaps.jsonl")
     }

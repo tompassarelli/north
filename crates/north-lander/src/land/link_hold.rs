@@ -2,6 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use north_runtime_follow::LANDER_ROLLBACK;
+
 use super::after::{follow, send_condition};
 
 pub const CLASS: &str = "lander-held";
@@ -45,6 +47,16 @@ pub fn reason(home: &Path) -> Option<String> {
 pub fn clear(home: &Path) {
     let _ = fs::remove_file(path(home));
     let _ = fs::remove_file(home.join(UNREACHED));
+    release_rollback(home);
+}
+
+/// Names the runtime the lander link leaves for a promotion's candidate, so runtime collection keeps it while the candidate is judged and a rollback has somewhere to go.
+pub fn record_rollback(home: &Path, previous: &Path) {
+    let _ = fs::write(home.join(LANDER_ROLLBACK), format!("{}\n", previous.display()));
+}
+
+pub fn release_rollback(home: &Path) {
+    let _ = fs::remove_file(home.join(LANDER_ROLLBACK));
 }
 
 /// A promotion whose replays of `candidate` reached no verdict, and how many promotions in a row did so.

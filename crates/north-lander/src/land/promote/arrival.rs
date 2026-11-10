@@ -1,4 +1,4 @@
-use super::{Options, Repository, Runtime, output, swap};
+use super::{Options, Repository, Runtime, link_hold, output, swap};
 use std::fs;
 use std::path::Path;
 
@@ -23,6 +23,9 @@ pub(super) fn move_first(options: &Options, runtime: &Runtime, repositories: &[R
     if options.dry_run {
         println!("north land promote: dry run: the lander link would point at {}", target.display());
         return Ok(None);
+    }
+    if let Some(previous) = fs::read_link(runtime.lander()).ok().filter(|previous| previous != target) {
+        link_hold::record_rollback(&runtime.home, &previous);
     }
     swap(&runtime.lander(), target).map_err(|error| format!("{}: {error}; the lander link is unchanged", runtime.lander().display()))?;
     println!("north land promote: the lander link now points at {}; the recorded-round replay and shadow judge it after", target.display());
