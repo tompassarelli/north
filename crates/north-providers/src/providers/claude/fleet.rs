@@ -3,7 +3,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use north_claude_stream::{encode_interrupt, encode_user_blocks, encode_user_message};
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript, UsageLimit};
 use crate::fleet::attachments;
 use crate::fleet::roster::Roster;
@@ -109,6 +109,10 @@ impl Runtime for Claude {
         }
         let (from, to, file) = (quote(&from.home.join("projects").to_string_lossy()), quote(&to.home.join("projects").to_string_lossy()), quote(&format!("{conversation}.jsonl")));
         Some(format!("for project in {from}/*/; do [ -f \"$project\"{file} ] || continue; into={to}/$(basename \"$project\"); mkdir -p \"$into\" && cp -- \"$project\"{file} \"$into\"/ || exit 1; done"))
+    }
+
+    fn prepare_interactive(&self, account: &Account, _request: &LaunchRequest) -> NorthResult<()> {
+        session_env::onboard(account).map_err(NorthError::State)
     }
 
     fn interactive_prompt(&self, account: &Account, request: &LaunchRequest) -> Option<String> {
