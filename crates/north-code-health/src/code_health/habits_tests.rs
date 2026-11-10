@@ -8,6 +8,7 @@ fn the_north_tree_keeps_its_rust_habits() {
     assert!(found.is_empty(), "{}", found.join("\n"));
     a_test_reading_the_host_outside_the_fixture_beyond_its_listed_count_is_named_and_a_stale_count_is_refused();
     a_test_reading_the_wall_clock_or_sleeping_outside_the_fixture_is_named_at_each_site();
+    a_test_starting_a_fleet_session_or_lander_outside_a_fixture_root_is_named_at_each_site();
 }
 
 fn a_test_reading_the_host_outside_the_fixture_beyond_its_listed_count_is_named_and_a_stale_count_is_refused() {
@@ -63,6 +64,34 @@ fixture = "inject the clock"
     let files = files_of(&habits, sources);
     let found: Vec<String> = check(&habits, &files, None).iter().map(|finding| format!("{}:{} {}", finding.path, finding.line, finding.item)).collect();
     assert_eq!(found, ["tests/racy.rs:1 thread::sleep", "tests/racy.rs:4 Instant::now", "tests/racy.rs:5 thread::sleep", "tests/racy.rs:6 time::sleep", "tests/racy.rs:7 SystemTime::now", "src/live.rs:7 Instant::now"]);
+}
+
+fn a_test_starting_a_fleet_session_or_lander_outside_a_fixture_root_is_named_at_each_site() {
+    use super::habits::{Habits, check, files_of};
+    let config = r#"
+[rust_habits]
+checks = ["ambient-test-input"]
+[[rust_habits.ambient_inputs]]
+input = "fleet"
+allowlist = "fleets.tsv"
+fixtures = ["tests/fixture.rs"]
+fixture = "start it under NORTH_TEST_ROOT"
+"#;
+    let mut habits = Habits::parse(config).unwrap().unwrap();
+    habits.read_ambient(|_| Ok("tests/shrunk.rs\t2\n".to_owned())).unwrap();
+    let starts = "#[test]\nfn t() {\n    run(&[\"fleet\", \"launch\", \"--name\", \"x\"]);\n    run(&[\"land\", \"serve\"]);\n}\n";
+    let sources = [
+        ("tests/new.rs", starts.to_owned()),
+        ("tests/shrunk.rs", "#[test]\nfn t() {\n    run(&[\"land\", \"serve\"]);\n}\n".to_owned()),
+        ("tests/contained.rs", "#[test]\nfn t() {\n    command.env(\"NORTH_TEST_ROOT\", root);\n    run(&[\"land\", \"serve\"]);\n}\n".to_owned()),
+        ("tests/fixture.rs", starts.to_owned()),
+        ("src/live.rs", "fn live() {\n    run(&[\"fleet\", \"launch\"]);\n}\n#[cfg(test)]\nmod tests {\n    fn t() {\n        run(&[\"land\", \"serve\"]);\n    }\n}\n".to_owned()),
+    ]
+    .map(|(path, text)| (path.to_owned(), text))
+    .to_vec();
+    let files = files_of(&habits, sources);
+    let found: Vec<String> = check(&habits, &files, None).iter().map(|finding| format!("{}:{}", finding.path, finding.line)).collect();
+    assert_eq!(found, ["tests/new.rs:3", "tests/new.rs:4", "src/live.rs:7", "tests/shrunk.rs:0"]);
 }
 
 #[test]

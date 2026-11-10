@@ -1025,6 +1025,12 @@ allowlist = "ambient-test-clocks.tsv"
 fixtures = []
 fixture = "take time as a value from an injected clock and order events by waiting on them (a channel, a barrier, a file the code under test writes); a wait that only bounds a test that would otherwise hang goes through north_base::platform::wait::until"
 
+[[rust_habits.ambient_inputs]]
+input = "fleet"
+allowlist = "ambient-test-fleets.tsv"
+fixtures = ["crates/north-dispatch/src/dispatch/queued.rs", "crates/north-land-scans/src/peer_invocations_tests.rs", "crates/north-runtime/src/runtime/probe_tests.rs"]
+fixture = "start it in a tempdir and set NORTH_TEST_ROOT to that directory before the launch, as tests/it/fleet_launch.rs and tests/it/land_serve/mod.rs do, so a write outside it is refused before the session or lander writes; each file in fixtures only reads the words and starts no process"
+
 [[rust_habits.allow]]
 rule = "single-impl-trait"
 path = "crates/north-lander/src/land/serve.rs"

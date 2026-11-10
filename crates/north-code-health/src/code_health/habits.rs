@@ -38,7 +38,7 @@ fn ambient_config(table: &Item, checks: &BTreeSet<String>) -> Result<Vec<Ambient
         .map(|config| {
             let text = |key: &str| config.get(key).and_then(Item::as_str).map(str::to_owned).ok_or_else(|| format!("structure.toml: each [[rust_habits.ambient_inputs]] needs {key}"));
             let name = text("input")?;
-            let input = ambient::Input::named(&name).ok_or_else(|| format!("structure.toml: rust_habits.ambient_inputs names unknown input {name}; known: host, clock"))?;
+            let input = ambient::Input::named(&name).ok_or_else(|| format!("structure.toml: rust_habits.ambient_inputs names unknown input {name}; known: host, clock, fleet"))?;
             Ok(Ambient { input, fixtures: strings(config.get("fixtures")), allowlist: text("allowlist")?, fixture: text("fixture")?, allowed: Default::default() })
         })
         .collect()

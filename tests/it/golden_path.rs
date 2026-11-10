@@ -77,7 +77,7 @@ impl Rig {
     }
 
     fn north(&self, args: &[&str]) -> Output {
-        fleet_launch::environment(Command::new(env!("CARGO_BIN_EXE_north")), &self.root, "here").env("FAKE_CLAUDE_PROJECT", "-home-tom-code-proj-worktrees-worker").args(args).output().unwrap()
+        fleet_launch::environment(Command::new(env!("CARGO_BIN_EXE_north")), &self.root, "here").env("FAKE_CLAUDE_PROJECT", "-home-tom-code-proj-worktrees-worker").env("NORTH_TEST_ROOT", &self.root).args(args).output().unwrap()
     }
 
     fn command(&self, program: impl AsRef<std::ffi::OsStr>, directory: &Path) -> Command {
@@ -85,6 +85,7 @@ impl Rig {
         command
             .current_dir(directory)
             .env("GOLDEN_CHECKS", self.root.join("checks"))
+            .env("NORTH_TEST_ROOT", &self.root)
             .env_remove("XDG_CONFIG_HOME")
             .env("NORTH_LAND_NORTH", env!("CARGO_BIN_EXE_north"))
             .env_remove("NORTH_LAND_SERVING")

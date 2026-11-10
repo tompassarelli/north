@@ -10,11 +10,14 @@ static HOST_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(statvfs|ava
 static HOST_FILE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""(/proc)\b"#).unwrap());
 static CLOCK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:(Instant|SystemTime)\s*::\s*now|(thread|time)\s*::\s*(?:\{[^}]*)?\bsleep)\b").unwrap());
+static FLEET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""\s*fleet\s*"\s*,\s*"\s*launch\s*""#).unwrap());
+static LANDER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""\s*land\s*"\s*,\s*"\s*serve\s*""#).unwrap());
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Input {
     Host,
     Clock,
+    Fleet,
 }
 
 impl Input {
@@ -22,6 +25,7 @@ impl Input {
         match name {
             "host" => Some(Self::Host),
             "clock" => Some(Self::Clock),
+            "fleet" => Some(Self::Fleet),
             _ => None,
         }
     }
@@ -30,6 +34,14 @@ impl Input {
         match self {
             Self::Host => "reads the real host",
             Self::Clock => "reads the wall clock or orders events by sleeping",
+            Self::Fleet => "starts a fleet session or lander with no declared fixture root",
+        }
+    }
+
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Fleet => "starts",
+            Self::Host | Self::Clock => "reads",
         }
     }
 
@@ -44,6 +56,11 @@ impl Input {
                 let (kind, verb) = found.get(1).map_or_else(|| (found.get(2), "sleep"), |kind| (Some(kind), "now"));
                 kind.map(|kind| (kind.start(), format!("{}::{verb}", kind.as_str())))
             })),
+            Self::Fleet => {
+                let fleets = FLEET.find_iter(file.commentless()).map(|found| (found.start(), "fleet launch".to_owned()));
+                let landers = LANDER.find_iter(file.commentless()).map(|found| (found.start(), "land serve".to_owned()));
+                file.in_tests(fleets.chain(landers))
+            }
         }
     }
 }
@@ -73,7 +90,13 @@ impl Ambient {
     }
 
     fn reads(&self, file: &RustFile) -> Vec<(usize, String)> {
-        if self.fixtures.contains(&file.path) { Vec::new() } else { self.input.found(file) }
+        if self.fixtures.contains(&file.path) {
+            return Vec::new();
+        }
+        if self.input == Input::Fleet && file.commentless().contains("NORTH_TEST_ROOT") {
+            return Vec::new();
+        }
+        self.input.found(file)
     }
 
     pub(super) fn findings(&self, files: &[RustFile], tree: bool) -> Vec<Finding> {
@@ -87,7 +110,7 @@ impl Ambient {
                 continue;
             }
             for (line, item) in reads {
-                let text = format!("{item} in test code {} — {}; {} lists {allowed} such reads for this file and only shrinks", self.input.reads(), self.fixture, self.allowlist);
+                let text = format!("{item} in test code {} — {}; {} lists {allowed} such {} for this file and only shrinks", self.input.reads(), self.fixture, self.allowlist, self.input.noun());
                 let fix = Fix::declared_for(&item);
                 out.push(Finding { rule: RULE, path: file.path.clone(), line, item, text, fix });
             }
@@ -96,7 +119,7 @@ impl Ambient {
             for (path, allowed) in &self.allowed {
                 let found = counted.get(path.as_str()).copied().unwrap_or(0);
                 if found < *allowed {
-                    let text = format!("{} lists {allowed} such reads in tests but the file has {found} — lower the count to {found} (delete the line at 0)", self.allowlist);
+                    let text = format!("{} lists {allowed} such {} in tests but the file has {found} — lower the count to {found} (delete the line at 0)", self.allowlist, self.input.noun());
                     out.push(Finding { rule: RULE, path: path.clone(), line: 0, item: String::new(), text, fix: None });
                 }
             }
