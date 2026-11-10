@@ -225,7 +225,7 @@ fn live_reading(line: &str) -> Option<&'static str> {
     if names(&["on the lander host"]) {
         return Some("a host's live ledger");
     }
-    if names(&["north ledger scoreboard", "north land reuse report"]) {
+    if names(&["north dash", "north ledger scoreboard", "north land reuse report"]) {
         return Some("a live ledger report");
     }
     None

@@ -298,11 +298,12 @@ fn a_live_reading_box_is_not_staffed_and_a_box_gets_one_launch() {
     let (_, accounts) = fleet();
     let hosts = vec![host("gex45", 24, Ok(0))];
     let scoreboard = "`north ledger scoreboard` shows landing queue p90 over 1 h at or below 10 min in two separate hours";
+    let dashboard = "`north ledger scoreboard` shows first tries lost to the harness over 3 h at or below 2% Done when: `north dash --bars --all | rg -q 'first tries? lost.*PASS'` exits 0";
     let reuse = "Verdict reuse shadow: `north land reuse report --since 7d` on the lander host prints at least 100 landings and 0 disagreements.";
     let journal = "The laptop's hourly lane-gc runs under 2 CPU minutes once the fix is live. Done when: `journalctl --user -u lane-gc.service --since -3h -o cat | rg Consumed | tail -2` exits 0";
     let plain = "the cache keeps the newest row";
     let boxes = vec![
-        issue("north", 902, &format!("- [ ] {scoreboard}\n- [ ] {reuse}\n- [ ] {plain}"), &[]),
+        issue("north", 902, &format!("- [ ] {scoreboard}\n- [ ] {dashboard}\n- [ ] {reuse}\n- [ ] {plain}"), &[]),
         issue("north", 1028, &format!("- [ ] {journal}"), &[]),
     ];
     let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
