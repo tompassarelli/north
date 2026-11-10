@@ -115,11 +115,16 @@ fn a_lane_adding_wisps_push_to_main_code_health_job_with_no_check_and_no_reason_
     let base = commit(&root, ".github/workflows/release-on-tag.yml", RELEASE_ON_TAG);
     let wisp_ci = commit(&root, ".github/workflows/ci.yml", WISP_CI_CODE_HEALTH);
     assert_eq!(gates(&root, &base, &wisp_ci, &state_home, &stub), ["after-only reason"]);
+    let (code, text) = scanned(&root, &format!("{base}..{wisp_ci}"));
+    assert_eq!(code, 1, "the scan refuses a lane whose push-to-main job runs nothing before landing");
+    assert!(text.contains("`.github/workflows/ci.yml:code-health`"), "the scan names the job: {text}");
     let reasoned = commit(&root, ".safe-push", "[land]\n\tafter-only = north's code-health lane gate runs this check before landing :: .github/workflows/ci.yml:code-health\n");
     assert!(gates(&root, &base, &reasoned, &state_home, &stub).is_empty());
+    assert_eq!(scanned(&root, &format!("{base}..{reasoned}")).0, 0, "an after-only reason satisfies the scan");
     at(&root, &wisp_ci);
     let checked = commit(&root, ".safe-push", "[land]\n\tcheck = ** :: npm i -g @ast-grep/cli@0.42.1\n\tcheck = ** :: \\\"$CODE_HEALTH_NORTH_BIN\\\" code-health gate \\\"$base\\\" HEAD\n");
     assert!(gates(&root, &base, &checked, &state_home, &stub).is_empty());
+    assert_eq!(scanned(&root, &format!("{base}..{checked}")).0, 0, "a land.check for every run step satisfies the scan");
 }
 
 #[test]
@@ -140,9 +145,17 @@ fn a_lane_that_changes_no_push_to_main_job_is_not_refused_for_the_one_it_inherit
     assert_eq!(gates(&root, &base, &wisp_ci, &state_home, &stub), ["after-only reason"]);
     let unrelated = commit(&root, "README.md", "a lane that changes only this file\n");
     assert!(gates(&root, &wisp_ci, &unrelated, &state_home, &stub).is_empty());
+    assert_eq!(scanned(&root, &format!("{wisp_ci}..{unrelated}")).0, 0, "the scan does not re-judge a job the lane inherits");
     let changed = commit(&root, ".github/workflows/ci.yml", WISP_CI_ANOTHER_GATE);
     assert_eq!(gates(&root, &unrelated, &changed, &state_home, &stub), ["after-only reason"]);
+    assert_eq!(scanned(&root, &format!("{unrelated}..{changed}")).0, 1, "the scan refuses a job the lane changes");
     at(&root, &changed);
     let reasoned = commit(&root, ".safe-push", "[land]\n\tafter-only = the job's extra gate has no before-landing copy :: .github/workflows/ci.yml:code-health\n");
     assert!(gates(&root, &unrelated, &reasoned, &state_home, &stub).is_empty());
+}
+
+fn scanned(root: &Path, range: &str) -> (u8, String) {
+    let mut out = Vec::new();
+    let code = crate::land::scans::ci_jobs::scan(root, range, &mut out);
+    (code, String::from_utf8_lossy(&out).into_owned())
 }
