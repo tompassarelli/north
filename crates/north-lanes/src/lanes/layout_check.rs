@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use north_base::platform::git;
@@ -169,9 +170,14 @@ fn fleet_scratch(worktree: &Path) -> bool {
 }
 
 fn owned_state(home: &Path) -> Vec<PathBuf> {
-    let named = [home.join(".cache"), home.join(".local/state"), home.join(".local/state/north")];
+    let mut named = vec![home.join(".cache"), home.join(".local/state"), home.join(".local/state/north")];
+    named.extend(runtime_dir(home).map(|runtime| runtime.join("north-health")));
     let resolved = named.iter().filter_map(|path| fs::canonicalize(path).ok()).collect::<Vec<_>>();
     named.into_iter().chain(resolved).collect()
+}
+
+fn runtime_dir(home: &Path) -> Option<PathBuf> {
+    std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).or_else(|| Some(PathBuf::from(format!("/run/user/{}", fs::metadata(home).ok()?.uid()))))
 }
 
 fn pin_problem(container: &Path, worktree: &Path, leaf: &str) -> Option<String> {

@@ -1,2 +1,2 @@
 dash
-The board: landings and boxes per hour, then Work, Accounts, Infra and Health panels
+The board: landings and boxes per hour, then four concern panels

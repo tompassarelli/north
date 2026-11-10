@@ -1,4 +1,2 @@
 accounts
 Every account's windows, plan, api credit and spend
-usage: north accounts [--json] | north accounts reset [--dry-run]
-reset reads the coordinator's account and Fable meter, checks the cached usage reset grants, and appends one line to ~/.local/state/north/usage/resets.jsonl with the account, time, meter before and after, the grants and the outcome. It never clicks a reset: Anthropic's Consumer Terms forbid automating claude.ai and no provider reset command or API exists, so the grant stays for Tom (docs/rationale/usage-resets.md).

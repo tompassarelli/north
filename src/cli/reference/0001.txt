@@ -1,4 +1,5 @@
   accounts [--json]                              Every account's windows, plan, api credit and spend
+  accounts reset [--dry-run]                     Check the coordinator's usage reset grant against its Fable meter and log the outcome to ~/.local/state/north/usage/resets.jsonl; it never clicks the reset (docs/rationale/usage-resets.md)
   health [--dry-run] [--json]                    Readiness bars, goals and harness invariants
   infra [--json]                                 List each live paid resource with its monthly price and a total
   home move [--dry-run] PLAN.tsv                 Apply a move plan at the top of home outside the worker sandbox: one rename per row, logged to moves.tsv, never copying or deleting

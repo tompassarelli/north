@@ -6,7 +6,7 @@ Run north with no arguments to open the fleet screen.
 
 Operator console:
   glance                One line: anything broken, the money, and what waits on Tom
-  dash                  The board: landings and boxes per hour, then Work, Accounts, Infra and Health panels
+  dash                  The board: landings and boxes per hour, then four concern panels
   fleet                 Sessions, dispatch, pace, usage, laptop, orders, digest, report
   gate                  Open, answer or list decision gates
   ledger                Fleet runs and cost; worker tiers, flow, tempo and incidents
@@ -30,7 +30,7 @@ Engineering and landing:
   nix                   Explain a Nix footgun, or root and collect the store
 
 System and telemetry:
-  accounts              Every account's windows, plan, api credit and spend usage: north accounts [--json] | north accounts reset [--dry-run] reset reads the coordinator's account and Fable meter, checks the cached usage reset grants, and appends one line to ~/.local/state/north/usage/resets.jsonl with the account, time, meter before and after, the grants and the outcome. It never clicks a reset: Anthropic's Consumer Terms forbid automating claude.ai and no provider reset command or API exists, so the grant stays for Tom (docs/rationale/usage-resets.md).
+  accounts              Every account's windows, plan, api credit and spend
   health                Readiness bars, goals and harness invariants
   infra                 Live paid resources with their monthly price and a total
   config                Skills and hooks, agent plan and usage, context, proxy calls
