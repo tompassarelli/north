@@ -91,10 +91,12 @@ and their subverbs stay.
   `north fleet usage`, `north fleet accounts --plan`, placement, dispatch, `north ledger flow`, `north dash` and the
   fleet screen's digest all read it, and `Standing::figure` words the figure once
   (`$X left (console reading TIME, estimate $Y)`).
-- **Subscription windows** are read by two queries for the latest reading of each window: `usage/store.rs`
-  (`north fleet usage`, `north dash`) and `latest_windows` in `src/cli/fleet/limit.rs` (placement and waits), which
-  also derives limit events and the Fable fallback. They read the same rows, so the figures agree today; the second
-  query is folded into the first when the Accounts panel is built.
+- **Subscription windows** were read by two queries for the latest reading of each window: `usage/store.rs`
+  (`north accounts`, `north dash`) and a second one in `src/cli/fleet/limit.rs` (placement and waits), which also
+  derived limit events and the Fable fallback. They read the same rows, so the figures agreed. The second query is
+  folded into the first: `latest_windows` in `crates/north-pace/src/usage/store.rs` turns the one latest-reading
+  query's rows, Fable fallback included, into the typed readings and limit events that placement, the waits and the
+  reset of a full window read through `north_pace::usage::windows`; `limit.rs` holds no window query.
 - **Spend** is read from the same `runs` table by `fleet spend`, `dash`, `dash --weekly` and `ledger runs` over
   different windows at API-equivalent price; no disagreement is recorded.
 - **Work in flight** is drawn three ways: the fleet screen follows the session rows of the fleet store, the digest

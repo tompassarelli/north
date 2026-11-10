@@ -130,6 +130,7 @@ fn listing(fleet: &Fleet, claude_ai: bool) -> NorthResult<()> {
 
 /// Prints every plan account and API grant in placement order with its verdict and rank reason, the operational reserve among them as unavailable to workers.
 fn plan() -> NorthResult<()> {
+    eprintln!("north fleet accounts --plan moved to `north accounts --json`; its \"plan\" lists the same placement order with each verdict and reason");
     let plan = crate::pacing::placement::case::plan(&super::roster()?).map_err(NorthError::State)?;
     for (index, (line, reason)) in plan.iter().enumerate() {
         println!("{}. {line} [{reason}]", index + 1);

@@ -20,7 +20,7 @@ const UNREADABLE_RETRY_MS: u64 = 3_600_000;
 const DAY_MS: u64 = 86_400_000;
 const LABEL: &str = "usage limit";
 const FIVE_HOURS_MS: u64 = 5 * 3_600_000;
-pub const FULL_PCT: f64 = 99.5;
+pub use crate::usage::FULL_PCT;
 
 static CLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bresets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(utc\)").expect("limit clock pattern"));
 

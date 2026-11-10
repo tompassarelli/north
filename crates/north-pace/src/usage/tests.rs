@@ -318,3 +318,20 @@ fn the_account_view_of_the_2026_11_10_afternoon_readings_fits_a_screen_and_shows
     assert_eq!(row("gmail"), "gmail open $126.53 Dec 10");
     assert!(row("proton").starts_with("proton out $0.00 Nov 5 "), "{}", row("proton"));
 }
+
+/// Opened by north#1065: the capacity read model reads the same Fable meter the account view shows. With no scoped
+/// Fable window the meter is the shared week's, and a reported scoped window keeps its own reading; a full week
+/// with a reset still ahead is also a limit event.
+#[test]
+fn the_windows_read_carries_each_accounts_fable_meter_and_its_limit_events() {
+    use super::decide::world::{ModelFamily, Window};
+    let week = |account: &str, used: f64| serde_json::json!(["2026-10-28T11:50:00Z", "claude", account, "window", "weekly_all", used, 10080, "2026-11-03T00:00:00Z", null, "header"]);
+    let rows = serde_json::json!([week("a", 40.0), week("b", 100.0), ["2026-10-28T11:50:00Z", "claude", "b", "window", "weekly_scoped/Fable", 3.0, 10080, null, null, "header"]]);
+    let scratch = Scratch::new(&serde_json::json!({"rows": rows, "orchestration": ""}));
+    let now_ms = frozen().unix_millis() as u64;
+    let read = super::windows(&scratch.open(), now_ms);
+    let fable = |account: &str| read.readings.iter().find(|reading| reading.account.0 == account && reading.window == Window::Scoped(ModelFamily::Fable)).map(|reading| reading.used.0);
+    assert_eq!((fable("a"), fable("b")), (Some(40.0), Some(3.0)));
+    let limited: Vec<&str> = read.limits.iter().map(|event| event.account.0.as_str()).collect();
+    assert_eq!(limited, ["b"]);
+}

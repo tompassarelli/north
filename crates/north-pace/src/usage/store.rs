@@ -5,25 +5,38 @@ use std::path::{Path, PathBuf};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 
-use super::decide::world::ModelFamily;
+use super::decide::world::{Label, LimitEvent, ModelFamily, Percent, Reading, RowId, Source as Via, Unix};
 use super::meter;
 use crate::foundation::clock::Timestamp;
 
 pub(super) const COLUMNS: [&str; 10] =
     ["ts", "provider", "account", "kind", "name", "used_pct", "window_min", "resets_at", "amount", "source"];
 
-const LATEST: &str = "SELECT ts, provider, account, kind, name, used_pct, window_min, resets_at, amount, source FROM usage \
+const LATEST: &str = "SELECT rowid, ts, provider, account, kind, name, used_pct, window_min, resets_at, amount, source FROM usage \
     WHERE rowid IN (SELECT (SELECT rowid FROM usage WHERE provider = k.provider AND account = k.account \
     AND kind = k.kind AND name = k.name ORDER BY ts DESC, rowid DESC LIMIT 1) \
     FROM (SELECT DISTINCT provider, account, kind, name FROM usage) k) \
     ORDER BY provider, account, kind DESC, window_min, name";
+
+/// A window at or above this percent reads full.
+pub const FULL_PCT: f64 = 99.5;
 
 pub(super) struct Source {
     path: PathBuf,
     snapshot: bool,
 }
 
-pub(super) struct Row(Vec<Value>);
+pub(super) struct Row {
+    cells: Vec<Value>,
+    id: i64,
+}
+
+/// A window whose latest reading reads full is also a limit event, which stays true however old the reading grows.
+#[derive(Default)]
+pub struct Windows {
+    pub readings: Vec<Reading>,
+    pub limits: Vec<LimitEvent>,
+}
 
 impl Source {
     pub(super) fn path(&self) -> &Path {
@@ -93,7 +106,7 @@ pub(super) fn latest(db: &Connection) -> Result<Vec<Row>, String> {
     }
     let mut query = db.prepare(LATEST).map_err(fail)?;
     let rows = query
-        .query_map([], |row| (0..COLUMNS.len()).map(|index| row.get::<_, Value>(index)).collect::<Result<Vec<_>, _>>().map(Row))
+        .query_map([], |row| Ok(Row { id: row.get(0)?, cells: (0..COLUMNS.len()).map(|index| row.get::<_, Value>(index + 1)).collect::<Result<Vec<_>, _>>()? }))
         .map_err(fail)?;
     let rows: Vec<Row> = rows.collect::<Result<_, _>>().map_err(fail)?;
     Ok(with_fable(rows))
@@ -131,8 +144,23 @@ fn with_fable(mut rows: Vec<Row>) -> Vec<Row> {
         .filter(|row| row.number("used_pct").is_some())
         .map(fable_fallback)
         .collect();
-    rows.extend(fallbacks);
+    rows.extend(fallbacks.into_iter().enumerate().map(|(index, row)| Row { id: -(index as i64) - 1, ..row }));
     rows
+}
+
+/// The latest reading of every Claude window, read from the one latest-reading query, with each window that reads
+/// full until a reset still ahead of `now_ms` also as a limit event.
+pub(super) fn latest_windows(db: &Connection, now_ms: u64) -> Windows {
+    let mut windows = Windows::default();
+    let Ok(rows) = latest(db) else { return windows };
+    for row in rows.iter().filter(|row| row.text("provider") == Some("claude") && row.text("kind") == Some("window")) {
+        let Some(reading) = row.reading() else { continue };
+        if reading.used.0 >= FULL_PCT && reading.resets_at.is_some_and(|at| at.0 as u64 * 1000 > now_ms) {
+            windows.limits.push(LimitEvent { account: reading.account.clone(), window: reading.window, resets_at: reading.resets_at, at: reading.read_at });
+        }
+        windows.readings.push(reading);
+    }
+    windows
 }
 
 fn reset_is_empty(value: &Value) -> bool {
@@ -147,22 +175,35 @@ fn fable_fallback(weekly: &Row) -> Row {
             "name" => Value::Text(meter::scoped(ModelFamily::Fable)),
             "window_min" => Value::Integer(10080),
             "source" => Value::Text(format!("{source} (Fable weekly meter shares the account's weekly window)")),
-            other => weekly.0[COLUMNS.iter().position(|name| *name == other).unwrap_or_default()].clone(),
+            other => weekly.cells[COLUMNS.iter().position(|name| *name == other).unwrap_or_default()].clone(),
         })
         .collect();
-    Row(cells)
+    Row { cells, id: 0 }
 }
 
 impl Row {
+    fn reading(&self) -> Option<Reading> {
+        let seconds = |text: Option<&str>| text.and_then(|text| Timestamp::parse(text).ok()).map(|at| at.unix_millis().div_euclid(1000));
+        let (window, read_at, used) = (self.text("name").and_then(meter::window)?, seconds(self.text("ts"))?, self.number("used_pct")?);
+        let source = match self.text("source").and_then(|source| source.split_whitespace().next()) {
+            Some("header") => Via::Header,
+            Some("stream") => Via::Stream,
+            Some("web") => Via::Web,
+            _ => Via::Cli,
+        };
+        let account = Label(self.text("account").unwrap_or_default().to_owned());
+        Some(Reading { row: RowId(self.id), account, window, used: Percent(used), resets_at: seconds(self.text("resets_at")).map(Unix), read_at: Unix(read_at), source })
+    }
+
     pub(super) fn text(&self, column: &str) -> Option<&str> {
-        match &self.0[COLUMNS.iter().position(|name| *name == column)?] {
+        match &self.cells[COLUMNS.iter().position(|name| *name == column)?] {
             Value::Text(text) => Some(text),
             _ => None,
         }
     }
 
     pub(super) fn number(&self, column: &str) -> Option<f64> {
-        match &self.0[COLUMNS.iter().position(|name| *name == column)?] {
+        match &self.cells[COLUMNS.iter().position(|name| *name == column)?] {
             Value::Real(number) => Some(*number),
             Value::Integer(number) => Some(*number as f64),
             _ => None,
@@ -170,16 +211,16 @@ impl Row {
     }
 
     pub(super) fn values(&self) -> impl Iterator<Item = (&'static str, &Value)> {
-        COLUMNS.iter().copied().zip(&self.0)
+        COLUMNS.iter().copied().zip(&self.cells)
     }
 
     pub(super) fn value(&self, column: &str) -> Option<&Value> {
-        self.0.get(COLUMNS.iter().position(|name| *name == column)?)
+        self.cells.get(COLUMNS.iter().position(|name| *name == column)?)
     }
 
     pub(super) fn set(&mut self, column: &str, value: Value) {
         if let Some(index) = COLUMNS.iter().position(|name| *name == column) {
-            self.0[index] = value;
+            self.cells[index] = value;
         }
     }
 

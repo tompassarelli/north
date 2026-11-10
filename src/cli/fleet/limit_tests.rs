@@ -2,28 +2,6 @@ use std::process::Command;
 
 use super::*;
 
-/// north#1065 box 1: the capacity read model reads the same Fable meter `north fleet usage` shows. When a
-/// provider reports no scoped Fable window, Fable's headroom is the account's shared weekly headroom.
-#[test]
-fn a_subscription_account_with_no_scoped_fable_window_reads_a_fable_reading_from_its_week() {
-    let account = Label("a".to_owned());
-    let week = Reading { row: RowId(1), account: account.clone(), window: Window::Week, used: Percent(40.0), resets_at: Some(Unix(1_800_000_000)), read_at: Unix(1_700_000_000), source: Source::Cli };
-    let observed = with_fable(Observed { readings: vec![week], ..Observed::default() });
-    let fable = observed.readings.iter().find(|reading| reading.window == Window::Scoped(ModelFamily::Fable)).expect("the account has a Fable meter");
-    assert_eq!((fable.account.clone(), fable.used, fable.resets_at, fable.read_at), (account, Percent(40.0), Some(Unix(1_800_000_000)), Unix(1_700_000_000)));
-}
-
-/// A provider that does report the scoped window keeps that reading, not the shared week's.
-#[test]
-fn a_reported_scoped_fable_window_is_not_replaced_by_the_shared_week() {
-    let account = Label("a".to_owned());
-    let reading = |row, window, used| Reading { row: RowId(row), account: account.clone(), window, used: Percent(used), resets_at: Some(Unix(1_800_000_000)), read_at: Unix(1_700_000_000), source: Source::Cli };
-    let observed = with_fable(Observed { readings: vec![reading(1, Window::Week, 60.0), reading(2, Window::Scoped(ModelFamily::Fable), 3.0)], ..Observed::default() });
-    let fable: Vec<&Reading> = observed.readings.iter().filter(|reading| reading.window == Window::Scoped(ModelFamily::Fable)).collect();
-    assert_eq!(fable.len(), 1, "{fable:?}");
-    assert_eq!(fable[0].used, Percent(3.0));
-}
-
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).output().unwrap();
     assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));

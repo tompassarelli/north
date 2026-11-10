@@ -28,6 +28,7 @@ mod refresh;
 mod render;
 mod settings;
 mod store;
+pub use store::{FULL_PCT, Windows};
 mod summary;
 pub use summary::{ApiGrant, Placement, State, View as SummaryView, render as summary};
 mod plain;
@@ -242,6 +243,10 @@ pub fn ledger_path(home: &Path, explicit: Option<std::ffi::OsString>) -> PathBuf
 
 pub fn open_ledger(home: &Path, explicit: Option<std::ffi::OsString>, refresh: &dyn Fn()) -> Result<Connection, String> {
     store::open(&store::Source::locate(home, explicit), refresh)
+}
+
+pub fn windows(db: &Connection, now_ms: u64) -> Windows {
+    store::latest_windows(db, now_ms)
 }
 
 pub fn json_readings(db: &Connection, now: Timestamp) -> Result<Vec<serde_json::Value>, String> {
