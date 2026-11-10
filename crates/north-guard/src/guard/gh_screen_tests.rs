@@ -1,7 +1,7 @@
 use super::*;
 
 struct Fake {
-    body: String,
+    body: Option<String>,
     stdin: Vec<u8>,
     rows: Vec<serde_json::Value>,
 }
@@ -18,7 +18,7 @@ impl unrunnable_box::Log for Fake {
 
 impl World for Fake {
     fn current(&mut self, _: &str, _: Option<&str>) -> Option<String> {
-        Some(self.body.clone())
+        self.body.clone()
     }
 
     fn repo(&mut self) -> Option<String> {
@@ -33,7 +33,7 @@ impl World for Fake {
 fn run(words: &[&str], stdin: &str) -> Result<(Vec<String>, Option<Vec<u8>>), String> {
     let words: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();
     let (kept, allowed, edit) = parse(&words).expect("an issue edit that sets the body");
-    let mut world = Fake { body: "x".repeat(69_741), stdin: stdin.as_bytes().to_vec(), rows: Vec::new() };
+    let mut world = Fake { body: Some("x".repeat(69_741)), stdin: stdin.as_bytes().to_vec(), rows: Vec::new() };
     judge(&edit, allowed.as_deref(), &mut world).map(|kept_stdin| (kept, kept_stdin))
 }
 
@@ -65,9 +65,22 @@ fn a_box_with_no_runnable_check_in_a_body_file_is_logged_when_gh_runs_whatever_w
     for words in [vec!["issue", "create", "--title", "x", "--label", "bug", "--body-file", file], vec!["issue", "edit", "1041", "-R", "tompassarelli/north", "-F", file]] {
         let words: Vec<String> = words.into_iter().map(str::to_owned).collect();
         let (_, _, write) = parse(&words).unwrap();
-        let mut world = Fake { body: "- [ ] An old box".to_owned(), stdin: Vec::new(), rows: Vec::new() };
+        let mut world = Fake { body: Some("- [ ] An old box".to_owned()), stdin: Vec::new(), rows: Vec::new() };
         judge(&write, None, &mut world).unwrap();
         let logged: Vec<(&str, &str)> = world.rows.iter().map(|row| (row["verb"].as_str().unwrap(), row["box"].as_str().unwrap())).collect();
         assert_eq!(logged, [(if write.creates { "create" } else { "edit" }, "A box naming no command")]);
     }
+}
+
+#[test]
+fn an_edit_whose_current_body_cannot_be_read_is_refused_unless_allowed_so_a_failed_lookup_never_passes_an_empty_body_north_1104() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("902.md");
+    std::fs::write(&file, "").unwrap();
+    let file = file.to_str().unwrap();
+    let words: Vec<String> = ["issue", "edit", "902", "--body-file", file].into_iter().map(str::to_owned).collect();
+    let (_, _, write) = parse(&words).unwrap();
+    let mut world = Fake { body: None, stdin: Vec::new(), rows: Vec::new() };
+    assert!(judge(&write, None, &mut world).unwrap_err().contains("could not be read"));
+    assert!(judge(&write, Some("superseded by north#900"), &mut world).is_ok());
 }

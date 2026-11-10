@@ -119,6 +119,9 @@ fn judge(write: &IssueWrite, allowed: Option<&str>, world: &mut impl World) -> R
     let mut held = Vec::new();
     for selector in write.selectors.iter().filter(|_| !write.creates) {
         let Some(old) = world.current(selector, write.repo.as_deref()) else {
+            if allowed.is_none() {
+                return Err(unreadable(selector));
+            }
             continue;
         };
         if allowed.is_none() && shrinks(&old, &new) {
@@ -209,6 +212,12 @@ fn flag<'a>(word: &'a str, rest: &mut std::slice::Iter<'_, String>) -> (&'a str,
 pub fn shrinks(old: &str, new: &str) -> bool {
     let (old, new) = (old.trim().chars().count(), new.trim().chars().count());
     new == 0 && old > 0 || new * 2 < old
+}
+
+fn unreadable(selector: &str) -> String {
+    format!(
+        "refusing gh issue edit {selector}: the current body could not be read, so a body that blanks or drops most of it cannot be told from one that does not. Run the edit from a directory inside the repository or pass -R OWNER/REPO and retry; when the edit is meant anyway, pass {ALLOW} REASON to gh issue edit."
+    )
 }
 
 fn refusal(selector: &str, old: &str, new: &str) -> String {
