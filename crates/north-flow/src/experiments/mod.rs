@@ -109,7 +109,8 @@ fn judge_command(options: &Options) -> u8 {
         }
     };
     let mut filed = Filed::load(state());
-    let (lines, checks_failed) = deferred::settle_due(&registry.checks, options.today, &options.root, &deferred::run, options.file.then_some((&GitHub as &dyn Issues, &mut filed)));
+    let filing = options.file.then_some(deferred::Filing { issues: &GitHub, filed: &mut filed, leads: &deferred::Fleet });
+    let (lines, checks_failed) = deferred::settle_due(&registry.checks, options.today, &options.root, &deferred::run, filing);
     lines.iter().for_each(|line| println!("experiments: {line}"));
     u8::from(checks_failed) | judge_experiments(registry.experiments, options, &mut filed)
 }
@@ -133,7 +134,8 @@ fn judge_experiments(entries: Vec<Experiment>, options: &Options, filed: &mut Fi
 }
 
 fn defer_command(arguments: &[String]) -> u8 {
-    match deferred::defer(arguments, Day::of_unix(Timestamp::now().unix_seconds()), &GitHub) {
+    let lead = std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.is_empty());
+    match deferred::defer(arguments, Day::of_unix(Timestamp::now().unix_seconds()), lead, &GitHub) {
         Ok(done) => {
             attribution::record_here("deferral", Cause::Harness(Harness::Waits), &done);
             println!("north check experiments: {done}");

@@ -44,6 +44,18 @@ impl Issues for Fake {
     }
 }
 
+#[derive(Default)]
+struct Told(RefCell<Vec<(String, String)>>);
+
+impl Leads for Told {
+    fn tell(&self, lead: &str, text: &str) -> Result<(), String> {
+        self.0.borrow_mut().push((lead.to_owned(), text.to_owned()));
+        Ok(())
+    }
+}
+
+const LEAD: &str = "north-637-lead";
+
 fn check(command: &str, expect: Option<&str>) -> Check {
     Check {
         id: "n637-day-without-timeouts".into(),
@@ -52,11 +64,16 @@ fn check(command: &str, expect: Option<&str>) -> Check {
         expect: expect.map(str::to_owned),
         review: Day::parse("2026-11-07").unwrap(),
         owner: issue(),
+        lead: Some(LEAD.into()),
     }
 }
 
 fn issue() -> Issue {
     Issue::parse("tompassarelli/north#637").unwrap()
+}
+
+fn proven(body: String) -> String {
+    body.replace("- [x] The code landed (abc1234)", "- [x] Landed on origin/main as abc1234").replace("- [x] Another box that is done", "- [x] Another box that is done. Evidence: `true` passed on 2026-11-05: exit 0")
 }
 
 fn only_box(body: &str) -> String {
@@ -92,18 +109,19 @@ fn a_due_check_that_passes_ticks_its_box_with_the_evidence_and_closes_an_issue_w
     let issues = Fake::new(&body, true);
     let directory = tempfile::tempdir().unwrap();
     let mut filed = Filed::load(directory.path().join("filed"));
+    let told = Told::default();
     let checks = [check("printf 0", Some("0"))];
     let ran = |_: &Check, _: &Path| Ran::Passed("exit 0, printed \"0\"".into());
-    let early = settle_due(&checks, Day::parse("2026-11-06").unwrap(), directory.path(), &ran, Some((&issues, &mut filed)));
+    let early = settle_due(&checks, Day::parse("2026-11-06").unwrap(), directory.path(), &ran, Some(Filing { issues: &issues, filed: &mut filed, leads: &told }));
     assert_eq!(early, (vec![], false), "nothing runs before the review day");
-    let (lines, failed) = settle_due(&checks, Day::parse("2026-11-07").unwrap(), directory.path(), &ran, Some((&issues, &mut filed)));
+    let (lines, failed) = settle_due(&checks, Day::parse("2026-11-07").unwrap(), directory.path(), &ran, Some(Filing { issues: &issues, filed: &mut filed, leads: &told }));
     assert!(!failed, "{lines:?}");
     let line = only_box(&issues.body.borrow());
     assert!(line.starts_with("- [x] "), "{line}");
     assert!(line.contains("Evidence: `printf 0` passed on 2026-11-07: exit 0, printed \"0\""));
     assert!(!line.contains("waits:"));
     assert!(!*issues.open.borrow(), "the last box ticked closes the issue");
-    let again = settle_due(&checks, Day::parse("2026-11-08").unwrap(), directory.path(), &ran, Some((&issues, &mut filed)));
+    let again = settle_due(&checks, Day::parse("2026-11-08").unwrap(), directory.path(), &ran, Some(Filing { issues: &issues, filed: &mut filed, leads: &told }));
     assert_eq!(again, (vec![], false), "a settled check is not run again");
     assert_eq!(*issues.edits.borrow(), 1);
 }
@@ -113,9 +131,10 @@ fn a_due_check_that_misses_reopens_its_box_with_the_output_and_reopens_a_closed_
     let issues = Fake::new(&body, false);
     let directory = tempfile::tempdir().unwrap();
     let mut filed = Filed::load(directory.path().join("filed"));
+    let told = Told::default();
     let checks = [check("false", None)];
     let ran = |_: &Check, _: &Path| Ran::Missed("exit 1, printed \"3\"".into());
-    let (lines, failed) = settle_due(&checks, Day::parse("2026-11-07").unwrap(), directory.path(), &ran, Some((&issues, &mut filed)));
+    let (lines, failed) = settle_due(&checks, Day::parse("2026-11-07").unwrap(), directory.path(), &ran, Some(Filing { issues: &issues, filed: &mut filed, leads: &told }));
     assert!(!failed, "{lines:?}");
     let line = only_box(&issues.body.borrow());
     assert!(line.starts_with("- [ ] "));
@@ -123,6 +142,10 @@ fn a_due_check_that_misses_reopens_its_box_with_the_output_and_reopens_a_closed_
     assert!(!line.contains("waits:"));
     assert_eq!(standing(&line, at("2026-11-07")), Standing::Workable);
     assert!(*issues.open.borrow());
+    let told = told.0.borrow();
+    let [(lead, text)] = told.as_slice() else { panic!("one lead is told: {told:?}") };
+    assert_eq!(lead, LEAD, "the lead that deferred the box is told");
+    assert!(text.contains("tompassarelli/north#637 is open again") && text.contains("exit 1, printed \"3\""), "{text}");
 }
 
 fn a_check_that_cannot_run_files_nothing_and_is_tried_again_on_the_next_tick() {
@@ -130,9 +153,10 @@ fn a_check_that_cannot_run_files_nothing_and_is_tried_again_on_the_next_tick() {
     let issues = Fake::new(&body, true);
     let directory = tempfile::tempdir().unwrap();
     let mut filed = Filed::load(directory.path().join("filed"));
+    let told = Told::default();
     let checks = [check("nonesuch", None)];
     let ran = |_: &Check, _: &Path| Ran::Unrun("exit 127: sh: nonesuch: not found".into());
-    let (lines, failed) = settle_due(&checks, Day::parse("2026-11-07").unwrap(), directory.path(), &ran, Some((&issues, &mut filed)));
+    let (lines, failed) = settle_due(&checks, Day::parse("2026-11-07").unwrap(), directory.path(), &ran, Some(Filing { issues: &issues, filed: &mut filed, leads: &told }));
     assert!(!failed);
     assert!(lines.iter().any(|line| line.contains("not run") && line.contains("next tick")), "{lines:?}");
     assert_eq!(*issues.edits.borrow(), 0);
@@ -152,25 +176,29 @@ fn running_a_check_reads_its_exit_and_its_expected_output() {
     assert!(matches!(here, Ran::Passed(_)), "the command runs from the root: {here:?}");
 }
 
-fn defer_writes_the_entry_into_the_registry_and_marks_and_closes_the_issue() {
+fn defer_writes_the_entry_with_its_lead_and_marks_the_box_and_the_judge_closes_the_issue_once_the_entry_lands() {
     let root = tempfile::tempdir().unwrap();
     registry_in(root.path());
-    let issues = Fake::new(&BODY.replace("- [ ] Another box that is still work", "- [x] Another box that is done"), true);
+    let issues = Fake::new(&proven(BODY.replace("- [ ] Another box that is still work", "- [x] Another box that is done")), true);
     let arguments: Vec<String> = ["north#637", "shows no start timeout", "--check", "journalctl -c | rg -c 'timed out' || echo 0", "--expect", "0", "--by", "2026-11-07", "--id", "n637-day-without-timeouts", "--root", root.path().to_str().unwrap()]
         .iter()
         .map(ToString::to_string)
         .collect();
-    let done = defer(&arguments, Day::parse("2026-11-06").unwrap(), &issues).unwrap();
-    assert!(done.contains("closes until the check misses"), "{done}");
+    let done = defer(&arguments, Day::parse("2026-11-06").unwrap(), Some(LEAD.into()), &issues).unwrap();
+    assert!(done.contains("closes on the judge's first run after the lane lands"), "{done}");
+    assert!(*issues.open.borrow(), "the issue waits for the entry to land before it closes");
     let text = std::fs::read_to_string(root.path().join(registry::PATH)).unwrap();
     assert!(text.contains("\n\n[[check]]\n"), "a blank line sets the entry apart");
     let written = registry::parse(&text).unwrap();
     assert_eq!(written.experiments.len(), 1);
     let [entry] = written.checks.as_slice() else { panic!("{written:?}") };
     assert_eq!((entry.command.as_str(), entry.expect.as_deref(), entry.review.text().as_str()), ("journalctl -c | rg -c 'timed out' || echo 0", Some("0"), "2026-11-07".to_owned().as_str()));
-    assert_eq!(entry.owner, issue());
+    assert_eq!((&entry.owner, entry.text.as_str(), entry.lead.as_deref()), (&issue(), "shows no start timeout", Some(LEAD)));
     assert!(only_box(&issues.body.borrow()).contains("<!-- check n637-day-without-timeouts@2026-11-07 -->"));
-    assert!(!*issues.open.borrow());
+    let directory = tempfile::tempdir().unwrap();
+    let mut filed = Filed::load(directory.path().join("filed"));
+    let (lines, failed) = settle_due(&written.checks, Day::parse("2026-11-06").unwrap(), root.path(), &|_: &Check, _: &Path| Ran::Unrun("not due".into()), Some(Filing { issues: &issues, filed: &mut filed, leads: &Told::default() }));
+    assert!(!failed && !*issues.open.borrow(), "the judge closes the issue once the landed registry holds its last open box: {lines:?}");
 }
 
 fn defer_refuses_a_past_day_an_unknown_box_and_a_refused_edit_without_leaving_an_entry() {
@@ -179,7 +207,7 @@ fn defer_refuses_a_past_day_an_unknown_box_and_a_refused_edit_without_leaving_an
     let before = std::fs::read_to_string(root.path().join(registry::PATH)).unwrap();
     let call = |box_text: &str, by: &str, issues: &Fake| {
         let arguments: Vec<String> = ["north#637", box_text, "--check", "true", "--by", by, "--root", root.path().to_str().unwrap()].iter().map(ToString::to_string).collect();
-        defer(&arguments, Day::parse("2026-11-06").unwrap(), issues)
+        defer(&arguments, Day::parse("2026-11-06").unwrap(), None, issues)
     };
     assert!(call("shows no start timeout", "2026-11-05", &Fake::new(BODY, true)).unwrap_err().contains("before today"));
     assert!(call("no such box", "2026-11-07", &Fake::new(BODY, true)).unwrap_err().contains("no unticked box"));
@@ -212,6 +240,25 @@ fn the_issue_body_marks_a_deferred_box_and_the_loop_ticks_it_on_a_pass_reopens_i
 #[test]
 fn defer_runs_a_check_command_and_writes_the_registry_entry_and_the_marked_box() {
     running_a_check_reads_its_exit_and_its_expected_output();
-    defer_writes_the_entry_into_the_registry_and_marks_and_closes_the_issue();
+    defer_writes_the_entry_with_its_lead_and_marks_the_box_and_the_judge_closes_the_issue_once_the_entry_lands();
     defer_refuses_a_past_day_an_unknown_box_and_a_refused_edit_without_leaving_an_entry();
+}
+
+#[test]
+fn an_issue_closes_only_once_every_open_box_waits_on_a_registered_check() {
+    let registered = check("true", None);
+    let landed = deferred_body(&proven(BODY.replace("- [ ] Another box that is still work", "- [x] Another box that is done")), &registered).unwrap();
+    let judge = |body: &str| {
+        let issues = Fake::new(body, true);
+        let directory = tempfile::tempdir().unwrap();
+        let mut filed = Filed::load(directory.path().join("filed"));
+        let (lines, failed) = settle_due(std::slice::from_ref(&registered), Day::parse("2026-11-06").unwrap(), directory.path(), &|_: &Check, _: &Path| Ran::Unrun("not due".into()), Some(Filing { issues: &issues, filed: &mut filed, leads: &Told::default() }));
+        assert!(!failed, "{lines:?}");
+        *issues.open.borrow()
+    };
+    assert!(!judge(&landed), "only a registered dated box is open, so the work has landed");
+    assert!(judge(&format!("{landed}- [ ] Not before 2026-11-09, a day of logs <!-- check n637-unlisted@2026-11-09 -->\n")), "a marked box the registry does not hold keeps it open");
+    assert!(judge(&deferred_body(&proven(BODY.to_owned()), &registered).unwrap()), "a box that is still work keeps it open");
+    assert!(judge(&deferred_body(BODY.replace("- [ ] Another box that is still work", "- [x] Another box that is done").as_str(), &registered).unwrap()), "an unproven ticked box keeps it open");
+    assert!(judge(&landed.replace("- [x] Landed on origin/main as abc1234", "- [x] Landed on origin/main as abc1234\n- [ ] Clean-up: scaffolding removed.")), "an unticked Clean-up box keeps it open");
 }

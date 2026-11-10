@@ -1,7 +1,7 @@
 //! Which open issues are ready: unticked Done-when boxes, nobody holding them, no label or open gate handing them to
 //! Tom, no `(not before ...)` stamp ahead, and every predecessor closed. A box waits only on records: its stamp, the fact
 //! graph's box edges, a gate, a claim or a registered wait; its prose and the newest report hold nothing (north#872).
-use crate::platform::cleanup;
+use crate::platform::{box_oracles, cleanup};
 use north_graph_ground::{Backlog, Verdict};
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
@@ -115,9 +115,9 @@ impl Issue {
         })
     }
 
-    /// Whether the box `line` still waits for its check: a date ahead of `at`, or more landings than have cited the issue since its last report.
+    /// Whether the box `line` still waits for its check: a pending check the experiments judge runs, a date ahead of `at`, or more landings than have cited the issue since its last report.
     fn awaits_check(&self, line: &str, at: f64) -> bool {
-        north_graph_ground::due_pending(line, at as i64).is_some() || north_graph_ground::due_landings(line).is_some_and(|wanted| self.landings < wanted)
+        box_oracles::deferred_to(line).is_some() || north_graph_ground::due_pending(line, at as i64).is_some() || north_graph_ground::due_landings(line).is_some_and(|wanted| self.landings < wanted)
     }
 
     /// Whether some unticked product box is due after a count of landings, which the survey counts from the checkout.
@@ -177,7 +177,8 @@ impl Issue {
             let missing = self.product_lines().filter_map(north_graph_ground::due_landings).min()?.saturating_sub(self.landings);
             Some(format!("{missing} more landings cite it"))
         };
-        self.product_holds().find_map(|(_, hold)| hold).map(|hold| hold.to_string()).or(dated).or_else(counted)
+        let deferred = || self.product_lines().find_map(box_oracles::deferred_to).map(|id| format!("the judge runs dated check {id}"));
+        self.product_holds().find_map(|(_, hold)| hold).map(|hold| hold.to_string()).or(dated).or_else(deferred).or_else(counted)
     }
 
     /// The first of `held` whose box slug names no box of this issue, ticked or not: a claim that points at no box holds the whole issue.

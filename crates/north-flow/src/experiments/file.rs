@@ -106,6 +106,14 @@ impl Filed {
 
     pub fn record_key(&mut self, key: String) -> Result<(), String> {
         self.keys.insert(key);
+        self.write()
+    }
+
+    pub fn forget_key(&mut self, key: &str) -> Result<(), String> {
+        if self.keys.remove(key) { self.write() } else { Ok(()) }
+    }
+
+    fn write(&self) -> Result<(), String> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent).map_err(|why| format!("{}: {why}", parent.display()))?;
         }

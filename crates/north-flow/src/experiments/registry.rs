@@ -185,6 +185,7 @@ pub struct Check {
     pub expect: Option<String>,
     pub review: Day,
     pub owner: Issue,
+    pub lead: Option<String>,
 }
 
 #[derive(Debug)]
@@ -212,6 +213,7 @@ struct RawCheck {
     expect: Option<String>,
     review: String,
     owner: String,
+    lead: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -315,7 +317,8 @@ fn check(raw: RawCheck) -> Result<Check, String> {
     }
     let review = Day::parse(&raw.review).ok_or_else(|| format!("{id}: review {} is not YYYY-MM-DD", raw.review))?;
     let owner = Issue::parse(&raw.owner).ok_or_else(|| format!("{id}: owner {} is not owner/repo#N", raw.owner))?;
-    Ok(Check { id, text, command: raw.command.trim().to_owned(), expect: raw.expect, review, owner })
+    let lead = raw.lead.map(|lead| lead.trim().to_owned()).filter(|lead| !lead.is_empty());
+    Ok(Check { id, text, command: raw.command.trim().to_owned(), expect: raw.expect, review, owner, lead })
 }
 
 fn collect<Raw, Entry>(raws: Vec<Raw>, build: impl Fn(Raw) -> Result<Entry, String>, id: impl Fn(&Entry) -> &str, problems: &mut Vec<String>) -> Vec<Entry> {
