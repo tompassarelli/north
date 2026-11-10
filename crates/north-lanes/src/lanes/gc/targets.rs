@@ -55,7 +55,7 @@ pub(in crate::lanes) fn gib(bytes: u64) -> String {
 impl Gc {
     pub(super) fn drop_target(&mut self, container: &str, lane: &Path, live: &[PathBuf], basis: &str) {
         let place = self.tilde(&lane.join("target"));
-        match drop_build_target(lane, live, Path::new("/proc"), self.options.dry_run) {
+        match drop_build_target(lane, live, &self.proc_root, self.options.dry_run) {
             BuildTarget::Absent => {}
             BuildTarget::InUse => {
                 if self.options.dry_run {

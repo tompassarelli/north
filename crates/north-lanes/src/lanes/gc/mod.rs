@@ -79,6 +79,7 @@ pub(super) struct Counts {
 pub(super) struct Gc {
     home: PathBuf,
     now_ms: i64,
+    proc_root: PathBuf,
     options: Options,
     stale: StaleReport,
     stale_path: PathBuf,
@@ -187,17 +188,18 @@ pub struct Inputs {
     pub fleet: Option<Vec<Value>>,
     pub now_ms: i64,
     pub stale: PathBuf,
+    pub proc_root: PathBuf,
 }
 
 pub fn run(arguments: &[String]) -> u8 {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let _ = std::env::set_current_dir(&home);
     let stale = std::env::var_os("LANE_GC_STALE_FILE").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/agents/lane-gc/stale.json"), PathBuf::from);
-    run_in(&home, Inputs { fleet: None, now_ms: now_ms(), stale }, arguments)
+    run_in(&home, Inputs { fleet: None, now_ms: now_ms(), stale, proc_root: PathBuf::from("/proc") }, arguments)
 }
 
 pub fn run_in(home: &Path, inputs: Inputs, arguments: &[String]) -> u8 {
-    let Inputs { fleet, now_ms, stale: stale_path } = inputs;
+    let Inputs { fleet, now_ms, stale: stale_path, proc_root } = inputs;
     let home = home.to_path_buf();
     let options = match parse(arguments, &home) {
         Parsed::Sweep(options) => options,
@@ -225,6 +227,7 @@ pub fn run_in(home: &Path, inputs: Inputs, arguments: &[String]) -> u8 {
     let mut gc = Gc {
         home,
         now_ms,
+        proc_root,
         options,
         stale,
         stale_path,
@@ -246,7 +249,7 @@ pub fn run_in(home: &Path, inputs: Inputs, arguments: &[String]) -> u8 {
 
 impl Gc {
     fn sweep_all(&mut self, containers: &[PathBuf]) {
-        let live = if self.options.remote { Vec::new() } else { open_paths(Path::new("/proc")) };
+        let live = if self.options.remote { Vec::new() } else { open_paths(&self.proc_root) };
         self.clear_stale_bundle_locks(&live);
         for container in containers {
             let name = container.file_name().unwrap_or_default().to_string_lossy().into_owned();

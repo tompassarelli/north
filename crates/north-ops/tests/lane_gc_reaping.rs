@@ -63,7 +63,7 @@ fn a_lane_with_a_recorded_rejection_is_bundled_and_reaped_and_a_half_removed_one
     }
 
     let arguments: Vec<String> = ["--repo", "proj", "--idle-hours", "0", "--root", home.join("code").to_str().unwrap(), "--state", root.join("unlanded.txt").to_str().unwrap(), "--archive", archive.to_str().unwrap()].map(str::to_owned).to_vec();
-    let inputs = north_lanes::lanes::LaneGcInputs { fleet: Some(Vec::new()), now_ms: i64::try_from(now.duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap(), stale: root.join("stale.json") };
+    let inputs = north_lanes::lanes::LaneGcInputs { fleet: Some(Vec::new()), now_ms: i64::try_from(now.duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap(), stale: root.join("stale.json"), proc_root: root.join("proc") };
     assert_eq!(north_lanes::lanes::lane_gc_in(&home, inputs, &arguments), 0);
 
     assert!(!rejected.exists(), "the rejected lane is reaped");

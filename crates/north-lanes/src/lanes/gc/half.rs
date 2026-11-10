@@ -56,9 +56,7 @@ impl Gc {
             let label = self.tilde(&directory);
             let hold = self.unregistered_hold(lanes, &directory);
             if !hold.is_empty() {
-                if self.options.dry_run {
-                    println!("{}: unregistered {label}: keep ({hold})", lanes.project);
-                }
+                println!("{}: unregistered {label}: keep ({hold})", lanes.project);
                 continue;
             }
             let tip = verified(lanes.main, &format!("refs/heads/{name}")).unwrap_or_default();
