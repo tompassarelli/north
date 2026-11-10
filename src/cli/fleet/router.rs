@@ -223,6 +223,7 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
         one_proxy::admit(fleet, caller.as_deref(), &format!("launch {}", request.name))?;
     }
     lineage::reader(fleet, &mut request, caller.as_deref())?;
+    super::claude_only::admit(&request)?;
     ranked::admit(fleet, &request, caller.as_deref())?;
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;

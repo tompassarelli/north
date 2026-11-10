@@ -7,7 +7,7 @@ use super::plan::{Candidate, Launch, Ready};
 use super::record::Record;
 use super::fleets::{self, PROBE};
 use super::slots::Pools;
-use regex::Regex;
+use crate::fleet::claude_only::{ClaudeOnly, SETTINGS};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use toml_edit::{DocumentMut, Item};
@@ -19,14 +19,13 @@ mod tests;
 
 pub const ACCOUNT: &str = "opencode:go";
 pub const PROVIDER: &str = "opencode";
-const SETTINGS: &str = "harness/opencode.toml";
 
 #[derive(Clone, Debug, Default)]
 pub struct Settings {
     /// The hosts that hold the opencode key, in the order dispatch fills them.
     pub hosts: Vec<String>,
     /// Subjects whose boxes stay on Claude, matched against the issue title and the box.
-    pub claude_only: Vec<Regex>,
+    pub claude_only: ClaudeOnly,
 }
 
 impl Settings {
@@ -39,7 +38,7 @@ impl Settings {
         let dispatch = document.get("dispatch");
         Self {
             hosts: strings(dispatch.and_then(|table| table.get("hosts"))),
-            claude_only: strings(dispatch.and_then(|table| table.get("claude_only"))).iter().filter_map(|pattern| Regex::new(&format!("(?i){pattern}")).ok()).collect(),
+            claude_only: ClaudeOnly::parse(document),
         }
     }
 }
@@ -118,9 +117,8 @@ impl Seen {
         if self.tried.contains(&key(&issue.reference(), box_text)) {
             return Err("DeepSeek already tried this box".into());
         }
-        let subject = format!("{}\n{}", issue.title, box_text.unwrap_or_default());
-        if let Some(pattern) = self.settings.claude_only.iter().find(|pattern| pattern.is_match(&subject)) {
-            return Err(format!("its subject matches {}, which stays on Claude", pattern.as_str().trim_start_matches("(?i)")));
+        if let Some(pattern) = self.settings.claude_only.matching(&issue.title, box_text) {
+            return Err(format!("its subject matches {pattern}, which stays on Claude"));
         }
         Ok(())
     }

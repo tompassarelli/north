@@ -3,6 +3,7 @@ pub mod attachments;
 pub mod books;
 pub mod builds;
 pub mod claims;
+pub mod claude_only;
 pub mod detached;
 pub mod digest_report;
 pub mod effort;

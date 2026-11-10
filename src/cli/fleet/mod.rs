@@ -6,6 +6,7 @@ mod api_spend;
 mod adopt;
 mod breaker;
 mod claims;
+mod claude_only;
 mod desktop;
 mod dispatch_tick;
 mod gated;
