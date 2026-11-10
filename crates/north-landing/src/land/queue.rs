@@ -200,6 +200,14 @@ pub fn positions(directory: &Path, tickets: &[(PathBuf, Ticket)], now_secs: u64)
         .collect()
 }
 
+fn read_unless_moved(path: &Path) -> io::Result<Option<Ticket>> {
+    match read(path) {
+        Ok(ticket) => Ok(Some(ticket)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 fn listed(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -209,8 +217,10 @@ fn listed(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     let mut tickets = Vec::new();
     for entry in entries {
         let path = entry?.path();
-        if path.extension().is_some_and(|extension| extension == "json") && path.is_file() {
-            let ticket = read(&path)?;
+        if path.extension().is_some_and(|extension| extension == "json")
+            && path.is_file()
+            && let Some(ticket) = read_unless_moved(&path)?
+        {
             tickets.push((path, ticket));
         }
     }
