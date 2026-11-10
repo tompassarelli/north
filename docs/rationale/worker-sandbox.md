@@ -46,6 +46,10 @@ The fresh domain grants no more than the turn's did, plus the lanes of the sessi
 
 A kernel without Landlock ABI 2 or later runs the command unconfined and says so on stderr. `no_new_privs`, which Landlock requires, also stops setuid programs inside a worker command.
 
+## Landing a lane-only session's lane (north#1041)
+
+A lane-only session's shell runs in the broker's fresh `--lane` child, not in the session's own scope, so a `safe-push` from it comes from a caller the broker cannot name. The command refuses at once instead, before its checks, with `lane-only session: end with Done: <worktree> <branch> <sha>; the review-and-land loop lands it`: the worker commits in its lane, reports that line, and a review-and-land session lands the commit through safe-push and ticks the box. A direct caller in the session's own scope still reaches the broker grant of north#1056. The DeepSeek overlay and every DeepSeek worker brief carry the same order.
+
 ## Rollout
 
 Landlock has no permissive mode, so a shadow run cannot log a would-be refusal without refusing. The `worker-sandbox` gate in harness/gates.toml lands in shadow, where only a canary launch made with `NORTH_WORKER_SANDBOX=1` carries the prefix. In enforce, `claude_env` adds it to every launch (crates/north-providers/src/providers/claude/session_env.rs). The review counts canary runs and the "Permission denied" removals in their Bash tool results. The gate enforces from 2026-11-08, on the canary review recorded in harness/gates.toml.

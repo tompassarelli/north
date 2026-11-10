@@ -10,6 +10,9 @@ pub const SOCKETS_HIDDEN: &str = "NORTH_SOCKETS_HIDDEN";
 /// The trees, as a JSON array of paths, a worker command may remove beneath, for the process the outside broker hands its work to: depbox sets it in the sandbox where its payload applies it, since a mount namespace cannot be built inside the worker's Landlock domain.
 pub const REMOVAL_ROOTS: &str = "NORTH_WORKER_REMOVAL_ROOTS";
 
+/// Set on a command inside a lane-only session's domain (DeepSeek's OpenCode and Pi): its code holds no GitHub token and no cloud call (south#104).
+pub const LANE_ONLY: &str = "NORTH_WORKER_LANE_ONLY";
+
 pub fn bind(command: &mut Command) {
     if let Ok(unit) = std::env::var("NORTH_FLEET_SCOPE") {
         command.args([format!("--property=BindsTo={unit}"), format!("--property=After={unit}")]);
@@ -68,6 +71,18 @@ pub fn lane_only_cgroup(cgroup: &str) -> bool {
 /// Whether process `pid` runs in a lane-only session's scope; `None` when its cgroup cannot be read, which a caller must treat as lane-only.
 pub fn lane_only_process(pid: i32) -> Option<bool> {
     std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok().map(|cgroup| lane_only_cgroup(&cgroup))
+}
+
+/// Whether a command with the lane-only `marker` and the caller's `cgroup` runs outside its session's own scope, as the
+/// outside broker's fresh `--lane` child does: the broker decides what a lane-only caller may land from its cgroup, and a
+/// child it started reads as the broker's own service. `None` counts as lane-only, as `lane_only_process` says.
+pub fn lane_only_command_outside_scope(marker: bool, cgroup: Option<&str>) -> bool {
+    marker && cgroup.is_some_and(|cgroup| !lane_only_cgroup(cgroup))
+}
+
+/// Whether this process is a lane-only command outside its session's own scope.
+pub fn lane_only_outside_scope() -> bool {
+    lane_only_command_outside_scope(std::env::var_os(LANE_ONLY).is_some(), std::fs::read_to_string("/proc/self/cgroup").ok().as_deref())
 }
 
 #[cfg(test)]

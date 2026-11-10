@@ -234,3 +234,26 @@ fn a_lane_created_after_the_session_started_runs_its_scripts_in_a_fresh_domain_t
     let older = session(&path("code/p/worktrees/other"), true, &["cat", path("code/p/worktrees/other/work.rs").to_str().unwrap()]);
     assert!(!older.status.success() && String::from_utf8_lossy(&older.stderr).contains("outside the lane of this session"), "{}", String::from_utf8_lossy(&older.stdout));
 }
+
+#[test]
+fn a_lane_only_shell_ends_with_done_instead_of_running_safe_push_north_1041() {
+    let home = Home::new();
+    let lane = home.lane().canonicalize().unwrap();
+    let head = Command::new("git").arg("-C").arg(&lane).args(["rev-parse", "HEAD"]).output().unwrap();
+    assert!(head.status.success(), "{}", String::from_utf8_lossy(&head.stderr));
+    let sha = String::from_utf8_lossy(&head.stdout).trim().to_owned();
+    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["safe-push", "--to", "main"])
+        .current_dir(&lane)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", home.path())
+        .env("NORTH_WORKER_SANDBOXED", "1")
+        .env("NORTH_WORKER_LANE_ONLY", "1")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(stderr.contains(&format!("lane-only session: end with Done: {} lane {sha}; the review-and-land loop lands it", lane.display())), "{stderr}");
+    assert!(!stderr.contains("north worker-sandbox broker"), "the refusal names the hand-off, not the broker's opaque refusal: {stderr}");
+}

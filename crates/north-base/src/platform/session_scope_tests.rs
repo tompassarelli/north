@@ -14,3 +14,13 @@ fn a_deepseek_session_starts_in_a_lane_only_scope_and_a_claude_session_does_not(
     }
     assert!(!lane_only_cgroup("0::/user.slice/north-session-lane-x.service\n"));
 }
+
+#[test]
+fn a_lane_only_command_outside_its_sessions_scope_is_refused_as_its_own_scope_is_not() {
+    let outside = "0::/user.slice/user-1000.slice/user@1000.service/north-worker-outside-1.service\n";
+    let inside = "0::/user.slice/user-1000.slice/user@1000.service/north-session-lane-77c4.scope\n";
+    assert!(lane_only_command_outside_scope(true, Some(outside)), "the broker's fresh --lane child cannot land the session's lane");
+    assert!(!lane_only_command_outside_scope(true, Some(inside)), "a command in the session's own scope reaches the broker grant");
+    assert!(!lane_only_command_outside_scope(false, Some(outside)), "only a lane-only command takes the lane-only rule");
+    assert!(!lane_only_command_outside_scope(true, None), "an unreadable cgroup counts as lane-only, so the broker decides");
+}
