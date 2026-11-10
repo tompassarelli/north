@@ -43,8 +43,9 @@ under it, including ones that have not happened yet.
 
 Each class lists its incident, root cause, invariant, mechanism, replay and status. Status is one
 of: enforced (the sha on origin/main), in flight (the lane or worker that carries it), waiting
-(on whom), or rejected (with why). Statuses below were checked at 10:00 AM on 2026-11-08, and each
-worker updates its own class's line when its lane lands.
+(on whom), or rejected (with why). Statuses below were rechecked against origin/main bd4d7feae on
+2026-11-10, each named sha passing `git merge-base --is-ancestor SHA origin/main`, and each worker
+updates its own class's line when its lane lands.
 
 ### 1. One bad lane fails a batch
 
@@ -108,9 +109,18 @@ worker updates its own class's line when its lane lands.
   already refuses ambient host reads in test code (ec1231f242), also refuses Instant::now,
   SystemTime::now and sleeps outside a named clock or event fixture (n892-testclock).
 - Replay: the ship and threads_ledger tests pass 20 of 20 under `stress-ng --cpu 0` on a build
-  host, where each failed before. The habits check refuses a planted wall-clock test.
-- Status: in flight. n842-loadaudit, n716-replay-cpu and n892-testclock. The ship test's instance
-  was fixed in dab9f6fcf4.
+  host, where each failed before. The habits check refuses a planted wall-clock test. The
+  threads_ledger failure replays red on its own trees: with the flush holding the spool lock 3 s
+  after seeing the host down, 05a48fd15f fails 3 of 3 at threads_ledger.rs:184 after 34 s and
+  origin/main fb8466f217 passes 3 of 3 in 7 s, because both failing trees predate dea8714681, which
+  lets a detached flush wait its turn rather than exit Busy. The scan's replay is
+  `cargo nextest run -p north-land-checks -E 'test(/no_land_check_or_test_reads_wall_time_or_host_load/)'`.
+- Status: in flight. The three races are enforced: the ship ordering test in dab9f6fcf4, the
+  threads_ledger spool flush in dea8714681, and the replay budget, timed by thread CPU time since
+  be5886ab3 (north#716). The test-code scan landed advisory in 2c86fcbe9 and refuses once north#716
+  records a week with no false hit. The land-check half, a scan refusing a land check that reads
+  wall time or host load, is in flight in session north-892-d1203-no-land-check-or-test-can-pass;
+  its replay test is not yet on origin/main.
 
 ### 3. The lander runs an old build without saying so
 
@@ -153,7 +163,11 @@ worker updates its own class's line when its lane lands.
   reverts exactly the two bad lanes of an eight-lane batch, the first and last, in at most 6 prefix
   checks, and `cargo nextest run -p north-landing --lib -E 'test(land::blame)'` pins the two
   searches for two bad lanes among eight at no more than 2·log2(8) prefix runs.
-- Status: in flight. n892-bisect (this lane).
+- Status: enforced. The k-culprit bisection landed as f2560cb0e. The withdrawn-lane half is
+  rejected: land-first (7e285c4f35) deleted the probe rounds, so no round outlives a withdrawn
+  ticket. North#892's box for this class names a replay test of its own
+  (`two_bad_lanes_among_eight_are_isolated_in_at_most_six_bisect_runs` in north-landing), which is
+  in flight in session north-892-d1203-a-red-after-landing-run-isolates.
 
 ### 5. A gate runs only after landing
 
@@ -192,7 +206,10 @@ worker updates its own class's line when its lane lands.
   fetch is over an hour old.
 - Replay: `cargo nextest run -p north-shared-config`. A host whose south checkout lags its origin
   reads the origin's revision, and a stamp past the hour bound refuses.
-- Status: in flight. 631ec41340, queued from the laptop because cpx62 could not queue (class 11).
+- Status: in flight. The first lane landed as 566d24dd8f and was reverted as c6c5fc0c6b after its
+  after-landing nextest failed; its branch scratch/n892-shared-config is gone. North#892's
+  shared-configuration box carries the relanding, and dispatch staffs it as a lane of its own;
+  its replay is `cargo nextest run -p north-ops -E 'test(/a_host_refuses_configuration_older_than_main_by_more_than_the_bound/)'`.
 
 ### 7. Dispatch staffs a box a live lane holds
 
@@ -228,7 +245,9 @@ worker updates its own class's line when its lane lands.
   `lander-lead` goes.
 - Replay: `cargo nextest run -p north-fleet -p north-base`. A send to `lander-lead` and to a
   forgotten session reaches the proxy.
-- Status: in flight. n892-addressee.
+- Status: enforced. 89ab826dba sends the lander's alarms to the live lander owner, else to the
+  proxy marked with the intended name, and a40793dcd bounds every service's pages to the proxy in
+  the fleet store's send path.
 
 ### 9. A host fault reads as a red main and is reverted
 
@@ -248,8 +267,8 @@ worker updates its own class's line when its lane lands.
   no verdict.
 - Replay: `cargo nextest run -p north-landing -p north-capacity-host`. Both incidents revert before
   and reach no verdict after.
-- Status: in flight. n892-hostfault2, which follows n892-hostfault (retired mid-work at about
-  10:05 AM) from scratch/n892-hostfault-wip.
+- Status: enforced. n892-hostfault2 landed as 6a13c3fff2; its replay is
+  `cargo nextest run -p north-landing -p north-capacity-host -E 'test(a_lease_whose_scope_never_started_its_subject) | test(a_check_that_fails_only_on_one_host)'`.
 
 ### 10. Offload places a check on a host that lacks its inputs
 
@@ -267,9 +286,9 @@ worker updates its own class's line when its lane lands.
   graph.db, nor makgora's map-build line on one without its store or with a store that lacks its
   pinned entry; `cargo nextest run -p north-lander -E 'test(the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_before_its_ticket_is_written)'`
   resolves a store declaration to the head's pinned entries.
-- Status: landed. n892-hostinput: makgora's declaration landed as 2eb84969cc, north's lane
-  149b044696 carries the placement, and the content-level declaration makes a store that exists
-  but lacks a pinned entry take no check that reads it (north#892).
+- Status: enforced. The path declarations and placement landed as 1338880a64 and the pinned-entry
+  declaration as d1a08f50db37; makgora's declaration landed as 2eb84969cc. A store that exists
+  but lacks a pinned entry takes no check that reads it (north#892).
 
 ### 11. A host cannot queue because a pre-queue check reaches for an unreachable host
 
@@ -280,7 +299,8 @@ worker updates its own class's line when its lane lands.
 - Mechanism: the kill scan surveys only hosts this host reaches, and a host that reaches none
   runs the scan itself.
 - Replay: `cargo nextest run -p north-land-scans test_admission` covers cpx62's case.
-- Status: in flight. n892-hostinput, in the same lane 149b044696.
+- Status: enforced. 1338880a64; the replay is
+  `cargo nextest run -p north-land-scans -E 'test(a_mutant_kill_inside_an_offload_slot_runs_on_the_slot_host_and_tries_only_hosts_it_reaches)'`.
 
 ### 12. The promise checker runs prose
 
@@ -296,7 +316,10 @@ worker updates its own class's line when its lane lands.
 - Replay: `cargo nextest run -p north-fleet promises` runs only the report's
   `git ... merge-base --is-ancestor` command, and n842-reuse's two report lines yield only their
   promised `git ... log origin/main ... | rg -q` command, never the prose after `n842-reuse-plan`.
-- Status: in flight. n892-promise.
+- Status: enforced. The Markdown pairing landed as 9f8fb36be and the replay of n842-reuse's real
+  report lines as be5e0f66b (north#1041). North#892's box for this class names its replay in
+  north-core (`promise_checker_runs_only_the_command_the_report_names`), not yet on origin/main,
+  so that box stays open until the named replay exists.
 
 ### 13. A health gate reads busyness as broken
 
@@ -311,8 +334,9 @@ worker updates its own class's line when its lane lands.
   across every sample of a window. The candidate's own probe code judges its promotion.
 - Replay: `cargo nextest run -p north-runtime`. The 9:30 AM readings settle, and a count that grows
   across its window still fails.
-- Status: in flight. n842-transient-jobs (354da0f8a1, queued urgent: counts one process per
-  offload job) and n892-healthgate (by design).
+- Status: enforced. 56d733b8ff judges transient north processes by growth across the window, not
+  a snapshot count, and settles with the runtime it judges, so the gate never blocks the update
+  that carries its fix; its replay is `cargo nextest run -p north-runtime growth`.
 
 ### 14. Placement reads leased load as no room for a session
 
@@ -332,8 +356,10 @@ worker updates its own class's line when its lane lands.
   while that stall passes 10%, or when the host's runtime does not report it.
 - Replay: `cargo nextest run -p north-capacity saturation`. gex45's 10:00 AM reading is admitted,
   and the same load with a 15% stall is still refused.
-- Status: in flight. 0e4ef2f92f (construct-lead). Not yet covered: placement checking the
-  account profile on the chosen host (an input declaration, as in class 10).
+- Status: enforced. The stall gate landed as 340dd8bcf8, and `north capacity host backlog` prints
+  the unleased CPU stall as its fourth field. The missing profiles are enforced at their cause:
+  agents sync creates every declared Claude profile on its host (28440aad91, pinned by d2332dc34b,
+  north#900), so a launch host no longer lacks one.
 
 ### 15. A lane lands without the tests that guard its code
 
@@ -351,13 +377,43 @@ worker updates its own class's line when its lane lands.
 - Replay: `cargo nextest run -p north-land-checks -E 'test(/a_moved_module_selects_the_tests_that_reach_it/)'`
   selects the failing test for 5f42fb5463 against its parent.
 - Status: in flight. North#1039's lanes n1039-select, n1039-guards, n1039-blame, n1039-miss, n1039-map, n1039-proof and
-  n1039-enforce.
+  n1039-enforce; n1039-map and n1039-miss are running now.
+
+### 16. A build that offload declines runs on the laptop under a playtest hold
+
+- Incident: at 10:12 AM on 2026-11-08 offload declined n892-testclock's
+  `cargo build --locked -p north --bin north` because the build writes files the caller runs, and
+  `capacity host run` then built it on the laptop during the playtest hold, while laptop load
+  reached 80.
+- Root cause: a declined offload fell through to a local run, and the playtest hold judged only
+  the work it was asked to place, not the fallback.
+- Invariant: measure the work, not the machine (3), read the other way: the hold is a fact about
+  the host, so no fallback path may spend it.
+- Mechanism: under a playtest hold, `capacity host run` queues or refuses a build it cannot
+  offload, and never runs it on the laptop.
+- Replay: `cargo nextest run -p north-capacity-host a_build_offload_declines_as_an_artifact`.
+- Status: enforced. 6adefaae54.
+
+### 17. Agents take the laptop while Tom works at it
+
+- Incident: on 2026-11-10 the laptop ran at load 76 to 110 from 3:05 to 3:36 PM and 208 at
+  4:46 PM with agents at 2200% while Tom worked at it. On 2026-11-08 the same quota held the laptop
+  at load 54 to 90 through the morning's probes (class 2).
+- Root cause: the desk mode kept the away quota of 22 of 24 cores and kept the laptop a build host.
+- Invariant: measure the work, not the machine (3). The desk's bound is set by who is at it.
+- Mechanism: the desktop row of `capacity_mode_table` caps agents at 12 CPUs and is no longer a
+  build host, so heavy land checks go to the servers; away keeps 22 of 24. `north capacity mode
+  relieve` and the playtest hold work on top of it. Decided on 2026-11-10 by gate 213.
+- Replay: `cargo nextest run -p north-capacity -p north-pacing`, 53 of 53 passed on the rule.
+- Status: enforced. 69093c66c4. North#892's box for it stays open on its live check,
+  `north capacity mode status | rg -q 'quota.*12' && awk '{exit !($3<24)}' /proc/loadavg`, which
+  passes once the proxy's temporary hold and relief lapse.
 
 ## What stays only caught
 
-These are detected after the fact, not prevented, until the lanes above land:
+These are detected after the fact, not prevented:
 
-- A lane that fails alone still rides probes until n892-solo lands. 24744118dc pulls it after two
-  failed probes.
-- An interaction failure, where two lanes pass alone and break together, is caught by the merged
-  probe by design. That is the probe's job, and bisection (class 4) isolates it.
+- An interaction failure, where two lanes pass alone and break together, is caught by the
+  after-landing run of the batch by design, since land-first (7e285c4f35) lands a batch whose lanes
+  each passed alone and checks the merged tree after the push. Bisection (class 4) then reverts
+  only the culprits.
