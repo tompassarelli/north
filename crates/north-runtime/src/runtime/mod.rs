@@ -120,10 +120,7 @@ fn dispatch(layout: &layout::Layout, arguments: &[String]) -> Option<Result<(), 
         (command, []) if command == "promote" => Some(follow::promote_detached(layout)),
         (command, []) if command == "mirror" => Some(mirror::run()),
         (command, []) if command == "checkouts" => Some(checkouts::run()),
-        (command, [flag]) if command == "lag" && flag == "--processes" => {
-            print!("{}", lag::report(Path::new("/proc"), &layout.state));
-            Some(Ok(()))
-        }
+        (command, flags) if command == "lag" => lag::command(&layout.state, flags),
         (command, flags) if command == "covers" => covers(layout, flags),
         (command, [verb, provider]) if command == "probe" && verb == "launch" => Some(canary::launch_probe(provider)),
         (command, [flag, repo]) if command == "follow" && flag == "--repo-dir" => Some(follow::follow(layout, Path::new(repo))),

@@ -16,8 +16,7 @@ const RESIDENTS: &[(&[&str], &str)] = &[
     (&["broker", "serve"], "broker"),
     (&["--worker-sandbox", "--broker"], "worker-sandbox broker"),
 ];
-// Linux reports /proc/PID/stat start times in USER_HZ ticks, 100 a second on every architecture north runs on.
-const TICKS_PER_SECOND: u64 = 100;
+const USER_HZ: u64 = 100;
 
 struct Resident {
     pid: u32,
@@ -40,7 +39,12 @@ impl Resident {
     }
 }
 
-pub(super) fn report(proc_root: &Path, state: &Path) -> String {
+pub(super) fn command(state: &Path, flags: &[String]) -> Option<Result<(), super::failure::Failure>> {
+    let [flag] = flags else { return None };
+    (flag == "--processes").then(|| print!("{}", report(Path::new("/proc"), state))).map(Ok)
+}
+
+fn report(proc_root: &Path, state: &Path) -> String {
     let lander = state.join("lander");
     let lander = if fs::symlink_metadata(&lander).is_ok() { lander } else { state.join("current") };
     let current = state.join("current");
@@ -79,7 +83,7 @@ fn started_after(process: &Path, boot: Option<u64>, link: &Path) -> bool {
     let started = fs::read_to_string(process.join("stat")).ok().and_then(|stat| stat.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse::<u64>().ok());
     let moved = fs::symlink_metadata(link).and_then(|link| link.modified()).ok().and_then(|at| at.duration_since(UNIX_EPOCH).ok());
     match (boot, started, moved) {
-        (Some(boot), Some(ticks), Some(moved)) => boot + ticks / TICKS_PER_SECOND >= moved.as_secs(),
+        (Some(boot), Some(ticks), Some(moved)) => boot + ticks / USER_HZ >= moved.as_secs(),
         _ => false,
     }
 }
