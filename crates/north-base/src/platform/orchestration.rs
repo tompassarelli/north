@@ -4,26 +4,10 @@ use std::path::{Path, PathBuf};
 use north_shared_config as shared;
 use toml_edit::{DocumentMut, Item};
 
-const FILE: &str = "orchestration.toml";
+pub use shared::orchestration as path_in;
 
 pub fn path() -> PathBuf {
     path_in(&home(), variable("AGENTS_ORCHESTRATION").as_deref(), variable("AGENTS_OPERATOR_DIR").as_deref())
-}
-
-/// The orchestration file `AGENTS_ORCHESTRATION` names, else the operator directory's, else the fetched snapshot's,
-/// else the south checkout's, for a caller that reads its environment and home through its own port.
-pub fn path_in(home: &Path, orchestration: Option<&Path>, operator: Option<&Path>) -> PathBuf {
-    if let Some(path) = orchestration {
-        return path.to_owned();
-    }
-    if let Some(operator) = operator {
-        return operator.join(FILE);
-    }
-    let snapshot = shared::current(home).join(FILE);
-    match snapshot.is_file() {
-        true => snapshot,
-        false => under(home),
-    }
 }
 
 /// A top-level policy file of south `agents/` beside the orchestration file, such as costs.toml or

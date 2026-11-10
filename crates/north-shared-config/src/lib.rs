@@ -42,6 +42,23 @@ pub fn south(home: &Path) -> PathBuf {
     home.join("code/south/main")
 }
 
+/// The orchestration file a run reads: the one `orchestration` names, else the operator directory's, else the
+/// snapshot's, else the south checkout's; every other policy file is read beside it, at the same revision.
+pub fn orchestration(home: &Path, orchestration: Option<&Path>, operator: Option<&Path>) -> PathBuf {
+    const FILE: &str = "orchestration.toml";
+    if let Some(path) = orchestration {
+        return path.to_owned();
+    }
+    if let Some(operator) = operator {
+        return operator.join(FILE);
+    }
+    let snapshot = current(home).join(FILE);
+    match snapshot.is_file() {
+        true => snapshot,
+        false => south(home).join(TREE).join(FILE),
+    }
+}
+
 pub fn stamp(home: &Path) -> Option<Stamp> {
     let text = fs::read_to_string(directory(home).join(STAMP)).ok()?;
     let (revision, fetched_at) = text.trim().split_once(' ')?;
