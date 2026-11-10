@@ -27,7 +27,7 @@ pub struct Config {
     local_checks: bool,
 }
 
-fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
+pub(super) fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
     let Ok(output) = Command::new("git").arg("-C").arg(repo).args(arguments).output() else {
         return Vec::new();
     };

@@ -1,0 +1,46 @@
+# The guard floor of test selection (docs/rationale/test-selection.md, rule 1; north#1039). A lane that changes a path under a
+# suite's `paths` (a directory ends in `/`) runs that suite before landing, whatever the coverage map says. `tests` names
+# PACKAGE for a whole package's unit tests or PACKAGE MODULE:: for one module of its lib, and `it` names tests/it modules.
+# Every path must exist at the lane's head, and a lane that renames or deletes a guarded file while its rename target or
+# the Rust it adds lies outside every path of that suite is refused until the suite lists the new home: the "guard suite"
+# lane gate checks both.
+
+[[suite]]
+name = "worker sandbox"
+paths = [
+    "crates/north-runtime/src/worker_sandbox/",
+    "crates/north-land-sandbox/",
+    "tests/it/worker_sandbox.rs",
+]
+tests = ["north-runtime worker_sandbox::", "north-land-sandbox"]
+it = ["worker_sandbox"]
+
+[[suite]]
+name = "privacy gate"
+paths = [
+    "crates/north-land-scans/src/outgoing/",
+    "crates/north-landing-gates/src/landing/denylist.rs",
+    "crates/north-landing-gates/src/landing/denylist_archive.rs",
+    "crates/north-landing-gates/src/landing/denylist_attest.rs",
+    "crates/north-landing-gates/src/landing/denylist_attest_tests.rs",
+    "crates/north-landing-gates/src/landing/denylist_mirror.rs",
+    "crates/north-landing-gates/src/landing/denylist_publication_tests.rs",
+    "crates/north-landing-gates/src/landing/denylist_tests.rs",
+    "crates/north-safe-push/src/publication/outgoing.rs",
+    "crates/north-base/src/platform/private_text.rs",
+    "crates/north-runtime/src/privacy/",
+]
+tests = [
+    "north-land-scans outgoing::",
+    "north-landing-gates landing::denylist",
+    "north-safe-push publication::outgoing::",
+    "north-base platform::private_text::",
+    "north-runtime privacy::",
+]
+it = []
+
+[[suite]]
+name = "landing machinery"
+paths = ["crates/north-lander/", "crates/north-land-checks/", "crates/north-safe-push/"]
+tests = ["north-lander", "north-land-checks", "north-safe-push"]
+it = []

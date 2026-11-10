@@ -2,6 +2,7 @@ pub mod affected;
 pub mod clippy_first;
 pub mod deps;
 pub mod graph_selection;
+pub mod guard_suites;
 pub mod infer;
 pub mod it_modules;
 pub mod runner;

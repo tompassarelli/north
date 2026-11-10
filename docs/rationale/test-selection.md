@@ -317,6 +317,13 @@ Each lane has a box on north#1039 with its Done when command:
   `[gate.test-selection]` in shadow with its log.
 - n1039-guards: `harness/guard-suites.toml`, its existence and rename checks, and rules 1 and 2 (the `:guards`
   reader) in the same selection.
+- Landed by the first select and guards lane: rule 1 and its existence and rename checks (the `guard suite` lane gate,
+  under the shared `landing_refusals` switch); rule 3 for unknown tests, which `north graph ask affected` now returns as
+  `added` entries for every `#[test]` at the lane's head in a package the changed Rust reaches and the graph does not
+  know; and rule 3 for the unprofiled spawning `tests/it` modules, since a graph answer now joins the module table's
+  crate selection over the lane's compiled files instead of replacing it. The guard floor and the joined selection
+  run at once rather than in shadow: they only add tests to the check that already gates. The rest of both boxes is
+  n1039-select-rest.
 - n1039-blame: every prefix probe runs exactly the failed tests, a single named suspect is confirmed against its
   parent, a red base walks back to the first differentially red lane and reverts it, and `Cone::holds` follows the
   new rules.

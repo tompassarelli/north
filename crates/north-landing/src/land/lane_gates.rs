@@ -35,6 +35,7 @@ const GATES: &[(&str, Gate)] = &[
     ("after-only reason", after_only),
     ("dependency age", dependency_age),
     ("dependency advisory", dependency_advisory),
+    ("guard suite", guard_suite),
 ];
 
 impl Lane<'_> {
@@ -79,6 +80,10 @@ fn dependency_age(lane: &Lane, out: &mut Vec<u8>) -> bool {
 
 fn dependency_advisory(lane: &Lane, out: &mut Vec<u8>) -> bool {
     advisory_gate::refuse(lane.worktree, lane.base, lane.head, lane.advisory_db, out)
+}
+
+fn guard_suite(lane: &Lane, out: &mut Vec<u8>) -> bool {
+    super::slots::guard_suites::refuse(lane.worktree, lane.base, lane.head, out)
 }
 
 pub fn failed(lane: &Lane) -> Option<(Vec<&'static str>, Vec<u8>)> {

@@ -94,6 +94,8 @@ pub fn of(facts: &Facts, change: &Change, stale: Option<&Hunks>) -> Result<Cone,
     let files: Vec<String> = change.files.iter().map(|changed| changed.path.clone()).collect();
     let added = change.added.iter().map(|test| Added { package: test.package.clone().or_else(|| facts.crate_of(&test.file).map(str::to_owned)).unwrap_or_default(), name: test.name.clone() }).collect();
     let mut cone = Cone { added, files, ..Cone::default() };
+    let unknown = unknown(facts, change, &cone.added);
+    cone.added.extend(unknown);
     match walk(facts, change, stale) {
         Ok(tests) => cone.tests = tests,
         Err(reason) => cone.untraced = Some(reason),
@@ -102,6 +104,20 @@ pub fn of(facts: &Facts, change: &Change, stale: Option<&Hunks>) -> Result<Cone,
         cone.always = facts.unrecorded()?.difference(&cone.tests).cloned().collect();
     }
     Ok(cone)
+}
+
+fn unknown(facts: &Facts, change: &Change, added: &[Added]) -> Vec<Added> {
+    let reached: BTreeSet<String> = change.files.iter().filter(|changed| changed.path.ends_with(".rs")).filter_map(|changed| facts.crate_of(&changed.path)).flat_map(|name| facts.dependents(name)).collect();
+    let known: BTreeSet<(String, String)> = facts.tests_of(&reached).into_iter().map(|id| (id.package().to_owned(), id.name.rsplit("::").next().unwrap_or(&id.name).to_owned())).collect();
+    let mut found: Vec<Added> = Vec::new();
+    for test in &change.present {
+        let Some(package) = facts.crate_of(&test.file).filter(|package| reached.contains(*package)) else { continue };
+        let entry = Added { package: package.to_owned(), name: test.name.clone() };
+        if !known.contains(&(entry.package.clone(), entry.name.clone())) && !added.contains(&entry) && !found.contains(&entry) {
+            found.push(entry);
+        }
+    }
+    found
 }
 
 fn workspace_fallback(facts: &Facts, workspace: &Workspace) -> Result<BTreeSet<String>, String> {

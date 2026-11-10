@@ -6,6 +6,7 @@ use regex::Regex;
 use toml_edit::{DocumentMut, Item};
 
 use super::graph_selection::{self, Batch, Tests};
+use super::guard_suites::{Floor, Suites};
 use super::select::changed;
 use super::shared_build::live_runtime;
 use super::tree_wide_units::{self, Units};
@@ -21,7 +22,7 @@ const EVERY_IT: &str = "kind(test)";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Selection {
     Every,
-    Modules { modules: BTreeSet<String>, units: Units },
+    Modules { modules: BTreeSet<String>, units: Units, floor: Floor },
     Tests(Tests),
 }
 
@@ -38,7 +39,7 @@ impl Selection {
     pub fn summary(&self) -> String {
         match self {
             Self::Tests(tests) => tests.summary(),
-            Self::Modules { units, .. } if !units.is_empty() => format!("{}, and the whole packages of the tree-wide unit tests {}", self.arguments(), units.names()),
+            Self::Modules { units, floor, .. } if !units.is_empty() || !floor.is_empty() => format!("{}, and the whole packages of the tree-wide unit tests {} and of the guard suites {}", self.arguments(), units.names(), floor.names()),
             Self::Every | Self::Modules { .. } => self.arguments(),
         }
     }
@@ -46,8 +47,16 @@ impl Selection {
     pub fn with_units(self, units: Units) -> Self {
         match self {
             Self::Every => Self::Every,
-            Self::Modules { modules, .. } => Self::Modules { modules, units },
+            Self::Modules { modules, floor, .. } => Self::Modules { modules, units, floor },
             Self::Tests(tests) => Self::Tests(tests.with_units(units)),
+        }
+    }
+
+    pub fn with_floor(self, floor: Floor) -> Self {
+        match self {
+            Self::Every => Self::Every,
+            Self::Modules { modules, units, .. } => Self::Modules { modules: modules.into_iter().chain(floor.it.iter().cloned()).collect(), units, floor },
+            Self::Tests(tests) => Self::Tests(tests.with_floor(floor)),
         }
     }
 
@@ -62,7 +71,7 @@ impl Selection {
     pub fn packages(&self) -> BTreeSet<String> {
         match self {
             Self::Tests(tests) => tests.packages(),
-            Self::Modules { units, .. } => units.packages(),
+            Self::Modules { units, floor, .. } => units.packages().into_iter().chain(floor.packages()).collect(),
             Self::Every => BTreeSet::new(),
         }
     }
@@ -194,49 +203,79 @@ impl Table {
     }
 }
 
-pub fn select(structure: &str, table: &str, spawners: &BTreeSet<String>, files: &[String]) -> Result<Selection, String> {
-    let plan = Plan::parse(structure)?;
-    let table = Table::parse(table, &plan, spawners)?;
+struct Reach {
+    modules: BTreeSet<String>,
+    every: bool,
+}
+
+enum Owner {
+    Crate(String),
+    Module(String),
+    Outside,
+}
+
+fn owner(plan: &Plan, table: &Table, file: &str) -> Owner {
+    if let Some(name) = plan.owner(file) {
+        Owner::Crate(name.to_owned())
+    } else if let Some(module) = table.module_of(file) {
+        Owner::Module(module.to_owned())
+    } else if file.starts_with(SOURCES) || (file.starts_with(DOCS) && !rust_build_input(file)) {
+        Owner::Crate(ROOT.to_owned())
+    } else {
+        Owner::Outside
+    }
+}
+
+fn reach(plan: &Plan, table: &Table, files: &[String]) -> Reach {
     let mut changed = BTreeSet::new();
     let mut edited = BTreeSet::new();
+    let mut outside = false;
     for file in files {
-        if let Some(name) = plan.owner(file) {
-            changed.insert(name.to_owned());
-        } else if let Some(module) = table.module_of(file) {
-            edited.insert(module.to_owned());
-        } else if file.starts_with(SOURCES) || (file.starts_with(DOCS) && !rust_build_input(file)) {
-            changed.insert(ROOT.to_owned());
-        } else {
-            return Ok(Selection::Every);
+        match owner(plan, table, file) {
+            Owner::Crate(name) => _ = changed.insert(name),
+            Owner::Module(module) => _ = edited.insert(module),
+            Owner::Outside => outside = true,
         }
     }
     let affected = plan.closure(changed);
-    if plan.names().all(|name| affected.contains(name)) {
-        return Ok(Selection::Every);
-    }
     if !edited.is_empty() {
         edited.extend(table.tree_wide.iter().cloned());
     }
     let modules: BTreeSet<String> = table.modules.iter().filter(|(_, crates)| !crates.is_disjoint(&affected)).map(|(module, _)| module.clone()).chain(edited).collect();
-    if modules.len() == table.modules.len() {
-        return Ok(Selection::Every);
-    }
-    Ok(Selection::Modules { modules, units: Units::default() })
+    let every = outside || plan.names().all(|name| affected.contains(name)) || modules.len() == table.modules.len();
+    Reach { modules, every }
+}
+
+pub fn select(structure: &str, table: &str, spawners: &BTreeSet<String>, files: &[String]) -> Result<Selection, String> {
+    let plan = Plan::parse(structure)?;
+    let table = Table::parse(table, &plan, spawners)?;
+    let Reach { modules, every } = reach(&plan, &table, files);
+    Ok(if every { Selection::Every } else { Selection::Modules { modules, units: Units::default(), floor: Floor::default() } })
 }
 
 pub fn selection(root: &Path, base: &str, head: &str, batch: &Batch) -> Result<Selection, String> {
     selection_asking(&live_runtime(), root, base, head, batch)
 }
 
+fn compiled(file: &str) -> bool {
+    file.ends_with(".rs") || file.ends_with("/Cargo.toml") || file == "Cargo.toml"
+}
+
 pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str, batch: &Batch) -> Result<Selection, String> {
     let read = |path: &str| std::fs::read_to_string(root.join(path)).map_err(|error| format!("{path}: {error}"));
-    if let Some(tests) = graph_selection::ask(program, root, base, head, batch) {
-        let plan = Plan::parse(&read(STRUCTURE)?)?;
-        let table = Table::parse(&read(TABLE)?, &plan, &spawners(root))?;
-        return Ok(Selection::Tests(tests.with_modules(table.tree_wide).with_units(units(&read(tree_wide_units::TABLE)?, &plan)?)));
-    }
-    let units = units(&read(tree_wide_units::TABLE)?, &Plan::parse(&read(STRUCTURE)?)?)?;
-    Ok(select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &changed(root, base, head, &[]))?.with_units(units))
+    let plan = Plan::parse(&read(STRUCTURE)?)?;
+    let table = Table::parse(&read(TABLE)?, &plan, &spawners(root))?;
+    let units = units(&read(tree_wide_units::TABLE)?, &plan)?;
+    let files = changed(root, base, head, &[]);
+    let floor = Suites::read(root)?.floor(&files);
+    let selection = match graph_selection::ask(program, root, base, head, batch) {
+        Some(tests) => {
+            let compiled: Vec<String> = files.iter().filter(|file| compiled(file)).cloned().collect();
+            Selection::Tests(tests.with_modules(table.tree_wide.iter().cloned().chain(reach(&plan, &table, &compiled).modules).collect()))
+        }
+        None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &files)?,
+    };
+    Ok(selection.with_units(units).with_floor(floor))
 }
 
 fn units(table: &str, plan: &Plan) -> Result<Units, String> {

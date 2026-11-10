@@ -22,9 +22,9 @@ fn a_probe_through_src_and_four_crates_runs_only_the_tests_it_modules_their_crat
     let affected = plan.closure(["north", "north-calibration", "north-capacity-host", "north-climb", "north-context-pack"].map(str::to_owned).into());
     let expected: BTreeSet<String> = table.modules().filter(|module| !table.crates(module).unwrap().is_disjoint(&affected)).map(str::to_owned).collect();
     let selection = selected(&probe);
-    assert_eq!(selection, Selection::Modules { modules: expected, units: Units::default() }, "the probe runs the modules crates.txt maps to its crates");
+    assert_eq!(selection, Selection::Modules { modules: expected, units: Units::default(), floor: Floor::default() }, "the probe runs the modules crates.txt maps to its crates");
     assert!(selection.arguments().starts_with("--test it -E kind(lib)|kind(bin)|(binary_id(north::it)&test(/"), "the root package's unit tests still run");
-    let modules = |names: &[&str]| Selection::Modules { modules: names.iter().map(|name| (*name).to_owned()).chain(["affected_modules", "agent_text_reads"].map(str::to_owned)).collect(), units: Units::default() };
+    let modules = |names: &[&str]| Selection::Modules { modules: names.iter().map(|name| (*name).to_owned()).chain(["affected_modules", "agent_text_reads"].map(str::to_owned)).collect(), units: Units::default(), floor: Floor::default() };
     assert_eq!(selected(&["tests/it/threads_ledger.rs"]), modules(&["threads_ledger"]), "an edited module runs with the tree-wide ones");
     assert_eq!(selected(&["tests/it/runtime_update/prune.rs"]), modules(&["runtime_update"]), "a file in a module's directory selects it");
     for file in ["tests/it/support/tree.rs", "tests/it/main.rs", TABLE, "examples/push_trace_git.rs", "Cargo.lock"] {
@@ -119,4 +119,74 @@ fn a_selected_integration_binary_of_another_crate_is_built_and_run() {
     assert!(arguments.contains("(binary_id(north-lander::it)&(test(=land_chaos::reverts_the_red_lane)))"), "the selected test runs: {arguments}");
     assert!(selection.packages().contains("north-lander"), "its package is built");
     assert!(Selection::Every.arguments().ends_with("|kind(test)"), "the whole-workspace run keeps every tests/it binary");
+}
+
+const SANDBOX_TEST: &str = "worker_sandbox::a_command_confined_to_its_lane_reads_its_lane_and_not_another_project_the_sops_keys_or_agent_state";
+
+fn git(repo: &Path, arguments: &[&str]) -> String {
+    let output = std::process::Command::new("git").arg("-C").arg(repo).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
+    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+fn replay_of_the_sandbox_move(repo: &Path) -> (String, String) {
+    for table in [STRUCTURE, TABLE, tree_wide_units::TABLE, super::super::guard_suites::TABLE] {
+        std::fs::create_dir_all(repo.join(table).parent().unwrap()).unwrap();
+        std::fs::copy(root().join(table), repo.join(table)).unwrap();
+    }
+    for entry in std::fs::read_dir(root().join("tests/it")).unwrap().flatten().filter(|entry| entry.path().is_file()) {
+        std::fs::copy(entry.path(), repo.join("tests/it").join(entry.file_name())).unwrap();
+    }
+    let moved = ["except.rs", "executable.rs", "lane_only.rs", "readable.rs", "removable.rs"];
+    let kept = ["crates/north-runtime/src/worker_sandbox/broker.rs", "crates/north-runtime/src/worker_sandbox/mod.rs", "crates/north-runtime/src/worker_sandbox/tests.rs", "crates/north-providers/src/providers/opencode/harness.rs", "crates/north-providers/src/providers/opencode/turns.rs", "crates/north-base/src/platform/mod.rs", "crates/north-base/Cargo.toml", "crates/north-land-sandbox/src/lib.rs", "crates/north-runtime/src/privacy/mod.rs", "crates/north-land-scans/src/outgoing/mod.rs", "crates/north-lander/src/lib.rs", "crates/north-land-checks/src/lib.rs", "crates/north-safe-push/src/lib.rs", "Cargo.lock", "docs/rationale/worker-sandbox.md"];
+    let write = |path: &str, text: &str| {
+        std::fs::create_dir_all(repo.join(path).parent().unwrap()).unwrap();
+        std::fs::write(repo.join(path), text).unwrap();
+    };
+    for file in kept.iter().copied().chain(moved.iter().map(|name| format!("crates/north-runtime/src/worker_sandbox/{name}")).collect::<Vec<_>>().iter().map(String::as_str)) {
+        write(file, &format!("// {file}\nfn policy() {{}}\n"));
+    }
+    for path in super::super::guard_suites::Suites::parse(&read(super::super::guard_suites::TABLE)).unwrap().paths() {
+        if !repo.join(path).exists() {
+            write(path, "fn guarded() {}\n");
+        }
+    }
+    git(repo, &["init", "-q"]);
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-qm", "base"]);
+    let base = git(repo, &["rev-parse", "HEAD"]);
+    std::fs::create_dir_all(repo.join("crates/north-base/src/platform/worker_sandbox")).unwrap();
+    for name in moved {
+        git(repo, &["mv", &format!("crates/north-runtime/src/worker_sandbox/{name}"), &format!("crates/north-base/src/platform/worker_sandbox/{name}")]);
+    }
+    for file in ["crates/north-base/src/platform/worker_sandbox/mod.rs", "crates/north-base/src/platform/worker_sandbox/tests.rs"] {
+        write(file, "fn moved() {}\n");
+    }
+    for file in &kept[..7] {
+        write(file, &format!("// {file}, now calling north-base\nfn policy() {{}}\n"));
+    }
+    write("Cargo.lock", "# north-base gains a dependency\n");
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-qm", "Move the worker sandbox's path policy into north-base"]);
+    (base, git(repo, &["rev-parse", "HEAD"]))
+}
+
+#[test]
+fn a_moved_module_selects_the_tests_that_reach_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let repo = directory.path().join("repo");
+    std::fs::create_dir_all(repo.join("tests/it")).unwrap();
+    let (base, head) = replay_of_the_sandbox_move(&repo);
+    let answer = r#"{"tests":["north-runtime worker_sandbox::tests::lane_only_reads_the_lane","north-runtime worker_sandbox::broker::tests::answers","north-providers providers::opencode::turns::tests::a_turn_runs","north-providers providers::opencode::harness::tests::wraps"],"always":[],"added":[],"files":[],"untraced":null,"known":1151}"#;
+    let graph = graph_stub(directory.path(), "graph", &format!("printf '%s' '{answer}'"));
+    let selection = selection_asking(&graph, &repo, &base, &head, &Batch::default()).unwrap();
+    let arguments = selection.arguments();
+    assert!(selection.runs_module("worker_sandbox"), "the tests/it module that spawns north and holds {SANDBOX_TEST}, which the graph does not know, runs because the lane changes crates its binary links: {arguments}");
+    assert!(arguments.contains("worker_sandbox|") || arguments.contains("|worker_sandbox)") || arguments.contains("(worker_sandbox)"), "the filter names the module: {arguments}");
+    assert!(arguments.contains("(package(north-runtime)&test(/^worker_sandbox::/))") && arguments.contains("package(north-land-sandbox)"), "the worker sandbox guard suite runs: {arguments}");
+    assert!(selection.packages().is_superset(&["north".to_owned(), "north-runtime".to_owned(), "north-land-sandbox".to_owned()].into()), "the packages of the module and the suite are built");
+    let mut refusal = Vec::new();
+    assert!(super::super::guard_suites::refuse(&repo, &base, &head, &mut refusal), "moving guarded files out of the suite's paths refuses the lane");
+    let refusal = String::from_utf8(refusal).unwrap();
+    assert!(refusal.contains("crates/north-runtime/src/worker_sandbox/lane_only.rs moved to crates/north-base/src/platform/worker_sandbox/lane_only.rs"), "{refusal}");
 }

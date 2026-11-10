@@ -136,3 +136,34 @@ fn an_alone_pass_carries_only_a_test_no_other_landed_lane_and_no_landing_it_did_
     let untraced = [lanes, vec![("toolchain".to_owned(), Cone { untraced: Some("rust-toolchain.toml".to_owned()), ..Cone::default() })]].concat();
     assert!(carry::carried(&untraced, &passes).is_empty());
 }
+
+#[test]
+fn a_test_the_graph_does_not_know_runs_when_the_lane_changes_a_crate_its_package_depends_on() {
+    let graph = graph(&[
+        ("test:north::it::worker_sandbox::a_known_test", "in-binary", "north::it"),
+        ("crate:north", "root", "."),
+        ("crate:north-runtime", "root", "crates/north-runtime"),
+        ("crate:north-ops", "root", "crates/north-ops"),
+        ("crate:north", "depends-on", "crate:north-runtime"),
+        ("coverage:north", "commit", "c0ffee"),
+        ("fn:crates/north-runtime/src/worker_sandbox/mod.rs:1-9", "in-file", "crates/north-runtime/src/worker_sandbox/mod.rs"),
+    ]);
+    let facts = Facts::read(&graph, "north").unwrap();
+    let file = "crates/north-runtime/src/worker_sandbox/mod.rs";
+    let mut change = changed(&[file], parse(&format!("--- a/{file}\n+++ b/{file}\n@@ -4 +4 @@\n")));
+    let present = |file: &str, name: &str| crate::lane::AddedTest { file: file.to_owned(), name: name.to_owned(), package: None };
+    change.present = vec![
+        present("tests/it/worker_sandbox.rs", "a_known_test"),
+        present("tests/it/worker_sandbox.rs", "a_command_confined_to_its_lane_reads_its_lane_and_not_another_project_the_sops_keys_or_agent_state"),
+        present("crates/north-runtime/src/worker_sandbox/tests.rs", "a_new_unit_test"),
+        present("crates/north-ops/src/report.rs", "a_test_outside_the_closure"),
+    ];
+    let cone = cone::of(&facts, &change, Some(&Hunks::new())).unwrap();
+    assert!(cone.tests.is_empty(), "the map holds no edge from the changed region");
+    let added = |package: &str, name: &str| Added { package: package.to_owned(), name: name.to_owned() };
+    assert_eq!(
+        cone.added,
+        vec![added("north", "a_command_confined_to_its_lane_reads_its_lane_and_not_another_project_the_sops_keys_or_agent_state"), added("north-runtime", "a_new_unit_test")],
+        "the unknown tests of packages that link the changed crate run; known tests and packages outside the closure do not"
+    );
+}

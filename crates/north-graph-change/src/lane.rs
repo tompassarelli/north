@@ -48,8 +48,11 @@ pub struct Change {
     pub files: Vec<Changed>,
     pub hunks: Hunks,
     pub added: Vec<AddedTest>,
+    pub present: Vec<AddedTest>,
     pub workspace: Workspace,
 }
+
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 impl Change {
     pub fn read(root: &Path, base: &str, head: &str) -> Result<Self, String> {
@@ -73,12 +76,18 @@ impl Change {
         });
         let paths: Vec<&str> = files.iter().map(|changed| changed.path.as_str()).collect();
         let workspace = Workspace::read(&paths, |revision, path| git(root, &["show", &format!("{revision}:{path}")]), base, head);
-        Ok(Self { files, hunks: hunks::parse(&text), added: added.collect(), workspace })
+        let present = if text.is_empty() { Vec::new() } else { present(root, head)? };
+        Ok(Self { files, hunks: hunks::parse(&text), added: added.collect(), present, workspace })
     }
 
     pub fn touches(&self, path: &str) -> bool {
         self.files.iter().any(|changed| changed.path == path)
     }
+}
+
+fn present(root: &Path, head: &str) -> Result<Vec<AddedTest>, String> {
+    let tree = git(root, &["diff", "-U0", "--no-renames", "--no-color", "--no-ext-diff", EMPTY_TREE, head, "--", "*.rs"])?;
+    Ok(hunks::added_tests(&tree).into_iter().flat_map(|(file, names)| names.into_iter().map(move |name| AddedTest { file: file.clone(), name, package: None })).collect())
 }
 
 pub fn carried_since(root: &Path, commit: &str, base: &str, change: &Change) -> Option<Hunks> {
