@@ -49,6 +49,19 @@ fn habit(rule: &str) -> Option<&'static str> {
     HABIT_RULES.iter().copied().find(|known| *known == rule)
 }
 
+fn fix_row(rest: &str) -> Option<(&'static str, &'static str)> {
+    let (word, tail) = rest.split_once(' ').unwrap_or((rest, ""));
+    let rule = habit(word)?;
+    let verdict = if tail.starts_with("rewrote ") {
+        "rewrite"
+    } else if tail.starts_with("wants ") {
+        "advisory"
+    } else {
+        return None;
+    };
+    Some((verdict, rule))
+}
+
 fn habit_rows(text: &str) -> Vec<(&'static str, &'static str)> {
     let mut rows = Vec::new();
     let mut warning = false;
@@ -59,14 +72,7 @@ fn habit_rows(text: &str) -> Vec<(&'static str, &'static str)> {
             if warning {
                 continue;
             }
-            let (word, tail) = rest.split_once(' ').unwrap_or((rest, ""));
-            if let Some(rule) = habit(word) {
-                if tail.starts_with("rewrote ") {
-                    rows.push(("rewrite", rule));
-                } else if tail.starts_with("wants ") {
-                    rows.push(("advisory", rule));
-                }
-            }
+            rows.extend(fix_row(rest));
             continue;
         }
         if !warning {
