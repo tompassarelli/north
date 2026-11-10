@@ -205,7 +205,7 @@ fn leaves(words: &[String], depth: usize, visit: &mut dyn FnMut(Option<&[String]
         start += shell::command(&words[start + 1..], PREFIXES) + 1;
     }
     let words = &words[start.min(words.len())..];
-    let inner = build_host_command::without_depbox(words);
+    let inner = build_host_command::unwrapped(words);
     if inner.len() < words.len() {
         return leaves(inner, depth + 1, visit);
     }

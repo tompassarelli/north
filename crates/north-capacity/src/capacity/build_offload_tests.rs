@@ -77,6 +77,7 @@ fn offloaded_build_runs_in_depbox() {
     let words = |text: &str| text.split(' ').map(str::to_owned).collect::<Vec<_>>();
     assert_eq!(for_build_host(&words("/nix/store/abc-rust/bin/cargo test -p x"), false), words("north depbox run -- cargo test -p x"));
     assert_eq!(for_build_host(&words("/home/tom/.local/bin/depbox run -- nix develop -c cargo test"), false), words("north depbox run -- nix develop -c cargo test"), "the laptop's depbox becomes the build host's, never two nested");
+    assert_eq!(for_build_host(&words("/home/tom/code/north-data/runtimes/abc/north --worker-sandbox --program -- cargo build -p x"), false), words("north depbox run -- cargo build -p x"), "a sandboxed session's worker-domain wrapper names the laptop's runtime under ~/code, which refused every such offload as an absolute path");
     assert_eq!(for_build_host(&words("north land checks --leased"), true), words("north land checks --leased"), "a landing's checks enter depbox through land-shell, so its runner stays unwrapped");
 }
 

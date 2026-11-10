@@ -124,7 +124,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let north = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
     let layout = Layout::of(&lane, &directory, &home, &north);
-    let inner = dev_shell::enter(&layout.runtime.join("north").to_string_lossy(), super::build_host_command::without_depbox(command));
+    let inner = dev_shell::enter(&layout.runtime.join("north").to_string_lossy(), super::build_host_command::unwrapped(command));
     let error = layout.command(&inner).exec();
     eprintln!("north capacity sandbox: bwrap: {error}");
     126
