@@ -78,7 +78,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("desktop", desktop),
     ("code-health", code_health),
     ("dash", super::dash::run),
-    ("infra", super::infra::run),
+    ("infra", super::views::infra::run),
     ("depbox", |arguments| capacity::depbox::run(arguments, &capacity_host())),
 ];
 
@@ -98,7 +98,21 @@ pub(super) enum Tool {
     Timer(Timer),
 }
 
-const FLEET: &[(&str, Run)] = &[("report", crate::ops::report::run), ("usage", super::agents::usage)];
+const FLEET: &[(&str, Run)] = &[("report", retired_work), ("usage", retired_usage)];
+
+fn retired_work(_: &[String]) -> u8 {
+    eprintln!("north fleet report moved to `north work`; its sessions, gates, landings, report and lane flow print there");
+    2
+}
+
+fn retired_usage(arguments: &[String]) -> u8 {
+    let writer = arguments.iter().any(|argument| matches!(argument.as_str(), "--refresh" | "--local" | "--write-pace-gate" | "--fast" | "--cached" | "--gate" | "--rows" | "sample"));
+    if writer {
+        return super::agents::usage(arguments);
+    }
+    eprintln!("north fleet usage's account view moved to `north accounts`; `north fleet usage --refresh` and the provider flags still write readings");
+    2
+}
 
 const OPERATIONS: &[(&str, Tool)] = &[
     ("test", Tool::Test),

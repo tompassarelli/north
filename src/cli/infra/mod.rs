@@ -4,54 +4,13 @@
 //! day of work and load, so an idle paid box shows as idle. One unread source leaves the others standing.
 use crate::foundation::clock::Timestamp;
 use crate::platform::broker_client::Client;
-use report::Report;
 
 mod capacity;
 mod hcloud;
 pub(crate) mod manifest;
-mod report;
+pub(crate) mod report;
 
-const USAGE: &str = "usage: north infra [--json]
-
-List every live paid resource with its monthly price and a total: Hetzner Cloud servers through the broker's read-only
-hcloud allowlist, and the machines and paid services south's infra/manifest.toml records. A machine both sources name is
-one row, read live. Each machine's row carries its 24-hour load per core and the sessions and jobs the capacity ledger
-served there, or idle when it served none. --json prints the same rows and totals.";
-
-pub fn run(arguments: &[String]) -> u8 {
-    let json = match arguments {
-        [] => false,
-        [flag] if flag == "--json" => true,
-        [flag] if flag == "-h" || flag == "--help" => {
-            println!("{USAGE}");
-            return 0;
-        }
-        _ => {
-            eprintln!("{USAGE}");
-            return 2;
-        }
-    };
-    let (resources, unread) = read();
-    if resources.is_empty() && !unread.is_empty() {
-        for why in &unread {
-            eprintln!("north infra: {why}");
-        }
-        return 1;
-    }
-    let report = Report::of(Timestamp::now().iso(), resources, unread);
-    if json {
-        let out = serde_json::json!({
-            "at": report.at, "resources": report.resources, "totals": report.totals,
-            "total": report.total_line(), "unread": report.unread,
-        });
-        println!("{out}");
-    } else {
-        println!("{}", report.text());
-    }
-    0
-}
-
-fn read() -> (Vec<report::Resource>, Vec<String>) {
+pub(crate) fn read() -> (Vec<report::Resource>, Vec<String>) {
     let mut unread = Vec::new();
     let live = match Client::discover()
         .call("GET", hcloud::PATH, None)

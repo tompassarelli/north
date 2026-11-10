@@ -7,7 +7,10 @@ pub(super) fn run(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
         [] => listing(fleet, false),
         ["--claude-ai"] => listing(fleet, true),
         ["--api"] => api_pool_listing(),
-        ["--plan"] => super::router::account_plan(fleet),
+        ["--plan"] => {
+            eprintln!("north fleet accounts --plan moved to `north accounts`; it prints every plan account and api grant in placement order with its verdict");
+            Ok(())
+        }
         ["--reading", account, usd] => reading(account, usd),
         ["--poll"] => poll(),
         ["--probe"] => probe(),

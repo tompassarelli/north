@@ -2,7 +2,7 @@ use std::env;
 use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
-use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, language_gate, nix_explain};
+use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, language_gate, nix_explain};
 
 mod abandon_witness;
 mod mutant_issues;
@@ -53,6 +53,7 @@ mod south_test_repo;
 mod tools;
 mod verb_help;
 mod verbs;
+mod views;
 mod work_items;
 mod worker_ledger;
 
@@ -77,6 +78,7 @@ enum Command {
     Agents(Vec<String>),
     ConfigCheck(Vec<String>),
     Work(Vec<String>),
+    Accounts(Vec<String>),
     Session(Session, Vec<String>),
     Tool(Tool, Vec<String>),
     LanguageGate(Vec<String>),
@@ -148,6 +150,7 @@ const FORWARDED: &[(&str, Forward)] = &[
         Some("brief" | "review") => Command::Tool(Tool::Work, rest),
         _ => Command::Work(rest),
     }),
+    ("accounts", |_, rest| Command::Accounts(rest)),
     ("language-gate", |_, rest| Command::LanguageGate(rest)),
     ("build-cache-gate", |_, rest| Command::BuildCacheGate(rest)),
     ("health", |_, rest| Command::Health(rest)),
@@ -224,14 +227,17 @@ fn dispatch(command: Command) -> ExitCode {
         }
         Command::Agents(arguments) => agents::config(&arguments),
         Command::ConfigCheck(arguments) => in_runtime(async move { agent_catalog::config_check(&arguments).map(ExitCode::from) }),
-        Command::Work(arguments) => in_runtime(async move {
-            work_items::run(&arguments).await.map(|()| ExitCode::SUCCESS)
-        }),
+        Command::Work(arguments) => match arguments.first().map(String::as_str) {
+            None => views::work::run(&arguments).into(),
+            Some(flag) if flag.starts_with('-') => views::work::run(&arguments).into(),
+            Some(_) => in_runtime(async move { work_items::run(&arguments).await.map(|()| ExitCode::SUCCESS) }),
+        },
+        Command::Accounts(arguments) => views::accounts::run(&arguments).into(),
         Command::Session(session, arguments) => in_runtime(async move { session.run(&arguments).await.map(ExitCode::from) }),
         Command::Tool(tool, arguments) => tool.run(&arguments),
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
         Command::BuildCacheGate(arguments) => in_runtime(async move { Ok(build_cache_gate::run_gate(&arguments)) }),
-        Command::Health(arguments) => in_runtime(async move { Ok(health::run(&arguments, |repo| crate::ops::citation_check::verdict(repo, tools::defines))) }),
+        Command::Health(arguments) => views::health::run(&arguments, |repo| crate::ops::citation_check::verdict(repo, tools::defines)),
         Command::GuardLanguage => in_runtime(async { Ok(language_gate::run_guard()) }),
         Command::ContractProbe(arguments) => in_runtime(async move {
             contract_probe::run(&arguments, probe_account::invocation).await.map(ExitCode::from)

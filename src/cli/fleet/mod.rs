@@ -7,7 +7,6 @@ mod adopt;
 mod breaker;
 mod claims;
 mod desktop;
-mod digest;
 mod dispatch_tick;
 mod gated;
 mod held;

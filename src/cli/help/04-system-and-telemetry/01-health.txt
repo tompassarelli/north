@@ -1,2 +1,2 @@
 health
-Check harness invariants
+Readiness bars, goals and harness invariants

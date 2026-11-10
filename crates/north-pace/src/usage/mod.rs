@@ -45,7 +45,7 @@ pub struct Places {
 }
 
 impl Places {
-    fn from_env() -> Self {
+    pub fn from_env() -> Self {
         let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
         let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
         Self {
@@ -197,6 +197,10 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             1
         }
     }
+}
+
+pub fn detail_text(db: &Connection, places: &Places, now: Timestamp) -> Result<String, String> {
+    detail::render(db, places, now).map(|(text, _)| text)
 }
 
 fn report(db: &Connection, policy: &Path, now: Timestamp) -> Result<String, String> {

@@ -172,6 +172,42 @@ fn detect(arguments: &[String]) -> u8 {
     0
 }
 
+pub fn work_rows() -> Vec<Value> {
+    let places = Places::from_env();
+    let machine = Machine::default();
+    let targets = project_targets(&crate::platform::orchestration::path());
+    let mut repos: Vec<String> = DEFAULT_REPOS.iter().map(|repo| (*repo).to_owned()).collect();
+    for repo in targets.keys() {
+        if !repos.contains(repo) {
+            repos.push(repo.clone());
+        }
+    }
+    let now = Timestamp::now().unix_seconds_f64();
+    let env = Env::new(&places, &machine, targets);
+    let mut rows: Vec<Value> = repos.iter().map(|repo| get(&env, repo, now, &FIELDS)).collect();
+    for row in &mut rows {
+        row["landing"] = landing::tempo(&places.ledger, row["repo"].as_str().unwrap_or_default(), now).unwrap_or(Value::Null);
+    }
+    let samples = account_busy(&places, &machine, now);
+    for row in &mut rows {
+        row["actions"] = json!(actions_verdict(row["actions_pending"].as_u64(), &samples, now));
+    }
+    rows
+}
+
+pub fn work_lines(rows: &[Value]) -> Vec<String> {
+    let mut lines: Vec<String> = rows.iter().map(|row| format_row(row, None)).collect();
+    for row in rows.iter().filter(|row| row["landing"].is_object()) {
+        lines.push(landing::line(row["repo"].as_str().unwrap_or_default(), &row["landing"]));
+    }
+    lines
+}
+
+pub fn usage_line() -> String {
+    let places = Places::from_env();
+    usage::line(&places, Timestamp::now().unix_seconds_f64() as i64)
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("row") => return row(&arguments[1..]),
@@ -182,6 +218,10 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
+    if !options.alarm {
+        eprintln!("north ledger flow's view moved to `north work` (lanes, landings and stalls) and `north accounts` (usage per landing); `north ledger flow --stall-alarm`, row and detect stay");
+        return 2;
+    }
     crate::platform::records_mirror::Records::here().announce("north ledger flow");
     let places = Places::from_env();
     let machine = Machine::default();

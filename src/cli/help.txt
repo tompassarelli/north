@@ -15,7 +15,7 @@ Operator console:
   convo                 Search and read past agent transcripts
 
 Work and knowledge:
-  work                  List, claim and close work items; write briefs, route reviews
+  work                  The fleet's work, gates, landings and lane flow; work items
   graph                 Record and query facts, ground prompts, list the ready backlog
 
 Engineering and landing:
@@ -29,7 +29,8 @@ Engineering and landing:
   nix                   Explain a Nix footgun, or root and collect the store
 
 System and telemetry:
-  health                Check harness invariants
+  accounts              Every account's windows, plan, api credit and spend
+  health                Readiness bars, goals and harness invariants
   infra                 Live paid resources with their monthly price and a total
   config                Skills and hooks, agent plan and usage, context, proxy calls
   runtime               Update, deploy or check the north and agent runtimes

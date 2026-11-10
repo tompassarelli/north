@@ -306,7 +306,8 @@ fn save(path: &Path, state: &impl Serialize) -> Result<(), String> {
     Ok(())
 }
 
-fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> {
+fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<(bool, Vec<String>), String> {
+    let mut lines = Vec::new();
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME missing")?);
     let now = Timestamp::now().unix_seconds() as u64;
     let state_path = home.join(".local/state/north/health.json");
@@ -317,7 +318,7 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
     };
     let repo = home.join("code/north/main");
     if let Err(why) = command("git", &["fetch", "-q", "origin"], Some(&repo), 20) {
-        println!("health: origin/main not fetched, landing judged on the last fetched ref: {why}");
+        lines.push(format!("health: origin/main not fetched, landing judged on the last fetched ref: {why}"));
     }
     let world = flows::probe::world(&home, &repo, now as f64);
     let mut ages = BTreeMap::new();
@@ -398,11 +399,11 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
     let (loop_result, unverifiable) = loops::verdict(&loop_root, home.join(".local/state"));
     results.push(("loops".into(), loop_result));
     if !unverifiable.is_empty() {
-        println!("health: loops: unverifiable (no reader stamp): {}", unverifiable.join(", "));
+        lines.push(format!("health: loops: unverifiable (no reader stamp): {}", unverifiable.join(", ")));
     }
     results.push(("ci".into(), ci(CiInput { runs })));
     let (rates, verdict) = rework::live(&home.join(".local/state/threads/snapshot.db"), now);
-    println!("health: rework 7d: {rates}");
+    lines.push(format!("health: rework 7d: {rates}"));
     results.push(("rework".into(), verdict));
     let output = if land_due(now, &state) {
         Some(match std::env::var_os("XDG_RUNTIME_DIR") {
@@ -415,13 +416,13 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
     results.push(("land".into(), land(LandInput { now, output }, &mut state)));
     let state_file = std::env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from).join("north/unit-failures.json");
     let started = failed_starts::check(dry_run, &state_file, &failed_starts::journal, &mut failed_starts::tell_proxy, now);
-    println!("health: unit-failures: {}", started.as_ref().err().map_or("ok", String::as_str));
+    lines.push(format!("health: unit-failures: {}", started.as_ref().err().map_or("ok", String::as_str)));
     let mut alerts = Vec::new();
     let breaching = results.iter().filter(|(_, result)| result.is_err()).map(|(check, _)| check.clone()).collect();
     let confirmed = state.breaches.tick(&breaching);
     for (check, result) in &results {
         let age = ages.get(check).map_or_else(String::new, |age: &String| format!(" (age {age})"));
-        println!("health: {check}{age}: {}", result.as_ref().err().map_or("ok", String::as_str));
+        lines.push(format!("health: {check}{age}: {}", result.as_ref().err().map_or("ok", String::as_str)));
         if let Some(line) = transition(&mut state, check, result, confirmed.contains(check), now) {
             alerts.push((check.clone(), line));
         }
@@ -431,7 +432,7 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
         save(&state_path, &state)?;
         for (_, line) in alerts {
             if line.ends_with(": recovered") {
-                println!("{line}");
+                lines.push(line.clone());
             }
             for (program, args) in [
                 ("north", vec!["fleet", "send", "--from", "service:north-health", "proxy", line.as_str()]),
@@ -443,7 +444,11 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
             }
         }
     }
-    Ok(results.iter().all(|(_, result)| result.is_ok()))
+    Ok((results.iter().all(|(_, result)| result.is_ok()), lines))
+}
+
+pub fn report(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<(bool, Vec<String>), String> {
+    live(dry_run, citations)
 }
 
 pub fn run(arguments: &[String], citations: fn(&Path) -> Result<(), String>) -> ExitCode {
@@ -457,8 +462,12 @@ pub fn run(arguments: &[String], citations: fn(&Path) -> Result<(), String>) -> 
         }
     };
     match live(dry_run, citations) {
-        Ok(true) => ExitCode::SUCCESS,
-        Ok(false) => ExitCode::from(1),
+        Ok((ok, lines)) => {
+            for line in lines {
+                println!("{line}");
+            }
+            if ok { ExitCode::SUCCESS } else { ExitCode::from(1) }
+        }
         Err(error) => {
             eprintln!("health: state: {}", single_line(&error));
             ExitCode::from(1)

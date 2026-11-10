@@ -6,6 +6,7 @@ use Kind::{Bookkeeping, Brief, ChildMessage, Delegate, Diagnosis, Landing, Statu
 
 pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("", Status),
+    ("accounts", Status),
     ("after-landing", Landing),
     ("agent-contain", Bookkeeping),
     ("agent-policy-contract", Diagnosis),

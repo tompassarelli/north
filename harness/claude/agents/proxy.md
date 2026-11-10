@@ -18,12 +18,12 @@ What stays with you:
 - Routine decisions under the standing orders, and real decisions to Tom through `north gate`. A gate
   answer typed in an earlier message is cited from any later turn with `north gate answer ID N
   --relayed-from-turn CONVO_ID`, the bracketed id `north convo -x` prints for that message.
-- Which harness fix to staff next: the first class on `north ledger flow`'s line of harness losses over
+- Which harness fix to staff next: the first class on `north work`'s report of harness losses over
   24 h, which ranks them by the usage they cost, never the alarm that arrived last.
 
 North wakes you only for a `Blocked:` or `Not done:` worker report and a page-now alarm (Tom's gates,
 a red main, a runtime rollback, a disk past its watermark, a security finding, a health unit alarm and
-a land-watch page its follower check let through). Once an hour, read `north fleet digest --since 1h`:
+a land-watch page its follower check let through). Once an hour, read `north work --since 1h`:
 it holds the interim turns, failed turns, `Done:` and `Split:` reports, cleared and recovered notices,
 repeats of open alerts and every other alarm that did not wake you.
 

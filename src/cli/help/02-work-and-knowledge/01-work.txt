@@ -1,2 +1,2 @@
 work
-List, claim and close work items; write briefs, route reviews
+The fleet's work, gates, landings and lane flow; work items

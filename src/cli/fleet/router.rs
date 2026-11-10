@@ -25,7 +25,6 @@ use super::usage_ingest::IngestUsage;
 use super::accounts;
 use super::adopt;
 use super::ask;
-use super::digest;
 use super::drain;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
@@ -124,6 +123,10 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["drain", rest @ ..] => drain::run(rest),
         ["hold", task] => hold(&fleet, task),
         ["accounts", flags @ ..] => accounts::run(&fleet, flags),
+        ["digest", ..] => {
+            eprintln!("north fleet digest moved to `north work --since DURATION`; it prints the same landed, in-flight, gate, stall and held sections");
+            Ok(())
+        }
         ["launch", rest @ ..] => launch(&fleet, rest),
         ["adopt", rest @ ..] => adopt::run(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),
@@ -142,7 +145,6 @@ fn dispatch_session(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         ["relaunch", name, rest @ ..] => relaunch::run(fleet, name, rest),
         ["interactive", name] => interactive::run(fleet, name, false),
         ["interactive", name, interactive::AFTER_TURN] => interactive::run(fleet, name, true),
-        ["digest", rest @ ..] => digest::run(fleet, rest),
         ["forget", name, flags @ ..] if !flags.is_empty() => {
             let (force, successor) = super::forget_flags::parse(flags).ok_or_else(usage)?;
             forget(fleet, name, force, successor)
@@ -256,13 +258,6 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     let record = if take_over { fleet.take_over(&request).inspect(|record| desktop::show_taken(fleet, record))? } else { fleet.launch(&request)? };
     tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
-    Ok(())
-}
-
-pub(super) fn account_plan(fleet: &Fleet) -> NorthResult<()> {
-    for (index, (line, reason)) in crate::pacing::placement::case::plan(&fleet.roster()).map_err(NorthError::State)?.into_iter().enumerate() {
-        println!("{}. {line} [{reason}]", index + 1);
-    }
     Ok(())
 }
 

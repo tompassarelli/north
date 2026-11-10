@@ -100,11 +100,7 @@ fn select(database: &Path, query: &str) -> Vec<Value> {
     sqlite::rows(database, Access::ReadOnly, Duration::from_secs(10), query).unwrap_or_default()
 }
 
-pub fn run(arguments: &[String]) -> u8 {
-    if !arguments.is_empty() {
-        eprintln!("usage: north fleet report");
-        return 2;
-    }
+pub fn lines() -> Vec<String> {
     let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let root = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state"), std::path::PathBuf::from);
     let state = root.join("agents");
@@ -115,6 +111,14 @@ pub fn run(arguments: &[String]) -> u8 {
         crate::platform::reader_stamp::touch(&root, signal);
     }
     let now = Timestamp::now().unix_seconds_f64();
-    println!("{}", render(&State { calibration: &rows, denials: &denials, scores: &scores }, now).join("\n"));
+    render(&State { calibration: &rows, denials: &denials, scores: &scores }, now)
+}
+
+pub fn run(arguments: &[String]) -> u8 {
+    if !arguments.is_empty() {
+        eprintln!("usage: north fleet report");
+        return 2;
+    }
+    println!("{}", lines().join("\n"));
     0
 }

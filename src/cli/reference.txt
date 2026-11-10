@@ -5,7 +5,8 @@ Usage: north [COMMAND]
 Run north --help for the operator and agent commands, or north COMMAND --help for one.
 
 Commands:
-  health [--dry-run]                             Check harness invariants
+  accounts [--json]                              Every account's windows, plan, api credit and spend
+  health [--dry-run] [--json]                    Readiness bars, goals and harness invariants
   infra [--json]                                 List each live paid resource with its monthly price and a total
   home move [--dry-run] PLAN.tsv                 Apply a move plan at the top of home outside the worker sandbox: one rename per row, logged to moves.tsv, never copying or deleting
   check calls [--tree DIR] [--live DIR]         Read every north call on this host (unit Exec lines and the scripts they run, hooks, ssh hops in the --tree source) against this runtime, exit 1 naming each unparsable one; runtime update runs it from the incoming runtime before each swap
@@ -39,6 +40,7 @@ Commands:
   graph ground distill status                      Show the distill state
   graph ground distill capture                     Capture a correction for the next distill run
   graph ground score EVAL.jsonl [--no-b] [--hook] [--runs N] [--holdout MISSES.jsonl] [--leaky] [--exclude-session ID]... [--json]  Score grounding retrieval against an eval set
+  work [--since DURATION] [--json]              Show the fleet's work: sessions, gates, landings, stalls, report and lane flow
   work list                                     List the open work items
   work search TEXT                              Search work items
   work show REPO#N                              Show one work item with its holder
@@ -169,7 +171,7 @@ Commands:
   task [landed REF SHA | check REF -- CMD... | check [--dry-run] (--body-file FILE | REPO#N | --repo R)]   Record a verdict north observed itself, or tick issue boxes whose Observe: command exits 0
   ledger tempo [--repo NAME] [--window MINUTES] [--json] [--record]   How fast lanes reach main through the lander: landed, queued->main and first commit->main p50 and p90, refused alone, queued now; --record writes the last hour and day to the ledger (hourly timer)
   gate [open --session S --question Q --option O... --recommend N [--default N --default-after D] [--issue OWNER/REPO#N [--box TEXT]] | answer ID N [--note TEXT] | list [--json] | digest [--peek]]  Open or answer a decision gate; digest prints the for-Tom gates still open and the defaults applied since the last look
-  fleet digest [--since DURATION]  Print what landed, what is in flight, open gates with their recommendation and stalls from the fleet store
+  fleet digest [--since DURATION]  Retired view: the digest prints as `north work --since DURATION`
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   capacity dev-shell run [--dir D] (--prepare | -- COMMAND...)  Run COMMAND inside the flake default dev shell, entering it once offline from its GC root; --prepare realises the root
   capacity admission < FACTS.json               Decide one machine-capacity admission
@@ -273,7 +275,7 @@ Commands:
   convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex|corpus]  Search past agent transcripts and the Tom corpus; corpus appends typed messages to it
   desktop-idle-state idle|active                Record whether Tom's desktop is idle
   evidence start RUN                            Start an evidence folder for one run
-  ledger flow [--json] [--repo NAME]... [--stall-alarm] | row REPO [FIELD]... | detect [--dry-run]  Show the flow of work to main and its stalls
+  ledger flow [--json] [--repo NAME]... [--stall-alarm] | row REPO [FIELD]... | detect [--dry-run]  Alarms and detectors; the lane view is `north work` and the usage line is `north accounts`
   broker serve [--user]                            Run the credential broker that holds the GitHub App keys and cloud tokens
   broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]...  Print a scoped one-hour GitHub App installation token
   broker inspect [--json]                          Print the repositories and permissions the broker granted the token on stdin
@@ -297,7 +299,7 @@ Commands:
   private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]  Run the private-value checks
   provider-capacity events [--minutes N]        Read provider capacity events
   provider-capacity status [--minutes N]        Read provider capacity state
-  fleet report                                        Print the fleet report
+  fleet report                                        Retired view: `north work` prints the report
   resident-cap gate claude|codex [ARG...]       Refuse a launch over this host's resident session cap, exiting 3 with the Hold line
   resident-cap status                           Print this host's live session count and cap
   capacity bounded DURATION -- COMMAND [ARGS...]     Run a command bounded in time and memory
@@ -309,7 +311,7 @@ Commands:
   ssh-master probe HOST...                      Recycle a shared ssh master slower than 3 s twice while a direct connection answers
   lane seed [DIR]                               Seed a lane's cargo target from the shared one
   tool-mine [--days N] [--min-sessions N] [--min-steps N] [--max N] [--owner REPO#N] [--dry-run]  Mine transcripts for repeated tool sequences
-  fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Read account usage
+  fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Account writers; the account view is `north accounts`
   help                                          Show the operator and agent commands
 
 Options:
