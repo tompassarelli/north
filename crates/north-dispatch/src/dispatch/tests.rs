@@ -264,6 +264,12 @@ fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_on
     assert_eq!(name, format!("sc-782-d0000-{slug}"));
     assert!(name.len() > 40, "a box-named session keeps its whole slug however long it is: {name}");
     assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] a", &[])), [Some("a".to_owned())], "one box line written twice is still one box, so it is launched once");
+    let only = issue("makgora", 782, "- [ ] a", &[]);
+    let twice_read = survey(vec![only.clone(), only], Cloud::Unreachable("the credit login is on nexus".into()), vec![host("gex45", 2, Ok(0))], accounts.clone());
+    let once = decide(&twice_read, "test");
+    assert_eq!(once.launches.len(), 1, "one ready box and two free slots launches once: {:?}", once.skipped);
+    let names: BTreeSet<String> = once.launches.iter().map(|launch| super::effects::session_name(launch, 0.0)).collect();
+    assert_eq!(names.len(), 1, "a run never collides with a name it just created: {names:?}");
 }
 
 /// north#835: on 2026-11-08 merging issues left 14 open boxes on north#719 and 28 on north#706, run one at a time; north-740-d1801 spent a first try on a box whose window over readings had not passed.

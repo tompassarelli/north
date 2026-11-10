@@ -106,12 +106,14 @@ pub struct Outcome {
 }
 
 /// The issues in the fact graph's measured order (`north graph ready`), each issue with no ready box there after them, by
-/// priority label, backlog rank, age, project and number.
+/// priority label, backlog rank, age, project and number; an issue the survey read twice is staffed once, so a run never
+/// launches a box it already launched.
 fn ordered<'a>(issues: &'a [Issue], projects: &projects::Projects, backlog: Option<&Backlog>) -> Vec<&'a Issue> {
     let leaders = backlog.map(Backlog::leaders).unwrap_or_default();
     let place = |issue: &Issue| leaders.iter().position(|leader| *leader == issue.reference().to_string()).unwrap_or(usize::MAX);
     let rank = |issue: &Issue| backlog.and_then(|backlog| backlog.rank(&issue.reference().to_string())).unwrap_or(i64::MAX);
-    let mut ordered: Vec<&Issue> = issues.iter().collect();
+    let mut seen = BTreeSet::new();
+    let mut ordered: Vec<&Issue> = issues.iter().filter(|issue| seen.insert(issue.reference())).collect();
     ordered.sort_by(|a, b| {
         place(a)
             .cmp(&place(b))
