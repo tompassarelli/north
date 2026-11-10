@@ -15,7 +15,6 @@ use crate::ledger::outcome::{self, read::Places};
 mod audit;
 mod cause;
 mod chain;
-mod frontier;
 mod landing;
 mod lanes;
 mod losses;
@@ -26,7 +25,7 @@ mod weekly;
 mod work;
 pub(super) mod workers;
 
-const USAGE: &str = "usage: north dash (--bars [--all] [--explain] | --weekly | --frontier | --record | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north])";
+const USAGE: &str = "usage: north dash (--bars [--all] [--explain] | --weekly | --record | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north])";
 const WEEK_S: i64 = 7 * 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -255,7 +254,6 @@ pub fn run(arguments: &[String], infra_total: fn() -> Result<String, String>) ->
         [word, rest @ ..] if word == "audit" => return audit::run(rest),
         [word, rest @ ..] if word == "losses" => return losses::run(rest),
         [flag] if flag == "--weekly" => false,
-        [flag] if flag == "--frontier" => return frontier::run(),
         [flag] if flag == "--record" => true,
         [] => return ready_table(arguments),
         [flag, ..] if flag == "--all" || flag == "--explain" => return ready_table(arguments),

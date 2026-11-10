@@ -154,10 +154,9 @@ impl Tool {
             Self::Config => super::in_runtime(async move { Ok(ExitCode::from(config(arguments))) }),
             Self::Work => super::in_runtime(async move { Ok(ExitCode::from(work(arguments))) }),
             Self::Test => match arguments.split_first() {
-                Some((verb, rest)) if verb == "frontier" => ExitCode::from(north_frontier::run(rest)),
                 Some((verb, rest)) if let Some(run) = runner(TEST, verb) => super::in_runtime(async move { Ok(ExitCode::from(run(rest))) }),
                 _ => {
-                    eprintln!("usage: north test (coverage|frontier|mutant) ...; north test --help lists each");
+                    eprintln!("usage: north test (coverage|mutant) ...; north test --help lists each");
                     ExitCode::from(2)
                 }
             },

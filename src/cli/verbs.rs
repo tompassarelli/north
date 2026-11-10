@@ -170,7 +170,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("supply-chain-scan", Diagnosis),
     ("task", Status),
     ("test coverage", Diagnosis),
-    ("test frontier", Diagnosis),
     ("test mutant", Diagnosis),
     ("test", Diagnosis),
     ("threads claim", Bookkeeping),

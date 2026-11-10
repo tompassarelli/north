@@ -961,7 +961,6 @@ dependencies = [
  "north-dispatch",
  "north-fleet-store",
  "north-flow",
- "north-frontier",
  "north-github-mirror",
  "north-goals",
  "north-graph-change",
@@ -1314,22 +1313,6 @@ dependencies = [
  "tempfile",
  "time",
  "toml_edit",
-]
-
-[[package]]
-name = "north-frontier"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-claude-stream",
- "north-fleet",
- "north-providers",
- "regex",
- "rusqlite",
- "rustix 0.38.44",
- "serde",
- "serde_json",
- "sha2",
 ]
 
 [[package]]

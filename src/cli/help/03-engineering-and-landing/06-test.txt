@@ -1,2 +1,2 @@
 test
-Coverage map, mutation sweeps and frontier replays
+Coverage map and mutation sweeps

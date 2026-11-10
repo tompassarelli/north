@@ -21,7 +21,7 @@ mod habits;
 mod render;
 mod spend;
 
-const USAGE: &str = "usage: north dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --frontier | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north]";
+const USAGE: &str = "usage: north dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north]";
 const DEFAULT_WINDOW: &str = "24h";
 
 /// What the screen reads, each section on its own so one unread source leaves the others standing.
@@ -62,7 +62,7 @@ fn infra_total() -> Result<String, String> {
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["audit", ..] | ["losses", ..] | ["--weekly"] | ["--record"] | ["--frontier"] | ["--rework", ..] => return scoreboard::run(arguments, infra_total),
+        ["audit", ..] | ["losses", ..] | ["--weekly"] | ["--record"] | ["--rework", ..] => return scoreboard::run(arguments, infra_total),
         ["--bars", rest @ ..] => return scoreboard::run(&rest.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>(), infra_total),
         ["--closed", "--since", window] | ["--since", window, "--closed"] => return closed(window),
         _ => {}

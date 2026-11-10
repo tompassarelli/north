@@ -25,7 +25,7 @@ Engineering and landing:
   land                  Serve the landing queue, run its checks, abandon or release
   lane                  Collect, reap, rescue, seed, squash and audit lanes
   code-health           Structure debt, crate lines, build time; split modules out
-  test                  Coverage map, mutation sweeps and frontier replays
+  test                  Coverage map and mutation sweeps
   docs                  Regenerate or check the docs indexes
   nix                   Explain a Nix footgun, or root and collect the store
 
