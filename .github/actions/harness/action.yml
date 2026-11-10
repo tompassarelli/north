@@ -40,8 +40,8 @@ runs:
         sudo apt-get install -y --no-install-recommends ripgrep shellcheck bubblewrap
         bash "$GITHUB_ACTION_PATH/../ci-tools.sh"
         git config --global init.defaultBranch main
-        git config --global user.name socrates-ci
-        git config --global user.email socrates-ci@example.invalid
+        git config --global user.name north-fleet-ci
+        git config --global user.email north-fleet-ci@example.invalid
     - name: Allow bubblewrap and unshare user namespaces
       shell: bash
       run: |

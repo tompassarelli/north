@@ -1,6 +1,6 @@
 # North
 
-North is the harness Socrates runs on: the agent commands in `bin/`, the hooks, skills and policy in
+North is the harness the fleet runs on: the agent commands in `bin/`, the hooks, skills and policy in
 `harness/`, and the `north` TUI, whose state transitions are typed Rust. `README.md` says what it is
 and how to try it; this file holds the rules for working in it.
 
@@ -9,7 +9,7 @@ Build output stays in the worktree's `target/`.
 
 ## Rules
 
-- Use the four layer terms of `docs/terms.md`, one per layer: model, harness, agent, workforce. North is the harness and Socrates the workforce (South holds its private policy); never call a model an agent.
+- Use the four layer terms of `docs/terms.md`, one per layer: model, harness, agent, fleet. North is the harness and the fleet is the agents it runs (South holds their private policy); never call a model an agent.
 - Keep fleet screen state and rendering in `crates/north-tui/src/tui/fleet`; the Rust host performs authorized effects and renders projections.
 
 - Change Rust build settings (profiles, linker, caches, crate splits) only after

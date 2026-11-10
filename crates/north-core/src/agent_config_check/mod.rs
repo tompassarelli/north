@@ -261,7 +261,7 @@ fn vocabulary_group(context: &Context, report: &mut Report) {
     } else {
         report.bad(&text);
     }
-    report.group("vocabulary", "harness/ paths · Socrates names the workforce", before);
+    report.group("vocabulary", "harness/ paths · fleet names", before);
 }
 
 fn help_group(context: &Context, report: &mut Report) {

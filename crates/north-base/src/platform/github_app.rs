@@ -7,6 +7,10 @@ use super::broker_client::{AGENT_APP, Client, Grant};
 const PUSHED_TOKEN: &str = ".local/state/north/gh-write-token";
 const PUSHED_FRESH_SECONDS: i64 = super::pushed_token::FRESH_SECONDS;
 
+/// The logins the agent GitHub App posts as: the name it had before North Fleet and the name after
+/// the 2026-11-10 rename, so history the old bot wrote is still recognised.
+pub const AGENT_LOGINS: [&str; 2] = ["socrates-agent[bot]", "north-fleet[bot]"];
+
 fn pushed_file() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
     Some(PathBuf::from(home).join(PUSHED_TOKEN)).filter(|path| path.exists())
@@ -19,14 +23,14 @@ pub fn agent_installation(now: i64) -> Result<String, String> {
 pub fn agent_token(now: i64, repository: Option<&str>, launched: Option<String>) -> Result<(String, Option<String>), String> {
     if let Some(pushed) = pushed_file() {
         let token = pushed_token(&pushed, now)?;
-        return Ok((token, Some(format!("using the Socrates Agent App token the laptop pushed to {}", pushed.display()))));
+        return Ok((token, Some(format!("using the North Fleet App token the laptop pushed to {}", pushed.display()))));
     }
     let repositories: Vec<String> = repository.map(str::to_owned).into_iter().collect();
     match Client::discover().github_token(AGENT_APP, &repositories, &BTreeMap::new(), 0) {
         Ok(Grant { token, .. }) => Ok((token, None)),
         Err(why) => {
             let token = launched.filter(|token| token.starts_with("ghs_")).ok_or_else(|| why.clone())?;
-            Ok((token, Some(format!("cannot get a Socrates Agent App token from the broker ({why}); using the session's GH_TOKEN"))))
+            Ok((token, Some(format!("cannot get a North Fleet App token from the broker ({why}); using the session's GH_TOKEN"))))
         }
     }
 }
@@ -44,4 +48,15 @@ fn pushed_token(pushed: &std::path::Path, now: i64) -> Result<String, String> {
         return Err(format!("{shown} is empty"));
     }
     Ok(token)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AGENT_LOGINS;
+
+    #[test]
+    fn the_agent_app_answers_to_both_its_old_and_its_north_fleet_login() {
+        assert!(AGENT_LOGINS.contains(&"socrates-agent[bot]"));
+        assert!(AGENT_LOGINS.contains(&"north-fleet[bot]"));
+    }
 }

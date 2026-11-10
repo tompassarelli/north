@@ -1,10 +1,9 @@
 # North architecture
 
-North is the Rust harness that starts, observes and directs Socrates workforce
-sessions. The installed `north` command opens the fleet screen; `north fleet`
-also opens it, and its subcommands expose the same session operations to other
-harness commands. Hooks, policy and provider-independent procedures live in
-the rest of this repository.
+North is the Rust harness that starts, observes and directs the fleet's sessions. The installed
+`north` command opens the fleet screen; `north fleet` also opens it, and its subcommands expose the
+same session operations to other harness commands. Hooks, policy and provider-independent
+procedures live in the rest of this repository.
 
 ## Owning boundary
 

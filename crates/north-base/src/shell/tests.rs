@@ -53,7 +53,7 @@ fn property_commands() -> Vec<String> {
             ],
             &[
                 "echo \"wl-paste\"",
-                "rg wl-paste socrates",
+                "rg wl-paste fleet",
                 "agent-capture --screen /tmp/s.png",
                 "niri msg action focus-window --id 3",
             ],
@@ -354,7 +354,7 @@ fn shellcmd_property_fixed_generator_matches_python_reference() {
     }
     assert_eq!(
         format!("{:x}", digest.finalize()),
-        "9d10d84bb15374bfba21556565578576944b4a01366ac5ce362df505cf584786"
+        "de44f9f8b66a73e707dbd1c4b2864adc0bc4f9ab39013865f902c9636b5f12ff"
     );
 }
 

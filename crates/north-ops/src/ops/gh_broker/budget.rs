@@ -8,7 +8,7 @@ use crate::platform::github_app;
 
 const USAGE: &str = "usage: north ops github budget
 
-Print what is left of each GitHub token's hourly limit (the user's own login and the Socrates Agent
+Print what is left of each GitHub token's hourly limit (the user's own login and the North Fleet
 App installation fleet sessions use), every fleet session's spend against its fair share
 (the 400-unit fair share, see north gh-session) with its biggest spends by origin (hook, tick or command),
 the north verb behind it and the gh endpoint, and the callers that cost the most GitHub
@@ -36,7 +36,7 @@ pub fn github(arguments: &[String]) -> u8 {
 fn budget() -> u8 {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
     let installation = github_app::agent_installation(i64::try_from(now).unwrap_or(i64::MAX));
-    for (token, limits) in [("personal", quota::read(None)), ("socrates-agent app", installation.and_then(|token| quota::read(Some(&token))))] {
+    for (token, limits) in [("personal", quota::read(None)), ("North Fleet app", installation.and_then(|token| quota::read(Some(&token))))] {
         match limits {
             Ok(limits) => limits.iter().for_each(|limit| println!("{token}\t{}", quota::line(limit))),
             Err(message) => println!("{token}\tunavailable: {message}"),

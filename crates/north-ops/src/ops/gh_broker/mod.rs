@@ -26,7 +26,7 @@ The one local GitHub broker every gh call on this host goes through (north#638).
 which bin/gh runs in a fleet session, starts the broker when its socket does not answer and runs
 the real gh with a private GH_CONFIG_DIR whose http_unix_socket points at the broker. The broker
 forwards each request with the caller's own credentials, except that a systemd service's REST GET or HEAD
-with a personal login is sent with the Socrates Agent App installation token (read again with the
+with a personal login is sent with the North Fleet App installation token (read again with the
 service's own login when the app is answered 401, 403 or 404), and: answers identical reads from one
 GitHub call (in flight, or fetched within 20 s); revalidates older reads with If-None-Match, so a
 304 serves the stored body without spending rate limit; after a 403 or 429 with Retry-After, an

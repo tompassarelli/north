@@ -9,6 +9,8 @@ use std::process::Command;
 
 use serde_json::{Value, json};
 
+use north_base::platform::github_app;
+
 use crate::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north outside-watch run [--dry-run] [--days N] | status";
@@ -52,16 +54,22 @@ impl Config {
         };
         Ok(Self {
             owner: env::var("OUTSIDE_WATCH_OWNER").unwrap_or_else(|_| "tompassarelli".to_owned()),
-            own: env::var("OUTSIDE_WATCH_OWN")
-                .unwrap_or_else(|_| "tompassarelli,socrates-agent[bot],github-actions[bot],dependabot[bot]".to_owned())
-                .split(',')
-                .map(str::to_owned)
-                .collect(),
+            own: var("OUTSIDE_WATCH_OWN").map_or_else(default_own, |text| text.split(',').map(str::trim).filter(|login| !login.is_empty()).map(str::to_owned).collect()),
             state_dir: var("OUTSIDE_WATCH_STATE").map_or_else(|| home.join(".local/state/outside-watch"), PathBuf::from),
             inbox: var("OUTSIDE_WATCH_INBOX").map_or_else(|| home.join(".local/state/agents/handoffs/proxy-inbox.md"), PathBuf::from),
             now,
         })
     }
+
+    fn owns(&self, login: &str) -> bool {
+        self.own.contains(login)
+    }
+}
+
+/// The logins whose posts are ours: Tom, both agent App logins so history the old bot wrote is
+/// still recognised, and GitHub's own action and dependency bots.
+fn default_own() -> BTreeSet<String> {
+    ["tompassarelli"].into_iter().chain(github_app::AGENT_LOGINS).chain(["github-actions[bot]", "dependabot[bot]"]).map(str::to_owned).collect()
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -251,4 +259,24 @@ fn status(config: &Config, out: &mut dyn Write) -> Result<(), Failure> {
         writeln!(out, "{last}").map_err(flush)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{Config, default_own};
+    use crate::foundation::clock::Timestamp;
+
+    fn config() -> Config {
+        Config { owner: "tompassarelli".into(), own: default_own(), state_dir: PathBuf::new(), inbox: PathBuf::new(), now: Timestamp::from_unix_seconds(0) }
+    }
+
+    #[test]
+    fn the_default_own_logins_recognise_both_the_old_and_the_north_fleet_agent_app_bot() {
+        let config = config();
+        assert!(config.owns("socrates-agent[bot]"));
+        assert!(config.owns("north-fleet[bot]"));
+        assert!(!config.owns("someone-else"));
+    }
 }

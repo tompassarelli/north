@@ -5,17 +5,17 @@
 North is an autonomous software factory. It takes issues that carry runnable Done-when checks and
 turns model budget into verified changes landed on main: it staffs and routes workers across
 machines and accounts, lands each change through a checked tree and reverts what breaks main.
-Socrates, Tom's agent workforce, runs on it. Claude Code and Codex are the base harnesses; North
+Tom's agents, North's fleet, run on it. Claude Code and Codex are the base harnesses; North
 adds the staffing, the routing and the landing path, plus hooks that guard each tool call, shared
 skills and the policy checks that keep them honest. It also ships `north`, a terminal fleet screen
 for directing sessions and decisions.
 
-It is built for Tom and the agents in Socrates. Anyone who directs coding agents can read it, try
+It is built for Tom and the agents in his fleet. Anyone who directs coding agents can read it, try
 the `north` app, or borrow a command, hook or skill. The full factory expects Tom's machines and his
 private policy repository, South, so it does not install elsewhere as is.
 
 The words follow [docs/terms.md](docs/terms.md): a **model** is the weights, the **harness** turns a
-model into an **agent**, and a **workforce** is many agents with roles, staffing and policy. A
+model into an **agent**, and a **fleet** is many agents with roles, staffing and policy. A
 model is never called an agent.
 
 ## Try it

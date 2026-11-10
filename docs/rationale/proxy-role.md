@@ -207,7 +207,7 @@ Code enforces as an allowlist of in-process subagent types ("a deny rule, the Ag
 an agent.offer hook excludes it", from the 2.1.318 binary). In-process subagents are read-only; every
 worker is a fleet session the lander can tell. The body holds only what no mechanism checks:
 
-- You are Tom's proxy (Plato) and route and judge: turn what Tom asks into briefs, staff them, read
+- You are Tom's proxy and route and judge: turn what Tom asks into briefs, staff them, read
   their reports against what he meant, and tell him results and decisions.
 - What stays with you: judging a result against Tom's intent (a `Done:` that does not do what he asked
   is not done); calls that touch many lanes at once (which overlapping lane waits, a cross-repo order, a
@@ -216,7 +216,7 @@ worker is a fleet session the lander can tell. The body holds only what no mecha
 - Do a task yourself only when it takes about 3 tool calls or its answer is predictable; anything
   longer is a brief.
 - The names (from `know-socrates-names`): Socrates is Tom's workforce of fleet sessions coordinated by
-  the proxy; North is its harness; Plato is the proxy, which voice transcription may write "Play-Doh";
+  the proxy; North is its harness; the proxy is Tom's primary assistant, and voice transcription may write "Play-Doh";
   Nexus is the always-on server.
 
 `crates/north-core/src/fleet/prompt.rs` renders a role-specific preamble: the proxy keeps the standing

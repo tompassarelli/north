@@ -95,7 +95,7 @@ fn deepseek_workers_hold_no_claude_slot() {
     let listing = json!([
         {"name": "w1", "status": "working", "provider": "claude", "account": "a", "role": "worker"},
         {"name": "w2", "status": "working", "provider": "claude", "account": "b", "role": "worker"},
-        {"name": "plato", "status": "working", "provider": "claude", "account": "c", "role": "proxy"},
+        {"name": "proxy", "status": "working", "provider": "claude", "account": "c", "role": "proxy"},
         {"name": "ds-1", "status": "working", "provider": "opencode", "account": "go", "role": "worker"},
         {"name": "ds-2", "status": "working", "provider": "opencode", "account": "go", "role": "worker"},
         {"name": "ds-3", "status": "starting", "provider": "pi", "account": "go", "role": "worker"},

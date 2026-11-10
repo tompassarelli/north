@@ -12,7 +12,7 @@ use crate::foundation::exit::NO_VERDICT;
 
 const USAGE: &str = "usage: north gh-session REAL_GH [ARGS...]
 
-The gh a fleet session runs through the bin/gh shim: it calls GitHub as the Socrates Agent App
+The gh a fleet session runs through the bin/gh shim: it calls GitHub as the North Fleet App
 (a fresh installation token in GH_TOKEN, never Tom's login; on a host the laptop pushes that token
 to, gex45 and ccx33, the pushed one while fresh, named on stderr) and counts the GitHub API units it spends,
 so one session's scraping cannot exhaust a token the others share.
@@ -87,7 +87,7 @@ pub fn run(arguments: &[String]) -> u8 {
             NO_VERDICT
         }
         Err(Refusal::Token(message)) => {
-            eprintln!("north gh-session: no Socrates Agent App token ({message}); not falling back to a personal login");
+            eprintln!("north gh-session: no North Fleet App token ({message}); not falling back to a personal login");
             1
         }
     }

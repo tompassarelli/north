@@ -7,7 +7,7 @@ values and flags are read there, not here: a command's `--help` for its flags,
 for land checks and [features.md](features.md) for what each command is for. The words follow
 [terms.md](terms.md).
 
-North is the harness layer. Socrates, the workforce, is a flat set of fleet sessions coordinated by
+North is the harness layer. The fleet is a flat set of sessions coordinated by
 Tom's proxy. A parent is each session's `--parent` link; `north fleet tree` shows the org. Three
 repositories take part:
 

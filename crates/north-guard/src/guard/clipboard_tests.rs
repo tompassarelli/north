@@ -20,7 +20,7 @@ fn clipboard_and_screenshot_access_is_refused_in_command_position_only() {
         ],
         &[
             "echo \"wl-paste\"",
-            "rg wl-paste socrates",
+            "rg wl-paste fleet",
             "north desktop capture --screen /tmp/s.png",
             "niri msg action focus-window --id 3",
         ],

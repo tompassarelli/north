@@ -1,6 +1,6 @@
 # References
 
-Outside sources that shaped North or Socrates, what each informed and what came of it (north#40). An entry
+Outside sources that shaped North or its fleet, what each informed and what came of it (north#40). An entry
 needs a record: a link, commit, issue or file that cites the source. A source with no record gets no entry, and
 an idea whose origin is unrecorded says "origin not recorded".
 
@@ -522,8 +522,8 @@ examples and recorded Rust test input strings retain Galileo names as
 historical or synthetic reference data. They do not select the active
 repository or require its executable, source checkout or build dependency.
 
-<a id="inspiration-org-shape"></a>**The Socrates org shape.** The harness's hooks, lib and agent commands were copied into north from firn (4645127a),
-and the workforce tree, a proxy at the root with leads, sub-leads and workers under it, is now
+<a id="inspiration-org-shape"></a>**The fleet org shape.** The harness's hooks, lib and agent commands were copied into north from firn (4645127a),
+and the fleet tree, a proxy at the root with leads, sub-leads and workers under it, is now
 represented by [Fleet session parent links](features.md#fleet-sessions). The former org schema was retired
 when its status bus callers moved to Fleet (d304e9c0). Where the shape and its names came from: origin
 not recorded.

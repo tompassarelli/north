@@ -232,7 +232,7 @@ pub(super) fn scan(config: &Config, since: &str) -> Result<Vec<Post>, Failure> {
     found.extend(comment_posts(config, since, &issues.repos)?);
     found.extend(review_posts(config, since, &issues.prs)?);
     found.extend(discussion_posts(config, since)?);
-    found.retain(|found| !config.own.contains(&found.actor));
+    found.retain(|found| !config.owns(&found.actor));
     Ok(found)
 }
 
@@ -276,7 +276,7 @@ pub(super) fn ours(config: &Config, thread: &Value) -> Result<bool, Failure> {
     }
     if kind == "Release" && !url.is_empty() {
         let release = api(&[url.to_owned()], true)?.unwrap_or(Value::Null);
-        return Ok(release.pointer("/author/login").and_then(Value::as_str).is_some_and(|login| config.own.contains(login)));
+        return Ok(release.pointer("/author/login").and_then(Value::as_str).is_some_and(|login| config.owns(login)));
     }
     if (kind != "Issue" && kind != "PullRequest") || url.is_empty() {
         return Ok(false);
@@ -297,5 +297,5 @@ pub(super) fn ours(config: &Config, thread: &Value) -> Result<bool, Failure> {
         actors.extend(logins(&pages(&format!("{url}/reviews?per_page=100"), None)?, "submitted_at", since, "/user/login"));
         actors.extend(logins(&pages(&format!("{url}/comments{query}"), None)?, "created_at", since, "/user/login"));
     }
-    Ok(actors.is_subset(&config.own))
+    Ok(actors.iter().all(|login| config.owns(login)))
 }

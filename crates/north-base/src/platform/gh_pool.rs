@@ -1,4 +1,4 @@
-//! What is left of the hourly quota the fleet's sessions share on the Socrates Agent App token.
+//! What is left of the hourly quota the fleet's sessions share on the North Fleet App token.
 use std::fs;
 use std::path::Path;
 use std::process::Command;

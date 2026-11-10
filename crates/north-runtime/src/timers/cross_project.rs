@@ -27,7 +27,7 @@ pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
         Some("-h" | "--help") => {
             println!("usage: cross-project-scan [--print-bundle]");
             println!("Daily: bundles open issues, threads list, 24h landings and the org, asks a medium-tier model for at most 3");
-            println!("cross-project overlap findings, writes {} and posts it to Plato's room.", report.display());
+            println!("cross-project overlap findings, writes {} and posts it to the proxy's room.", report.display());
             0
         }
         Some("--print-bundle") => {
