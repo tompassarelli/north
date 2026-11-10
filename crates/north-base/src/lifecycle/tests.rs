@@ -82,7 +82,7 @@ fn an_illegal_move_leaves_the_record_unchanged_and_health_sees_it_for_an_hour() 
 }
 
 #[test]
-fn a_holder_killed_mid_pull_is_reported_and_the_next_taker_logs_its_death_before_taking_over() {
+fn a_gone_holder_s_row_is_reported_then_retired_once_and_the_next_taker_finds_its_death_logged() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
     store(&path, owner("laptop", 10), 0).transition::<Puller>("laptop", Pull::Pulling, "the snapshot is 15 min old", at(0)).unwrap().unwrap();
@@ -91,6 +91,11 @@ fn a_holder_killed_mid_pull_is_reported_and_the_next_taker_logs_its_death_before
     let faults = next.faults(at(5)).unwrap();
     assert_eq!(faults.len(), 1);
     assert_eq!(faults[0].kind, FaultKind::Orphaned { owner: owner("laptop", 10) });
+
+    let retired = next.retire_gone::<Puller>(at(5)).unwrap();
+    assert_eq!(retired.iter().map(|record| (record.instance.as_str(), record.state)).collect::<Vec<_>>(), [("laptop", Pull::Abandoned)]);
+    assert!(next.retire_gone::<Puller>(at(6)).unwrap().is_empty());
+    assert!(next.faults(at(7)).unwrap().is_empty());
 
     let taken = next.transition::<Puller>("laptop", Pull::Pulling, "the snapshot is 15 min old", at(6)).unwrap().unwrap();
     assert_eq!((taken.state, taken.owner, taken.seq), (Pull::Pulling, Some(owner("laptop", 11)), 3));
