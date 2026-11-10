@@ -16,6 +16,7 @@ mod repo;
 mod rescue;
 mod stray;
 mod target_seed;
+mod target_subvolume;
 mod unlock;
 mod unpushed;
 #[cfg(test)]
