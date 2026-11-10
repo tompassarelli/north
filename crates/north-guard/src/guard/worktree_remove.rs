@@ -1,5 +1,5 @@
 use super::git_invocation::{bash_command, invocation, invocations, words};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use north_base::platform::land_queue;
 use north_base::platform::records_mirror::state_home;
 use regex::Regex;

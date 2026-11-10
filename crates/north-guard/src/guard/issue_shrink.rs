@@ -1,6 +1,6 @@
 use super::gh_write;
 use super::issue_labels::gh_program;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use std::sync::LazyLock;
 

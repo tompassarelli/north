@@ -1,4 +1,4 @@
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 
 const MARKER: &str = "/agents/handoffs/";
 const NAMES: [&str; 4] = ["decision", "audit", "review", "research"];

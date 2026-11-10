@@ -1,0 +1,4 @@
+[[implicit_state.allow]]
+shape = "phase-suffix"
+path = "crates/north-shared-config/src/lib.rs"
+reason = "the suffix names the temporary file a stamp is written to before its atomic rename, a file name and not a lifecycle phase (north#722)"

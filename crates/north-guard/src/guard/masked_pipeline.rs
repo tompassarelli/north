@@ -1,4 +1,4 @@
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell::{basename, shell_segments_sep, shlex_split, strip_heredoc_bodies};
 use regex::Regex;
 use std::sync::LazyLock;

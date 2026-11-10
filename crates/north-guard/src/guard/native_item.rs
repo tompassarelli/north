@@ -1,7 +1,7 @@
 mod corpus;
 mod gh;
 
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;

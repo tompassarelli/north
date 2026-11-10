@@ -1,5 +1,5 @@
 use crate::guard::proxy_role;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use std::process::{Command, Stdio};
 
 pub fn evaluate(input: &HookInput) -> Verdict {

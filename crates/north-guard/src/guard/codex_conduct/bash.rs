@@ -1,7 +1,7 @@
 use super::state::{self, head_commit, py_str, sha256_hex, tree_state, with_shared, with_state};
 use super::case::{Case, parse_case};
 use super::{Ctx, asked_keyword, gates, pattern};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use north_base::shell::strip_heredocs;
 use serde_json::Value;
 use std::path::Path;

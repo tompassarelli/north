@@ -1,4 +1,4 @@
-use crate::hook::HookInput;
+use crate::hook_input::HookInput;
 use crate::shell::{strip_heredocs, strip_quotes};
 use regex::Regex;
 use std::sync::LazyLock;

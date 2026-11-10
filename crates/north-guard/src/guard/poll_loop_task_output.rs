@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell;
 
 static TASK_OUTPUT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/tmp/claude-[^\s'\x22;|&)]*/tasks/[^\s'\x22;|&)]*\.output").unwrap());

@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::nix_activity::decide;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use serde_json::json;
 
 fn verdict(cwd: &std::path::Path, command: &str) -> Verdict {

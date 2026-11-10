@@ -1,4 +1,4 @@
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredocs};
 use std::collections::HashMap;
 use std::process::Command;

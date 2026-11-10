@@ -278,7 +278,7 @@ pub(super) fn is_dir(path: &str) -> bool {
     std::fs::metadata(path).is_ok_and(|meta| meta.is_dir())
 }
 
-pub(super) fn bash_call(input: &crate::hook::HookInput) -> Option<(&str, String)> {
+pub(super) fn bash_call(input: &crate::hook_input::HookInput) -> Option<(&str, String)> {
     use crate::platform::pyjson::Value;
     if input.data["tool_name"] != "Bash" {
         return None;

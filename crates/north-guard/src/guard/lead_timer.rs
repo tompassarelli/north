@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::fleet::model::Role;
 use crate::fleet::records::{past_records, read_record};
 use crate::fleet::runtime::SESSION_ENV;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 
 pub const TIMER_TOOLS: [&str; 2] = ["ScheduleWakeup", "CronCreate"];
 

@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::recommend_acts::{Issue, decide, read_turn, turn_in};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use serde_json::json;
 use std::path::PathBuf;
 

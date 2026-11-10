@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::subagent_teardown::refusal_in;
-use crate::hook::HookInput;
+use crate::hook_input::HookInput;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};

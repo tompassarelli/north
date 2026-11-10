@@ -1,6 +1,6 @@
 use super::argument_words::{is_plain_argument, is_redirect_operator};
 use self::cpu::{cpu_file, cpu_throttle};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::nix_command::{self, Inner};
 use crate::{platform::pyjson::Value, shell};
 use std::path::{Path, PathBuf};

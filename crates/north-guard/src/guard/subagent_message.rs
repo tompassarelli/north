@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::fleet::records::read_record;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 
 pub const MESSAGE_TOOL: &str = "SendMessage";
 

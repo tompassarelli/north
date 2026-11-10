@@ -525,6 +525,10 @@ fn shared(facts: &Facts) -> Reason {
     if facts.class == Class::Gpu {
         return Reason::Run;
     }
+    cpu_room(facts)
+}
+
+fn cpu_room(facts: &Facts) -> Reason {
     let by_host_pressure = super::pressure_target::host_pressure(facts).is_some();
     if !by_host_pressure && batch_jobs_full(facts) {
         return Reason::DeferBatchJobs;

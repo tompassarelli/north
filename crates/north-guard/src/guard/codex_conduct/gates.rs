@@ -1,7 +1,7 @@
 use super::case::Case;
 use super::state::{self, sha256_hex, with_shared, with_state};
 use super::{Ctx, PEER_LINE, asked_keyword, log_override, pattern};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::pyjson::{self, Value as Py};
 use serde_json::{Value, json};
 use std::path::Path;

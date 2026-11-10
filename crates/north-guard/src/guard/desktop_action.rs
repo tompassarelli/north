@@ -1,5 +1,5 @@
 use crate::foundation::clock::Timestamp;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::pyjson;
 use crate::shell;
 use serde_json::Value;

@@ -1,6 +1,6 @@
 use super::git_invocation::{bash_command, invocation, invocations, words};
 use super::worktree_remove::{directory_options, home};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;

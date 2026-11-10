@@ -1,0 +1,4 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-runtime/src/runtime/watch.rs"
+reason = "the canary reads the ledger's lifecycle_moves rows in one read-only SQL count; the state names are the stored column values, never held or written as state here (north#722)"

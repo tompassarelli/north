@@ -1,5 +1,5 @@
 use super::worker_tier::{FACETS, REPOS};
-use crate::hook::HookInput;
+use crate::hook_input::HookInput;
 use crate::platform::pyjson::Value;
 use regex::Regex;
 use std::sync::LazyLock;

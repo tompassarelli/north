@@ -1,4 +1,4 @@
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 
 const READ_ONLY: [&str; 3] = ["Explore", "Plan", "claude-code-guide"];
 

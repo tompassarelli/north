@@ -423,11 +423,15 @@ fn shaped_at(path: &Path, message: &str, tier: &str, now: f64, prior: &str, shap
         live.extend(live::org_lines(message));
     }
     live.extend(graph);
+    let extra = extra_lines(message, tier, &words, &hits, db.as_mut(), shape);
+    Ok(assemble(message, &hits, &words, live, &extra, shape))
+}
+fn extra_lines(message: &str, tier: &str, words: &[String], hits: &[Hit], db: Option<&mut Index>, shape: &Shape) -> Vec<String> {
     let confident = hits.iter().any(|h| h.cover >= 0.5);
     let mut extra = Vec::new();
-    if tier=="B"{let(lines,searched)=tierb::tier_b(&words,db.as_mut());if !lines.is_empty(){extra.push("Tier B (convo rephrasings, handoffs):".into());extra.extend(lines.into_iter().take(14));}else if !confident{let near=hits.first().map(|h|format!("closest: {}{}",h.reference,if h.at!=0.0{format!(" on {}",Timestamp::from_unix_seconds(h.at as i64).day_and_minute())}else{String::new()})).unwrap_or_else(||"closest: none".into());extra.push(format!("Ask Tom in this form: \"searched {} for '{}'; {near}; this one?\"",searched.join(", "),words.iter().take(6).cloned().collect::<Vec<_>>().join(" ")));}}
+    if tier=="B"{let(lines,searched)=tierb::tier_b(words,db);if !lines.is_empty(){extra.push("Tier B (convo rephrasings, handoffs):".into());extra.extend(lines.into_iter().take(14));}else if !confident{let near=hits.first().map(|h|format!("closest: {}{}",h.reference,if h.at!=0.0{format!(" on {}",Timestamp::from_unix_seconds(h.at as i64).day_and_minute())}else{String::new()})).unwrap_or_else(||"closest: none".into());extra.push(format!("Ask Tom in this form: \"searched {} for '{}'; {near}; this one?\"",searched.join(", "),words.iter().take(6).cloned().collect::<Vec<_>>().join(" ")));}}
     else if !confident&&re(r"(?i)\b(already|again|before|earlier|last time|previously|recently|yesterday|remind|told you|we (did|have|had|talked|discussed|agreed|decided|built|made|used)|did(n'?t| not) (we|i|you)|don'?t we|do we (not )?have|have we|existing|remember|as i said|i said|i asked|(the|our|a|any) (skill|hook|rule|routine|policy|script|tool|protocol|system|index|ledger|guard)s?|why (was|is|did|didn'?t|don'?t)|how (does|do|did) (we|the|our|it))\b").is_match(message){extra.push(format!("No confident tier-A hit and this refers to past work or existing infrastructure: before answering run tier B (<=60 s): `north graph ground query --tier B --query '{}'`",cut(&message.replace('\''," "),(shape.limit / 20).min(300))));}
-    Ok(assemble(message, &hits, &words, live, &extra, shape))
+    extra
 }
 pub fn assemble(message: &str, hits: &[Hit], words: &[String], mut live: Vec<String>, extra: &[String], shape: &Shape) -> Rendered {
     let key = (!live.is_empty()).then(|| live_key(&live));

@@ -1,6 +1,6 @@
 use super::state::{prompts, py_str, truthy, with_state};
 use super::{Ctx, asked_keyword, expected_profile, pattern, quoted_in};
-use crate::hook::Verdict;
+use crate::hook_input::Verdict;
 use regex::Regex;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;

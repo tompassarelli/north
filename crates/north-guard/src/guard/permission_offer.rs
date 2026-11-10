@@ -1,4 +1,4 @@
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::pyjson::{self, Value};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};

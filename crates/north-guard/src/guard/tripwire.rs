@@ -8,7 +8,7 @@ mod publish;
 mod safe_push;
 mod transfer;
 
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell::{tripwire_tokens, tripwire_word};
 use regex::Regex;
 use std::collections::BTreeMap;

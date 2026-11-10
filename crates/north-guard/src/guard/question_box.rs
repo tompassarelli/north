@@ -1,5 +1,5 @@
 use crate::guard::proxy_role::{self, World};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 
 const UNIT: &str = "question-box";
 pub const QUESTION_TOOL: &str = "AskUserQuestion";

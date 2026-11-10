@@ -1,6 +1,6 @@
 use super::state::{self, tree_state, truthy, unlanded, with_state};
 use super::{Ctx, pattern};
-use crate::hook::Verdict;
+use crate::hook_input::Verdict;
 use serde_json::Value;
 
 pattern!(ENDED_HONESTLY, r"(?i)^\W*(not done|blocked):");

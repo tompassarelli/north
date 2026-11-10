@@ -1,5 +1,5 @@
 use crate::guard::permission_offer::proxy_report;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use std::sync::OnceLock;
 

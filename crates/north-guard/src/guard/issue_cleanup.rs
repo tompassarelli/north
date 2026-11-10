@@ -1,7 +1,7 @@
 use super::gh_write::{self, GhWrite};
 use super::issue_filing::Ref;
 use super::issue_labels::gh;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::{box_oracles, cleanup};
 
 const OWNER: &str = "tompassarelli/";

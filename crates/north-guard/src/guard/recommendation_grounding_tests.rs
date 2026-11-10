@@ -1,7 +1,8 @@
 #![cfg(test)]
 
 use super::recommendation_grounding::{decide, reason};
-use crate::hook::{HookInput, Verdict, evaluate};
+use crate::hook::evaluate;
+use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
 
 const NAMED: &str = "south:agents/decisions/harness/gex45-access-plan.md";

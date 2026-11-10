@@ -1143,3 +1143,15 @@ may_use = ["crate-roots"]
 name = "north-registries"
 paths = ["crates/north-registries/src/**"]
 may_use = []
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-runtime/src/runtime/watch.rs"
+reason = "the canary reads the ledger's lifecycle_moves rows in one read-only SQL count; the state names are the stored column values, never held or written as state here (north#722)"
+[[implicit_state.allow]]
+shape = "status-string"
+path = "src/bin/verify_north/journey.rs"
+reason = "the outcome is the runs table's text column read back from the scratch ledger to check the journey, never held as state (north#722)"
+[[implicit_state.allow]]
+shape = "phase-suffix"
+path = "crates/north-shared-config/src/lib.rs"
+reason = "the suffix names the temporary file a stamp is written to before its atomic rename, a file name and not a lifecycle phase (north#722)"

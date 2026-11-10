@@ -4,7 +4,7 @@ mod rewrite;
 
 use super::argument_words;
 use super::search_words::{self, Located, MAX_NESTING};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell;
 
 const GREP_LIKE: &[&str] = &["grep", "egrep", "fgrep", "rgrep"];

@@ -1,0 +1,4 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "src/bin/verify_north/journey.rs"
+reason = "the outcome is the runs table's text column read back from the scratch ledger to check the journey, never held as state (north#722)"

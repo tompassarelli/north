@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::heavy_command::judge;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use serde_json::json;
 
 fn verdict(command: &str) -> Verdict {

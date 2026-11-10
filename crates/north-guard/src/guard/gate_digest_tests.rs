@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::gate_digest::decide;
-use crate::hook::Verdict;
+use crate::hook_input::Verdict;
 
 #[test]
 fn toms_window_starts_with_the_decision_queue_only_when_it_holds_something() {

@@ -1,4 +1,4 @@
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::{process, repo_names};
 use regex::Regex;
 use std::path::{Path, PathBuf};

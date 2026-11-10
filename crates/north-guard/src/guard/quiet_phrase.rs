@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::capacity::mode::{self, Limits, strings};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 
 #[derive(Clone, Debug)]
 pub struct Table {

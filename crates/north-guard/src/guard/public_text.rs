@@ -1,5 +1,5 @@
 use super::gh_write::{self, GhWrite};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::betterleaks;
 use crate::platform::private_text::{self, Finding};
 use std::collections::BTreeSet;

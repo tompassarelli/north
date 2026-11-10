@@ -5,7 +5,7 @@ use crate::fleet::model::SessionRecord;
 use crate::fleet::records::read_record;
 use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::waits::Waits;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::{process, repo_names};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};

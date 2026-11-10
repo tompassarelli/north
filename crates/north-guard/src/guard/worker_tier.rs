@@ -1,4 +1,4 @@
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::router::tier::Tier;
 use crate::platform::pyjson::Value;
 use regex::Regex;

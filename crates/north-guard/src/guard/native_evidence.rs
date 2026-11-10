@@ -1,6 +1,6 @@
 use super::git_invocation::words;
 use super::argument_words::is_plain_argument;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredocs};
 
 pub(super) const DENIAL: &str = "Native evidence runs go through `bun wisp accept`, which takes its own quiet native lease. For a run that can't use one, prefix NORTH_NATIVE_SOLO='<reason>'; the reason is recorded in the run ledger.";

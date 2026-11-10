@@ -10,7 +10,7 @@ pub use patch::patch_targets;
 use shell::resolve;
 use crate::foundation::clock::Timestamp;
 use crate::guard::paths;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell::whitespace;
 use regex::Regex;
 use serde_json::Value;

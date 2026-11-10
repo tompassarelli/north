@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::worktree_add::decide;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use serde_json::json;
 
 fn run(command: &str, cwd: &str) -> Verdict {

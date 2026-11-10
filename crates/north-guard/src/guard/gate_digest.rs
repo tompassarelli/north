@@ -1,5 +1,5 @@
 use crate::guard::proxy_role;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::process;
 use std::process::Command;
 use std::time::Duration;

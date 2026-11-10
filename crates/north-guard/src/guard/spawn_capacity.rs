@@ -1,4 +1,4 @@
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
 use north_strategy_types::placement::SpawnCpu;
 use std::path::PathBuf;

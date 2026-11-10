@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::agent_cwd::evaluate;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use serde_json::json;
 
 fn spawn(cwd: &str, prompt: &str, kind: &str) -> Verdict {

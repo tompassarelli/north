@@ -1,4 +1,4 @@
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::frozen_topics::{self, Topic};
 use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredocs};
 

@@ -1,5 +1,5 @@
 use super::search_words::{self, Located, MAX_NESTING, expand_home, is_dir, join, normpath};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell;
 use regex::Regex;
 use std::sync::LazyLock;

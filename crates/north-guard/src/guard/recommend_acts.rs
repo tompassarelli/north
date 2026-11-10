@@ -1,5 +1,5 @@
 use crate::guard::proxy_role;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;

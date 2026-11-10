@@ -2,7 +2,7 @@ mod background;
 mod commands;
 mod lexical;
 
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::pyjson::Value;
 use crate::shell;
 use commands::{TERMINAL_UNIT, OWN_UNIT, DYNAMIC_UNIT, SHELLS, Script, Systemd, full_pattern, kill, killall, pkill, shell_script, ssh};

@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use super::poll_loop_measured::{self, MeasuredDuration};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell;
 
 const LIMIT_SECONDS: f64 = 60.0;

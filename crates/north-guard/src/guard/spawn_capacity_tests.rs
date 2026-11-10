@@ -2,7 +2,7 @@
 
 use crate::guard::spawn_capacity::{Event, World, decide, launch_refusal};
 use crate::foundation::clock::Timestamp;
-use crate::hook::HookInput;
+use crate::hook_input::HookInput;
 use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};

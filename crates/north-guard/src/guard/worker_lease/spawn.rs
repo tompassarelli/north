@@ -1,6 +1,6 @@
 use super::{Env, valid_id};
 use crate::foundation::clock::Timestamp;
-use crate::hook::HookInput;
+use crate::hook_input::HookInput;
 use crate::platform::pyjson::{self, Value};
 use serde_json::json;
 use std::io::{ErrorKind, Write};

@@ -1,7 +1,7 @@
 mod neutralize;
 
 use self::neutralize::{neutralize, restore};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use std::sync::LazyLock;
 use crate::shell::{ShellToken, basename, heredoc_bodies, operator_tokens, strip_heredocs};

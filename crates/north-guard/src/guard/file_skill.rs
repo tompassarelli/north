@@ -1,5 +1,5 @@
 use super::handoff_record::edited_paths;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;

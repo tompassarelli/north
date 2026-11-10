@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::{blind_stage, poll_loop, worker_wait};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 
 const COMMAND: &str = "until grep -q '^exit ' /tmp/n719-push.txt; do sleep 3; done; tail -8 /tmp/n719-push.txt | cut -c1-250";
 const CALL: &str = "toolu_01BZE2MzCWhRZqNh3uvmTgBK";

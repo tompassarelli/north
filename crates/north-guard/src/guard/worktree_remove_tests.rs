@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::worktree_remove::decide;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use serde_json::json;
 use std::fs;
 use std::path::Path;

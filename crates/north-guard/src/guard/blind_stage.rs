@@ -1,5 +1,5 @@
 use super::git_invocation::{argument_spans, bash_command, invocation, short_cluster, words};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use std::sync::LazyLock;
 

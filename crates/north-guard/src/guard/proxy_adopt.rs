@@ -1,6 +1,6 @@
 use crate::fleet::runtime::PROXY;
 use crate::guard::proxy_role::{self, Live, World};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::process;
 use std::process::Command;
 use std::time::Duration;

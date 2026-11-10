@@ -2,7 +2,7 @@ use super::bash::{check_key, check_name, gh_issue_action, is_check, is_measure, 
 use super::case::parse_case;
 use super::state::{self, count, head_commit, tree_state, truthy, unlanded, with_shared, with_state};
 use super::{Ctx, PEER_LINE, pattern};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::pyjson::{self, Value as Py};
 use serde_json::{Map, Value, json};
 

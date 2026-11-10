@@ -1,6 +1,6 @@
 use super::file_skill::claim;
 use super::handoff_record::edited_paths;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell;
 use std::path::{Path, PathBuf};
 use toml_edit::DocumentMut;

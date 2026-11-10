@@ -6,7 +6,7 @@ mod post;
 mod state;
 mod stop;
 
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use serde_json::Value;
 use std::path::{Path, PathBuf};

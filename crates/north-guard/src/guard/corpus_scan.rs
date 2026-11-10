@@ -1,6 +1,6 @@
 use super::paths::realpath;
 use super::search_words::{self, Token, expand_home, is_file, join, normpath};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell;
 use std::collections::HashMap;
 use std::path::Path;

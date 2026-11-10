@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::proxy_role::{ClaudeStart, Registered, World, decide, lane_changes};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
 
 const LANE: &str = "/home/tom/code/north/worktrees/lane";

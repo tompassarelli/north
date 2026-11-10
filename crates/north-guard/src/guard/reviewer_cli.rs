@@ -1,5 +1,5 @@
 use crate::fleet::claude_only::DEEPSEEK_PROVIDERS;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell::{blank_quotes, strip_heredocs};
 use regex::Regex;
 use std::sync::LazyLock;

@@ -1,6 +1,6 @@
 use super::gh_write::{self, GhWrite};
 use super::issue_labels::gh;
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use regex::{Captures, Regex};
 use std::collections::BTreeSet;
 use std::path::PathBuf;

@@ -1,7 +1,7 @@
 use crate::guard::host::{self, ReadStreak};
 use crate::fleet::runtime::{PROXY, ROLE_ENV, SESSION_ENV};
 use crate::guard::paths::{basename, expanduser, join, normpath};
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::shell::{blank_quotes, strip_heredocs};
 use serde_json::Value;
 use std::io::{Read, Seek, SeekFrom};

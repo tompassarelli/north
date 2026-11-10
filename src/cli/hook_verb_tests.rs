@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
 use crate::guard::proxy_role::streak_verdict as verdict;
-use crate::hook::Verdict;
+use north_guard::hook_input::Verdict;
 
 const LIMIT: usize = 15;
 

@@ -1,6 +1,6 @@
 pub mod transcript;
 
-use crate::hook::{HookInput, Verdict};
+use crate::hook_input::{HookInput, Verdict};
 use crate::platform::pyjson::Value;
 use regex::Regex;
 use std::collections::HashSet;
