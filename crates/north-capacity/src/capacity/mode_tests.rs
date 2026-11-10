@@ -4,7 +4,6 @@ use std::fs;
 use std::path::Path;
 
 use super::agent_load::Host;
-use super::cpus;
 use super::game_reserve_tests::settings;
 use super::mode::{self, Limits, Mode};
 use super::mode_tick::{self, Power};
@@ -26,35 +25,35 @@ fn tick_with(root: &Path, idle: Option<bool>, battery: Option<u8>, now: u64) -> 
 }
 
 #[test]
-fn agent_slice_quota_stays_at_the_build_host_quota_at_the_desk_and_drops_only_under_a_playtest_lease() {
+fn agent_slice_quota_is_the_12_cpu_bound_at_the_desk_and_22_only_while_away() {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("mode");
     let limits = Limits::bundled();
     let quotas = |calls: &[String]| calls.iter().filter(|call| call.contains("CPUQuota=")).cloned().collect::<Vec<_>>();
     assert_eq!(quotas(&tick(root.path(), Some(true), 1_000)), [BUILD_HOST_QUOTA]);
-    assert_eq!(quotas(&tick(root.path(), Some(false), 1_030)), Vec::<String>::new(), "sitting down at the desk keeps the build host quota");
+    let away = mode::read(&dir);
+    assert!(mode::builds_here_at(&away, &limits, 1_010), "away takes land checks");
+    assert_eq!(quotas(&tick(root.path(), Some(false), 1_030)), [PLAY_QUOTA], "sitting down at the desk caps agents at 12 CPUs");
     let desk = mode::read(&dir);
     assert_eq!(desk.mode, Mode::Desktop);
-    assert_eq!(cpus::aggregate_cpus("attended", 24.0, Some(f64::from(limits.build_host_quota_percent) / 100.0)), 22.0, "admission at the desk leases up to the 22 CPUs agent.slice holds");
-    assert!(mode::builds_here_at(&desk, &limits, 1_040));
-    assert!(!mode::builds_here_at(&desk, &limits, 1_030 + limits.build_host_fresh_seconds + 1));
-    assert!(mode::leases_own_builds_at(false, &desk, &limits, 1_040));
-    assert!(!mode::leases_own_builds_at(true, &desk, &limits, 1_040), "a land check or replay never reads the live attendance");
+    assert!(!mode::builds_here_at(&desk, &limits, 1_040), "the desk takes no heavy land checks");
+    assert!(!mode::leases_own_builds_at(false, &desk, &limits, 1_040));
     mode::write(&dir, &mode::hold(&desk, 1_050, "playtest", 30, &limits)).unwrap();
-    assert_eq!(quotas(&tick(root.path(), Some(false), 1_060)), [PLAY_QUOTA]);
+    assert_eq!(quotas(&tick(root.path(), Some(false), 1_060)), Vec::<String>::new(), "a playtest hold keeps the same bound");
     assert!(!mode::builds_here_at(&mode::read(&dir), &limits, 1_070));
     mode::write(&dir, &mode::release(&mode::read(&dir), 1_080)).unwrap();
-    assert_eq!(quotas(&tick(root.path(), Some(false), 1_090)), [BUILD_HOST_QUOTA]);
+    assert_eq!(quotas(&tick(root.path(), Some(false), 1_090)), Vec::<String>::new(), "releasing the hold at the desk stays at 12");
+    assert_eq!(quotas(&tick(root.path(), Some(true), 1_120)), [BUILD_HOST_QUOTA], "leaving the desk returns 22");
 }
 
 #[test]
-fn agent_slice_quota_is_22_cores_in_use_or_idle_on_mains_and_drops_only_on_battery() {
+fn agent_slice_quota_is_12_cores_in_use_and_22_idle_on_mains_and_drops_only_on_battery() {
     let limits = Limits::bundled();
     let desk = limits.effects(Mode::Desktop);
     let away = limits.effects(Mode::Away);
     let quota = |effects, battery| mode_tick::agent_quota_percent(effects, battery, false, None, &limits);
     assert_eq!(quota(desk, Some(56)), 600, "in use on battery");
-    assert_eq!(quota(desk, None), 2200, "in use on AC");
+    assert_eq!(quota(desk, None), 1200, "in use on AC");
     assert_eq!(quota(away, None), 2200, "idle on AC");
     assert_eq!(quota(limits.effects(Mode::Play), Some(56)), 600, "a playtest on battery");
 }
@@ -66,7 +65,7 @@ fn the_mode_tick_sets_600_on_a_battery_reading_while_in_use_and_2200_again_on_ma
     let on_battery = quotas(tick_with(root.path(), Some(false), Some(56), 1_000));
     assert_eq!(on_battery.last().map(String::as_str), Some("systemctl --user set-property --runtime agent.slice CPUQuota=600%"));
     let on_mains = quotas(tick_with(root.path(), Some(false), None, 1_030));
-    assert_eq!(on_mains.last().map(String::as_str), Some(BUILD_HOST_QUOTA), "mains returns the 22 core quota while the seat stays in use");
+    assert_eq!(on_mains.last().map(String::as_str), Some(PLAY_QUOTA), "mains returns the 12 core quota while the seat stays in use");
 }
 
 #[test]
