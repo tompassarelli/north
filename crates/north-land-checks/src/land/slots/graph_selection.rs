@@ -33,6 +33,48 @@ struct AddedTest {
     name: String,
 }
 
+/// The tests a `cargo nextest list` run found in one binary at the lane's head.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Listed {
+    pub package: String,
+    pub tests: BTreeSet<String>,
+}
+
+pub type ListedTests = BTreeMap<String, Listed>;
+
+#[derive(Deserialize)]
+struct Listing {
+    #[serde(rename = "rust-suites", default)]
+    suites: BTreeMap<String, Suite>,
+}
+
+#[derive(Deserialize)]
+struct Suite {
+    #[serde(rename = "binary-id")]
+    binary_id: String,
+    #[serde(rename = "package-name", default)]
+    package: String,
+    #[serde(default)]
+    testcases: BTreeMap<String, serde_json::Value>,
+}
+
+/// Every test `cargo nextest list` finds at `root`, by binary id. An unbuilt or unlistable tree lists nothing, so the selection falls back to the graph answer alone.
+pub fn list(root: &Path) -> ListedTests {
+    if !root.join("Cargo.toml").is_file() {
+        return BTreeMap::new();
+    }
+    let output = Command::new("cargo").args(["nextest", "list", "--message-format", "json"]).current_dir(root).stdin(Stdio::null()).stderr(Stdio::null()).output();
+    match output {
+        Ok(output) if output.status.success() => listing(&String::from_utf8_lossy(&output.stdout)),
+        _ => BTreeMap::new(),
+    }
+}
+
+fn listing(json: &str) -> ListedTests {
+    let Ok(listing) = serde_json::from_str::<Listing>(json) else { return BTreeMap::new() };
+    listing.suites.into_values().map(|suite| (suite.binary_id, Listed { package: suite.package, tests: suite.testcases.into_keys().collect() })).filter(|(_, listed)| !listed.tests.is_empty()).collect()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tests {
     by_binary: BTreeMap<String, BTreeSet<String>>,
@@ -42,6 +84,7 @@ pub struct Tests {
     floor: Floor,
     known: usize,
     carried: usize,
+    listed: BTreeMap<String, Listed>,
 }
 
 impl Tests {
@@ -55,8 +98,30 @@ impl Tests {
             }
         }
         let added = answer.added.into_iter().map(|test| (test.package, test.name)).collect();
-        let tests = Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.len() };
-        (!tests.by_binary.is_empty() || !tests.added.is_empty()).then_some(tests).filter(|tests| tests.filter().len() <= FILTER_LIMIT)
+        let tests = Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.len(), listed: BTreeMap::new() };
+        (!tests.by_binary.is_empty() || !tests.added.is_empty()).then_some(tests)
+    }
+
+    /// The inclusion filter's second source: every test `cargo nextest list` sees that the map does not know. `added` already names the unknown tests the change graph scanned; the listing gives each its binary, and it catches a test the scan cannot see. A test the listing does not match stays a name term. `None` when the resulting filter passes the limit, so the caller runs the whole closure instead of fewer tests.
+    pub fn with_listed(mut self, listed: ListedTests) -> Option<Self> {
+        let listed: ListedTests = listed.into_iter().filter(|(binary, suite)| built(binary) && !suite.tests.is_empty()).collect();
+        if !listed.is_empty() {
+            let unknown = self.added.clone();
+            let matches: Vec<(String, String)> = listed
+                .iter()
+                .flat_map(|(binary, suite)| {
+                    unknown.iter().filter(|(package, _)| package.is_empty() || *package == suite.package || binary.split("::").next() == Some(package.as_str())).flat_map(move |(_, name)| {
+                        suite.tests.iter().filter(move |test| test.as_str() == name || test.ends_with(&format!("::{name}"))).map(move |test| (binary.clone(), test.clone()))
+                    })
+                })
+                .collect();
+            for (binary, test) in matches {
+                self.by_binary.entry(binary).or_default().insert(test);
+            }
+            self.by_binary.retain(|_, names| !names.is_empty());
+            self.listed = listed;
+        }
+        (self.filter().len() <= FILTER_LIMIT).then_some(self)
     }
 
     pub fn with_modules(self, modules: BTreeSet<String>) -> Self {
@@ -98,10 +163,43 @@ impl Tests {
     }
 
     fn filter(&self) -> String {
-        let traced = self.by_binary.iter().map(|(binary, names)| format!("(binary_id({binary})&({}))", names.iter().map(|name| format!("test(={name})")).collect::<Vec<_>>().join("|")));
+        let whole = self.wholly_included();
+        let traced = self.by_binary.iter().map(|(binary, names)| {
+            if self.listed.get(binary).is_some_and(|listed| whole.packages.contains(&listed.package)) {
+                return None;
+            }
+            if whole.binaries.contains(binary) {
+                return Some(format!("binary_id({binary})"));
+            }
+            Some(format!("(binary_id({binary})&({}))", names.iter().map(|name| format!("test(={name})")).collect::<Vec<_>>().join("|")))
+        });
+        let packages = whole.packages.iter().map(|package| format!("package({package})"));
         let added = self.added.iter().map(|(package, name)| if package.is_empty() { format!("test(/(^|::){name}$/)") } else { format!("(package({package})&test(/(^|::){name}$/))") });
         let modules = (!self.modules.is_empty()).then(|| format!("(binary_id({IT_BINARY})&test(/^({})::/))", self.modules.iter().cloned().collect::<Vec<_>>().join("|")));
-        traced.chain(added).chain(modules).chain((!self.units.is_empty()).then(|| self.units.filter())).chain((!self.floor.is_empty()).then(|| self.floor.filter())).collect::<Vec<_>>().join("|")
+        let traced: Vec<String> = packages.map(Some).chain(traced).flatten().collect();
+        traced.into_iter().chain(added).chain(modules).chain((!self.units.is_empty()).then(|| self.units.filter())).chain((!self.floor.is_empty()).then(|| self.floor.filter())).collect::<Vec<_>>().join("|")
+    }
+
+    /// The packages and binaries whose every listed test the selection holds, so one `package` or `binary_id` term names them instead of one term per test. Only a binary `cargo nextest list` saw can be whole; a package collapses only when every listed binary it has is.
+    fn wholly_included(&self) -> Wholly {
+        let mut packages: BTreeSet<String> = BTreeSet::new();
+        let mut binaries: BTreeSet<String> = BTreeSet::new();
+        let mut by_package: BTreeMap<&str, Vec<&String>> = BTreeMap::new();
+        for (binary, listed) in &self.listed {
+            by_package.entry(listed.package.as_str()).or_default().push(binary);
+        }
+        for (package, members) in by_package {
+            if members.iter().all(|binary| self.listed.get(*binary).is_some_and(|listed| self.by_binary.get(*binary).is_some_and(|names| names.is_superset(&listed.tests)))) {
+                packages.insert(package.to_owned());
+                binaries.extend(members.into_iter().cloned());
+            }
+        }
+        for (binary, listed) in &self.listed {
+            if !binaries.contains(binary) && self.by_binary.get(binary).is_some_and(|names| names.is_superset(&listed.tests)) {
+                binaries.insert(binary.clone());
+            }
+        }
+        Wholly { packages, binaries }
     }
 }
 
@@ -119,6 +217,11 @@ impl Selected {
         let added = |added: &String| name == added || name.ends_with(&format!("::{added}"));
         self.tests.contains(name) || self.added.iter().any(added) || self.modules.iter().any(|module| name.starts_with(&format!("{module}::")))
     }
+}
+
+struct Wholly {
+    packages: BTreeSet<String>,
+    binaries: BTreeSet<String>,
 }
 
 fn built(binary: &str) -> bool {

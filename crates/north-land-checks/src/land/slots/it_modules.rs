@@ -222,6 +222,11 @@ pub fn selection(root: &Path, base: &str, head: &str, batch: &Batch) -> Result<S
 }
 
 pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str, batch: &Batch) -> Result<Selection, String> {
+    selection_asking_with(program, root, base, head, batch, || graph_selection::list(root))
+}
+
+/// [`selection_asking`] with its `cargo nextest list` step injected, so a test can judge the graph answer and the inclusion filter without building the workspace.
+pub fn selection_asking_with(program: &Path, root: &Path, base: &str, head: &str, batch: &Batch, listed: impl FnOnce() -> graph_selection::ListedTests) -> Result<Selection, String> {
     let read = |path: &str| std::fs::read_to_string(root.join(path)).map_err(|error| format!("{path}: {error}"));
     let plan = Plan::parse(&read(STRUCTURE)?)?;
     let table = Table::parse(&read(TABLE)?, &plan, &spawners(root))?;
@@ -231,7 +236,10 @@ pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str, bat
     let selection = match graph_selection::ask(program, root, base, head, batch) {
         Some(tests) => {
             let compiled: Vec<String> = files.iter().filter(|file| compiled(file)).cloned().collect();
-            Selection::Tests(tests.with_modules(table.tree_wide.iter().cloned().chain(reach(&plan, &table, &compiled).modules).collect()))
+            match tests.with_listed(listed()) {
+                Some(tests) => Selection::Tests(tests.with_modules(table.tree_wide.iter().cloned().chain(reach(&plan, &table, &compiled).modules).collect())),
+                None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &files)?,
+            }
         }
         None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &files)?,
     };
