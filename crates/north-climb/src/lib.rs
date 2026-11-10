@@ -71,6 +71,11 @@ fn dry_run(span: f64) -> Result<(), String> {
         Some(candidate) => remember(candidate, &worst, &armed, span)?,
         None => println!("candidate: none"),
     }
+    match ledger::census(&north_graph::default_path()) {
+        Ok(Some(census)) => println!("corroborated rule over the graph (harness/graph-rules/corroborated.json): {census}"),
+        Ok(None) => println!("corroborated rule: no graph on this host, the issue stamps are read"),
+        Err(error) => println!("corroborated rule: {}", error.user_message()),
+    }
     println!("live arms over {ARM_WINDOW}, the shares dispatch draws each launch from (kept boxes split by who ticked them, rework judge v{}; only checker-verified boxes win a selection):", armed.judge);
     for arm in arms::live(&armed) {
         let cost = arm.usd_per_kept().map_or("no kept box".to_owned(), |usd| format!("${usd:.2} per kept box"));
