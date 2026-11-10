@@ -15,7 +15,7 @@ fn checkout(repo: &str) -> Option<std::path::PathBuf> {
     Some(std::path::Path::new(&home).join("code").join(crate::threads::catalog::checkout(repo)).join("main"))
 }
 
-/// The paths the takeable boxes of `issues` name in `repo` that origin/main lacks and a landed commit deleted.
+/// The paths the takeable boxes of `issues` name in `repo` that origin/main lacks and a landed commit deleted, read in one history walk, since a walk per path cost the dispatch run 30 CPU seconds a run on nexus (north#1036).
 fn gone(repo: &str, issues: &[&Issue], at: f64, notes: &mut Vec<String>) -> BTreeSet<String> {
     let named: BTreeSet<String> = issues.iter().flat_map(|issue| issue.takeable(at)).flat_map(retired::candidates).collect();
     let Some(checkout) = checkout(repo).filter(|_| !named.is_empty()) else { return BTreeSet::new() };
@@ -28,7 +28,22 @@ fn gone(repo: &str, issues: &[&Issue], at: f64, notes: &mut Vec<String>) -> BTre
         let inside = format!("{path}/");
         files.contains(path) || files.range(inside.clone()..).next().is_some_and(|file| file.starts_with(&inside))
     };
-    named.into_iter().filter(|path| !present(path) && git(&checkout, &["log", "origin/main", "--diff-filter=D", "-1", "--format=%H", "--", path]).is_some_and(|deleted| !deleted.trim().is_empty())).collect()
+    let absent: Vec<&String> = named.iter().filter(|path| !present(path)).collect();
+    if absent.is_empty() {
+        return BTreeSet::new();
+    }
+    let mut args = vec!["-c", "core.quotePath=false", "log", "origin/main", "--diff-filter=D", "--name-only", "--format=", "--"];
+    args.extend(absent.iter().map(|path| path.as_str()));
+    let Some(listing) = git(&checkout, &args) else { return BTreeSet::new() };
+    let deleted: BTreeSet<&str> = listing.lines().filter(|line| !line.is_empty()).collect();
+    absent
+        .into_iter()
+        .filter(|path| {
+            let inside = format!("{path}/");
+            deleted.contains(path.as_str()) || deleted.range(inside.as_str()..).next().is_some_and(|file| file.starts_with(&inside))
+        })
+        .cloned()
+        .collect()
 }
 
 /// What origin/main no longer has that the open boxes name: the verbs its CLI reference lists and the paths it deleted.
