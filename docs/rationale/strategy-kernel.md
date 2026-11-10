@@ -446,7 +446,7 @@ functions where they live through three seams (`capacity::replay::reason`, `land
   matched the log case for case.
 
 `--invariants` adds the invariant lines and their refusals to the counts and the shift check, which
-always run. `--budget` also refuses a replay slower than `replay_budget_seconds`, a decision kind whose slowest replayed call passes `replay_call_milliseconds` (10 ms), and a replay process that grows past `replay_peak_mebibytes` (64 MiB) above where it started. Exit is 0 when nothing
+always run. `--budget` also refuses a replay whose CPU time, divided by the threads it splits over, passes `replay_budget_seconds` (wall time moved with host load until 2026-11-10, north#892), a decision kind whose slowest replayed call passes `replay_call_milliseconds` (10 ms), and a replay process that grows past `replay_peak_mebibytes` (64 MiB) above where it started. Exit is 0 when nothing
 is refused, 1 when something is, 2 for bad use or a log that is off.
 
 Before a push, `north land scan strategy-replay BASE..HEAD` (called by safe-push after the policy

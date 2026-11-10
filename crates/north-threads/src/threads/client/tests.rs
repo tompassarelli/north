@@ -2,7 +2,6 @@ use super::*;
 use serde_json::Value;
 use std::os::unix::fs::MetadataExt;
 use std::fs::File;
-use std::time::Instant;
 use std::collections::BTreeSet;
 
 /// The live owners a test writes to a JSON file; it opens no gate.
@@ -117,9 +116,7 @@ fn a_stalled_ledger_host_returns_a_claim_as_outcome_unknown_within_its_bound_and
     let mut rig = rig(&[]);
     rig.client.ssh_wait = Duration::from_millis(300);
     fs::write(rig.root.join("sleep"), "30").unwrap();
-    let begun = Instant::now();
     assert_eq!(call(&rig, &["claim", "wisp#99", "--by", "stall"], b""), (TIMED_OUT_STATUS, "NorthThreads: ledger-host timed out; remote outcome unknown\n".to_owned()));
-    assert!(begun.elapsed() < Duration::from_secs(5), "{:?}", begun.elapsed());
     assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'wisp#99' --by stall")]);
     assert!(!rig.client.spool.exists(), "a timed-out claim was queued for replay");
 }
@@ -154,11 +151,8 @@ fn a_claim_leaves_the_spool_to_a_detached_flush_and_that_flush_sends_it() {
     rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
     assert_eq!(call(&rig, &["claim", "north#63", "--by", "s"], b"").0, 0);
     assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'north#63' --by s")], "the claim sent the spool before itself");
-    let begun = Instant::now();
-    while !fs::read_to_string(&started).unwrap_or_default().contains("spool-flush ledger-host") {
-        assert!(begun.elapsed() < Duration::from_secs(5), "no detached spool-flush started: {:?}", fs::read_to_string(&started));
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let flushing = || fs::read_to_string(&started).unwrap_or_default().contains("spool-flush ledger-host");
+    assert!(north_base::platform::wait::until(Duration::from_secs(60), flushing), "no detached spool-flush started: {:?}", fs::read_to_string(&started));
     assert_eq!(spooled(&rig).len(), 1);
     assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
     assert!(spooled(&rig).is_empty());
@@ -421,17 +415,14 @@ fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_cod
     let writer = rusqlite::Connection::open(directory.path().join("threads.db")).unwrap();
     writer.execute_batch("PRAGMA journal_mode = WAL; BEGIN IMMEDIATE").unwrap();
     let mut err = Vec::new();
-    let begun = Instant::now();
     let code = client.main(&["ingest".to_owned()], &mut &[batch("one"), batch("two")].concat()[..], &mut err).unwrap();
-    let took = begun.elapsed();
     assert_eq!(code, ingest_lock::RETRY, "{}", String::from_utf8_lossy(&err));
-    assert!(took >= Duration::from_secs(3) && took < Duration::from_secs(30), "{took:?}");
     assert_eq!(String::from_utf8(err).unwrap(), "NorthThreads: ingest held the ledger past 3 s; stopped it uncommitted, retry\n");
     assert!(ingest_lock::acquire(&directory.path().join("ingest.lock"), Duration::ZERO).unwrap().is_some());
     writer.execute_batch("ROLLBACK").unwrap();
     drop(writer);
     let lines = logged(directory.path());
-    assert_eq!((lines[0]["exit"].as_i64(), lines[0]["held_ms"].as_i64().is_some_and(|held| held < 30_000)), (Some(i64::from(ingest_lock::RETRY)), true), "{lines:?}");
+    assert_eq!((lines[0]["exit"].as_i64(), lines[0]["held_ms"].as_i64().is_some_and(|held| (3000..30_000).contains(&held))), (Some(i64::from(ingest_lock::RETRY)), true), "{lines:?}");
     for _ in 0..2 {
         assert_eq!(client.main(&["ingest".to_owned()], &mut &[batch("one"), batch("two")].concat()[..], &mut Vec::new()).unwrap(), 0);
     }

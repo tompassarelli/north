@@ -2,7 +2,6 @@
 //! links, prints each decision kind's outcome counts beside the logged ones, and checks the declared
 //! invariants over the replayed decisions (docs/rationale/strategy-kernel.md, Replay).
 use std::path::Path;
-use std::time::Instant;
 
 use rustix::time::{ClockId, clock_gettime};
 
@@ -33,12 +32,20 @@ pub struct Deciders<'a> {
     pub judge: &'a (dyn Fn(&land::JudgeCase) -> land::Judgement + Sync),
     pub placement: &'a (dyn Fn(&placement::Case) -> Option<placement::Target> + Sync),
     pub clock: &'a (dyn Fn() -> f64 + Sync),
+    pub process_clock: &'a (dyn Fn() -> f64 + Sync),
 }
 
 /// Seconds of CPU the calling thread has used, which the replay reads around each decision so that
 /// other work on the host, which takes wall time but not this thread's CPU, cannot move the bound.
 pub fn thread_cpu_seconds() -> f64 {
     let spent = clock_gettime(ClockId::ThreadCPUTime);
+    spent.tv_sec as f64 + spent.tv_nsec as f64 / 1e9
+}
+
+/// Seconds of CPU every thread of this process has used, which the replay's budget reads so that other work on the host
+/// cannot move it the way it moves the wall clock.
+pub fn process_cpu_seconds() -> f64 {
+    let spent = clock_gettime(ClockId::ProcessCPUTime);
     spent.tv_sec as f64 + spent.tv_nsec as f64 / 1e9
 }
 
@@ -50,6 +57,7 @@ impl Deciders<'static> {
             judge: &north_landing::land::judge_case::judge,
             placement: &north_dispatch::pacing::placement::case::replayed_target,
             clock: &thread_cpu_seconds,
+            process_clock: &process_cpu_seconds,
         }
     }
 }
@@ -120,14 +128,14 @@ pub fn run_with(deciders: &Deciders, bounds: &Bounds, arguments: &[String]) -> u
 /// Replays `options.since` seconds of the log under `root` up to `now`, prints the report and the refusals, and returns the exit code.
 pub fn execute(root: &Path, now: f64, deciders: &Deciders, bounds: &Bounds, options: &Options) -> u8 {
     let resident = memory_mebibytes("VmRSS");
-    let started = Instant::now();
+    let started = (deciders.process_clock)();
     let replayed = replay(root, now - options.since, now, deciders, bounds);
-    let seconds = started.elapsed().as_secs_f64();
+    let seconds = ((deciders.process_clock)() - started) / parallel::threads() as f64;
     let grown = (memory_mebibytes("VmHWM") - resident).max(0.0);
     print_report(&replayed, options.invariants, (now - options.since, now), seconds, grown);
     let mut refusals = replayed.refusals(bounds, options.invariants);
     if options.budget && seconds > bounds.budget_seconds {
-        refusals.push(format!("the replay took {seconds:.1} s, over the {} s of replay_budget_seconds", bounds.budget_seconds));
+        refusals.push(format!("the replay took {seconds:.1} s of CPU per thread, over the {} s of replay_budget_seconds", bounds.budget_seconds));
     }
     if options.budget {
         refusals.extend(replayed.slow_calls(bounds));

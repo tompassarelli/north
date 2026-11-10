@@ -4,10 +4,15 @@ use std::thread;
 
 /// Maps `work` over contiguous chunks of `items`, one thread each, and returns the results in chunk order.
 pub fn chunks<T: Sync, R: Send>(items: &[T], work: impl Fn(&[T]) -> R + Sync) -> Vec<R> {
-    let threads = thread::available_parallelism().map_or(1, usize::from).min(16);
+    let threads = threads();
     let size = items.len().div_ceil(threads).max(1);
     thread::scope(|scope| {
         let handles: Vec<_> = items.chunks(size).map(|part| scope.spawn(|| work(part))).collect();
         handles.into_iter().filter_map(|handle| handle.join().ok()).collect()
     })
+}
+
+/// The threads replay splits a kind over, by which the budget divides the replay's CPU time to give its wall time on an idle host.
+pub fn threads() -> usize {
+    thread::available_parallelism().map_or(1, usize::from).min(16)
 }

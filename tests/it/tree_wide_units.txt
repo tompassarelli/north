@@ -3,3 +3,4 @@
 north-code-health code_health::habits_tests::the_north_tree_keeps_its_rust_habits # tree-wide: scans every Rust source under src/ and crates/ for the code habits
 north-runtime runtime::reuse::tests::every_file_a_source_embeds_at_compile_time_counts_as_a_rust_input # tree-wide: reads every source's embeds across the tree
 north-runtime runtime::reuse::tests::no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree # tree-wide: reads every source and test of the tree for embedded tables
+north-land-checks land::wall_time_tests::no_land_check_or_test_reads_wall_time_or_host_load # tree-wide: scans every test file and the cost-judged land checks for wall-clock and host-load reads

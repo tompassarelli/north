@@ -1559,7 +1559,7 @@ consumers = ["crates/north-replay/src/bounds.rs"]
 [replay_budget_seconds]
 value = 5
 allowed = { min = 1, max = 3600 }
-unit = "seconds the replay of a lane that touches a replayed decision may run before the pre-push scan refuses it as too slow to gate a landing"
+unit = "seconds the replay of a lane that touches a replayed decision may take, read as the process's CPU time divided by the threads it splits over (its wall time on an idle host, which host load cannot move), before the pre-push scan refuses it as too slow to gate a landing"
 source = "tom: the pre-push replay runs in under 5 seconds (north#643, 2026-11-06)"
 fallback = "none: the scan always applies the budget"
 consumers = ["crates/north-replay/src/bounds.rs"]

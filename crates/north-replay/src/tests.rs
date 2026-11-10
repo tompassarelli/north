@@ -113,7 +113,7 @@ fn deciders<'a>(
     judge: &'a (dyn Fn(&land::JudgeCase) -> Judgement + Sync),
     placement: &'a (dyn Fn(&placement::Case) -> Option<placement::Target> + Sync),
 ) -> Deciders<'a> {
-    Deciders { admission, judge, placement, clock: &|| 0.0 }
+    Deciders { admission, judge, placement, clock: &|| 0.0, process_clock: &|| 0.0 }
 }
 
 fn quiet_admission(_: &str, _: &admission::Request) -> Option<(Reason, bool)> {
@@ -309,12 +309,27 @@ fn assert_a_strategy_whose_slowest_call_passes_10_ms_is_refused_naming_its_kind_
         MICROSECONDS.set(MICROSECONDS.get() + 30_000);
         Some((Reason::Run, false))
     };
-    let replayed = replay(root.path(), NOW - 86_400.0, NOW, &Deciders { admission: &sleeps, judge: &same_judgement, placement: &unplaced, clock: &clock }, &bounds());
+    let replayed = replay(root.path(), NOW - 86_400.0, NOW, &Deciders { admission: &sleeps, judge: &same_judgement, placement: &unplaced, clock: &clock, process_clock: &|| 0.0 }, &bounds());
     let slow = replayed.slow_calls(&bounds());
     assert_eq!(slow.len(), 1);
     assert!(slow[0].starts_with("admission call took 3") && slow[0].ends_with("over the 10 ms of replay_call_milliseconds"), "{slow:?}");
-    assert_eq!(execute(root.path(), NOW, &Deciders { admission: &sleeps, judge: &same_judgement, placement: &unplaced, clock: &clock }, &bounds(), &options), 1);
+    assert_eq!(execute(root.path(), NOW, &Deciders { admission: &sleeps, judge: &same_judgement, placement: &unplaced, clock: &clock, process_clock: &|| 0.0 }, &bounds(), &options), 1);
     assert_eq!(execute(root.path(), NOW, &deciders(&quiet_admission, &same_judgement, &unplaced), &bounds(), &options), 0);
+}
+
+/// On 2026-11-08 the replay budget read the wall clock, so host load alone could refuse a lane (north#892).
+#[test]
+fn the_replay_budget_is_held_to_cpu_per_thread_and_not_to_the_wall_clock() {
+    let root = tempfile::tempdir().unwrap();
+    log_admission(root.path(), 3, false, |_| Reason::Run);
+    let options = Options { since: 86_400.0, invariants: false, budget: true };
+    let threads = parallel::threads() as f64;
+    for (spent_per_thread, code) in [(4.9, 0), (5.1, 1)] {
+        let reads = std::sync::atomic::AtomicU64::new(0);
+        let process_clock = || reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) as f64 * spent_per_thread * threads;
+        let deciders = Deciders { process_clock: &process_clock, ..deciders(&quiet_admission, &same_judgement, &unplaced) };
+        assert_eq!(execute(root.path(), NOW, &deciders, &bounds(), &options), code, "{spent_per_thread} s of CPU per thread");
+    }
 }
 
 fn refused_decision() -> placement::Decision {
