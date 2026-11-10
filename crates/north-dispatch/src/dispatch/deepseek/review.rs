@@ -184,9 +184,9 @@ fn north(words: &[&str]) -> Result<String, String> {
 }
 
 /// The brief of the Sonnet reviewer of `job`'s commit `sha` in `lane`.
-pub fn brief(job_name: &str, item: &str, category: &str, box_text: Option<&str>, lane: &Path, sha: &str) -> String {
+pub fn brief(job_name: &str, item: &str, category: &str, box_text: Option<&str>, lane: &Path, sha: &str, effort: &str) -> String {
     let classes: String = CLASSES.iter().map(|(class, what)| format!("- `{class}`: {what}\n")).collect();
-    let verdict = format!("north fleet dispatch verdict --session {job_name} --category {category} --sha {sha}");
+    let verdict = format!("north fleet dispatch verdict --session {job_name} --category {category} --sha {sha} --effort {effort}");
     format!(
         "Category: review\nItem: {item}\n{}Review and land the DeepSeek worker {job_name}'s commits in {} (head {sha}) against the box above.\n\n\
          Read `git -C {} log -p origin/main..HEAD` and the box's Done when, and run that check in the lane. Reject the commit for any of these classes:\n{classes}\n\
@@ -229,7 +229,7 @@ fn review(job: &Job) -> Result<String, String> {
     let sha = git(&lane, &["rev-parse", "HEAD"])?;
     let ahead: u32 = git(&lane, &["rev-list", "--count", "origin/main..HEAD"])?.parse().map_err(|error| format!("{error}"))?;
     let directory = record::directory();
-    let verdict = |kind: Kind, class: Option<String>| Verdict { at: placement::now(), session: job.name.clone(), category: job.category.clone(), sha: sha.clone(), kind, class };
+    let verdict = |kind: Kind, class: Option<String>| Verdict { at: placement::now(), session: job.name.clone(), category: job.category.clone(), sha: sha.clone(), kind, class, effort: None };
     if ahead == 0 {
         north(&["fleet", "forget", &job.name])?;
         sampling::append(&directory, &verdict(Kind::Empty, None))?;
@@ -237,9 +237,10 @@ fn review(job: &Job) -> Result<String, String> {
     }
     if sampling::reviews(&sampling::read(&directory), &job.category, job.landing, &sha) {
         let reviewer = format!("{}-rv", job.name);
-        let text = brief(&job.name, &job.item, &job.category, job.box_text.as_deref(), &lane, &sha);
+        let effort = sampling::reviewer_effort(&job.name);
+        let text = brief(&job.name, &job.item, &job.category, job.box_text.as_deref(), &lane, &sha, effort);
         let cwd = lane.to_string_lossy().into_owned();
-        let mut words = vec!["fleet", "launch", "--provider", "claude", "--model", "sonnet", "--effort", "high", "--role", "worker", "--name", &reviewer, "--task", &job.item, "--cwd", &cwd];
+        let mut words = vec!["fleet", "launch", "--provider", "claude", "--model", "sonnet", "--effort", effort, "--role", "worker", "--name", &reviewer, "--task", &job.item, "--cwd", &cwd];
         words.extend(job.box_text.as_deref().map(|text| ["--box", text]).into_iter().flatten());
         words.extend(["--tier-reason", "north#1020: Sonnet reviews DeepSeek commits by sampling", "--local", "the DeepSeek lane is on this host", &text]);
         north(&words)?;
@@ -257,23 +258,27 @@ fn review(job: &Job) -> Result<String, String> {
     Err(format!("safe-push refused {sha}: {refusal}; the box goes to Claude"))
 }
 
-/// `north fleet dispatch verdict --session NAME --category C --sha SHA clean | defect CLASS`: a reviewer's verdict on a
+/// `north fleet dispatch verdict --session NAME --category C --sha SHA [--effort medium|high] clean | defect CLASS`: a reviewer's verdict on a
 /// DeepSeek commit.
 pub fn verdict(arguments: &[String]) -> u8 {
     let usage = || {
-        eprintln!("usage: north fleet dispatch verdict --session NAME --category C --sha SHA clean | defect CLASS ({})", CLASSES.map(|(class, _)| class).join(", "));
+        eprintln!("usage: north fleet dispatch verdict --session NAME --category C --sha SHA [--effort medium|high] clean | defect CLASS ({})", CLASSES.map(|(class, _)| class).join(", "));
         2
     };
     let [session_flag, session, category_flag, category, sha_flag, sha, rest @ ..] = arguments else { return usage() };
     if (session_flag.as_str(), category_flag.as_str(), sha_flag.as_str()) != ("--session", "--category", "--sha") {
         return usage();
     }
+    let (effort, rest) = match rest {
+        [flag, effort, rest @ ..] if flag == "--effort" && sampling::REVIEWER_EFFORTS.contains(&effort.as_str()) => (Some(effort.clone()), rest),
+        _ => (None, rest),
+    };
     let (kind, class) = match rest {
         [clean] if clean == "clean" => (Kind::Clean, None),
         [defect, class] if defect == "defect" && CLASSES.iter().any(|(known, _)| known == class) => (Kind::Defect, Some(class.clone())),
         _ => return usage(),
     };
-    match sampling::append(&record::directory(), &Verdict { at: placement::now(), session: session.clone(), category: category.clone(), sha: sha.clone(), kind, class }) {
+    match sampling::append(&record::directory(), &Verdict { at: placement::now(), session: session.clone(), category: category.clone(), sha: sha.clone(), kind, class, effort }) {
         Ok(()) => 0,
         Err(why) => {
             eprintln!("north fleet dispatch verdict: {why}");

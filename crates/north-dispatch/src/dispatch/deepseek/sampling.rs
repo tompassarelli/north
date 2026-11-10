@@ -7,6 +7,7 @@ use std::path::Path;
 
 pub const FULL_REVIEWS: usize = 10;
 pub const SAMPLE_EVERY: u64 = 5;
+pub const REVIEWER_EFFORTS: [&str; 2] = ["medium", "high"];
 const FILE: &str = "deepseek-verdicts.jsonl";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -33,6 +34,9 @@ pub struct Verdict {
     pub kind: Kind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub class: Option<String>,
+    /// The effort the Sonnet reviewer ran at, drawn by `reviewer_effort`; none on a verdict no reviewer gave.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 impl Verdict {
@@ -64,4 +68,10 @@ pub fn reviews(verdicts: &[Verdict], category: &str, landing: bool, sha: &str) -
 
 fn sampled(sha: &str) -> bool {
     sha.get(..8).and_then(|head| u64::from_str_radix(head, 16).ok()).is_none_or(|number| number % SAMPLE_EVERY == 0)
+}
+
+/// The effort the Sonnet reviewer of DeepSeek session `session` runs at: medium or high by an even seeded draw on the
+/// session name, so the ledger compares the two on the same reviews.
+pub fn reviewer_effort(session: &str) -> &'static str {
+    REVIEWER_EFFORTS[crate::router::settle::pick(&[1.0, 1.0], session)]
 }

@@ -53,7 +53,7 @@ fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_
 }
 
 fn verdict(category: &str, kind: Kind, sha: &str) -> Verdict {
-    Verdict { at: 0.0, session: "ds".into(), category: category.into(), sha: sha.into(), kind, class: None }
+    Verdict { at: 0.0, session: "ds".into(), category: category.into(), sha: sha.into(), kind, class: None, effort: None }
 }
 
 fn a_category_is_reviewed_in_full_until_ten_clean_then_one_in_five_while_a_defect_resets_it_and_landing_boxes_are_always_reviewed() {
@@ -152,4 +152,22 @@ fn opencode_model_by_repository_visibility_is_go_for_private_and_unreadable_and_
     assert_eq!(picked(Visibility::Private), "opencode-go/deepseek-v4.1-flash");
     assert_eq!(picked(Visibility::Public), "opencode/deepseek-v4.1-flash-free");
     assert_eq!(picked(Visibility::Unknown), "opencode-go/deepseek-v4.1-flash");
+}
+
+
+#[test]
+fn the_sonnet_reviewer_draws_medium_or_high_by_seed_and_records_it() {
+    let drawn: BTreeSet<&str> = (0..40).map(|number| sampling::reviewer_effort(&format!("north-1020-d{number:04x}"))).collect();
+    assert_eq!(drawn, BTreeSet::from(["medium", "high"]), "both efforts are drawn across sessions");
+    assert_eq!(sampling::reviewer_effort("north-1020-d0001"), sampling::reviewer_effort("north-1020-d0001"), "a session draws the same effort every time");
+    let session = "north-1020-d0001";
+    let effort = sampling::reviewer_effort(session);
+    let text = review::brief(session, "north#1020", "feature", None, std::path::Path::new("/lane"), "abc", effort);
+    assert!(text.contains(&format!("--sha abc --effort {effort} clean")), "the brief tells the reviewer to record its drawn effort");
+    let directory = std::env::temp_dir().join(format!("deepseek-effort-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    let row = Verdict { effort: Some(effort.into()), ..verdict("feature", Kind::Clean, "abc") };
+    sampling::append(&directory, &row).unwrap();
+    assert_eq!(sampling::read(&directory), vec![row], "the verdict row keeps the effort");
+    std::fs::remove_dir_all(&directory).unwrap();
 }
