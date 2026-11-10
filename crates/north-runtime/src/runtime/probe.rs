@@ -259,7 +259,42 @@ pub(super) fn installing(facts: &Facts) -> bool {
 const RESTARTING_AFTER_CLEAN_EXIT: &str = "activating auto-restart success";
 
 fn healthy(state: &str) -> bool {
-    state == "active" || state == RESTARTING_AFTER_CLEAN_EXIT
+    if state == "active" || state.starts_with(RESTARTING_AFTER_CLEAN_EXIT) {
+        return true;
+    }
+    let mut words = state.split_whitespace();
+    let (Some("activating"), Some("start"), Some("success"), Some(age)) = (words.next(), words.next(), words.next(), words.next()) else {
+        return false;
+    };
+    let (Ok(age_us), Some(timeout)) = (age.parse::<u64>(), words.next()) else { return false };
+    timeout_us(timeout).is_some_and(|limit| age_us < limit)
+}
+
+fn timeout_us(text: &str) -> Option<u64> {
+    if text == "infinity" {
+        return Some(u64::MAX);
+    }
+    let mut total = 0_u64;
+    for part in text.replace('_', " ").split_whitespace() {
+        let split = part.find(|character: char| !character.is_ascii_digit())?;
+        let (amount, unit) = part.split_at(split);
+        let amount = amount.parse::<u64>().ok()?;
+        let micros = match unit {
+            "us" => 1,
+            "ms" => 1_000,
+            "s" => 1_000_000,
+            "min" => 60_000_000,
+            "h" => 3_600_000_000,
+            "d" => 86_400_000_000,
+            _ => return None,
+        };
+        total = total.checked_add(amount.checked_mul(micros)?)?;
+    }
+    Some(total)
+}
+
+fn display(state: &str) -> String {
+    state.split_whitespace().take(3).collect::<Vec<_>>().join(" ")
 }
 
 pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String> {
@@ -276,7 +311,7 @@ pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String
     for unit in UNITS {
         let state = facts.units.get(unit).map_or("unknown", String::as_str);
         if !healthy(state) {
-            problems.push(format!("{unit} is {state}"));
+            problems.push(format!("{unit} is {}", display(state)));
         }
     }
     if facts.settings.is_empty() {
@@ -314,8 +349,8 @@ fn facts_script() -> String {
          mark runtime; readlink \"$state/current\"\n\
          mark swapped; stat -c %Y \"$state/current\"\n\
          mark swaps; tail -n {SWAPS_KEPT} \"$state/runtime-swaps.jsonl\" 2>/dev/null || true\n\
-         mark units; for unit in {}; do unit_state=$(systemctl --user is-active \"$unit\"); \
-         [ \"$unit_state\" = activating ] && unit_state=\"$unit_state $(systemctl --user show -p SubState --value \"$unit\") $(systemctl --user show -p Result --value \"$unit\")\"; echo \"$unit_state\"; done\n\
+         mark units; now_us=$(( $(cut -d. -f1 \"$proc/uptime\" 2>/dev/null || echo 0) * 1000000 )); for unit in {}; do unit_state=$(systemctl --user is-active \"$unit\"); \
+         if [ \"$unit_state\" = activating ]; then sub=$(systemctl --user show -p SubState --value \"$unit\"); result=$(systemctl --user show -p Result --value \"$unit\"); changed=$(systemctl --user show -p StateChangeTimestampMonotonic --value \"$unit\"); timeout=$(systemctl --user show -p TimeoutStartUSec --value \"$unit\"); [ -n \"$changed\" ] || changed=0; age_us=$(( now_us - changed )); [ \"$age_us\" -ge 0 ] || age_us=0; timeout=${{timeout// /_}}; unit_state=\"$unit_state $sub $result $age_us $timeout\"; fi; echo \"$unit_state\"; done\n\
          mark pressure; cat \"$proc/pressure/cpu\"\n\
          mark load; cat \"$proc/loadavg\"; nproc\n\
          mark north; for pid in \"$proc\"/[0-9]*; do read -r name <\"$pid/comm\" 2>/dev/null && [ \"$name\" = north ] || continue; \

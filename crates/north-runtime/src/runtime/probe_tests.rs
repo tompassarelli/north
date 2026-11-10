@@ -13,6 +13,7 @@ impl FakeProc {
     fn new() -> Self {
         let proc = Self(tempfile::tempdir().unwrap(), 100);
         std::fs::write(proc.0.path().join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
+        std::fs::write(proc.0.path().join("uptime"), "1000000.00 0.00\n").unwrap();
         proc
     }
 
@@ -125,7 +126,8 @@ fn the_lander_of_each_repository_is_a_resident_and_a_second_one_for_a_repository
 
 const TIMER: (&str, &str, &str, &str) = ("north-runtime-follow.timer", "active", "waiting", "success");
 
-fn unit_problems(watchdog: (&str, &str, &str)) -> Vec<String> {
+fn unit_problems(watchdog: (&str, &str, &str), age_secs: u64) -> Vec<String> {
+    const UPTIME_SECS: u64 = 1_000_000;
     let dir = tempfile::tempdir().unwrap();
     let systemctl = dir.path().join("systemctl");
     std::fs::write(&systemctl, "#!/usr/bin/env bash\nunit=\"${@: -1}\"\ncase \"$2\" in\nis-active) cat \"$FAKE_UNITS/$unit.active\"; exit 3;;\nshow) cat \"$FAKE_UNITS/$unit.$4\";;\nesac\n").unwrap();
@@ -134,7 +136,10 @@ fn unit_problems(watchdog: (&str, &str, &str)) -> Vec<String> {
         std::fs::write(dir.path().join(format!("{unit}.active")), format!("{active}\n")).unwrap();
         std::fs::write(dir.path().join(format!("{unit}.SubState")), format!("{sub}\n")).unwrap();
         std::fs::write(dir.path().join(format!("{unit}.Result")), format!("{result}\n")).unwrap();
+        std::fs::write(dir.path().join(format!("{unit}.StateChangeTimestampMonotonic")), format!("{}\n", (UPTIME_SECS - age_secs) * 1_000_000)).unwrap();
+        std::fs::write(dir.path().join(format!("{unit}.TimeoutStartUSec")), "1min 30s\n").unwrap();
     }
+    std::fs::write(dir.path().join("uptime"), format!("{UPTIME_SECS}.00 0.00\n")).unwrap();
     let output = Command::new("bash")
         .arg("-c")
         .arg(facts_script())
@@ -158,15 +163,12 @@ fn unit_problems(watchdog: (&str, &str, &str)) -> Vec<String> {
 }
 
 #[test]
-fn a_watchdog_waiting_to_restart_after_the_promoted_runtime_moved_is_healthy() {
-    assert_eq!(unit_problems(("activating", "auto-restart", "success")), Vec::<String>::new());
-}
-
-#[test]
-fn a_watchdog_waiting_to_restart_after_a_crash_or_stopped_is_a_fault() {
-    assert_eq!(unit_problems(("activating", "auto-restart", "exit-code")), vec!["capacity-watchdog.service is activating auto-restart exit-code".to_owned()]);
-    assert_eq!(unit_problems(("activating", "start", "success")), vec!["capacity-watchdog.service is activating start success".to_owned()]);
-    assert_eq!(unit_problems(("failed", "failed", "exit-code")), vec!["capacity-watchdog.service is failed".to_owned()]);
+fn a_watchdog_restarting_cleanly_or_starting_inside_its_timeout_is_healthy_while_a_crash_or_stuck_start_is_a_fault() {
+    assert_eq!(unit_problems(("activating", "auto-restart", "success"), 30), Vec::<String>::new());
+    assert_eq!(unit_problems(("activating", "start", "success"), 30), Vec::<String>::new());
+    assert_eq!(unit_problems(("activating", "start", "success"), 120), vec!["capacity-watchdog.service is activating start success".to_owned()]);
+    assert_eq!(unit_problems(("activating", "auto-restart", "exit-code"), 30), vec!["capacity-watchdog.service is activating auto-restart exit-code".to_owned()]);
+    assert_eq!(unit_problems(("failed", "failed", "exit-code"), 30), vec!["capacity-watchdog.service is failed".to_owned()]);
 }
 
 #[test]
