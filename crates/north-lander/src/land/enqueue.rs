@@ -206,6 +206,9 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let timings = Timings::start();
     let queued = timed_enqueue(repo, shape, keep_lane, environment, &timings);
     println!("{}", timings.line());
+    if let Ok(queued) = &queued {
+        timings.record(&queue::directory(environment.state_home, &queued.ticket.origin).join("logs"), &queued.ticket.head, environment.host);
+    }
     queued
 }
 
