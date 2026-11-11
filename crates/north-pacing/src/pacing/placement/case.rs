@@ -61,8 +61,9 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
     let gate_value = gate_value(&case.usage);
     let hosted: BTreeMap<String, i64> = case.machines.iter().map(|machine| (machine.name.clone(), machine.hosted)).collect();
     let machines: Vec<Machine> = gate::machines(&cfg).into_iter().map(|machine| {
-        let facts = case.machines.iter().find(|probed| probed.name == machine.name).map(facts).unwrap_or_default();
-        machine.probed(facts, &hosted)
+        let recorded = case.machines.iter().find(|probed| probed.name == machine.name);
+        let placed_recently = recorded.map_or(0, |probed| probed.placed_recently);
+        Machine { placed_recently, ..machine.probed(recorded.map(facts).unwrap_or_default(), &hosted) }
     }).collect();
     let basis = Basis::new(&cfg, case.at);
     let credit = hosts::credit_verdict(&case.credit, case.config.cloud_credit.as_deref().unwrap_or_default(), case.at);
@@ -139,6 +140,7 @@ fn recorded(machine: &Machine, facts: Facts, fleet_load: &BTreeMap<String, i64>)
         saturation_age_s: facts.saturation_age_s,
         stale_age_s: facts.stale_age_s,
         hosted: fleet_load.get(&machine.name).copied().unwrap_or(0),
+        placed_recently: 0,
         has_cwd: facts.has_cwd,
     }
 }

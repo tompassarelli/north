@@ -24,10 +24,15 @@ the enforcer. All times are laptop time.
 
 Host picks, each with its own signal:
 
-1. Session launch: `machine_for` in `crates/north-pacing/src/pacing/placement/gate.rs` takes the first host in
-   `[placement] order` of South's `agents/orchestration.toml` (gex45, cpx62, cpx62b, then the laptop) that
-   serves the box and is not refused by `Saturation::refusal` in `crates/north-capacity/src/capacity/saturation.rs`
-   (four tickets queued in admission, or load over the threads while unleased work stalls over 10%). The
+1. Session launch: `machine_for` in `crates/north-pacing/src/pacing/placement/gate.rs` takes, among the hosts
+   that serve the box and are not refused by `Saturation::refusal` in `crates/north-capacity/src/capacity/saturation.rs`
+   (four tickets queued in admission, or load over the threads while unleased work stalls over 10%), the one
+   with the lowest session demand per thread, with `[placement] order` of South's `agents/orchestration.toml`
+   breaking ties (north#1191). Each launch this host placed there in the last `placement_reserve_seconds`
+   adds a session's `placement_session_cores` to the demand, a count read from the decision log under one lock
+   with the decision and its record (`crates/north-pacing/src/pacing/placement/recent.rs`). Before that fix it
+   took the first open host in order, so on 2026-11-12 at 1:38 AM 21 launches decided inside 100 ms against
+   one reading all went to gex45 at load 44 on 20 threads beside cpx62 at 8 and cpx62b at 21 on 16. The
    decision is recorded and replayed (`crates/north-strategy-types/src/placement.rs`, the `Case`).
    `src/cli/fleet/placement.rs` then keeps the launch here when the chosen host lacks the launch directory.
 2. Dispatch: `candidates` in `crates/north-dispatch/src/dispatch/mod.rs` ranks hosts by the run queue past the

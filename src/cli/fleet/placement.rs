@@ -8,7 +8,7 @@ use crate::fleet::model::{Effort, LaunchRequest, Machine, Role};
 use crate::fleet::registry::Fleet;
 use crate::fleet::roster::Roster;
 use crate::dispatch::{cloud_autoland, cloud_branch};
-use crate::pacing::placement::case;
+use crate::pacing::placement::{case, recent};
 use crate::pacing::placement::gate::{self, CloudLane, Decision, Target};
 use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::decision_log;
@@ -257,7 +257,9 @@ fn with_room(
 /// `fleet_load` counts the live fleet sessions this machine runs on each other machine.
 pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>, roster: &Roster, report: bool) -> NorthResult<Result<Placed, Refusal>> {
     let ask = case::Ask { launch: recorded_launch(launch, overrides), brief: text, fleet_load, roster };
-    let case = case::gather(&ask).map_err(configuration)?;
+    let mut case = case::gather(&ask).map_err(configuration)?;
+    let turn = recent::Turn::take();
+    recent::charge(&mut case);
     let (decided, decide_us) = decision_log::timed(|| decide(&case, launch, overrides).map(|decision| {
         let settled = settle(&decision, launch, text, overrides);
         (decision, settled)
@@ -270,6 +272,7 @@ pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_lo
         }
     }
     decision_log::record(decision_log::Entry { kind: Kind::Placement, at: case.at, follows: None, case: &case, decision: &recorded_decision(&decision, &settled), decide_us });
+    drop(turn);
     Ok(settled)
 }
 

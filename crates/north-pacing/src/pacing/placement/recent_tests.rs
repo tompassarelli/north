@@ -1,0 +1,24 @@
+use super::super::case;
+use north_strategy_types::placement::Case;
+use std::collections::BTreeMap;
+
+const BURST_CASE: &str = r#"
+{"at":1794422333.970726,"launch":{"name":"burst-01","account":"d","fresh":true,"cwd":"/tmp/eval-b/worktrees/t01-l21","named_machine":null,"overrides":{"local":null,"pin":null,"tier":"eval pins its model"},"provider":"claude","verification":false,"model":"claude-opus-5-5","role":"worker"},"brief":"Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: the acceptance command exits 0.\n","config":{"sha256":"","order":["gex45","cpx62","cpx62b","anthropic-cloud","nexus","laptop","codex-cloud"],"public_repos":[],"private_repos":["galileo"],"cloud_credit":null,"hosts":[{"name":"nexus","ssh":null,"serves":[],"pushes":null,"reaches":null,"resident_cap":200,"launches":false},{"name":"gex45","ssh":"tom@gex45","serves":["native:wisp","warcraft:wisp","wc3:wisp","client:wisp","private:makgora","native:makgora","warcraft:makgora","wc3:makgora","client:makgora"],"pushes":null,"reaches":null,"resident_cap":200,"launches":true},{"name":"cpx62","ssh":"tom@cpx62","serves":[],"pushes":null,"reaches":[],"resident_cap":200,"launches":true},{"name":"cpx62b","ssh":"tom@cpx62b","serves":[],"pushes":null,"reaches":[],"resident_cap":200,"launches":true},{"name":"whiterabbit","ssh":null,"serves":["private","native","warcraft","wc3","client","sign-ins","local-state","tui","fleet","live","desktop","laptop"],"pushes":null,"reaches":["gex45","cpx62","cpx62b","nexus"],"resident_cap":200,"launches":false}],"plans":{"d":"ultra-10x"}},"credit":{"configured":false,"expires":null,"initial":0.0,"spent":null,"read_at":null},"usage":{"sha256":"","age_s":1.0,"controls":{"claude:d":[{"window":"5h","used_pct":10.0,"resets_at":"2026-11-11T21:40:00Z"},{"window":"week","used_pct":10.0,"resets_at":"2026-11-17T08:00:00Z"}]}},"roster":{"claude:d":"listed"},"machines":[{"name":"gex45","live":0,"accounts":["d"],"claude_ai":[],"saturation":{"memory_total_mib":64083,"memory_available_mib":52590,"disk_free_gib":268,"disk_total_gib":935,"backlog":{"queued":0,"load":44.1,"threads":20,"stall":33.0},"token_age_s":null,"disk_bound_gib":null},"saturation_age_s":1.5,"stale_age_s":null,"hosted":5,"has_cwd":true},{"name":"cpx62","live":0,"accounts":["d"],"claude_ai":[],"saturation":{"memory_total_mib":31332,"memory_available_mib":26379,"disk_free_gib":260,"disk_total_gib":599,"backlog":{"queued":0,"load":8.4,"threads":16,"stall":0.0},"token_age_s":null,"disk_bound_gib":null},"saturation_age_s":1.5,"stale_age_s":null,"hosted":0,"has_cwd":true},{"name":"cpx62b","live":0,"accounts":["d"],"claude_ai":[],"saturation":{"memory_total_mib":31332,"memory_available_mib":25696,"disk_free_gib":330,"disk_total_gib":599,"backlog":{"queued":0,"load":21.32,"threads":16,"stall":36.0},"token_age_s":null,"disk_bound_gib":null},"saturation_age_s":1.5,"stale_age_s":null,"hosted":0,"has_cwd":true}],"here":{"name":"whiterabbit","gaming":false,"battery":null,"playtest_hold_until":null,"saturation":null,"spawn_cpu":null},"github":null,"grants":[]}
+"#;
+
+#[test]
+fn a_burst_decided_against_one_unmoved_reading_spreads_over_the_free_hosts_north_1191() {
+    let recorded: Case = serde_json::from_str(BURST_CASE).unwrap();
+    let mut placed: BTreeMap<String, i64> = BTreeMap::new();
+    for _ in 0..21 {
+        let mut case = recorded.clone();
+        for machine in &mut case.machines {
+            machine.placed_recently = placed.get(&machine.name).copied().unwrap_or(0);
+        }
+        let machine = case::decide(&case).unwrap().machine.expect("a build host takes the launch").name;
+        *placed.entry(machine).or_insert(0) += 1;
+    }
+    let on = |host: &str| placed.get(host).copied().unwrap_or(0);
+    assert!(on("gex45") <= 1, "the 21 launches of 2026-11-12 read gex45 at load 44.1 on 20 threads with 5 sessions, cpx62 at 8.4 and cpx62b at 21.3 on 16, and all 21 went to gex45: {placed:?}");
+    assert!(on("cpx62") > on("cpx62b") && on("cpx62b") >= 5, "the emptier hosts take the burst, the emptiest the most: {placed:?}");
+}

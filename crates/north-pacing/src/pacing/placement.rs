@@ -10,6 +10,7 @@ pub use hosts::{Pass, pass};
 mod inputs;
 pub mod needs;
 mod reach;
+pub mod recent;
 mod repository;
 pub mod room;
 use hosts::{credit, laptop, resident, saturation};

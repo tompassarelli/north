@@ -137,6 +137,9 @@ pub struct Machine {
     pub stale_age_s: Option<f64>,
     /// Fleet sessions this machine runs there.
     pub hosted: i64,
+    /// Launches this host placed there inside the recent-placement window, which the saturation reading does not show yet.
+    #[serde(default)]
+    pub placed_recently: i64,
     /// Whether the launch directory exists there; None when the launch names none.
     pub has_cwd: Option<bool>,
 }

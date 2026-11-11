@@ -1738,3 +1738,19 @@ unit = "GiB of root disk one new worker's first cold build writes into its lane,
 source = "measured: on 2026-11-11 the GPU host read 3% free after dispatch kept placing workers there, each cold-building 4 to 8 GiB in its lane (north#1136)"
 fallback = "none: the host's room is always the smaller of its memory and disk room"
 consumers = ["crates/north-capacity/src/capacity/saturation.rs"]
+
+[placement_session_cores]
+value = 2
+allowed = { min = 0, max = 64 }
+unit = "cores of a host's one-minute load a session launch counts for each session live there and for each launch placed there inside placement_reserve_seconds, when placement compares hosts by demand per thread"
+source = "prior: docs/rationale/placement.md (north#1036) sets 2 until a day of watchdog rows measures a session's share; on 2026-11-11 at 7:45 AM the four hosts carried load 219 with 40 sessions, a peak that included land checks"
+fallback = "none: a host without a backlog reading ranks after every host with one"
+consumers = ["crates/north-pacing/src/pacing/placement/recent.rs"]
+
+[placement_reserve_seconds]
+value = 120
+allowed = { min = 0, max = 3600 }
+unit = "seconds a session launch's placement counts against the host it went to before that host's own reading is trusted to show it"
+source = "derived: the saturation reading is cached up to 60 s and the one-minute load average needs about another minute to show a new session; on 2026-11-12 21 launches decided inside 100 ms against one 1.5 s old reading all went to the first host in order (north#1191); docs/rationale/placement.md (north#1036) names the same 120 s for the host-side reservation that replaces this count"
+fallback = "none: a placement older than the window counts only through the host's reading"
+consumers = ["crates/north-pacing/src/pacing/placement/recent.rs"]

@@ -1,6 +1,6 @@
 //! Claude-only launch placement for `north fleet launch`: Anthropic cloud on the Claude account with the most headroom for code-only public
-//! work, else the Claude account the shared rank puts first (`room::Rank`), run on the first machine in `[placement] order`
-//! that serves every local need of the box and is below its resident cap, else here. An account is out
+//! work, else the Claude account the shared rank puts first (`room::Rank`), run on the machine with the lowest demand per thread
+//! (`Machine::projected_load`) that serves every local need of the box and is below its resident cap, `[placement] order` breaking ties, else here. An account is out
 //! only at its provider's limit; whether a worker may start at all is the spend rule's call
 //! (`crate::spend`).
 use super::super::storage::{self, load, rows};
@@ -77,6 +77,8 @@ pub struct Machine {
     pub saturation: Option<Saturation>,
     /// Seconds since the host answered when its facts are the last recorded ones because it did not answer in time.
     pub stale_age_s: Option<f64>,
+    /// Launches this host placed there inside the recent-placement window, which `saturation` does not show yet.
+    pub placed_recently: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -339,7 +341,7 @@ pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
             let host = hosts.get(&name)?;
             let ssh = ssh_destination(host.get("ssh")?.as_str()?)?.to_owned();
             let cap = host.get("resident_cap").and_then(Item::as_integer);
-            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, cap, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None, stale_age_s: None })
+            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, cap, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None, stale_age_s: None, placed_recently: 0 })
         })
         .collect()
 }
@@ -459,11 +461,12 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
                 Some(live) if machine.cap.is_some_and(|cap| live >= cap) => format!("{name} full: {live}/{} resident CLIs{}", machine.cap.unwrap_or(0), stale_note(machine)),
                 Some(live) => {
                     open.push(machine.clone());
-                    format!("{name} available: {live} resident CLIs{}", stale_note(machine))
+                    format!("{name} available: {live} resident CLIs{}{}", machine.load_note(), stale_note(machine))
                 }
             }
         })
         .collect();
+    open.sort_by(|a, b| roomiest(a).total_cmp(&roomiest(b)));
     let here_lacks = missing(here_serves).map(|need| (need.clone(), format!("no host serves {need} for {repo}"))).or_else(|| reach.unreached_here().map(|host| (host.to_owned(), format!("no host reaches {host}"))));
     Choice { open, lines, here_lacks, crowded }
 }
@@ -675,4 +678,9 @@ pub fn grant_verdict(source: &north_strategy_types::placement::GrantSource, rese
     }
     let rank = Rank::grant(source.deadline_h, source.urgent);
     Verdict { account: source.account.clone(), available: true, exhausted: false, headroom: source.left_usd, rank, line: format!("{} available: {}", source.account, source.line), owners: Vec::new() }
+}
+
+/// Open machines go least loaded first, those without a load reading last, and `[placement] order` breaks ties.
+fn roomiest(machine: &Machine) -> f64 {
+    machine.projected_load().unwrap_or(f64::INFINITY)
 }
