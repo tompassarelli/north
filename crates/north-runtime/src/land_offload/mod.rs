@@ -87,6 +87,10 @@ pub fn build_hosts() -> Vec<(String, String)> {
 }
 
 /// Whether other hosts send builds to this one: `[hosts.HERE] offload_builds`.
+pub(crate) fn warms_slots_here() -> bool {
+    config().map_or(true, |cfg| destinations::warms_slots(&cfg, &crate::platform::host::name()))
+}
+
 pub fn builds_for_peers() -> bool {
     config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, &crate::platform::host::name()))
 }
@@ -304,9 +308,9 @@ fn survey(in_reserve: bool, placement: &Placement) -> Survey {
     }
     let reserved = in_reserve || checks_confined_here() || !placement.admits(&here) || !lacks.is_empty();
     let reached = |name: &str| config().is_ok_and(|cfg| crate::platform::orchestration::reaches(&cfg, &here, name));
-    let builds = |name: &str| config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, name));
     let standing = standing(reserved, on_battery(), config().ok().as_ref(), &here);
-    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && reached(&machine.name) && placement.admits(&machine.name) && (standing != room::Standing::Fallback || builds(&machine.name))).collect();
+    let takes = |name: &str| config().is_ok_and(|cfg| destinations::takes_land_checks(&cfg, standing, name));
+    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && reached(&machine.name) && placement.admits(&machine.name) && takes(&machine.name)).collect();
     let remotes = std::thread::scope(|scope| {
         let reads: Vec<_> = others.iter().map(|machine| (machine.name.clone(), scope.spawn(|| room::read(&machine.ssh)), scope.spawn(|| readiness::admits(&needs, &machine.name, &machine.ssh)))).collect();
         reads.into_iter().map(|(name, room, ready)| (name, room.join().ok().flatten().filter(|_| ready.join().unwrap_or(false)))).collect::<Vec<_>>()

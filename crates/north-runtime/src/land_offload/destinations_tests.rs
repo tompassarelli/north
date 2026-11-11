@@ -37,3 +37,20 @@ fn a_host_the_settling_host_ships_to_runs_the_pin_and_the_settling_host_follows_
     let alone: DocumentMut = "[hosts.gex45]\nssh = \"tom@gex45\"\n".parse().unwrap();
     assert!(!pinned_by_settler(&alone, "gex45"), "with no settling host nothing ships the pin");
 }
+
+#[test]
+fn a_host_with_offload_builds_false_is_left_out_of_the_survey_at_every_standing_of_the_sender() {
+    use crate::land_offload::room::Standing;
+    let cfg: DocumentMut = "[hosts.quiet]\noffload_builds = false\n\n[hosts.busy]\noffload_builds = true\n".parse().unwrap();
+    for standing in [Standing::Peer, Standing::Fallback, Standing::Reserved] {
+        assert!(!takes_land_checks(&cfg, standing, "quiet"), "{standing:?}");
+        assert!(takes_land_checks(&cfg, standing, "busy"), "{standing:?}");
+    }
+}
+
+#[test]
+fn a_host_with_offload_builds_false_warms_no_slot() {
+    let cfg: DocumentMut = "[hosts.quiet]\noffload_builds = false\n\n[hosts.busy]\noffload_builds = true\n".parse().unwrap();
+    assert!(!warms_slots(&cfg, "quiet"));
+    assert!(warms_slots(&cfg, "busy"));
+}

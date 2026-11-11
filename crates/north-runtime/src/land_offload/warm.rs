@@ -60,6 +60,9 @@ fn checks_waiting(root: &Path) -> bool {
 /// another job and no land check waits for a slot. The reaper is a oneshot unit, and systemd ends every process left in its cgroup when it exits, so a child of the reaper
 /// would die with it; the fixed unit name also keeps a second warm job from starting beside a running one.
 pub fn tend() {
+    if !super::warms_slots_here() {
+        return;
+    }
     let Some(root) = offload::root().filter(|root| root.is_dir()) else { return };
     if held(&root.join(LOCK)) || too_busy(&root) {
         return;
@@ -85,6 +88,9 @@ pub fn tend() {
 
 /// `north capacity offload warm`: warms one slot, or does nothing when another warm job, a busy host or no stale slot stands in the way.
 pub fn run() -> u8 {
+    if !super::warms_slots_here() {
+        return 0;
+    }
     let Some(root) = offload::root() else { return 0 };
     let Some(_warming) = take(&root.join(LOCK)) else { return 0 };
     if too_busy(&root) {
