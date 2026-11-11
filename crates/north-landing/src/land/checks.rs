@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -9,6 +10,7 @@ use north_base::foundation::offload::{LANDER_SLOT_ENV, LANES_ENV, LOCAL_ENV, OFF
 pub use crate::platform::land_queue::ROUND;
 use super::lander::Lander;
 use north_check_environment as environment;
+use super::outlive;
 use super::refusal;
 
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE", "NORTH_RUNTIME_LINK"];
@@ -117,7 +119,7 @@ impl<'a> Launch<'a> {
     }
 }
 
-pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_group: bool) -> Result<Started, Verdict> {
+pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_group: bool, status: Option<&Path>) -> Result<Started, Verdict> {
     let Some((program, prefix)) = launch.checker.split_first() else {
         return Err(Verdict::Transient("no checker configured".to_owned()));
     };
@@ -130,8 +132,12 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
         Ok(files) => files,
         Err(error) => return Err(Verdict::Transient(format!("{}: {error}", log.display()))),
     };
-    let mut command = Command::new(program);
-    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env(OWNER_ENV, launch.offload_owner).env(ROUND, &launch.round);
+    let mut argv: Vec<OsString> = std::iter::once(program.into()).chain(prefix.iter().map(OsString::from)).chain(["--check-candidate", "--base", base].map(OsString::from)).collect();
+    if let Some(status) = status {
+        argv = outlive::wrap(status, None, argv);
+    }
+    let mut command = Command::new(&argv[0]);
+    command.args(&argv[1..]).env_remove(outlive::SLICE_ENV).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env(OWNER_ENV, launch.offload_owner).env(ROUND, &launch.round);
     if !launch.lanes.is_empty() {
         command.env(LANES_ENV, &launch.lanes);
     }
@@ -182,28 +188,28 @@ impl Started {
         let _ = self.child.wait();
     }
 
+    pub fn id(&self) -> u32 {
+        self.child.id()
+    }
+
     fn verdict(&self, status: ExitStatus) -> Verdict {
-        let (program, log) = (&self.program, &self.log);
-        let text = fs::read_to_string(log).unwrap_or_default();
-        match parse(&text) {
-            Some(Verdict::Refused(_)) if let Some(verdict) = unfit(log, &text) => verdict,
-            Some(Verdict::Refused(_) | Verdict::Green) if status.code() == Some(NO_VERDICT_STATUS) => Verdict::Transient(format!("{program} exited {NO_VERDICT_STATUS}; log: {}", log.display())),
-            Some(Verdict::Refused(detail)) => Verdict::Refused(named(&text, if detail.is_empty() { log.display().to_string() } else { detail })),
-            Some(verdict) => verdict,
-            None => Verdict::Transient(format!("{program} gave no verdict line ({status}); log: {}", log.display())),
-        }
+        verdict(&self.program, &self.log, status)
+    }
+}
+
+pub fn verdict(program: &str, log: &Path, status: ExitStatus) -> Verdict {
+    let text = fs::read_to_string(log).unwrap_or_default();
+    match parse(&text) {
+        Some(Verdict::Refused(_)) if let Some(verdict) = unfit(log, &text) => verdict,
+        Some(Verdict::Refused(_) | Verdict::Green) if status.code() == Some(NO_VERDICT_STATUS) => Verdict::Transient(format!("{program} exited {NO_VERDICT_STATUS}; log: {}", log.display())),
+        Some(Verdict::Refused(detail)) => Verdict::Refused(named(&text, if detail.is_empty() { log.display().to_string() } else { detail })),
+        Some(verdict) => verdict,
+        None => Verdict::Transient(format!("{program} gave no verdict line ({status}); log: {}", log.display())),
     }
 }
 
 pub fn lane_names<'a>(branches: impl Iterator<Item = &'a str>) -> String {
     branches.collect::<Vec<_>>().join(",")
-}
-
-pub fn run(lander: &Lander, worktree: &Path, base: &str, log: &Path) -> Verdict {
-    match start(&Launch::of(lander), worktree, base, log, false) {
-        Ok(started) => started.wait(),
-        Err(verdict) => verdict,
-    }
 }
 
 #[cfg(test)]

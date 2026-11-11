@@ -20,6 +20,7 @@ use super::checks::Verdict;
 use super::lander::Lander;
 use super::after::owner::{self, Reverted};
 use super::post_land::{self, Found, Hosts, Outcome};
+use super::alone_flight::{self, Flight};
 use super::jobs::Jobs;
 use super::setting;
 use super::slots::select::Config;
@@ -116,6 +117,7 @@ pub struct Watch {
     pending: Pending,
     hosts: Hosts,
     pub jobs: Jobs,
+    pub alone: Option<Flight>,
     /// The queue whose journaled runs this watch holds, empty until it resumes or follows one.
     queue: PathBuf,
     handed_off_looked: Option<Instant>,
@@ -157,6 +159,7 @@ impl Watch {
     pub fn resume(lander: &Lander) -> Self {
         let mut watch = Self::default();
         watch.queue.clone_from(&lander.queue);
+        watch.alone = alone_flight::adopt(&lander.queue);
         adopt_journal_files(lander);
         let mut journaled: Vec<Journaled> = match take_journaled(lander) {
             Ok(taken) => taken,
@@ -221,7 +224,7 @@ impl Watch {
     }
 
     pub fn in_flight(&self) -> usize {
-        self.journaled() + self.jobs.running().len()
+        self.journaled() + self.jobs.running().len() + usize::from(self.alone.is_some())
     }
 
     pub fn adoptable(&self, lander: &Lander) -> bool {

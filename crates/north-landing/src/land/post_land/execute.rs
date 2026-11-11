@@ -9,7 +9,8 @@ use std::time::Instant;
 use north_base::foundation::exit::NO_VERDICT_STATUS;
 use north_base::foundation::offload::OWNER_ENV;
 
-use super::runner::{self, Ended, SLICE_ENV, ended, supervise};
+use super::runner::{self, Ended, ended, supervise};
+use crate::land::outlive::SLICE_ENV;
 use super::{Landed, Run, superseded};
 use crate::landing::red_check::{self, Failure};
 use crate::land::candidate::change_worktrees_alone;

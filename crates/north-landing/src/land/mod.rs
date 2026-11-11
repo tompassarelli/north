@@ -1,6 +1,7 @@
 pub use north_diff_gates::landing_refusals;
 pub mod after;
 pub mod after_landing_lifecycle;
+pub mod alone_flight;
 pub mod alone_pass;
 pub mod bisect;
 pub mod blame;
@@ -18,6 +19,7 @@ pub mod jobs;
 pub mod lander;
 pub mod probe_slots;
 pub mod queue;
+pub mod outlive;
 pub mod post_land;
 pub mod records;
 mod red_episode;

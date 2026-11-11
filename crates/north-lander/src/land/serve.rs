@@ -93,7 +93,7 @@ impl Serve for Lander {
 
     fn round(&self, watch: &mut Watch) -> Result<Round, String> {
         self.heartbeat.enter(Step::Settle);
-        if watch.settle(self) {
+        if watch.settle(self) || alone::settle(self, watch)? {
             return Ok(Round::Progress);
         }
         Ok(match batch::batch(self, watch)? {
@@ -240,6 +240,9 @@ fn reap_offloads(lander: &Lander) {
     let mut owners = vec![lander.offload_owner.clone()];
     if post_land::adoptable(&lander.queue).is_empty() {
         owners.push(post_land::after_owner(&lander.offload_owner));
+    }
+    if !super::alone_flight::adoptable(&lander.queue) {
+        owners.push(super::alone_flight::owner(lander));
     }
     for owner in owners {
         let status = std::process::Command::new(after::follow::program()).args(["capacity", "offload", "reap", "--owner", &owner]).stdin(std::process::Stdio::null()).status();

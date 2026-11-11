@@ -68,7 +68,7 @@ pub(super) fn git(dir: &Path, arguments: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
-fn runtime_commit(repository: &Repository, text: &str) -> String {
+pub(super) fn runtime_commit(repository: &Repository, text: &str) -> String {
     let path = repository.checkout.join("crates/north-ops/src/runtime-fixture.txt");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, text).unwrap();

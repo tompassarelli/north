@@ -1,7 +1,6 @@
 use std::ffi::OsString;
 use std::fs;
 use std::io;
-use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::sync::Arc;
@@ -16,13 +15,12 @@ use super::super::after::send;
 use super::super::candidate::git;
 use super::super::lander::Lander;
 use super::super::candidate::change_worktrees_alone;
+use super::super::outlive;
 use super::super::queue;
 use super::super::telemetry::epoch;
 
-pub const SLICE_ENV: &str = "NORTH_LAND_RUNNER_SLICE";
 const RECORD: &str = "runner";
 const STATUS: &str = "status";
-const WRAPPER: &str = r#"status=$1; shift; "$@"; code=$?; printf '%s\n' "$code" > "$status.tmp" && mv "$status.tmp" "$status"; exit "$code""#;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Record {
@@ -48,17 +46,7 @@ pub fn after_owner(owner: &str) -> String {
 }
 
 pub(super) fn wrapped(run: &Run, argv: Vec<OsString>) -> Vec<OsString> {
-    let _ = fs::remove_file(status_path(run));
-    let mut wrapped: Vec<OsString> = Vec::new();
-    if let Some(slice) = std::env::var_os(SLICE_ENV).filter(|slice| !slice.is_empty()) {
-        wrapped.extend(["systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice"].map(OsString::from));
-        wrapped.push(slice);
-        wrapped.extend(["--property".into(), format!("RuntimeMaxSec={}", run.deadline.as_secs()).into(), "--".into()]);
-    }
-    wrapped.extend(["sh", "-c", WRAPPER, "post-land-status"].map(OsString::from));
-    wrapped.push(status_path(run).into_os_string());
-    wrapped.extend(argv);
-    wrapped
+    outlive::wrap(&status_path(run), Some(run.deadline.as_secs()), argv)
 }
 
 pub(super) fn remember(run: &Run, landed: &Landed, group: u32) {
@@ -74,14 +62,6 @@ pub(super) fn forget(run: &Run) {
     let _ = fs::remove_file(status_path(run));
 }
 
-fn status(path: &Path) -> Option<i32> {
-    fs::read_to_string(path).ok()?.trim().parse().ok()
-}
-
-fn alive(group: i32) -> bool {
-    Pid::from_raw(group).is_some_and(|group| rustix::process::test_kill_process_group(group).is_ok())
-}
-
 pub fn adoptable(queue: &Path) -> Vec<(String, Record)> {
     let Ok(entries) = fs::read_dir(queue.join("logs")) else { return Vec::new() };
     let mut found = Vec::new();
@@ -89,7 +69,7 @@ pub fn adoptable(queue: &Path) -> Vec<(String, Record)> {
         let record = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Record>(&text).ok());
         let name = path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
         match record {
-            Some(record) if path.with_extension(STATUS).exists() || alive(record.group) => found.push((name, record)),
+            Some(record) if path.with_extension(STATUS).exists() || outlive::alive(record.group) => found.push((name, record)),
             _ => {
                 let _ = fs::remove_file(&path);
             }
@@ -99,9 +79,7 @@ pub fn adoptable(queue: &Path) -> Vec<(String, Record)> {
 }
 
 pub fn abandon(record: &Record) {
-    if let Some(group) = Pid::from_raw(record.group) {
-        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::Kill);
-    }
+    outlive::kill(record.group);
 }
 
 pub(super) fn started(record: &Record) -> Instant {
@@ -111,13 +89,13 @@ pub(super) fn started(record: &Record) -> Instant {
 pub(super) fn adopted(landed: &Landed, run: &Run, record: &Record) -> Checked {
     let status = status_path(run);
     let exited = || -> io::Result<Option<ExitStatus>> {
-        if let Some(code) = self::status(&status) {
-            return Ok(Some(ExitStatus::from_raw((code & 0xff) << 8)));
+        if let Some(exited) = outlive::exit_status(&status) {
+            return Ok(Some(exited));
         }
-        if alive(record.group) {
+        if outlive::alive(record.group) {
             return Ok(None);
         }
-        self::status(&status).map(|code| Some(ExitStatus::from_raw((code & 0xff) << 8))).ok_or_else(|| io::Error::other("the adopted runner ended without writing its exit status"))
+        outlive::exit_status(&status).map(Some).ok_or_else(|| io::Error::other("the adopted runner ended without writing its exit status"))
     };
     let deadline = started(record) + run.deadline;
     let checked = match Pid::from_raw(record.group) {

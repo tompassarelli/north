@@ -1281,6 +1281,16 @@ lander did not see.
   waited, and on 2026-11-10 the lander announced the change at 3:28:26 AM and waited 287 s for an
   alone check before exiting. A push already on its way to main gets at most 30 s to finish; a
   check or build is abandoned and rerun by the restarted lander (north#948).
+- An alone check (a lane with no pass for its head) no longer holds the round. From 4:15 to 4:20 PM
+  on 2026-11-10 one lane's alone check held 22 queued lanes with nothing landing, and another
+  lane's checks took 7.7, 11.2 and 8.0 minutes each, because the round ran the check inline. The
+  lander now builds the lane's candidate in its own `lander-alone` worktree and starts the check
+  there as a process the round polls; lanes with a pass form and land their batch meanwhile, and
+  one alone check is in flight at a time. The check runs under the same wrapper as the
+  after-landing runner (its own scope in `NORTH_LAND_RUNNER_SLICE`, exit status written beside its
+  log) with the offload owner `<owner>-alone`, and the lander records it in
+  `<queue>/logs/alone-flight.json`, so a restarted lander adopts it, alive or ended with a status,
+  instead of rerunning it, and reaps that owner only when nothing is adoptable (north#902).
 - An after-landing run that only waited out busy build-host slots (exit 96) reached no verdict: it
   is recorded as transient and blames no lane, and a real failure in another check still wins over
   it (north#649).

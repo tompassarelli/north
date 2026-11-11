@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use super::{ATTEMPTS, Round, ahead, alone, micros};
 use super::round::{Landing, Pushing};
 use crate::land::after;
+use crate::land::alone_flight;
 use crate::land::bisect;
 use crate::land::candidate::{self, Built, Pick};
 use crate::land::heartbeat::Step;
@@ -61,7 +62,7 @@ pub(super) trait Batching {
     fn gate(&self, pass: &mut Pass, queued: &[(PathBuf, Ticket)], empty: bool) -> Option<Flow>;
     fn sort_picks<'a>(&self, pass: &mut Pass, attempt: &Attempt<'a>) -> Result<(Vec<Entry<'a>>, Option<String>), String>;
     fn land_fresh(&self, watch: &mut Watch, pass: &mut Pass, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<Flow, String>;
-    fn recheck(&self, pass: &mut Pass, lane: &(PathBuf, Ticket), queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<(), String>;
+    fn recheck(&self, watch: &mut Watch, pass: &mut Pass, lane: &(PathBuf, Ticket), queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<(), String>;
 }
 
 pub(super) fn batch(lander: &Lander, watch: &mut Watch) -> Result<Round, String> {
@@ -89,35 +90,38 @@ impl Batching for Lander {
         let claimed = jobs::claimed(self);
         let mut queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
         queued.retain(|(path, _)| !claimed.contains(path));
-        let fixes;
-        let tickets = if pass.red_only {
-            fixes = lander_fix::repairs(&queued);
-            &fixes
-        } else {
-            &queued
-        };
+        let open: Vec<(PathBuf, Ticket)> = queued.iter().filter(|(path, _)| !watch.alone.as_ref().is_some_and(|flight| flight.checks(path))).cloned().collect();
+        let tickets = if pass.red_only { lander_fix::repairs(&open) } else { open };
         if let Some(flow) = self.gate(pass, &queued, tickets.is_empty()) {
             return Ok(flow);
         }
-        self.heartbeat.enter(Step::Prepare);
-        let base = match candidate::prepare(&self.repo, &self.worktree) {
-            Ok(base) => base,
-            Err(error) => return Ok(Flow::Done(Round::Waiting(format!("transient: {error}")))),
+        let (fresh, stale) = alone::split(&tickets);
+        if fresh.is_empty() && (stale.is_empty() || watch.alone.is_some()) {
+            return Ok(Flow::Done(pass.progress_or(Round::Idle)));
+        }
+        let flow = if fresh.is_empty() {
+            Flow::Done(pass.progress_or(Round::Idle))
+        } else {
+            self.heartbeat.enter(Step::Prepare);
+            let base = match candidate::prepare(&self.repo, &self.worktree) {
+                Ok(base) => base,
+                Err(error) => return Ok(Flow::Done(Round::Waiting(format!("transient: {error}")))),
+            };
+            self.land_fresh(watch, pass, &base, &fresh, &queued, logs)?
         };
-        let (fresh, stale) = alone::split(tickets);
-        let flow = if fresh.is_empty() { Flow::Done(pass.progress_or(Round::Idle)) } else { self.land_fresh(watch, pass, &base, &fresh, &queued, logs)? };
         match (flow, stale.first()) {
-            (Flow::Done(Round::Progress | Round::Idle), Some(lane)) => {
-                self.recheck(pass, lane, &queued, logs)?;
-                Ok(Flow::Done(pass.progress_or(Round::Waiting(format!("{} awaits its alone check", lane.1.branch)))))
+            (Flow::Done(Round::Progress | Round::Idle), Some(lane)) if watch.alone.is_none() => {
+                self.recheck(watch, pass, lane, &queued, logs)?;
+                Ok(Flow::Done(pass.progress_or(Round::Idle)))
             }
             (flow, _) => Ok(flow),
         }
     }
 
-    fn recheck(&self, pass: &mut Pass, lane: &(PathBuf, Ticket), queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<(), String> {
+    fn recheck(&self, watch: &mut Watch, pass: &mut Pass, lane: &(PathBuf, Ticket), queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<(), String> {
         self.heartbeat.enter(Step::Build);
-        let base = match candidate::prepare(&self.repo, &self.worktree) {
+        let worktree = alone_flight::worktree(self)?;
+        let base = match candidate::prepare(&self.repo, &worktree) {
             Ok(base) => base,
             Err(error) => {
                 println!("north land: cannot check {} alone: transient: {error}", lane.1.branch);
@@ -125,10 +129,9 @@ impl Batching for Lander {
             }
         };
         let alone = std::slice::from_ref(lane);
-        let built = candidate::build(&self.worktree, &base, alone, queued, usize::MAX, logs)?;
-        ahead::candidate(self, &base, &built.head);
+        let built = candidate::build(&worktree, &base, alone, queued, usize::MAX, logs)?;
         let (included, _) = self.sort_picks(pass, &Attempt { base: &base, tickets: alone, built: &built })?;
-        if let [entry] = included[..] && alone::check(self, entry, &built.head, &base, logs)? {
+        if let [entry] = included[..] && alone::start(self, watch, entry, &built.head, &base, &worktree)? {
             pass.progressed = true;
         }
         Ok(())

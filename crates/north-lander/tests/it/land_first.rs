@@ -4,7 +4,7 @@ use std::process::{Command, Output, Stdio};
 
 use north_lander::land::queue;
 
-use super::serve::{Repository, World, git, report};
+use super::serve::{Repository, World, git, report, runtime_commit};
 
 const COUNTED: &str = "#!/bin/sh\npwd >> \"$0.calls\"\necho 'safe-push: verdict green'\n";
 const AFTER_RUNNER: &str = r#"#!/bin/sh
@@ -252,4 +252,49 @@ fn a_lane_whose_alone_check_reaches_no_verdict_twice_steps_aside_while_lanes_wit
 #[test]
 fn a_lane_whose_solo_check_reaches_no_verdict_never_holds_the_round() {
     no_verdict_lane_steps_aside_beside_two_landed("safe-push: verdict transient main's check environment is broken: the base fails");
+}
+
+const HELD_ALONE: &str = "#!/bin/sh\npwd >> \"$0.calls\"\n: > \"$HOME/alone-started\"\nwhile [ ! -e \"$HOME/alone-release\" ]; do sleep 0.05; done\necho 'safe-push: verdict green'\n";
+
+struct Release(std::path::PathBuf);
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        let _ = fs::write(&self.0, "");
+    }
+}
+
+#[test]
+fn a_candidate_is_pushed_while_an_alone_check_is_in_flight() {
+    let world = World::new();
+    let north = world.repository("north");
+    north_base::foundation::shim::write_executable(&world.path().join("bin/checker"), HELD_ALONE);
+    let release = Release(world.path().join("alone-release"));
+    let old = runtime_commit(&north, "old");
+    let new = runtime_commit(&north, "new");
+    std::os::unix::fs::symlink(format!("runtimes/{old}"), world.path().join("lander")).unwrap();
+    north.lane("unchecked");
+    let (path, ticket) = queue::pending(&north.queue).unwrap().pop().unwrap();
+    queue::write(&path, &queue::Ticket { alone_green: None, alone_base: None, ..ticket }).unwrap();
+    let (checker, token) = (world.path().join("bin/checker"), world.path().join("bin/token"));
+    let mut first = world.land(&["serve", "--repo", north.checkout.to_str().unwrap(), "--checker", checker.to_str().unwrap(), "--app-token", token.to_str().unwrap()]).spawn().unwrap();
+    wait_for("the alone check of the lane with no pass to start", || world.path().join("alone-started").exists());
+    north.lane("passed");
+    let landed = |file: &str| git(&north.origin, &["ls-tree", "--name-only", "main"]).lines().any(|name| name == file);
+    let pushed = north_base::platform::wait::until(std::time::Duration::from_secs(60), || landed("passed.txt"));
+    fs::remove_file(world.path().join("lander")).unwrap();
+    std::os::unix::fs::symlink(format!("runtimes/{new}"), world.path().join("lander")).unwrap();
+    let exited = north_base::platform::wait::until(std::time::Duration::from_secs(10), || first.try_wait().unwrap().is_some());
+    if !exited {
+        let _ = first.kill();
+    }
+    let handover = report(&first.wait_with_output().unwrap());
+    assert!(pushed, "the lane with a pass waited for the alone check in flight instead of landing beside it:\n{handover}");
+    assert!(exited, "{handover}");
+    let second = world.lander(&north, None);
+    drop(release);
+    let journal = report(&second.wait_with_output().unwrap());
+    assert!(journal.contains("adopting the alone check of unchecked"), "the restarted lander discarded the alone check in flight: {journal}");
+    assert!(verdict(&north, "unchecked").starts_with("landed "), "{journal}");
+    assert_eq!(calls(&world.path().join("bin/checker.calls")), 1, "the restarted lander ran the alone check again: {journal}");
 }

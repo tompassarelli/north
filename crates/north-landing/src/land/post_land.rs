@@ -27,7 +27,7 @@ mod execute;
 mod probe;
 mod runner;
 mod settle;
-pub use runner::{Record, SLICE_ENV, abandon, adopt, adoptable, after_owner, reap_scratch};
+pub use runner::{Record, abandon, adopt, adoptable, after_owner, reap_scratch};
 pub(crate) use execute::{Checked, failing, steps};
 use execute::{check, judged, record};
 use probe::Probe;
