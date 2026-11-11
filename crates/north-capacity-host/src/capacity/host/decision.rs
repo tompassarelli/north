@@ -404,7 +404,10 @@ mod tests {
         let moderate = Facts { class: Class::Moderate, ..cpx62 };
         assert_eq!(admit(&moderate, |_| None).reason, Reason::Run);
         assert_eq!(admit(&Facts { host_cpu_some_avg10_basis_points: Some(4200), ..moderate.clone() }, |_| None).reason, Reason::DeferCpuPressure);
-        assert_eq!(admit(&Facts { build_host: false, ..moderate }, |_| None).reason, Reason::DeferCpuCapacity);
+        assert_eq!(admit(&Facts { build_host: false, ..moderate.clone() }, |_| None).reason, Reason::DeferCpuCapacity);
+        let gex45_runtime_22_57 = Facts { class: Class::Runtime, memory_total_mib: 64_083.0, memory_available_mib: 50_550.0, leased_memory_mib: 53_380.0, requested_memory_mib: 4_673.0, ..moderate };
+        assert_eq!(admit(&gex45_runtime_22_57, |_| None).reason, Reason::Run);
+        assert_eq!(admit(&Facts { build_host: false, ..gex45_runtime_22_57 }, |_| None).reason, Reason::DeferMemoryCapacity);
     }
 
     #[test]

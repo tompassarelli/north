@@ -65,9 +65,9 @@ pub(super) fn growing_memory_mib(facts: &Facts) -> f64 {
     heavy_leases(facts).filter(|lease| age_seconds(facts, lease.created_at) < ramp).map(|lease| lease.memory_mib).sum()
 }
 
-/// On a build host the whole host's CPU pressure, batch slices included, holds a heavy or moderate run against `offload_job_cpu_psi` in place of the CPUs and memory its peers reserve; a land check there waits on neither sum.
+/// On a build host the whole host's CPU pressure, batch slices included, holds a heavy or moderate run against `offload_job_cpu_psi` in place of the CPUs and memory its peers reserve; a land check or runtime build there waits on neither sum.
 pub(super) fn host_pressure(facts: &Facts) -> Option<u32> {
-    (matches!(facts.class, Class::Heavy | Class::Moderate | Class::Critical) && facts.build_host).then_some(facts.host_cpu_some_avg10_basis_points).flatten()
+    (matches!(facts.class, Class::Heavy | Class::Moderate | Class::Critical | Class::Runtime) && facts.build_host).then_some(facts.host_cpu_some_avg10_basis_points).flatten()
 }
 
 pub(super) fn host_over(facts: &Facts) -> bool {
