@@ -20,7 +20,7 @@ use super::model::{Account, ProviderName, Delivery, LaunchRequest, SessionRecord
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{CLAIMS_RELEASED, PLACED, read_phased, read_record, write_record};
 use super::model::Phases;
-use super::remote;
+use super::remote::{self, HooksCheck};
 use super::roster::Roster;
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, now_ms};
 use super::runtimes::Runtimes;
@@ -361,14 +361,11 @@ impl Fleet {
         Ok((session_stream_path(&record.host_dir, &record.name), indexed_to))
     }
 
-    fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening) -> NorthResult<()> {
+    fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening, hooks: HooksCheck) -> NorthResult<()> {
         let since_ms = if record.host_dir.as_os_str().is_empty() { record.created_ms } else { now_ms() };
         self.refuse_on_window(record.conversation.as_deref())?;
         let runtime = self.runtime(record)?;
         let request = record.relaunch_request();
-        if let Some(reason) = remote::unguarded_where_it_runs(runtime.as_ref(), account, record.machine.as_ref()) {
-            return Err(NorthError::Refused(reason));
-        }
         self.refuse_headless_proxy(record, runtime.as_ref(), account)?;
         let (instructions, sha) = self.instructions(record)?;
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
@@ -381,6 +378,12 @@ impl Fleet {
         if started {
             host.start(&spec, &record.provider, idle_exit(record), &account.recorded_label())?;
             host.send(&runtime.handshake())?;
+        }
+        if let Some(reason) = hooks.verdict()? {
+            if started {
+                host.terminate()?;
+            }
+            return Err(NorthError::Refused(reason));
         }
         if record.host_dir != host_dir {
             let _ = fs::remove_file(session_stream_path(&host_dir, &record.name));

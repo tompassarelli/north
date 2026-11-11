@@ -8,6 +8,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::{Host, alive};
 use crate::fleet::model::{Account, Delivery, SessionRecord};
 use crate::fleet::refusals;
+use crate::fleet::remote::HooksCheck;
 use crate::fleet::runtime::{ClientRefusal, CredentialFailure, Opening, new_uuid, now_ms};
 use crate::fleet::transcript::{StreamTail, stream_len, stream_path};
 use crate::fleet::turns::TurnSignal;
@@ -47,7 +48,8 @@ impl Fleet {
         Host::new(record.host_dir.clone()).terminate()?;
         record.conversation = self.runtime(record)?.assign_conversation()?;
         let conversation = record.conversation.clone();
-        self.start(record, account, Opening::Fresh(conversation.as_deref()))?;
+        let hooks = HooksCheck::start(self.runtime(record)?, account, record.machine.as_ref());
+        self.start(record, account, Opening::Fresh(conversation.as_deref()), hooks)?;
         match self.first_turn(record, prompt)? {
             FirstTurn::Answered => Ok(()),
             FirstTurn::Failed(failure) => {

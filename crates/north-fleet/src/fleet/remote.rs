@@ -14,6 +14,8 @@
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use north_session_host::held::{HOLD, PRUNE, unit};
@@ -39,8 +41,22 @@ pub fn placed(spec: HostSpec, record: &SessionRecord, trace: &Path) -> NorthResu
     }
 }
 
-/// Why `account`'s profile would start a session without hooks on `machine`, or here when it is `None`; a machine that does not answer is left to the launch itself to report.
-pub fn unguarded_where_it_runs(runtime: &dyn Runtime, account: &Account, machine: Option<&Machine>) -> Option<String> {
+/// Whether `account`'s profile would start a session without hooks where it runs, read beside the launch's other work: over ssh to a build host it costs two round trips, which the session host's start and the registration overlap, and the launch takes its verdict before it records the host.
+pub struct HooksCheck(JoinHandle<Option<String>>);
+
+impl HooksCheck {
+    pub fn start(runtime: Arc<dyn Runtime>, account: &Account, machine: Option<&Machine>) -> Self {
+        let (account, machine) = (account.clone(), machine.cloned());
+        Self(std::thread::spawn(move || unguarded_where_it_runs(runtime.as_ref(), &account, machine.as_ref())))
+    }
+
+    /// Why the session would run without hooks, or `None` when its profile registers them or its machine did not answer, which the launch itself then reports.
+    pub fn verdict(self) -> NorthResult<Option<String>> {
+        self.0.join().map_err(|_| NorthError::State("the hooks check of a launching session panicked".into()))
+    }
+}
+
+fn unguarded_where_it_runs(runtime: &dyn Runtime, account: &Account, machine: Option<&Machine>) -> Option<String> {
     let Some(machine) = machine else { return runtime.unguarded(account, &|path| std::fs::read_to_string(path).map_or(Seen::Absent, Seen::Text)) };
     let read = |path: &Path| {
         let mut ssh = Command::new(binary("ssh"));

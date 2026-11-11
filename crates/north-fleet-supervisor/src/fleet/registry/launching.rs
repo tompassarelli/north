@@ -7,9 +7,9 @@ use crate::fleet::claims;
 use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
-use crate::fleet::remote;
+use crate::fleet::remote::{self, HooksCheck};
 use crate::fleet::model::{Account, Effort, LaunchRequest, Role, SessionRecord, Status};
-use crate::fleet::runtime::{Opening, Runtime, new_uuid, now_ms};
+use crate::fleet::runtime::{Opening, new_uuid, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
 use super::stopping::Halt;
@@ -62,6 +62,7 @@ impl Fleet {
         self.refuse_second_proxy(request, claim)?;
         let account = self.account(request)?;
         let runtime = self.runtimes.get(&request.provider)?;
+        let hooks = HooksCheck::start(runtime.clone(), &account, request.machine.as_ref());
         if let Some(model) = request.model.as_deref().filter(|model| !runtime.models().contains(model)) {
             return Err(NorthError::Usage(format!("{} has no model {model}; launch one of {}", request.provider.label(), runtime.models().join(", "))));
         }
@@ -80,7 +81,7 @@ impl Fleet {
         self.succeed(&request.name, claim, |predecessor| {
             record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
             self.claim_before_start(request, &tasks, verification)?;
-            let brought = fs::create_dir_all(session_dir).map_err(NorthError::from).and_then(|()| self.bring_up(request, &mut record, &account, runtime.as_ref(), predecessor.as_ref(), conversation.as_deref()));
+            let brought = fs::create_dir_all(session_dir).map_err(NorthError::from).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks));
             let Err(error) = brought else {
                 if let Err(error) = self.inherit_workers(request, &record) {
                     eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
@@ -95,16 +96,16 @@ impl Fleet {
         })
     }
 
-    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, runtime: &dyn Runtime, predecessor: Option<&Predecessor>, conversation: Option<&str>) -> NorthResult<()> {
+    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck) -> NorthResult<()> {
         let opening = match (&request.resume, predecessor) {
             (Some(kept), Some(predecessor)) => {
-                remote::carry_conversation(runtime, request.machine.as_ref(), &self.account(&LaunchRequest { machine: request.machine.clone(), ..predecessor.record().relaunch_request() })?, account, kept)?;
+                remote::carry_conversation(self.runtime(record)?.as_ref(), request.machine.as_ref(), &self.account(&LaunchRequest { machine: request.machine.clone(), ..predecessor.record().relaunch_request() })?, account, kept)?;
                 Opening::Resume(kept)
             }
             (Some(kept), None) => Opening::Resume(kept),
             (None, _) => Opening::Fresh(conversation),
         };
-        self.start(record, account, opening)?;
+        self.start(record, account, opening, hooks)?;
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
@@ -206,7 +207,8 @@ impl Fleet {
             .clone()
             .ok_or_else(|| NorthError::State(format!("{name} never started a conversation")))?;
         let account = self.account(&record.relaunch_request())?;
-        self.start(&mut record, &account, Opening::Resume(&conversation))?;
+        let hooks = HooksCheck::start(self.runtime(&record)?, &account, record.machine.as_ref());
+        self.start(&mut record, &account, Opening::Resume(&conversation), hooks)?;
         Ok(record)
     }
 }

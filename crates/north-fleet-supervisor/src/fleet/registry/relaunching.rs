@@ -2,6 +2,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::handover::family_of;
 use crate::fleet::model::{Delivery, Effort, EntryKind, ProviderName, SessionRecord, Status, Transcript};
 use crate::fleet::records::write_record;
+use crate::fleet::remote::HooksCheck;
 use crate::fleet::runtime::Opening;
 use crate::fleet::sender::Sender;
 
@@ -92,7 +93,8 @@ impl Fleet {
         let mut record = self.record(name)?;
         let account = self.account(&record.relaunch_request())?;
         let conversation = record.conversation.clone();
-        self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
+        let hooks = HooksCheck::start(self.runtime(&record)?, &account, record.machine.as_ref());
+        self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()), hooks)?;
         Ok(record)
     }
 
