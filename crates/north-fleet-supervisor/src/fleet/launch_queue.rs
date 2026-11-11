@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +79,14 @@ impl QueuedLaunch {
 fn file_name(name: &str) -> String {
     let stem: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
     format!("{stem}.json")
+}
+
+pub struct Admission<'a> {
+    pub due: &'a dyn Fn(&QueuedLaunch) -> bool,
+    pub gone: &'a dyn Fn(&QueuedLaunch) -> Option<String>,
+    pub start: &'a dyn Fn(&QueuedLaunch) -> Result<(), String>,
+    pub budget: Duration,
+    pub spent: &'a dyn Fn() -> Duration,
 }
 
 pub fn order(queued: &mut [QueuedLaunch]) {

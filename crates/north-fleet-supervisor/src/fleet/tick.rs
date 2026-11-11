@@ -28,6 +28,7 @@ pub struct Budgets {
     pub hand_in: Duration,
     pub far: Duration,
     pub probes: Duration,
+    pub queue: Duration,
 }
 
 impl Budgets {
@@ -38,14 +39,19 @@ impl Budgets {
         hand_in: Duration::from_secs(4),
         far: Duration::from_secs(4),
         probes: Duration::from_secs(14),
+        queue: Duration::from_secs(5),
     };
 
     pub const fn each(budget: Duration) -> Self {
-        Self { placement: budget, take_far: budget, ledger: budget, hand_in: budget, far: budget, probes: budget }
+        Self { placement: budget, take_far: budget, ledger: budget, hand_in: budget, far: budget, probes: budget, queue: budget }
     }
 
     pub fn worst(&self) -> Duration {
         self.placement.max(self.take_far + self.ledger) + self.hand_in + self.far + self.probes + self.ledger
+    }
+
+    pub fn queue_after(&self, spent: Duration) -> Duration {
+        self.queue.min(self.worst().saturating_sub(spent))
     }
 }
 

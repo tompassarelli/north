@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::NorthResult;
 use crate::fleet::claims::{self, Rows};
-use crate::fleet::launch_queue::QueuedLaunch;
+use crate::fleet::launch_queue::{Admission, QueuedLaunch};
 
 use super::Fleet;
 
@@ -28,25 +28,50 @@ impl Fleet {
         Ok(withdrawn)
     }
 
-    /// Withdraws each queued launch that can no longer start and returns one line per drop: a box another queued launch ahead of it or a session already holds, and, for the launches `due` names, work `gone` says is finished. An unreadable ledger drops nothing for a held box.
-    pub fn drop_unstartable(&self, due: &dyn Fn(&QueuedLaunch) -> bool, gone: &dyn Fn(&QueuedLaunch) -> Option<String>) -> NorthResult<Vec<String>> {
+    /// One pass over the launch queue in order, returning one line per act. A launch whose box another queued launch ahead of it or a session already holds is withdrawn; one `due` names is withdrawn when `gone` says its work is finished and is started otherwise. No launch is begun once `spent` reaches `budget`: those left are counted in one deferred line and wait for the next tick. An unreadable ledger drops nothing for a held box.
+    pub fn admit_queued(&self, now_ms: u64, admission: &Admission<'_>) -> NorthResult<Vec<String>> {
+        let over = || (admission.spent)() >= admission.budget;
         let queued = self.queued_launches()?;
-        let wanted: Vec<String> = queued.iter().flat_map(keys).collect();
-        let held = self.live_holders(&wanted);
+        let held = if over() { BTreeMap::new() } else { self.live_holders(&queued.iter().flat_map(keys).collect::<Vec<_>>()) };
         let mut ahead: BTreeMap<String, String> = BTreeMap::new();
         let mut lines = Vec::new();
+        let mut deferred = 0;
         for entry in &queued {
             let own = keys(entry);
-            let why = unstartable(entry, &own, &ahead, &held).or_else(|| due(entry).then(|| gone(entry)).flatten());
-            let Some(why) = why else {
-                ahead.extend(own.into_iter().map(|key| (key, entry.name.clone())));
-                continue;
+            let blocked = unstartable(entry, &own, &ahead, &held);
+            let due = (admission.due)(entry);
+            let acts = blocked.is_some() || due;
+            let why = if acts && over() {
+                deferred += 1;
+                blocked
+            } else if acts {
+                let why = blocked.or_else(|| (admission.gone)(entry));
+                match &why {
+                    Some(why) => {
+                        let released = self.withdraw_queued(&entry.name);
+                        lines.push(format!("dropped queued launch {}: {why}", entry.name));
+                        if let Err(error) = released {
+                            lines.push(format!("queued launch {} was dropped but its claims were not released: {}", entry.name, error.user_message()));
+                        }
+                    }
+                    None => {
+                        self.mark_queued_tried(&entry.name, now_ms)?;
+                        lines.push(match (admission.start)(entry) {
+                            Ok(()) => format!("started queued launch {} at {} priority", entry.name, entry.priority.label()),
+                            Err(why) => format!("cannot start queued launch {}: {why}", entry.name),
+                        });
+                    }
+                }
+                why
+            } else {
+                None
             };
-            let released = self.withdraw_queued(&entry.name);
-            lines.push(format!("dropped queued launch {}: {why}", entry.name));
-            if let Err(error) = released {
-                lines.push(format!("queued launch {} was dropped but its claims were not released: {}", entry.name, error.user_message()));
+            if why.is_none() {
+                ahead.extend(own.into_iter().map(|key| (key, entry.name.clone())));
             }
+        }
+        if deferred > 0 {
+            lines.push(format!("deferred {deferred} queued launch{} to the next tick: queue admission spent its {}ms budget", if deferred == 1 { "" } else { "es" }, admission.budget.as_millis()));
         }
         Ok(lines)
     }
@@ -63,11 +88,13 @@ impl Fleet {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::{Cell, RefCell};
     use std::sync::Arc;
+    use std::time::Duration;
 
     use crate::fleet::claims::{Claims, Held};
     use crate::fleet::fakes::{Paper, Stream};
-    use crate::fleet::launch_queue::{Priority, QueuedLaunch};
+    use crate::fleet::launch_queue::{Admission, Priority, QueuedLaunch};
     use crate::fleet::model::{LaunchRequest, ProviderName};
     use crate::fleet::prompt::PromptMode;
     use crate::fleet::registry::fixtures::live;
@@ -127,7 +154,9 @@ mod tests {
             fleet.queue_launch(&entry).unwrap();
         }
 
-        let dropped = fleet.drop_unstartable(&|_| true, &|queued| (queued.request.task_ref.as_deref() == Some("north#1")).then(|| "closed on GitHub".to_owned())).unwrap();
+        let closed = |queued: &QueuedLaunch| (queued.request.task_ref.as_deref() == Some("north#1")).then(|| "closed on GitHub".to_owned());
+        let admitted = fleet.admit_queued(7, &Admission { due: &|_| true, gone: &closed, start: &|_| Ok(()), budget: Duration::MAX, spent: &|| Duration::ZERO }).unwrap();
+        let dropped: Vec<&String> = admitted.iter().filter(|line| line.starts_with("dropped")).collect();
 
         assert_eq!(
             dropped,
@@ -145,5 +174,52 @@ mod tests {
         assert_eq!(names(&fleet), ["first", "fine"]);
         assert!(claims.holders(Rows::Owners(&BTreeSet::from(["ghost".to_owned()]))).unwrap().is_empty(), "a withdrawn launch leaves no claim in its name");
         assert!(fleet.forget_unless_queued("ghost", None, None).is_err(), "a name neither queued nor running is still unknown");
+    }
+
+    /// north#637: at 7:05 AM +07 on 2026-11-11 the laptop's fleet tick was killed at its 50 s start timeout while it dropped about 40 stale queued launches one by one, each a GitHub read and a ledger release, before it started ds-1042-x.
+    #[test]
+    fn a_tick_admits_queued_launches_only_within_its_budget_and_defers_the_rest() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), Arc::new(Held::default())).unwrap();
+        fleet.queue_launch(&queued("front", "north#100", None, 0)).unwrap();
+        for stale in 1..=40 {
+            fleet.queue_launch(&queued(&format!("stale-{stale:02}"), &format!("north#{stale}"), None, stale)).unwrap();
+        }
+        fleet.queue_launch(&queued("ds-1042-x", "north#1042", None, 41)).unwrap();
+        let spent = Cell::new(Duration::ZERO);
+        let started = RefCell::new(Vec::new());
+        let untried = |queued: &QueuedLaunch| queued.tried_ms.is_none();
+        let closed = |queued: &QueuedLaunch| {
+            spent.set(spent.get() + Duration::from_secs(1));
+            queued.name.starts_with("stale").then(|| "closed on GitHub".to_owned())
+        };
+        let start = |queued: &QueuedLaunch| {
+            started.borrow_mut().push(queued.name.clone());
+            Ok(())
+        };
+        let tick = |budget: Duration| {
+            spent.set(Duration::ZERO);
+            fleet.admit_queued(7, &Admission { due: &untried, gone: &closed, start: &start, budget, spent: &|| spent.get() }).unwrap()
+        };
+
+        let first = tick(Duration::from_secs(5));
+
+        assert_eq!(first.len(), 6, "{first:?}");
+        assert_eq!(first[0], "started queued launch front at normal priority");
+        assert_eq!(first[4], "dropped queued launch stale-04: closed on GitHub");
+        assert_eq!(first[5], "deferred 37 queued launches to the next tick: queue admission spent its 5000ms budget");
+        assert_eq!(spent.get(), Duration::from_secs(5), "no launch is read once the budget is spent");
+        assert_eq!(names(&fleet).len(), 38);
+
+        let second = tick(Duration::from_secs(5));
+
+        assert_eq!(second.first().map(String::as_str), Some("dropped queued launch stale-05: closed on GitHub"), "a launch tried last tick is not read again ahead of the deferred ones");
+        assert_eq!(second.last().map(String::as_str), Some("deferred 32 queued launches to the next tick: queue admission spent its 5000ms budget"));
+
+        let rest = tick(Duration::from_secs(60));
+
+        assert_eq!(rest.last().map(String::as_str), Some("started queued launch ds-1042-x at normal priority"));
+        assert_eq!(*started.borrow(), ["front", "ds-1042-x"]);
+        assert_eq!(names(&fleet), ["front", "ds-1042-x"]);
     }
 }
