@@ -152,7 +152,7 @@ impl Seen {
         let host = self.settings.hosts.iter().find(|host| serves(host) && pools.host(host) > 0).ok_or_else(|| format!("no DeepSeek host ({}) serves this box with a free slot", self.settings.hosts.join(", ")))?;
         pools.take(host);
         pools.take_deepseek();
-        let route = super::tier::Route { effort: None, effort_arm: false, signal: None, ..ready.route.clone() };
+        let route = super::tier::Route { effort: None, effort_arm: false, signal: None, cell: None, cell_role: None, ..ready.route.clone() };
         let local = Some(format!("north fleet dispatch: DeepSeek takes this box on {host}, the host that holds the opencode key (north#1020)"));
         Ok(Launch { item: ready.item.clone(), host: host.clone(), account: ACCOUNT.into(), brief: format!("{}\n\n{}", ready.brief, review::worker_order()), route, cloud: false, local })
     }

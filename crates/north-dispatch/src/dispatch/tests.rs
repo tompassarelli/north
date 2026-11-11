@@ -387,12 +387,13 @@ fn a_box_whose_check_names_a_verb_main_never_had_is_placed_and_one_a_landed_comm
     assert!(outcome.skipped.iter().any(|(_, why)| why.contains("check retired: north scoreboard")), "{:?}", outcome.skipped);
 }
 
+/// north#1210: restricted to the outside provider, a round staffed it on any box its subject allowed and named Claude routing for every box it refused.
 #[test]
-fn a_dispatch_round_places_only_on_the_listed_providers_and_never_on_an_excluded_host() {
+fn a_dispatch_round_places_only_on_the_listed_providers_draws_only_the_band_there_and_never_uses_an_excluded_host() {
     use super::deepseek::{Seen, Settings};
     let hosts = vec![host("nexus", 6, Ok(0)), host("whiterabbit", 8, Ok(0))];
     let accounts = vec![account("claude:a", &["nexus", "whiterabbit"], 80.0)];
-    let boxes = vec![issue("north", 1, "- [ ] add a column", &[]), issue("north", 2, "- [ ] narrow the sandbox reads", &[]), issue("north", 3, "- [ ] a third column", &[])];
+    let boxes = vec![issue("north", 1, "- [ ] add a column", &[]), issue("north", 2, "- [ ] narrow the sandbox reads", &[]), issue("north", 3, "Scope: cross-module\n- [ ] a third column", &[]), issue("galileo", 4, "- [ ] a galileo column", &[])];
     let mut planned = survey(boxes, Cloud::Closed("no credit".into()), hosts, accounts);
     let deepseek: toml_edit::DocumentMut = "[dispatch]\nhosts = [\"whiterabbit\", \"nexus\"]\nslot_cap = 4\nclaude_only = ['\\bsandbox']\n".parse().unwrap();
     planned.deepseek = Seen { settings: Settings::parse(&deepseek), ..Seen::default() };
@@ -405,8 +406,13 @@ fn a_dispatch_round_places_only_on_the_listed_providers_and_never_on_an_excluded
     let scoped = decide(&planned, "test");
 
     let placed: Vec<(String, &str, &str)> = scoped.launches.iter().map(|launch| (launch.item.to_string(), launch.account.as_str(), launch.host.as_str())).collect();
-    assert_eq!(placed, [("north#1".to_owned(), "opencode:go", "nexus"), ("north#3".to_owned(), "opencode:go", "nexus")]);
-    assert!(scoped.skipped.iter().any(|(item, why)| item.to_string() == "north#2" && why.contains("outside dispatch_providers = [opencode]")), "{:?}", scoped.skipped);
+    assert_eq!(placed, [("north#1".to_owned(), "opencode:go", "nexus")], "{:?}", scoped.skipped);
+    let armed = &scoped.launches[0];
+    assert!(armed.brief.contains("Arm: deepseek-") && armed.route.cell.is_none() && armed.route.cell_role.is_none(), "the outside provider's launch is its own arm on no Claude cell: {:?}", armed.route);
+    let why = |item: &str| scoped.skipped.iter().find(|(skipped, _)| skipped.to_string() == item).map(|(_, why)| why.clone()).unwrap_or_default();
+    assert!(why("north#2").contains("its subject matches") && why("north#2").contains("outside dispatch_providers = [opencode]"), "{}", why("north#2"));
+    assert!(why("north#3").contains("Scope: cross-module is wider than one module"), "{}", why("north#3"));
+    assert!(why("galileo#4").contains("galileo is not a public repository"), "{}", why("galileo#4"));
     let lines = super::scope::Scope::parse(&planned.cfg).lines();
     assert_eq!(lines, ["dispatch providers: opencode".to_owned(), "dispatch hosts excluded: whiterabbit".to_owned()]);
 }

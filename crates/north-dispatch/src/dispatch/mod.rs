@@ -26,6 +26,7 @@ pub use pause::{check_passes as pause_check_passes, recorded as recorded_pause, 
 pub use record::{Record as LaunchRecord, directory as launch_directory, read as launch_records};
 pub use tier::{ARM_WINDOW, Effort, Evidence, Rung, Tier, evidenced, seed_cell};
 
+mod band;
 mod brief;
 pub mod cells;
 pub mod deepseek;
@@ -234,7 +235,14 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             let ready = Ready { item: reference.clone(), brief, code_only, route };
             let candidates = candidates(survey, &scope, &ready.brief);
             let claude = |pools: &mut Pools| if scope.allows_provider("claude") { plan::place(&ready, &capacity, &candidates, pools) } else { Err(scope.why_not_provider("claude")) };
-            let staffed_on = if scope.allows_provider(deepseek::PROVIDER) { survey.deepseek.staff(issue, box_text, &ready, &candidates, &mut pools, claude) } else { claude(&mut pools) };
+            let staffed_on = match (scope.allows_provider(deepseek::PROVIDER), scope.allows_provider("claude")) {
+                (false, _) => claude(&mut pools),
+                (true, true) => survey.deepseek.staff(issue, box_text, &ready, &candidates, &mut pools, claude),
+                (true, false) => match band::outside(issue, &ready.route.category, &survey.cfg) {
+                    Some(why) => Err(format!("{}; {why}", scope.why_not_provider("claude"))),
+                    None => survey.deepseek.takes(issue, box_text).and_then(|()| survey.deepseek.place(&ready, &candidates, &mut pools)).map_err(|why| format!("DeepSeek does not take it: {why}; {}", scope.why_not_provider("claude"))),
+                },
+            };
             match staffed_on {
                 Ok(mut launch) => {
                     screen::arm(survey, &mut launch);

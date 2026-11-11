@@ -15,6 +15,7 @@ name = "tier"
 decision = "the model tier a box of a category gets from dispatch and north fleet launch"
 sites = [
   "crates/north-dispatch/src/dispatch/tier.rs",
+  "crates/north-dispatch/src/dispatch/band.rs",
   "crates/north-dispatch/src/dispatch/tuned.rs",
   "crates/north-dispatch/src/dispatch/survey.rs",
   "crates/north-dispatch/src/dispatch/manual.rs",

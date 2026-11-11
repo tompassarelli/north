@@ -311,17 +311,21 @@ pub fn surface(text: &str, cfg: &DocumentMut) -> (bool, String) {
         return (false, format!("needs {host}, not cloud"));
     }
     let repo = repository(text);
-    let rules = cfg.get("placement");
-    let private = strings(rules.and_then(|p| p.get("private_repos")));
-    let mut public = strings(rules.and_then(|p| p.get("public_repos")));
-    if public.is_empty() {
-        public = PUBLIC_REPOS.iter().map(|s| (*s).to_owned()).collect();
-    }
-    if repo.is_empty() || private.contains(&repo) || !public.contains(&repo) {
+    if !public(&repo, cfg) {
         let name = if repo.is_empty() { "no repository" } else { repo.as_str() };
         return (false, format!("{name} is not a public repository, not cloud"));
     }
     (true, format!("code-only box on public {repo}"))
+}
+
+/// Whether `repo` is public by `[placement] public_repos` (else the built-in list) and not in `private_repos`.
+pub fn public(repo: &str, cfg: &DocumentMut) -> bool {
+    let rules = cfg.get("placement");
+    let mut public = strings(rules.and_then(|p| p.get("public_repos")));
+    if public.is_empty() {
+        public = PUBLIC_REPOS.iter().map(|s| (*s).to_owned()).collect();
+    }
+    !repo.is_empty() && !strings(rules.and_then(|p| p.get("private_repos"))).iter().any(|name| name == repo) && public.iter().any(|name| name == repo)
 }
 
 pub fn ssh_destination(value: &str) -> Option<&str> {
