@@ -11,12 +11,13 @@ use super::super::verdict_key;
 use super::super::select::{Config, changed};
 use super::super::selection_record::Recorded;
 use super::arguments::{Arguments, Outcome};
-use super::super::graph_selection::{SELECTED, Selected};
+use super::super::graph_selection::{Away, SELECTED, Selected};
 use crate::platform::records_mirror::state_home;
 use super::{say, warn};
+use crate::platform::north_binary::land_north as program;
 
-pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> (Option<Scope>, Option<String>) {
-    let (it, packages) = it_for(root, arguments, commands, recorded).unzip();
+pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str) -> (Option<Scope>, Option<String>) {
+    let (it, packages) = it_for(root, arguments, commands, recorded, runner).unzip();
     let scope = scope_for(root, arguments, commands, recorded).map(|scope| scope.including(&packages.unwrap_or_default()));
     (scope, it)
 }
@@ -71,7 +72,7 @@ fn checked_out(root: &Path, tree: &str) -> bool {
     clean && commit("HEAD").is_some_and(|head| Some(head) == commit(tree))
 }
 
-fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<(String, BTreeSet<String>)> {
+fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str) -> Option<(String, BTreeSet<String>)> {
     if !verdict_key::reads_it(commands) {
         return None;
     }
@@ -79,7 +80,9 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
         say(&format!("safe-push: the after-landing tests/it run reuses the candidate's selection, {filters}"));
         return Some((filters, BTreeSet::new()));
     }
-    let selection = verdict_key::lane_it(root, &arguments.base, &arguments.head, &arguments.batch, commands, |error| warn(&format!("safe-push: {error}; the tests/it run covers every module")))?;
+    let program = program();
+    let away = away(arguments, runner, &program);
+    let selection = verdict_key::lane_it(root, &arguments.base, &arguments.head, &arguments.batch, away.as_ref(), commands, |error| warn(&format!("safe-push: {error}; the tests/it run covers every module")))?;
     if !arguments.leased {
         say(&format!("safe-push: the tests/it run is {}", selection.summary()));
     }
@@ -88,6 +91,10 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
     let since = if let Selection::Tests(tests) = &selection { tests.unselected_since() } else { Vec::new() };
     shadow_row(arguments, &selected, &since);
     Some((selection.arguments(), selection.packages()))
+}
+
+fn away<'a>(arguments: &'a Arguments, runner: &'a str, program: &'a str) -> Option<Away<'a>> {
+    (!runner.is_empty() && runner != "build-host" && runner != north_base::platform::host::name()).then(|| Away { program: Path::new(program), host: runner, base: &arguments.base, tree: arguments.tree() })
 }
 
 fn selected(selection: &Selection) -> Selected {

@@ -203,7 +203,7 @@ async fn covers(root: &Path, head: &str, code: &str) -> bool {
 
 async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environment: Environment, cancel: watch::Receiver<bool>, commands: Vec<String>) -> i32 {
     let recorded = arguments.after.then(|| selection_record::load(&arguments.head)).flatten();
-    let (scope, it) = selections(&root, &arguments, &commands, recorded.as_ref());
+    let (scope, it) = selections(&root, &arguments, &commands, recorded.as_ref(), environment.runner.as_deref().unwrap_or_default());
     if !arguments.after && !arguments.leased {
         selection_record::save(&arguments.head, Recorded { scope: scope.clone(), it: it.clone() });
     }
@@ -338,7 +338,7 @@ async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Con
     let host = arguments.runner_host.clone();
     let commands = { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() };
     let (_cancel_sender, cancel) = watch::channel(false);
-    let (scope, it) = selections(&root, &arguments, &commands, None);
+    let (scope, it) = selections(&root, &arguments, &commands, None, &arguments.runner_host);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let paths = path_class(&root, &arguments.base, &arguments.head);
     let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });

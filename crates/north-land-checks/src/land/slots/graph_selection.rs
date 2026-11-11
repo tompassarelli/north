@@ -7,6 +7,7 @@ use north_build_system::{Resolution, Selection, Shell, Step};
 use serde::{Deserialize, Serialize};
 
 use super::guard_suites::Floor;
+use super::unit_reuse;
 use super::tree_wide_units::Units;
 
 const IT_BINARY: &str = "north::it";
@@ -44,14 +45,39 @@ pub struct Listed {
 
 pub type ListedTests = BTreeMap<String, Listed>;
 
-/// Every test this host's build system lists at `root`, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell the tool is only the capacity shim. An unbuilt or unlistable tree lists nothing, so the selection falls back to the crate closure.
-pub fn list(root: &Path) -> ListedTests {
+pub struct Away<'a> {
+    pub program: &'a Path,
+    pub host: &'a str,
+    pub base: &'a str,
+    pub tree: &'a str,
+}
+
+const AWAY_SECONDS: u64 = 900;
+
+impl Away<'_> {
+    fn command(&self, root: &Path, invocation: &north_build_system::Invocation) -> Command {
+        let words = invocation.words.iter().map(|word| match Path::new(word).strip_prefix(root) {
+            Ok(inside) => unit_reuse::quote(&format!("./{}", inside.display())),
+            Err(_) => unit_reuse::quote(word),
+        });
+        let environment = invocation.env.iter().map(|(name, value)| format!("{name}={}", unit_reuse::quote(value)));
+        let line = environment.chain(words).collect::<Vec<_>>().join(" ");
+        let mut command = Command::new(self.program);
+        command.args(["capacity", "offload", "run", "--host", self.host, "--base", self.base, "--head", self.tree, "--timeout", &AWAY_SECONDS.to_string(), "--", &line]).current_dir(root);
+        command
+    }
+}
+
+/// Every test the build system lists at `root`, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell the tool is only the capacity shim: on the build host `away` names when given, so a landing never compiles the workspace on the control host, else here. An unbuilt or unlistable tree lists nothing, so the selection falls back to the crate closure.
+pub fn list(root: &Path, away: Option<&Away<'_>>) -> ListedTests {
     let builder = north_build_system::here();
     if !builder.governs(root) {
         return BTreeMap::new();
     }
     let request = north_build_system::Tests { root, step: Step::List, selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::LandShell, output: Some(Path::new("target")), uncached: false, coverage: None };
-    let output = builder.tests(&request).command().stdin(Stdio::null()).stderr(Stdio::null()).output();
+    let invocation = builder.tests(&request);
+    let mut command = away.map_or_else(|| invocation.command(), |away| away.command(root, &invocation));
+    let output = command.stdin(Stdio::null()).stderr(Stdio::null()).output();
     let binaries = match output {
         Ok(output) if output.status.success() => builder.listing(&String::from_utf8_lossy(&output.stdout)).unwrap_or_default(),
         _ => Vec::new(),

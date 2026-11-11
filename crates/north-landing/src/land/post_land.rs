@@ -103,7 +103,7 @@ impl Hosts {
         match &host {
             Some(host) if taken.is_empty() => println!("north land: the after-landing run of {head} runs its checks on {host}"),
             Some(host) => println!("north land: the after-landing run of {head} runs its checks on {host}, beside the runs in flight on {}", taken.join(", ")),
-            None => {}
+            None => println!("north land: no build host answered, so the after-landing run of {head} runs its checks here"),
         }
         taken.extend(host.clone());
         host

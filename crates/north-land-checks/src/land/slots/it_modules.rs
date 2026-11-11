@@ -218,12 +218,12 @@ pub fn select(structure: &str, table: &str, spawners: &BTreeSet<String>, files: 
     Ok(if every { Selection::Every } else { Selection::Modules { modules, units: Units::default(), floor: Floor::default() } })
 }
 
-pub fn selection(root: &Path, base: &str, head: &str, batch: &Batch) -> Result<Selection, String> {
-    selection_asking(&live_runtime(), root, base, head, batch)
+pub fn selection(root: &Path, base: &str, head: &str, batch: &Batch, away: Option<&graph_selection::Away<'_>>) -> Result<Selection, String> {
+    selection_asking(&live_runtime(), root, base, head, batch, away)
 }
 
-pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str, batch: &Batch) -> Result<Selection, String> {
-    selection_asking_with(program, root, base, head, batch, || graph_selection::list(root))
+pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str, batch: &Batch, away: Option<&graph_selection::Away<'_>>) -> Result<Selection, String> {
+    selection_asking_with(program, root, base, head, batch, || graph_selection::list(root, away))
 }
 
 /// [`selection_asking`] with its `cargo nextest list` step injected, so a test can judge the graph answer and the inclusion filter without building the workspace.

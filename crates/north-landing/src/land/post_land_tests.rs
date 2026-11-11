@@ -286,3 +286,30 @@ fn a_failure_outside_the_base_selection_probes_the_base_before_blaming() {
     let row: serde_json::Value = serde_json::from_str(log.trim()).unwrap();
     assert_eq!(row["would_revert"].as_str(), Some("ds-1033"), "walking back names the earlier lane red where its parent passes: {log}");
 }
+
+#[test]
+fn an_after_landing_suite_is_placed_on_a_build_host_and_never_on_the_control_host_while_one_is_available() {
+    use crate::land::slots::graph_selection::{Away, list};
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path().join("tree");
+    std::fs::create_dir_all(root.join("bin")).unwrap();
+    std::fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+    let here = scratch.path().join("compiled-here");
+    let shell = root.join("bin/land-shell");
+    std::fs::write(&shell, format!("#!/bin/sh\ntouch {}\n", here.display())).unwrap();
+    let record = scratch.path().join("record");
+    let north = scratch.path().join("north");
+    let listing = r#"{"rust-suites":{"north-landing::it":{"binary-id":"north-landing::it","package-name":"north-landing","binary-path":"/x","testcases":{"a::b":{}}}}}"#;
+    std::fs::write(&north, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\nprintf '%s\\n' 'offload: running in a slot' '{listing}'\n", record.display())).unwrap();
+    for script in [&shell, &north] {
+        std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let away = Away { program: &north, host: "cpx62b", base: "base", tree: "tree" };
+    let listed = list(&root, Some(&away));
+    assert_eq!(listed.keys().collect::<Vec<_>>(), ["north-landing::it"], "the listing the build host printed is the one the selection reads");
+    assert!(!here.exists(), "listing an after-landing run's tests compiled the workspace on the control host");
+    let asked = std::fs::read_to_string(&record).unwrap();
+    assert!(asked.starts_with("capacity offload run --host cpx62b --base base --head tree --timeout"), "the listing was not offered to the build host under its capacity lease: {asked}");
+    assert!(asked.contains("CARGO_TARGET_DIR='target' './bin/land-shell' '--dev' '--' 'cargo' 'nextest' 'list'"), "the build host runs the tree's own listing command: {asked}");
+}
