@@ -73,7 +73,7 @@ pub fn transcript(dir: &Path) -> Value {
     json!({
         "first_request_at": assistant.first().and_then(|r| r["timestamp"].as_str()).and_then(rfc3339_epoch),
         "tokens": {"input": tokens[0], "output": tokens[1], "cache_read": tokens[2], "cache_write": tokens[3]},
-        "handins": crate::handins::count(&records), "refusal_mentions": refusals,
+        "model_requests": seen.len(), "handins": crate::handins::count(&records), "refusal_mentions": refusals,
         "models": unique("/message/model"), "efforts": unique("/effort"), "claude_code": unique("/version"),
         "records": records.len(),
     })

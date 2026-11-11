@@ -82,7 +82,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
         "lander_attempts": attempts.as_array().map_or(0, Vec::len), "lander_refusals": lander_refusals,
         "landings": attempts.as_array().map_or(0, |a| a.iter().filter(|x| x["attributes"]["landed"].is_string()).count()), "main_commits": main_commits(&plan.work, &run.task), "wave": run.wave,
         "interventions": run.nudges.len(), "intervention_stalls": run.nudges,
-        "tokens": transcript["tokens"], "tokens_total_spend": total, "cost_usd": cost,
+        "model_requests": transcript["model_requests"], "tokens": transcript["tokens"], "tokens_total_spend": total, "cost_usd": cost,
         "last_words": if landed { String::new() } else { collect::last_words(&dir) },
         "conditions": conditions, "command": command, "raw": dir,
     });

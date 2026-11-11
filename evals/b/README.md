@@ -25,6 +25,12 @@ beside the repository; the runner compares each landed test file with them (the 
 4. Collects each session's record, spend and transcript, stops and forgets it, checks the landed main, writes one
    row per task to the results file and removes the scratch project from every host.
 
+Every brief carries `Needs: cpx62`, so placement prefers the build host reserved for the ladder. `--one-message`
+appends the current contents of the task's files (its source, its test and the registry when it touches it) and asks
+the worker to write them with one shell command and call the finish tool in the same message, reading and running
+nothing first; a row's `conditions.brief` names the brief and `model_requests` counts the session's distinct model
+requests.
+
 `--parent SESSION` (default `$NORTH_FLEET_SESSION`) names the live fleet session that reads the workers' reports;
 north refuses a worker launched from outside a session without one. The scratch lander's queue lives under the live
 `land-queue` directory; `eval-b queue --archive DIR` copies it into DIR and removes it, and the same queue on each host,
