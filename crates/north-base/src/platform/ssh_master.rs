@@ -13,7 +13,7 @@ const UNIT_LIMIT: Duration = Duration::from_secs(30);
 
 const USAGE: &str = "usage: north ssh-master probe HOST...
   time `ssh HOST true` through each host's shared master; a master slower than 3 s twice while a direct
-  connection answers is killed, its socket removed and its ssh-master-HOST user unit restarted";
+  connection answers in under 1.5 s is killed, its socket removed and its ssh-master-HOST user unit restarted";
 
 pub trait Master {
     fn stop(&mut self, host: &str) -> Result<(), String>;
@@ -39,6 +39,7 @@ impl Dial for Process {
 pub enum Health {
     Answered(Duration),
     Unreachable,
+    Loaded { direct: Duration },
     Recycled { direct: Duration, after: Option<Duration> },
     RecycleFailed { direct: Duration, why: String },
 }
@@ -49,6 +50,7 @@ impl Health {
         match self {
             Self::Answered(took) => format!("{host}: {} through the shared master", seconds(took)),
             Self::Unreachable => format!("{host}: no answer through the master within 3 s nor directly within 15 s; left the master alone"),
+            Self::Loaded { direct } => format!("{host}: the master took over 3 s but a direct connection took {} too, so the host or this machine is loaded; left the master and its sessions alone", seconds(direct)),
             Self::Recycled { direct, after } => format!(
                 "{host}: the master took over 3 s while a direct connection answered in {}; recycled it, now {}",
                 seconds(direct),
@@ -81,6 +83,9 @@ fn probe_with(dial: &mut dyn Dial, program: &[OsString], env: &BTreeMap<String, 
     let Some(direct) = dial.round_trip(&direct, DIRECT_LIMIT) else {
         return Health::Unreachable;
     };
+    if direct >= SLOW / 2 {
+        return Health::Loaded { direct };
+    }
     if let Some(took) = dial.round_trip(&through, SLOW) {
         return Health::Answered(took);
     }
