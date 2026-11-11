@@ -3,8 +3,9 @@
 //! command writes its own span to registration and its placement's; the registry ends the
 //! session-host hop when the host goes live; `north session-link` ends the remote-unit hop when the
 //! other machine answers that the CLI's unit started, and the client hop at the CLI's first output;
-//! the first turn ends the request hop when the client echoes the prompt it sends, and the response
-//! hop at the first answer. Every start appends a session-host span, so each start reads as its own
+//! the first turn ends the prompt hop at the client's first user line, where it takes the prompt once its
+//! startup and session hooks are done and only then sends its request, and the response hop, that
+//! request, at the first answer. Every start appends a session-host span, so each start reads as its own
 //! launch.
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -26,7 +27,7 @@ pub enum Hop {
     SessionHost,
     RemoteUnit,
     Client,
-    Request,
+    Prompt,
     Response,
 }
 
@@ -48,7 +49,7 @@ pub struct Launch {
     pub placement_ms: Option<u64>,
     pub remote_unit_ms: Option<u64>,
     pub client_ms: Option<u64>,
-    pub request_ms: Option<u64>,
+    pub prompt_ms: Option<u64>,
     pub response_ms: Option<u64>,
 }
 
@@ -76,7 +77,7 @@ pub fn launches(trace: &Path) -> Vec<Launch> {
         let ended = |hop: Hop| spans.iter().filter(|span| span.hop == hop && span.end_ms >= launch.registered_ms && span.end_ms < next).map(|span| span.end_ms).min();
         launch.remote_unit_ms = ended(Hop::RemoteUnit);
         launch.client_ms = ended(Hop::Client);
-        launch.request_ms = ended(Hop::Request);
+        launch.prompt_ms = ended(Hop::Prompt);
         launch.response_ms = ended(Hop::Response);
         let before = |hop: Hop| spans.iter().find(|span| span.hop == hop && span.end_ms <= launch.registered_ms && launch.registered_ms - span.end_ms < ASKED_WITHIN_MS);
         launch.asked_ms = before(Hop::Launch).map(|span| span.start_ms);

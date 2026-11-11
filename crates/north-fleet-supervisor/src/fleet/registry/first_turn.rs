@@ -132,10 +132,10 @@ impl Fleet {
     }
 }
 
-/// The first turn's hops in the session's trace: the prompt until the client echoes it as it sends its request, and that request until the first answer.
+/// The first turn's hops in the session's trace: the prompt until the client's first user line, where it takes the prompt and sends its request, and that request until the first answer.
 fn trace_first_turn(trace: &std::path::Path, record: &SessionRecord, sent_ms: u64, prompted_ms: u64) {
     let span = |hop, start_ms, end_ms| hops::Span { session: record.name.clone(), hop, start_ms, end_ms };
-    hops::record(trace, &span(hops::Hop::Request, sent_ms, prompted_ms));
+    hops::record(trace, &span(hops::Hop::Prompt, sent_ms, prompted_ms));
     hops::record(trace, &span(hops::Hop::Response, prompted_ms, now_ms()));
 }
 

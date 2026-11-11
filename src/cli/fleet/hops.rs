@@ -13,7 +13,7 @@ const ENDS: [(&str, End); 5] = [
     ("session host", |launch| Some(launch.session_host_ms)),
     ("remote unit", |launch| launch.remote_unit_ms),
     ("client's first line", |launch| launch.client_ms),
-    ("request", |launch| launch.request_ms),
+    ("first user line", |launch| launch.prompt_ms),
     ("first answer", |launch| launch.response_ms),
 ];
 
