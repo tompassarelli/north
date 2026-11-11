@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, LaunchRequest, Role};
 use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HAND_IN_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV, Seen};
 use crate::platform::git_credential;
@@ -28,7 +29,7 @@ pub fn invocation(account: &Account) -> Invocation {
     Invocation { prefix: with_credential(account, Vec::new()), env: account_env(account), env_remove: inherited_env(account) }
 }
 
-pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(String, OsString)> {
+pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> NorthResult<Vec<(String, OsString)>> {
     let cap_secs = request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS);
     let cap_ms = (cap_secs * 1000).to_string();
     let hand_in_ms = (cap_secs.max(HAND_IN_CAP_SECS) * 1000).to_string();
@@ -45,13 +46,8 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
     env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
     env.extend(request.window().map(|window| (COMPACT_WINDOW_ENV.into(), window.to_string().into())));
     env.extend(git_credential::session_env().into_iter().map(|(name, value)| (name, value.into())));
-    env.push(worker_sandbox());
-    env
-}
-
-/// The shell prefix that runs each Bash command, hook and MCP server of every session, the proxy and leads included, under `north --worker-sandbox`, which hides the operator's logins from all of them and confines a worker's removals (north#706, north#977).
-fn worker_sandbox() -> (String, OsString) {
-    (SHELL_PREFIX_ENV.into(), format!("{} --worker-sandbox", north_base::platform::north_binary::north_binary().display()).into())
+    env.push((SHELL_PREFIX_ENV.into(), super::tool_server::shell_prefix().map_err(NorthError::State)?.into()));
+    Ok(env)
 }
 
 pub(super) fn model_args(request: &LaunchRequest) -> Vec<String> {

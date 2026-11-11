@@ -12,6 +12,7 @@ mod removable;
 mod hook_screen;
 mod sockets;
 mod sweep;
+pub mod tool_server;
 
 use std::ffi::OsString;
 use std::os::unix::process::CommandExt;

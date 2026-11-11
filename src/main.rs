@@ -48,8 +48,8 @@ fn main() -> std::process::ExitCode {
         if let Some(point) = std::env::args_os().next().and_then(|argv0| entry_points::named(&argv0)) {
             return enter(point, &arguments);
         }
-        if arguments.first().is_some_and(|flag| flag == worker_sandbox::FLAG) {
-            return worker_sandbox::run(&arguments[1..], hook::command_refusal);
+        if let Some(code) = worker_sandbox::tool_server::enter(&arguments, hook::command_refusal) {
+            return code;
         }
         arguments
             .first()

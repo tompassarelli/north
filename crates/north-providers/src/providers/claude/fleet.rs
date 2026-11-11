@@ -14,7 +14,7 @@ use crate::fleet::link::quote;
 use crate::platform::attribution::{self, Cause, Harness};
 
 use super::session_env::{self, claude_env};
-use super::{accounts, launch_prompt, limit, quota, turns, user_text, window_inbox};
+use super::{accounts, launch_prompt, limit, quota, tool_server, turns, user_text, window_inbox};
 
 const PROVIDER: &str = "claude";
 const TOOL_RESULT_CHARS: usize = 400;
@@ -71,12 +71,13 @@ impl Runtime for Claude {
         }
         argv.extend(session_env::model_args(request));
         argv.extend(session_env::agent_args(request));
+        argv.extend(tool_server::tool_server_args(&north_base::platform::north_binary::north_binary(), &tool_server::configured_verbs()));
         argv.extend(launch_prompt::args(account, request, instructions)?);
         Ok(HostSpec {
             key: request.name.clone(),
             shared: false,
             argv: session_env::with_credential(account, argv),
-            env: claude_env(account, request),
+            env: claude_env(account, request)?,
             env_remove: session_env::inherited_env(account),
             cwd: request.cwd.clone(),
         })
@@ -93,7 +94,7 @@ impl Runtime for Claude {
             key: request.name.clone(),
             shared: false,
             argv: session_env::with_credential(account, argv),
-            env: claude_env(account, request),
+            env: claude_env(account, request)?,
             env_remove: session_env::inherited_env(account),
             cwd: request.cwd.clone(),
         })

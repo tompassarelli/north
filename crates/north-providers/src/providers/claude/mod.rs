@@ -8,6 +8,7 @@ mod limit;
 pub mod runs;
 mod quota;
 mod session_env;
+mod tool_server;
 pub mod token_quota;
 pub mod fleet;
 mod turns;
@@ -15,3 +16,4 @@ mod user_text;
 mod window_inbox;
 
 pub use session_env::invocation;
+pub use tool_server::{sandbox_wrapper, tool_server_args};
