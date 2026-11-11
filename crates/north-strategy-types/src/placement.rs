@@ -132,6 +132,9 @@ pub struct Machine {
     pub claude_ai: Vec<String>,
     pub saturation: Option<Saturation>,
     pub saturation_age_s: Option<f64>,
+    /// Seconds since the host answered when these facts are its last recorded ones because it did not answer in time.
+    #[serde(default)]
+    pub stale_age_s: Option<f64>,
     /// Fleet sessions this machine runs there.
     pub hosted: i64,
     /// Whether the launch directory exists there; None when the launch names none.

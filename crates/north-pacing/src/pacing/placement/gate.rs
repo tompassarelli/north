@@ -75,6 +75,8 @@ pub struct Machine {
     /// The Claude labels signed in through claude.ai there, the only ones `claude --cloud` starts under.
     pub claude_ai: Vec<String>,
     pub saturation: Option<Saturation>,
+    /// Seconds since the host answered when its facts are the last recorded ones because it did not answer in time.
+    pub stale_age_s: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -337,7 +339,7 @@ pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
             let host = hosts.get(&name)?;
             let ssh = ssh_destination(host.get("ssh")?.as_str()?)?.to_owned();
             let cap = host.get("resident_cap").and_then(Item::as_integer);
-            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, cap, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None })
+            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, cap, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None, stale_age_s: None })
         })
         .collect()
 }
@@ -454,16 +456,20 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
             }
             match machine.live {
                 None => format!("{name} unreachable over ssh {}", machine.ssh),
-                Some(live) if machine.cap.is_some_and(|cap| live >= cap) => format!("{name} full: {live}/{} resident CLIs", machine.cap.unwrap_or(0)),
+                Some(live) if machine.cap.is_some_and(|cap| live >= cap) => format!("{name} full: {live}/{} resident CLIs{}", machine.cap.unwrap_or(0), stale_note(machine)),
                 Some(live) => {
                     open.push(machine.clone());
-                    format!("{name} available: {live} resident CLIs")
+                    format!("{name} available: {live} resident CLIs{}", stale_note(machine))
                 }
             }
         })
         .collect();
     let here_lacks = missing(here_serves).map(|need| (need.clone(), format!("no host serves {need} for {repo}"))).or_else(|| reach.unreached_here().map(|host| (host.to_owned(), format!("no host reaches {host}"))));
     Choice { open, lines, here_lacks, crowded }
+}
+
+fn stale_note(machine: &Machine) -> String {
+    machine.stale_age_s.map(|age| format!(" (last read {age:.0} s ago, host silent)")).unwrap_or_default()
 }
 
 fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {

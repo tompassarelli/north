@@ -6,7 +6,9 @@ use serde_json::{Value, json};
 use super::gate::Machine;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::Mutex;
+use std::os::unix::process::CommandExt;
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, Instant};
 use north_strategy_types::placement::{Credit, SpawnCpu};
 use toml_edit::{DocumentMut, Item};
 
@@ -226,7 +228,7 @@ fn ssh_script(destination: &str, script: &str) -> Result<process::Output, String
     process::run(&words[0], &refs, Some(script), 20.0)
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(in crate::pacing) struct Facts {
     pub live: Option<i64>,
     pub accounts: Vec<String>,
@@ -237,7 +239,16 @@ pub(in crate::pacing) struct Facts {
     pub saturation_age_s: Option<f64>,
     /// Whether the launch directory asked about exists there.
     pub has_cwd: Option<bool>,
+    /// Seconds since the host last answered, set only when this reading is its last recorded one because it did not answer in time.
+    #[serde(default)]
+    pub stale_age_s: Option<f64>,
 }
+
+const SURVEY_DEADLINE: Duration = Duration::from_secs(2);
+
+const STALE_LIMIT_SECONDS: f64 = 600.0;
+
+const ACCOUNTS_CACHE_SECONDS: f64 = 600.0;
 
 type Memo = Mutex<Option<HashMap<String, Facts>>>;
 
@@ -278,26 +289,82 @@ pub(in crate::pacing) fn probed_machines(machines: Vec<Machine>, fleet_load: &BT
     machines.into_iter().zip(facts).map(|(machine, facts)| machine.probed(facts, fleet_load)).collect()
 }
 
-/// Each machine's facts in one ssh round trip apiece, asked in parallel; `cwd` adds whether that directory exists there.
+/// Each machine's facts in one ssh round trip apiece, asked at once; a host silent past `SURVEY_DEADLINE` is placed from its last recorded reading.
 pub(in crate::pacing) fn surveyed(machines: &[Machine], cwd: Option<&str>) -> Vec<Facts> {
-    survey_via(&PASS, machines, cwd, &fetch)
+    survey_via(&PASS, machines, cwd, SURVEY_DEADLINE, Arc::new(fetch), &silent_host)
 }
 
-fn survey_via(memo: &Memo, machines: &[Machine], cwd: Option<&str>, ask: &(dyn Fn(&str, &str, Option<&str>) -> Facts + Sync)) -> Vec<Facts> {
-    std::thread::scope(|scope| {
-        let running: Vec<_> = machines
-            .iter()
-            .map(|machine| scope.spawn(move || remembered(memo, format!("{}\0{}\0{}", machine.name, machine.ssh, cwd.unwrap_or_default()), || ask(&machine.name, &machine.ssh, cwd))))
-            .collect();
-        running.into_iter().map(|handle| handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
-    })
+type Ask = Arc<dyn Fn(&str, &str, Option<&str>) -> Facts + Send + Sync>;
+
+fn survey_via(memo: &'static Memo, machines: &[Machine], cwd: Option<&str>, deadline: Duration, ask: Ask, silent: &dyn Fn(&Machine, Option<&str>) -> Facts) -> Vec<Facts> {
+    let started = Instant::now();
+    let waiting: Vec<_> = machines
+        .iter()
+        .map(|machine| {
+            let (send, receive) = mpsc::channel();
+            let (machine, cwd, ask) = (machine.clone(), cwd.map(str::to_owned), Arc::clone(&ask));
+            std::thread::spawn(move || {
+                let key = format!("{}\0{}\0{}", machine.name, machine.ssh, cwd.clone().unwrap_or_default());
+                let _ = send.send(remembered(memo, key, || ask(&machine.name, &machine.ssh, cwd.as_deref())));
+            });
+            receive
+        })
+        .collect();
+    machines
+        .iter()
+        .zip(waiting)
+        .map(|(machine, receive)| {
+            receive.recv_timeout(deadline.saturating_sub(started.elapsed())).unwrap_or_else(|_| silent(machine, cwd))
+        })
+        .collect()
+}
+
+fn record_path(name: &str) -> std::path::PathBuf {
+    storage::directory().join("survey").join(format!("{name}.json"))
+}
+
+fn record(name: &str, facts: &Facts) {
+    let path = record_path(name);
+    let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new("."))).and_then(|()| std::fs::write(&path, json!({"at": storage::now(), "facts": facts}).to_string()));
+}
+
+/// The host's last answered facts marked stale with their age; nothing known when none is on record or it is older than `STALE_LIMIT_SECONDS`.
+fn last_recorded(name: &str, cwd: Option<&str>) -> Facts {
+    let recorded = load(&record_path(name));
+    let age = recorded["at"].as_f64().map(|at| storage::now() - at).filter(|age| (0.0..=STALE_LIMIT_SECONDS).contains(age));
+    let Some((age, mut facts)) = age.zip(serde_json::from_value::<Facts>(recorded["facts"].clone()).ok()) else {
+        return Facts { has_cwd: cwd.map(|_| false), ..Facts::default() };
+    };
+    facts.saturation_age_s = facts.saturation_age_s.map(|taken| taken + age);
+    facts.has_cwd = cwd.map(|_| false);
+    facts.stale_age_s = Some(age);
+    facts
+}
+
+fn silent_host(machine: &Machine, cwd: Option<&str>) -> Facts {
+    recycle_master(machine);
+    last_recorded(&machine.name, cwd)
+}
+
+fn recycle_master(machine: &Machine) {
+    if std::env::var_os("PLACEMENT_HOSTS").is_some() || machine.name == local() {
+        return;
+    }
+    let Ok(program) = std::env::current_exe() else { return };
+    let _ = std::process::Command::new(program)
+        .args(["ssh-master", "probe", &machine.ssh])
+        .process_group(0)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 impl Machine {
     /// The machine with its probed facts, its live count raised by the fleet sessions this machine runs there.
     pub(in crate::pacing) fn probed(self, facts: Facts, fleet_load: &BTreeMap<String, i64>) -> Self {
         let hosted = fleet_load.get(&self.name).copied().unwrap_or(0);
-        Self { live: facts.live.map(|live| live + hosted), accounts: facts.accounts, claude_ai: facts.claude_ai, saturation: facts.saturation, ..self }
+        Self { live: facts.live.map(|live| live + hosted), accounts: facts.accounts, claude_ai: facts.claude_ai, saturation: facts.saturation, stale_age_s: facts.stale_age_s, ..self }
     }
 }
 
@@ -305,7 +372,7 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>) -> Facts {
     if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
         let has_cwd = cwd.map(|_| load(Path::new(&path))[name]["has_cwd"].as_bool().unwrap_or(false));
         let saturation = saturation(name, destination);
-        return Facts { live: resident(name, destination), accounts: signed_in(name, destination, false), claude_ai: signed_in(name, destination, true), saturation_age_s: saturation.map(|_| 0.0), saturation, has_cwd };
+        return Facts { live: resident(name, destination), accounts: signed_in(name, destination, false), claude_ai: signed_in(name, destination, true), saturation_age_s: saturation.map(|_| 0.0), saturation, has_cwd, stale_age_s: None };
     }
     let here = name == local();
     let cache = storage::directory().join("saturation").join(format!("{name}.json"));
@@ -316,12 +383,14 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>) -> Facts {
     facts.saturation_age_s = facts.saturation.and(cached["at"].as_f64()).map(|at| now - at);
     facts.has_cwd = cwd.map(|_| false);
     let want_saturation = !fresh && !here;
-    let answer = ssh_script(destination, &script(!here, want_saturation, cwd)).ok().filter(|r| r.code == 0).map(|r| r.out);
+    let known = recorded_accounts(name, now);
+    let answer = ssh_script(destination, &script(!here, want_saturation, known.is_none(), cwd)).ok().filter(|r| r.code == 0).map(|r| r.out);
     if let Some(sections) = answer.as_deref().map(sections) {
         let section = |label: &str| sections.iter().find(|(name, _)| name == label).map(|(_, body)| body.as_str());
         facts.live = section("live").and_then(live_count);
-        facts.accounts = section("accounts").map(claude_labels).unwrap_or_default();
-        facts.claude_ai = section("claude_ai").map(claude_labels).unwrap_or_default();
+        let (accounts, claude_ai) = known.unwrap_or_else(|| (section("accounts").map(claude_labels).unwrap_or_default(), section("claude_ai").map(claude_labels).unwrap_or_default()));
+        facts.accounts = accounts;
+        facts.claude_ai = claude_ai;
         facts.has_cwd = cwd.map(|_| section("cwd").is_some());
         if want_saturation {
             facts.saturation = section("saturation").and_then(saturation::parse);
@@ -339,18 +408,31 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>) -> Facts {
     if !fresh && let (Some(reading), Some(dir)) = (facts.saturation, cache.parent()) {
         let _ = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&cache, json!({"at": now, "reading": reading}).to_string()));
     }
+    if answer.is_some() || here {
+        record(name, &Facts { has_cwd: None, stale_age_s: None, ..facts.clone() });
+    }
     facts
 }
 
 const RESIDENT_BINARY: &str = ".local/state/north/current/tree/bin/north";
 
-fn script(live: bool, saturation: bool, cwd: Option<&str>) -> String {
+/// The signed-in accounts the last answer recorded when it is under `ACCOUNTS_CACHE_SECONDS` old; they change when a person signs in, not per launch.
+fn recorded_accounts(name: &str, now: f64) -> Option<(Vec<String>, Vec<String>)> {
+    let recorded = load(&record_path(name));
+    recorded["at"].as_f64().filter(|at| (0.0..ACCOUNTS_CACHE_SECONDS).contains(&(now - at)))?;
+    let facts = serde_json::from_value::<Facts>(recorded["facts"].clone()).ok()?;
+    (!facts.accounts.is_empty()).then_some((facts.accounts, facts.claude_ai))
+}
+
+fn script(live: bool, saturation: bool, accounts: bool, cwd: Option<&str>) -> String {
     let mut parts = Vec::new();
     if live {
         parts.push(format!("echo '@@live'; {RESIDENT_BINARY} resident-cap status; echo \"@@rc $?\""));
     }
-    parts.push("echo '@@accounts'; north fleet accounts; echo \"@@rc $?\"".to_owned());
-    parts.push("echo '@@claude_ai'; north fleet accounts --claude-ai; echo \"@@rc $?\"".to_owned());
+    if accounts {
+        parts.push("echo '@@accounts'; north fleet accounts; echo \"@@rc $?\"".to_owned());
+        parts.push("echo '@@claude_ai'; north fleet accounts --claude-ai; echo \"@@rc $?\"".to_owned());
+    }
     if saturation {
         parts.push(format!("echo '@@saturation'; {}; echo \"@@rc $?\"", saturation::PROBE));
     }
@@ -400,3 +482,7 @@ fn live_count(status: &str) -> Option<i64> {
     let (_, rest) = status.split_once(':')?;
     rest.split_whitespace().next()?.split('/').next()?.parse().ok()
 }
+
+#[cfg(test)]
+#[path = "hosts_tests.rs"]
+mod tests;

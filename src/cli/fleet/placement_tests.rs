@@ -79,7 +79,7 @@ fn a_lead_launched_on_a_worker_host_or_onto_a_worker_machine_is_refused_with_the
 
 #[test]
 fn a_pin_keeps_a_saturated_machine_but_queues_on_it_instead_of_starting() {
-    let gex45 = placement::Machine { name: "gex45".into(), ssh: "tom@gex45".into(), serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: Some(8), live: Some(5), accounts: vec!["a".into()], claude_ai: Vec::new(), saturation: None };
+    let gex45 = placement::Machine { name: "gex45".into(), ssh: "tom@gex45".into(), serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: Some(8), live: Some(5), accounts: vec!["a".into()], claude_ai: Vec::new(), saturation: None, stale_age_s: None };
     let mut full = decision(Target::Account("claude:a".into()));
     full.machine = Some(gex45);
     full.saturated = Some("gex45 skipped: 4 jobs queued in machine-capacity admission (limit 4)".into());

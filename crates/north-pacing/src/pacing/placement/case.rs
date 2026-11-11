@@ -137,13 +137,14 @@ fn recorded(machine: &Machine, facts: Facts, fleet_load: &BTreeMap<String, i64>)
         claude_ai: facts.claude_ai,
         saturation: facts.saturation.map(Into::into),
         saturation_age_s: facts.saturation_age_s,
+        stale_age_s: facts.stale_age_s,
         hosted: fleet_load.get(&machine.name).copied().unwrap_or(0),
         has_cwd: facts.has_cwd,
     }
 }
 
 fn facts(machine: &north_strategy_types::placement::Machine) -> Facts {
-    Facts { live: machine.live, accounts: machine.accounts.clone(), claude_ai: machine.claude_ai.clone(), saturation: machine.saturation.map(Into::into), saturation_age_s: machine.saturation_age_s, has_cwd: machine.has_cwd }
+    Facts { live: machine.live, accounts: machine.accounts.clone(), claude_ai: machine.claude_ai.clone(), saturation: machine.saturation.map(Into::into), saturation_age_s: machine.saturation_age_s, has_cwd: machine.has_cwd, stale_age_s: machine.stale_age_s }
 }
 
 fn here() -> Here {
