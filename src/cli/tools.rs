@@ -20,6 +20,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("denylist", denylist::run),
     ("autoland-status", autoland_status::run),
     ("check", check),
+    ("concerns", concerns),
     ("land", land),
     ("cause", |arguments| ledger_verb("cause", arguments)),
     ("landed-tree", landed_tree::run),
@@ -192,15 +193,20 @@ const CHECK: &[(&str, Run)] = &[
     ("harness", agent_config_check::run),
     ("privacy", |arguments| crate::privacy::run(arguments, &super::agents::claude_access())),
     ("experiments", crate::experiments::run),
-    ("goals", goals),
     ("issue-boxes", issue_box_lint::run),
     ("machines", super::machines::run),
     ("nix", super::nix::doctor),
     ("provenance", provenance::run),
 ];
 
-fn goals(arguments: &[String]) -> u8 {
-    north_goals::run(arguments, &super::concern_history::LedgerHistory)
+fn concerns(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((verb, rest)) if verb == "check" => north_concerns::run(rest, &super::concern_history::LedgerHistory),
+        _ => {
+            eprintln!("usage: north concerns check [--root DIR] [--trend] [PROJECT...]");
+            2
+        }
+    }
 }
 
 fn check(arguments: &[String]) -> u8 {

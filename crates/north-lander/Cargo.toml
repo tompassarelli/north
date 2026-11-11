@@ -14,7 +14,7 @@ north-runtime-follow = { path = "../north-runtime-follow" }
 north-git-locks = { path = "../north-git-locks" }
 north-base = { path = "../north-base" }
 north-check-environment = { path = "../north-check-environment" }
-north-goals = { path = "../north-goals" }
+north-concerns = { path = "../north-concerns" }
 north-land-scans = { path = "../north-land-scans" }
 north-land-sandbox = { path = "../north-land-sandbox" }
 north-landing = { path = "../north-landing" }

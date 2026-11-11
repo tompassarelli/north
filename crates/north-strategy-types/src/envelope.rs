@@ -67,7 +67,7 @@ impl Kind {
         }
     }
 
-    /// The goal checks of goals.toml this kind's decisions move; a strategy migrated for the kind is judged on these.
+    /// The goal checks of concerns.toml this kind's decisions move; a strategy migrated for the kind is judged on these.
     pub const fn moves(self) -> &'static [&'static str] {
         match self {
             Self::Placement => &["launch-refusals-per-hour"],

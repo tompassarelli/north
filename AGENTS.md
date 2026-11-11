@@ -22,7 +22,7 @@ Build output stays in the worktree's `target/`.
 - Run the affected `*.test.sh` or `*.test.py` under `bin/`, `lib/` or `harness/` for a harness change; the `harness.yml` workflow runs them all except its listed machine-bound ones.
 - Public and reusable goes to north or firn; Tom-specific or secret goes to south.
 - A harness lane's commit message names its `Expected effect:` on finished boxes per unit of usage; `north dash --weekly` counts the week's lanes that do and lists those that caused an incident within 48 h (north#706).
-- Keep the goals in `goals.toml` true: a new goal is one `[[goal]]` with its source line, oracle and class, and `north check goals` runs them all; a red goal reaches the proxy through the fleet tick.
+- Keep the concerns in `concerns.toml` true: a new concern is one `[[concern]]` with its source line, oracle and class, and `north concerns check` runs them all; a red concern reaches the proxy through the fleet tick.
 
 ## Routers
 

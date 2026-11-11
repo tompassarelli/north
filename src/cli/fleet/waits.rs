@@ -136,7 +136,7 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.strays", own: None, run: Box::new(|fleet| said(crate::fleet::strays::stop_strays(&fleet, now_ms()))) },
         ];
         let reports = vec![
-            ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default(), &crate::cli::concern_history::LedgerHistory))) },
+            ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_concerns::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default(), &crate::cli::concern_history::LedgerHistory))) },
             ProbeJob { name: "probes.settle.scoreboard", own: None, run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob { name: "probes.settle.corrections", own: None, run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
         ];
@@ -171,10 +171,10 @@ pub(super) fn reap(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 }
 
 fn recurred_corrections(now: i64) -> Vec<String> {
-    north_goals::tick::announce(&north_goals::tick::state_file("north/grounding/recurrence-tick.json"), now, || {
+    north_concerns::tick::announce(&north_concerns::tick::state_file("north/grounding/recurrence-tick.json"), now, || {
         let seen = distill::corrections_seen();
         let (set, text) = corrections::red(&corrections::recurrences(&seen, corrections::classes(), now as f64));
-        north_goals::tick::Red { set, text }
+        north_concerns::tick::Red { set, text }
     })
 }
 

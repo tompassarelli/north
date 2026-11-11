@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use north_goals::registry::{Bound, Goal};
+use north_concerns::registry::{Bound, Concern};
 
 use super::{Bar, Goals, NEEDED_DAYS, Reading, Repo, View, counts};
 use crate::cli::scoreboard::duration;
@@ -20,13 +20,13 @@ fn show(unit: &str, value: f64) -> String {
     }
 }
 
-pub(super) fn threshold(goal: &Goal) -> String {
+pub(super) fn threshold(goal: &Concern) -> String {
     format!("{} {}", if matches!(goal.bound, Bound::Max(_)) { "<=" } else { ">=" }, show(&goal.unit, goal.bound.limit()))
 }
 
 const MARK: usize = 2;
 
-pub(super) fn cell(goal: &Goal, reading: Option<Reading>, explain: bool) -> String {
+pub(super) fn cell(goal: &Concern, reading: Option<Reading>, explain: bool) -> String {
     match reading {
         Some(reading) if explain => match goal.unit.as_str() {
             "% of time" => format!("{} ({} red)", show(&goal.unit, reading.value), reading.sample),
@@ -81,7 +81,7 @@ pub(super) fn render(repos: &[Repo], goals: &Goals, now: i64, view: View) -> Str
     if view.explain {
         let _ = writeln!(out, "\nat {}: each bar passes or fails on its last 1 h; 10 min, 3 h, 6 h and 24 h are context with no verdict", Timestamp::from_unix_seconds(now).local_twelve_hour());
         let _ = writeln!(out, "days: the newest 24 h windows in a row in which every bar passed; n: each cell's sample (the 10 min and 1 h cells always show it)");
-        let _ = writeln!(out, "targets: goals.toml, ready class");
+        let _ = writeln!(out, "targets: concerns.toml, ready class");
         let _ = writeln!(out, "sources: landings ledger, land-queue spans, worker ledger, Tom's transcripts, GitHub mirror, pace-control history");
     }
     out
@@ -89,7 +89,7 @@ pub(super) fn render(repos: &[Repo], goals: &Goals, now: i64, view: View) -> Str
 
 #[cfg(test)]
 mod tests {
-    /// The 0.1% harness-loss ceiling goals.toml set on 2026-11-07 printed as `<= 0%` (north#751).
+    /// The 0.1% harness-loss ceiling concerns.toml set on 2026-11-07 printed as `<= 0%` (north#751).
     #[test]
     fn a_percent_below_one_keeps_its_decimal() {
         assert_eq!(super::show("%", 0.1), "0.1%");

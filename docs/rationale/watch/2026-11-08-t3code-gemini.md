@@ -95,7 +95,7 @@ it).
 | 34 | Payback of 2.5 to 5 days per phase from 1.2 to 1.5 minutes saved per worker run | ungrounded | No measurement is cited for the per-run saving. Guard loss is only countable in refusals today (see Summary) |
 | 35 | A typed control plane removes thousands of false refusals on north, gh and git commands | wrong | The guards a typed north control plane would replace (worker-tier.\*, issue-\*, privacy-judge, public-text, proxy-role, tripwire.push) refused about 1,000 of the week's calls, most now narrowed. The large classes (claude-sleep, blind-stage, launch-critical, worker-wait, session-kill, modern-search) judge general shell commands no control-plane tool replaces |
 | 36 | Static repo-shape checks should move from PreBash hooks into code-health | wrong in general, right once | North's PreBash guards judge commands, not repository shape. The one static rule with a measured miss is code comments: main's `//` lines rose from 128 (2026-11-06 count) to 196, and 80 of 868 Rust commits since add comment lines net |
-| 37 | Fast runtime promotion is north#719 | wrong | North#719 is the spine cut. The landing-to-live goal came from north#731, was merged into #719 and struck on 2026-11-08 as watched by goals.toml, and no open issue held a box for it |
+| 37 | Fast runtime promotion is north#719 | wrong | North#719 is the spine cut. The landing-to-live goal came from north#731, was merged into #719 and struck on 2026-11-08 as watched by concerns.toml, and no open issue held a box for it |
 | 38 | Phase 5's TUI views pay back in the owner's triage time | ungrounded | No measure of that time exists, and the views were cut as outside the spine |
 
 ## Where the review is right, taken further

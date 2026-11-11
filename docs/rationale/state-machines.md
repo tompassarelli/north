@@ -191,7 +191,7 @@ fixes in each machine's code from history.
 26. **Health episodes and goal announcements** (no fix commits counted). `health.json` is saved before its alerts
     go out, so a failed alert is lost for the episode (`crates/north-health/src/health.rs:471`); a killed landing probe
     leaves a worktree and branch in `~/code/north/main` (`health.rs:292-329`); `goals/tick.json` is saved before its
-    lines are delivered (`crates/north-goals/src/tick.rs:74`). Shapes: presence-flag.
+    lines are delivered (`crates/north-concerns/src/tick.rs:74`). Shapes: presence-flag.
 27. **Main-red episode on GitHub** (none counted). The sheriff's state is markers in an issue body; a failed rerun
     request leaves the attempt-1 marker, so attempt 2 never runs (`crates/north-ops/src/ops/ci_watch/sheriff.rs:362`);
     a private check killed after posting "pending" leaves it pending forever (`ops/private_check/judge.rs:161`).
@@ -234,7 +234,7 @@ fixes in each machine's code from history.
   `dispatch/alert.json`, `landing/notified`, `landing/followed`): a lost or stale entry repeats or skips one notice.
 - Caches with a time to live (`gh_cache`, `github-mirror.db`, `usage-gate.json` as a reading, tune's cells in the graph) and
   content-addressed verdicts (`verdict_cache`, `private-text-verdicts`): a key, not a phase.
-- Already explicit: goal trend (`crates/north-goals/src/history.rs`), capacity `Mode` with its transition functions
+- Already explicit: goal trend (`crates/north-concerns/src/history.rs`), capacity `Mode` with its transition functions
   and `adjustments.jsonl`, the convo index's `files` table, flow episode alerts (`ops/flow/alerts.rs`, the closest
   existing template), and claims' `take`, a real transition in one transaction.
 - Codex conduct state (`crates/north-guard/src/guard/codex_conduct/`): north builds nothing new for Codex

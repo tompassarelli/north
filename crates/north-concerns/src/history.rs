@@ -63,5 +63,5 @@ pub fn sample(row: &Row, state: State, host: &str, at: Timestamp) -> Sample {
         Verdict::Green(value) | Verdict::RedContract(value) | Verdict::RedDebt(value) | Verdict::RedOverCeiling(value) => (Some(*value), String::new()),
         Verdict::Unmeasured(why) => (None, why.clone()),
     };
-    Sample { project: row.project.clone(), concern: row.goal.name.clone(), sampler: SAMPLER, host: host.to_owned(), at, value, why, detail: row.verdict.word().to_owned(), state }
+    Sample { project: row.project.clone(), concern: row.concern.name.clone(), sampler: SAMPLER, host: host.to_owned(), at, value, why, detail: row.verdict.word().to_owned(), state }
 }

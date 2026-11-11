@@ -387,7 +387,7 @@ Truth rests on two checks that test different things.
   judged over these per-decision diffs, and replay reports nothing about the paths history would have taken.
 
 **Goal checks each kind moves** (`Kind::moves` in north-strategy-types; `north ops strategy replay` prints each
-kind's line `moves goals: ...`, and a test holds every name to a goal of `goals.toml`). Placement moves
+kind's line `moves goals: ...`, and a test holds every name to a goal of `concerns.toml`). Placement moves
 `launch-refusals-per-hour`, whose oracle `north ops strategy refusals --since 3h` counts the launches whose last logged
 placement refused them, as a rate. Admission moves `laptop-load-15m` and `launch-refusals-per-hour`, and every lander
 kind moves `landing-p90`, `landing-projected` and `verification-p50`. The fleet tick reads these goals every

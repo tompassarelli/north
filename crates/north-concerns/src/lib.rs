@@ -1,7 +1,7 @@
-//! `north check goals`: each project's goals, written as named checks with a measured oracle, a
+//! `north concerns check`: each project's concerns, written as named checks with a measured oracle, a
 //! bound and a class. A contract is never red, and a landing that turns it red is reverted. A
-//! debt-allowed goal may be red up to its ceiling while a `Target-debt:` record names its owner and
-//! revisit trigger (docs/rationale/targets.md). A red goal reaches the proxy through the fleet tick.
+//! debt-allowed concern may be red up to its ceiling while a `Target-debt:` record names its owner and
+//! revisit trigger (docs/rationale/targets.md). A red concern reaches the proxy through the fleet tick.
 pub mod attribute;
 pub mod ceiling;
 pub mod history;
@@ -20,15 +20,15 @@ use std::time::Instant;
 
 use history::{Recorded, Store};
 use north_base::foundation::clock::Timestamp;
-use registry::Goal;
+use registry::Concern;
 use verdict::{Verdict, judge};
 
-const USAGE: &str = "usage: north check goals [--root DIR] [--trend] [PROJECT...]";
+const USAGE: &str = "usage: north concerns check [--root DIR] [--trend] [PROJECT...]";
 pub const PROJECTS: [&str; 3] = ["north", "makgora", "wisp"];
 
 pub struct Row {
     pub project: String,
-    pub goal: Goal,
+    pub concern: Concern,
     pub verdict: Verdict,
 }
 
@@ -41,21 +41,21 @@ fn checkout(code: &Path, project: &str) -> PathBuf {
 }
 
 pub fn check(code: &Path, projects: &[String]) -> (Vec<Row>, Vec<String>) {
-    let mut wanted: Vec<(String, PathBuf, Goal)> = Vec::new();
+    let mut wanted: Vec<(String, PathBuf, Concern)> = Vec::new();
     let mut problems = Vec::new();
     for project in projects {
         let root = checkout(code, project);
         let path = root.join(registry::PATH);
         match std::fs::read_to_string(&path).map_err(|why| vec![format!("{}: {why}", path.display())]).and_then(|text| registry::parse(&text).map_err(|found| found.into_iter().map(|why| format!("{project}: {why}")).collect())) {
-            Ok(goals) => wanted.extend(goals.into_iter().filter(|goal| goal.class != registry::Class::Ready).map(|goal| (project.clone(), root.clone(), goal))),
+            Ok(concerns) => wanted.extend(concerns.into_iter().filter(|concern| concern.class != registry::Class::Ready).map(|concern| (project.clone(), root.clone(), concern))),
             Err(found) => problems.extend(found),
         }
     }
-    let oracles: Vec<(&Path, &str)> = wanted.iter().map(|(_, root, goal)| (root.as_path(), goal.oracle.as_str())).collect();
+    let oracles: Vec<(&Path, &str)> = wanted.iter().map(|(_, root, concern)| (root.as_path(), concern.oracle.as_str())).collect();
     let readings = oracle::measure_all(&oracles);
-    let rows = wanted.into_iter().zip(readings).map(|((project, _, goal), reading)| {
-        let verdict = judge(&goal, reading);
-        Row { project, goal, verdict }
+    let rows = wanted.into_iter().zip(readings).map(|((project, _, concern), reading)| {
+        let verdict = judge(&concern, reading);
+        Row { project, concern, verdict }
     });
     (rows.collect(), problems)
 }
@@ -67,24 +67,24 @@ fn number(value: f64, unit: &str) -> String {
 
 fn measured(row: &Row) -> String {
     match &row.verdict {
-        Verdict::Green(value) | Verdict::RedContract(value) | Verdict::RedDebt(value) | Verdict::RedOverCeiling(value) => number(*value, &row.goal.unit),
+        Verdict::Green(value) | Verdict::RedContract(value) | Verdict::RedDebt(value) | Verdict::RedOverCeiling(value) => number(*value, &row.concern.unit),
         Verdict::Unmeasured(why) => why.clone(),
     }
 }
 
 pub fn line(row: &Row) -> String {
-    let goal = &row.goal;
+    let concern = &row.concern;
     let measured = measured(row);
-    let class = match &goal.debt {
-        Some(debt) => format!("{}, ceiling {}, owner {}, revisit {}", goal.class.word(), number(debt.ceiling, &goal.unit), debt.owner, debt.revisit),
-        None => goal.class.word().to_owned(),
+    let class = match &concern.debt {
+        Some(debt) => format!("{}, ceiling {}, owner {}, revisit {}", concern.class.word(), number(debt.ceiling, &concern.unit), debt.owner, debt.revisit),
+        None => concern.class.word().to_owned(),
     };
-    format!("{}/{}: {} {measured} ({} {}); {class}", row.project, goal.name, row.verdict.word(), goal.bound.word(), number(goal.bound.limit(), &goal.unit))
+    format!("{}/{}: {} {measured} ({} {}); {class}", row.project, concern.name, row.verdict.word(), concern.bound.word(), number(concern.bound.limit(), &concern.unit))
 }
 
 pub fn render(rows: &[Row], problems: &[String], seconds: f64) -> String {
     let red = rows.iter().filter(|row| !row.verdict.green()).count();
-    let mut out = format!("north check goals: {} goals, {} green, {red} red, in {seconds:.1} s\n", rows.len(), rows.len() - red);
+    let mut out = format!("north concerns check: {} concerns, {} green, {red} red, in {seconds:.1} s\n", rows.len(), rows.len() - red);
     let mut project = "";
     for row in rows {
         if row.project != project {
@@ -92,8 +92,8 @@ pub fn render(rows: &[Row], problems: &[String], seconds: f64) -> String {
             let _ = writeln!(out, "\n{project}");
         }
         let _ = writeln!(out, "- {}", line(row).trim_start_matches(&format!("{}/", row.project)));
-        let _ = writeln!(out, "  source: {}", row.goal.source);
-        let _ = writeln!(out, "  oracle: {}", row.goal.oracle);
+        let _ = writeln!(out, "  source: {}", row.concern.source);
+        let _ = writeln!(out, "  oracle: {}", row.concern.oracle);
     }
     problems.iter().for_each(|problem| {
         let _ = writeln!(out, "\nnot read: {problem}");
@@ -148,7 +148,7 @@ fn render_trend(rows: &[Row], problems: &[String], history: &dyn Store) -> Strin
         let _ = writeln!(out, "history not read: {why}");
         Vec::new()
     });
-    let _ = writeln!(out, "north check goals --trend: {} goals, history of {host}", rows.len());
+    let _ = writeln!(out, "north concerns check --trend: {} concerns, history of {host}", rows.len());
     let mut project = "";
     for row in rows {
         if row.project != project {
@@ -156,22 +156,22 @@ fn render_trend(rows: &[Row], problems: &[String], history: &dyn Store) -> Strin
             let _ = writeln!(out, "\n{project}");
         }
         let (state, judged) = tick::state_of(row, &recorded, now);
-        let goal = &row.goal;
-        let line = match &goal.debt {
-            Some(debt) => format!("{} {}, ceiling {}", goal.bound.word(), number(goal.bound.limit(), &goal.unit), number(debt.ceiling, &goal.unit)),
-            None => format!("{} {}", goal.bound.word(), number(goal.bound.limit(), &goal.unit)),
+        let concern = &row.concern;
+        let line = match &concern.debt {
+            Some(debt) => format!("{} {}, ceiling {}", concern.bound.word(), number(concern.bound.limit(), &concern.unit), number(debt.ceiling, &concern.unit)),
+            None => format!("{} {}", concern.bound.word(), number(concern.bound.limit(), &concern.unit)),
         };
-        let meets = match (&goal.debt, judged) {
+        let meets = match (&concern.debt, judged) {
             (Some(_), Some(judged)) => if judged.meets { "; meets its target" } else { "; short of its target" },
             _ => "",
         };
-        let _ = writeln!(out, "- {}: {} {} ({line}){meets}", goal.name, state.word(), measured(row));
+        let _ = writeln!(out, "- {}: {} {} ({line}){meets}", concern.name, state.word(), measured(row));
         if let Some(judged) = judged {
             let windows: Vec<String> = trend::WINDOWS
                 .iter()
                 .zip(judged.fits)
                 .map(|(window, fit)| match fit {
-                    Some(fit) => format!("{} median {}, {:+.3}/day", window.name, number(fit.median, &goal.unit), fit.per_day()),
+                    Some(fit) => format!("{} median {}, {:+.3}/day", window.name, number(fit.median, &concern.unit), fit.per_day()),
                     None => format!("{} no samples", window.name),
                 })
                 .collect();

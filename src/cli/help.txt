@@ -20,7 +20,8 @@ Work and knowledge:
   graph                 Record and query facts, ground prompts, list the ready backlog
 
 Engineering and landing:
-  check                 Citations, goals, boxes, nix, provenance, privacy, the harness
+  check                 Citations, boxes, nix, provenance, privacy, the harness
+  concerns              Check each project's concerns against their bounds
   safe-push             Check and land a lane, or publish a tag
   land                  Serve the landing queue, run its checks, abandon or release
   lane                  Collect, reap, rescue, seed, squash and audit lanes
@@ -31,7 +32,7 @@ Engineering and landing:
 
 System and telemetry:
   accounts              Each account's state, 5h and week room, and each api grant's dollars
-  health                Readiness bars, goals and harness invariants
+  health                Readiness bars, concerns and harness invariants
   infra                 Live paid resources with their monthly price and a total
   config                Skills and hooks, agent plan and usage, context, proxy calls
   runtime               Update, deploy or check the north and agent runtimes

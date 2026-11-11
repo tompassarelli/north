@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
-use north_goals::attribute::{first_red, red_contracts};
+use north_concerns::attribute::{first_red, red_contracts};
 
 use super::super::candidate::{self, git};
 use super::super::lander::Lander;
@@ -41,16 +41,16 @@ fn settled(tree: &Path) -> Result<BTreeSet<String>, String> {
     Ok(first.intersection(&red_contracts(tree)?).cloned().collect())
 }
 
-/// Reverts, through the landing queue, each landed commit that turned a contract goal red: red in the landed tree twice, green at the base of the landing.
+/// Reverts, through the landing queue, each landed commit that turned a contract concern red: red in the landed tree twice, green at the base of the landing.
 pub fn gate(landed: &Landed, link: &dyn Fn(&Path) -> Result<(), String>) -> Vec<Failure> {
-    if !north_goals::PROJECTS.contains(&landed.project) {
+    if !north_concerns::PROJECTS.contains(&landed.project) {
         return Vec::new();
     }
-    let failure = |output: String| vec![Failure { gate: "goals".to_owned(), output }];
+    let failure = |output: String| vec![Failure { gate: "concerns".to_owned(), output }];
     let red = match settled(landed.tree) {
         Ok(red) if red.is_empty() => return Vec::new(),
         Ok(red) => red,
-        Err(why) => return failure(format!("goals.toml at {} does not read: {why}", landed.head)),
+        Err(why) => return failure(format!("concerns.toml at {} does not read: {why}", landed.head)),
     };
     let scratch = landed.scratch.to_string_lossy().into_owned();
     let added = git(landed.main, &["worktree", "add", "--quiet", "--detach", &scratch, landed.base]).and_then(|_| link(landed.scratch));
@@ -58,8 +58,8 @@ pub fn gate(landed: &Landed, link: &dyn Fn(&Path) -> Result<(), String>) -> Vec<
     let _ = git(landed.main, &["worktree", "remove", "--force", &scratch]);
     let lander = Lander::new(landed.main, Vec::new());
     match found.and_then(|found| Ok((found, lander?))) {
-        Ok((found, lander)) => found.into_iter().map(|(commit, goals)| revert(landed, &lander, &commit, &goals)).collect(),
-        Err(why) => failure(format!("cannot attribute the red contract goals of {}: {why}", landed.head)),
+        Ok((found, lander)) => found.into_iter().map(|(commit, concerns)| revert(landed, &lander, &commit, &concerns)).collect(),
+        Err(why) => failure(format!("cannot attribute the red contract concerns of {}: {why}", landed.head)),
     }
 }
 
@@ -69,18 +69,18 @@ fn culprits(landed: &Landed, red: BTreeSet<String>) -> Result<BTreeMap<String, V
     let range = format!("{}..{}", landed.base, landed.head);
     let commits: Vec<String> = git(landed.main, &["rev-list", "--reverse", "--first-parent", &range])?.lines().map(str::to_owned).collect();
     let mut found: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for goal in fresh {
-        if let Some(at) = first_red(&commits, |commit| probe.red(commit).contains(&goal)) {
-            found.entry(commits[at].clone()).or_default().push(goal);
+    for concern in fresh {
+        if let Some(at) = first_red(&commits, |commit| probe.red(commit).contains(&concern)) {
+            found.entry(commits[at].clone()).or_default().push(concern);
         }
     }
     Ok(found)
 }
 
-fn revert(landed: &Landed, lander: &Lander, commit: &str, goals: &[String]) -> Failure {
-    let names = goals.join(", ");
+fn revert(landed: &Landed, lander: &Lander, commit: &str, concerns: &[String]) -> Failure {
+    let names = concerns.join(", ");
     let outcome = queue(landed, lander, commit, &names);
-    Failure { gate: format!("goals: {names}"), output: format!("contract goals {names} were green at {} and red at {}; {}", landed.base, landed.head, outcome.unwrap_or_else(|why| format!("{commit} was not reverted: {why}"))) }
+    Failure { gate: format!("concerns: {names}"), output: format!("contract concerns {names} were green at {} and red at {}; {}", landed.base, landed.head, outcome.unwrap_or_else(|why| format!("{commit} was not reverted: {why}"))) }
 }
 
 fn queue(landed: &Landed, lander: &Lander, commit: &str, names: &str) -> Result<String, String> {
@@ -88,19 +88,19 @@ fn queue(landed: &Landed, lander: &Lander, commit: &str, names: &str) -> Result<
     if sheriff::is_revert(&message) {
         return Err("it is itself a revert".to_owned());
     }
-    let marker = lander.queue.join("goal-reverts").join(commit);
+    let marker = lander.queue.join("concern-reverts").join(commit);
     if marker.exists() {
         return Ok(format!("the revert of {commit} is already queued"));
     }
-    let worktree = candidate::lander_worktree(landed.main, "lander-goals")?;
+    let worktree = candidate::lander_worktree(landed.main, "lander-concerns")?;
     candidate::ensure(landed.main, &worktree)?;
     if !sheriff::without(&worktree, landed.head, commit)? {
         return Err(format!("it no longer reverts cleanly onto {}", landed.head));
     }
-    let branch = format!("goals-revert-{}", &commit[..commit.len().min(12)]);
+    let branch = format!("concerns-revert-{}", &commit[..commit.len().min(12)]);
     git(&worktree, &["checkout", "-q", "-B", &branch])?;
     let subject = message.lines().next().unwrap_or_default();
-    let text = format!("Revert {subject}\n\nContract goals {names} were green before this landing and red at {}, so the after-landing run reverts it through the landing queue.\n\nReverts: {commit}\nGoal-red: {names}", landed.head);
+    let text = format!("Revert {subject}\n\nContract concerns {names} were green before this landing and red at {}, so the after-landing run reverts it through the landing queue.\n\nReverts: {commit}\nConcern-red: {names}", landed.head);
     git(&worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &text])?;
     sheriff::queue_revert(lander, &worktree, &branch)?;
     let _ = std::fs::create_dir_all(marker.parent().unwrap_or(&lander.queue)).and_then(|()| std::fs::write(&marker, &branch));
@@ -108,5 +108,5 @@ fn queue(landed: &Landed, lander: &Lander, commit: &str, names: &str) -> Result<
 }
 
 #[cfg(test)]
-#[path = "goals_tests.rs"]
+#[path = "concerns_tests.rs"]
 mod tests;

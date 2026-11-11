@@ -2026,7 +2026,7 @@ command = "cd /home/tom/code/north/worktrees/n634-shell-nobuild; sed -i 's|    f
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/worktrees/n641-ready-bar && (cargo test -p north-goals 2>&1 | tail -4; cargo clippy -p north -p north-goals --tests -- -D warn"
+command = "cd /home/tom/code/north/worktrees/n641-ready-bar && (cargo test -p north-concerns 2>&1 | tail -4; cargo clippy -p north -p north-concerns --tests -- -D warn"
 label = "true"
 
 [[sample.row]]
@@ -3485,7 +3485,7 @@ command = "cd /home/tom/code/north/main && git worktree add -q /home/tom/code/no
 label = "false"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/worktrees/harness-loss-0-1 && sed -i '40s/ceiling of 1% in goals.toml/ceiling of 0.1% in goals.toml/' docs/rationale/attributi"
+command = "cd /home/tom/code/north/worktrees/harness-loss-0-1 && sed -i '40s/ceiling of 1% in concerns.toml/ceiling of 0.1% in concerns.toml/' docs/rationale/attributi"
 label = "true"
 
 [[sample.row]]

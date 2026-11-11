@@ -19,7 +19,7 @@ decisions, runs the survivor as a bounded live arm, and keeps it or reverts it b
 3. **Refuse.** `scope::refusals` rejects a candidate whose diff touches the evaluator (`north-climb`, `north-replay`,
    `north-strategy-types`), the rule that picks an arm's winner (`router::settle` and `north tune`'s cells; `ARM_RUNS`, in the router's
    placement policy, is refused by name below), the ledger's counting and recording code (`north-providers` ledger, `north-threads`,
-   `worker_ledger`, `north ledger`, `north-goals`, the scoreboard), a scoring bar (`goals.toml`, `loops.toml`,
+   `worker_ledger`, `north ledger`, `north-concerns`, the scoreboard), a scoring bar (`concerns.toml`, `loops.toml`,
    `corrections.toml`, `experiments.toml`, `structure.toml`), or any test or fixture. `harness/defaults.toml` is judged key by
    key: `scope::key_refusals` refuses a change to any key whose `consumers` include one of those paths (every replay bar and
    the rework judge's thresholds), and an inventory test fails when guarded code reads a key the guard would let through, so a

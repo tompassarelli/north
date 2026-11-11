@@ -1,5 +1,5 @@
-use north_goals::history::{Recorded, Sample, Store};
-use north_goals::trend::Point;
+use north_concerns::history::{Recorded, Sample, Store};
+use north_concerns::trend::Point;
 use serde_json::Value;
 
 use crate::foundation::clock::Timestamp;

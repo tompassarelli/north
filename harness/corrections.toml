@@ -151,8 +151,8 @@ not_structural = "ambition is a judgement over a plan, and idle capacity lives i
 name = "accepted-slow-path"
 paraphrase = "Tom objected to a slow path the harness treated as normal."
 owner = "north#634"
-guard = "A goal in goals.toml bounds the step Tom named, so a slow run of it is red instead of normal."
-not_structural = "step durations are goals.toml readings, not graph facts"
+guard = "A concern in concerns.toml bounds the step Tom named, so a slow run of it is red instead of normal."
+not_structural = "step durations are concerns.toml readings, not graph facts"
 
 [[class]]
 name = "unverified-tick"

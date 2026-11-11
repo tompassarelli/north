@@ -354,13 +354,13 @@ fn a_launch_counts_as_refused_only_when_its_last_placement_in_the_window_refused
 }
 
 #[test]
-fn every_goal_a_decision_kind_names_as_the_one_it_moves_is_a_goal_of_goals_toml() {
-    let goals: toml_edit::DocumentMut = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../goals.toml")).unwrap().parse().unwrap();
-    let names: Vec<&str> = goals["goal"].as_array_of_tables().unwrap().iter().filter_map(|goal| goal["name"].as_str()).collect();
+fn every_concern_a_decision_kind_names_as_the_one_it_moves_is_a_concern_of_concerns_toml() {
+    let concerns: toml_edit::DocumentMut = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../concerns.toml")).unwrap().parse().unwrap();
+    let names: Vec<&str> = concerns["concern"].as_array_of_tables().unwrap().iter().filter_map(|goal| goal["name"].as_str()).collect();
     for kind in Kind::ALL {
         assert!(!kind.moves().is_empty(), "{} names no goal check", kind.name());
         for goal in kind.moves() {
-            assert!(names.contains(goal), "{} moves {goal}, which goals.toml does not define", kind.name());
+            assert!(names.contains(goal), "{} moves {goal}, which concerns.toml does not define", kind.name());
         }
     }
 }

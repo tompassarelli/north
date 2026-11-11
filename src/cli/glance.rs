@@ -87,7 +87,7 @@ fn bars(now: Timestamp) -> Result<Vec<String>, String> {
 }
 
 fn goals_red() -> Result<usize, String> {
-    let path = north_goals::tick::state_file(TICK);
+    let path = north_concerns::tick::state_file(TICK);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),

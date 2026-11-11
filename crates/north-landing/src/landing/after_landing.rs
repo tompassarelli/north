@@ -239,8 +239,8 @@ fn gates_in(main: &Path, tree: &Path, args: &Args) -> Result<Vec<Failure>, Strin
 fn goal_failures(main: &Path, tree: &Path, args: &Args, links: &str) -> Vec<Failure> {
     let Some(project) = git(main, &["remote", "get-url", "origin"]).ok().and_then(|url| repo_slug(&url)).and_then(|slug| slug.rsplit('/').next().map(str::to_owned)) else { return Vec::new() };
     let scratch = tree.with_file_name(format!("{}-goals", tree.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()));
-    let landed = crate::land::after::goals::Landed { project: &project, main, tree, scratch: &scratch, base: &args.base, head: &args.head };
-    crate::land::after::goals::gate(&landed, &|target| link_paths(main, target, links))
+    let landed = crate::land::after::concerns::Landed { project: &project, main, tree, scratch: &scratch, base: &args.base, head: &args.head };
+    crate::land::after::concerns::gate(&landed, &|target| link_paths(main, target, links))
 }
 
 fn link_paths(main: &Path, tree: &Path, links: &str) -> Result<(), String> {

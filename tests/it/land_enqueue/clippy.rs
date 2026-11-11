@@ -77,9 +77,9 @@ fn enqueue_compiles_on_the_queueing_host_when_no_build_host_has_room_and_refuses
 }
 
 fn a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_is_queued_in_order() {
-    let goals = "[[goal]]\nname = \"slow\"\nsource = \"README.md: lands fast\"\noracle = \"echo 90\"\nunit = \"s\"\nmax = 20\nclass = \"debt\"\nceiling = 60\nowner = \"north#641\"\nrevisit = \"a week over\"\npays = [\"crates/\"]\n";
+    let goals = "[[concern]]\nname = \"slow\"\nsource = \"README.md: lands fast\"\noracle = \"echo 90\"\nunit = \"s\"\nmax = 20\nclass = \"debt\"\nceiling = 60\nowner = \"north#641\"\nrevisit = \"a week over\"\npays = [\"crates/\"]\n";
     let urgent = |path: &str| {
-        let fixture = Fixture::seeded(&[("file", "base\n"), ("goals.toml", goals)]);
+        let fixture = Fixture::seeded(&[("file", "base\n"), ("concerns.toml", goals)]);
         fs::create_dir_all(fixture.repo.join(path).parent().unwrap()).unwrap();
         fixture.commit(&fixture.repo, path, "Add a file");
         let output = north_enqueue_with(&fixture, &[]);

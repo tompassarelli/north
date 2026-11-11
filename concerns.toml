@@ -1,4 +1,4 @@
-[[goal]]
+[[concern]]
 name = "landing-projected"
 source = "README.md: North adds a safe landing path to main; speed targets set 2026-11-06 for north#634"
 oracle = "north land profile --since 24h --last 5 --repo north --metric landing-projected"
@@ -10,7 +10,7 @@ owner = "tompassarelli/north#641"
 revisit = "the projected wait of a lane judged now, the median service time of the last 5 landings times one when it is the only ticket queued and two otherwise, stays over 60 s for a week"
 pays = ["crates/north-landing/", "crates/north-safe-push/", "crates/north-capacity/", "crates/north-capacity-host/", "crates/north-runtime/src/land_offload/"]
 
-[[goal]]
+[[concern]]
 name = "landing-p90"
 source = "README.md: North adds a safe landing path to main; speed targets set 2026-11-06 for north#634"
 oracle = "north land profile --since 24h --last 20 --repo north --metric landing-p90"
@@ -18,7 +18,7 @@ unit = "s"
 max = 60
 class = "contract"
 
-[[goal]]
+[[concern]]
 name = "verification-p50"
 source = "README.md: North adds a safe landing path to main; speed targets set 2026-11-06 for north#634"
 oracle = "north land profile --since 24h --last 20 --repo north --metric verification-p50"
@@ -30,7 +30,7 @@ owner = "tompassarelli/north#641"
 revisit = "the after-push verification median of the last 20 landings stays over 420 s for a week"
 pays = ["crates/north-landing/", "crates/north-safe-push/", "crates/north-capacity/", "crates/north-capacity-host/", "crates/north-runtime/src/land_offload/"]
 
-[[goal]]
+[[concern]]
 name = "laptop-load-15m"
 source = "AGENTS.md: builds and suites run under capacity admission; harness/defaults.toml: admission defers on run-queue load against the thread count. The max of 22 is the bound while away: the away laptop is a build host whose admission fills to a 15-minute load of 22 of 24 threads (capacity_build_host_agent_cpu_quota_percent, capacity_mode_table), and at the desk or under a playtest lease the scheduler holds agent work to 12 CPUs (capacity_agent_cpu_quota_percent), so the goal alarms only on a real breach. Tom set both bounds on 2026-11-07 and moved the desk to the 12 on 2026-11-10 (north#892)"
 oracle = "cut -d' ' -f3 /proc/loadavg"
@@ -41,7 +41,7 @@ ceiling = 24
 owner = "tompassarelli/north#641"
 revisit = "the 15-minute load average stays over 24, the laptop's thread count, for a day"
 
-[[goal]]
+[[concern]]
 name = "target-debt-due"
 source = "docs/rationale/targets.md: overturned by debt entries piling up unpaid past their triggers"
 oracle = "north check provenance debt --due | awk -F'\\t' '$1==\"north\"' | wc -l"
@@ -52,7 +52,7 @@ ceiling = 5
 owner = "tompassarelli/north#641"
 revisit = "a Target-debt record sits unpaid past its trigger for a week"
 
-[[goal]]
+[[concern]]
 name = "main-green"
 source = "AGENTS.md: check with cargo test and clippy -D warnings; features.md: a red main is reverted within 15 minutes"
 oracle = "gh issue list --repo tompassarelli/north --search 'in:title \"main is red\"' --state open --json title --jq '[.[] | select(.title == \"main is red\")] | length'"
@@ -60,7 +60,7 @@ unit = "issues"
 max = 0
 class = "contract"
 
-[[goal]]
+[[concern]]
 name = "main-green-latest-verdict"
 source = "docs/features.md: a red main is reverted within 15 minutes; north#634: the proxy learns of a red main from the lander, not from Tom"
 oracle = "awk -F'\\t' '$2==\"north\" && ($4==\"green\" || $4==\"red-main\") {last=$4} END {print (last==\"red-main\") ? 1 : 0}' \"${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/post-land.tsv\""
@@ -68,7 +68,7 @@ unit = "red verdicts"
 max = 0
 class = "contract"
 
-[[goal]]
+[[concern]]
 name = "no-python"
 source = "AGENTS.md: the north host is typed Rust; docs/rationale/non-rust-inventory.md"
 oracle = "git ls-files '*.py' | wc -l"
@@ -76,21 +76,21 @@ unit = "files"
 max = 0
 class = "contract"
 
-[[goal]]
+[[concern]]
 name = "procedures-valid"
 source = "AGENTS.md: north check harness tree-policy for its skills"
 oracle = "north check harness tree-policy >/dev/null 2>&1; echo $?"
 max = 0
 class = "contract"
 
-[[goal]]
+[[concern]]
 name = "features-index-current"
 source = "AGENTS.md: docs/features.md is generated and never edited by hand"
 oracle = "./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/features_index/ docs features-index --check >/dev/null 2>&1; echo $?"
 max = 0
 class = "contract"
 
-[[goal]]
+[[concern]]
 name = "layer-terms"
 source = "AGENTS.md: use the four layer terms of docs/terms.md; never call a model an agent"
 oracle = "{ rg -n -i '\\b(claude|opus|sonnet|haiku|gpt|codex)[ -]agent\\b|\\bagent model\\b|\\bmodel agent\\b' README.md AGENTS.md docs --glob '*.md' || [ $? -eq 1 ]; } | wc -l"
@@ -98,7 +98,7 @@ unit = "lines"
 max = 0
 class = "contract"
 
-[[goal]]
+[[concern]]
 name = "fleet-screen-in-tui"
 source = "AGENTS.md: keep fleet screen state and rendering in crates/north-tui/src/tui/fleet"
 oracle = "{ rg -l ratatui src crates --glob '*.rs' --glob '!crates/north-tui/**' || [ $? -eq 1 ]; } | wc -l"
@@ -106,126 +106,126 @@ unit = "files"
 max = 0
 class = "contract"
 
-[[goal]]
+[[concern]]
 name = "ready-landing-p90"
 source = "north#641: the harness is ready for production work when a lane's queue-to-main p90 is at most 60 s, over the newest 1 h"
 unit = "s"
 max = 60
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-verification-p50"
 source = "north#641: the after-push verification median is at most 60 s, over the newest 1 h"
 unit = "s"
 max = 60
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-verification-p90"
 source = "north#641: the after-push verification p90 is at most 5 min, over the newest 1 h"
 unit = "s"
 max = 300
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-rework"
 source = "north#641: at most 5% of the newest 1 h's worker landings are reverted or fixed forward within 48 h"
 unit = "%"
 max = 5
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-first-try"
 source = "north#641: at least 70% of worker first attempts report Done with no follow-up run, over the newest 1 h; reviewers, splits and boxes deferred to a dated check that has not missed are left out"
 unit = "%"
 min = 70
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-harness-loss"
 source = "north#706: at most 0.1% of worker first attempts over the newest 1 h end in a failure the harness caused (placement, landing refusal, false revert, capacity, compaction, waits, duplicate or gate refusal), by the shared attribution of each run's report; the bar was 10% until 2026-11-07, when Tom asked that it state the real target of 1%, then 0.1% the same day"
 unit = "%"
 max = 0.1
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-ask-to-landing"
 source = "north#641: the median from Tom's ask to its first landed commit is at most 1 h, over the newest 1 h"
 unit = "s"
 max = 3600
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-corrections"
 source = "north#641: Tom corrects the fleet at most 0.05 times per active hour, over the newest 1 h"
 unit = "per h"
 max = 0.05
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-priority-now"
 source = "north#641: at most 5 priority:now issues stay open, over the newest 1 h"
 unit = "issues"
 max = 5
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-idle-account"
 source = "north#641: no Claude account sits idle for more than 30 min while priority:now work waits, over the newest 1 h"
 unit = "min"
 max = 30
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-runtime-breaks"
 source = "north#1022: the fleet runs a pinned runtime that ships only after one host walked the spine on it, so no spine-breaking promotion reaches a second host (a rollback on a host other than the settling one), over the newest 1 h"
 unit = "breaks"
 max = 0
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-runtime-rollback"
 source = "north#1022: a runtime that fails the spine walk on a host is rolled back within 2 min of its swap there, the slowest rollback over the newest 1 h"
 unit = "s"
 max = 120
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-runtime-live-p90"
 source = "north#1022: a landing that changes a runtime input is live fast: the pinned runtime is promoted on each landing, not on a clock, and landing to live p90 is at most 2 min over the newest 1 h (raised 2026-11-10 from 10 min)"
 unit = "s"
 max = 120
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-runtime-lag"
 source = "north#1081: no long-lived north process on any declared host runs more than 5 min behind the newest landing that changed a runtime input, read as the worst of north runtime lag --json that each settle samples into records/north/runtime-lag.jsonl (added 2026-11-11); the coordinator is paged once per episode past it"
 unit = "s"
 max = 300
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-firn-closure-live-p90"
 source = "north#1081: a landed firn change is built once and substituted on every host, so landing to live for a firn closure is at most 5 min p90 over the newest 1 h, read from the per-host rows in records/north/propagation.jsonl (added 2026-11-10); the coordinator is paged past twice that"
 unit = "s"
 max = 300
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-main-green-lander"
 source = "north#905: from an outside review on 2026-11-08, at least 99% of the window north's main was green by the lander's own after-landing verdicts (main_red episodes in the threads ledger), with the red episodes counted"
 unit = "% of time"
 min = 99
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-main-green-ci"
 source = "north#905: from an outside review on 2026-11-08, at least 99% of the window north's main was green by GitHub's Cargo runs on main, red from a failing run to the next passing one, with the red episodes counted"
 unit = "% of time"
 min = 99
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "launch-refusals-per-hour"
 source = "north#643: a launch that placement refuses is a worker not staffed; north#641's readiness bar counts first tries lost to the harness, and a refused launch is the earliest such loss"
 oracle = "north ops strategy refusals --since 3h"
@@ -236,14 +236,14 @@ ceiling = 6
 owner = "tompassarelli/north#643"
 revisit = "launches refused by placement, counting each launch by its last placement, stay over 6 an hour for a day"
 
-[[goal]]
+[[concern]]
 name = "ready-usage-per-landing"
 source = "north#793: model usage spent per worker first try that landed over the newest 1 h, in points (percent of an account's weekly window summed across accounts, plus api list-price dollars), is at most 4 by the ledger's usage readouts, runs and api spend, so the fleet gets more landed work for the usage it spends; Tom asked for a second standing goal on 2026-11-07"
 unit = "points"
 max = 4
 class = "ready"
 
-[[goal]]
+[[concern]]
 name = "ready-stranded-usage"
 source = "north#793: no usage resets or expires unspent while ready work waits, over the newest 1 h: the share of a weekly window left at its reset, api credit at its grant's expiry and api credit left on unexpired grants, counted while a priority:now issue was open"
 unit = "points"

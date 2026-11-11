@@ -1,5 +1,5 @@
 [[crate_dag.crate]]
 name = "north-lander"
 paths = ["crates/north-lander/src/**", "crates/north-check-environment/src/**"]
-may_use = ["north-base", "north-check-environment", "north-git-locks", "north-goals", "north-land-sandbox", "north-land-scans", "north-landing", "north-strategy-types", "north-runtime-follow"]
+may_use = ["north-base", "north-check-environment", "north-git-locks", "north-concerns", "north-land-sandbox", "north-land-scans", "north-landing", "north-strategy-types", "north-runtime-follow"]
 

@@ -1,8 +1,8 @@
-//! A project's goals as checks: `goals.toml` at its root names each goal drawn from the README or
+//! A project's concerns as checks: `concerns.toml` at its root names each concern drawn from the README or
 //! AGENTS.md, the oracle command that measures it, the bound it must meet and its class.
 use serde::Deserialize;
 
-pub const PATH: &str = "goals.toml";
+pub const PATH: &str = "concerns.toml";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Class {
@@ -65,7 +65,7 @@ pub struct Debt {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Goal {
+pub struct Concern {
     pub name: String,
     pub source: String,
     pub oracle: String,
@@ -97,13 +97,13 @@ struct Raw {
 #[serde(deny_unknown_fields)]
 struct File {
     #[serde(default)]
-    goal: Vec<Raw>,
+    concern: Vec<Raw>,
 }
 
 impl Raw {
-    fn goal(self) -> Result<Goal, String> {
+    fn concern(self) -> Result<Concern, String> {
         let name = self.name.clone();
-        let fail = |why: &str| format!("goal {name}: {why}");
+        let fail = |why: &str| format!("concern {name}: {why}");
         let bound = match (self.max, self.min) {
             (Some(limit), None) => Bound::Max(limit),
             (None, Some(limit)) => Bound::Min(limit),
@@ -122,17 +122,17 @@ impl Raw {
             ("debt", ..) => return Err(fail("debt-allowed needs a ceiling looser than its bound, an owner and a revisit trigger")),
             (other, ..) => return Err(fail(&format!("class is contract, debt or ready, not {other}"))),
         };
-        Ok(Goal { name: self.name, source: self.source, oracle: self.oracle, unit: self.unit, bound, class, debt })
+        Ok(Concern { name: self.name, source: self.source, oracle: self.oracle, unit: self.unit, bound, class, debt })
     }
 }
 
-pub fn parse(text: &str) -> Result<Vec<Goal>, Vec<String>> {
+pub fn parse(text: &str) -> Result<Vec<Concern>, Vec<String>> {
     let value = north_base::platform::toml_json::parse(text).map_err(|why| vec![format!("{PATH}: {why}")])?;
     let file: File = serde_json::from_value(value).map_err(|why| vec![format!("{PATH}: {why}")])?;
-    let (goals, problems): (Vec<_>, Vec<_>) = file.goal.into_iter().map(Raw::goal).partition(Result::is_ok);
+    let (concerns, problems): (Vec<_>, Vec<_>) = file.concern.into_iter().map(Raw::concern).partition(Result::is_ok);
     let mut problems: Vec<String> = problems.into_iter().filter_map(Result::err).collect();
-    let goals: Vec<Goal> = goals.into_iter().filter_map(Result::ok).collect();
+    let concerns: Vec<Concern> = concerns.into_iter().filter_map(Result::ok).collect();
     let mut seen = std::collections::BTreeSet::new();
-    problems.extend(goals.iter().filter(|goal| !seen.insert(goal.name.as_str())).map(|goal| format!("goal {}: named twice", goal.name)));
-    if problems.is_empty() { Ok(goals) } else { Err(problems) }
+    problems.extend(concerns.iter().filter(|concern| !seen.insert(concern.name.as_str())).map(|concern| format!("concern {}: named twice", concern.name)));
+    if problems.is_empty() { Ok(concerns) } else { Err(problems) }
 }

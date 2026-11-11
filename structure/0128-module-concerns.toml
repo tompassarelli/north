@@ -1,0 +1,6 @@
+[[module]]
+name = "concerns"
+paths = ["crates/north-concerns/src/**"]
+responsibility = "Each project's concerns as named checks: the oracle commands, the bound and class judged on each measured value, and the red-concern line the fleet tick tells the proxy."
+may_use = ["crate-roots", "foundation", "lifecycle", "platform.process", "platform.host", "platform.store"]
+

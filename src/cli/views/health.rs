@@ -40,15 +40,15 @@ pub fn run(arguments: &[String], citations: fn(&std::path::Path) -> Result<(), S
 pub fn read(dry_run: bool) -> Result<Health, String> {
     let now = Timestamp::now().unix_seconds();
     let bars = crate::cli::scoreboard::ready::run(now, crate::cli::scoreboard::ready::View::default())?;
-    let (rows, problems) = north_goals::check(&north_goals::code_root(), &north_goals::PROJECTS.iter().map(|project| (*project).to_owned()).collect::<Vec<_>>());
-    let mut goals = problems;
-    goals.extend(rows.iter().map(north_goals::line));
-    let red = rows.iter().filter(|row| !matches!(row.verdict, north_goals::verdict::Verdict::Green(_))).count();
+    let (rows, problems) = north_concerns::check(&north_concerns::code_root(), &north_concerns::PROJECTS.iter().map(|project| (*project).to_owned()).collect::<Vec<_>>());
+    let mut concerns = problems;
+    concerns.extend(rows.iter().map(north_concerns::line));
+    let red = rows.iter().filter(|row| !matches!(row.verdict, north_concerns::verdict::Verdict::Green(_))).count();
     let (invariants_ok, invariants) = crate::health::report(dry_run, |repo| crate::ops::citation_check::verdict(repo, crate::cli::tools::defines))?;
     let mut text = String::from("Health\n\nReadiness bars:\n");
     text.push_str(&bars);
-    text.push_str(&format!("\nGoals: {} rows, {red} red\n", rows.len()));
-    for line in &goals {
+    text.push_str(&format!("\nConcerns: {} rows, {red} red\n", rows.len()));
+    for line in &concerns {
         text.push_str(&format!("  {line}\n"));
     }
     text.push_str("\nHarness invariants:\n");
@@ -60,8 +60,8 @@ pub fn read(dry_run: bool) -> Result<Health, String> {
         json: json!({
             "at": Timestamp::from_unix_seconds(now).iso(),
             "bars": bars,
-            "goals": goals,
-            "red_goals": red,
+            "concerns": concerns,
+            "red_concerns": red,
             "invariants": invariants,
         }),
         ok: invariants_ok,

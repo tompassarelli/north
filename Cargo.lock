@@ -955,6 +955,7 @@ dependencies = [
  "north-check-environment",
  "north-cli-reference",
  "north-code-health",
+ "north-concerns",
  "north-context-pack",
  "north-convo",
  "north-core",
@@ -963,7 +964,6 @@ dependencies = [
  "north-fleet-store",
  "north-flow",
  "north-github-mirror",
- "north-goals",
  "north-graph-change",
  "north-graph-ground",
  "north-graph-ingest",
@@ -1140,6 +1140,15 @@ dependencies = [
  "tempfile",
  "time",
  "toml_edit",
+]
+
+[[package]]
+name = "north-concerns"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1350,15 +1359,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "north-goals"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "north-graph"
 version = "0.1.0"
 dependencies = [
@@ -1540,8 +1540,8 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-check-environment",
+ "north-concerns",
  "north-git-locks",
- "north-goals",
  "north-land-sandbox",
  "north-land-scans",
  "north-landing",
@@ -1575,10 +1575,10 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-check-environment",
+ "north-concerns",
  "north-diff-gates",
  "north-git-locks",
  "north-github-mirror",
- "north-goals",
  "north-land-checks",
  "north-land-scans",
  "north-landing-gates",

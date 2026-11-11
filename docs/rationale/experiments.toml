@@ -120,12 +120,12 @@ owner = "tompassarelli/north#40"
 
 [[experiment]]
 id = "goals-as-checks"
-change = "Each project keeps its goals as named checks in goals.toml, measured by north check goals, with a class saying how long a goal may stay red"
+change = "Each project keeps its goals as named checks in concerns.toml, measured by north concerns check, with a class saying how long a goal may stay red"
 landed = "2ecdd5a66"
 note = "docs/rationale/targets.md"
 rule = "Overturned by: goals that stay red past their revisit triggers with no landing aimed at them, or oracles whose values disagree with the project's own CI."
 metric = "none"
-measure = "north check goals: goals red past their revisit triggers with no landing aimed at them, and oracle values that disagree with the project's own CI"
+measure = "north concerns check: goals red past their revisit triggers with no landing aimed at them, and oracle values that disagree with the project's own CI"
 direction = "down"
 bar = 0.0
 min_n = 0

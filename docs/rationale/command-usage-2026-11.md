@@ -224,7 +224,7 @@ Lines are Rust totals of `git ls-files 'crates/CRATE/*.rs'` at 14871e01b3, all l
 | `cloud land` | north (root) | 26 | 15 | 11 | 0 | 0 | 0 | 0 | 0 | 2 |  |
 | `graph validate` | north-graph-ingest | 26 | 15 | 11 | 0 | 0 | 0 | 0 | 0 | 1 |  |
 | `ledger incident report` | north-providers | 26 | 12 | 14 | 0 | 0 | 0 | 0 | 0 | 2 |  |
-| `check goals` | north-goals | 25 | 16 | 9 | 0 | 0 | 0 | 0 | 0 | 2 |  |
+| `concerns check` | north-concerns | 25 | 16 | 9 | 0 | 0 | 0 | 0 | 0 | 2 |  |
 | `fleet digest` | north (root) | 24 | 24 | 0 | 0 | 0 | 0 | 0 | 0 | 5 |  |
 | `broker serve` | north-broker | 23 | 0 | 23 | 0 | 0 | 0 | 0 | 0 | 1 |  |
 | `capacity host backlog` | north-capacity-host | 23 | 20 | 3 | 0 | 0 | 0 | 0 | 0 | 1 |  |

@@ -3,7 +3,7 @@ pub mod cleanup;
 pub mod follow;
 pub use follow::{send, send_condition};
 pub mod gates;
-pub mod goals;
+pub mod concerns;
 pub mod owner;
 pub mod route;
 pub mod tick;
@@ -112,7 +112,7 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
     checkout::follow(lander, head);
     let state = state_home();
     let batch_size = tickets.len();
-    let log = push_ledger::landing_log(&lander.repo, &state, &north_goals::code_root());
+    let log = push_ledger::landing_log(&lander.repo, &state, &north_concerns::code_root());
     let mut spans = trace::landing::shared(stages, head);
     for (path, ticket, tip) in tickets {
         let name = name_of(&path);

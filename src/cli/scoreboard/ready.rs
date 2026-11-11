@@ -1,13 +1,13 @@
 //! `north dash --bars`: one table of the bars that say the harness is ready for production
 //! work, read per repository from the same records as the weekly scoreboard. The thresholds are the
-//! `ready` class of north's goals.toml; days in a row counts the newest consecutive 24 h windows in
+//! `ready` class of north's concerns.toml; days in a row counts the newest consecutive 24 h windows in
 //! which every bar passed (docs/rationale/scoreboard.md).
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
-use north_goals::registry::{self, Bound, Class, Goal};
+use north_concerns::registry::{self, Bound, Class, Concern};
 use rusqlite::Connection;
 use serde::Deserialize;
 
@@ -414,12 +414,12 @@ impl Records {
     }
 }
 
-struct Goals(HashMap<&'static str, Goal>);
+struct Goals(HashMap<&'static str, Concern>);
 
 impl Goals {
     fn read() -> Result<Self, String> {
         let tree = north_runtime::runtime::own_runtime().map(|(_, runtime)| runtime.join(north_runtime::runtime::layout::TREE)).filter(|tree| tree.join(registry::PATH).is_file());
-        let path = tree.unwrap_or_else(|| north_goals::code_root().join("north/main")).join(registry::PATH);
+        let path = tree.unwrap_or_else(|| north_concerns::code_root().join("north/main")).join(registry::PATH);
         let text = fs::read_to_string(&path).map_err(|why| format!("{}: {why}", path.display()))?;
         Self::parse(&text).map_err(|why| format!("{}: {why}", path.display()))
     }
@@ -434,7 +434,7 @@ impl Goals {
         Ok(Self(held))
     }
 
-    fn of(&self, bar: Bar) -> &Goal {
+    fn of(&self, bar: Bar) -> &Concern {
         &self.0[bar.goal()]
     }
 }

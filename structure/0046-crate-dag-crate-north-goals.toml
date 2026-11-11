@@ -1,5 +1,0 @@
-[[crate_dag.crate]]
-name = "north-goals"
-paths = ["crates/north-goals/src/**"]
-may_use = ["north-base"]
-

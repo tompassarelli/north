@@ -1,2 +1,2 @@
 health
-Readiness bars, goals and harness invariants
+Readiness bars, concerns and harness invariants

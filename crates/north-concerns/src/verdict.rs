@@ -1,5 +1,5 @@
-//! What a measured value says about a goal: green, red within its debt ceiling, or red for good.
-use super::registry::{Class, Goal};
+//! What a measured value says about a concern: green, red within its debt ceiling, or red for good.
+use super::registry::{Class, Concern};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Verdict {
@@ -10,22 +10,22 @@ pub enum Verdict {
     Unmeasured(String),
 }
 
-pub fn judge(goal: &Goal, reading: Result<f64, String>) -> Verdict {
+pub fn judge(concern: &Concern, reading: Result<f64, String>) -> Verdict {
     let value = match reading {
         Ok(value) => value,
         Err(why) => return Verdict::Unmeasured(why),
     };
-    match (goal.bound.holds(value), goal.class, &goal.debt) {
+    match (concern.bound.holds(value), concern.class, &concern.debt) {
         (true, ..) => Verdict::Green(value),
         (false, Class::Contract, _) => Verdict::RedContract(value),
-        (false, Class::Debt, Some(debt)) if !beyond(goal, debt.ceiling, value) => Verdict::RedDebt(value),
+        (false, Class::Debt, Some(debt)) if !beyond(concern, debt.ceiling, value) => Verdict::RedDebt(value),
         (false, Class::Debt, _) => Verdict::RedOverCeiling(value),
         (false, Class::Ready, _) => Verdict::Unmeasured("a ready bar is read by north dash".into()),
     }
 }
 
-fn beyond(goal: &Goal, ceiling: f64, value: f64) -> bool {
-    match goal.bound {
+fn beyond(concern: &Concern, ceiling: f64, value: f64) -> bool {
+    match concern.bound {
         super::registry::Bound::Max(_) => value > ceiling,
         super::registry::Bound::Min(_) => value < ceiling,
     }

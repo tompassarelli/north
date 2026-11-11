@@ -152,8 +152,8 @@ fn sources(repo: &Path, head: &str, nixos_config: PathBuf, south: PathBuf) -> [S
         Source { label: "north", checkout: repo.to_path_buf(), rev: head.to_owned(), pathspecs: &["bin", "harness", ":(exclude)*.md"], needles: &NORTH, prefixes: &BARE },
         main(nixos_config, "nixos-config", &[".", ":(exclude)*.md"], &PREFIXES, &PREFIXES),
         main(south, "south", &["agents/routines", "modules", "hosts", "bin"], &PREFIXES, &PREFIXES),
-        main(home_dir("makgora", "SAFE_PUSH_MAKGORA"), "makgora", &["goals.toml"], &[ORACLE], &BARE),
-        main(home_dir("wisp", "SAFE_PUSH_WISP"), "wisp", &["goals.toml"], &[ORACLE], &BARE),
+        main(home_dir("makgora", "SAFE_PUSH_MAKGORA"), "makgora", &["concerns.toml"], &[ORACLE], &BARE),
+        main(home_dir("wisp", "SAFE_PUSH_WISP"), "wisp", &["concerns.toml"], &[ORACLE], &BARE),
     ]
 }
 

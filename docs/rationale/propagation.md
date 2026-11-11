@@ -105,7 +105,7 @@ ledgers the proxy and this plan read:
   counted 32 `north runtime promoted:` lines in the 24 h to 4:45 AM, and 8 release builds ran on the laptop between
   3:14 and 4:05 AM before builds moved off it (664250fd40).
 - Landing to live on the settling host: p50 241 s, p90 627 s, max 1,979 s over those 197 landings. The 2-minute
-  bar the rule was built for (goals.toml `ready-runtime-live-p90`) failed every hour of it: one flight at a time
+  bar the rule was built for (concerns.toml `ready-runtime-live-p90`) failed every hour of it: one flight at a time
   cannot keep up with landings arriving every 2.7 minutes.
 - 10 promotions failed the walk on the settling host and were rolled back after 35 to 325 s. None reached a second
   host. Two more on 2026-11-11, after the mirror, failed on the wording of the launch probe's answer, not on a

@@ -1,5 +1,5 @@
 use super::history::State;
-use super::registry::{Bound, Class, Goal};
+use super::registry::{Bound, Class, Concern};
 
 const DAY: f64 = 86_400.0;
 const HOUR: i64 = 3_600;
@@ -55,13 +55,13 @@ struct Line {
 }
 
 impl Line {
-    fn of(goal: &Goal) -> Self {
-        let down_is_better = matches!(goal.bound, Bound::Max(_));
-        let red_at = match goal.class {
-            Class::Debt => goal.debt.as_ref().map(|debt| debt.ceiling),
-            Class::Contract | Class::Ready => Some(goal.bound.limit()),
+    fn of(concern: &Concern) -> Self {
+        let down_is_better = matches!(concern.bound, Bound::Max(_));
+        let red_at = match concern.class {
+            Class::Debt => concern.debt.as_ref().map(|debt| debt.ceiling),
+            Class::Contract | Class::Ready => Some(concern.bound.limit()),
         };
-        Self { down_is_better, red_at, target: goal.bound.limit() }
+        Self { down_is_better, red_at, target: concern.bound.limit() }
     }
 
     fn worse(&self, slope: f64) -> bool {
@@ -77,8 +77,8 @@ impl Line {
     }
 }
 
-pub fn judge(goal: &Goal, current: f64, history: &[Point], now: i64) -> Judged {
-    let line = Line::of(goal);
+pub fn judge(concern: &Concern, current: f64, history: &[Point], now: i64) -> Judged {
+    let line = Line::of(concern);
     let magnitude = line.red_at.unwrap_or(line.target).abs();
     let fits = WINDOWS.map(|window| fit(history, now, &window, magnitude));
     let [twelve, day, week] = fits;
@@ -96,7 +96,7 @@ pub fn judge(goal: &Goal, current: f64, history: &[Point], now: i64) -> Judged {
             if long.is_some_and(|fit| line.worse(fit.slope)) { State::Drifting } else { State::Green }
         }
     };
-    Judged { state, meets: goal.bound.holds(current), fits }
+    Judged { state, meets: concern.bound.holds(current), fits }
 }
 
 pub fn settle(shown: State, last: State, now: State) -> State {

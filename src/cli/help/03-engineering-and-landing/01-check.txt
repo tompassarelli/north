@@ -1,2 +1,2 @@
 check
-Citations, goals, boxes, nix, provenance, privacy, the harness
+Citations, boxes, nix, provenance, privacy, the harness

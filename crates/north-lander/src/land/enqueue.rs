@@ -177,11 +177,11 @@ fn published(root: &Path, branch: &str, destination: &str) -> Option<String> {
     (name != destination && name != branch).then(|| name.to_owned())
 }
 
-/// Why the lane goes first: it touches a path that pays a debt goal reading over its ceiling in the base'"'"'s goals.toml.
+/// Why the lane goes first: it touches a path that pays a debt goal reading over its ceiling in the base'"'"'s concerns.toml.
 fn pays_debt(root: &Path, base: &str, head: &str) -> Option<String> {
-    let registry = git(root, &["show", &format!("{base}:{}", north_goals::registry::PATH)]).ok()?;
+    let registry = git(root, &["show", &format!("{base}:{}", north_concerns::registry::PATH)]).ok()?;
     let changed: Vec<String> = git(root, &["diff", "--name-only", &format!("{base}..{head}")]).ok()?.lines().map(str::to_owned).collect();
-    north_goals::ceiling::paid(root, &registry, &changed).ok()?.into_iter().next()
+    north_concerns::ceiling::paid(root, &registry, &changed).ok()?.into_iter().next()
 }
 
 type Marks = (Option<RedFix>, Option<String>, Option<String>);
