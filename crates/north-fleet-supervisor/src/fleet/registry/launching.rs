@@ -3,7 +3,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::claims;
+use crate::fleet::{brief_files, claims};
 use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
@@ -109,7 +109,8 @@ impl Fleet {
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
-        self.deliver_first_turn(record, account, &request.prompt)
+        let prompt = if request.role() == Role::Worker && request.resume.is_none() { brief_files::shown(&request.prompt, &request.cwd, request.machine.as_ref()) } else { request.prompt.clone() };
+        self.deliver_first_turn(record, account, &prompt)
     }
 
     /// Ends the host of a failed launch and removes its directory however far the launch got, so a host slow to show its provider's exit leaves nothing under the name; renaming it away first means a watchdog racing on the name cannot leave it half removed.
