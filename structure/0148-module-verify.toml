@@ -2,5 +2,5 @@
 name = "verify"
 paths = ["src/bin/verify_north/**"]
 responsibility = "verify-north: build north, then walk the spine (brief, worker, landed commit, ledger row) on a scratch repository and clean up."
-may_use = ["lifecycle"]
+may_use = ["lifecycle", "build_system"]
 

@@ -4,7 +4,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::Plan;
-use crate::platform::process;
+use north_build_system::{Invocation, Resolution, Selection, Shell, Step, Tests};
 
 pub struct Metadata {
     pub libs: BTreeMap<String, String>,
@@ -13,8 +13,9 @@ pub struct Metadata {
 
 impl Metadata {
     pub fn read(plan: &Plan) -> Result<Metadata, String> {
-        let output = cargo(plan, &["metadata", "--format-version", "1"])?;
-        let json: Value = serde_json::from_slice(&output).map_err(|error| format!("cargo metadata: {error}"))?;
+        let builder = north_build_system::here();
+        let output = succeeded(builder.dependency_graph(&plan.root, Shell::Inherited, Resolution::OPEN))?;
+        let json: Value = serde_json::from_slice(&output).map_err(|error| format!("the package graph: {error}"))?;
         let mut metadata = Metadata { libs: BTreeMap::new(), crates: BTreeMap::new() };
         let crates_dir = plan.root.join("crates");
         for package in json["packages"].as_array().into_iter().flatten() {
@@ -35,38 +36,34 @@ impl Metadata {
     }
 }
 
-pub fn cargo(plan: &Plan, arguments: &[&str]) -> Result<Vec<u8>, String> {
-    let output = run(plan, arguments)?;
+fn run(invocation: &Invocation) -> Result<std::process::Output, String> {
+    invocation.command().output().map_err(|error| format!("{}: {error}", invocation.words.join(" ")))
+}
+
+fn succeeded(invocation: Invocation) -> Result<Vec<u8>, String> {
+    let output = run(&invocation)?;
     if !output.status.success() {
-        return Err(format!("cargo {}: {}", arguments.join(" "), tail(&output.stderr)));
+        return Err(format!("{}: {}", invocation.words.join(" "), tail(&output.stderr)));
     }
     Ok(output.stdout)
 }
 
-fn run(plan: &Plan, arguments: &[&str]) -> Result<std::process::Output, String> {
-    let mut arguments = arguments.iter().map(|argument| argument.to_string()).collect::<Vec<_>>();
-    if let Some(target) = &plan.target_dir
-        && arguments.first().is_some_and(|verb| verb != "metadata")
-    {
-        arguments.extend(["--target-dir".to_string(), target.to_string_lossy().into_owned()]);
-    }
-    process::run("cargo", Some(&plan.root), &arguments).map_err(|error| format!("cargo: {error}"))
-}
-
 pub fn check(plan: &Plan) -> Result<(bool, Vec<Value>), String> {
-    let output = run(plan, &["check", "-p", &plan.to, "--all-targets", "--keep-going", "--offline", "--message-format=json"])?;
+    let output = run(&north_build_system::here().check(&plan.root, &plan.to, plan.target_dir.as_deref()))?;
     let messages = String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).collect::<Vec<_>>();
     let success = messages.iter().any(|message| message["reason"] == "build-finished" && message["success"] == true);
     if !success && !messages.iter().any(|message| message["reason"] == "compiler-message") {
-        return Err(format!("cargo check -p {}: {}", plan.to, tail(&output.stderr)));
+        return Err(format!("type-checking {}: {}", plan.to, tail(&output.stderr)));
     }
     let diagnostics = messages.into_iter().filter(|message| message["reason"] == "compiler-message").map(|message| message["message"].clone()).collect();
     Ok((success, diagnostics))
 }
 
 pub fn verify(plan: &Plan) -> Result<(), String> {
-    cargo(plan, &["test", "--workspace", "--no-run", "--offline"])?;
-    cargo(plan, &["test", "-p", &plan.to, "--offline"])?;
+    let builder = north_build_system::here();
+    let tests = |step, selection| Tests { root: &plan.root, step, selection, resolution: Resolution::OFFLINE, shell: Shell::Inherited, output: plan.target_dir.as_deref(), uncached: false, coverage: None };
+    succeeded(builder.tests(&tests(Step::Compile, Selection::Workspace)))?;
+    succeeded(builder.tests(&tests(Step::Run { doctests: true, keep_going: false }, Selection::Package(plan.to.clone()))))?;
     Ok(())
 }
 

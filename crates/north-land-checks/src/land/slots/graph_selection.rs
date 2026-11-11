@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use north_build_system::{Resolution, Selection, Shell, Step};
+
 use serde::{Deserialize, Serialize};
 
 use super::guard_suites::Floor;
@@ -42,45 +44,19 @@ pub struct Listed {
 
 pub type ListedTests = BTreeMap<String, Listed>;
 
-#[derive(Deserialize)]
-struct Listing {
-    #[serde(rename = "rust-suites", default)]
-    suites: BTreeMap<String, Suite>,
-}
-
-#[derive(Deserialize)]
-struct Suite {
-    #[serde(rename = "binary-id")]
-    binary_id: String,
-    #[serde(rename = "package-name", default)]
-    package: String,
-    #[serde(default)]
-    testcases: BTreeMap<String, serde_json::Value>,
-}
-
-/// Every test `cargo nextest list` finds at `root`, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell `cargo` is only the capacity shim. An unbuilt or unlistable tree lists nothing, so the selection falls back to the crate closure.
+/// Every test this host's build system lists at `root`, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell the tool is only the capacity shim. An unbuilt or unlistable tree lists nothing, so the selection falls back to the crate closure.
 pub fn list(root: &Path) -> ListedTests {
-    if !root.join("Cargo.toml").is_file() {
+    let builder = north_build_system::here();
+    if !builder.governs(root) {
         return BTreeMap::new();
     }
-    let shell = root.join("bin/land-shell");
-    let mut command = if shell.is_file() {
-        let mut command = Command::new(&shell);
-        command.args(["--dev", "--", "cargo"]);
-        command
-    } else {
-        Command::new("cargo")
+    let request = north_build_system::Tests { root, step: Step::List, selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::LandShell, output: Some(Path::new("target")), uncached: false, coverage: None };
+    let output = builder.tests(&request).command().stdin(Stdio::null()).stderr(Stdio::null()).output();
+    let binaries = match output {
+        Ok(output) if output.status.success() => builder.listing(&String::from_utf8_lossy(&output.stdout)).unwrap_or_default(),
+        _ => Vec::new(),
     };
-    let output = command.args(["nextest", "list", "--workspace", "--locked", "--offline", "--message-format", "json"]).env("CARGO_TARGET_DIR", "target").current_dir(root).stdin(Stdio::null()).stderr(Stdio::null()).output();
-    match output {
-        Ok(output) if output.status.success() => listing(&String::from_utf8_lossy(&output.stdout)),
-        _ => BTreeMap::new(),
-    }
-}
-
-fn listing(json: &str) -> ListedTests {
-    let Some(listing) = json.lines().filter_map(|line| serde_json::from_str::<Listing>(line).ok()).find(|listing| !listing.suites.is_empty()) else { return BTreeMap::new() };
-    listing.suites.into_values().map(|suite| (suite.binary_id, Listed { package: suite.package, tests: suite.testcases.into_keys().collect() })).filter(|(_, listed)| !listed.tests.is_empty()).collect()
+    binaries.into_iter().map(|binary| (binary.id, Listed { package: binary.package, tests: binary.tests })).filter(|(_, listed)| !listed.tests.is_empty()).collect()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

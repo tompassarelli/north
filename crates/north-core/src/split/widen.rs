@@ -5,7 +5,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::scan::{declared_module, rust_files};
-use super::{Plan, cargo};
+use super::{Plan, build};
 
 const CODES: &[&str] = &["E0603", "E0624", "E0616", "E0432", "E0433", "E0425", "E0412", "E0422", "E0423", "E0531", "private_interfaces"];
 const ROUNDS: usize = 12;
@@ -20,7 +20,7 @@ pub struct Widened {
 pub fn until_clean(plan: &Plan) -> Result<Widened, String> {
     let mut result = Widened::default();
     for _ in 0..ROUNDS {
-        let (success, diagnostics) = cargo::check(plan)?;
+        let (success, diagnostics) = build::check(plan)?;
         if success {
             return Ok(result);
         }
@@ -31,10 +31,10 @@ pub fn until_clean(plan: &Plan) -> Result<Widened, String> {
             changed |= edit(plan, file, *line, &gated, &mut result)?;
         }
         if !changed {
-            return Err(format!("cargo check -p {} fails with nothing left to widen:\n{}", plan.to, rendered(&diagnostics)));
+            return Err(format!("type-checking {} fails with nothing left to widen:\n{}", plan.to, rendered(&diagnostics)));
         }
     }
-    Err(format!("cargo check -p {} still fails after {ROUNDS} widening rounds", plan.to))
+    Err(format!("type-checking {} still fails after {ROUNDS} widening rounds", plan.to))
 }
 
 fn rendered(diagnostics: &[Value]) -> String {

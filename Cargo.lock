@@ -949,6 +949,7 @@ dependencies = [
  "fancy-regex",
  "north-base",
  "north-broker",
+ "north-build-system",
  "north-calibration",
  "north-capacity",
  "north-capacity-host",
@@ -1041,6 +1042,18 @@ dependencies = [
  "percent-encoding",
  "ring",
  "rustix 0.38.44",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-build-system"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -1188,6 +1201,7 @@ version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "north-base",
+ "north-build-system",
  "north-claude-stream",
  "north-fleet-supervisor",
  "north-git-locks",
@@ -1214,6 +1228,7 @@ name = "north-coverage"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-build-system",
  "serde",
  "serde_json",
  "sha2",
@@ -1486,6 +1501,7 @@ name = "north-land-checks"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-build-system",
  "north-coverage",
  "north-diff-gates",
  "north-landing-gates",
@@ -1518,6 +1534,7 @@ name = "north-land-scans"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-build-system",
  "north-cli-reference",
  "north-diff-gates",
  "north-github-mirror",

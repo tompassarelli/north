@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::fs;
 
-use super::cargo::Metadata;
+use super::build::Metadata;
 use super::scan::{self, Sources};
 use super::{Dependency, Module, Outcome, Plan};
 

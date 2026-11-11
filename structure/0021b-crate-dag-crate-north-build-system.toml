@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-build-system"
+paths = ["crates/north-build-system/src/**"]
+may_use = ["north-base"]
+

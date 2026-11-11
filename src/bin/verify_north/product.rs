@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use north_build_system::{Build, Profile, Resolution, Shell};
+
 use super::exec;
 use super::notes::Notes;
 
@@ -44,26 +46,19 @@ fn admitting_north() -> PathBuf {
 }
 
 pub fn build(root: &Path, notes: &Notes) -> Result<PathBuf, String> {
+    let builder = north_build_system::here();
+    let request = Build { root, profile: Profile::Dev, binary: Some("north"), jobs: None, resolution: Resolution::OFFLINE, shell: Shell::NixDevelop, output: None, uncached: false, timings: false };
+    let invocation = builder.build(&request);
     let mut command = Command::new(admitting_north());
-    command
-        .args(["capacity", "host", "run", "--owner", "verify-north", "--timeout-seconds", &BUILD_WAIT.as_secs().to_string(), "--"])
-        .args(["nix", "develop", "-c", "cargo", "build", "--offline", "--bin", "north"])
-        .current_dir(root);
+    command.args(["capacity", "host", "run", "--owner", "verify-north", "--timeout-seconds", &BUILD_WAIT.as_secs().to_string(), "--"]).args(&invocation.words);
+    invocation.environ(&mut command);
     let output = exec::output(command, BUILD_WAIT + QUERY_WAIT, Some(notes))?;
     let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    let binary = target_directory(root).join("debug/north");
-    if !output.status.success() || !log.contains("Finished") || !binary.is_file() {
+    let binary = builder.built(&request, "north");
+    if !output.status.success() || !builder.finished(&log) || !binary.is_file() {
         let lines: Vec<&str> = log.lines().collect();
         let tail = lines[lines.len().saturating_sub(LOG_TAIL)..].join("\n");
-        return Err(format!("cargo build exited {} without a fresh {}; output ends:\n{tail}", output.status.code().unwrap_or(-1), binary.display()));
+        return Err(format!("the build exited {} without a fresh {}; output ends:\n{tail}", output.status.code().unwrap_or(-1), binary.display()));
     }
     Ok(binary)
-}
-
-fn target_directory(root: &Path) -> PathBuf {
-    match std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from) {
-        Some(directory) if directory.is_absolute() => directory,
-        Some(directory) => root.join(directory),
-        None => root.join("target"),
-    }
 }

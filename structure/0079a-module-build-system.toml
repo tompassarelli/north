@@ -1,0 +1,6 @@
+[[module]]
+name = "build_system"
+paths = ["crates/north-build-system/src/**"]
+responsibility = "The one interface north builds, lists and runs Rust tests, type-checks and mutates a workspace through, with its Cargo and Buck2 sides and the per-host choice between them."
+may_use = ["crate-roots", "platform", "platform.host", "platform.harness"]
+

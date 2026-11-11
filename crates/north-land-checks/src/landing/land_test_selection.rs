@@ -232,7 +232,7 @@ fn unreached(root: &Path, rust: &[String]) -> Result<BTreeMap<String, Vec<String
     if reach.is_empty() {
         return Ok(BTreeMap::new());
     }
-    let metadata = match north_base::platform::cargo_metadata::no_deps(root) {
+    let metadata = match north_build_system::here().workspace(root) {
         Ok(metadata) => metadata,
         Err(error) => {
             eprintln!("land check: {error}; every test in {RUST_REACH} runs for this Rust change");

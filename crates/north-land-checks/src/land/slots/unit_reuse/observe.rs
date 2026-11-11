@@ -8,6 +8,7 @@ use north_base::verdict_cache::fingerprint::{self, Artifacts, Tree, Weak};
 use north_base::verdict_cache::path_set::{self, Entry};
 use north_base::verdict_cache::{Pass, Store, set_id};
 use north_base::foundation::carry::{self, Boundary};
+use north_build_system::{Resolution, Shell};
 
 use super::lines::Record;
 use super::outcome::{Outcome, parse};
@@ -58,12 +59,7 @@ fn rustc_identity(target: &Path) -> String {
 }
 
 fn metadata(root: &Path) -> Option<String> {
-    let shell = root.join("bin/land-shell");
-    let mut command = if shell.is_file() { Command::new(shell) } else { Command::new("cargo") };
-    if command.get_program() != "cargo" {
-        command.args(["--dev", "--", "cargo"]);
-    }
-    let mut child = command.args(["metadata", "--format-version", "1", "--locked", "--offline"]).current_dir(root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut child = north_build_system::here().dependency_graph(root, Shell::LandShell, Resolution::PINNED).command().stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
     let mut stdout = child.stdout.take()?;
     let reader = std::thread::spawn(move || {
         let mut text = String::new();

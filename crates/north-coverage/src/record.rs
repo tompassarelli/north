@@ -5,28 +5,14 @@ use std::process::Command;
 
 use serde::Deserialize;
 
+use north_build_system::{BuildSystem, Coverage, Resolution, Selection, Shell, Step, Tests};
+
 use crate::exec::{FAILED, TOOLS_ENV, WORK_ENV, Work};
 use crate::map::{Function, Index, Map, Test};
 
 pub const MAP_LINE: &str = "north-coverage-map ";
 const SUITE: [&str; 5] = ["--workspace", "--lib", "--bins", "--test", "it"];
 const TARGET: &str = "target/coverage";
-
-#[derive(Deserialize)]
-struct Listing {
-    #[serde(rename = "rust-suites")]
-    binaries: BTreeMap<String, Binary>,
-}
-
-#[derive(Deserialize)]
-struct Binary {
-    #[serde(rename = "binary-id")]
-    id: String,
-    #[serde(rename = "binary-path")]
-    path: String,
-    #[serde(default)]
-    testcases: BTreeMap<String, serde_json::Value>,
-}
 
 #[derive(Deserialize)]
 struct Export {
@@ -80,14 +66,16 @@ fn record(arguments: &[String]) -> Result<Map, String> {
         std::fs::create_dir_all(&directory).map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
     }
     let commit = git(&root, &["rev-parse", "HEAD"])?;
-    let listing = nextest(&root, &tools, &work, &[&["list", "--message-format", "json"][..], &suite.iter().map(String::as_str).collect::<Vec<_>>()].concat(), false)?;
-    let listing: Listing = serde_json::from_slice(&listing.stdout).map_err(|error| format!("cannot read nextest's listing: {error}"))?;
-    let ran = nextest(&root, &tools, &work, &[&["run", "--no-fail-fast"][..], &suite.iter().map(String::as_str).collect::<Vec<_>>()].concat(), true)?;
+    let builder = north_build_system::here();
+    let suite = Selection::Typed(suite);
+    let listing = tests(builder.as_ref(), (&root, &tools, &work), Step::List, &suite, false)?;
+    let listing = builder.listing(&String::from_utf8_lossy(&listing.stdout)).map_err(|error| format!("cannot read the test listing: {error}"))?;
+    let ran = tests(builder.as_ref(), (&root, &tools, &work), Step::Run { doctests: false, keep_going: true }, &suite, true)?;
     if !ran.status.success() {
         eprintln!("north test coverage record: some tests failed; their reach is still recorded, and the map names them for north land missed");
     }
-    let listed = listing.binaries.values().map(|binary| binary.testcases.len()).sum::<usize>();
-    let binaries: HashMap<String, String> = listing.binaries.into_values().map(|binary| (binary.path, binary.id)).collect();
+    let listed = listing.iter().map(|binary| binary.tests.len()).sum::<usize>();
+    let binaries: HashMap<String, String> = listing.into_iter().map(|binary| (binary.path.display().to_string(), binary.id)).collect();
     let mut objects: Vec<PathBuf> = binaries.keys().map(PathBuf::from).collect();
     objects.extend(executables(&root.join(TARGET).join("debug")));
     let spans = spans(&root, &tools, &work, &objects)?;
@@ -126,19 +114,22 @@ fn git(root: &Path, arguments: &[&str]) -> Result<String, String> {
     command_text(Command::new("git").arg("-C").arg(root).args(arguments)).map(|text| text.trim().to_owned())
 }
 
-fn nextest(root: &Path, tools: &Path, work: &Work, arguments: &[&str], reads: bool) -> Result<std::process::Output, String> {
+fn tests(builder: &dyn BuildSystem, (root, tools, work): (&Path, &Path, &Work), step: Step, suite: &Selection, reads: bool) -> Result<std::process::Output, String> {
     let north = std::env::current_exe().map_err(|error| format!("cannot find this north: {error}"))?;
     let flags = format!("{} -C instrument-coverage", std::env::var("RUSTFLAGS").unwrap_or_default()).trim().to_owned();
     let runner = match reads {
         true => format!("{} land sandbox exec --record {} --tree {} --exec-log -- {} test coverage exec", north.display(), work.records().display(), root.display(), north.display()),
         false => format!("{} test coverage exec", north.display()),
     };
-    let mut command = Command::new("cargo");
-    command.current_dir(root).args(["nextest"]).args(arguments).args(["--locked", "--offline"]);
-    command.env("CARGO_TARGET_DIR", root.join(TARGET)).env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "llvm").env("RUSTFLAGS", flags);
-    command.env("CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER", runner).env(WORK_ENV, &work.root).env(TOOLS_ENV, tools);
-    let output = if arguments.first() == Some(&"list") { command.output() } else { command.status().map(|status| std::process::Output { status, stdout: Vec::new(), stderr: Vec::new() }) };
-    output.map_err(|error| format!("cargo nextest: {error}"))
+    let listing = step == Step::List;
+    let coverage = Coverage { runner: &runner, rustflags: &flags };
+    let output = root.join(TARGET);
+    let request = Tests { root, step, selection: suite.clone(), resolution: Resolution::PINNED, shell: Shell::Inherited, output: Some(&output), uncached: false, coverage: Some(coverage) };
+    let invocation = builder.tests(&request);
+    let mut command = invocation.command();
+    command.env(WORK_ENV, &work.root).env(TOOLS_ENV, tools);
+    let output = if listing { command.output() } else { command.status().map(|status| std::process::Output { status, stdout: Vec::new(), stderr: Vec::new() }) };
+    output.map_err(|error| format!("{}: {error}", invocation.words.join(" ")))
 }
 
 fn executables(directory: &Path) -> Vec<PathBuf> {

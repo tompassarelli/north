@@ -15,6 +15,7 @@ use north_base::platform::records_mirror::state_home;
 use north_base::foundation::exit::NO_VERDICT;
 use north_base::foundation::offload::{SLOT_ENV, TIPS_ENV};
 use north_base::platform::orchestration;
+use north_build_system::{MutantStep, Mutants};
 
 pub const USAGE: &str = "usage: north land scan test-admission kills [--host NAME] [--remote-north COMMAND] BASE..HEAD\n       north land scan test-admission kills --here BASE..HEAD";
 const SHIP_SECONDS: u64 = 900;
@@ -247,8 +248,12 @@ fn on_this_host(directory: &Path, lane: &Lane, out: &mut impl Write) -> u8 {
     if let Err(error) = fs::create_dir_all(&work).and_then(|()| fs::write(work.join("lane.diff"), diff)) {
         return unavailable(out, &format!("{}: {error}", work.display()));
     }
-    let in_diff = ["--in-diff".to_owned(), work.join("lane.diff").display().to_string()];
-    let listed = Command::new("cargo").current_dir(&top).args(["mutants", "--workspace", "--list"]).args(&in_diff).stdin(Stdio::null()).stderr(Stdio::inherit()).output();
+    let in_diff = work.join("lane.diff");
+    let lister = match north_build_system::here().mutants(&Mutants { root: &top, diff: &in_diff, step: MutantStep::List }) {
+        Ok(lister) => lister,
+        Err(why) => return unavailable(out, &why),
+    };
+    let listed = lister.command().stdin(Stdio::null()).stderr(Stdio::inherit()).output();
     let total = match listed {
         Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).lines().filter(|line| !line.trim().is_empty()).count(),
         _ => return unavailable(out, "cargo mutants --list failed; run it inside the repository's dev shell"),
@@ -311,14 +316,13 @@ fn judge(work: &Path, lane: &Lane, end: &End, tally: Tally, out: &mut impl Write
     }
 }
 
-fn mutate(top: &Path, work: &Path, lane: &Lane, in_diff: &[String], cap: u64) -> std::io::Result<End> {
+fn mutate(top: &Path, work: &Path, lane: &Lane, in_diff: &Path, cap: u64) -> std::io::Result<End> {
     let log = fs::File::create(work.join("runner.log"))?;
-    let mut command = Command::new("cargo");
-    command.current_dir(top).args(["mutants", "--workspace", "--in-place", "--no-shuffle", "--output"]).arg(work).args(in_diff);
-    for package in packages(top, &lane.files) {
-        command.args(["--test-package", &package]);
-    }
-    command.args(["--", "--tests", "--"]).args(&lane.names).stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log);
+    let (packages, tests) = (packages(top, &lane.files).into_iter().collect::<Vec<_>>(), lane.names.iter().cloned().collect::<Vec<_>>());
+    let step = MutantStep::Run { output: work, packages: &packages, tests: &tests };
+    let runner = north_build_system::here().mutants(&Mutants { root: top, diff: in_diff, step }).map_err(std::io::Error::other)?;
+    let mut command = runner.command();
+    command.stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log);
     let mut child = command.spawn()?;
     let deadline = Instant::now() + Duration::from_secs(cap);
     let kills = [work.join("mutants.out/caught.txt"), work.join("mutants.out/timeout.txt")];
@@ -353,7 +357,7 @@ fn stop(child: &mut Child) {
     let _ = child.wait();
 }
 
-fn beside_tests(top: &Path, lane: &Lane, work: &Path) -> Option<[String; 2]> {
+fn beside_tests(top: &Path, lane: &Lane, work: &Path) -> Option<PathBuf> {
     let near: BTreeSet<String> = lane.files.iter().flat_map(|file| {
         let path = Path::new(file);
         let parent = path.parent().unwrap_or(Path::new(""));
@@ -369,7 +373,7 @@ fn beside_tests(top: &Path, lane: &Lane, work: &Path) -> Option<[String; 2]> {
     let near: Vec<&str> = changed.lines().filter(|path| near.contains(*path)).collect();
     let diff = git::bytes(top, &[&["diff", "--no-color", "--no-ext-diff", &lane.base, &lane.head, "--"][..], &near].concat()).filter(|diff| !near.is_empty() && !diff.is_empty())?;
     fs::write(work.join("near.diff"), diff).ok()?;
-    Some(["--in-diff".to_owned(), work.join("near.diff").display().to_string()])
+    Some(work.join("near.diff"))
 }
 
 fn restore(top: &Path) {

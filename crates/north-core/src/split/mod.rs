@@ -1,4 +1,4 @@
-mod cargo;
+mod build;
 mod manifest;
 mod paths;
 mod rewrite;
@@ -116,7 +116,7 @@ pub fn move_modules(plan: &Plan) -> Result<Outcome, String> {
         return Ok(Outcome::default());
     }
     rewrite::refuse_back_edges(plan, &pending)?;
-    let metadata = cargo::Metadata::read(plan)?;
+    let metadata = build::Metadata::read(plan)?;
     let generated = manifest::generate(plan, &pending, &metadata)?;
     if plan.dry_run {
         return Ok(generated.outcome(pending.iter().map(|module| module.path.clone()).collect()));
@@ -134,7 +134,7 @@ pub fn move_modules(plan: &Plan) -> Result<Outcome, String> {
     let widened = widen::until_clean(plan)?;
     outcome.widened = widened.widened;
     outcome.test_items = widened.test_items;
-    cargo::verify(plan)?;
+    build::verify(plan)?;
     Ok(outcome)
 }
 
