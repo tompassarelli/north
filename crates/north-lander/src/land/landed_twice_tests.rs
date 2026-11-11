@@ -39,6 +39,7 @@ fn a_lane_whose_patch_is_already_on_main_is_not_landed_again() {
     run(&repo, &["checkout", "-q", "-b", "lane"]);
     let landed = commit(&repo, "t", "one\n", "Admit a launch by its measured pressure", false);
     run(&repo, &["checkout", "-q", "main"]);
+    commit(&repo, "m", "m\n", "Another lane lands first", false);
     run(&repo, &["cherry-pick", &landed]);
     let carrier = run(&repo, &["rev-parse", "HEAD"]);
     run(&repo, &["checkout", "-q", "lane"]);

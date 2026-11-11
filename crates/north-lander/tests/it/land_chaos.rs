@@ -424,3 +424,26 @@ fn chaos_a_queued_lane_lands_while_the_sheriff_and_a_recovery_each_stall_five_mi
     isolated("land_chaos::chaos_a_queued_lane_lands_while_the_sheriff_and_a_recovery_each_stall_five_minutes", stalled_chores);
 }
 
+
+fn handed_in_with_nothing_committed(world: &World) {
+    let lander = world.lander();
+    let a = world.enqueue(&lander, &world.lane("a"));
+    drive(&lander, &mut Watch::default());
+    let old = run(&world.origin, &["rev-parse", "main~"]);
+    let root = world.root.join("proj/worktrees/uncommitted");
+    run(&world.main, &["worktree", "add", "-q", "-b", "uncommitted", root.to_str().unwrap(), &old]);
+    fs::write(root.join("README"), "the change never committed\n").unwrap();
+    fs::write(root.join("new.txt"), "untracked\n").unwrap();
+    let ticket = Ticket { origin: world.origin.display().to_string(), root: root.clone(), host: "laptop".into(), branch: "uncommitted".into(), head: old, queued_at: "2026-11-12T02:07:00Z".into(), ..Default::default() };
+    let uncommitted = world.enqueue(&lander, &ticket);
+    drive(&lander, &mut Watch::default());
+    landed(&world.settled(&lander, &[&a]));
+    let verdict = queue::read(&lander.queue.join("done").join(&uncommitted.name)).unwrap().verdict.unwrap_or_default();
+    assert!(verdict.starts_with("failed "), "on 2026-11-12 a ticket whose head was an old main commit was answered with main's head as its landing: {verdict}");
+    assert_eq!((fs::read_to_string(root.join("README")).ok().as_deref(), root.join("new.txt").exists()), (Some("the change never committed\n"), true), "the lander removed a lane that still held uncommitted work");
+}
+
+#[test]
+fn chaos_a_ticket_that_adds_no_commit_to_main_is_never_landed_and_its_dirty_lane_is_kept() {
+    isolated("land_chaos::chaos_a_ticket_that_adds_no_commit_to_main_is_never_landed_and_its_dirty_lane_is_kept", handed_in_with_nothing_committed);
+}

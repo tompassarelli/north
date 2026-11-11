@@ -180,7 +180,10 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     let cherry = git(worktree, &["cherry", base, &ticket.head])?;
     case.unlanded = Some(cherry.lines().any(|line| line.starts_with('+')));
     if case.unlanded == Some(false) {
-        return Ok(Pick::Decided(format!("landed {}", carrier(worktree, base, &ticket.head).unwrap_or_else(|| base.to_owned()))));
+        return match carrier(worktree, base, &ticket.head) {
+            Some(commit) => Ok(Pick::Decided(format!("landed {commit}"))),
+            None => refuse(logs, name, "nothing-to-land", &format!("nothing to land: {} is already on main@{base} and adds no commit to it; commit the lane's change and run safe-push again; NOT landed.", ticket.head)),
+        };
     }
     let plus: HashSet<&str> = cherry.lines().filter_map(|line| line.strip_prefix("+ ")).collect();
     if let Some(landed) = landed_twice(worktree, base, &ticket.head, &plus)? {
