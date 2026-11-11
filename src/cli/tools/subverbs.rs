@@ -62,7 +62,7 @@ const LANE: &[(&str, Run)] = &[
     ("reclaim", crate::ops::reclaim::run),
     ("remove", |arguments| outside_the_sandbox("lane", "remove", crate::lanes::remove, arguments)),
     ("rescue", crate::lanes::wt_rescue),
-    ("seed", crate::lanes::target_seed),
+    ("seed", |arguments| crate::lanes::target_seed(arguments, builds_with_buck2())),
     ("stray", |arguments| outside_the_sandbox("lane", "stray", crate::lanes::stray, arguments)),
     ("squash", lane_squash::run),
     ("sync", |arguments| outside_the_sandbox("lane", "sync", crate::agent_catalog::sync_gate::sync_checkouts, arguments)),
@@ -71,6 +71,10 @@ const LANE: &[(&str, Run)] = &[
 ];
 
 const HOME: &[(&str, Run)] = &[("move", |arguments| outside_the_sandbox("home", "move", crate::lanes::home_move, arguments))];
+
+fn builds_with_buck2() -> bool {
+    crate::platform::orchestration::read().is_ok_and(|cfg| crate::platform::orchestration::builds_with_buck2(&cfg, &crate::platform::host::name()))
+}
 
 fn outside_the_sandbox(noun: &str, verb: &str, run: Run, arguments: &[String]) -> u8 {
     let words: Vec<String> = [noun, verb].into_iter().map(str::to_owned).chain(arguments.iter().cloned()).collect();

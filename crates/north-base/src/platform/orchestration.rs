@@ -55,6 +55,11 @@ pub fn build_hosts(cfg: &DocumentMut) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Whether `[hosts.HOST]` builds north with Buck2 (`build_tool = "buck2"`); a host without the key builds with Cargo.
+pub fn builds_with_buck2(cfg: &DocumentMut, host: &str) -> bool {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get("build_tool")?.as_str()) == Some("buck2")
+}
+
 /// Every repo of a project with `paused = true`, its `repos` and `dispatch_repos` both.
 pub fn set_aside_repos(cfg: &DocumentMut) -> Vec<String> {
     let listed = |item: Option<&Item>| item.and_then(Item::as_array).into_iter().flatten().filter_map(|value| value.as_str().map(str::to_owned)).collect::<Vec<_>>();

@@ -13,7 +13,9 @@ use super::target_subvolume;
 const USAGE: &str = "usage: north lane seed [DIR]";
 const HASH_LEN: usize = 16;
 const BUILD_LOCKS: [&str; 2] = [".cargo-lock", ".cargo-build-lock"];
-const STAGING_PREFIX: &str = "target.seeding-";
+const STAGING_MARK: &str = ".seeding-";
+const OUTPUTS: [&str; 2] = ["target", BUCK_OUT];
+const BUCK_OUT: &str = "buck-out";
 const DEAD_SEED_AGE: Duration = Duration::from_secs(3600);
 
 pub struct DeadSeed {
@@ -44,7 +46,7 @@ impl Drop for Staging {
     }
 }
 
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], buck2: bool) -> u8 {
     let here = match arguments {
         [] => std::env::current_dir().unwrap_or_default(),
         [dir] => PathBuf::from(dir),
@@ -53,6 +55,12 @@ pub fn run(arguments: &[String]) -> u8 {
             return 64;
         }
     };
+    if buck2 {
+        if let Err(error) = buck_out(&here) {
+            eprintln!("lane seed: {error}; this checkout's build output goes into home snapshots");
+        }
+        return 0;
+    }
     if std::env::var_os("CARGO_TARGET_DIR").is_some_and(|dir| !dir.is_empty() && !own_target(&here, Path::new(&dir))) {
         return 0;
     }
@@ -65,7 +73,7 @@ fn seed_or_build_cold(here: &Path) -> u8 {
         Ok(None) => {}
         Err(error) => eprintln!("lane seed: {error}; this checkout builds without a seed"),
     }
-    if let Err(error) = fresh_target(here) {
+    if let Err(error) = workspace_root(here).map_or(Ok(()), |workspace| fresh_output(&workspace, "target", Some(target_subvolume::CACHEDIR_TAG))) {
         eprintln!("lane seed: {error}; this checkout's build output goes into home snapshots");
     }
     0
@@ -99,7 +107,7 @@ pub fn seed(here: &Path) -> io::Result<Option<PathBuf>> {
     else {
         return Ok(None);
     };
-    let staging = Staging::new(workspace.join(format!("{STAGING_PREFIX}{}", std::process::id())));
+    let staging = Staging::new(workspace.join(format!("target{STAGING_MARK}{}", std::process::id())));
     target_subvolume::target_dir(&staging.path)?;
     let seeded = copy(&from, &staging.path).and_then(|()| {
         File::open(&staging.path)?.set_modified(SystemTime::now())?;
@@ -113,19 +121,27 @@ pub fn seed(here: &Path) -> io::Result<Option<PathBuf>> {
     Ok(Some(from))
 }
 
-fn fresh_target(here: &Path) -> io::Result<()> {
-    let Some(workspace) = workspace_root(here) else { return Ok(()) };
-    let target = workspace.join("target");
-    if target.exists() || !target_subvolume::on_btrfs(&workspace) {
+fn fresh_output(root: &Path, name: &str, tag: Option<&str>) -> io::Result<()> {
+    let output = root.join(name);
+    if output.exists() || !target_subvolume::on_btrfs(root) {
         return Ok(());
     }
-    let staging = Staging::new(workspace.join(format!("{STAGING_PREFIX}{}", std::process::id())));
+    let staging = Staging::new(root.join(format!("{name}{STAGING_MARK}{}", std::process::id())));
     target_subvolume::target_dir(&staging.path)?;
-    fs::write(staging.path.join("CACHEDIR.TAG"), target_subvolume::CACHEDIR_TAG)?;
-    if fs::rename(&staging.path, &target).is_ok() {
+    if let Some(tag) = tag {
+        fs::write(staging.path.join("CACHEDIR.TAG"), tag)?;
+    }
+    if fs::rename(&staging.path, &output).is_ok() {
         staging.keep();
     }
     Ok(())
+}
+
+fn buck_out(here: &Path) -> io::Result<()> {
+    match here.ancestors().filter(|dir| dir.join(".buckconfig").is_file()).last() {
+        Some(root) => fresh_output(root, BUCK_OUT, None),
+        None => Ok(()),
+    }
 }
 
 pub fn reclaim_dead_seeds(code: &Path, proc_root: &Path, now: SystemTime, dry_run: bool) -> Vec<DeadSeed> {
@@ -148,7 +164,8 @@ fn seed_dirs(checkout: &Path, now: SystemTime) -> Vec<(u32, PathBuf, Duration)> 
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
         .filter_map(|entry| {
             let name = entry.file_name();
-            let pid = name.to_str()?.strip_prefix(STAGING_PREFIX)?.parse().ok()?;
+            let (output, pid) = name.to_str()?.split_once(STAGING_MARK)?;
+            let pid = pid.parse().ok().filter(|_| OUTPUTS.contains(&output))?;
             let age = entry.metadata().and_then(|metadata| metadata.modified()).ok().map_or(Duration::ZERO, |modified| now.duration_since(modified).unwrap_or_default());
             Some((pid, entry.path(), age))
         })
