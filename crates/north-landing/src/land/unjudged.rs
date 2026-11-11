@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use crate::land::bisect;
 use crate::land::lander::Lander;
-use crate::land::queue::{self, HandIn, Ticket};
+use crate::land::queue::{self, Ticket};
 use crate::land::records::{self, Candidate, Decision};
 use crate::land::scans::outgoing::denylist::{DenylistVerdict, Stand};
 use crate::land::telemetry::Stages;
@@ -69,8 +69,7 @@ fn judged(lander: &Lander, path: PathBuf, ticket: Ticket, base: &str, found: Den
     let judged = match found.stand {
         Stand::Pass => {
             println!("north land: the private-kind judge found nothing in {}; it joins the next batch", ticket.branch);
-            let hand_in = ticket.hand_in.map(|hand_in| HandIn { verdict_micros: hand_in.verdict_micros.or(Some(now.as_micros())), ..hand_in });
-            Ticket { alone_green: Some(ticket.head.clone()), alone_base: Some(base.to_owned()), unjudged_on: None, hand_in, ..ticket }
+            Ticket { alone_green: Some(ticket.head.clone()), alone_base: Some(base.to_owned()), unjudged_on: None, ..ticket }
         }
         Stand::Refuse => {
             let logs = lander.queue.join("logs");
@@ -82,12 +81,8 @@ fn judged(lander: &Lander, path: PathBuf, ticket: Ticket, base: &str, found: Den
             bisect::decide(&path, &ticket, refusal, Some(&log), base)?;
             return Ok(Judged::Decided);
         }
-        Stand::Judging if age(&ticket, now) < PATIENCE => {
-            found.lines.iter().for_each(|line| println!("{line}"));
-            return Ok(Judged::Judging((path, ticket)));
-        }
+        Stand::Judging if age(&ticket, now) < PATIENCE => return Ok(Judged::Judging((path, ticket))),
         Stand::Judging | Stand::NoVerdict => {
-            found.lines.iter().for_each(|line| println!("{line}"));
             println!("north land: the private-kind judge has no verdict on {}; its alone check judges it again", ticket.branch);
             Ticket { unjudged_on: None, ..ticket }
         }

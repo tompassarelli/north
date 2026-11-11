@@ -1,8 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::time::Duration;
-
-use north_base::foundation::exit::NO_VERDICT;
-use north_base::platform::private_text::ASKING_STATUS;
 
 use crate::platform::betterleaks;
 use crate::landing::step::{Refused, Step, git_read};
@@ -20,7 +16,6 @@ use self::native_ref::native_ref_scan;
 
 const BETTERLEAKS_MISSING: &str = "safe-push: betterleaks not on PATH — refusing to publish the land check branch without a secret scan; NOT pushed.";
 const SECRET_FOUND: &str = "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed.";
-pub const JUDGING: u8 = ASKING_STATUS as u8;
 
 pub fn secrets(dir: &Path, range: &str) -> Step {
     exit_status(betterleaks::command("betterleaks").current_dir(dir).args(betterleaks::history_args(range)).status())
@@ -62,36 +57,18 @@ pub enum Gate {
     Judging,
 }
 
-pub fn enqueue_secrets(root: &Path, (base, head): (&str, &str)) -> Result<(), String> {
+pub fn enqueue_gate(root: &Path, (base, head): (&str, &str), denylist: &Denylist, origin: &str, destination: &str, lander_waits: bool) -> Result<Gate, String> {
     if on_path("betterleaks") {
-        return secrets(root, &format!("{base}..{head}")).map_err(|_| "secret scan refused the landing".to_owned());
+        secrets(root, &format!("{base}..{head}")).map_err(|_| "secret scan refused the landing".to_owned())?;
+    } else {
+        println!("safe-push: ⚠ betterleaks is not on PATH here, so this lane was not scanned for secrets before queueing; the lander's scan stays the gate.");
     }
-    println!("safe-push: ⚠ betterleaks is not on PATH here, so this lane was not scanned for secrets before queueing; the lander's scan stays the gate.");
-    Ok(())
-}
-
-pub fn enqueue_gate(root: &Path, (base, head): (&str, &str), denylist: &Denylist, origin: &str, destination: &str) -> Result<Gate, String> {
-    match denylist.stand_at_once(root, origin, base, head, destination).map_err(|_| "deny-list scan refused the landing".to_owned())? {
+    let stand = if lander_waits { denylist.stand_at_once(root, origin, base, head, destination) } else { denylist.scan_stand(root, origin, base, head, destination) };
+    match stand.map_err(|_| "deny-list scan refused the landing".to_owned())? {
         Stand::Pass => Ok(Gate::Judged),
         Stand::NoVerdict => Ok(Gate::NoVerdict),
         Stand::Judging => Ok(Gate::Judging),
-        Stand::Refuse => unreachable!("stand_at_once returns a refusal as Err"),
-    }
-}
-
-fn private_kinds(dir: &Path, (base, head, reference): (&str, &str, &str), wait: Option<&str>) -> Step {
-    let wait = match wait.map(str::parse::<u64>) {
-        None => None,
-        Some(Ok(millis)) => Some(Duration::from_millis(millis)),
-        Some(Err(_)) => return Err(Refused(2)),
-    };
-    let verdict = Denylist::from_env().verdict_within(&top_level(dir)?, &origin_url(dir)?, (base, head, reference), wait);
-    verdict.lines.iter().for_each(|line| println!("{line}"));
-    match verdict.stand {
-        Stand::Pass => Ok(()),
-        Stand::Refuse => Err(Refused(1)),
-        Stand::Judging => Err(Refused(JUDGING)),
-        Stand::NoVerdict => Err(Refused(NO_VERDICT)),
+        Stand::Refuse => unreachable!("scan_stand returns a refusal as Err"),
     }
 }
 
@@ -120,8 +97,6 @@ fn dispatch(dir: &Path, command: &str, rest: &[String]) -> Option<Step> {
     let rest: Vec<&str> = rest.iter().map(String::as_str).collect();
     Some(match (command, rest.as_slice()) {
         ("denylist", [base, head, reference]) => denylist(dir, base, head, reference),
-        ("private-kinds", [base, head, reference]) => private_kinds(dir, (base, head, reference), None),
-        ("private-kinds", [base, head, reference, wait]) => private_kinds(dir, (base, head, reference), Some(wait)),
         ("commit-email", revisions) => commit_email_scan(dir, &revisions.iter().map(|revision| (*revision).to_owned()).collect::<Vec<_>>()),
         ("secrets", [range]) => secrets(dir, range),
         ("publication", [base, head]) => publication(dir, base, head),

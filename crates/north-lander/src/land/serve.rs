@@ -25,7 +25,6 @@ mod batch;
 mod handover;
 mod options;
 mod outbox;
-mod private_kinds;
 mod round;
 mod tickets;
 

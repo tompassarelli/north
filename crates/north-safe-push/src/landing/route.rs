@@ -89,7 +89,7 @@ fn ticket_arguments(request: &Arguments) -> Vec<String> {
     arguments
 }
 
-fn run(arguments: &[String], called_micros: u128) -> u8 {
+fn run(arguments: &[String]) -> u8 {
     let request = match request::arguments(arguments) {
         Ok(Plan::Help) => {
             println!("{USAGE}");
@@ -115,7 +115,7 @@ fn run(arguments: &[String], called_micros: u128) -> u8 {
                 eprintln!("safe-push: {reason}");
                 return 1;
             }
-            enqueue::run_called(&ticket_arguments(&request), called_micros)
+            enqueue::run(&ticket_arguments(&request))
         }
         Route::Refused(reason) => {
             eprintln!("safe-push: {reason}");
@@ -131,7 +131,7 @@ pub fn land(arguments: &[String], request: &Arguments, to: &str, shell: &Shell) 
         Ok(claims) => {
             timeline.announce();
             match fetch_destination(shell, to) {
-                Ok(Destination::Queue) => run(arguments, u128::from(timeline.started_ms()) * 1000),
+                Ok(Destination::Queue) => run(arguments),
                 Ok(Destination::EmptyOrigin) => return preflight::publish_root(request, to, shell, &claims.list, &mut timeline),
                 Err(Refused(code)) => code,
             }

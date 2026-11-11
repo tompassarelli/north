@@ -197,7 +197,6 @@ impl Repository {
             alone_unsettled: None,
             unjudged_on: None,
             gated_from: None,
-            hand_in: None,
             queued_micros: Some(micros),
         };
         queue::write(&self.queue.join(queue::file_name(micros, branch)), &ticket).unwrap();

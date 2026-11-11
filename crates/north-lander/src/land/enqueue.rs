@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 
 use super::first_commit;
 use super::lander::state_home;
-use super::queue::{self, HandIn, RedFix, Ticket, rfc3339};
+use super::queue::{self, RedFix, Ticket, rfc3339};
 use super::repositories;
 use super::setting;
 use north_base::land_ticket::{self, HAND_IN_WAIT};
@@ -45,7 +45,6 @@ pub struct Queued {
 }
 
 pub struct Environment<'a> {
-    pub called_micros: u128,
     pub state_home: &'a Path,
     pub host: &'a str,
     pub session: Option<&'a str>,
@@ -225,7 +224,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
     let lander_host = setting::landing(&root, &remote_ref, "landing.lander-host");
     let outbox = is_other_host(&lander_host, environment.host);
     std::thread::scope(|scope| {
-        let secrets = scope.spawn(|| timings.stage("secret scan", || outgoing::enqueue_secrets(&root, (&base, &lane_head))));
+        let scan = scope.spawn(|| timings.stage("outgoing scan", || outgoing::enqueue_gate(&root, (&base, &lane_head), environment.denylist, &origin, &destination, !outbox)));
         let checked_tree = check_lane(&root, &base, &branch, environment, timings)?;
         let first_commit_secs = first_commit::seconds(&root, &branch, &base);
         let (squash, several_commits) = timings.stage("squash", || Ok::<_, String>(match shape {
@@ -235,19 +234,12 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
         lane_squash::refuse_unfinished_subject(&root, &branch)?;
         let queue = queue::directory(environment.state_home, &origin);
-        let asked_micros = micros();
-        let ((gate, answered), gated_from, (red_fix, lander_fix, urgent)) = std::thread::scope(|inner| {
-            let judge = inner.spawn(|| timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination).map(|gate| (gate, micros()))));
-            timings.stage("requeue", || super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session))?;
-            let gated_from = timings.stage("lane gates", || judge_lane_gates(environment, &root, &branch, &base, &head, lander_ledger_at(&lander_host, &queue, environment)))?;
-            judged(environment, &root, &branch, &head, "revert guard", timings.stage("revert guard", || refuse_stale_revert(&root, &base, &head)))?;
-            let marks = timings.stage("marks", || marks(&root, &base, &head, &destination))?;
-            let (gate, answered) = judge.join().map_err(|_| "the private-kind ask panicked".to_owned())??;
-            Ok::<_, String>(((gate, answered), gated_from, marks))
-        })?;
-        secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
-        let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered) };
-        let queued_micros = micros();
+        timings.stage("requeue", || super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session))?;
+        let gated_from = timings.stage("lane gates", || judge_lane_gates(environment, &root, &branch, &base, &head, lander_ledger_at(&lander_host, &queue, environment)))?;
+        judged(environment, &root, &branch, &head, "revert guard", timings.stage("revert guard", || refuse_stale_revert(&root, &base, &head)))?;
+        let (red_fix, lander_fix, urgent) = timings.stage("marks", || marks(&root, &base, &head, &destination))?;
+        let gate = scan.join().map_err(|_| "the outgoing scan panicked".to_owned())??;
+        let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
         let ticket = Ticket {
             origin: origin.clone(),
             root: root.clone(),
@@ -264,7 +256,6 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             lander_fix,
             published: published(&root, &branch, &destination),
             gated_from,
-            hand_in: Some(hand_in),
             ..checked_alone(&root, head, &checked_tree, gate, &base)
         };
         let directory = if outbox { queue.join(queue::OUTBOX) } else { queue };
@@ -298,10 +289,6 @@ fn judged(environment: &Environment, root: &Path, branch: &str, head: &str, gate
 
 
 pub fn run(arguments: &[String]) -> u8 {
-    run_called(arguments, micros())
-}
-
-pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
     if std::env::var_os("NORTH_LAND_SERVING").is_some_and(|value| !value.is_empty()) {
         println!("Done: not queued, this runs inside a lander check and the lander lands its candidate itself");
         return 0;
@@ -315,7 +302,7 @@ pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
     let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|name| !name.is_empty());
     let state_home = state_home();
     let sources = Denylist::from_env();
-    let environment = Environment { called_micros, state_home: &state_home, host: &host, session: session.as_deref(), denylist: &sources };
+    let environment = Environment { state_home: &state_home, host: &host, session: session.as_deref(), denylist: &sources };
     match enqueue(repo, parsed.shape(), parsed.keep_lane, &environment) {
         Ok(queued) => {
             match &queued.squash {
@@ -354,12 +341,9 @@ fn hand_in(repo: &Path, queued: &Queued, state_home: &Path) -> u8 {
     }
 }
 
-fn micros() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros())
-}
-
 fn record_refusal(state_home: &Path, repo: &Path, error: &str) {
-    let row = serde_json::json!({ "micros": micros(), "root": repo.to_string_lossy(), "error": error });
+    let micros = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros());
+    let row = serde_json::json!({ "micros": micros, "root": repo.to_string_lossy(), "error": error });
     if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(state_home.join(REFUSALS)) {
         let _ = io::Write::write_all(&mut file, format!("{row}\n").as_bytes());
     }

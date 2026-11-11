@@ -19,10 +19,6 @@ impl<'a> Timeline<'a> {
         Self { shell, started_ms: now, previous_ms: now, origin_url: String::new(), branch: String::new(), sha: String::new() }
     }
 
-    pub fn started_ms(&self) -> u64 {
-        self.started_ms
-    }
-
     pub fn announce(&self) {
         println!("safe-push: start {}", Timestamp::now().iso_millis());
     }

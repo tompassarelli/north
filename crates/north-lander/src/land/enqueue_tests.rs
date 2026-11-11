@@ -80,7 +80,7 @@ impl Lane {
 
     fn try_enqueue_from(&self, host: &str, shape: super::Shape) -> Result<super::Queued, String> {
         let (state, denylist) = (self.dir.path().join("state"), without_south(self.dir.path()));
-        let environment = super::Environment { called_micros: 0, state_home: &state, host, session: None, denylist: &denylist };
+        let environment = super::Environment { state_home: &state, host, session: None, denylist: &denylist };
         super::enqueue(&self.repo, shape, false, &environment)
     }
 
@@ -208,7 +208,7 @@ fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queue
     let lane = Lane::new();
     let (state, denylist) = (lane.dir.path().join("state"), without_south(lane.dir.path()));
     let enqueue_as = |session: &str| {
-        let environment = super::Environment { called_micros: 0, state_home: &state, host: "fixture-host", session: Some(session), denylist: &denylist };
+        let environment = super::Environment { state_home: &state, host: "fixture-host", session: Some(session), denylist: &denylist };
         super::enqueue(&lane.repo, super::Shape::OneCommit { message: None }, false, &environment)
     };
     let queued = enqueue_as("worker-1").unwrap();
