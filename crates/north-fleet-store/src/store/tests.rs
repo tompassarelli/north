@@ -93,6 +93,25 @@ fn a_stored_row_that_no_longer_parses_is_skipped_and_the_rest_are_delivered() {
     assert_eq!(exchanged.rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m-good"]);
 }
 
+/// On 2026-11-11 the proxy's exchange with the ledger took 8 to 25 s on nexus because each of the proxy's 5,437 delivered ids was matched by re-reading the addressee's whole JSON for every row, so the tick dropped the answer and no line from a build host reached it.
+#[test]
+fn an_addressee_with_thousands_of_delivered_ids_is_answered_in_a_few_thousand_steps() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let rows: Vec<FleetRow> = (0..4000).map(|number| message(&format!("m-{number:05}"), "proxy")).collect();
+    store.put(&rows).unwrap();
+    let taken: Vec<String> = rows.iter().take(3990).map(|row| row.id.clone()).chain((0..3000).map(|number| format!("other-{number}"))).collect();
+    let thousands = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let counting = thousands.clone();
+    store.db.progress_handler(1000, Some(move || counting.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == u32::MAX)).unwrap();
+
+    let exchanged = store.exchange(&Exchange { addressees: vec![Addressee { name: "proxy".into(), taken, ..Addressee::default() }], ..Exchange::default() }).unwrap();
+
+    assert_eq!(exchanged.rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m-03990", "m-03991", "m-03992", "m-03993", "m-03994", "m-03995", "m-03996", "m-03997", "m-03998", "m-03999"]);
+    let steps = thousands.load(std::sync::atomic::Ordering::Relaxed);
+    assert!(steps < 500, "the exchange took {steps} thousand SQLite steps");
+}
+
 #[test]
 fn a_spooled_row_that_does_not_parse_is_set_aside_and_the_rest_flush() {
     let root = tempfile::tempdir().unwrap();

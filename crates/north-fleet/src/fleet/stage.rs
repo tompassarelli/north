@@ -1,5 +1,5 @@
 //! A fleet-tick stage that calls another host runs on its own thread, so the tick waits for it only
-//! until its deadline and leaves a stage still running to the next tick.
+//! until its deadline, and may ask again later in the tick before leaving a stage still running to the next one.
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
@@ -28,8 +28,8 @@ pub fn detach<R: Send + 'static>(name: &str, run: impl FnOnce() -> R + Send + 's
 }
 
 impl<R> Detached<R> {
-    pub fn by(self, deadline: Instant) -> Result<R, Late> {
-        let answered = self.0.map_err(Late::Unstarted)?;
+    pub fn by(&self, deadline: Instant) -> Result<R, Late> {
+        let answered = self.0.as_ref().map_err(|error| Late::Unstarted(error.clone()))?;
         answered.recv_timeout(deadline.saturating_duration_since(Instant::now())).map_err(|error| match error {
             RecvTimeoutError::Timeout => Late::Running,
             RecvTimeoutError::Disconnected => Late::Panicked,

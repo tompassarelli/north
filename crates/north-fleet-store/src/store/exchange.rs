@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
@@ -72,11 +74,10 @@ impl Store {
 
 const JOB_EXIT_KEPT_MS: u64 = 24 * 60 * 60 * 1000;
 
-pub(super) const ADDRESSED: &str = "SELECT events.data FROM events JOIN json_each(?1) AS addressee \
+const ADDRESSED: &str = "SELECT json_extract(events.data, '$.to_node'), json_extract(events.data, '$.id'), events.data FROM events JOIN json_each(?1) AS addressee \
      ON json_extract(events.data, '$.to_node') = json_extract(addressee.value, '$.name') \
      WHERE events.kind IN (SELECT value FROM json_each(?2)) AND (events.kind IN (?3, ?6) OR NOT COALESCE(json_extract(addressee.value, '$.stopped'), 0)) AND json_extract(events.data, '$.sent_at') >= CASE WHEN events.kind = ?3 THEN COALESCE(json_extract(addressee.value, '$.control_since_ms'), json_extract(addressee.value, '$.since_ms')) ELSE json_extract(addressee.value, '$.since_ms') END \
      AND (events.kind != ?4 OR events.ts >= ?5) \
-     AND NOT EXISTS (SELECT 1 FROM json_each(addressee.value, '$.taken') AS taken WHERE taken.value = json_extract(events.data, '$.id')) \
      ORDER BY events.seq";
 
 fn exit_floor() -> String {
@@ -85,12 +86,17 @@ fn exit_floor() -> String {
 
 fn addressed(db: &Connection, addressees: &[Addressee]) -> NorthResult<Vec<FleetRow>> {
     let mut statement = db.prepare(ADDRESSED).map_err(sql)?;
-    let data: Vec<String> = statement
-        .query_map(rusqlite::params![serde_json::to_string(addressees)?, serde_json::to_string(&RowKind::DELIVERED)?, RowKind::Control.label(), RowKind::JobExit.label(), exit_floor(), RowKind::GateAnswer.label()], |row| row.get(0))
+    let asking: Vec<Addressee> = addressees.iter().map(|addressee| Addressee { taken: Vec::new(), ..addressee.clone() }).collect();
+    let stored: Vec<(Option<String>, Option<String>, String)> = statement
+        .query_map(rusqlite::params![serde_json::to_string(&asking)?, serde_json::to_string(&RowKind::DELIVERED)?, RowKind::Control.label(), RowKind::JobExit.label(), exit_floor(), RowKind::GateAnswer.label()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .map_err(sql)?
         .collect::<Result<_, _>>()
         .map_err(sql)?;
-    Ok(data.iter().filter_map(|data| readable(data)).collect())
+    let mut taken: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for addressee in addressees {
+        taken.entry(addressee.name.as_str()).or_default().extend(addressee.taken.iter().map(String::as_str));
+    }
+    Ok(stored.iter().filter(|(to, id, _)| !to.as_deref().zip(id.as_deref()).is_some_and(|(to, id)| taken.get(to).is_some_and(|ids| ids.contains(id)))).filter_map(|(_, _, data)| readable(data)).collect())
 }
 
 fn readable(data: &str) -> Option<FleetRow> {

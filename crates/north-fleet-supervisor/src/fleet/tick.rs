@@ -8,7 +8,7 @@ use super::model::SessionRecord;
 mod far;
 use far::{cache_far, deliver_far, drop_far, far_hosts, take_far};
 use super::registry::{Fleet, HandedIn};
-use super::stage::{Late, detach};
+use super::stage::{Detached, Late, detach};
 use super::store::{Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LeaseTable, LedgerHost, WaitKey};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -224,7 +224,7 @@ pub fn tick(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, probes: &dyn Wait
             Instant::now()
         }))
     });
-    exchange_and_hand_in(fleet, ledger, pulls, &clock, &mut ticked, (now_ms, budgets))?;
+    let late = exchange_and_hand_in(fleet, ledger, pulls, &clock, &mut ticked, (now_ms, budgets))?;
     if let Some((began, placing)) = placing {
         match placing.by(began + budgets.placement) {
             Ok(ended) => clock.record("placement", began, ended),
@@ -234,15 +234,16 @@ pub fn tick(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, probes: &dyn Wait
             }
         }
     }
-    probe_and_prune(fleet, ledger, probes, clock, ticked, budgets)
+    probe_and_prune(fleet, ledger, probes, clock, ticked, budgets, |clock, ticked| finish_late_exchange(late, (fleet, ledger, pulls), clock, ticked, budgets))
 }
 
 pub fn probe_pass(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, budgets: Budgets) -> NorthResult<Ticked> {
-    probe_and_prune(fleet, ledger, probes, Clock::new(), Ticked::default(), budgets)
+    probe_and_prune(fleet, ledger, probes, Clock::new(), Ticked::default(), budgets, |_, _| Ok(()))
 }
 
-fn probe_and_prune(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: Clock, mut ticked: Ticked, budgets: Budgets) -> NorthResult<Ticked> {
+fn probe_and_prune(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: Clock, mut ticked: Ticked, budgets: Budgets, finish: impl FnOnce(&Clock, &mut Ticked) -> NorthResult<()>) -> NorthResult<Ticked> {
     settle(fleet, ledger, probes, &clock, &mut ticked, budgets)?;
+    finish(&clock, &mut ticked)?;
     if let Err(error) = clock.time("watchdogs", || fleet.start_watchdogs()) {
         eprintln!("north fleet: committed watchdog starts were not delivered: {}", error.user_message());
     }
@@ -251,12 +252,38 @@ fn probe_and_prune(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, 
     Ok(ticked)
 }
 
-fn exchange_by(ledger: &OpenLedger, exchange: Exchange, deadline: Instant) -> Result<NorthResult<Exchanged>, Late> {
-    let ledger = ledger.clone();
-    detach("ledger.exchange", move || ledger()?.exchange(&exchange)).by(deadline)
+struct Exchanging {
+    running: Detached<NorthResult<Exchanged>>,
+    began: Instant,
+    spooled: Vec<String>,
+    covered: Vec<String>,
+    pulled: usize,
+    taken: Vec<Taken>,
+    now_ms: u64,
 }
 
-fn exchange_and_hand_in(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, clock: &Clock, ticked: &mut Ticked, (now_ms, budgets): (u64, Budgets)) -> NorthResult<()> {
+impl Exchanging {
+    fn hand_in(self, exchanged: Exchanged, (fleet, ledger, pulls): (&Fleet, &OpenLedger, &Pulls), clock: &Clock, ticked: &mut Ticked, budgets: Budgets) -> NorthResult<()> {
+        let Self { spooled, covered, pulled, taken, now_ms, .. } = self;
+        let spool = fleet.spool();
+        clock.time("spool.withdraw", || spooled.iter().try_for_each(|id| spool.withdraw(id)))?;
+        let table = FleetTable { sessions: exchanged.sessions.clone(), gates: exchanged.gates.clone() };
+        clock.time("cache_table", || fleet.cache_table(&table))?;
+        clock.time("cache_leases", || fleet.cache_leases(&LeaseTable::read(&exchanged.waits, covered, &exchanged.now, now_ms)))?;
+        ticked.flushed = spooled.len();
+        ticked.pulled = pulled;
+        ticked.held_elsewhere = exchanged.held_elsewhere.clone();
+        let here: Vec<FleetRow> = exchanged.rows.iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)).cloned().collect();
+        ticked.note(clock.time("hand_in_all", || hand_in_all(fleet, &here, Instant::now(), budgets.hand_in)));
+        let far = (Instant::now() + budgets.far, budgets.far);
+        clock.time("drop_far", || drop_far(pulls, &taken, ticked, far));
+        clock.time("cache_far", || cache_far(pulls, &taken, &table, ticked, far));
+        clock.time("deliver_far", || deliver_far(ledger, pulls, &taken, exchanged.sessions, ticked, (far, now_ms)));
+        Ok(())
+    }
+}
+
+fn exchange_and_hand_in(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, clock: &Clock, ticked: &mut Ticked, (now_ms, budgets): (u64, Budgets)) -> NorthResult<Option<Exchanging>> {
     let spool = fleet.spool();
     let (rows, records, cached) = std::thread::scope(|scope| {
         let reading = scope.spawn(|| clock.time("sessions", || fleet.sessions()));
@@ -276,27 +303,27 @@ fn exchange_and_hand_in(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, clock
     let outranks = far_hosts(fleet, &records, pulls).into_iter().map(|host| host.name).collect();
     let covered: Vec<String> = addressees.iter().map(|addressee| addressee.name.clone()).collect();
     let exchange = Exchange { rows, host: fleet.host().to_owned(), sessions, addressees, gates, outranks };
-    let exchanged = match clock.time("ledger.exchange", || exchange_by(ledger, exchange, Instant::now() + budgets.ledger)) {
-        Ok(exchanged) => exchanged?,
+    let began = Instant::now();
+    let running = {
+        let ledger = ledger.clone();
+        detach("ledger.exchange", move || ledger()?.exchange(&exchange))
+    };
+    let exchanging = Exchanging { running, began, spooled, covered, pulled, taken, now_ms };
+    match clock.time("ledger.exchange", || exchanging.running.by(began + budgets.ledger)) {
+        Ok(exchanged) => exchanging.hand_in(exchanged?, (fleet, ledger, pulls), clock, ticked, budgets).map(|()| None),
+        Err(_) => Ok(Some(exchanging)),
+    }
+}
+
+fn finish_late_exchange(late: Option<Exchanging>, (fleet, ledger, pulls): (&Fleet, &OpenLedger, &Pulls), clock: &Clock, ticked: &mut Ticked, budgets: Budgets) -> NorthResult<()> {
+    let Some(exchanging) = late else { return Ok(()) };
+    match clock.time("ledger.exchange.late", || exchanging.running.by(exchanging.began + budgets.ledger * 2)) {
+        Ok(exchanged) => exchanging.hand_in(exchanged?, (fleet, ledger, pulls), clock, ticked, budgets),
         Err(late) => {
             ticked.put_off("ledger.exchange", &late, budgets.ledger);
-            return Ok(());
+            Ok(())
         }
-    };
-    clock.time("spool.withdraw", || spooled.iter().try_for_each(|id| spool.withdraw(id)))?;
-    let table = FleetTable { sessions: exchanged.sessions.clone(), gates: exchanged.gates.clone() };
-    clock.time("cache_table", || fleet.cache_table(&table))?;
-    clock.time("cache_leases", || fleet.cache_leases(&LeaseTable::read(&exchanged.waits, covered, &exchanged.now, now_ms)))?;
-    ticked.flushed = spooled.len();
-    ticked.pulled = pulled;
-    ticked.held_elsewhere = exchanged.held_elsewhere.clone();
-    let here: Vec<FleetRow> = exchanged.rows.iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)).cloned().collect();
-    ticked.note(clock.time("hand_in_all", || hand_in_all(fleet, &here, Instant::now(), budgets.hand_in)));
-    let far = (Instant::now() + budgets.far, budgets.far);
-    clock.time("drop_far", || drop_far(pulls, &taken, ticked, far));
-    clock.time("cache_far", || cache_far(pulls, &taken, &table, ticked, far));
-    clock.time("deliver_far", || deliver_far(ledger, pulls, &taken, exchanged.sessions, ticked, (far, now_ms)));
-    Ok(())
+    }
 }
 
 fn settle(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: &Clock, ticked: &mut Ticked, budgets: Budgets) -> NorthResult<()> {

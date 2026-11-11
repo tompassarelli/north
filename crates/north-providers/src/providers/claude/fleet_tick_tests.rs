@@ -522,6 +522,55 @@ fn a_tick_whose_ledger_exchange_placement_take_far_and_a_probe_hang_past_their_b
     assert!(Budgets::TICK.worst() < Duration::from_secs(40), "the tick's stage budgets sum to {:?}, past 40 s of its 50 s start timeout", Budgets::TICK.worst());
 }
 
+struct HeldLedger {
+    store: Store,
+    release: Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
+}
+
+impl LedgerHost for HeldLedger {
+    fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
+        self.release.lock().unwrap().recv().unwrap();
+        self.store.exchange(exchange)
+    }
+
+    fn settle(&mut self, waits: &[WaitKey]) -> NorthResult<()> {
+        LedgerHost::settle(&mut self.store, waits)
+    }
+}
+
+struct Releases(std::sync::mpsc::Sender<()>);
+
+impl WaitProbes for Releases {
+    fn jobs(&self) -> Vec<ProbeJob> {
+        let release = self.0.clone();
+        vec![ProbeJob {
+            name: "probes.release",
+            own: None,
+            run: Box::new(move |_| {
+                release.send(()).unwrap();
+                Probed { lines: Vec::new(), settled: Vec::new() }
+            }),
+        }]
+    }
+}
+
+/// On 2026-11-11 a ledger exchange that took 8 to 25 s overran its 6 s budget on 97% of the control host's ticks, and each overrun dropped the rows it had pulled, so no line from a build-host worker reached the proxy (north#1157).
+#[test]
+fn a_ledger_exchange_that_answers_after_its_budget_but_before_the_tick_ends_still_delivers_the_rows_it_pulled() {
+    let host = host("nexus");
+    let frames = live(&host, "worker");
+    host.store().put(&[message("m-late", "worker", NOW_MS)]).unwrap();
+    let path = host.ledger.clone();
+    let (release, held) = std::sync::mpsc::channel();
+    let held = Arc::new(Mutex::new(held));
+    let ledger = open_ledger(move || Ok(HeldLedger { store: Store::open(&path)?, release: held.clone() }));
+
+    let ticked = tick(&host.fleet, &ledger, &host.pulls(), &Releases(release), NOW_MS, Budgets::each(Duration::from_secs(1))).unwrap();
+
+    assert_eq!(ticked.delivered, [("m-late".to_owned(), "worker".to_owned())], "{:?}", ticked.lines());
+    assert_eq!(frames.lock().unwrap().len(), 1);
+}
+
 fn with_api_orgs(host: &Host, orgs: &[&str]) {
     let file = crate::platform::orchestration::under(host.home.path());
     let here = crate::platform::host::name();
