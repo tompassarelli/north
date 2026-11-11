@@ -49,6 +49,7 @@ impl Profile<'_> {
 pub struct Trace<'a> {
     spans: Vec<&'a Span>,
     children: HashMap<&'a str, Vec<&'a Span>>,
+    traces: HashMap<&'a str, Vec<&'a Span>>,
 }
 
 impl<'a> Trace<'a> {
@@ -56,12 +57,18 @@ impl<'a> Trace<'a> {
         let mut seen = HashSet::new();
         let spans: Vec<&Span> = spans.iter().filter(|span| seen.insert(span.id.as_str())).collect();
         let mut children: HashMap<&str, Vec<&Span>> = HashMap::new();
+        let mut traces: HashMap<&str, Vec<&Span>> = HashMap::new();
         for span in &spans {
+            traces.entry(span.trace.as_str()).or_default().push(span);
             if let Some(parent) = &span.parent {
                 children.entry(parent.as_str()).or_default().push(span);
             }
         }
-        Self { spans, children }
+        Self { spans, children, traces }
+    }
+
+    fn in_trace(&self, trace: &str) -> impl Iterator<Item = &'a Span> + '_ {
+        self.traces.get(trace).into_iter().flatten().copied()
     }
 
     pub fn landings(&self, since: f64) -> Vec<&'a Span> {
@@ -91,7 +98,7 @@ impl<'a> Trace<'a> {
         let window = (landing.start, landing.end);
         let mut before = vec![landing];
         self.descend(landing, window, &mut before);
-        for shared in self.spans.iter().copied().filter(|span| span.trace == landing.trace && span.parent.is_none() && span.category != Category::Landing && span.attribute(PHASE) != Some(AFTER)) {
+        for shared in self.in_trace(&landing.trace).filter(|span| span.parent.is_none() && span.category != Category::Landing && span.attribute(PHASE) != Some(AFTER)) {
             if shared.start >= window.0 - 1.0 && shared.end <= window.1 + 1.0 {
                 before.push(shared);
                 self.descend(shared, window, &mut before);
@@ -99,14 +106,14 @@ impl<'a> Trace<'a> {
         }
         let landed = landing.attribute("landed").unwrap_or_default();
         let mut after = Vec::new();
-        for root in self.spans.iter().copied().filter(|span| span.trace == landed && span.attribute(PHASE) == Some(AFTER) && span.start >= window.1 - 1.0) {
+        for root in self.in_trace(landed).filter(|span| span.attribute(PHASE) == Some(AFTER) && span.start >= window.1 - 1.0) {
             let Some(covering) = root.attribute(COVERED_BY) else {
                 after.push(root);
                 self.descend(root, (root.start, root.end), &mut after);
                 continue;
             };
             let before = after.len();
-            for run in self.spans.iter().copied().filter(|span| span.trace == covering && span.attribute(PHASE) == Some(AFTER) && span.start >= root.start - 1.0 && span.end <= root.end + 1.0) {
+            for run in self.in_trace(covering).filter(|span| span.attribute(PHASE) == Some(AFTER) && span.start >= root.start - 1.0 && span.end <= root.end + 1.0) {
                 after.push(run);
                 self.descend(run, (run.start, run.end), &mut after);
             }
@@ -114,7 +121,7 @@ impl<'a> Trace<'a> {
                 after.push(root);
             }
         }
-        let verdicts = self.spans.iter().filter(|span| span.trace == landed && span.start >= window.1 - 1.0).filter_map(|span| span.attribute(VERDICT)).collect();
+        let verdicts = self.in_trace(landed).filter(|span| span.start >= window.1 - 1.0).filter_map(|span| span.attribute(VERDICT)).collect();
         let after_wall = union(&after);
         let before_split = attribute(&before, Some(landing), window);
         let after_split = attribute(&after, None, (after.iter().map(|span| span.start).fold(f64::INFINITY, f64::min), after.iter().map(|span| span.end).fold(f64::NEG_INFINITY, f64::max)));

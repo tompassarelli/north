@@ -15,6 +15,7 @@ use super::{PROJECTS, Row, check, code_root, line};
 
 const CHECK_EVERY: i64 = 600;
 const REMIND_EVERY: i64 = 6 * 3600;
+const LATEST: &str = "north/concerns/latest.json";
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Red {
@@ -58,13 +59,50 @@ pub fn state_file(relative: &str) -> PathBuf {
     std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state"), PathBuf::from).join(relative)
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Measured {
+    pub at: i64,
+    pub rows: usize,
+    pub red: usize,
+    pub lines: Vec<String>,
+}
+
+impl Measured {
+    fn of(rows: &[Row], problems: &[String], at: i64) -> Self {
+        let lines = problems.iter().cloned().chain(rows.iter().map(line)).collect();
+        Self { at, rows: rows.len(), red: rows.iter().filter(|row| !row.verdict.green()).count(), lines }
+    }
+}
+
+fn measure() -> (Vec<Row>, Vec<String>) {
+    let projects: Vec<String> = PROJECTS.iter().map(|name| (*name).to_owned()).collect();
+    check(&code_root(), &projects)
+}
+
+pub fn latest(now: i64) -> Measured {
+    let kept = std::fs::read_to_string(state_file(LATEST)).ok().and_then(|text| serde_json::from_str::<Measured>(&text).ok());
+    kept.filter(|measured| (0..CHECK_EVERY).contains(&(now - measured.at))).unwrap_or_else(|| {
+        let (rows, problems) = measure();
+        let measured = Measured::of(&rows, &problems, now);
+        keep(&measured);
+        measured
+    })
+}
+
 pub fn lines(now: i64, history: &dyn Store) -> Vec<String> {
     announce(&state_file("north/concerns/tick.json"), now, || {
-        let projects: Vec<String> = PROJECTS.iter().map(|name| (*name).to_owned()).collect();
-        let (rows, problems) = check(&code_root(), &projects);
+        let (rows, problems) = measure();
         record(&rows, history, now);
+        keep(&Measured::of(&rows, &problems, now));
         red(&rows, &problems)
     })
+}
+
+fn keep(measured: &Measured) {
+    let file = state_file(LATEST);
+    if let (Some(parent), Ok(text)) = (file.parent(), serde_json::to_string(measured)) {
+        let _ = std::fs::create_dir_all(parent).and_then(|()| std::fs::write(&file, text));
+    }
 }
 
 pub fn announce(file: &Path, now: i64, measure: impl FnOnce() -> Red) -> Vec<String> {
