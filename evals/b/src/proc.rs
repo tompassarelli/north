@@ -42,6 +42,10 @@ pub fn ssh(host: &str, script: &str) -> Ran {
     run("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", &destination, "bash", "-s"], Some(script))
 }
 
+pub fn host_loads(hosts: &[String]) -> serde_json::Value {
+    serde_json::Value::Object(hosts.iter().map(|h| (h.clone(), serde_json::Value::from(ssh(h, "cut -d' ' -f1-3 /proc/loadavg").out.trim()))).collect())
+}
+
 pub fn git(dir: &Path, args: &[&str]) -> Ran {
     let dir = dir.to_string_lossy();
     let mut full = vec!["-C", dir.as_ref()];

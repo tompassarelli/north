@@ -36,6 +36,7 @@ pub struct Run {
     pub nudges: Vec<Value>,
     pub resolved: Option<(f64, String)>,
     pub settled_since: Option<f64>,
+    pub load_at_launch: Value,
 }
 
 fn header() -> String {
@@ -66,6 +67,7 @@ fn launch(plan: &Plan, task: &Value, branch: &str, name: &str) -> Run {
         nudges: Vec::new(),
         resolved: if ran.ok() { None } else { Some((now(), "launch-refused".to_owned())) },
         settled_since: None,
+        load_at_launch: crate::proc::host_loads(&plan.hosts),
     }
 }
 
@@ -153,7 +155,11 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
             eprintln!("eval-b: {} resolved: {}", run.name, run.resolved.as_ref().map_or("", |r| r.1.as_str()));
             let work = plan.work.clone();
             let name = run.name.clone();
-            collectors.push(thread::spawn(move || collect::session(&work, &name)));
+            let hosts = plan.hosts.clone();
+            collectors.push(thread::spawn(move || {
+                let _ = fs::write(work.join(&name).join("load-at-end.json"), crate::proc::host_loads(&hosts).to_string());
+                collect::session(&work, &name)
+            }));
             done.push(run);
         }
     }
