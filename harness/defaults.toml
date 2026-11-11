@@ -294,34 +294,10 @@ settles_when = { need = 20, count = "count_worker_runs", what = "worker runs wit
 fallback = "every worker charges one point"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
-[spend_trip_fleet_points]
-value = 30
-allowed = { min = 1, max = 100 }
-unit = "points of an account's five-hour window the fleet may spend within spend_trip_fleet_min before no new worker starts on it"
-source = "tom: 2026-11-07 starting threshold, tuned from a week of trips (north#702)"
-fallback = "none"
-consumers = ["crates/north-pace/src/spend/mod.rs"]
-
-[spend_trip_fleet_min]
+[spend_burn_five_hour_min]
 value = 15
 allowed = { min = 1, max = 300 }
-unit = "minutes over which the fleet's rise in an account's five-hour window is measured for the tripwire"
-source = "tom: 2026-11-07 starting span (north#702)"
-fallback = "none"
-consumers = ["crates/north-pace/src/spend/mod.rs"]
-
-[spend_trip_session_points]
-value = 10
-allowed = { min = 1, max = 100 }
-unit = "points of an account's five-hour window one session may spend within spend_trip_session_min before no new worker starts on that account"
-source = "tom: 2026-11-07 starting threshold, tuned from a week of trips (north#702)"
-fallback = "none"
-consumers = ["crates/north-pace/src/spend/mod.rs"]
-
-[spend_trip_session_min]
-value = 10
-allowed = { min = 1, max = 300 }
-unit = "minutes over which one session's spend is measured for the tripwire"
+unit = "minutes over which the fleet's rise in an account's five-hour window is measured for the burn governor, which holds that rate to the window's reset"
 source = "tom: 2026-11-07 starting span (north#702)"
 fallback = "none"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
@@ -330,24 +306,24 @@ consumers = ["crates/north-pace/src/spend/mod.rs"]
 value = 6
 allowed = { min = 1, max = 168 }
 unit = "hours over which the fleet's rise in an account's week window is measured for the burn governor, which holds that rate to the week's reset"
-source = "prior: the five-hour breaker's 15 minutes held to a week's reset would turn one burst into days of burn, and a week reading moves by whole steps; six hours spans a work session and a week reading's steps (north#1076)"
+source = "prior: the five-hour span's 15 minutes held to a week's reset would turn one burst into days of burn, and a week reading moves by whole steps; six hours spans a work session and a week reading's steps (north#1076)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs with week readings before and after, to compare the projected week with the week each reset reached" }
 fallback = "none: a stated span, not a measurement"
-consumers = ["crates/north-pace/src/spend/mod.rs", "src/cli/fleet/trips.rs"]
+consumers = ["crates/north-pace/src/spend/mod.rs", "src/cli/fleet/burns.rs"]
 
 [spend_rate_max_h]
 value = 3
 allowed = { min = 1, max = 168 }
-unit = "hours after which an account's newest points-per-dollar row no longer prices spend for the session tripwire and the worker-turn rule"
+unit = "hours after which an account's newest points-per-dollar row no longer prices a worker's week charge in five-hour points for the burn governor"
 source = "north#838, 2026-11-08: calibrate_after_min recalibrates about hourly, so three hours is two missed calibrations; a guard on an older figure refused launches on a stale input"
-fallback = "the session tripwire refuses nothing on that account and the worker-turn rule charges spend_worker_charge, and the proxy is told once"
+fallback = "the burn governor charges a new worker no five-hour points on that account"
 consumers = ["crates/north-calibration/src/threads/calibration/rates.rs"]
 
 [dispatch_freeze_alarm_min]
 value = 15
 allowed = { min = 5, max = 240 }
 unit = "minutes of dispatch runs with ready boxes, free slots and no launch before the proxy gets one urgent message naming the refusing guards"
-source = "north#838, 2026-11-08: one stale tripwire figure froze every launch on the only account with headroom for over 20 minutes and nothing told the proxy; dispatch runs every 5 minutes, so 15 is three frozen runs"
+source = "north#838, 2026-11-08: one stale spend figure froze every launch on the only account with headroom for over 20 minutes and nothing told the proxy; dispatch runs every 5 minutes, so 15 is three frozen runs"
 fallback = "none: a stated bound, not a measurement"
 consumers = ["crates/north-dispatch/src/dispatch/freeze.rs"]
 

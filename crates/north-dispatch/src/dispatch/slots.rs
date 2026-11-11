@@ -88,7 +88,7 @@ impl Account {
 
     pub fn line(&self, spend: &View, rules: &Rules) -> String {
         let state = match spend.admit(rules, &self.name, Starter::Reserved, Placed::default()) {
-            Ok(()) => spend.trips.iter().find(|trip| trip.account == self.name).map_or_else(|| "open".to_owned(), |trip| format!("tripped: {}", trip.line)),
+            Ok(()) => "open".to_owned(),
             Err(refusal) => format!("out: {refusal}"),
         };
         let room = &self.room;

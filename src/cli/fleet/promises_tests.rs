@@ -10,7 +10,7 @@ fn unix_ms(text: &str) -> u64 {
 
 #[test]
 fn a_report_promising_a_state_by_a_wall_time_is_checked_then_and_its_failing_command_tells_the_proxy_once() {
-    let reply = "Not done: the tripwire reading is refreshed.\nLaunches on b open by 2:16 AM: `test -e /nonexistent/n838-launches-open`\nLanded at 1:50 AM: `git merge-base --is-ancestor HEAD origin/main`\nStop: capacity\n";
+    let reply = "Not done: the spend reading is refreshed.\nLaunches on b open by 2:16 AM: `test -e /nonexistent/n838-launches-open`\nLanded at 1:50 AM: `git merge-base --is-ancestor HEAD origin/main`\nStop: capacity\n";
     let said_ms = unix_ms("2026-11-07T19:00:00Z");
     let promise = |index: usize| {
         let claim = promised(reply, &|_| true).swap_remove(index);

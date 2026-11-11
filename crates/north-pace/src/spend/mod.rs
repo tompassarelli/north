@@ -1,21 +1,21 @@
 //! The spend rule (docs/rationale/spend-rule.md): the only reasons a new worker may not start on usage
-//! grounds are a pooled reserve and a burn tripwire. The provider's own limit stops an account that has
+//! grounds are a pooled reserve, an operational floor and a burn governor. The provider's own limit stops an account that has
 //! no room at all. Everything here is a pure function of a recorded `View`; `read` gathers one from this
 //! host's state files.
+pub mod burn;
 mod read;
 mod starting;
 #[cfg(test)]
 mod tests;
 pub mod drain;
 pub mod operational;
-pub mod tripwire;
 
 use std::fmt;
 
 use crate::foundation::clock::Timestamp;
 
-pub use read::{BURNS, TRIPS, keyed, operational_reserve, view_from_config};
-pub use tripwire::{Burn, Trip};
+pub use read::{BURNS, keyed, operational_reserve, view_from_config};
+pub use burn::Burn;
 
 /// The rule's knobs, from harness/defaults.toml.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,8 +28,8 @@ pub struct Rules {
     pub floor_five_hour: f64,
     /// Points of a Max 5x week one new worker is expected to take from the pool.
     pub charge: f64,
-    pub fleet_trip: tripwire::Burst,
-    pub session_trip: tripwire::Burst,
+    /// Minutes over which the fleet's rise in an account's five-hour window is measured for the burn governor.
+    pub five_hour_burn_min: f64,
     /// Hours over which the fleet's rise in an account's week is measured for the burn governor.
     pub week_burn_h: f64,
     /// Hours after which an account's reading no longer counts toward the pool.
@@ -46,8 +46,7 @@ impl Rules {
             floor_week: number("spend_floor_week"),
             floor_five_hour: number("spend_floor_five_hour"),
             charge: number("spend_worker_charge"),
-            fleet_trip: tripwire::Burst { points: number("spend_trip_fleet_points"), minutes: number("spend_trip_fleet_min") },
-            session_trip: tripwire::Burst { points: number("spend_trip_session_points"), minutes: number("spend_trip_session_min") },
+            five_hour_burn_min: number("spend_burn_five_hour_min"),
             week_burn_h: number("spend_burn_week_h"),
             reading_max_h: number("spend_reading_max_h"),
             urgent_limit: number("spend_urgent_limit") as usize,
@@ -96,14 +95,13 @@ impl Account {
     }
 }
 
-/// What spend knows at one moment: every account's readings, the worker sessions working across the
-/// fleet, and the tripped accounts.
+/// What spend knows at one moment: every account's readings and the worker sessions working across the
+/// fleet.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct View {
     pub at: f64,
     pub accounts: Vec<Account>,
     pub working: usize,
-    pub trips: Vec<Trip>,
     /// The fleet's measured burn on each account, which the burn governor projects to the account's resets.
     pub burns: Vec<Burn>,
     /// Accounts that bill per token on an API key, and through the prefix their pinned `label:org` forms: no plan windows to read, so no window limit applies.
@@ -121,8 +119,8 @@ pub struct Placed {
 }
 
 /// Who starts: a worker meets every rule; an Agent-tool subagent runs inside its parent's session, so
-/// it meets the reserve and the tripwire; the proxy, a scheduled routine or one of Tom's own sessions
-/// may use the reserve and meets no tripwire. An urgent worker (a spine fix launched `--priority urgent`)
+/// it meets the reserve; the proxy, a scheduled routine or one of Tom's own sessions
+/// may use the reserve. An urgent worker (a spine fix launched `--priority urgent`)
 /// meets every rule a worker does but the burn governor while fewer than `Rules::urgent_limit` urgent
 /// sessions already run on its account, `running` being that count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,7 +136,6 @@ pub enum Rule {
     Reserve,
     Operational,
     Floor,
-    Tripwire,
     Burn,
     ProviderLimit,
     Unread,
@@ -150,7 +147,6 @@ impl fmt::Display for Rule {
             Self::Reserve => "spend reserve",
             Self::Operational => "operational reserve",
             Self::Floor => "spend floor",
-            Self::Tripwire => "spend tripwire",
             Self::Burn => "burn governor",
             Self::ProviderLimit => "provider limit",
             Self::Unread => "no usage reading",
@@ -211,10 +207,7 @@ impl View {
                 self.governor(rules, chosen, placed)?;
             }
         }
-        match self.trips.iter().find(|trip| trip.account == account).filter(|_| starter != Starter::Reserved) {
-            Some(trip) => Err(Refusal { rule: Rule::Tripwire, line: trip.line.clone() }),
-            None => Ok(()),
-        }
+        Ok(())
     }
 
     /// The operational floor: the last percent of each window no new worker may spend, which the
@@ -232,11 +225,11 @@ impl View {
         Err(Refusal { rule: Rule::Floor, line: format!("{} is inside its operational floor: {}; the privacy judge, lander and canaries keep it", account.name, reasons.join("; ")) })
     }
 
-    /// The burn governor: the account's use at each window's reset, at the fleet's measured burn plus the expected charge of this worker and each the run has placed, must stay inside the budget that keeps the operational floor. A week that resets first spares the five-hour window its projection (`tripwire::week_resets_first`), and the drain switch skips the week's projection, leaving the floor.
+    /// The burn governor: the account's use at each window's reset, at the fleet's measured burn plus the expected charge of this worker and each the run has placed, must stay inside the budget that keeps the operational floor. A week that resets first spares the five-hour window its projection (`burn::week_resets_first`), and the drain switch skips the week's projection, leaving the floor.
     fn governor(&self, rules: &Rules, account: &Account, placed: Placed) -> Result<(), Refusal> {
         let burn = self.burns.iter().find(|burn| burn.account == account.name).cloned().unwrap_or_default();
         let week_charge = rules.charge * (placed.workers + 1) as f64 / account.plan_week.max(f64::EPSILON);
-        let week_first = tripwire::week_resets_first(account.week.and_then(|window| window.resets_at), account.five_hour.and_then(|window| window.resets_at), self.at);
+        let week_first = burn::week_resets_first(account.week.and_then(|window| window.resets_at), account.five_hour.and_then(|window| window.resets_at), self.at);
         let projected = |kind: &str, window: Option<Window>, floor: f64, rate: f64, charge: f64| {
             let window = window?;
             let left = window.resets_at.map_or(0.0, |resets| (resets - self.at).max(0.0));
@@ -266,12 +259,10 @@ impl View {
         Ok(())
     }
 
-    /// One line for a session's grounding or `north spend`: the pool, the reserve, the working
-    /// sessions and each trip.
+    /// One line for a session's grounding or `north spend`: the pool, the reserve and the working
+    /// sessions.
     pub fn line(&self, rules: &Rules) -> String {
-        let trips: Vec<&str> = self.trips.iter().map(|trip| trip.line.as_str()).collect();
-        let tripped = if trips.is_empty() { String::new() } else { format!("; tripped: {}", trips.join("; ")) };
         let reserve = if self.drain { "drain on, no reserve".to_owned() } else { format!("reserve {:.0}", self.reserve(rules)) };
-        format!("spend: {:.0} week points left across accounts, {reserve}; {} worker sessions working{tripped}", self.pool(), self.working)
+        format!("spend: {:.0} week points left across accounts, {reserve}; {} worker sessions working", self.pool(), self.working)
     }
 }

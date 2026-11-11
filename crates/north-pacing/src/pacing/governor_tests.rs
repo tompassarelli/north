@@ -1,11 +1,11 @@
-use crate::spend::tripwire::{Burn, Burst, Sample};
+use crate::spend::burn::{Burn, Sample};
 use crate::spend::{Account, Placed, Rule, Rules, Starter, View, Window};
 
 const NOW: f64 = 1_794_300_000.0;
 const HOUR: f64 = 3600.0;
 
 fn rules() -> Rules {
-    Rules { reserve: 5.0, floor_week: 5.0, floor_five_hour: 10.0, charge: 1.0, fleet_trip: Burst { points: 30.0, minutes: 15.0 }, session_trip: Burst { points: 10.0, minutes: 10.0 }, week_burn_h: 6.0, reading_max_h: 2.0, urgent_limit: 2 }
+    Rules { reserve: 5.0, floor_week: 5.0, floor_five_hour: 10.0, charge: 1.0, five_hour_burn_min: 15.0, week_burn_h: 6.0, reading_max_h: 2.0, urgent_limit: 2 }
 }
 
 fn account(name: &str, five_hour: f64, five_hour_resets: f64, week: f64, week_resets: f64) -> Account {
@@ -52,7 +52,7 @@ fn admission_is_one_burn_governor_per_account() {
     assert!(refusal(&week_later, "claude:e", Placed::default()).is_some(), "a later week resets nothing the window would spend");
 
     let before = [Sample { at: NOW - 15.0 * 60.0, used_pct: 30.0, resets_at: Some(NOW + HOUR) }, Sample { at: NOW, used_pct: 40.0, resets_at: Some(NOW + HOUR) }];
-    let measured = crate::spend::tripwire::burn(&rules(), "claude:f", &before, &before, 2.0, NOW);
+    let measured = crate::spend::burn::burn(&rules(), "claude:f", &before, &before, 2.0, NOW);
     assert_eq!((measured.five_hour * HOUR, measured.five_hour_per_week), (40.0, 2.0), "ten points in 15 minutes is 40 an hour");
 }
 

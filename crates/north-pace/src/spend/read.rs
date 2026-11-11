@@ -1,16 +1,13 @@
 //! Gathers a `View` from this host's state: each account's last sampled windows in `usage-gate.json`,
-//! its plan size as the caller reads it, and the trips `north fleet tick`
-//! wrote to `spend/trips.json`.
+//! its plan size as the caller reads it, and the burns `north fleet tick`
+//! wrote to `spend/burns.json`.
 use std::path::Path;
 
 use serde_json::Value;
 use toml_edit::{DocumentMut, Item};
 
-use super::{Account, Burn, Rules, Trip, View, Window};
+use super::{Account, Burn, Rules, View, Window};
 use crate::foundation::clock::rfc3339_seconds;
-
-/// The current trips, relative to the agents state directory.
-pub const TRIPS: &str = "spend/trips.json";
 
 /// The fleet's measured burn per account, relative to the agents state directory.
 pub const BURNS: &str = "spend/burns.json";
@@ -32,7 +29,7 @@ pub fn view(agents: &Path, rules: &Rules, working: usize, at: f64, size: impl Fn
     let gate = read(&agents.join("usage-gate.json"));
     let sampled = gate["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
     let accounts = sampled.map(|(name, windows)| account(rules, name, size(name), windows, at, signed_in(name))).collect();
-    View { at, accounts, working, trips: trips(&read(&agents.join(TRIPS)), rules, at), burns: burns(&read(&agents.join(BURNS)), rules, at), keyed: declared.keyed, operational: declared.operational, drain: super::drain::on(agents, at) }
+    View { at, accounts, working, burns: burns(&read(&agents.join(BURNS)), rules, at), keyed: declared.keyed, operational: declared.operational, drain: super::drain::on(agents, at) }
 }
 
 pub fn view_from_config(cfg: &DocumentMut, agents: &Path, rules: &Rules, working: usize, at: f64, signed_in: impl Fn(&str) -> bool) -> View {
@@ -40,17 +37,10 @@ pub fn view_from_config(cfg: &DocumentMut, agents: &Path, rules: &Rules, working
     view(agents, rules, working, at, |name| Size { plan_week: plan_week(cfg, catalog, name) }, signed_in, Declared { keyed: keyed(cfg), operational: operational_reserve(cfg) })
 }
 
-/// Trips the last tick confirmed within the window of the burst each measured; a tick that stopped
-/// confirming one lets it lapse.
-fn trips(listed: &Value, rules: &Rules, at: f64) -> Vec<Trip> {
-    let all: Vec<Trip> = serde_json::from_value(listed["trips"].clone()).unwrap_or_default();
-    all.into_iter().filter(|trip| at - trip.at <= trip.holds(rules)).collect()
-}
-
-/// Burns the last tick measured within the span of the burst it projects from, so a tick that stopped running leaves the governor no rate to project.
+/// Burns the last tick measured within the span of the five-hour rise it projects from, so a tick that stopped running leaves the governor no rate to project.
 fn burns(listed: &Value, rules: &Rules, at: f64) -> Vec<Burn> {
     let all: Vec<Burn> = serde_json::from_value(listed["burns"].clone()).unwrap_or_default();
-    all.into_iter().filter(|burn| at - burn.at <= rules.fleet_trip.minutes * 60.0).collect()
+    all.into_iter().filter(|burn| at - burn.at <= rules.five_hour_burn_min * 60.0).collect()
 }
 
 fn read(path: &Path) -> Value {

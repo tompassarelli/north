@@ -127,7 +127,7 @@ mod tests {
             compact_window: None,
             urgent: false,
         };
-        QueuedLaunch::new(request, Priority::Normal, created_ms, "spend tripwire".into())
+        QueuedLaunch::new(request, Priority::Normal, created_ms, "burn governor".into())
     }
 
     fn names(fleet: &Fleet) -> Vec<String> {

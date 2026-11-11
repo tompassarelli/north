@@ -43,7 +43,7 @@ fn an_account_row_from_an_earlier_calibration_yields_to_the_newest_calibrations_
 }
 
 #[test]
-fn the_rate_the_tripwire_froze_b_on_at_1_55_am_on_2026_11_08_was_measured_before_the_rate_fix_and_prices_no_spend() {
+fn the_rate_that_froze_b_on_at_1_55_am_on_2026_11_08_was_measured_before_the_rate_fix_and_prices_no_spend() {
     use super::rates::{Priced, method_stamp, priced};
     use crate::foundation::clock::Timestamp;
     let db = rusqlite::Connection::open_in_memory().unwrap();

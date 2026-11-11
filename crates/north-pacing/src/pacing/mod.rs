@@ -6,8 +6,6 @@ use std::io::Write;
 mod command;
 pub mod placement;
 #[cfg(test)]
-mod breaker_tests;
-#[cfg(test)]
 mod governor_tests;
 #[cfg(test)]
 mod operational_tests;
