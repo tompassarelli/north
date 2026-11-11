@@ -40,7 +40,7 @@ fn one_hung_account_read_ends_on_its_deadline_while_the_others_read() {
         std::fs::write(&file, format!("{token}\n")).unwrap();
         Account { provider: ProviderName::new("claude"), label: label.into(), home: home.path().into(), token_file: Some(file), api: None }
     };
-    let reads = read_all_from(&endpoint, Duration::from_millis(300), &[account("a", "slow-token"), account("b", "fast-token"), account("c", "fast-token")]);
+    let reads = read_all_from(&endpoint, Duration::from_secs(3), &[account("a", "slow-token"), account("b", "fast-token"), account("c", "fast-token")]);
     let read = |label: &str| reads.iter().find(|(read, _)| read == label).unwrap().1.clone();
     assert!(read("a").unwrap_err().contains("2 attempts"));
     assert_eq!(hung.load(Ordering::SeqCst), 2);

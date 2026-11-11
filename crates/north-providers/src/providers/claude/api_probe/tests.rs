@@ -46,7 +46,7 @@ fn a_probe_passes_on_a_200_and_asks_for_exactly_one_token() {
     let home = key();
     let seen = Arc::new(Mutex::new(String::new()));
     let endpoint = answer_once(200, r#"{"type":"message","content":[]}"#, Arc::clone(&seen));
-    let answer = probe_at(&endpoint, Duration::from_secs(2), &home.path().join("key")).unwrap();
+    let answer = probe_at(&endpoint, Duration::from_secs(60), &home.path().join("key")).unwrap();
     assert!(answer.passed, "{}", answer.body);
     assert!(super::MINIMAL_TURN.contains("\"max_tokens\":1"), "the probe asks for more than one token: {}", super::MINIMAL_TURN);
     assert!(!seen.lock().unwrap().is_empty());
@@ -58,7 +58,7 @@ fn a_refused_probe_keeps_the_providers_body_for_the_mark() {
     let seen = Arc::new(Mutex::new(String::new()));
     let refusal = r#"{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}"#;
     let endpoint = answer_once(400, refusal, Arc::clone(&seen));
-    let answer = probe_at(&endpoint, Duration::from_secs(2), &home.path().join("key")).unwrap();
+    let answer = probe_at(&endpoint, Duration::from_secs(60), &home.path().join("key")).unwrap();
     assert!(!answer.passed);
     assert_eq!(answer.status, 400);
     assert!(

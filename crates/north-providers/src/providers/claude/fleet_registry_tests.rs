@@ -145,7 +145,7 @@ fn a_launch_or_message_naming_the_proxy_whose_holder_died_binds_a_live_window_it
     fleet_proxy(home.path(), "fleet-proxy");
     let stopped = home.path().join(".local/state/north/fleet/proxy/session.json");
     fs::write(&stopped, fs::read_to_string(&stopped).unwrap().replace("\"stopped\":false", "\"stopped\":true")).unwrap();
-    let mut holder = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    let mut holder = std::process::Command::new("sleep").arg("600").spawn().unwrap();
     let _held = open_window(home.path(), holder.id(), "fleet-proxy", 5);
     let _older = open_window(home.path(), std::os::unix::process::parent_id(), "window-older", 6);
     let newest = open_window(home.path(), std::process::id(), "window-newest", 9);

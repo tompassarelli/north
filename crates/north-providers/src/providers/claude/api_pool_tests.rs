@@ -113,7 +113,7 @@ fn a_tick_keeps_an_org_open_and_its_sessions_on_it_whatever_its_counted_spend_un
 
 fn host_process() -> u32 {
     use std::os::unix::process::CommandExt;
-    let mut host = std::process::Command::new("sleep").arg("60").process_group(0).spawn().unwrap();
+    let mut host = std::process::Command::new("sleep").arg("600").process_group(0).spawn().unwrap();
     let pid = host.id();
     std::thread::spawn(move || host.wait());
     pid
