@@ -22,6 +22,8 @@ const RECORDING_SLACK_S: f64 = 5.0 * 60.0;
 const SNAPSHOT_AGE_S: f64 = crate::threads::snapshot::SNAPSHOT_SECONDS as f64 + 5.0 * 60.0;
 /// A landing not live on a host this long after it reached origin/main is stuck.
 const LANDING_LAG_S: f64 = 10.0 * 60.0;
+/// A host whose policy generation is older than the newest host's by this much has stopped publishing.
+const POLICY_LAG_S: f64 = 60.0 * 60.0;
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Held {
@@ -99,6 +101,8 @@ pub struct Flow {
     /// Seconds since the flow's newest outcome, `None` when it records no time.
     pub age_s: Option<f64>,
     pub verdict: Result<(), String>,
+    /// One line per host for a flow every host records separately, so one silent host cannot hide behind the others.
+    pub readings: Vec<String>,
 }
 
 pub fn minutes(seconds: f64) -> String {
@@ -107,7 +111,7 @@ pub fn minutes(seconds: f64) -> String {
 }
 
 fn flow(name: &'static str, age_s: Option<f64>, faults: Vec<String>) -> Flow {
-    Flow { name, age_s, verdict: if faults.is_empty() { Ok(()) } else { Err(faults.join("; ")) } }
+    Flow { name, age_s, verdict: if faults.is_empty() { Ok(()) } else { Err(faults.join("; ")) }, readings: Vec::new() }
 }
 
 impl World {
@@ -165,14 +169,31 @@ impl World {
     fn policy(&self) -> Flow {
         let mut faults = Vec::new();
         let mut age: Option<f64> = None;
+        let newest = self.reached().filter_map(|(_, facts)| facts.policy_published).reduce(f64::max);
+        let mut readings = Vec::new();
         for (name, facts) in self.reached() {
             if let Some(held) = &facts.policy_held {
                 faults.push(format!("{name} has published no policy generation for {}: {}", minutes(self.age(held.since)), held.cause));
             }
+            match (facts.policy_published, newest) {
+                (None, _) => {
+                    readings.push(format!("{name} has published no policy generation"));
+                    if facts.policy_held.is_none() {
+                        faults.push(format!("{name} has published no policy generation"));
+                    }
+                }
+                (Some(published), Some(newest)) => {
+                    readings.push(format!("{name} published its policy generation {} ago", minutes(self.age(published))));
+                    if newest - published > POLICY_LAG_S && facts.policy_held.is_none() {
+                        faults.push(format!("{name} published its last policy generation {} ago, {} before the newest host", minutes(self.age(published)), minutes(newest - published)));
+                    }
+                }
+                (Some(_), None) => {}
+            }
             let since = facts.policy_held.as_ref().map(|held| held.since).or(facts.policy_published);
             age = since.map(|since| self.age(since)).into_iter().chain(age).reduce(f64::max);
         }
-        flow("policy", age, faults)
+        Flow { readings, ..flow("policy", age, faults) }
     }
 
     fn hooks(&self) -> Flow {

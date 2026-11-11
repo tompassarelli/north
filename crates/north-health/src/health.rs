@@ -323,9 +323,11 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<(bool, Vec<Str
     let world = flows::probe::world(&home, &repo, now as f64);
     let mut ages = BTreeMap::new();
     let mut results: Vec<(String, Verdict)> = Vec::new();
+    let mut readings: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for flow in world.judge() {
         let check = format!("flow {}", flow.name);
         ages.insert(check.clone(), flow.age_s.map_or_else(|| "no time recorded".to_owned(), flows::minutes));
+        readings.insert(check.clone(), flow.readings);
         results.push((check, flow.verdict));
     }
     results.extend([
@@ -423,6 +425,7 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<(bool, Vec<Str
     for (check, result) in &results {
         let age = ages.get(check).map_or_else(String::new, |age: &String| format!(" (age {age})"));
         lines.push(format!("health: {check}{age}: {}", result.as_ref().err().map_or("ok", String::as_str)));
+        lines.extend(readings.get(check).into_iter().flatten().map(|reading| format!("health: {check}: {reading}")));
         if let Some(line) = transition(&mut state, check, result, confirmed.contains(check), now) {
             alerts.push((check.clone(), line));
         }

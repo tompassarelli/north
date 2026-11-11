@@ -66,6 +66,19 @@ fn a_policy_generation_held_on_every_host_alarms_with_the_gates_cause() {
 }
 
 #[test]
+fn one_host_without_a_current_policy_generation_is_named_among_hosts_that_publish() {
+    let now = at("2026-11-12T01:30:00Z");
+    let mut world = healthy(now);
+    let policy = world.judge().into_iter().find(|flow| flow.name == "policy").unwrap();
+    assert_eq!(policy.readings.len(), 3);
+    assert!(policy.verdict.is_ok());
+    facts(&mut world, "nexus").policy_published = Some(now - 3.0 * 3600.0 - 600.0);
+    alarms_only(&world, "policy", "nexus published its last policy generation 3 h 10 min ago, 2 h 10 min before the newest host");
+    facts(&mut world, "nexus").policy_published = None;
+    alarms_only(&world, "policy", "nexus has published no policy generation");
+}
+
+#[test]
 fn a_launchable_profile_without_settings_alarms_as_a_host_launching_without_hooks() {
     let home = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(home.path().join(".claude")).unwrap();
