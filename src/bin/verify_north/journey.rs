@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
+use rustix::fs::{FlockOperation, flock};
 
 use super::client::North;
 use super::exec;
@@ -18,23 +18,24 @@ Spec: exact
 Scope: one-file
 Surface: shell
 Verify: local-test
-Done when: worker.txt holds the line `the worker's change`, is committed on this branch and is queued with `safe-push --to main`.
-In the current directory write the single line `the worker's change` to worker.txt, run `git add worker.txt && git commit -m \"Add the worker's change\"`, then run `safe-push --to main`. Once safe-push prints `Done: queued`, reply with one line that starts `Done:`.";
+Done when: worker.txt holds the line `the worker's change`, is committed on this branch and is landed on main by `safe-push --to main --wait`.
+In the current directory write the single line `the worker's change` to worker.txt, run `git add worker.txt && git commit -m \"Add the worker's change\"`, then hand in with `safe-push --to main --wait`. Once it prints `Done: landed`, reply with one line that starts `Done:`.";
 const CHANGED_FILE: &str = "worker.txt";
 const CLAUDE_MODEL: &str = "haiku";
-const WORKER_WAIT: Duration = Duration::from_mins(4);
-const LAND_WAIT: Duration = Duration::from_mins(5);
+const HAND_IN_WAIT: Duration = Duration::from_mins(9);
+const SERVE_WAIT: Duration = Duration::from_secs(30);
 const SETTLE_WAIT: Duration = Duration::from_mins(2);
 const LEDGER_WAIT: Duration = Duration::from_mins(3);
 const QUERY_WAIT: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_secs(1);
+const LANDER_LOCK: &str = "lander.lock";
 
 type Step = fn(&mut Journey) -> Result<String, String>;
 
 const STEPS: [(&str, &str, Step); 4] = [
-    ("1", "a claude haiku worker takes the brief in a scratch repository's lane", take_brief),
-    ("2", "the worker commits its change and queues it with `safe-push --to main`", queue_change),
-    ("3", "`north land serve --once` lands the worker's commit on origin main", land),
+    ("1", "`north land serve` serves a scratch repository's queue and a claude haiku worker takes the brief in its lane", take_brief),
+    ("2", "the worker hands in with `safe-push --to main --wait` and reports once its commit lands", hand_in),
+    ("3", "the lander landed the worker's commit on origin main", land),
     ("4", "`north ledger worker` records the run done and landed at that commit", ledger_row),
 ];
 
@@ -50,17 +51,19 @@ struct Journey {
     plan: Plan,
     session: String,
     scratch: Option<Scratch>,
+    lander: Option<Process>,
     landed: Option<String>,
 }
 
 pub fn walk(north: North, notes: Notes, plan: Plan) -> Option<&'static str> {
     let session = format!("vn-{}", plan.stamp);
-    let mut journey = Journey { north, notes, plan, session, scratch: None, landed: None };
+    let mut journey = Journey { north, notes, plan, session, scratch: None, lander: None, landed: None };
     for (index, (number, title, step)) in STEPS.iter().enumerate() {
         let started = Instant::now();
         let outcome = step(&mut journey);
         report::step(number, title, &outcome, started.elapsed());
         if outcome.is_err() {
+            journey.stop_lander();
             journey.keep_evidence();
             STEPS[index + 1..].iter().for_each(|(number, title, _)| report::skipped(number, title));
             return Some(number);
@@ -73,6 +76,8 @@ fn take_brief(journey: &mut Journey) -> Result<String, String> {
     let scratch = Scratch::create()?;
     journey.notes.note(&Note::Scratch(scratch.root.clone()));
     let lane = scratch.lane.to_string_lossy().into_owned();
+    let lander = journey.serve(&scratch)?;
+    journey.lander = Some(lander);
     journey.scratch = Some(scratch);
     let account = match journey.plan.claude_account.clone() {
         Some(account) => account,
@@ -87,40 +92,27 @@ fn take_brief(journey: &mut Journey) -> Result<String, String> {
     Ok(format!("{name} on claude/{account} in {lane}"))
 }
 
-fn queue_change(journey: &mut Journey) -> Result<String, String> {
-    let report = journey.settled_report(WORKER_WAIT, |_| true)?;
+fn hand_in(journey: &mut Journey) -> Result<String, String> {
+    let report = journey.settled_report(HAND_IN_WAIT, |_| true)?;
     if !report.starts_with("Done:") {
         return Err(format!("the worker reported {:?}", shorten(&report)));
     }
     let scratch = journey.scratch()?;
     let head = scratch.lane_head()?;
-    let (queue, ticket) = queued_ticket(&scratch.origin, &journey.plan.state).ok_or_else(|| format!("the worker reported {:?} but queued no ticket for {}", shorten(&report), scratch.origin.display()))?;
-    journey.notes.note(&Note::Queue(queue));
-    let expected = (scratch::BRANCH, head.as_str(), journey.session.as_str());
-    let found = (ticket["branch"].as_str().unwrap_or_default(), ticket["head"].as_str().unwrap_or_default(), ticket["session"].as_str().unwrap_or_default());
-    if found != expected {
-        return Err(format!("the ticket holds branch, head and session {found:?}; expected {expected:?}"));
+    if scratch.origin_main()? == scratch.base {
+        return Err(format!("the worker reported {:?} before origin main moved, so it did not wait for its landing", shorten(&report)));
     }
-    Ok(format!("{} queued {} at {}", journey.session, scratch::BRANCH, short(&head)))
+    Ok(format!("{} handed in {} at {}", journey.session, scratch::BRANCH, short(&head)))
 }
 
 fn land(journey: &mut Journey) -> Result<String, String> {
+    let served = journey.stop_lander();
     let scratch = journey.scratch()?;
-    let pushes = scratch.root.join("pushes.tsv");
-    let ledger = scratch.root.join("threads.db");
-    let served = match journey.north.run_with(&["land", "serve", "--once", "--repo", &scratch.main.to_string_lossy()], &[("THREADS_DB", &ledger), ("NORTH_PUSH_LOG", &pushes)], LAND_WAIT) {
-        Ok(served) => Some(served),
-        Err(problem) if problem.contains("already served by") => None,
-        Err(problem) => return Err(problem),
-    };
-    let landed = match &served {
-        Some(_) => scratch.origin_main()?,
-        None => scratch.await_landing(LAND_WAIT)?,
-    };
+    let landed = scratch.origin_main()?;
     let parent = scratch.origin(&["rev-parse", &format!("{landed}^")])?;
     let changed = scratch.origin(&["show", "--format=", "--name-only", &landed])?;
-    if parent != scratch.base || changed != CHANGED_FILE || served.as_ref().is_some_and(|served| !served.contains(&format!("landed {landed}"))) {
-        return Err(format!("origin main is {landed} on {parent} changing {changed:?}; expected one commit changing {CHANGED_FILE} on {}; lander said: {}", scratch.base, shorten(served.as_deref().unwrap_or("a lander the host already runs served the queue"))));
+    if parent != scratch.base || changed != CHANGED_FILE || !served.contains(&format!("landed {landed}")) {
+        return Err(format!("origin main is {landed} on {parent} changing {changed:?}; expected one commit changing {CHANGED_FILE} on {}; lander said: {}", scratch.base, shorten(&served)));
     }
     journey.landed = Some(landed.clone());
     Ok(format!("landed {}", short(&landed)))
@@ -144,6 +136,32 @@ fn ledger_row(journey: &mut Journey) -> Result<String, String> {
 }
 
 impl Journey {
+    fn serve(&self, scratch: &Scratch) -> Result<Process, String> {
+        let log = scratch.root.join("lander.log");
+        let variables = [("THREADS_DB", scratch.root.join("threads.db")), ("NORTH_PUSH_LOG", scratch.root.join("pushes.tsv"))];
+        let variables: Vec<(&str, &Path)> = variables.iter().map(|(key, path)| (*key, path.as_path())).collect();
+        let lander = self.north.start_with(&["land", "serve", "--repo", &scratch.main.to_string_lossy()], &variables, &log)?;
+        let queues = landing_queues(&self.plan.state);
+        let mut served = None;
+        exec::poll_until(SERVE_WAIT, POLL, || {
+            served = held_queue(&queues);
+            served.is_some() || !lander.alive()
+        });
+        if let (Some(queue), true) = (served, lander.alive()) {
+            self.notes.note(&Note::Queue(queue));
+            return Ok(lander);
+        }
+        lander.terminate();
+        Err(format!("`north land serve` held no queue under {} within {} s; it said: {}", queues.display(), SERVE_WAIT.as_secs(), shorten(&fs::read_to_string(&log).unwrap_or_default())))
+    }
+
+    fn stop_lander(&mut self) -> String {
+        let Some(lander) = self.lander.take() else { return String::new() };
+        lander.terminate();
+        exec::poll_until(SERVE_WAIT, POLL, || !lander.alive());
+        self.scratch.as_ref().and_then(|scratch| fs::read_to_string(scratch.root.join("lander.log")).ok()).unwrap_or_default()
+    }
+
     fn keep_evidence(&self) {
         let Some(scratch) = &self.scratch else { return };
         match scratch::keep_ledger(&scratch.root, self.plan.stamp) {
@@ -193,25 +211,15 @@ fn run_row(ledger: &Path, conversation: &str) -> Result<Option<RunRow>, String> 
     rows.next().transpose().map_err(|error| format!("{}: {error}", ledger.display()))
 }
 
-fn queued_ticket(origin: &Path, state: &Path) -> Option<(PathBuf, Value)> {
-    let origin = origin.to_string_lossy();
-    let queues = fs::read_dir(landing_queues(state)).ok()?;
-    queues.filter_map(Result::ok).map(|queue| queue.path()).find_map(|queue| {
-        let tickets = fs::read_dir(&queue).ok()?;
-        let ticket = tickets
-            .filter_map(Result::ok)
-            .map(|ticket| ticket.path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
-            .filter_map(|path| serde_json::from_str::<Value>(&fs::read_to_string(path).ok()?).ok())
-            .find(|ticket| ticket["origin"] == *origin)?;
-        Some((queue, ticket))
-    })
-}
-
 pub fn landing_queues(state: &Path) -> PathBuf {
     state.join("north/land-queue")
 }
 
 fn short(sha: &str) -> &str {
     &sha[..sha.len().min(12)]
+}
+
+fn held_queue(queues: &Path) -> Option<PathBuf> {
+    let entries = fs::read_dir(queues).ok()?;
+    entries.filter_map(Result::ok).map(|entry| entry.path()).find(|queue| fs::File::open(queue.join(LANDER_LOCK)).is_ok_and(|file| flock(&file, FlockOperation::NonBlockingLockShared).is_err()))
 }

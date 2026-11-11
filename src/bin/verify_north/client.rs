@@ -1,12 +1,14 @@
+use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 use super::exec;
-use super::notes::Notes;
+use super::notes::{Note, Notes};
+use super::processes::Process;
 use super::transcript::Transcript;
 
 const QUERY_WAIT: Duration = Duration::from_secs(30);
@@ -50,6 +52,23 @@ impl North {
     pub fn output_with(&self, arguments: &[&str], variables: &[(&str, &Path)], timeout: Duration) -> Result<String, String> {
         let output = exec::output(self.command(arguments, variables), timeout, self.notes.as_ref())?;
         Ok(format!("exit {}: {}{}", output.status.code().unwrap_or(-1), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
+    }
+
+    pub fn start_with(&self, arguments: &[&str], variables: &[(&str, &Path)], log: &Path) -> Result<Process, String> {
+        let output = File::create(log).map_err(|error| format!("{}: {error}", log.display()))?;
+        let errors = output.try_clone().map_err(|error| format!("{}: {error}", log.display()))?;
+        let mut command = self.command(arguments, variables);
+        command.stdin(Stdio::null()).stdout(output).stderr(errors);
+        let child = command.spawn().map_err(|error| format!("`north {}`: {error}", arguments.join(" ")))?;
+        let process = Process::of(child.id()).ok_or_else(|| format!("`north {}` exited at once; log: {}", arguments.join(" "), log.display()))?;
+        if let Some(notes) = &self.notes {
+            notes.note(&Note::Child(process));
+        }
+        thread::spawn(move || {
+            let mut child = child;
+            let _ = child.wait();
+        });
+        Ok(process)
     }
 
     fn command(&self, arguments: &[&str], variables: &[(&str, &Path)]) -> Command {
