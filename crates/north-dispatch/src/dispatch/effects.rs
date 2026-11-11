@@ -176,7 +176,7 @@ pub fn forget(survey: &Survey, name: &str, registry: &str) -> Result<(), String>
 }
 
 /// Runs `north WORDS` on `host`: here, or over the ssh destination its `[hosts]` entry names.
-fn north_on(survey: &Survey, host: &str, words: &[String]) -> Result<(), String> {
+pub(super) fn north_on(survey: &Survey, host: &str, words: &[String]) -> Result<(), String> {
     let north = std::env::current_exe().map_err(|error| error.to_string())?.to_string_lossy().into_owned();
     let output = if host == survey.here {
         run_within(&north, &words.iter().map(String::as_str).collect::<Vec<_>>(), LAUNCH_WAIT)

@@ -78,6 +78,33 @@ pub fn is(launch: &Launch) -> bool {
     launch.account == ACCOUNT
 }
 
+/// The `fleet reports` of every host in `hosts` that lists a resting session of the provider: the laptop's from its mirrored
+/// copy, this host's by running it, each other host's through `read` over ssh.
+pub fn reports(hosts: &[String], here: &str, laptop: Option<&str>, laptop_reports: &Value, lists: &[(String, Value)], read: &dyn Fn(Option<&str>) -> Result<Value, String>, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+    let mut found: Vec<(String, Value)> = laptop.filter(|host| hosts.iter().any(|name| name == host)).map(|host| (host.to_owned(), laptop_reports.clone())).into_iter().collect();
+    for host in hosts.iter().filter(|host| laptop != Some(host.as_str())) {
+        if !lists.iter().any(|(name, listing)| name == host && review::has_resting(listing)) {
+            continue;
+        }
+        match read((host != here).then_some(host.as_str())) {
+            Ok(listing) => found.push((host.clone(), listing)),
+            Err(why) => notes.push(format!("{host} fleet reports unread, so no DeepSeek review is queued there this run: {why}")),
+        }
+    }
+    found
+}
+
+/// The provider's sessions that count against its slot cap: those running or resting, less the resting ones whose review job is queued, since that job forgets them.
+pub fn counted(lists: &[(String, Value)], queued: &BTreeSet<String>) -> usize {
+    lists
+        .iter()
+        .flat_map(|(_, listing)| fleets::running_sessions(listing))
+        .filter(|session| session.account.as_deref() == Some(PROVIDER) && (session.working || !queued.contains(&session.name)))
+        .map(|session| session.name)
+        .collect::<BTreeSet<_>>()
+        .len()
+}
+
 /// The rung a launch line names: `deepseek`, or its Claude tier.
 pub fn rung(launch: &Launch) -> &'static str {
     if is(launch) { "deepseek" } else { launch.route.tier.name() }
@@ -108,22 +135,16 @@ pub fn cell(launch: &Launch, cfg: &DocumentMut) -> Option<String> {
 }
 
 impl Seen {
-    /// What dispatch reads about DeepSeek: the boxes the dispatch record shows it tried, and the idle sessions on its
+    /// What dispatch reads about DeepSeek: the boxes the dispatch record shows it tried, and the resting sessions on its
     /// hosts whose last report starts `Done:`.
     #[allow(clippy::too_many_arguments, reason = "each input is a reading the dispatch survey already holds")]
-    pub fn read(here: &str, laptop: Option<&str>, fleet_lists: &[(String, Value)], laptop_reports: &Value, records: &[Record], issues: &[Issue], at: f64, notes: &mut Vec<String>) -> Self {
+    pub fn read(cfg: &DocumentMut, here: &str, laptop: Option<&str>, fleet_lists: &[(String, Value)], laptop_reports: &Value, records: &[Record], issues: &[Issue], at: f64, notes: &mut Vec<String>) -> Self {
         let settings = Settings::read();
-        let mut reports: Vec<(String, Value)> = laptop.filter(|host| settings.hosts.iter().any(|name| name == host)).map(|host| (host.to_owned(), laptop_reports.clone())).into_iter().collect();
-        if settings.hosts.iter().any(|name| name == here) {
-            match fleets::remote_json_within(None, &["fleet", "reports", "--json"], PROBE) {
-                Ok(listing) => reports.push((here.to_owned(), listing)),
-                Err(why) => notes.push(format!("{here} fleet reports unread, so no DeepSeek review is queued here this run: {why}")),
-            }
-        }
+        let read = |host: Option<&str>| fleets::remote_json_within(host.map(|name| fleets::destination(cfg, name)).as_deref(), &["fleet", "reports", "--json"], PROBE);
+        let reports = reports(&settings.hosts, here, laptop, laptop_reports, fleet_lists, &read, notes);
         let queued = review::queued(&super::record::directory(), at);
         let done = review::done(fleet_lists, &reports, records, issues, &queued);
-        let names: BTreeSet<String> = fleet_lists.iter().flat_map(|(_, listing)| super::fleets::running_sessions(listing)).filter(|session| session.account.as_deref() == Some(PROVIDER)).map(|session| session.name).collect();
-        Self { tried: tried(records), done, running: names.len(), settings }
+        Self { tried: tried(records), done, running: counted(fleet_lists, &queued), settings }
     }
 
     /// Places `ready` on DeepSeek when it takes the box, else on Claude through `claude`.

@@ -107,6 +107,11 @@ fn reported_done(report: &Value) -> bool {
     report["entries"].as_array().and_then(|entries| entries.iter().rev().find(|entry| entry["kind"] == "assistant")).and_then(|entry| entry["text"].as_str()).is_some_and(|text| text.trim_start().starts_with("Done:"))
 }
 
+/// Whether `listing` holds a session of the provider that rests.
+pub fn has_resting(listing: &Value) -> bool {
+    listing.as_array().into_iter().flatten().any(|session| session["provider"] == PROVIDER && RESTING.contains(&session["status"].as_str().unwrap_or_default()))
+}
+
 /// The DeepSeek sessions resting in each host's listing, idle or parked once their host rests, whose last report starts `Done:`, with no review job queued.
 pub fn done(lists: &[(String, Value)], reports: &[(String, Value)], records: &[Record], issues: &[Issue], queued: &BTreeSet<String>) -> Vec<Done> {
     let mut found = Vec::new();
@@ -149,8 +154,11 @@ pub fn job(done: &Done) -> Vec<String> {
     words
 }
 
-/// Queues the review job of each session in `dones`: on the laptop through its job queue, here by running it; prints one line each.
-pub fn queue(dones: &[Done], here: &str, laptop: Option<&str>, dry_run: bool) -> Vec<String> {
+/// Runs `north WORDS` on a host other than this one and the laptop.
+pub type Remote<'a> = dyn Fn(&str, &[String]) -> Result<(), String> + 'a;
+
+/// Queues the review job of each session in `dones`: on the laptop through its job queue, here by running it, on any other host by running it there over ssh; prints one line each.
+pub fn queue(dones: &[Done], here: &str, laptop: Option<&str>, remote: &Remote<'_>, dry_run: bool) -> Vec<String> {
     let north = std::env::current_exe().map_or_else(|_| "north".into(), |path| path.to_string_lossy().into_owned());
     let directory = record::directory();
     dones
@@ -160,22 +168,26 @@ pub fn queue(dones: &[Done], here: &str, laptop: Option<&str>, dry_run: bool) ->
             if dry_run {
                 return format!("would {line}");
             }
-            let words = if laptop == Some(done.host.as_str()) {
+            let ran = if laptop == Some(done.host.as_str()) {
                 let mut queued = ["threads", "queue", "add", "laptop", &done.item.to_string(), "--", "north"].map(str::to_owned).to_vec();
                 queued.extend(job(done));
-                queued
+                run(&north, &queued)
             } else if done.host == here {
-                job(done)
+                run(&north, &job(done))
             } else {
-                return format!("{line}: skipped, dispatch reaches DeepSeek sessions only here and on the laptop");
+                remote(&done.host, &job(done))
             };
-            let ran = Command::new(&north).args(&words).output().map_err(|error| error.to_string()).and_then(|output| if output.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&output.stderr).trim().to_owned()) });
             match ran.and_then(|()| mark(&directory, &done.name, placement::now())) {
                 Ok(()) => line,
                 Err(why) => format!("{line} failed: {why}"),
             }
         })
         .collect()
+}
+
+fn run(north: &str, words: &[String]) -> Result<(), String> {
+    let output = Command::new(north).args(words).output().map_err(|error| error.to_string())?;
+    if output.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&output.stderr).trim().to_owned()) }
 }
 
 #[derive(Debug, PartialEq)]

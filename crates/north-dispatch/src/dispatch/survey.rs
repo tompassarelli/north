@@ -506,7 +506,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push(why);
         Vec::new()
     });
-    let deepseek = super::deepseek::Seen::read(&here, laptop.as_deref(), &fleet_lists, &laptop_reports, &records, &issues, at, &mut notes);
+    let deepseek = super::deepseek::Seen::read(&cfg, &here, laptop.as_deref(), &fleet_lists, &laptop_reports, &records, &issues, at, &mut notes);
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
     Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, box_tries, mainline, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, deepseek, learned, at })
 }

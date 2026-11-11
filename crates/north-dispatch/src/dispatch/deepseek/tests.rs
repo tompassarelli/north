@@ -223,3 +223,32 @@ fn a_deepseek_run_whose_lane_the_broker_landed_before_its_report_is_recorded_lan
     let verdicts = [Verdict { at: 0.0, session: "ds-landed".into(), category: "feature".into(), sha: "abc".into(), kind: Kind::Landed, class: None, effort: None }];
     assert_eq!(sampling::clean_run(&verdicts, "feature"), 0);
 }
+
+#[test]
+fn a_resting_session_on_a_build_host_that_reported_done_gets_a_review_job_and_one_that_has_not_gets_none() {
+    let session = |name: &str, status: &str| json!({"name": name, "provider": "opencode", "status": status, "tasks": ["north#7"], "box": "the box"});
+    let said = |text: &str| json!({"entries": [{"kind": "assistant", "text": text}]});
+    let lists = vec![("gex45".to_owned(), json!([session("on-here", "working")])), ("cpx62".to_owned(), json!([session("remote-done", "idle"), session("remote-busy", "idle")]))];
+    let hosts = vec!["gex45".to_owned(), "cpx62".to_owned()];
+    let read = |host: Option<&str>| match host {
+        Some("cpx62") => Ok(json!({"remote-done": said("Done: x"), "remote-busy": said("Not done: y")})),
+        _ => Err("unreached".to_owned()),
+    };
+    let mut notes = Vec::new();
+
+    let reports = super::reports(&hosts, "gex45", None, &json!(null), &lists, &read, &mut notes);
+    let found = review::done(&lists, &reports, &[], &[issue("north", 7, "- [ ] the box", &[])], &BTreeSet::new());
+
+    assert_eq!(found.iter().map(|done| (done.name.as_str(), done.host.as_str())).collect::<Vec<_>>(), [("remote-done", "cpx62")]);
+    assert!(notes.is_empty(), "{notes:?}");
+}
+
+#[test]
+fn a_resting_session_stops_counting_against_the_provider_cap_once_its_review_job_is_queued() {
+    let session = |name: &str, status: &str| json!({"name": name, "provider": "opencode", "status": status, "tasks": ["north#7"]});
+    let lists = vec![("cpx62".to_owned(), json!([session("busy", "working"), session("waiting", "idle"), session("queued", "idle"), session("queued-parked", "parked")]))];
+    let queued = BTreeSet::from(["queued".to_owned(), "queued-parked".to_owned()]);
+
+    assert_eq!(super::counted(&lists, &BTreeSet::new()), 4);
+    assert_eq!(super::counted(&lists, &queued), 2);
+}

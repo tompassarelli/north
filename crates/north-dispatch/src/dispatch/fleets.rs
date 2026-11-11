@@ -295,14 +295,18 @@ fn turn(records: &Path, key: &str) -> Option<std::fs::File> {
     Some(file)
 }
 
+/// The ssh destination of `host`: its configured one, else its name.
+pub fn destination(cfg: &DocumentMut, host: &str) -> String {
+    gate::machines(cfg).into_iter().find(|machine| machine.name == host).map_or_else(|| host.to_owned(), |machine| machine.ssh)
+}
+
 fn reached_via(cfg: &DocumentMut, here: &str, command: &[&str], notes: &mut Vec<String>, read: &(dyn Fn(&str, &str) -> Result<Value, String> + Sync)) -> Vec<(String, Value)> {
     let laptop = laptop(cfg, here);
-    let machines = gate::machines(cfg);
     let targets: Vec<(String, String)> = hosts(cfg)
         .into_iter()
         .filter(|name| name != here && laptop.as_deref() != Some(name.as_str()))
         .map(|host| {
-            let ssh = machines.iter().find(|machine| machine.name == host).map_or_else(|| host.clone(), |machine| machine.ssh.clone());
+            let ssh = destination(cfg, &host);
             (host, ssh)
         })
         .collect();
