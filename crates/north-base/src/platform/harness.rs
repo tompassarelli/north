@@ -5,6 +5,7 @@ use std::sync::{LazyLock, Mutex, PoisonError};
 use toml_edit::DocumentMut;
 
 pub const TREE: &str = "tree";
+const REFUSED: i32 = 78;
 pub const DEFAULTS: &str = "harness/defaults.toml";
 pub const MODEL_CATALOG: &str = "harness/model-catalog.toml";
 
@@ -13,11 +14,16 @@ static TABLES: LazyLock<Mutex<BTreeMap<&'static str, &'static str>>> = LazyLock:
 pub fn table(relative: &'static str) -> &'static str {
     let mut tables = TABLES.lock().unwrap_or_else(PoisonError::into_inner);
     tables.entry(relative).or_insert_with(|| {
-        let root = harness_root().unwrap_or_else(|skew| panic!("{skew}"));
+        let root = harness_root().unwrap_or_else(|skew| refuse(&skew));
         let path = root.join(relative);
         let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("north: cannot read {}: {error}", path.display()));
         Box::leak(text.into_boxed_str())
     })
+}
+
+fn refuse(skew: &str) -> ! {
+    eprintln!("{skew}");
+    std::process::exit(REFUSED)
 }
 
 static DOCUMENTS: LazyLock<Mutex<BTreeMap<&'static str, &'static DocumentMut>>> = LazyLock::new(Mutex::default);
@@ -66,7 +72,8 @@ fn checkout_for(executable: &Path, checkout: PathBuf) -> Result<PathBuf, String>
     match head == runtime {
         true => Ok(checkout),
         false => Err(format!(
-            "north: runtime {runtime} has no tree and the checkout {} is at {}; run north runtime update",
+            "north: runtime {runtime} has no tree at {} and the checkout {} is at {}; run north runtime update",
+            executable.parent().unwrap_or(executable).join(TREE).display(),
             checkout.display(),
             if head.is_empty() { "no commit" } else { &head }
         )),

@@ -346,7 +346,7 @@ fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     let cause = if building { "built; swapping current to it and checking it" } else { "built elsewhere and shipped; swapping current to it and checking it" };
     lifecycle::move_to::<Promoting>(layout, target, Promotion::Installing, cause).map_err(unfinished)?;
     note_promotion(layout, target, "installing");
-    let synced = install(layout, checkout, target, &runtime, previous).map_err(|failure| (if failure.denied { Promotion::Unfinished } else { Promotion::InstallFailed }, failure))?;
+    let synced = install(layout, target, &runtime, previous).map_err(|failure| (if failure.denied { Promotion::Unfinished } else { Promotion::InstallFailed }, failure))?;
     Ok((synced, flipping))
 }
 
@@ -356,14 +356,8 @@ fn note_promotion(layout: &Layout, target: &str, state: &str) {
     let _ = fs::write(layout.state.join("runtime-promote.json"), format!("{record}\n"));
 }
 
-fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previous: Option<&Path>) -> Result<String, Failure> {
+fn install(layout: &Layout, target: &str, runtime: &Path, previous: Option<&Path>) -> Result<String, Failure> {
     layout::built_from_own_commit(runtime).map_err(|why| failed(1, why))?;
-    if !runtime.join(TREE).is_dir() {
-        let _writing = writing(layout, target)?;
-        if !runtime.join(TREE).is_dir() {
-            export_tree(checkout, target, runtime)?;
-        }
-    }
     super::entry_links::link(runtime)?;
     store::root(runtime)?;
     if let Err(failure) = store::shims(runtime) {
@@ -397,12 +391,15 @@ pub(super) fn main_commit(checkout: &Path) -> Result<String, Failure> {
 
 fn built(layout: &Layout, checkout: &Path, target: &str) -> Result<PathBuf, Failure> {
     let runtime = layout.runtime(target);
-    if usable(&runtime) {
+    if usable(&runtime) && runtime.join(TREE).is_dir() {
         return Ok(runtime);
     }
     let _writing = writing(layout, target)?;
     if !usable(&runtime) && !adopted(layout, checkout, target, &runtime) && !reused(layout, checkout, target, &runtime) {
         build(layout, checkout, target, &runtime)?;
+    }
+    if !runtime.join(TREE).is_dir() {
+        export_tree(checkout, target, &runtime)?;
     }
     Ok(runtime)
 }
