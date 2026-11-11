@@ -393,7 +393,17 @@ fn a_dispatch_round_places_only_on_the_listed_providers_draws_only_the_band_ther
     use super::deepseek::{Seen, Settings};
     let hosts = vec![host("nexus", 6, Ok(0)), host("whiterabbit", 8, Ok(0))];
     let accounts = vec![account("claude:a", &["nexus", "whiterabbit"], 80.0)];
-    let boxes = vec![issue("north", 1, "- [ ] add a column", &[]), issue("north", 2, "- [ ] narrow the sandbox reads", &[]), issue("north", 3, "Scope: cross-module\n- [ ] a third column", &[]), issue("galileo", 4, "- [ ] a galileo column", &[])];
+    let band = "Spec: exact\nScope: module";
+    let boxes = vec![
+        issue("north", 1, &format!("{band}\n- [ ] add a column"), &[]),
+        issue("north", 2, &format!("{band}\n- [ ] narrow the sandbox reads"), &[]),
+        issue("north", 3, "Spec: exact\nScope: cross-module\n- [ ] a third column", &[]),
+        issue("galileo", 4, &format!("{band}\n- [ ] a galileo column"), &[]),
+        issue("north", 5, "Category: debugging-unknown-cause\nClass: a default fills in an undeclared facet\nSpec: exact\nScope: module\n- [ ] a fifth column", &[]),
+        issue("north", 6, "Spec: measured\nScope: module\n- [ ] a sixth column", &[]),
+        issue("north", 7, "Scope: module\n- [ ] a seventh column", &[]),
+        issue("north", 8, "Spec: exact\n- [ ] an eighth column", &[]),
+    ];
     let mut planned = survey(boxes, Cloud::Closed("no credit".into()), hosts, accounts);
     let deepseek: toml_edit::DocumentMut = "[dispatch]\nhosts = [\"whiterabbit\", \"nexus\"]\nslot_cap = 4\nclaude_only = ['\\bsandbox']\n".parse().unwrap();
     planned.deepseek = Seen { settings: Settings::parse(&deepseek), ..Seen::default() };
@@ -412,6 +422,10 @@ fn a_dispatch_round_places_only_on_the_listed_providers_draws_only_the_band_ther
     let why = |item: &str| scoped.skipped.iter().find(|(skipped, _)| skipped.to_string() == item).map(|(_, why)| why.clone()).unwrap_or_default();
     assert!(why("north#2").contains("its subject matches") && why("north#2").contains("outside dispatch_providers = [opencode]"), "{}", why("north#2"));
     assert!(why("north#3").contains("Scope: cross-module is wider than one module"), "{}", why("north#3"));
+    assert!(why("north#5").contains("Category: debugging-unknown-cause is outside the band"), "{}", why("north#5"));
+    assert!(why("north#6").contains("Spec: measured is outside the band"), "{}", why("north#6"));
+    assert!(why("north#7").contains("Spec: not declared"), "{}", why("north#7"));
+    assert!(why("north#8").contains("Scope: not declared"), "{}", why("north#8"));
     assert!(why("galileo#4").contains("galileo is not a public repository"), "{}", why("galileo#4"));
     let lines = super::scope::Scope::parse(&planned.cfg).lines();
     assert_eq!(lines, ["dispatch providers: opencode".to_owned(), "dispatch hosts excluded: whiterabbit".to_owned()]);
