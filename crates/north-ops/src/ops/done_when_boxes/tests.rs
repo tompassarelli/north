@@ -125,4 +125,5 @@ fn an_unquoted_phrase_after_prints_is_a_judge_expectation_and_only_a_quoted_one_
     let Expected::Judge(reason) = expectation::expected("exits 0 and prints the guard refusal of its probe command") else { panic!("an unquoted phrase is matched literally") };
     assert!(reason.contains("the guard refusal of its probe command"), "{reason}");
     assert_eq!(expectation::expected("exits 0 and prints \"blind staging refused\""), Expected::All(vec![Expectation::Contains("blind staging refused".into()), Expectation::Exit(0)]));
+    assert_eq!(expectation::expected("passes with the phrase \"exits 1 and prints the guard refusal\" read as judge"), Expected::All(vec![Expectation::Exit(0)]));
 }

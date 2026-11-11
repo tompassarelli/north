@@ -12,6 +12,7 @@ static SHOWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(prints|outp
 static EXIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(exits|exit|returns) +(code +|status +)?(\d+)\b").expect("exit pattern"));
 static PASSES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(passes|pass|succeeds|succeed|is green|are green)\b").expect("passes pattern"));
 static CLAUSE_END: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.,;:]( |$)|\.$| and | or | with | on | for | in ").expect("clause pattern"));
+static QUOTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"`[^`]*`|"[^"]*""#).expect("quoted pattern"));
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expectation {
@@ -57,29 +58,36 @@ fn shown(verb: &str, after: &str) -> Result<String, String> {
     }
 }
 
+fn unquoted(text: &str) -> String {
+    QUOTED.replace_all(text, |quoted: &regex::Captures| format!("{0}{1}{0}", &quoted[0][..1], " ".repeat(quoted[0].len() - 2))).into_owned()
+}
+
 pub fn expected(text: &str) -> Expected {
     let text = text.trim();
     if text.is_empty() {
         return Expected::Judge("no stated expectation".into());
     }
-    if let Some(found) = THRESHOLD.find(text) {
+    let mut masked = unquoted(text);
+    if let Some(found) = THRESHOLD.find(&masked) {
         return Expected::Judge(format!("a threshold the program cannot read ({})", found.as_str()));
     }
     let mut all = Vec::new();
     let mut rest = text.to_owned();
-    if let Some(found) = EMPTY.find(&rest) {
+    if let Some(range) = EMPTY.find(&masked).map(|found| found.range()) {
         all.push(Expectation::Empty);
-        rest.replace_range(found.range(), " ");
+        let blank = " ".repeat(range.len());
+        rest.replace_range(range.clone(), &blank);
+        masked.replace_range(range, &blank);
     }
-    for found in SHOWS.find_iter(&rest) {
+    for found in SHOWS.find_iter(&masked) {
         match shown(found.as_str().trim(), &rest[found.end()..]) {
             Ok(shown) => all.push(Expectation::Contains(shown)),
             Err(reason) => return Expected::Judge(reason),
         }
     }
-    if let Some(code) = EXIT.captures(&rest).and_then(|found| found[3].parse().ok()) {
+    if let Some(code) = EXIT.captures(&masked).and_then(|found| found[3].parse().ok()) {
         all.push(Expectation::Exit(code));
-    } else if PASSES.is_match(&rest) {
+    } else if PASSES.is_match(&masked) {
         all.push(Expectation::Exit(0));
     }
     if all.is_empty() { Expected::Judge("no expectation the program can read".into()) } else { Expected::All(all) }
