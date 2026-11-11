@@ -29,7 +29,7 @@ fn always_pulled(fleet: &Fleet) -> Vec<FarHost> {
 
 fn dispatch_pass(fleet: &Fleet) -> dispatch_tick::Pass {
     let cfg = config().ok();
-    let paused = crate::dispatch::paused();
+    let paused = crate::dispatch::review_pause();
     dispatch_tick::pass(fleet.host(), cfg.as_ref(), paused.as_deref(), &crate::dispatch::launch_directory(), now_ms() as f64 / 1000.0, || crate::pacing::placement::resident_clis(fleet.host(), ""), || crate::dispatch::run(&[], super::router::roster))
 }
 

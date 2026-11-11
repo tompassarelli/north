@@ -19,8 +19,8 @@ fn modified(path: &Path) -> Option<f64> {
 }
 
 fn held(path: &Path) -> Option<Held> {
-    let cause = fs::read_to_string(path).ok()?;
-    Some(Held { since: modified(path)?, cause: cause.trim().to_owned() })
+    let pause = north_base::dispatch_pause::Pause::read(path)?;
+    Some(Held { since: modified(path)?, cause: pause.reason })
 }
 
 fn entries(directory: &Path) -> impl Iterator<Item = std::path::PathBuf> + use<> {
