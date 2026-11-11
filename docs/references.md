@@ -410,6 +410,16 @@ claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi)
 - <a id="buck2"></a>**Buck2: why Buck2** and **remote execution**, https://buck2.build/docs/about/why/,
   https://buck2.build/docs/users/remote_execution/.
   Informed: one placement function for local and remote hosts. Outcome: prior only.
+- <a id="buck2-remote-execution"></a>**Buck2: remote execution** and its **Buildbarn example**, https://buck2.build/docs/users/remote_execution/,
+  https://github.com/facebook/buck2/tree/main/examples/remote_execution/buildbarn.
+  Informed: the remote execution client section's keys, the execution platform's `remote_execution_properties`, and the services
+  Buck2 lists as tested ([compile-reuse.md](rationale/compile-reuse.md)). Outcome: adopted.
+- <a id="buckconfig"></a>**Buck2: buckconfig**, https://buck2.build/docs/concepts/buckconfig/.
+  Informed: the remote execution endpoint lives in each host's `/etc/buckconfig.d`, below the repository's own files
+  ([compile-reuse.md](rationale/compile-reuse.md)). Outcome: adopted.
+- <a id="buildbarn"></a>**Buildbarn** (bb-storage, bb-remote-execution, bb-deployments), https://github.com/buildbarn.
+  Informed: the shared store, action cache, scheduler and workers, and their configuration
+  ([compile-reuse.md](rationale/compile-reuse.md)). Outcome: adopted.
 - <a id="buck2-dep-files"></a>**Buck2: dep files**, https://buck2.build/docs/rule_authors/dep_files/.
   Informed: a verdict keyed on the inputs a check used, not every input it may read
   ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.

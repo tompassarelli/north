@@ -5,6 +5,8 @@ _HOST = [
     "prelude//os/constraints:linux",
 ]
 
+_REMOTE = {"OSFamily": "linux"} if read_root_config("buck2_re_client", "engine_address") else {}
+
 platform(
     name = "dev",
     constraint_values = _HOST + ["//mode:dev"],
@@ -20,5 +22,6 @@ platform(
 execution_platform(
     name = "exec",
     constraint_values = _HOST + ["//mode:dev"],
+    remote_execution_properties = _REMOTE,
     visibility = ["PUBLIC"],
 )

@@ -239,3 +239,77 @@ dedicated user that cannot read `/home/tom`, so that read fails. The ptrace reco
 
 Sources: [Buck2 test command](../references.md#buck2-test), [Buck2 test execution](../references.md#buck2-test-execution),
 [nextest environment variables](../references.md#nextest-env).
+||||||| parent of 89f0534222 (Record the remote execution and store choice for the Buck2 migration: Buildbarn on cpx62 with workers on every build host, chosen because it is the one open-source Remote Execution API service with a scheduler and no database, with its external-code review and what the Buck2 configuration must keep for a cross-host hit (north#1115))
+
+## Remote execution and store
+
+Box 3 of north#1115 (2026-11-11). Every Buck2 action on every build host is keyed by its input digest in one shared
+store, so an action one host ran is fetched by the next host instead of run again, and a host with spare cores runs
+another host's actions.
+
+### Service chosen: Buildbarn
+
+Candidates are the services Buck2 documents as tested for remote execution
+([buck2-remote-execution](../references.md#buck2-remote-execution)) plus the two other open Remote Execution API
+servers. Each license was read from the repository's own LICENSE file on 2026-11-11.
+
+- Buildbarn ([buildbarn](../references.md#buildbarn)): Apache-2.0 (bb-storage, bb-remote-execution). Store, action
+  cache, scheduler, worker and runner, all in Go, with no database. Chosen.
+- NativeLink: FSL-1.1-Apache-2.0, a source-available license that turns into Apache-2.0 only two years after each
+  release; not open source today, so ruled out.
+- BuildBuddy: MIT outside `enterprise/`, and remote execution lives under `enterprise/` with its own license; ruled out.
+- EngFlow: proprietary service; ruled out.
+- Buildfarm: Apache-2.0, but Java and a Redis it needs for its queue and action cache, two more services to run and
+  watch; Buildbarn does the same with none.
+- bazel-remote: Apache-2.0, a cache only, with no execution; it cannot give the laptop or a busy host somewhere to run.
+
+### External-code review
+
+- License: Apache-2.0, compatible with north's MIT or Apache-2.0 and with firn. Nothing is copied into either
+  repository; the firn module writes its own configuration, modelled on bb-deployments' example (Apache-2.0).
+- Maintenance: bb-storage and bb-remote-execution both published releases in the week of 2026-11-02, and
+  bb-deployments, which pins a tested pair, moved on 2026-11-06.
+- Pin: the release binaries bb-deployments pins as a pair, bb-storage `ca3d8b4` (release `20261102T091443Z-ca3d8b4`)
+  and bb-remote-execution `c9ba98c` (release `20261102T094740Z-c9ba98c`), each fetched by its SHA-256 in
+  firn's `modules/buildbarn`, the same hashes the releases publish in their `sha256` asset. They are static Go
+  binaries built by the projects' own release workflow; nixpkgs carries no Buildbarn package.
+- What it reaches at build time: GitHub release downloads, once per pin, checked by hash.
+- What it reaches at run time: only the store address its configuration names; no component calls home. Where
+  the store listens and what a remote action may reach are host security posture, kept in the private host
+  configuration.
+
+### Shape
+
+- One store: cpx62 runs the store and action cache (bb_storage on loopback), a frontend (bb_storage) that clients and
+  workers reach over the mesh, and the scheduler. cpx62 is the host that already builds and serves every host's
+  Nix closure ([propagation.md](propagation.md)), and it has the free disk. The store is a 64 GiB block file that
+  drops its oldest blocks when full; the action cache checks that an entry's outputs are still in the store before it
+  answers, so a hit never points at an evicted blob.
+- Workers on gex45, cpx62 and cpx62b each fetch inputs into a local cache, hardlink them into the action's directory
+  and hand the action to the runner. gex45 runs fewer actions at once because it also runs game clients and runners.
+- Mesh: the store traffic travels over a private network between the build hosts that forwards nothing; its
+  membership is part of the private host configuration.
+- Clients: every build host gets `/etc/buckconfig.d/remote-execution`, which names the store and scheduler for every
+  Buck2 project on that host, so north's own `.buckconfig` names no host address. Buck2 merges that directory below
+  the repository's own files ([buckconfig](../references.md#buckconfig)).
+
+### What the Buck2 configuration must keep
+
+- Same digest everywhere: an action hits on a second host only if its command, environment, inputs and platform
+  properties are byte-identical. The toolchain is named by absolute `/nix/store` paths from north's flake, never
+  looked up on `PATH` or under a checkout, and the execution platform's `remote_execution_properties` equal the
+  workers' properties (`OSFamily = linux`). Buck2 sends those properties in the Command, not the Action, which
+  Buildbarn's action key extractor reads, so the scheduler routes every action by a static key equal to the workers'
+  properties: before that, a loopback run on cpx62 failed with `No workers exist ... platform {}`; after it, the
+  same run executed remotely and `buck2 clean` then a rebuild reported `cached: 1`.
+- The toolchain must be in each worker's `/nix/store`: an action names it, it is not uploaded. Every build host
+  realises north's dev shell, which holds it.
+- Buck2 skips symlinks in `/etc/buckconfig.d`, and NixOS writes `environment.etc` entries as symlinks into the
+  store, so the client file is written as a regular file (`mode = "0444"`); as a symlink every action ran locally.
+- The remote execution addresses are read once, when the daemon starts, from the buckconfig files; a
+  `--config-file` on a later command does not reach them and the client fails with `No address`.
+- The prelude's `system_cxx_toolchain` hard-codes `link_binaries_locally`, so every rustc link, build scripts
+  included, ran locally on each host and was never cached. `toolchains//:cxx` wraps it and turns that one field off
+  (`toolchains/remote_link.bzl`). Measured on `//crates/north-strategy-types` at one tree: cpx62 ran 48 actions
+  (40 cached, 8 remote, 0 local), then cpx62b answered all 48 from the cache, and
+  `buck2 log what-ran --skip-cache-hits | rg -c rustc` printed nothing.

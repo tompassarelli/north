@@ -1,6 +1,7 @@
 load("@prelude//toolchains:cxx.bzl", "system_cxx_toolchain")
 load("@prelude//toolchains:python.bzl", "system_python_bootstrap_toolchain")
 load(":nix.bzl", "nix_tool")
+load(":remote_link.bzl", "remote_link_cxx_toolchain")
 load(":rust.bzl", "nix_rust_toolchain")
 
 nix_rust_toolchain(
@@ -26,12 +27,17 @@ nix_rust_toolchain(
 )
 
 system_cxx_toolchain(
-    name = "cxx",
+    name = "cxx_system",
     archiver = nix_tool("ar"),
     compiler = nix_tool("cc"),
     compiler_type = "gcc",
     cxx_compiler = nix_tool("cxx"),
     linker = nix_tool("cc"),
+)
+
+remote_link_cxx_toolchain(
+    name = "cxx",
+    base = ":cxx_system",
     visibility = ["PUBLIC"],
 )
 

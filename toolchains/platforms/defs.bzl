@@ -5,12 +5,17 @@ def _execution_platform_impl(ctx):
     for dep in ctx.attrs.constraint_values:
         constraints.update(dep[ConfigurationInfo].constraints)
     cfg = ConfigurationInfo(constraints = constraints, values = {})
+    remote = bool(ctx.attrs.remote_execution_properties)
     platform = ExecutionPlatformInfo(
         label = ctx.label.raw_target(),
         configuration = cfg,
         executor_config = CommandExecutorConfig(
             local_enabled = True,
-            remote_enabled = False,
+            remote_enabled = remote,
+            use_limited_hybrid = remote,
+            remote_execution_properties = ctx.attrs.remote_execution_properties,
+            remote_execution_use_case = "buck2-default",
+            remote_output_paths = "output_paths",
             use_windows_path_separators = False,
         ),
     )
@@ -28,5 +33,6 @@ execution_platform = rule(
     impl = _execution_platform_impl,
     attrs = {
         "constraint_values": attrs.list(attrs.dep(providers = [ConfigurationInfo])),
+        "remote_execution_properties": attrs.dict(attrs.string(), attrs.string(), default = {}),
     },
 )
