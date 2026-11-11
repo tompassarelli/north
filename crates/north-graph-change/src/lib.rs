@@ -5,6 +5,7 @@
 //! the gating selection while `[gate.test-selection-proof]` is in shadow. Depends on north-graph for the facts,
 //! north-coverage for hunk carrying and region selection, and north-base for check logs; nothing depends on it but
 //! the `north` binary, and the lander reaches it through the command line.
+pub mod apart;
 pub mod blame;
 pub mod carry;
 pub mod cli;

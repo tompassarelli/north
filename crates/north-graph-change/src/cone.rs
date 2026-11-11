@@ -160,7 +160,7 @@ pub fn since_map(facts: &Facts, hunks: &Hunks) -> Result<BTreeSet<TestId>, Strin
 }
 
 fn unknown(facts: &Facts, change: &Change, added: &[Added]) -> Vec<Added> {
-    let reached: BTreeSet<String> = change.files.iter().filter(|changed| changed.path.ends_with(".rs")).filter_map(|changed| facts.crate_of(&changed.path)).flat_map(|name| facts.dependents(name)).collect();
+    let reached: BTreeSet<String> = change.files.iter().filter(|changed| changed.path.ends_with(".rs") && !change.apart.contains(&changed.path)).filter_map(|changed| facts.crate_of(&changed.path)).flat_map(|name| facts.dependents(name)).collect();
     let known: BTreeSet<(String, String)> = facts.tests_of(&reached).into_iter().map(|id| (id.package().to_owned(), id.name.rsplit("::").next().unwrap_or(&id.name).to_owned())).collect();
     let mut found: Vec<Added> = Vec::new();
     for test in &change.present {
@@ -212,6 +212,9 @@ impl Walk<'_, '_> {
         if let Some(name) = manifest {
             self.fallback.insert(name);
         } else if path.ends_with(".rs") {
+            if facts.reads_recorded && change.apart.contains(path) {
+                return Ok(());
+            }
             self.rust(path, Some(change.hunks.get(path).map_or(&[][..], Vec::as_slice)))?;
         } else if !traced && !facts.reads_recorded && !workspace::input(path) {
             return Err(format!("{path} is not Rust and the graph holds no recorded reads"));

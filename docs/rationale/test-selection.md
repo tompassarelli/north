@@ -125,6 +125,13 @@ A test runs before landing when any of these holds:
    A renamed or moved file counts as a deletion plus an addition. The deleted side selects every test that reached it.
    The added side has no regions, so it proves nothing, and every test in the closure of its crate runs. That is the
    5f42fb5463 case.
+
+   A Rust file under a directory whose own `Cargo.toml` declares a `[workspace]`, such as the eval runner in
+   `evals/b`, belongs to no crate of this workspace, so it has no closure. When no build input outside that
+   directory names any component of its path (an `include*!` or `#[path]` literal, a `build.rs` or a `Cargo.toml`
+   string) and the graph holds recorded reads, its change selects only the tests that record reading it (rule 4).
+   Without that proof it keeps the root package's closure, which is what had sent an `evals/b`-only lane through
+   every root-package test the map knows (north#1204).
 4. **Recorded read.** The test recorded reading, listing or expecting absent a path the lane changes, or its source
    embeds one, whatever package it is in. The change graph's cone already selects these through
    `readers` and `embedders`, and this is how `harness/defaults.toml` reaches the five north-fleet-supervisor tests.

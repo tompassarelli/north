@@ -1413,6 +1413,7 @@ dependencies = [
  "north-coverage",
  "north-graph",
  "serde_json",
+ "tempfile",
  "toml_edit",
 ]
 

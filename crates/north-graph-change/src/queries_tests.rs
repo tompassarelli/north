@@ -232,3 +232,48 @@ fn a_bare_selection_miss_edge_selects_its_test_in_whichever_binary_holds_it() {
     assert_eq!(cone.tests.into_iter().collect::<Vec<_>>(), vec![id("north-fleet-supervisor", "gate::gate_rows")], "north land missed tells test:NAME when no map holds the binary; a known name resolves to its binary");
     assert_eq!(cone.added, vec![cone::Added { package: String::new(), name: "worker_sandbox::confined".to_owned() }], "an unknown bare name runs by name in every binary rather than as binary worker_sandbox");
 }
+
+#[test]
+fn a_change_inside_a_separate_workspace_nothing_names_selects_only_its_readers_while_a_worker_sandbox_change_still_selects_its_tests() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let git = |arguments: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(root).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).status().unwrap().success());
+    let write = |path: &str, text: &str| {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    let commit = |message: &str| {
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", message]);
+        String::from_utf8(std::process::Command::new("git").arg("-C").arg(root).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_owned()
+    };
+    git(&["init", "-q"]);
+    write("Cargo.toml", "[package]\nname = \"north\"\n\n[workspace]\nmembers = [\"crates/north-runtime\"]\n\n[dependencies]\nnorth-runtime = { path = \"crates/north-runtime\" }\n");
+    write("src/main.rs", "fn main() {}\n");
+    write("crates/north-runtime/Cargo.toml", "[package]\nname = \"north-runtime\"\n");
+    write("crates/north-runtime/src/worker_sandbox/mod.rs", "pub fn confine() {}\n");
+    write("evals/b/Cargo.toml", "[package]\nname = \"eval-b\"\n\n[workspace]\n");
+    write("evals/b/src/main.rs", "fn main() {}\n");
+    let base = commit("base");
+    write("evals/b/src/main.rs", "fn main() { println!(); }\n");
+    let eval = commit("eval");
+    git(&["checkout", "-q", &base]);
+    write("crates/north-runtime/src/worker_sandbox/mod.rs", "pub fn confine() { println!(); }\n");
+    let sandbox = commit("sandbox");
+    let graph = graph(&[
+        ("test:north::it::worker_sandbox::confined", "in-binary", "north::it"),
+        ("test:north-code-health::lines::capped", "in-binary", "north-code-health"),
+        ("test:north-code-health::lines::capped", "reads", "evals/b/src/main.rs"),
+        ("crate:north", "root", "."),
+        ("crate:north-runtime", "root", "crates/north-runtime"),
+        ("crate:north", "depends-on", "crate:north-runtime"),
+        ("coverage:north", "commit", base.as_str()),
+        ("reads:north", "reads-commit", base.as_str()),
+    ]);
+    let facts = Facts::read(&graph, "north").unwrap();
+    let cone = |head: &str| cone::of(&facts, &Change::read(root, &base, head).unwrap(), Some(&Hunks::new())).unwrap();
+    let eval = cone(&eval);
+    assert_eq!((eval.tests.into_iter().collect::<Vec<_>>(), eval.untraced), (vec![id("north-code-health", "lines::capped")], None), "a separate workspace's file reaches only the tests that read it");
+    assert_eq!(cone(&sandbox).tests.into_iter().collect::<Vec<_>>(), vec![id("north::it", "worker_sandbox::confined")], "a worker-sandbox file still selects the tests of every package that links it");
+}
