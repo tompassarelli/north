@@ -21,7 +21,7 @@ mod timings;
 use timings::Timings;
 mod alone;
 use alone::{check_lane, checked_alone};
-use refuse::{judge_lane_gates, refuse_archived, refuse_conflict, refuse_stale_revert};
+use refuse::{judge_lane_gates, refuse_archived, refuse_conflict, refuse_nothing_to_land, refuse_stale_revert};
 use super::scans::outgoing;
 use crate::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::Denylist;
@@ -215,6 +215,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
     timings.stage("archived", || refuse_archived(&origin))?;
     let destination = default_branch(&root);
     let (remote_ref, base) = timings.stage("fetch", || fetch_base(&root, &destination))?;
+    timings.stage("nothing to land", || refuse_nothing_to_land(&root, &base, &destination))?;
     timings.stage("conflict", || refuse_conflict(&root, &base, &destination))?;
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     timings.stage("generated registry", || super::scans::generated_registry::check(&root, &base, &lane_head))?;

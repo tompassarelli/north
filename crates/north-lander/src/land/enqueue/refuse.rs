@@ -101,3 +101,14 @@ fn ledger_home(rows: &str) -> std::io::Result<tempfile::TempDir> {
     std::fs::write(home.path().join("safe-push/post-land.tsv"), rows)?;
     Ok(home)
 }
+
+pub(super) fn refuse_nothing_to_land(root: &Path, base: &str, destination: &str) -> Result<(), String> {
+    if !output(root, &["merge-base", "--is-ancestor", "HEAD", base])?.status.success() {
+        return Ok(());
+    }
+    let status = output(root, &["status", "--porcelain", "-z", "--untracked-files=all"])?;
+    let listing = String::from_utf8_lossy(&status.stdout);
+    let paths: Vec<&str> = listing.split('\0').filter_map(|entry| entry.get(3..)).collect();
+    let uncommitted = if paths.is_empty() { String::new() } else { format!(", and these paths are uncommitted: {}", paths.join(", ")) };
+    Err(format!("nothing to land: HEAD is already on origin/{destination}, so the lane adds no commit{uncommitted}; commit the lane's change and run safe-push again"))
+}

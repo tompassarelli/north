@@ -461,3 +461,20 @@ fn withdrawn_head_admitted() -> bool {
     }
     north_land_scans::withdrawal::refuse_requeue(&queue, root.path(), "lane", "abc", Some("session")).is_ok()
 }
+
+#[test]
+fn a_hand_in_whose_head_is_already_on_main_is_refused_before_the_queue_naming_its_uncommitted_paths_while_a_lane_behind_main_with_its_own_commit_still_queues() {
+    let lane = Lane::new();
+    run(&lane.repo, &["switch", "-q", "-c", "elsewhere", &lane.base]);
+    run(&lane.repo, &["commit", "-q", "--allow-empty", "-m", "another lane lands"]);
+    run(&lane.repo, &["push", "-q", "origin", "elsewhere:main"]);
+    run(&lane.repo, &["switch", "-q", "lane"]);
+    assert!(lane.try_enqueue(super::Shape::OneCommit { message: None }).is_ok(), "a lane behind main with a commit of its own must still queue");
+
+    let lane = Lane::new();
+    run(&lane.repo, &["reset", "-q", "--hard", &lane.base]);
+    fs::write(lane.repo.join("content.txt"), "base\nthe change never committed\n").unwrap();
+    fs::write(lane.repo.join("new.txt"), "untracked\n").unwrap();
+    let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).err().unwrap_or_default();
+    assert!(refused.starts_with("nothing to land:") && refused.contains("content.txt, new.txt"), "on 2026-11-12 a hand-in from a lane at an old main commit with its change uncommitted was answered landed with main's head: {refused}");
+}
