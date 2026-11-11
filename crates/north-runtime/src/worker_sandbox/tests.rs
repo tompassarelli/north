@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use landlock::RulesetStatus;
+use serde_json::{Value, json};
 
 use super::{Context, confine, executable, readable, removable};
 
@@ -482,4 +483,28 @@ fn lane_rescue_leaves_main_clean() {
     let rescued = std::fs::read_dir(home.join("code/alpha/worktrees")).unwrap().flatten().filter(|lane| lane.file_name().to_string_lossy().starts_with("rescue-")).count();
     let status = String::from_utf8(Command::new("git").arg("-C").arg(&main).args(["status", "--porcelain"]).output().unwrap().stdout).unwrap();
     assert!(status.is_empty() || rescued == 0, "main is dirty ({status:?}) and a rescue lane was left: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+}
+
+
+const VERDICT: &str = "Done: landed 84f42d59023c6d974df27d3d08c240169dfabf35 on main";
+
+#[test]
+fn a_hand_in_call_that_prints_a_long_log_returns_a_short_result_ending_in_its_verdict_with_the_log_by_path() {
+    let scratch = tempfile::tempdir().unwrap();
+    let north = scratch.path().join("north");
+    let noisy = format!("i=0\nwhile [ $i -lt 4000 ]; do printf '{{\"decision\":\"RESERVED\",\"lease\":\"%s\"}}\\n' \"$i\"; i=$((i+1)); done\nprintf 'safe-push: ✗ the refusal a worker must see\\n' >&2\nprintf '{VERDICT}\\n'\n");
+    north_base::foundation::shim::write_script(&north, &noisy);
+    let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "hand-in", "arguments": {"message": "Hand it in", "paths": ["/lane/file"]}}});
+    let mut answer = Vec::new();
+    super::tool_server::serve(&["hand-in".to_owned()], &north, format!("{request}\n").as_bytes(), &mut answer).unwrap();
+
+    let answer: Value = serde_json::from_slice(&answer).unwrap();
+    let text = answer["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.chars().count() <= 5_000, "the result holds {} characters: {}", text.chars().count(), &text[..text.len().min(400)]);
+    assert_eq!(text.lines().last(), Some(VERDICT), "{text}");
+    assert!(text.lines().next().is_some_and(|line| line.contains("the refusal a worker must see")), "{text}");
+    let log = text.lines().find_map(|line| line.split_once(" is in ").map(|(_, path)| std::path::PathBuf::from(path))).unwrap_or_else(|| panic!("no log path: {text}"));
+    let kept = std::fs::read_to_string(&log).unwrap();
+    std::fs::remove_file(&log).unwrap();
+    assert!(kept.lines().count() > 4_000 && kept.trim_end().ends_with(VERDICT), "the kept log is not the whole output: {} lines", kept.lines().count());
 }

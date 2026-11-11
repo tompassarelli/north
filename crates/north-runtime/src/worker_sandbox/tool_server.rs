@@ -12,6 +12,10 @@ const NO_SUCH_METHOD: i64 = -32601;
 const BAD_PARAMS: i64 = -32602;
 const HAND_IN: &str = "hand-in";
 const FINISH: &str = "finish";
+const RESULT_CHARS: usize = 4_000;
+const MARKED_LINES: usize = 12;
+const LINE_CHARS: usize = 300;
+const REPORT_WORDS: [&str; 4] = ["Done:", "Not done:", "Split:", "Blocked:"];
 
 pub fn enter(arguments: &[String], screen: super::Screen) -> Option<std::process::ExitCode> {
     match arguments.split_first() {
@@ -98,5 +102,32 @@ fn call(verbs: &[String], north: &Path, params: &Value) -> Result<Value, (i64, S
     let verb = params["name"].as_str().filter(|name| verbs.iter().any(|verb| verb == name)).ok_or_else(|| (BAD_PARAMS, format!("no such tool: {}", params["name"])))?;
     let output = Command::new(north).arg(verb).args(words(verb, &params["arguments"])).stdin(Stdio::null()).output().map_err(|error| (BAD_PARAMS, format!("{}: {error}", north.display())))?;
     let text = [output.stderr, output.stdout].map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).concat();
-    Ok(json!({"content": [{"type": "text", "text": text}], "isError": !output.status.success()}))
+    Ok(json!({"content": [{"type": "text", "text": short(verb, text)}], "isError": !output.status.success()}))
+}
+
+fn short(verb: &str, text: String) -> String {
+    if text.chars().count() <= RESULT_CHARS {
+        return text;
+    }
+    let lines: Vec<&str> = text.trim_end().lines().collect();
+    let Some((verdict, before)) = lines.split_last() else { return text };
+    let kept = match kept(verb, &text) {
+        Ok(path) => format!("{verb}: its full output, {} lines, is in {}", lines.len(), path.display()),
+        Err(error) => format!("{verb}: its full output, {} lines, could not be kept: {error}", lines.len()),
+    };
+    let marked = before.iter().filter(|line| line.contains('✗') || REPORT_WORDS.iter().any(|word| line.starts_with(word))).take(MARKED_LINES).map(|line| clip(line));
+    marked.chain([kept, clip(verdict)]).collect::<Vec<_>>().join("\n")
+}
+
+fn clip(line: &str) -> String {
+    match line.char_indices().nth(LINE_CHARS) {
+        Some((cut, _)) => format!("{}…", &line[..cut]),
+        None => line.to_owned(),
+    }
+}
+
+fn kept(verb: &str, text: &str) -> io::Result<std::path::PathBuf> {
+    let (mut file, path) = tempfile::Builder::new().prefix(&format!("north-{verb}-")).suffix(".log").tempfile()?.keep().map_err(|error| error.error)?;
+    file.write_all(text.as_bytes())?;
+    Ok(path)
 }
