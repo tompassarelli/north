@@ -299,6 +299,20 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   [docs/rationale/skill-provenance.md](rationale/skill-provenance.md).
   Outcome: adopted under its stated MIT terms, with corrections and rationale added.
 
+- <a id="buck2-prelude-rust"></a>**Buck2 prelude Rust rules** (facebook/buck2-prelude, MIT OR Apache-2.0),
+  https://github.com/facebook/buck2-prelude/tree/53fbe9eea3ff2462130f69ca77f8b527ef88ba60/rust, read at that
+  revision on 2026-11-11: `sources.bzl` (a target's sources become one symlinked tree; `mapped_srcs` places a file
+  at a chosen path), `build.bzl` (`CARGO_MANIFEST_DIR` is made absolute inside that tree), `attrs.bzl` (`env`,
+  `run_env`, `named_deps`), `cargo_package.bzl` (reindeer's macros, for third-party code only).
+  Informed: [compile-reuse.md](rationale/compile-reuse.md#first-party-targets-north-buck-targets) and
+  `north buck targets` in [crates/north-buck](../crates/north-buck/src/lib.rs), north#1115.
+  Outcome: adopted; the generator emits the prelude's `rust_library`, `rust_binary` and `rust_test` and nothing of
+  its own.
+
+- <a id="cargo-metadata"></a>**`cargo metadata`**, https://doc.rust-lang.org/cargo/commands/cargo-metadata.html,
+  accessed 2026-11-11. Informed: `north buck targets` reads the resolved graph, targets and features from it,
+  north#1115. Outcome: adopted.
+
 ### Nix
 
 <a id="nix-practice"></a>Each source informed [rationale/nix-current-practice.md](rationale/nix-current-practice.md)

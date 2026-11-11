@@ -1,0 +1,5 @@
+[[module]]
+name = "buck"
+paths = ["crates/north-buck/src/**"]
+responsibility = "The Buck2 targets of the workspace crates, written from cargo metadata and the Cargo manifests so the two build graphs cannot drift."
+may_use = []

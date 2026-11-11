@@ -71,6 +71,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("laptop-runner", crate::laptop_runner::run),
     ("agent-contain", crate::agent_contain::run),
     ("retain", crate::ops::retention::run),
+    ("buck", north_buck::run),
     ("lane", lane),
     ("home", home),
     ("runtime", runtime),

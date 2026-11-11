@@ -1,0 +1,147 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use crate::env;
+use crate::sources::{self, Export, Owners, Tree};
+use crate::workspace::{DepKind, Kind, Package, Target, Workspace};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RuleKind {
+    Library,
+    ProcMacro,
+    Binary,
+    Test,
+}
+
+pub struct Rule {
+    pub kind: RuleKind,
+    pub name: String,
+    pub crate_name: String,
+    pub crate_root: String,
+    pub tree: Tree,
+    pub edition: String,
+    pub env: BTreeMap<String, String>,
+    pub run_env: BTreeMap<String, String>,
+    pub binary_id: Option<String>,
+    pub deps: Vec<String>,
+    pub named_deps: BTreeMap<String, String>,
+}
+
+pub struct Buckfile {
+    pub dir: String,
+    pub features: Vec<String>,
+    pub rustc_flags: Vec<String>,
+    pub rules: Vec<Rule>,
+    pub exports: BTreeSet<Export>,
+}
+
+pub fn plan(workspace: &Workspace, lint_flags: &BTreeMap<String, Vec<String>>) -> Result<Vec<Buckfile>, String> {
+    let owners = Owners::new(workspace.packages.iter().map(|package| package.dir.clone()));
+    let mut exports: BTreeMap<String, BTreeSet<Export>> = BTreeMap::new();
+    let mut files = Vec::new();
+    for package in &workspace.packages {
+        let rules = package_rules(workspace, package, &owners, &mut exports)?;
+        let mut rustc_flags = lint_flags.get(&package.dir).cloned().unwrap_or_default();
+        rustc_flags.extend(check_cfg(package));
+        files.push(Buckfile { dir: package.dir.clone(), features: package.features.clone(), rustc_flags, rules, exports: BTreeSet::new() });
+    }
+    for file in &mut files {
+        file.exports = exports.remove(&file.dir).unwrap_or_default();
+    }
+    Ok(files)
+}
+
+fn check_cfg(package: &Package) -> [String; 2] {
+    let values: Vec<String> = package.declared_features.iter().map(|feature| format!("\"{feature}\"")).collect();
+    ["--check-cfg=cfg(docsrs,test)".to_owned(), format!("--check-cfg=cfg(feature, values({}))", values.join(", "))]
+}
+
+struct Names<'a> {
+    package: &'a Package,
+    lib: Option<&'a Target>,
+}
+
+impl Names<'_> {
+    fn binary(&self, target: &Target) -> String {
+        if self.lib.is_some() && target.name == self.package.name { format!("{}-bin", target.name) } else { target.name.clone() }
+    }
+
+    fn rule(&self, target: &Target) -> String {
+        match target.kind {
+            Kind::Lib | Kind::ProcMacro => self.package.name.clone(),
+            Kind::Bin => self.binary(target),
+            Kind::Test => format!("{}-test-{}", self.package.name, target.name),
+            Kind::Example => format!("{}-example-{}", self.package.name, target.name),
+        }
+    }
+}
+
+fn package_rules(workspace: &Workspace, package: &Package, owners: &Owners, exports: &mut BTreeMap<String, BTreeSet<Export>>) -> Result<Vec<Rule>, String> {
+    let lib = package.targets.iter().find(|target| is_library(target.kind));
+    let names = Names { package, lib };
+    let binaries: BTreeMap<String, String> = package.targets.iter().filter(|target| target.kind == Kind::Bin).map(|target| (target.name.clone(), names.binary(target))).collect();
+    let mut targets: Vec<&Target> = package.targets.iter().collect();
+    targets.sort_by(|left, right| left.kind.cmp(&right.kind).then_with(|| left.name.cmp(&right.name)));
+    let mut rules = Vec::new();
+    for target in targets {
+        let tree = sources::tree(&workspace.root, package, target, owners, exports)?;
+        let name = names.rule(target);
+        let own_lib = lib.filter(|_| !is_library(target.kind)).map(|_| package);
+        let context = env::Context { package, target, binaries: &binaries, unittest: false };
+        let integration = (target.kind == Kind::Test).then(|| format!("{}::{}", package.name, target.name));
+        rules.push(rule(rule_kind(target.kind), name.clone(), integration, &tree, &context, own_lib, dep_kinds(target.kind))?);
+        if target.test && matches!(target.kind, Kind::Lib | Kind::ProcMacro | Kind::Bin) {
+            let context = env::Context { unittest: true, ..context };
+            let binary_id = if target.kind == Kind::Bin { format!("{}::bin/{}", package.name, target.name) } else { package.name.clone() };
+            rules.push(rule(RuleKind::Test, format!("{name}-unittest"), Some(binary_id), &tree, &context, own_lib, &[DepKind::Normal, DepKind::Dev])?);
+        }
+    }
+    Ok(rules)
+}
+
+fn is_library(kind: Kind) -> bool {
+    matches!(kind, Kind::Lib | Kind::ProcMacro)
+}
+
+fn rule_kind(kind: Kind) -> RuleKind {
+    match kind {
+        Kind::Lib => RuleKind::Library,
+        Kind::ProcMacro => RuleKind::ProcMacro,
+        Kind::Bin | Kind::Example => RuleKind::Binary,
+        Kind::Test => RuleKind::Test,
+    }
+}
+
+fn dep_kinds(kind: Kind) -> &'static [DepKind] {
+    match kind {
+        Kind::Lib | Kind::ProcMacro | Kind::Bin => &[DepKind::Normal],
+        Kind::Test | Kind::Example => &[DepKind::Normal, DepKind::Dev],
+    }
+}
+
+fn rule(kind: RuleKind, name: String, binary_id: Option<String>, tree: &Tree, context: &env::Context, own_lib: Option<&Package>, kinds: &[DepKind]) -> Result<Rule, String> {
+    let target = context.target;
+    let crate_name = target.name.replace('-', "_");
+    let env = env::values(context, &tree.reads, &crate_name)?;
+    let run_env = env::run_values(context);
+    let mut deps = BTreeSet::new();
+    let mut named_deps = BTreeMap::new();
+    if let Some(package) = own_lib {
+        deps.insert(format!(":{}", package.name));
+    }
+    for dep in context.package.deps.iter().filter(|dep| dep.kinds.iter().any(|kind| kinds.contains(kind))) {
+        if dep.package == context.package.name {
+            continue;
+        }
+        let label = match &dep.first_party_dir {
+            Some(dir) => format!("//{dir}:{}", dep.package),
+            None => format!("//third-party:{}", dep.package),
+        };
+        if dep.extern_name == dep.lib_crate {
+            deps.insert(label);
+        } else {
+            named_deps.insert(dep.extern_name.clone(), label);
+        }
+    }
+    let crate_root = tree.path_of(&target.src_path);
+    Ok(Rule { kind, name, crate_name, crate_root, tree: tree.clone(), edition: target.edition.clone(), env, run_env, binary_id, deps: deps.into_iter().collect(), named_deps })
+}

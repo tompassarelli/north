@@ -397,3 +397,59 @@ package for package. The other 90 entries fall in three groups:
   `cargo update`.
 - Off the dev shell: reindeer is the flake's `packages.x86_64-linux.reindeer`, not a dev-shell package,
   because the patch takes it out of the binary cache and the laptop builds nothing.
+
+## First-party targets: `north buck targets`
+
+Every workspace crate, binary, test and example has a Buck2 target, written by `north buck targets` from
+`cargo metadata` and the manifests' `[lints]` tables. The command owns `BUCK` at the repository root and in each
+`crates/<dir>`; `--check` exits 1 on any file that differs, so the two graphs cannot drift while both exist.
+
+Prior art. Reindeer generates Buck2 targets for third-party crates from a `Cargo.toml` and is what box 2 runs on
+`third-party/` [reindeer]; it is built for vendored or downloaded registry crates, sets `--cap-lints` and drops
+first-party lints, so it does not fit first-party code, as the prelude's own `cargo_package.bzl` says
+[prelude-cargo-package]. `cargo metadata` [cargo-metadata] gives the resolved graph, targets, editions and features
+exactly as Cargo computes them, so the generator reads it instead of reimplementing manifest inheritance and target
+discovery.
+
+Decisions, each carried from what Cargo does:
+
+- Names: the library is `//crates/<dir>:<crate>`, a binary `:<bin>` (`:<bin>-bin` when it shares the library's
+  name, as `north-land-sandbox` does), a unit-test harness `:<target>-unittest`, an integration test
+  `:<crate>-test-<name>`, an example `:<crate>-example-<name>`, a third-party crate `//third-party:<crate>`. Every
+  test is box 5's `north_rust_test` (`build/rust_test.bzl`), which adds the test binary `<name>-bin` beside it and
+  carries the nextest binary id (`<package>`, `<package>::bin/<bin>`, `<package>::<test>`), and every package has
+  the `:files` that tests read at run time (the root's leaves out `crates/`, `target/`, `buck-out/`, `worktrees/`).
+- Features: one feature set per crate, the one `cargo metadata` resolves, which with `resolver.feature-unification =
+  "workspace"` is the set `cargo test --workspace` compiles. Cargo builds a second set for `cargo build`, without the
+  `test-support` features that only dev-dependencies enable (north-capacity, north-fleet, north-fleet-supervisor,
+  north-pacing); north-threads' `test-support` is already on in normal builds. One set means the runtime build and
+  the test build share every library artifact, which is the point of this migration; the cost is that four crates'
+  fixture modules, gated `#[cfg(any(test, feature = "test-support"))]` and additive only, compile into the release
+  binary, where the linker drops what nothing calls.
+- Flags: each target gets the rustc flags Cargo passes for the crate's lints (`--forbid=unsafe_code` and each
+  `--warn=clippy::…`, ordered by priority then name, descending, as Cargo orders them) and its `--check-cfg` lines,
+  and each library and binary `manifest_dir_flags()` (tests get it from `north_rust_test`). Profile flags (codegen
+  backend, debuginfo, incremental) belong to the toolchain's modes, not to the targets.
+- Environment: a target sets only the `CARGO_*` variables its sources read through `env!` or `option_env!`, with
+  Cargo's values; the generator refuses a variable it does not know. `CARGO_MANIFEST_DIR` is never in `env`: it is
+  the package's path from the repository root, set through rustc by `manifest_dir_flags()`, for the reason the
+  Tests section gives. An integration test gets `CARGO_BIN_EXE_<bin> = $(location :<bin>)` in `run_env` for every
+  binary of its package, whether or not its sources name one, because the sites read it through `bin_exe!`'s
+  `option_env!` of a macro argument, which no scan of literals sees. `CARGO_TARGET_TMPDIR` is `/tmp`.
+- Sources: a target's sources are its source directory (`src/`, `tests/` or `examples/`). A file it reads through
+  `include_str!`, `include_bytes!`, `include!` or a `#[path]` module outside that directory is found by scanning the
+  sources' tokens (string literals and comments skipped); when the file belongs to another package, that package
+  exports it (`export_file`, or a `filegroup` for a module directory) and the target maps it in with
+  `mapped_srcs`. When a reference leaves the crate's directory, the target's source tree is rooted at the repository
+  root with every file at its repository path, so `include_str!("../../../goals.toml")` resolves unchanged.
+- Build scripts: the root crate's `build.rs` is the only one; it rewrites three committed registries
+  (`src/cli/reference.txt`, `src/cli/verbs.rs`, `structure.toml`) from their per-unit trees and emits nothing rustc
+  reads, so its targets compile the committed files and the generator says so when it runs. The lander renders the
+  same files before a lane lands, so the committed copy is the one Cargo's script would write.
+- Refused shapes: a `harness = false` target and `required-features`, rather than emit a target that differs from
+  Cargo's.
+
+[reindeer]: https://github.com/facebookincubator/reindeer
+[prelude-cargo-package]: https://github.com/facebook/buck2-prelude/blob/main/rust/cargo_package.bzl
+[prelude-build]: https://github.com/facebook/buck2-prelude/blob/main/rust/build.bzl
+[cargo-metadata]: https://doc.rust-lang.org/cargo/commands/cargo-metadata.html

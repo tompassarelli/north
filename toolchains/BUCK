@@ -1,5 +1,7 @@
+load("@prelude//tests:test_toolchain.bzl", "noop_test_toolchain")
 load("@prelude//toolchains:cxx.bzl", "system_cxx_toolchain")
 load("@prelude//toolchains:python.bzl", "system_python_bootstrap_toolchain")
+load("@prelude//toolchains:remote_test_execution.bzl", "remote_test_execution_toolchain")
 load(":nix.bzl", "nix_tool")
 load(":remote_link.bzl", "remote_link_cxx_toolchain")
 load(":rust.bzl", "nix_rust_toolchain")
@@ -53,5 +55,15 @@ remote_link_cxx_toolchain(
 system_python_bootstrap_toolchain(
     name = "python_bootstrap",
     interpreter = nix_tool("python3"),
+    visibility = ["PUBLIC"],
+)
+
+noop_test_toolchain(
+    name = "test",
+    visibility = ["PUBLIC"],
+)
+
+remote_test_execution_toolchain(
+    name = "remote_test_execution",
     visibility = ["PUBLIC"],
 )

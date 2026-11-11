@@ -1,0 +1,1 @@
+  buck targets [--check] [--root DIR]              Write every workspace crate's Buck2 targets from the Cargo manifests; --check exits 1 on drift

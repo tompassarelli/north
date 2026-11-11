@@ -128,6 +128,10 @@ paths = ["crates/north-runtime-follow/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
+name = "north-buck"
+paths = ["crates/north-buck/src/**"]
+may_use = []
+[[crate_dag.crate]]
 name = "north-broker"
 paths = ["crates/north-broker/src/**"]
 may_use = ["north-base", "north-runtime-follow"]
@@ -434,6 +438,11 @@ paths = ["crates/north-runtime-follow/src/**"]
 responsibility = "How a long-lived north process moves onto the runtime its link promotes: whether the link names another runtime than the one it runs, and the re-exec onto it."
 may_use = []
 
+[[module]]
+name = "buck"
+paths = ["crates/north-buck/src/**"]
+responsibility = "The Buck2 targets of the workspace crates, written from cargo metadata and the Cargo manifests so the two build graphs cannot drift."
+may_use = []
 [[module]]
 name = "broker"
 paths = ["crates/north-broker/src/**"]
@@ -835,7 +844,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model"]
+may_use = ["strategy_types", "buck", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model"]
 
 [[module]]
 name = "verify"
