@@ -48,6 +48,13 @@ pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home:
     Ok(Err((gates, detail)))
 }
 
+pub(super) fn judge_lane_gates(environment: &super::Environment, root: &Path, branch: &str, base: &str, head: &str, lander_ledger: Option<String>) -> Result<Option<String>, String> {
+    match refuse_lane_gates(root, base, head, environment.state_home, lander_ledger, &crate::dep_gate::PublicRegistries)? {
+        Ok(()) => Ok(git(root, &["status", "--porcelain"]).is_ok_and(|status| status.is_empty()).then(|| merge_base(root, base, head))),
+        Err((gates, detail)) => super::judged(environment, root, branch, head, &gates, Err(detail)).map(|()| None),
+    }
+}
+
 fn driver_merged<'a>(root: &Path, paths: &[&'a str]) -> Result<Vec<&'a str>, String> {
     let mut arguments = vec!["check-attr", "merge", "--"];
     arguments.extend(paths);

@@ -1,9 +1,10 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::after::gates::{self, Landed};
-use super::scans::{incident_guard, policy, push_jobs, test_admission, test_integrity, tool_removal};
+use super::scans::{git, incident_guard, policy, push_jobs, test_admission, test_integrity, tool_removal};
 use super::slots::select::Config;
 use crate::advisory_gate;
 use crate::dep_gate::{self, Registry};
@@ -108,6 +109,10 @@ pub fn failed(lane: &Lane) -> Option<(Vec<&'static str>, Vec<u8>)> {
     let mut failed: Vec<&str> = GATES.iter().filter(|(_, gate)| gate(lane, &mut text)).map(|(label, _)| *label).collect();
     failed.extend(gates::before(&Landed { tree: lane.worktree, base: lane.base, head: lane.head, code_health: lane.code_health }, &mut text));
     (!failed.is_empty()).then_some((failed, text))
+}
+
+pub fn judged_before_queueing(worktree: &Path, judged_from: Option<&str>, lane_head: &str, picked_onto: &str) -> bool {
+    judged_from == Some(picked_onto) && git::text(worktree, &["rev-parse", "HEAD^{tree}", &format!("{lane_head}^{{tree}}")]).is_some_and(|trees| trees.lines().collect::<HashSet<_>>().len() == 1)
 }
 
 pub fn judge(lane: &Lane, logs: &Path, name: &str) -> Result<Option<Refused>, String> {

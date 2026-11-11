@@ -17,8 +17,7 @@ mod arguments;
 mod refuse;
 mod verdict;
 use verdict::Verdict;
-use refuse::{refuse_archived, refuse_conflict, refuse_lane_gates, refuse_stale_revert, refuse_static_gates, refuse_unfetchable};
-use super::scans::git::merge_base;
+use refuse::{judge_lane_gates, refuse_archived, refuse_conflict, refuse_stale_revert, refuse_static_gates, refuse_unfetchable};
 use super::scans::outgoing;
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
@@ -147,14 +146,14 @@ fn lander_ledger_at(lander: &str, queue: &Path, environment: &Environment) -> Op
 /// recorded as queued before it is written, since the write wakes the lander; its older ticket is left for the lander to
 /// decide as replaced.
 fn file(directory: &Path, path: &Path, ticket: &Ticket, outbox: bool) -> Result<(), String> {
-    if !outbox {
-        land_ticket::queued(path, "enqueued").map_err(|error| format!("cannot record {}: {error}", path.display()))?;
-    }
-    queue::write(path, ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    let write = || queue::write(path, ticket).map_err(|error| format!("cannot write {}: {error}", path.display()));
     if outbox {
-        replace_older(directory, path, &ticket.root, &ticket.branch).map_err(|error| format!("cannot replace this lane's older ticket in {}: {error}", directory.display()))?;
+        write()?;
+        replace_older(directory, path, &ticket.root, &ticket.branch).map_err(|error| format!("cannot replace this lane's older ticket in {}: {error}", directory.display()))
+    } else {
+        land_ticket::queued(path, "enqueued").map_err(|error| format!("cannot record {}: {error}", path.display()))?;
+        write()
     }
-    Ok(())
 }
 
 fn replace_older(directory: &Path, kept: &Path, root: &Path, branch: &str) -> io::Result<()> {
@@ -226,13 +225,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let lander_host = setting::landing(&root, &remote_ref, "landing.lander-host");
     let queue = queue::directory(environment.state_home, &origin);
     super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session)?;
-    let gated_from = match refuse_lane_gates(&root, &base, &head, environment.state_home, lander_ledger_at(&lander_host, &queue, environment), &crate::dep_gate::PublicRegistries)? {
-        Ok(()) => committed(&root).then(|| merge_base(&root, &base, &head)),
-        Err((gates, detail)) => {
-            judged(environment, &root, &branch, &head, &gates, Err(detail))?;
-            None
-        }
-    };
+    let gated_from = judge_lane_gates(environment, &root, &branch, &base, &head, lander_ledger_at(&lander_host, &queue, environment))?;
     judged(environment, &root, &branch, &head, "revert guard", refuse_stale_revert(&root, &base, &head))?;
     let (red_fix, lander_fix, urgent) = marks(&root, &base, &head, &destination)?;
     let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
@@ -260,10 +253,6 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let path = directory.join(queue::file_name(queued_micros, &branch));
     file(&directory, &path, &ticket, outbox)?;
     Ok(Queued { path, outbox, ticket, squash })
-}
-
-fn committed(root: &Path) -> bool {
-    git(root, &["status", "--porcelain"]).is_ok_and(|status| status.is_empty())
 }
 
 /// The lane's branch and the root of its checkout.

@@ -250,14 +250,8 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         shadowed.record(&state_home, "revert guard", &stale_revert::refusal(&found));
     }
     let head = git(worktree, &["rev-parse", "HEAD"])?;
-    if !gated_at_enqueue(worktree, ticket, &picked_onto) {
-        *gating = Some(Gating { picked_onto, head });
-    }
+    *gating = (!lane_gates::judged_before_queueing(worktree, ticket.gated_from.as_deref(), &ticket.head, &picked_onto)).then_some(Gating { picked_onto, head });
     Ok(Pick::Included)
-}
-
-fn gated_at_enqueue(worktree: &Path, ticket: &Ticket, picked_onto: &str) -> bool {
-    ticket.gated_from.as_deref() == Some(picked_onto) && git(worktree, &["rev-parse", "HEAD^{tree}", &format!("{}^{{tree}}", ticket.head)]).is_ok_and(|trees| trees.lines().collect::<HashSet<_>>().len() == 1)
 }
 
 struct Gating {
