@@ -360,7 +360,7 @@ fn note_promotion(layout: &Layout, target: &str, state: &str) {
 
 fn install(layout: &Layout, target: &str, runtime: &Path, previous: Option<&Path>) -> Result<String, Failure> {
     layout::built_from_own_commit(runtime).map_err(|why| failed(1, why))?;
-    super::entry_links::link(runtime)?;
+    north_base::platform::entry_points::link(runtime)?;
     store::root(runtime)?;
     if let Err(failure) = store::shims(runtime) {
         eprintln!("north runtime update: the operator terminal keeps its previous shims: {}", failure.message);

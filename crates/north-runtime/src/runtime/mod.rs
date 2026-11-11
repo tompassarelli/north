@@ -5,7 +5,6 @@ mod cargo_build;
 mod canary;
 pub mod checkouts;
 mod deploy;
-mod entry_links;
 mod failure;
 mod follow;
 mod order;

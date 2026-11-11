@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 
 use north_base::foundation::shim::{copy_executable, write_script};
 use north_base::platform::gh_session::SANDBOX_MARK;
-use north_providers::providers::claude::{sandbox_wrapper, tool_server_args};
+use north_providers::providers::claude::{shell_prefix, tool_server_args};
 use north_runtime::worker_sandbox::{self, tool_server};
 use serde_json::{Value, json};
 
@@ -40,17 +40,21 @@ fn a_worker_tool_server_starts_under_the_sandbox_and_answers_one_verb() {
     let launcher = scratch.path().join("launcher");
     copy_executable(std::env::current_exe().unwrap(), &launcher);
     let stand_in = format!(
-        "case \"$1\" in\n--worker-sandbox|--tool-server) exec '{}' {LAUNCHER} --exact --nocapture -- \"$@\" ;;\nping) printf 'pong %s' \"${SANDBOX_MARK}\" ;;\nesac\n",
+        "case \"${{0##*/}}\" in\nworker-sandbox) exec '{}' {LAUNCHER} --exact --nocapture -- --worker-sandbox \"$@\" ;;\nesac\ncase \"$1\" in\n--tool-server) exec '{}' {LAUNCHER} --exact --nocapture -- \"$@\" ;;\nping) printf 'pong %s' \"${SANDBOX_MARK}\" ;;\nesac\n",
+        launcher.display(),
         launcher.display()
     );
     write_script(&north, &stand_in);
+    let bin = scratch.path().join("tree/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink("../../north", bin.join("worker-sandbox")).unwrap();
 
     let launch = tool_server_args(&north, &["ping".to_owned()]);
     assert_eq!(launch[0], "--mcp-config");
     let config: Value = serde_json::from_str(&launch[1]).unwrap();
     let entry = &config["mcpServers"]["north"];
     let words: Vec<&str> = std::iter::once(entry["command"].as_str().unwrap()).chain(entry["args"].as_array().unwrap().iter().map(|word| word.as_str().unwrap())).collect();
-    let prefix = sandbox_wrapper(&north, scratch.path()).unwrap();
+    let prefix = shell_prefix(&north).expect("a runtime links worker-sandbox beside its north");
     let mut server = Command::new(&prefix).arg(words.join(" ")).env("NORTH_BIN", &north).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().expect("the shell prefix is one program path that exists");
 
     let answers = exchange(

@@ -71,13 +71,15 @@ impl Runtime for Claude {
         }
         argv.extend(session_env::model_args(request));
         argv.extend(session_env::agent_args(request));
-        argv.extend(tool_server::tool_server_args(&north_base::platform::north_binary::north_binary(), &tool_server::configured_verbs()));
-        argv.extend(launch_prompt::args(account, request, instructions)?);
+        let north = tool_server::launch_north(request);
+        let prefix = request.machine.is_none().then(|| tool_server::shell_prefix(&north)).flatten();
+        argv.extend(tool_server::tool_server_args(&north, &tool_server::configured_verbs()));
+        argv.extend(launch_prompt::args(account, request, instructions, prefix.as_deref())?);
         Ok(HostSpec {
             key: request.name.clone(),
             shared: false,
             argv: session_env::with_credential(account, argv),
-            env: claude_env(account, request)?,
+            env: claude_env(account, request),
             env_remove: session_env::inherited_env(account),
             cwd: request.cwd.clone(),
         })
@@ -94,7 +96,7 @@ impl Runtime for Claude {
             key: request.name.clone(),
             shared: false,
             argv: session_env::with_credential(account, argv),
-            env: claude_env(account, request)?,
+            env: claude_env(account, request),
             env_remove: session_env::inherited_env(account),
             cwd: request.cwd.clone(),
         })

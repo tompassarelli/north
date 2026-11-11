@@ -178,3 +178,51 @@ fn the_script_that_carries_a_conversation_between_account_homes_copies_it_under_
     assert!(!to.home.join("projects/-work-lane/other.jsonl").exists());
     assert!(Claude.carry_script(&from, &from, "kept").is_none());
 }
+
+const PROFILE_ENV: &str = "NORTH_TEST_LAUNCH_PROFILE";
+const SHELL_PREFIX: &str = "CLAUDE_CODE_SHELL_PREFIX";
+
+fn the_spawned_tool_server_is_an_existing_executable(profile: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let account = Account { provider: Claude.provider(), label: "a".into(), home: profile.to_path_buf(), token_file: None, api: None };
+    let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), ..request() };
+    let spec = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
+    let last = |flag: &str| spec.argv.windows(2).rev().find(|pair| pair[0] == flag).map(|pair| pair[1].clone());
+    let config: serde_json::Value = serde_json::from_str(&last("--mcp-config").expect("a worker launch configures its tool server")).unwrap();
+    let entry = &config["mcpServers"]["north"];
+    assert!(entry["args"].as_array().is_some_and(|args| args.iter().all(serde_json::Value::is_string)), "the entry's arguments are a list: {entry}");
+    let settings = last("--settings").unwrap();
+    let settings: serde_json::Value = serde_json::from_str(&settings).unwrap_or_else(|_| serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap());
+    let process = spec.env.iter().find(|(name, _)| name == SHELL_PREFIX).map(|(_, value)| value.to_string_lossy().into_owned());
+    let prefix = settings["env"][SHELL_PREFIX].as_str().map(str::to_owned).or(process);
+    let command = entry["command"].as_str().unwrap();
+    for program in [prefix.as_deref().unwrap_or(command), command] {
+        let executable = std::fs::metadata(program).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0);
+        assert!(executable, "Claude Code spawns {program:?} as one program path for the tool server, and it is no executable: {:?}", spec.argv);
+    }
+}
+
+#[test]
+fn a_worker_launch_writes_a_tool_server_entry_whose_command_is_an_existing_executable() {
+    if let Some(profile) = std::env::var_os(PROFILE_ENV) {
+        return the_spawned_tool_server_is_an_existing_executable(std::path::Path::new(&profile));
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let north = scratch.path().join("runtime/north");
+    std::fs::create_dir_all(scratch.path().join("runtime/tree/bin")).unwrap();
+    north_base::foundation::shim::write_script(&north, "exit 0\n");
+    std::os::unix::fs::symlink("../../north", scratch.path().join("runtime/tree/bin/worker-sandbox")).unwrap();
+    let profile = scratch.path().join("profile");
+    std::fs::create_dir_all(&profile).unwrap();
+    let projected = json!({"hooks": {"PreToolUse": [{}]}, "env": {SHELL_PREFIX: format!("{} --worker-sandbox", north.display())}});
+    std::fs::write(profile.join("settings.json"), projected.to_string()).unwrap();
+
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["a_worker_launch_writes_a_tool_server_entry_whose_command_is_an_existing_executable", "--nocapture", "--test-threads=1"])
+        .env(PROFILE_ENV, &profile)
+        .env("NORTH_BIN", &north)
+        .env_remove("AGENT_CAPACITY_NORTH")
+        .output()
+        .unwrap();
+    assert!(child.status.success(), "{}{}", String::from_utf8_lossy(&child.stdout), String::from_utf8_lossy(&child.stderr));
+}
