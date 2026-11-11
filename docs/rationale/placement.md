@@ -34,7 +34,10 @@ Host picks, each with its own signal:
    took the first open host in order, so on 2026-11-12 at 1:38 AM 21 launches decided inside 100 ms against
    one reading all went to gex45 at load 44 on 20 threads beside cpx62 at 8 and cpx62b at 21 on 16. The
    decision is recorded and replayed (`crates/north-strategy-types/src/placement.rs`, the `Case`).
-   `src/cli/fleet/placement.rs` then keeps the launch here when the chosen host lacks the launch directory.
+   `src/cli/fleet/placement.rs` then keeps the launch here when the chosen host answered that it lacks the launch
+   directory; a host read from its last reading was not asked, so the launch goes there and the host refuses it at its
+   `cd` if the directory is missing. A launch kept here counts on no host, so on 2026-11-12 at 4:35 AM a survey that
+   read every unasked directory as missing kept 18 of 21 launches here, each aimed at the same uncharged host.
 2. Dispatch: `candidates` in `crates/north-dispatch/src/dispatch/mod.rs` ranks hosts by the run queue past the
    cores (`crates/north-dispatch/src/dispatch/wait.rs`), then by the same order, with its own probe and its own
    count of builds a host's queue takes (`crates/north-dispatch/src/dispatch/slots.rs`). Not recorded.

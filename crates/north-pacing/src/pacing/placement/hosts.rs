@@ -214,7 +214,7 @@ type Asker = dyn Fn(&str, &str, Option<&str>, Asked) -> Facts + Send + Sync;
 
 type Ask = Arc<Asker>;
 
-fn survey_via(memo: &'static Memo, records: &Path, machines: &[Machine], cwd: Option<&str>, deadline: Duration, ask: Ask, silent: &dyn Fn(&Machine, Option<&str>) -> Facts) -> Vec<Facts> {
+fn survey_via(memo: &'static Memo, records: &Path, machines: &[Machine], cwd: Option<&str>, deadline: Duration, ask: Ask, silent: &dyn Fn(&Machine) -> Facts) -> Vec<Facts> {
     let started = Instant::now();
     let waiting: Vec<_> = machines
         .iter()
@@ -232,7 +232,7 @@ fn survey_via(memo: &'static Memo, records: &Path, machines: &[Machine], cwd: Op
         .iter()
         .zip(waiting)
         .map(|(machine, receive)| {
-            receive.recv_timeout(deadline.saturating_sub(started.elapsed())).unwrap_or_else(|_| silent(machine, cwd))
+            receive.recv_timeout(deadline.saturating_sub(started.elapsed())).unwrap_or_else(|_| silent(machine))
         })
         .collect()
 }
@@ -283,22 +283,23 @@ fn record(records: &Path, name: &str, facts: &Facts) {
     let _ = std::fs::create_dir_all(records).and_then(|()| std::fs::write(records.join(format!("{name}.json")), json!({"at": storage::now(), "facts": facts}).to_string()));
 }
 
-/// The host's last answered facts marked stale with their age; nothing known when none is on record or it is older than `STALE_LIMIT_SECONDS`.
-fn last_recorded(name: &str, cwd: Option<&str>) -> Facts {
-    let recorded = load(&record_path(name));
+/// The host's last answered facts marked stale with their age, saying nothing of a launch directory it was not asked about;
+/// nothing known when none is on record or it is older than `STALE_LIMIT_SECONDS`.
+fn last_recorded(records: &Path, name: &str) -> Facts {
+    let recorded = load(&records.join(format!("{name}.json")));
     let age = recorded["at"].as_f64().map(|at| storage::now() - at).filter(|age| (0.0..=STALE_LIMIT_SECONDS).contains(age));
     let Some((age, mut facts)) = age.zip(serde_json::from_value::<Facts>(recorded["facts"].clone()).ok()) else {
-        return Facts { has_cwd: cwd.map(|_| false), ..Facts::default() };
+        return Facts::default();
     };
     facts.saturation_age_s = facts.saturation_age_s.map(|taken| taken + age);
-    facts.has_cwd = cwd.map(|_| false);
+    facts.has_cwd = None;
     facts.stale_age_s = Some(age);
     facts
 }
 
-fn silent_host(machine: &Machine, cwd: Option<&str>) -> Facts {
+fn silent_host(machine: &Machine) -> Facts {
     recycle_master(machine);
-    last_recorded(&machine.name, cwd)
+    last_recorded(&records(), &machine.name)
 }
 
 fn recycle_master(machine: &Machine) {
@@ -331,7 +332,7 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>, asked: Asked) -> Fact
     }
     let here = name == local();
     if asked == Asked::Directory {
-        return Facts { has_cwd: cwd.map(|directory| directory_there(here, destination, directory)), ..Facts::default() };
+        return Facts { has_cwd: cwd.and_then(|directory| directory_there(here, destination, directory)), ..Facts::default() };
     }
     let cache = storage::directory().join("saturation").join(format!("{name}.json"));
     let now = storage::now();
@@ -339,7 +340,6 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>, asked: Asked) -> Fact
     let fresh = cached["at"].as_f64().is_some_and(|at| (0.0..SATURATION_CACHE_SECONDS).contains(&(now - at)));
     let mut facts = Facts { saturation: fresh.then(|| serde_json::from_value(cached["reading"].clone()).ok()).flatten(), ..Facts::default() };
     facts.saturation_age_s = facts.saturation.and(cached["at"].as_f64()).map(|at| now - at);
-    facts.has_cwd = cwd.map(|_| false);
     let want_saturation = !fresh && !here;
     let known = recorded_accounts(name, now);
     let answer = ssh_script(destination, &script(!here, want_saturation, known.is_none(), cwd)).ok().filter(|r| r.code == 0).map(|r| r.out);
@@ -372,12 +372,12 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>, asked: Asked) -> Fact
     facts
 }
 
-fn directory_there(here: bool, destination: &str, directory: &str) -> bool {
+fn directory_there(here: bool, destination: &str, directory: &str) -> Option<bool> {
     if here {
-        return Path::new(directory).is_dir();
+        return Some(Path::new(directory).is_dir());
     }
     let answer = ssh_script(destination, &script(false, false, false, Some(directory))).ok().filter(|r| r.code == 0);
-    answer.is_some_and(|r| sections(&r.out).iter().any(|(label, _)| label == "cwd"))
+    answer.map(|r| sections(&r.out).iter().any(|(label, _)| label == "cwd"))
 }
 
 const RESIDENT_BINARY: &str = ".local/state/north/current/tree/bin/north";

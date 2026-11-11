@@ -17,7 +17,7 @@ fn one_hung_host_is_placed_from_its_last_reading_when_the_deadline_passes() {
         }
         Facts { live: Some(1), ..Facts::default() }
     });
-    let silent = |_: &Machine, _: Option<&str>| Facts { live: Some(4), stale_age_s: Some(45.0), ..Facts::default() };
+    let silent = |_: &Machine| Facts { live: Some(4), stale_age_s: Some(45.0), ..Facts::default() };
     let records = tempfile::tempdir().unwrap();
     let facts = survey_via(&MEMO, records.path(), &[machine("hung"), machine("fine")], None, Duration::from_millis(100), ask, &silent);
     assert_eq!(facts[0].stale_age_s, Some(45.0));
@@ -52,7 +52,7 @@ fn five_launches_started_together_share_one_answer_from_a_host_that_answers_one_
         .map(|_| {
             let (ask, dir) = (Arc::clone(&ask), dir.clone());
             std::thread::spawn(move || {
-                let silent = |_: &Machine, _: Option<&str>| Facts { stale_age_s: Some(1.0), ..Facts::default() };
+                let silent = |_: &Machine| Facts { stale_age_s: Some(1.0), ..Facts::default() };
                 survey_via(&UNREMEMBERED, &dir, &[machine("gex45")], Some("/work"), Duration::from_secs(5), ask, &silent)
             })
         })
@@ -62,4 +62,22 @@ fn five_launches_started_together_share_one_answer_from_a_host_that_answers_one_
     for facts in finished {
         assert_eq!((facts[0].live, facts[0].has_cwd, facts[0].stale_age_s), (Some(0), Some(true), None));
     }
+}
+
+#[test]
+fn a_launch_left_past_the_deadline_behind_a_burst_does_not_read_the_host_as_lacking_its_directory() {
+    let records = tempfile::tempdir().unwrap();
+    let reading = Facts { live: Some(0), accounts: vec!["d".into()], ..Facts::default() };
+    record(records.path(), "gex45", &reading);
+    let (release, busy) = mpsc::channel::<()>();
+    let busy = Mutex::new(busy);
+    let ask: Ask = Arc::new(move |_, _, _, _| {
+        let _ = busy.lock().unwrap().recv();
+        Facts::default()
+    });
+    let silent = |machine: &Machine| last_recorded(records.path(), &machine.name);
+    let facts = survey_via(&UNREMEMBERED, records.path(), &[machine("gex45")], Some("/tmp/eval-b/worktrees/t01-l21"), Duration::from_millis(100), ask, &silent);
+    drop(release);
+    assert!(facts[0].stale_age_s.is_some(), "the host is placed from its last reading");
+    assert_eq!(facts[0].has_cwd, None, "a reading that never asked about the directory says nothing of it, so the launch is not kept on the control host");
 }

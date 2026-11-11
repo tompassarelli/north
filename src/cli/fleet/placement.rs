@@ -346,7 +346,7 @@ fn decide(case: &Case, launch: &Launch, overrides: &Overrides) -> NorthResult<De
     let mut decision = case::decide(case).map_err(configuration)?;
     fall_through(&mut decision, launch, overrides);
     let absent = match (&decision.machine, launch.cwd) {
-        (Some(machine), Some(cwd)) if !has_directory(case, &machine.name) => Some(format!("{} has no {}, so here", machine.name, cwd.display())),
+        (Some(machine), Some(cwd)) if lacks_directory(case, &machine.name) => Some(format!("{} has no {}, so here", machine.name, cwd.display())),
         _ => None,
     };
     if absent.is_some() {
@@ -440,9 +440,9 @@ fn picked(decision: &Decision) -> Option<&gate::Verdict> {
     }
 }
 
-/// Whether the launch directory exists on `machine`, as the per-machine probe found it.
-fn has_directory(case: &Case, machine: &str) -> bool {
-    case.machines.iter().find(|probed| probed.name == machine).and_then(|probed| probed.has_cwd).unwrap_or(false)
+/// Whether the per-machine probe found the launch directory missing on `machine`; a probe that did not answer about it leaves the host to refuse it.
+fn lacks_directory(case: &Case, machine: &str) -> bool {
+    case.machines.iter().find(|probed| probed.name == machine).and_then(|probed| probed.has_cwd) == Some(false)
 }
 
 fn cloud_command(launch: &Launch, lane: &CloudLane, here: &str, surface: &str, text: &str) -> String {
