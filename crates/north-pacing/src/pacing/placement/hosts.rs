@@ -239,19 +239,35 @@ fn survey_via(memo: &'static Memo, records: &Path, machines: &[Machine], cwd: Op
 
 /// The host's facts from an answer another launch recorded under `SHARED_SECONDS` ago, asking the host only for this launch's
 /// directory; else from the one launch that holds the host's survey turn, which launches starting meanwhile wait for and then read.
+/// A launch that waits asks its directory while it waits and gives the turn back as soon as it has read the answer, so a burst's
+/// directory questions run side by side instead of one per turn (five launches on 2026-11-12 waited up to 2.2 s before registering).
 fn answered(records: &Path, machine: &Machine, cwd: Option<&str>, ask: &Asker) -> Facts {
-    let reused = |facts: Facts| match cwd {
-        Some(_) => Facts { has_cwd: ask(&machine.name, &machine.ssh, cwd, Asked::Directory).has_cwd, ..facts },
-        None => facts,
-    };
+    let directory = || cwd.and_then(|_| ask(&machine.name, &machine.ssh, cwd, Asked::Directory).has_cwd);
+    let reused = |facts: Facts, has_cwd: Option<bool>| if cwd.is_some() { Facts { has_cwd, ..facts } } else { facts };
+    let everything = || ask(&machine.name, &machine.ssh, cwd, Asked::Everything);
     if let Some(facts) = shared(records, &machine.name, storage::now()) {
-        return reused(facts);
+        return reused(facts, directory());
     }
-    let _turn = turn(records, &machine.name);
-    if let Some(facts) = shared(records, &machine.name, storage::now()) {
-        return reused(facts);
+    let Some(turn) = turn_file(records, &machine.name) else { return everything() };
+    if turn.try_lock().is_ok() {
+        return match shared(records, &machine.name, storage::now()) {
+            Some(facts) => {
+                drop(turn);
+                reused(facts, directory())
+            }
+            None => everything(),
+        };
     }
-    ask(&machine.name, &machine.ssh, cwd, Asked::Everything)
+    std::thread::scope(|scope| {
+        let early = scope.spawn(directory);
+        match turn.lock().ok().and_then(|()| shared(records, &machine.name, storage::now())) {
+            Some(facts) => {
+                drop(turn);
+                reused(facts, early.join().ok().flatten())
+            }
+            None => everything(),
+        }
+    })
 }
 
 /// The answer recorded under `SHARED_SECONDS` ago, its saturation reading still under `SATURATION_CACHE_SECONDS` old; an answer
@@ -264,11 +280,9 @@ fn shared(records: &Path, name: &str, now: f64) -> Option<Facts> {
     (facts.live.is_some() && facts.saturation.is_some() && facts.saturation_age_s.is_some_and(|aged| aged < SATURATION_CACHE_SECONDS)).then_some(facts)
 }
 
-fn turn(records: &Path, name: &str) -> Option<std::fs::File> {
+fn turn_file(records: &Path, name: &str) -> Option<std::fs::File> {
     std::fs::create_dir_all(records).ok()?;
-    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(records.join(format!("{name}.lock"))).ok()?;
-    file.lock().ok()?;
-    Some(file)
+    std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(records.join(format!("{name}.lock"))).ok()
 }
 
 fn records() -> std::path::PathBuf {
