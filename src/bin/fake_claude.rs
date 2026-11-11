@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 const SESSION: &str = "00000000-0000-4000-8000-0000000fa4e0";
 const TOOL: &str = "toolu_fake";
 const TASK: &str = "fake-task";
-const USAGE: &str = "Usage: fake_claude --trace fold|done|commit|idle-interrupt|cancel-queued|not-done|slow-hooks|signed-out-once|oauth-expired|weekly-limit|crash [ARG...]";
+const USAGE: &str = "Usage: fake_claude --trace fold|done|report|commit|idle-interrupt|cancel-queued|not-done|slow-hooks|signed-out-once|oauth-expired|weekly-limit|crash [ARG...]";
 const STALL: &str = "stall this prompt";
 const FINAL_REPORT: &str = "Done: fake report";
 const NOT_DONE_REPORT: &str = "Not done: test\nStop: landing";
@@ -19,6 +19,7 @@ const WEEKLY_LIMIT: &str = "You've hit your weekly limit · resets Nov 12, 7pm";
 enum Trace {
     Fold,
     Done,
+    Report,
     Commit,
     NotDone,
     IdleInterrupt,
@@ -35,6 +36,7 @@ impl Trace {
         match name {
             "fold" => Some(Self::Fold),
             "done" => Some(Self::Done),
+            "report" => Some(Self::Report),
             "commit" => Some(Self::Commit),
             "not-done" => Some(Self::NotDone),
             "idle-interrupt" => Some(Self::IdleInterrupt),
@@ -109,7 +111,7 @@ impl<W: Write> Fake<W> {
             self.start(uuid, message)?;
             return Ok(false);
         }
-        if self.trace != Trace::Fold {
+        if !matches!(self.trace, Trace::Fold | Trace::Report) {
             self.held.push(uuid.to_string());
             return Ok(false);
         }
@@ -134,7 +136,7 @@ impl<W: Write> Fake<W> {
         }))?;
         self.replay(uuid, message.clone())?;
         self.turn.push(uuid.to_string());
-        if self.trace == Trace::Done {
+        if matches!(self.trace, Trace::Done | Trace::Report) {
             self.reply(uuid, FINAL_REPORT)?;
             return self.finish();
         }

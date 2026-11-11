@@ -23,6 +23,7 @@ safe_push_remote_land north north-safe-push
 stdio north-fleet
 worker_sandbox north-runtime north
 hand_in_tool north-runtime north-providers north-lander north-safe-push north
+refusal_wake north-lander north-landing north-base north-resume north-fleet-supervisor north
 support north
 threads_ingest_lock north-threads
 threads_ledger north-threads

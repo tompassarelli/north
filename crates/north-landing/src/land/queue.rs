@@ -89,6 +89,8 @@ pub struct HandIn {
     pub asked_micros: u128,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict_micros: Option<u128>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wakes_session: bool,
 }
 
 impl Ticket {

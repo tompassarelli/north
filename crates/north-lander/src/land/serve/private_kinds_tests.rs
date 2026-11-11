@@ -28,7 +28,7 @@ fn lander(dir: &Path) -> Lander {
 }
 
 fn handed_in(dir: &Path, branch: &str) -> Lanes {
-    let hand_in = HandIn { called_micros: QUEUED_MICROS - 900_000, gates_micros: QUEUED_MICROS - 100_000, asked_micros: QUEUED_MICROS - 400_000, verdict_micros: None };
+    let hand_in = HandIn { called_micros: QUEUED_MICROS - 900_000, gates_micros: QUEUED_MICROS - 100_000, asked_micros: QUEUED_MICROS - 400_000, verdict_micros: None, wakes_session: false };
     let ticket = Ticket { branch: branch.into(), host: "worker-host".into(), head: format!("{branch}-head"), unjudged_on: Some(BASE.into()), queued_micros: Some(QUEUED_MICROS), hand_in: Some(hand_in), ..Ticket::default() };
     let path = dir.join(format!("queue/{branch}.json"));
     std::fs::create_dir_all(dir.join("queue")).unwrap();

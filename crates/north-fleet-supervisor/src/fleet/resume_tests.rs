@@ -121,7 +121,7 @@ fn a_session_that_stopped_before_the_lander_decided_is_woken_though_its_stream_i
     let event = serde_json::json!({"type": "assistant", "session_id": "north-790-late", "timestamp": north_base::foundation::clock::Timestamp::from_unix_millis(i64::try_from(stopped).unwrap()).iso(), "message": {"content": [{"type": "text", "text": "Stop: landing"}]}});
     std::fs::write(&stream, format!("{event}\n{}\n", serde_json::json!({"type": "result", "subtype": "success", "session_id": "north-790-late"}))).unwrap();
     let lane = queued(state.path(), "north-790-late", "guards", stopped - MINUTE);
-    decided(&lane, "landed abc1234 on origin/main");
+    decided(&lane, "failed: the candidate's tests are red");
     fleet.follow_recent("north-790-late").unwrap();
     let held = Held { lanes: lanes_by_session(&queues(state.path())).unwrap(), ..Held::default() };
 

@@ -273,6 +273,15 @@ impl Lane {
     }
 }
 
+/// What opens the message that tells a session the lander decided its lane, which the fleet finds a wake by.
+pub const DECIDED_OPENER: &str = "[north: the lander has decided]";
+
+/// The message that starts a turn in a session whose lanes the lander refused, one `BRANCH: VERDICT` line each.
+pub fn refusal_message(refused: &[(&str, &str)]) -> String {
+    let lines: Vec<String> = refused.iter().map(|(branch, verdict)| format!("{branch}: {verdict}")).collect();
+    format!("{DECIDED_OPENER}\n{}\nContinue from the verdict: fix what the refusal names and finish the lane again.", lines.join("\n"))
+}
+
 /// The lanes of `session` in every queue under `queues` (`STATE/north/land-queue`): per queue and branch the newest ticket
 /// in any area. A host that is not the lander's holds no queue, so its answer is none.
 pub fn lanes_of(queues: &Path, session: &str) -> NorthResult<Vec<Lane>> {

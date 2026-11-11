@@ -6,7 +6,7 @@ use north_base::platform::attribution::{Cause, Harness};
 
 /// What opens the message that revives a session whose registered run is over.
 pub const OVER: &str = "[north: the run you waited on is over]";
-const LANDING: &str = "[north: the lander has decided]";
+const LANDING: &str = north_base::land_ticket::DECIDED_OPENER;
 const ADMITTED: &str = "[north: your queued run was admitted]";
 pub const REVIVED: &str = "[north: dispatch revived you]";
 
@@ -29,15 +29,14 @@ pub fn landing(lanes: &[Lane], ended_ms: u64) -> Landing {
         if lane.undecided() {
             return Landing::Waiting;
         }
-        decided |= lane.since_ms().is_some_and(|since| since > ended_ms);
+        decided |= !lane.landed() && lane.since_ms().is_some_and(|since| since > ended_ms);
     }
     if decided { Landing::Decided } else { Landing::Settled }
 }
 
 pub fn message(lanes: &[Lane], ended_ms: u64) -> String {
-    let decided = lanes.iter().filter(|lane| lane.queued_ms() <= ended_ms && !lane.undecided() && lane.since_ms().is_some_and(|since| since > ended_ms));
-    let lines: Vec<String> = decided.map(|lane| format!("{}: {}", lane.branch, lane.cause.as_deref().unwrap_or_else(|| lane.phase.name()))).collect();
-    format!("{LANDING}\n{}\nContinue from the verdict: tick the boxes a landing finishes, or fix what a refusal names.", lines.join("\n"))
+    let refused = lanes.iter().filter(|lane| lane.queued_ms() <= ended_ms && !lane.undecided() && !lane.landed() && lane.since_ms().is_some_and(|since| since > ended_ms));
+    north_base::land_ticket::refusal_message(&refused.map(|lane| (lane.branch.as_str(), lane.cause.as_deref().unwrap_or_else(|| lane.phase.name()))).collect::<Vec<_>>())
 }
 
 /// A gated run that queued for capacity: when it began to queue and when the host admitted it, in Unix milliseconds.

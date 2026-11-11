@@ -1,5 +1,5 @@
 use std::mem::MaybeUninit;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -8,6 +8,7 @@ use rustix::fs::inotify::{self, CreateFlags, Reader, WatchFlags};
 use rustix::io::Errno;
 
 use super::super::lander::Lander;
+use super::super::{after, queue};
 
 pub struct Watcher {
     stop: Arc<AtomicBool>,
@@ -59,5 +60,27 @@ fn follow(events: &impl std::os::fd::AsFd, watched: &[(i32, PathBuf)], lander: &
             Ok(None) => {}
             Err(error) => println!("north land: could not send the verdict on {name} to its outbox host, so its hand-in asks for it or reads the records mirror: {error}"),
         }
+        tell_session(&area.join(name));
+    }
+}
+
+/// Starts the next turn of the session that queued the decided ticket at `path` without waiting on it, when the lander
+/// refused it; a landing tells no one, and the fleet's resume still wakes a stopped session this send missed.
+fn tell_session(path: &Path) {
+    let Ok(ticket) = queue::read(path) else { return };
+    let (Some(session), Some(verdict)) = (ticket.session, ticket.verdict) else { return };
+    if !ticket.hand_in.is_some_and(|hand_in| hand_in.wakes_session) || land_ticket::Phase::decided(&verdict) == land_ticket::Phase::Landed {
+        return;
+    }
+    let message = land_ticket::refusal_message(&[(&ticket.branch, &verdict)]);
+    let spawned = std::thread::Builder::new().name("land refusal".into()).spawn(move || {
+        if after::send(&session, &message) {
+            println!("north land: told {session} the lander refused {}", ticket.branch);
+        } else {
+            println!("north land: could not tell {session} the lander refused {}; the fleet's resume wakes it once it stops", ticket.branch);
+        }
+    });
+    if let Err(error) = spawned {
+        println!("north land: could not start telling the session a refusal: {error}");
     }
 }

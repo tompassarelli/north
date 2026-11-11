@@ -49,6 +49,7 @@ pub struct Environment<'a> {
     pub state_home: &'a Path,
     pub host: &'a str,
     pub session: Option<&'a str>,
+    pub waits: bool,
     pub denylist: &'a Denylist,
 }
 
@@ -247,7 +248,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             Ok::<_, String>(((gate, answered), gated_from, marks))
         })?;
         secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
-        let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered) };
+        let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits };
         let queued_micros = micros();
         let ticket = Ticket {
             origin: origin.clone(),
@@ -316,7 +317,7 @@ pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
     let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|name| !name.is_empty());
     let state_home = state_home();
     let sources = Denylist::from_env();
-    let environment = Environment { called_micros, state_home: &state_home, host: &host, session: session.as_deref(), denylist: &sources };
+    let environment = Environment { called_micros, state_home: &state_home, host: &host, session: session.as_deref(), waits: parsed.wait, denylist: &sources };
     match enqueue(repo, parsed.shape(), parsed.keep_lane, &environment) {
         Ok(queued) => {
             match &queued.squash {
