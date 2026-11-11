@@ -1,4 +1,6 @@
-use std::fs;use std::os::unix::fs::PermissionsExt;
+use std::fs;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 pub use crate::platform::store_refs::RUNTIME_PROGRAMS as PROGRAMS;
@@ -108,18 +110,38 @@ pub fn unleased(runtime: &Path) -> std::io::Result<Option<fs::File>> {
     Ok(flock(&lease, FlockOperation::NonBlockingLockExclusive).is_ok().then_some(lease))
 }
 
+/// The runtimes a live process runs from or was launched on: its executable, or a path under `runtimes` in its arguments or environment, where a session's shell prefix and tool server name the runtime it started on.
 pub fn running(proc_root: &Path, runtimes: &Path) -> Vec<String> {
-    let runtimes = fs::canonicalize(runtimes).unwrap_or_else(|_| runtimes.to_path_buf());
-    let mut names = fs::read_dir(proc_root)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|process| fs::read_link(process.path().join("exe")).ok())
-        .filter_map(|exe| exe.strip_prefix(&runtimes).ok()?.components().next()?.as_os_str().to_str().map(str::to_owned))
-        .collect::<Vec<_>>();
+    let canonical = fs::canonicalize(runtimes).unwrap_or_else(|_| runtimes.to_path_buf());
+    let roots = [canonical, runtimes.to_path_buf()];
+    let mut names = Vec::new();
+    for process in fs::read_dir(proc_root).into_iter().flatten().flatten() {
+        let process = process.path();
+        if let Ok(exe) = fs::read_link(process.join("exe")) {
+            names.extend(roots.iter().filter_map(|root| exe.strip_prefix(root).ok()?.components().next()?.as_os_str().to_str().map(str::to_owned)));
+        }
+        for file in ["cmdline", "environ"] {
+            if let Ok(text) = fs::read(process.join(file)) {
+                names.extend(roots.iter().flat_map(|root| named_under(&text, root)));
+            }
+        }
+    }
+    names.retain(|name| is_sha(name));
     names.sort();
     names.dedup();
     names
+}
+
+fn named_under(text: &[u8], runtimes: &Path) -> Vec<String> {
+    let mut prefix = runtimes.as_os_str().as_bytes().to_vec();
+    prefix.push(b'/');
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.windows(prefix.len()).position(|window| window == prefix.as_slice()) {
+        rest = &rest[at + prefix.len()..];
+        found.extend(rest.get(..40).and_then(|name| std::str::from_utf8(name).ok()).map(str::to_owned));
+    }
+    found
 }
 
 pub fn doomed<'a>(newest_first: &'a [String], keep: &[&str]) -> Vec<&'a str> {

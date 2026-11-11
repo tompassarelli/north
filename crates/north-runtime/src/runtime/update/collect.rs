@@ -8,6 +8,10 @@ use std::time::Duration;
 const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 
 pub(crate) fn collect(layout: &Layout, target: &str, previous: Option<&Path>) -> std::io::Result<()> {
+    collect_beside(layout, target, previous, Path::new("/proc"))
+}
+
+pub(super) fn collect_beside(layout: &Layout, target: &str, previous: Option<&Path>, proc_root: &Path) -> std::io::Result<()> {
     reap_unfinished_copies(&layout.runtimes(), ABANDONED_COPY)?;
     let mut listed = Vec::new();
     for entry in fs::read_dir(layout.runtimes())? {
@@ -24,7 +28,7 @@ pub(crate) fn collect(layout: &Layout, target: &str, previous: Option<&Path>) ->
     keep.extend(lander.as_deref().and_then(layout::linked_sha));
     let rollback = fs::read_to_string(layout.lander_rollback()).ok();
     keep.extend(rollback.as_deref().and_then(|target| layout::linked_sha(Path::new(target.trim()))));
-    let running = layout::running(Path::new("/proc"), &layout.runtimes());
+    let running = layout::running(proc_root, &layout.runtimes());
     keep.extend(running.iter().map(String::as_str));
     let current = fs::canonicalize(layout.current()).ok();
     for name in layout::doomed(&names, &keep) {

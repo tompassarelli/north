@@ -57,6 +57,25 @@ fn collecting_old_runtimes_keeps_the_runtime_a_lander_rollback_would_go_back_to(
 }
 
 #[test]
+fn collecting_old_runtimes_keeps_the_runtime_a_live_session_was_launched_on() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_path_buf() };
+    let shas: Vec<String> = (0..8).map(|digit| digit.to_string().repeat(40)).collect();
+    for sha in &shas {
+        fs::create_dir_all(layout.runtime(sha)).unwrap();
+        ticks_past(state.path(), &layout.runtime(sha));
+    }
+    std::os::unix::fs::symlink(layout::link(&shas[7]), layout.current()).unwrap();
+    let proc = tempfile::tempdir().unwrap();
+    fs::create_dir_all(proc.path().join("42")).unwrap();
+    let north = layout.runtime(&shas[0]).join("north");
+    fs::write(proc.path().join("42/cmdline"), format!("claude\0--mcp-config\0{{\"command\":\"{}\"}}\0", north.display())).unwrap();
+    collect::collect_beside(&layout, &shas[7], None, proc.path()).unwrap();
+    assert!(layout.runtime(&shas[0]).is_dir());
+    assert!(!layout.runtime(&shas[1]).exists());
+}
+
+#[test]
 fn a_copy_interrupted_over_an_hour_ago_leaves_no_staging_directory_while_a_fresh_one_stays() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_path_buf() };
