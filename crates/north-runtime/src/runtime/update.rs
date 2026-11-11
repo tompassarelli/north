@@ -177,7 +177,6 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
 
 /// An ordered promotion's go-live on this host: the runtime was built and passed its canary before this, so only the swap is left, and a pass that left `current` elsewhere (held back, rolled back, or moved) is a failure, not a quiet success.
 pub(super) fn go_live_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
-    let _promoting = promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime order")?;
     let checkout = checkout();
     let previous = fs::read_link(layout.current()).ok();
     if previous.as_deref() != Some(layout::link(target).as_path()) {
@@ -191,8 +190,11 @@ pub(super) fn go_live_ordered(layout: &Layout, target: &str) -> Result<(), Failu
 }
 
 pub(super) fn build_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
-    let _building = promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime order")?;
     built(layout, &checkout(), target).map(|_| ())
+}
+
+pub(super) fn order_waiting(layout: &Layout) -> Result<File, Failure> {
+    promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime order")
 }
 
 pub(super) fn promotion_waiting(layout: &Layout, limit: Duration, waiter: &str) -> Result<File, Failure> {

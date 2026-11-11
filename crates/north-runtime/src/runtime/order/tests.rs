@@ -111,7 +111,7 @@ fn an_ordered_promotion_of_a_landed_commit_runs_the_canary_then_goes_live_on_the
     let (settling, builder) = (host("whiterabbit", None), host("gex45", Some("depbox")));
     let order = Order { sha: NEW.to_owned(), reason: "the lander cannot take a landing".to_owned(), orderer: "f-promote-order".to_owned() };
 
-    let refused = run(&layout, &order, &settling, &[&builder]).unwrap_err();
+    let refused = run(&layout, &order, &settling, &[&builder], || Ok(())).unwrap_err();
 
     assert!(refused.message.contains("gex45 stays on its old runtime") && refused.message.contains("depbox"), "{}", refused.message);
     let steps = steps.lock().unwrap();
@@ -130,4 +130,64 @@ fn an_ordered_promotion_of_a_landed_commit_runs_the_canary_then_goes_live_on_the
     let row = |host: &str| rows.iter().find(|row| row.0 == host).unwrap_or_else(|| panic!("no row for {host}: {rows:?}"));
     assert!(row("whiterabbit").1 == "passed" && row("whiterabbit").2);
     assert!(row("gex45").1.starts_with("failed: probe `a worker command's depbox run") && !row("gex45").2);
+}
+
+struct Contended<'a> {
+    layout: &'a Layout,
+    held: &'a Mutex<Vec<String>>,
+}
+
+impl Contended<'_> {
+    fn note(&self, step: &str) {
+        let free = super::super::update::promotion_waiting(self.layout, std::time::Duration::ZERO, "an automatic promotion").is_ok();
+        self.held.lock().unwrap().push(format!("{step}: {}", if free { "promotion lock free" } else { "promotion lock held" }));
+    }
+}
+
+impl Host for Contended<'_> {
+    fn name(&self) -> &str {
+        "whiterabbit"
+    }
+
+    fn pinned(&self) -> Result<bool, Failure> {
+        Ok(false)
+    }
+
+    fn acquire(&self, _sha: &str) -> Result<(), Failure> {
+        self.note("build");
+        Ok(())
+    }
+
+    fn canary(&self, _sha: &str) -> Result<(), String> {
+        self.note("canary");
+        Ok(())
+    }
+
+    fn go_live(&self, _sha: &str) -> Result<(), Failure> {
+        self.note("go live");
+        Ok(())
+    }
+
+    fn write_pin(&self, _sha: &str) -> Result<(), Failure> {
+        Ok(())
+    }
+}
+
+#[test]
+fn an_order_holds_the_promotion_lock_while_its_canary_runs() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_path_buf() };
+    let held = Mutex::new(Vec::new());
+    let host = Contended { layout: &layout, held: &held };
+    let order = Order { sha: NEW.to_owned(), reason: "the lander cannot take a landing".to_owned(), orderer: "f-runtime-tree".to_owned() };
+
+    run(&layout, &order, &host, &[], || {
+        host.note("hold restored");
+        Ok(())
+    })
+    .unwrap();
+
+    let held = held.lock().unwrap();
+    assert!(held.len() >= 4 && held.iter().all(|step| step.ends_with("promotion lock held")), "{held:?}");
+    assert!(super::super::update::promotion_waiting(&layout, std::time::Duration::ZERO, "after the order").is_ok(), "the order lets go of the lock when it ends");
 }

@@ -46,9 +46,7 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> 
     let others: Vec<Elsewhere> = deployment.destinations.iter().map(|destination| Elsewhere { layout, shell: Shell::Ssh(destination.clone()) }).collect();
     let others: Vec<&dyn Host> = others.iter().map(|other| other as &dyn Host).collect();
     let released = hold::release()?;
-    let ordered = run(layout, &order, &here, &others);
-    let restored = hold::restore(released);
-    ordered.and(restored)
+    run(layout, &order, &here, &others, || hold::restore(released))
 }
 
 fn parse(flags: &[String]) -> Result<(Option<String>, String), Failure> {
@@ -81,8 +79,23 @@ fn orderer() -> String {
     ["NORTH_FLEET_SESSION", "USER"].iter().find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty())).unwrap_or_else(|| "unknown".to_owned())
 }
 
+/// The order holds the promotion lock from before the build until `finish` has put the hold unit back, which queues on that lock and takes it the moment it is released, so no automatic promotion runs between the hold's stop and its return.
+pub(super) fn run(layout: &Layout, order: &Order, settling: &dyn Host, others: &[&dyn Host], finish: impl FnOnce() -> Result<(), Failure>) -> Result<(), Failure> {
+    let promoting = match update::order_waiting(layout) {
+        Ok(promoting) => promoting,
+        Err(failure) => {
+            let _ = finish();
+            return Err(failure);
+        }
+    };
+    let ordered = promote_everywhere(layout, order, settling, others);
+    let restored = finish();
+    drop(promoting);
+    ordered.and(restored)
+}
+
 /// The settling host builds first, since every other host is shipped what it built; then every host judges and promotes on its own, so a failed canary on one leaves only that host on its old runtime.
-pub(super) fn run(layout: &Layout, order: &Order, settling: &dyn Host, others: &[&dyn Host]) -> Result<(), Failure> {
+fn promote_everywhere(layout: &Layout, order: &Order, settling: &dyn Host, others: &[&dyn Host]) -> Result<(), Failure> {
     if let Err(failure) = settling.acquire(&order.sha) {
         for host in std::iter::once(settling).chain(others.iter().copied()) {
             record(layout, order, host.name(), &format!("not run: {}", failure.message), false);
