@@ -1,7 +1,7 @@
-diff --git a/crates/north-base/src/foundation/redact.rs b/crates/north-base/src/foundation/redact.rs
+diff --git a/crates/north-foundation/src/foundation/redact.rs b/crates/north-foundation/src/foundation/redact.rs
 index 20c0f6d88..66e09616c 100644
---- a/crates/north-base/src/foundation/redact.rs
-+++ b/crates/north-base/src/foundation/redact.rs
+--- a/crates/north-foundation/src/foundation/redact.rs
++++ b/crates/north-foundation/src/foundation/redact.rs
 @@ -8,7 +8,7 @@ fn prefixed() -> &'static Regex {
      static RE: OnceLock<Regex> = OnceLock::new();
      RE.get_or_init(|| {
