@@ -84,3 +84,11 @@ pub fn failures(log: &str) -> BTreeSet<Failure> {
 pub fn ref_lock(log: &str) -> Option<String> {
     log.lines().find(|line| line.contains("cannot lock ref")).map(|line| line.trim().chars().take(200).collect())
 }
+
+/// How old the pushed GitHub App token is when `log` shows a host's credential helper or `gh` refusing it as past its 55 min trust, which only a late copy of the token fixes (north#1175); None when the log shows no such refusal.
+pub fn stale_token(log: &str) -> Option<String> {
+    let line = log.lines().find(|line| line.contains("outside its 55 min trust"))?;
+    let before = &line[..line.find(" min old")?];
+    let age = before.rsplit(|c: char| !c.is_ascii_digit()).next().filter(|digits| !digits.is_empty());
+    Some(age.map_or_else(|| "older than 55 min".to_owned(), |minutes| format!("{minutes} min old")))
+}

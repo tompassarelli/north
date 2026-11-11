@@ -16,6 +16,11 @@ for a in @ALIASES@; do
   h=$(ssh -G "$a" 2>/dev/null | sed -n 's/^hostname //p')
   { [ -n "$h" ] && [ "$h" != "$a" ]; } || getent hosts "$a" >/dev/null 2>&1 || echo "missing: the ssh alias $a"
 done
+t="$HOME/.local/state/north/gh-write-token"
+if [ -e "$t" ]; then
+  a=$(( ($(date +%s) - $(stat -c %Y "$t")) / 60 ))
+  { [ -s "$t" ] && [ "$a" -lt 55 ]; } || echo "missing: a GitHub token under 55 min old (the one the laptop pushed is $a min old)"
+fi
 exit 0"#;
 
 #[derive(Debug, Default, PartialEq, Eq)]

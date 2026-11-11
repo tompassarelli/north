@@ -313,3 +313,19 @@ fn an_after_landing_suite_is_placed_on_a_build_host_and_never_on_the_control_hos
     assert!(asked.starts_with("capacity offload run --host cpx62b --base base --head tree --timeout"), "the listing was not offered to the build host under its capacity lease: {asked}");
     assert!(asked.contains("CARGO_TARGET_DIR='target' './bin/land-shell' '--dev' '--' 'cargo' 'nextest' 'list'"), "the build host runs the tree's own listing command: {asked}");
 }
+
+#[test]
+fn a_landing_check_that_fails_on_a_stale_host_token_is_not_a_red_main() {
+    let scratch = tempfile::tempdir().unwrap();
+    let mut placed = run();
+    placed.host = Some("cpx62b".to_owned());
+    placed.log = scratch.path().join("post-land.log");
+    placed.outcome = scratch.path().join("post-land.outcome");
+    std::fs::write(&placed.outcome, "event\tland check\tfailed\tconfig agents check-owners; log: /x.log\nfailed-step\tconfig agents check-owners\t/x.log\n").unwrap();
+    std::fs::write(&placed.log, "gh-write-token-credential: the App token the laptop pushes to /home/tom/.local/state/north/gh-write-token is 71 min old, outside its 55 min trust\nfatal: credential helper 'gh-write-token-credential' told us to quit\nerror: North configuration failed: cannot fetch /home/tom/code/south/main origin/main; refusing landing\n").unwrap();
+    let Verdict::Transient(detail) = judged(ExitStatus::from_raw(1 << 8), &placed) else { panic!("a stale host token was judged red main") };
+    assert!(detail.contains("cpx62b") && detail.contains("71 min old") && detail.contains("environment failure") && detail.contains("no commit is suspect"), "{detail}");
+
+    std::fs::write(&placed.log, "error: North configuration failed: cannot fetch /home/tom/code/south/main origin/main; refusing landing\n").unwrap();
+    assert!(matches!(judged(ExitStatus::from_raw(1 << 8), &placed), Verdict::RedMain(_)), "a failure that shows no stale token is judged as before");
+}
