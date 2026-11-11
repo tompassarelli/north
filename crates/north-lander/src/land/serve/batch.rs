@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use super::{ATTEMPTS, Round, ahead, alone, micros, unjudged};
+use super::{ATTEMPTS, Round, ahead, alone, micros};
 use super::round::{Landing, Pushing};
 use crate::land::after;
 use crate::land::alone_flight;
@@ -14,7 +15,9 @@ use crate::land::queue::{self, Ticket};
 use crate::land::records::{self, Candidate, Decision};
 use crate::land::telemetry::Stages;
 use crate::land::watch::Watch;
-use crate::land::{lander_fix, pause, steps};
+use crate::land::{lander_fix, pause, steps, unjudged};
+use crate::land::enqueue::default_branch;
+use crate::land::scans::outgoing::denylist::{Denylist, DenylistVerdict};
 
 pub(super) type Entry<'a> = (&'a PathBuf, &'a Ticket);
 
@@ -91,7 +94,7 @@ impl Batching for Lander {
         let mut queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
         queued.retain(|(path, _)| !claimed.contains(path));
         let open: Vec<(PathBuf, Ticket)> = queued.iter().filter(|(path, _)| !watch.alone.as_ref().is_some_and(|flight| flight.checks(path))).cloned().collect();
-        let tickets = unjudged::settle(self, if pass.red_only { lander_fix::repairs(&open) } else { open })?;
+        let tickets = unjudged::settle(self, if pass.red_only { lander_fix::repairs(&open) } else { open }, now(), &private_kinds)?;
         if let Some(flow) = self.gate(pass, &queued, tickets.is_empty()) {
             return Ok(flow);
         }
@@ -203,4 +206,12 @@ impl Batching for Lander {
         }
         Ok((included, undecided))
     }
+}
+
+fn now() -> Duration {
+    Duration::from_micros(u64::try_from(micros()).unwrap_or(u64::MAX))
+}
+
+fn private_kinds(ticket: &Ticket, base: &str, wait: Option<Duration>) -> DenylistVerdict {
+    Denylist::from_env().verdict_within(&ticket.root, &ticket.origin, (base, &ticket.head, &default_branch(&ticket.root)), wait)
 }

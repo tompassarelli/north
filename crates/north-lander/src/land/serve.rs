@@ -27,7 +27,6 @@ mod options;
 mod outbox;
 mod round;
 mod tickets;
-mod unjudged;
 
 pub const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;

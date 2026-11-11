@@ -32,6 +32,7 @@ pub mod trace;
 pub mod repositories;
 pub mod reservation;
 pub mod setting;
+pub mod unjudged;
 
 #[cfg(test)]
 mod reuse_shadow_tests;

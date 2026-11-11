@@ -25,6 +25,8 @@ const ATTEMPT_LIMIT: Duration = Duration::from_secs(90);
 const CHUNK_BYTES: usize = 48_000;
 const CACHE_ENV: &str = "NORTH_PRIVACY_CACHE";
 const CONFIRM_RUNS: usize = 3;
+const SCREENS_AT_ONCE: usize = 4;
+const SYSTEM: &str = "You judge text for private detail and answer only in the line format the request gives.";
 const CONFIRM_MAJORITY: usize = 2;
 const ANCHOR_WORDS: usize = 4;
 const SPAN_CHARS: usize = 160;
@@ -70,14 +72,22 @@ pub type Ask<'a> = dyn Fn(&Tier, &str) -> Result<String, String> + Sync + 'a;
 
 pub fn judge(kinds: &Kinds, text: &str, cache: &Cache, ask: &Ask) -> Result<Vec<Finding>, String> {
     let mut found = Vec::new();
-    for chunk in chunks(text) {
-        if !verdict(kinds, &chunk, cache, &SCREEN, 0, ask)?.is_empty() {
-            found.extend(confirmed(kinds, &chunk, cache, ask)?);
+    for group in chunks(text).chunks(SCREENS_AT_ONCE) {
+        let judged: Vec<Result<Vec<Finding>, String>> = std::thread::scope(|scope| {
+            let asked: Vec<_> = group.iter().map(|chunk| scope.spawn(move || screened(kinds, chunk, cache, ask))).collect();
+            asked.into_iter().map(|run| run.join().unwrap_or_else(|_| Err("a screening judge panicked".to_owned()))).collect()
+        });
+        for chunk in judged {
+            found.extend(chunk?);
         }
     }
     found.sort();
     found.dedup();
     Ok(found)
+}
+
+fn screened(kinds: &Kinds, chunk: &str, cache: &Cache, ask: &Ask) -> Result<Vec<Finding>, String> {
+    if verdict(kinds, chunk, cache, &SCREEN, 0, ask)?.is_empty() { Ok(Vec::new()) } else { confirmed(kinds, chunk, cache, ask) }
 }
 
 fn confirmed(kinds: &Kinds, chunk: &str, cache: &Cache, ask: &Ask) -> Result<Vec<Finding>, String> {
@@ -145,7 +155,8 @@ fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, run: usize, a
 /// then agy's models. Every judge is Anthropic or Google, the two vendors the judge already used; a judge that fails
 /// only moves the ask on, and a run where none answers stays unjudged, so the push stays refused (fail closed).
 pub fn ask_subscription(tier: &Tier, prompt: &str, access: &RuntimeAccess) -> Result<String, String> {
-    let subscription = || match oneshot::ask_claude(tier.model, tier.effort, ATTEMPT_LIMIT, prompt, access, &mut |line| eprintln!("privacy judge: {line}")) {
+    let question = oneshot::Ask { model: tier.model, effort: tier.effort, system: SYSTEM, input: prompt };
+    let subscription = || match oneshot::ask_claude(&question, ATTEMPT_LIMIT, access, &mut |line| eprintln!("privacy judge: {line}")) {
         Asked::Answer(answer) => Ok(answer),
         Asked::AtLimit => Err("every claude subscription account is at its usage limit".to_owned()),
         Asked::Failed(reason) => Err(reason),
@@ -194,7 +205,7 @@ fn ask_api_pool(tier: &Tier, prompt: &str) -> Result<String, String> {
             command.env_remove(name);
         }
         command.env("ANTHROPIC_API_KEY", secret).env("CLAUDE_CONFIG_DIR", &profile).env("CLAUDE_CODE_DISABLE_FAST_MODE", "1");
-        command.args(["-p", "--model", tier.model, "--effort", tier.effort, "--tools", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"]);
+        command.args(oneshot::lean_flags(&oneshot::Ask { model: tier.model, effort: tier.effort, system: SYSTEM, input: prompt }));
         match crate::platform::process::run_command_within(command, Some(prompt.as_bytes()), ATTEMPT_LIMIT) {
             Some(output) if output.status.success() && !output.stdout.is_empty() => return Ok(String::from_utf8_lossy(&output.stdout).into_owned()),
             Some(output) => refused.push(format!("{}: exited {:?}: {}{}", key.org, output.status.code(), String::from_utf8_lossy(&output.stdout).trim(), String::from_utf8_lossy(&output.stderr).trim())),
@@ -361,7 +372,9 @@ mod tests {
             assert_eq!(judge(&kinds, &text("second note"), &cache, &ask), Ok(stable.clone()));
         }
         assert_eq!(judge(&kinds, &text("second note, reworded"), &cache, &ask), Ok(stable));
-        assert_eq!(*asked.lock().unwrap(), [true, true, true, true, false, false]);
+        let mut asked = asked.into_inner().unwrap();
+        asked.sort_unstable();
+        assert_eq!(asked, [false, false, true, true, true, true]);
     }
 
     #[test]

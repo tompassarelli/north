@@ -61,6 +61,14 @@ pub fn judge_at_once(text: &str) -> Result<Option<Vec<Finding>>, String> {
     }
 }
 
+pub fn judge_within(text: &str, wait: Duration) -> Result<Option<Vec<Finding>>, String> {
+    match process::run_command_or_leave(command(), text.as_bytes(), wait) {
+        Ok(Some(output)) => verdict(&output).map(Some),
+        Ok(None) => Ok(None),
+        Err(error) => Err(format!("the private-text judge did not start: {error}")),
+    }
+}
+
 pub fn judge_in_hook(text: &str) -> Result<Vec<Finding>, String> {
     match process::run_command_or_leave(command(), text.as_bytes(), HOOK_LIMIT) {
         Ok(Some(output)) => verdict(&output),

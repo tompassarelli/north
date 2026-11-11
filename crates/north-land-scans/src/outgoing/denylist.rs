@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use north_base::foundation::exit::NO_VERDICT;
 use north_base::platform::private_text::{self, Finding};
@@ -14,7 +15,7 @@ use crate::slug::slug_of;
 const SOUTH_ENV: &str = "SAFE_PUSH_SOUTH";
 const DENYLIST_ENV: &str = "SAFE_PUSH_DENYLIST";
 
-type Judge = fn(&str) -> Result<Option<Vec<Finding>>, String>;
+type Judge<'a> = &'a dyn Fn(&str) -> Result<Option<Vec<Finding>>, String>;
 
 pub struct Denylist {
     pub south: PathBuf,
@@ -79,15 +80,18 @@ impl Denylist {
     /// lane that reached no verdict, without an alone pass, so the lander judges it again before it lands. `stand_at_once`
     /// also returns `Judging` when the private-kind judge is still asking a model, which it leaves running.
     pub fn scan_stand(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<Stand> {
-        self.stand(root, origin_url, (base, head, tag), |text| private_text::judge(text).map(Some))
+        self.stand(root, origin_url, (base, head, tag), &|text| private_text::judge(text).map(Some))
     }
 
     pub fn stand_at_once(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<Stand> {
-        self.stand(root, origin_url, (base, head, tag), private_text::judge_at_once)
+        self.stand(root, origin_url, (base, head, tag), &private_text::judge_at_once)
     }
 
-    pub fn verdict_at_once(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> DenylistVerdict {
-        self.judged(root, origin_url, (base, head, tag), private_text::judge_at_once)
+    pub fn verdict_within(&self, root: &Path, origin_url: &str, (base, head, tag): (&str, &str, &str), wait: Option<Duration>) -> DenylistVerdict {
+        match wait {
+            None => self.judged(root, origin_url, (base, head, tag), &private_text::judge_at_once),
+            Some(wait) => self.judged(root, origin_url, (base, head, tag), &|text| private_text::judge_within(text, wait)),
+        }
     }
 
     fn judged(&self, root: &Path, origin_url: &str, (base, head, tag): (&str, &str, &str), judge: Judge) -> DenylistVerdict {

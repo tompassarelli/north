@@ -73,13 +73,22 @@ pub(crate) fn account_words(config_dir: Option<&Path>, accounts: &[Account], inv
     unset.chain(set).chain([fast]).chain(invocation.prefix).collect()
 }
 
-fn claude_once(words: &[String], model: &str, effort: &str, limit: Duration, input: &str) -> Reply {
+pub(crate) struct Ask<'a> {
+    pub model: &'a str,
+    pub effort: &'a str,
+    pub system: &'a str,
+    pub input: &'a str,
+}
+
+pub(crate) fn lean_flags<'a>(ask: &Ask<'a>) -> [&'a str; 14] {
+    ["-p", "--model", ask.model, "--effort", ask.effort, "--system-prompt", ask.system, "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"]
+}
+
+fn claude_once(words: &[String], ask: &Ask, limit: Duration) -> Reply {
     let mut args: Vec<&str> = EXTERNAL_BILLING.iter().flat_map(|name| ["-u", *name]).chain(words.iter().map(String::as_str)).collect();
-    args.extend([
-        "claude", "-p", "--model", model, "--effort", effort, "--tools", "",
-        "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence",
-    ]);
-    match process::run_with_input_within("env", &args, Some(input.as_bytes()), limit) {
+    args.push("claude");
+    args.extend(lean_flags(ask));
+    match process::run_with_input_within("env", &args, Some(ask.input.as_bytes()), limit) {
         Some(output) => Reply { code: output.status.code(), stdout: text(&output), stderr: String::from_utf8_lossy(&output.stderr).into_owned() },
         None => Reply { code: None, stdout: String::new(), stderr: "claude did not finish".to_owned() },
     }
@@ -98,15 +107,41 @@ fn ambient_billing_refusal() -> Option<String> {
     read(".credentials.json").is_none_or(|credentials| credentials.get("claudeAiOauth").is_none()).then(|| "the default login is not a claude.ai subscription login".to_owned())
 }
 
-/// Asks `model` once on the subscription accounts, trying each profile in turn; an API key in the environment is unset and the api-key account is skipped, so the call can never bill by token.
-pub(crate) fn ask_claude(model: &str, effort: &str, limit: Duration, input: &str, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Asked {
+fn answered_record() -> std::path::PathBuf {
+    home().join(".local/state/north/oneshot-answered")
+}
+
+fn answered_first(mut labels: Vec<String>, reserve: &[String], answered: Option<&str>) -> Vec<String> {
+    if let Some(at) = answered.and_then(|answered| labels.iter().position(|label| label == answered)) {
+        let label = labels.remove(at);
+        let front = if reserve.contains(&label) { 0 } else { labels.iter().take_while(|held| reserve.contains(held)).count() };
+        labels.insert(front, label);
+    }
+    labels
+}
+
+fn remember_answered(dir: &Path) {
+    if let Some(label) = dir.file_name().and_then(|name| name.to_str()).and_then(|name| name.strip_prefix("claude-")) {
+        let _ = std::fs::write(answered_record(), label);
+    }
+}
+
+/// Asks once on the subscription accounts, trying each profile in turn, the last one to answer first; an API key in the environment is unset and the api-key account is skipped, so the call can never bill by token.
+pub(crate) fn ask_claude(question: &Ask, limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Asked {
     let profiles = env_or("NORTH_PROFILES", || home().join(".local/state/north/profiles"));
     let accounts = crate::fleet::registry::roster(&access.runtimes).map(|roster| roster.accounts).unwrap_or_default();
     let shared: Vec<String> = claude_accounts().into_iter().filter(|label| !accounts.iter().any(|account| &account.label == label && account.api.is_some())).collect();
     let reserve = crate::platform::orchestration::read().map(|policy| crate::spend::operational::declared(&policy)).unwrap_or_default();
-    let subscription = crate::spend::operational::order(&reserve, shared);
+    let answered = std::fs::read_to_string(answered_record()).ok();
+    let subscription = answered_first(crate::spend::operational::order(&reserve, shared), &reserve, answered.as_deref().map(str::trim));
     ask(&profiles, &subscription, &mut |dir| match dir.map_or_else(ambient_billing_refusal, |_| None) {
         Some(why) => Reply { code: Some(1), stdout: String::new(), stderr: why },
-        None => claude_once(&account_words(dir, &accounts, access.invocation), model, effort, limit, input),
+        None => {
+            let reply = claude_once(&account_words(dir, &accounts, access.invocation), question, limit);
+            if let Some(dir) = dir.filter(|_| reply.code == Some(0) && !reply.stdout.is_empty()) {
+                remember_answered(dir);
+            }
+            reply
+        }
     }, warn)
 }
