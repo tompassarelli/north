@@ -83,7 +83,7 @@ pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path) -> Nort
     }
     let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch };
     let argv = [vec![std::env::current_exe()?.display().to_string(), "session-link".into()], link.arguments()].concat();
-    Ok(HostSpec { argv, ..spec })
+    Ok(HostSpec { argv, cwd: home.to_path_buf(), ..spec })
 }
 
 pub fn leave_record(record: &SessionRecord, placed: &Path) {

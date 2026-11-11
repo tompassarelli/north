@@ -137,3 +137,13 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
     assert_eq!(holding(&held), Vec::<String>::new(), "no process of the held service outlives its CLI, so a test run leaks none into the session that ran it");
 }
 
+
+#[test]
+fn a_session_held_on_another_machine_starts_its_link_here_though_its_lane_exists_only_there() {
+    let root = tempfile::tempdir().unwrap();
+    let lane = Path::new("/home/tom/code/north/worktrees/only-on-far");
+    let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["opencode".into()], env: Vec::new(), env_remove: Vec::new(), cwd: lane.to_path_buf() };
+    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "tom@far".into() }, root.path()).unwrap();
+    assert_eq!(placed.cwd, root.path());
+    assert!(Link::parse(&placed.argv[2..]).unwrap().launch.contains(&format!("cd {}", quote(&lane.to_string_lossy()))));
+}
