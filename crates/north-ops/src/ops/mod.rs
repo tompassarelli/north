@@ -31,6 +31,7 @@ pub mod job_run;
 pub mod run_bounded;
 pub mod ci_watch;
 pub mod cleanup_sweep;
+pub mod cargo_boxes;
 pub mod done_when_boxes;
 pub mod gh_broker;
 pub mod strategy_log;

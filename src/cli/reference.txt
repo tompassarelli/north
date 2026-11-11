@@ -172,7 +172,7 @@ Commands:
   ledger runs [--json]                          Fleet turn records
   fleet orders list                             List Tom's standing orders, rendered into every fleet launch and revive
   fleet orders add TEXT...                      Add a standing order
-  task [landed REF SHA | check REF -- CMD... | check [--dry-run] (--body-file FILE | REPO#N | --repo R)]   Record a verdict north observed itself, or tick issue boxes whose Observe: command exits 0
+  task [landed REF SHA | check REF -- CMD... | check [--dry-run] (--body-file FILE | REPO#N | --repo R) | rewrite-cargo [--dry-run] [--repo R] [--tree DIR]]   Record a verdict north observed itself, tick issue boxes whose Observe: command exits 0, or rewrite the cargo commands in open issue boxes onto Buck2
   ledger tempo [--repo NAME] [--window MINUTES] [--json] [--record]   How fast lanes reach main through the lander: landed, queued->main and first commit->main p50 and p90, refused alone, queued now; --record writes the last hour and day to the ledger (hourly timer)
   gate [open --session S --question Q --option O... --recommend N [--default N --default-after D] [--issue OWNER/REPO#N [--box TEXT]] | answer ID N [--note TEXT] | list [--json] | digest [--peek]]  Open or answer a decision gate; digest prints the for-Tom gates still open and the defaults applied since the last look
   fleet digest [--since DURATION]  Retired view: the digest prints as `north work --since DURATION`
