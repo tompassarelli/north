@@ -271,12 +271,13 @@ counted shape the proxy ran 20 or more times in a day. Delegating verbs are not 
 land queue directory (101), `merge-base --is-ancestor` (47) and the lander's journal (57).
 
 What shipped first (north#838, 2026-11-07): on 2026-11-08 the proxy worked a laptop-load question,
-cost tables and attribution through long read-only turns while launches waited. The PostToolUse hook
+cost tables and attribution through long read-only turns while launches waited. The hook
 `crates/north-guard/src/guard/proxy_role.rs` now reads the tail of the proxy's transcript after each
 call and counts the turn's read-only calls (diagnosis, status checks, landing logs, through the same
 classifier) since its prompt or its last launch, send, gate or brief; Tom's next message starts a new
-streak, and subagent calls never count. Past `proxy_read_streak` it stops the turn
-(`continue: false`) and tells the proxy, in one message, the subject (the prompt's first line), what
+streak, and subagent calls never count. Past `proxy_read_streak` it refuses the next
+read-only call before it runs and the turn goes on (a guard that ended the turn stopped the proxy
+mid-directive on 2026-11-11, so no proxy guard ends a turn); it tells the proxy, in one message, the subject (the prompt's first line), what
 the calls read and the brief to write instead. Other work calls, such as bookkeeping, neither count
 nor reset. `north config proxy calls TRANSCRIPT` prints the same streaks per turn, which is how the
 limit is replayed against a transcript.
@@ -284,7 +285,8 @@ limit is replayed against a transcript.
 The streak resets on a send, so a proxy that interleaves one every few reads never trips it
 (north#1106, 2026-11-11: about 50 reads over two messages, the guard fired once). The same hook also
 counts looks per message from Tom, which a launch, send or gate does not refill: past
-`proxy_look_budget` it stops the turn. Reads of repository source and of other hosts have a budget of 0
+`proxy_look_budget` it refuses the next look. Skill loads, reads of the profile's skills, `north work brief new` and
+`north ... --help` are the harness's own loads and spend none of it. Reads of repository source and of other hosts have a budget of 0
 (north#1106, 2026-11-11, after the proxy traced a launch inside the old budget of 8):
 `crates/north-guard/src/guard/proxy_reach.rs` refuses from the proxy, before the call runs, a remote command
 other than the fleet, threads, gate and status verbs, any trace, journal or process-table read on any host, and any

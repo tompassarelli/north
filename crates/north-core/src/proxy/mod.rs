@@ -19,7 +19,7 @@ pub fn run(arguments: &[String], verbs: &VerbKinds, read_limit: usize, role: fn(
         Some((verb, [path])) if verb == "calls" => match std::fs::read_to_string(path) {
             Ok(text) => {
                 println!("{}", render(&read(&text, verbs)));
-                println!("{}", render_read_streaks(&read_streaks(&text, verbs, None), read_limit));
+                println!("{}", render_read_streaks(&read_streaks(&text, verbs, None, &|_, _| false), read_limit));
                 0
             }
             Err(error) => {

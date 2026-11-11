@@ -4,6 +4,7 @@ use crate::fleet::runtime::{PROXY, ROLE_ENV, SESSION_ENV};
 use crate::guard::paths::{basename, expanduser, join, normpath};
 use crate::hook_input::{HookInput, Verdict};
 use crate::shell::{blank_quotes, strip_heredocs};
+use north_base::shell::{is_separator, words};
 use serde_json::Value;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
@@ -417,7 +418,18 @@ fn wrapped(words: &[&str]) -> bool {
     WRAPPERS.contains(&head) && !(head == "north" && words.get(at + 1).is_some_and(|verb| ROUTING.contains(verb)))
 }
 
-pub fn evaluate_streak(input: &HookInput) -> Verdict {
+pub fn evaluate_reads(input: &HookInput) -> Verdict {
+    reads_verdict(input)
+}
+
+pub fn advise_reads(input: &HookInput) -> Verdict {
+    match reads_verdict(input) {
+        Verdict::Deny(reason) => Verdict::Advise(reason),
+        verdict => verdict,
+    }
+}
+
+fn reads_verdict(input: &HookInput) -> Verdict {
     if crate::guard::activation::authoring_guards_off("north-hook") || !is_proxy(&Live, input) || crate::guard::break_glass::lifted_now() {
         return Verdict::Allow;
     }
@@ -425,8 +437,32 @@ pub fn evaluate_streak(input: &HookInput) -> Verdict {
     let Ok(hook) = serde_json::from_slice::<serde_json::Value>(&input.raw) else { return Verdict::Allow };
     host::read_streak(&transcript, &hook).map_or(Verdict::Allow, |streak| match budget_verdict(&streak, &budgets()) {
         Verdict::Allow => streak_verdict(&streak, streak_limit()),
-        stopped => stopped,
+        refused => refused,
     })
+}
+
+pub fn spends_no_look(tool: &str, input: &Value) -> bool {
+    let var = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+    let text = |key: &str| input[key].as_str().unwrap_or_default();
+    let (file, command) = (text("file_path"), text("command"));
+    var("HOME").is_some_and(|home| harness_load(&home, var(CONFIG_ENV).as_deref(), tool, if tool == "Read" { file } else { command }))
+}
+
+pub fn harness_load(home: &str, config: Option<&str>, tool: &str, text: &str) -> bool {
+    match tool {
+        "Skill" => true,
+        "Read" => {
+            let path = normpath(&join(home, &expanduser(text, home)));
+            let profiles = format!("{home}/.local/state/north/profiles/");
+            config.is_some_and(|config| path.starts_with(&format!("{}/skills/", config.trim_end_matches('/')))) || path.starts_with(&format!("{home}/.claude/skills/")) || (path.starts_with(&profiles) && path.contains("/skills/"))
+        }
+        "Bash" => {
+            let Some(words) = words(text) else { return false };
+            let words: Vec<&str> = words.iter().map(String::as_str).collect();
+            !words.iter().any(|word| is_separator(word)) && matches!(words.as_slice(), [north, rest @ ..] if basename(north) == "north" && (rest.contains(&"--help") || matches!(rest, ["work", "brief", "new", ..])))
+        }
+        _ => false,
+    }
 }
 
 pub struct Budgets {
@@ -446,7 +482,7 @@ pub fn budget_verdict(streak: &ReadStreak, budgets: &Budgets) -> Verdict {
     let subject = if streak.subject.is_empty() { "this message" } else { streak.subject.as_str() };
     let read: Vec<String> = streak.shapes.iter().map(|(shape, calls)| format!("`{shape}` x{calls}")).collect();
     Verdict::Deny(format!(
-        "STOPPED ({BUDGET_UNIT}): this message from Tom has had {} read-only calls on \"{subject}\", over the budget of {} ({LOOK_BUDGET} in harness/defaults.toml); a launch, send or gate does not refill it, only Tom's next message does. The proxy routes and judges, so finding this cause is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
+        "BLOCKED ({BUDGET_UNIT}): read-only calls are refused from here and your turn goes on: this message from Tom has had {} read-only calls on \"{subject}\", over the budget of {} ({LOOK_BUDGET} in harness/defaults.toml); a launch, send or gate does not refill it, only Tom's next message does. Launches, sends, gates, `north work brief new`, skill loads and `north ... --help` stay open. The proxy routes and judges, so finding this cause is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
         message.looks,
         budgets.looks,
         read.join(", "),
@@ -458,13 +494,13 @@ pub fn streak_limit() -> usize {
 }
 
 pub fn streak_verdict(streak: &ReadStreak, limit: usize) -> Verdict {
-    if streak.calls <= limit {
+    if !streak.message.looking || streak.calls <= limit {
         return Verdict::Allow;
     }
     let subject = if streak.subject.is_empty() { "this turn's question" } else { streak.subject.as_str() };
     let read: Vec<String> = streak.shapes.iter().map(|(shape, calls)| format!("`{shape}` x{calls}")).collect();
     Verdict::Deny(format!(
-        "STOPPED ({STREAK_UNIT}): this proxy turn made {} read-only calls on \"{subject}\" without a launch, a send or a gate, over the limit of {limit} ({STREAK_LIMIT} in harness/defaults.toml). The proxy routes and judges, so this investigation is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
+        "BLOCKED ({STREAK_UNIT}): read-only calls are refused from here and your turn goes on: this proxy turn made {} read-only calls on \"{subject}\" without a launch, a send or a gate, over the limit of {limit} ({STREAK_LIMIT} in harness/defaults.toml). Launches, sends, gates, `north work brief new`, skill loads and `north ... --help` stay open. The proxy routes and judges, so this investigation is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
         streak.calls,
         read.join(", "),
     ))

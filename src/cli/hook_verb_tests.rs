@@ -50,7 +50,7 @@ fn hook(id: &str, command: &str) -> Value {
 }
 
 fn judged(lines: &[String], last: &Value) -> Verdict {
-    verdict(&super::read_streak(&lines.join("\n"), last), LIMIT)
+    verdict(&super::read_streak(&lines.join("\n"), last, |_, _| false), LIMIT)
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn sends_between_reads_do_not_refill_one_messages_looks() {
             lines.push(json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": format!("m{at}"), "name": "SendMessage", "input": {"to": "w", "message": "go"}}]}}).to_string());
         }
     }
-    let judge = |lines: &[String], last: &Value| crate::guard::proxy_role::budget_verdict(&super::read_streak(&lines.join("\n"), last), &budgets);
+    let judge = |lines: &[String], last: &Value| crate::guard::proxy_role::budget_verdict(&super::read_streak(&lines.join("\n"), last, |_, _| false), &budgets);
     assert_eq!(judge(&lines[..lines.len() - 2], &hook("r24", "uptime # 24")), Verdict::Allow, "the 25th look runs");
     assert!(matches!(judge(&lines, &hook("r25", "uptime # 25")), Verdict::Deny(reason) if reason.contains("26 read-only calls")), "the 26th look is stopped");
     let mut next = lines.clone();
@@ -110,7 +110,7 @@ fn the_recorded_load_trace_is_counted_as_its_fixture_says() {
         let mut lines = vec![prompt("a question from Tom")];
         for (at, call) in message["calls"].as_array().unwrap().iter().enumerate() {
             let command = call["command"].as_str().unwrap();
-            let reads = super::read_streak(&lines.join("\n"), &hook(&format!("c{at}"), command)).message;
+            let reads = super::read_streak(&lines.join("\n"), &hook(&format!("c{at}"), command), |_, _| false).message;
             let counted = (reads.looks as u64, reads.looking);
             let recorded = (call["looks"].as_u64().unwrap(), call["looking"].as_bool().unwrap());
             assert_eq!(counted, recorded, "{command}");

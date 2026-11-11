@@ -1,7 +1,7 @@
 //! What a proxy call would read to find a cause: a trace, a journal or a process table on any
 //! host, a file under a repository checkout, or another host past the fleet's status verbs.
 use crate::guard::paths::{expanduser, join, normpath};
-use north_base::shell::{basename, command, is_separator, shell_substitutions, words};
+use north_base::shell::{basename, command, heredoc_bodies, is_separator, shell_substitutions, strip_heredocs, words};
 use crate::platform::pyjson::Value;
 
 const MAX_DEPTH: usize = 3;
@@ -52,6 +52,11 @@ impl Look<'_> {
     fn shell(&self, text: &str, cwd: &str, depth: usize) -> Option<String> {
         if depth > MAX_DEPTH {
             return None;
+        }
+        let (text, run) = data_blanked(text);
+        let text = &text;
+        if let Some(found) = run.iter().find_map(|body| self.shell(body, cwd, depth + 1)) {
+            return Some(found);
         }
         if let Some(found) = shell_substitutions(text).iter().find_map(|body| self.shell(body, cwd, depth + 1)) {
             return Some(found);
@@ -160,6 +165,12 @@ impl Look<'_> {
             }
         })
     }
+}
+
+fn data_blanked(text: &str) -> (String, Vec<String>) {
+    let feeds_a_program = |line: &str| line.split_once("<<").is_some_and(|(head, tail)| tail.contains('|') || words(head).is_some_and(|words| words.iter().any(|word| SHELLS.contains(&basename(word)) || matches!(basename(word), "ssh" | "eval" | "source" | "xargs"))));
+    let run = heredoc_bodies(text).into_iter().filter(|body| text[..body.start].trim_end_matches('\n').rsplit('\n').next().is_some_and(feeds_a_program)).map(|body| text[body].to_owned()).collect();
+    (strip_heredocs(text), run)
 }
 
 fn process_read(program: &str, args: &[String]) -> Option<String> {

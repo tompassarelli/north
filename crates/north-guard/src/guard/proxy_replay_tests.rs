@@ -87,16 +87,16 @@ fn stop_of(message: &[Call], budgets: &Budgets) -> Option<(usize, String)> {
 }
 
 #[test]
-fn the_2026_11_11_load_trace_is_stopped_within_its_look_budget() {
+fn the_2026_11_11_load_trace_is_refused_within_its_look_budget() {
     let budgets = budgets();
     let messages = messages(LOAD_TRACE);
     assert_eq!(messages.len(), 2, "two messages from Tom between 4:04 and 4:35 AM +07");
     assert!(messages.iter().map(Vec::len).sum::<usize>() >= 90, "the trace keeps every recorded call");
 
     for (number, message) in messages.iter().enumerate() {
-        let (at, reason) = stop_of(message, &budgets).unwrap_or_else(|| panic!("message {} ran to its end without a stop", number + 1));
-        assert!(message[at].reads.looks <= budgets.looks + 1, "message {} was stopped at look {}, past the first call over the budget of {}", number + 1, message[at].reads.looks, budgets.looks);
-        assert!(reason.contains("north work brief new") && reason.contains("north fleet launch"), "message {} was stopped without naming the worker brief: {reason}", number + 1);
+        let (at, reason) = stop_of(message, &budgets).unwrap_or_else(|| panic!("message {} ran to its end without a refusal", number + 1));
+        assert!(message[at].reads.looks <= budgets.looks + 1, "message {} was first refused at look {}, past the first call over the budget of {}", number + 1, message[at].reads.looks, budgets.looks);
+        assert!(reason.contains("north work brief new") && reason.contains("north fleet launch") && !reason.contains("STOPPED"), "message {} was refused without naming the worker brief, or ended the turn: {reason}", number + 1);
     }
 }
 

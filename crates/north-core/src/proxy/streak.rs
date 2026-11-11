@@ -54,7 +54,7 @@ pub struct Call<'a> {
     pub input: &'a Value,
 }
 
-pub fn read_streaks(jsonl: &str, verbs: &VerbKinds, last: Option<Call>) -> Vec<Streak> {
+pub fn read_streaks(jsonl: &str, verbs: &VerbKinds, last: Option<Call>, free: &dyn Fn(&str, &Value) -> bool) -> Vec<Streak> {
     let mut streaks = vec![Streak::default()];
     let mut seen = HashSet::new();
     for entry in jsonl.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()) {
@@ -76,19 +76,22 @@ pub fn read_streaks(jsonl: &str, verbs: &VerbKinds, last: Option<Call>) -> Vec<S
                     }
                     let tool = block.get("name").and_then(Value::as_str).unwrap_or_default();
                     let input = block.get("input").unwrap_or(&Value::Null);
-                    record(&mut streaks, tool, input, verbs);
+                    record(&mut streaks, tool, input, verbs, free);
                 }
             }
             _ => {}
         }
     }
     if let Some(call) = last.filter(|call| call.id.is_empty() || !seen.contains(call.id)) {
-        record(&mut streaks, call.tool, call.input, verbs);
+        record(&mut streaks, call.tool, call.input, verbs, free);
     }
     streaks
 }
 
-fn record(streaks: &mut Vec<Streak>, tool: &str, input: &Value, verbs: &VerbKinds) {
+fn record(streaks: &mut Vec<Streak>, tool: &str, input: &Value, verbs: &VerbKinds, free: &dyn Fn(&str, &Value) -> bool) {
+    if free(tool, input) {
+        return;
+    }
     let kind = classify(tool, input, verbs);
     let open = streaks.last_mut().expect("a streak is always open");
     if ends_streak(kind) {

@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::host::{MessageReads, ReadStreak};
-use super::proxy_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, decide, lane_changes, streak_verdict};
+use super::proxy_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, decide, harness_load, lane_changes, streak_verdict};
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
 
@@ -216,13 +216,61 @@ fn reads(looks: usize, looking: bool) -> ReadStreak {
 const BUDGETS: Budgets = Budgets { looks: 25 };
 
 #[test]
-fn a_proxy_that_interleaves_sends_still_runs_out_of_looks() {
+fn a_proxy_over_its_read_budget_is_refused_and_its_turn_continues() {
     let interleaved = reads(26, true);
     assert_eq!(streak_verdict(&interleaved, 15), Verdict::Allow, "sends keep resetting the streak, so the streak limit alone never fires");
     let Verdict::Deny(reason) = budget_verdict(&interleaved, &BUDGETS) else { panic!("the 26th look of one message went on") };
     assert!(reason.contains("26 read-only calls") && reason.contains("proxy_look_budget") && reason.contains("only Tom's next message does") && reason.contains("north work brief new") && reason.contains("north fleet launch"), "{reason}");
+    assert!(reason.contains("your turn goes on") && !reason.contains("STOPPED"), "{reason}");
     assert_eq!(budget_verdict(&reads(25, true), &BUDGETS), Verdict::Allow, "the budget itself still runs");
     assert_eq!(budget_verdict(&reads(26, false), &BUDGETS), Verdict::Allow, "the launch that hands the work off is not a look");
+    let Verdict::Deny(reason) = streak_verdict(&ReadStreak { calls: 16, ..reads(16, true) }, 15) else { panic!("the 16th read of a streak went on") };
+    assert!(reason.contains("your turn goes on") && reason.contains("north fleet launch"), "{reason}");
+    assert_eq!(streak_verdict(&ReadStreak { calls: 16, ..reads(16, false) }, 15), Verdict::Allow, "a launch over the streak is not refused");
+}
+
+#[test]
+fn harness_required_loads_spend_no_proxy_read_budget() {
+    let load = |tool: &str, text: &str| harness_load("/home/tom", Some("/home/tom/.local/state/north/profiles/claude-d"), tool, text);
+    for (tool, text) in [
+        ("Skill", ""),
+        ("Read", "/home/tom/.local/state/north/profiles/claude-d/skills/workers/references/briefs.md"),
+        ("Read", "~/.claude/skills/workers/SKILL.md"),
+        ("Bash", "north work brief new --category bug-known-cause --item north#1106"),
+        ("Bash", "north fleet launch --help"),
+        ("Bash", "/home/tom/.local/bin/north threads queue --help"),
+    ] {
+        assert!(load(tool, text), "{tool} {text} is the harness's own load");
+    }
+    for (tool, text) in [
+        ("Read", "/home/tom/code/north/main/harness/skills/workers/SKILL.md"),
+        ("Read", "/home/tom/.local/state/north/profiles/claude-d/skills/../../../fleet/n1/report.md"),
+        ("Read", "/tmp/skills/x.md"),
+        ("Grep", "/home/tom/.claude/skills/x"),
+        ("Bash", "north fleet launch --help; ps aux"),
+        ("Bash", "north --help | rg -n code"),
+        ("Bash", "rg --help"),
+        ("Bash", "ps aux"),
+    ] {
+        assert!(!load(tool, text), "{tool} {text} is a look");
+    }
+}
+
+#[test]
+fn a_path_inside_an_issue_body_is_not_a_proxy_read() {
+    let body = "gh issue create -R tompassarelli/north --title 'EVALS' --body \"$(cat <<'EOF'\nCause: it does not read X\nrg -n x /home/tom/code/north/main/docs/EVALS.md\ncat ~/code/north/main/Cargo.toml | head\nEOF\n)\"";
+    let plain = "gh issue create -R tompassarelli/north --title t --body-file - <<'EOF'\nsee: rg -n x /home/tom/code/north/main/docs/EVALS.md\nEOF";
+    let quoted = "gh issue comment 1106 --body 'the guard refused rg /home/tom/code/north/main/docs/EVALS.md; cat /home/tom/code/north/main/Cargo.toml'";
+    for command in [body, plain, quoted] {
+        assert_eq!(decide(&proxy(), &bash(command)), Verdict::Allow, "{command}");
+    }
+    for command in ["rg -n x /home/tom/code/north/main/docs/EVALS.md", "bash <<'EOF'\nrg -n x /home/tom/code/north/main/docs/EVALS.md\nEOF", "cat <<'EOF' | bash\ncat /home/tom/code/north/main/Cargo.toml\nEOF", "gh issue comment 1 --body \"$(rg -n x /home/tom/code/north/main/docs/EVALS.md)\""] {
+        assert!(denied_reach(&proxy(), &bash(command)), "{command}");
+    }
+}
+
+fn denied_reach(world: &Fake, input: &HookInput) -> bool {
+    matches!(decide(world, input), Verdict::Deny(reason) if reason.contains("proxy-reach-guard"))
 }
 
 #[test]

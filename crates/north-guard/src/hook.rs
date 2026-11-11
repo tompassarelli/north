@@ -95,6 +95,7 @@ impl HookKind {
             Self::PreBash => &[
                 Guard("", crate::guard::tripwire::check),
                 Guard("north-hook", crate::guard::proxy_role::evaluate),
+                Guard("north-hook", crate::guard::proxy_role::evaluate_reads),
                 Guard("corpus-scan-guard", crate::guard::corpus_scan::evaluate),
                 Guard("resource-safe-search-guard", crate::guard::resource_safe_search::evaluate),
                 Guard("modern-search-guard", crate::guard::modern_search::evaluate),
@@ -145,7 +146,7 @@ impl HookKind {
             Self::PreAsk => &[Guard("north-hook", crate::guard::question_box::evaluate)],
             Self::SpawnCapacity => &[Guard("", crate::guard::spawn_capacity::admission)],
             Self::NativeSpawn => &[Guard("north-hook", crate::guard::proxy_role::evaluate), Guard("spawn-capacity-guard", crate::guard::spawn_capacity::admission)],
-            Self::PostTool => &[Guard("north-hook", crate::guard::worker_lease::evaluate), Guard("north-hook", crate::guard::issue_filing::link), Guard("north-hook", crate::guard::code_health_edit::evaluate), Guard("north-hook", crate::guard::proxy_role::evaluate_streak)],
+            Self::PostTool => &[Guard("north-hook", crate::guard::worker_lease::evaluate), Guard("north-hook", crate::guard::issue_filing::link), Guard("north-hook", crate::guard::code_health_edit::evaluate), Guard("north-hook", crate::guard::proxy_role::advise_reads)],
             Self::PermissionRequest => &[Guard("", crate::guard::tripwire::check)],
             Self::Stop => &[Guard("north-hook", crate::guard::permission_offer::evaluate), Guard("north-hook", crate::guard::permission_offer::evaluate_handoff), Guard("north-hook", crate::guard::recommendation_grounding::evaluate), Guard("north-hook", crate::guard::recommend_acts::evaluate), Guard("", crate::guard::correction_capture::evaluate)],
             Self::RecommendActs => &[Guard("north-hook", crate::guard::recommend_acts::evaluate)],

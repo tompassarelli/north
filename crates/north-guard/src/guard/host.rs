@@ -7,7 +7,8 @@ pub type Pace = fn(&Value) -> Result<Value, String>;
 pub type PickTier = fn(&str) -> Result<Tier, String>;
 pub type RecordedDecisions = fn(&str, f64) -> Vec<String>;
 pub type AccountHome = fn(&str, &str) -> Option<PathBuf>;
-pub type ReadStreakOf = fn(&str, &Value) -> ReadStreak;
+pub type FreeCall = fn(&str, &Value) -> bool;
+pub type ReadStreakOf = fn(&str, &Value, FreeCall) -> ReadStreak;
 pub type StatusVerb = fn(&[&str]) -> bool;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -61,7 +62,7 @@ pub fn account_home(provider: &str, label: &str) -> Option<PathBuf> {
 }
 
 pub fn read_streak(transcript: &str, hook: &Value) -> Option<ReadStreak> {
-    installed().ok().map(|host| (host.read_streak)(transcript, hook))
+    installed().ok().map(|host| (host.read_streak)(transcript, hook, crate::guard::proxy_role::spends_no_look))
 }
 
 pub fn status_verb(words: &[&str]) -> bool {

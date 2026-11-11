@@ -74,12 +74,12 @@ fn status_verb(words: &[&str]) -> bool {
     super::verbs::VERB_KINDS.kind(words) == Some(crate::proxy::Kind::Status)
 }
 
-fn read_streak(transcript: &str, hook: &serde_json::Value) -> guard::host::ReadStreak {
+fn read_streak(transcript: &str, hook: &serde_json::Value, free: guard::host::FreeCall) -> guard::host::ReadStreak {
     let text = |key: &str| hook.get(key).and_then(serde_json::Value::as_str).unwrap_or_default();
     let input = hook.get("tool_input").unwrap_or(&serde_json::Value::Null);
     let call = crate::proxy::Call { id: text("tool_use_id"), tool: text("tool_name"), input };
-    let streak = crate::proxy::read_streaks(transcript, &super::verbs::VERB_KINDS, Some(call)).pop().unwrap_or_default();
-    let message = guard::host::MessageReads { looks: streak.message.looks, looking: crate::proxy::is_look(text("tool_name"), input, &super::verbs::VERB_KINDS) };
+    let streak = crate::proxy::read_streaks(transcript, &super::verbs::VERB_KINDS, Some(call), &free).pop().unwrap_or_default();
+    let message = guard::host::MessageReads { looks: streak.message.looks, looking: crate::proxy::is_look(text("tool_name"), input, &super::verbs::VERB_KINDS) && !free(text("tool_name"), input) };
     guard::host::ReadStreak { calls: streak.calls(), shapes: streak.top_shapes(3), subject: streak.subject, message }
 }
 
