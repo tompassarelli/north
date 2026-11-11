@@ -139,6 +139,11 @@ fn named(home: &Path, command: &str) -> Named {
 
 /// The git common directory of the checkout at `checkout`, the one `git rev-parse --path-format=absolute --git-common-dir` prints there, read from the files git keeps: a `.git` directory is its own common directory, and a `.git` gitfile points at a worktree's git directory, whose `commondir` file names the common one. The grant must be this directory, since git creates its lock files there and renames them away: in a project whose `main/.git` is a gitfile, `main/.git` is a file and grants nothing.
 fn common_git_dir(checkout: &Path) -> Option<PathBuf> {
+    git_dirs(checkout).map(|(_, common)| common)
+}
+
+/// The git directory of the checkout at `checkout` and its common directory, both canonical.
+fn git_dirs(checkout: &Path) -> Option<(PathBuf, PathBuf)> {
     let dot = checkout.join(".git");
     let git_dir = if dot.is_dir() {
         dot
@@ -148,9 +153,15 @@ fn common_git_dir(checkout: &Path) -> Option<PathBuf> {
     };
     let common = match std::fs::read_to_string(git_dir.join("commondir")) {
         Ok(relative) => git_dir.join(relative.trim()),
-        Err(_) => git_dir,
+        Err(_) => git_dir.clone(),
     };
-    common.canonicalize().ok()
+    Some((git_dir.canonicalize().ok()?, common.canonicalize().ok()?))
+}
+
+/// Whether a command in `context` may remove the lock files a git write in `checkout` creates: those in its git directory and in its common directory, where the index, `HEAD` and ref locks live (north#1172).
+pub fn holds_git_locks(context: &Context, checkout: &Path) -> bool {
+    let roots: Vec<PathBuf> = removable(context).into_iter().map(|root| root.canonicalize().unwrap_or(root)).collect();
+    git_dirs(checkout).is_some_and(|(git_dir, common)| [git_dir, common].iter().all(|directory| roots.iter().any(|root| directory.starts_with(root))))
 }
 
 /// The `runtimes` directory that holds the north this process runs, wherever its host keeps north's state.

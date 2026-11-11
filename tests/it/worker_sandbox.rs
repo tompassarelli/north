@@ -285,6 +285,26 @@ fn a_git_stash_run_through_the_wrapper_with_no_hook_is_refused_with_the_hooks_me
     assert_eq!(std::fs::read_to_string(repository.join("work.txt")).unwrap(), "unfinished", "the refused stash still took the worker's change");
 }
 
+#[test]
+fn a_sandboxed_hand_in_for_another_projects_lane_is_refused_and_leaves_no_index_lock_north_1172() {
+    let home = Home::new();
+    let project = home.path().join("code/q/main");
+    file(&project.join("src.rs"));
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "one"]);
+    git(&project, &["remote", "add", "origin", project.to_str().unwrap()]);
+    git(&project, &["fetch", "-q", "origin"]);
+    git(&project, &["worktree", "add", "-q", "../worktrees/second", "-b", "second", "origin/main"]);
+    std::fs::write(home.path().join("code/q/worktrees/second/src.rs"), "changed").unwrap();
+    let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
+    let command = format!("{north} hand-in --message change -- ../../../q/worktrees/second/src.rs");
+    let output = Command::new(north).args(["--worker-sandbox", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lock = project.join(".git/worktrees/second/index.lock");
+    assert!(!lock.exists(), "the hand-in left {} behind: {stderr}", lock.display());
+    assert!(!output.status.success() && stderr.contains("safe-push --to main"), "the hand-in for another lane was not refused with the road that lands it: {stderr}");
+}
+
 const SPOOLING_CHILD: &str = "NORTH_956_SPOOLING_CHILD";
 
 #[test]

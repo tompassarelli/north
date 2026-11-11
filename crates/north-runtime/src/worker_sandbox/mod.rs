@@ -264,6 +264,13 @@ pub fn lane_only_safe_push_refusal() -> Option<String> {
     })
 }
 
+/// Why a git write in `checkout` would strand its lock files when called inside a worker sandbox: the domain lets git create them anywhere but remove them only beneath the trees `removable` names, so a failed or finished write leaves `index.lock` for the next writer (north#1172). `None` outside a sandbox or for a checkout whose locks the session may remove.
+pub fn stranded_git_locks(checkout: &Path) -> Option<String> {
+    std::env::var_os(MARK)?;
+    let context = Context::from_env("");
+    (!removable::holds_git_locks(&context, checkout)).then(|| format!("{} is not this session's lane, and inside the worker sandbox git could create its lock files there but not remove them; hand that lane in with `safe-push --to main --wait` run from it", checkout.display()))
+}
+
 /// Whether this process runs inside a worker sandbox's Landlock domain.
 pub fn confined() -> bool {
     std::env::var_os(MARK).is_some()

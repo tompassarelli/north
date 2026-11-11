@@ -1,6 +1,9 @@
+use std::path::Path;
+
 use toml_edit::{DocumentMut, Item};
 
 use crate::pacing::placement;
+use north_lander::land::hand_in::{Lane, Road};
 use north_safe_push::entry::{self, HostFacts};
 
 pub fn safe_push(arguments: &[String]) -> u8 {
@@ -16,19 +19,30 @@ pub fn safe_push(arguments: &[String]) -> u8 {
 }
 
 pub fn hand_in(arguments: &[String]) -> u8 {
-    north_lander::land::hand_in::run(arguments, |lane| road(lane, "hand-in", &["--wait"]))
+    north_lander::land::hand_in::run(arguments, SafePush { verb: "hand-in", flags: &["--wait"] })
 }
 
 pub fn finish(arguments: &[String]) -> u8 {
-    north_lander::land::hand_in::finish(arguments, |lane| road(lane, "finish", &[]))
+    north_lander::land::hand_in::finish(arguments, SafePush { verb: "finish", flags: &[] })
 }
 
-fn road(lane: &north_lander::land::hand_in::Lane, verb: &str, flags: &[&str]) -> u8 {
-    match std::env::set_current_dir(&lane.root) {
-        Ok(()) => safe_push(&["--to", lane.destination.as_str()].into_iter().chain(flags.iter().copied()).map(str::to_owned).collect::<Vec<_>>()),
-        Err(error) => {
-            eprintln!("{verb}: {}: {error}", lane.root.display());
-            1
+struct SafePush {
+    verb: &'static str,
+    flags: &'static [&'static str],
+}
+
+impl Road for SafePush {
+    fn writable(&self, root: &Path) -> Result<(), String> {
+        north_runtime::worker_sandbox::stranded_git_locks(root).map_or(Ok(()), Err)
+    }
+
+    fn take(self, lane: &Lane) -> u8 {
+        match std::env::set_current_dir(&lane.root) {
+            Ok(()) => safe_push(&["--to", lane.destination.as_str()].into_iter().chain(self.flags.iter().copied()).map(str::to_owned).collect::<Vec<_>>()),
+            Err(error) => {
+                eprintln!("{}: {}: {error}", self.verb, lane.root.display());
+                1
+            }
         }
     }
 }

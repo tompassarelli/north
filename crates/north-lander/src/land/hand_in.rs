@@ -13,6 +13,21 @@ pub struct Lane {
     pub destination: String,
 }
 
+/// Where a handed-in lane goes once its paths are committed. It may refuse a lane before anything is staged, as a worker sandbox refuses a lane whose git lock files it could create but not remove (north#1172).
+pub trait Road {
+    fn writable(&self, _root: &Path) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn take(self, lane: &Lane) -> u8;
+}
+
+impl<F: FnOnce(&Lane) -> u8> Road for F {
+    fn take(self, lane: &Lane) -> u8 {
+        self(lane)
+    }
+}
+
 struct Request<'a> {
     check: Option<&'a str>,
     message: &'a str,
@@ -25,7 +40,7 @@ struct Named {
     committed: bool,
 }
 
-pub fn run(arguments: &[String], road: impl FnOnce(&Lane) -> u8) -> u8 {
+pub fn run(arguments: &[String], road: impl Road) -> u8 {
     let request = match arguments {
         [flag, message, rest @ ..] if flag == "--message" => Request { check: None, message, paths: paths(rest) },
         _ => return usage(arguments, USAGE),
@@ -33,7 +48,7 @@ pub fn run(arguments: &[String], road: impl FnOnce(&Lane) -> u8) -> u8 {
     hand(&request, "hand-in", road)
 }
 
-pub fn finish(arguments: &[String], road: impl FnOnce(&Lane) -> u8) -> u8 {
+pub fn finish(arguments: &[String], road: impl Road) -> u8 {
     let request = match arguments {
         [check_flag, check, message_flag, message, rest @ ..] if check_flag == "--check" && message_flag == "--message" => Request { check: Some(check), message, paths: paths(rest) },
         _ => return usage(arguments, FINISH_USAGE),
@@ -54,8 +69,8 @@ fn paths(rest: &[String]) -> Vec<PathBuf> {
     rest.strip_prefix(&["--".to_owned()][..]).unwrap_or(rest).iter().map(PathBuf::from).collect()
 }
 
-fn hand(request: &Request, verb: &str, road: impl FnOnce(&Lane) -> u8) -> u8 {
-    let named = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|directory| name(&directory, request));
+fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
+    let named = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|directory| name(&directory, request, &road));
     let named = match named {
         Ok(named) => named,
         Err(refusal) => {
@@ -70,7 +85,7 @@ fn hand(request: &Request, verb: &str, road: impl FnOnce(&Lane) -> u8) -> u8 {
         return 1;
     }
     match commit(&named, request.message) {
-        Ok(()) => road(&named.lane),
+        Ok(()) => road.take(&named.lane),
         Err(refusal) => {
             eprintln!("{verb}: ✗ {refusal}; NOT committed.");
             1
@@ -90,7 +105,7 @@ fn passes(root: &Path, check: &str) -> Result<(), String> {
     }
 }
 
-fn name(directory: &Path, request: &Request) -> Result<Named, String> {
+fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, String> {
     if request.message.trim().is_empty() {
         return Err("the message is empty".to_owned());
     }
@@ -100,6 +115,7 @@ fn name(directory: &Path, request: &Request) -> Result<Named, String> {
     if let Some(outside) = paths.iter().find(|path| checkout(path).as_ref() != Some(&root)) {
         return Err(format!("{} is outside the lane {}", outside.display(), root.display()));
     }
+    road.writable(&root)?;
     let destination = default_branch(&root);
     match git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
         Ok(branch) if branch != destination => {}
