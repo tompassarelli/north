@@ -9,7 +9,7 @@ use north_lander::land::{enqueue, hand_in, queue};
 use super::land_first::{NO_SECRETS, PUBLIC_REPO, queueing};
 use super::serve::{HANG, Repository, World, git, report};
 
-const VERB: &str = "hand_in::a_hand_in_verb_call_stages_the_named_paths_commits_queues_and_returns_the_landers_verdict";
+const VERB: &str = "hand_in::a_hand_in_verb_call_lands_named_paths_staged_now_or_committed_first";
 const VERB_ARGUMENTS: &str = "NORTH_HAND_IN_IT_ARGUMENTS";
 const ROAD: &str = "serve::enqueue_process";
 const ROAD_ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
@@ -68,7 +68,7 @@ fn refusals(output: &Output) -> Vec<String> {
 }
 
 #[test]
-fn a_hand_in_verb_call_stages_the_named_paths_commits_queues_and_returns_the_landers_verdict() {
+fn a_hand_in_verb_call_lands_named_paths_staged_now_or_committed_first() {
     if let Ok(arguments) = std::env::var(VERB_ARGUMENTS) {
         let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
         let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string(), "--wait".to_owned()]);
@@ -96,34 +96,31 @@ fn a_hand_in_verb_call_stages_the_named_paths_commits_queues_and_returns_the_lan
     assert!(text.contains(&format!("Done: landed {landed} on main")), "the verb did not return the lander's verdict: {text}\n{journal}");
     assert_eq!(git(&north.origin, &["log", "-1", "--format=%s", "main"]), "Add the named note (north#1158)");
     assert_eq!(git(&north.origin, &["diff-tree", "--no-commit-id", "--name-only", "-r", "main"]), "named.txt", "the verb committed more than the named path");
-}
 
-#[test]
-fn a_hand_in_verb_call_queues_a_lane_whose_named_paths_the_worker_committed_first() {
-    let (world, north) = scanned_world(JUDGE_PASSES);
+    git(&north.checkout, &["fetch", "-q", "origin"]);
     let lane = worktree(&north, "committed");
-    fs::write(lane.join("named.txt"), "the named change\n").unwrap();
-    git(&lane, &["add", "named.txt"]);
-    git(&lane, &["commit", "-qm", "Commit the named change first"]);
+    fs::write(lane.join("committed.txt"), "the committed change\n").unwrap();
+    git(&lane, &["add", "committed.txt"]);
+    git(&lane, &["commit", "-qm", "Commit the change first"]);
     fs::write(lane.join("other.txt"), "a change committed beside it\n").unwrap();
     git(&lane, &["add", "other.txt"]);
     git(&lane, &["commit", "-qm", "Commit another change"]);
     let start = git(&lane, &["rev-parse", "HEAD"]);
     let base = git(&north.origin, &["rev-parse", "main"]);
 
-    let refused = verb(&world, "Add the named note", &[&lane.join("named.txt")]).wait_with_output().unwrap();
+    let refused = verb(&world, "Add the committed note", &[&lane.join("committed.txt")]).wait_with_output().unwrap();
     let text = report(&refused);
     assert_eq!(refused.status.code(), Some(1), "{text}");
     assert!(text.contains("other.txt") && text.contains("NOT committed"), "{text}");
     assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a refused hand-in committed: {text}");
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "a refused hand-in queued: {text}");
 
-    let (output, journal) = decided(&world, &north, verb(&world, "Add the named note (north#1158)", &[&lane.join("named.txt"), &lane.join("other.txt")]));
+    let (output, journal) = decided(&world, &north, verb(&world, "Add the committed note (north#1158)", &[&lane.join("committed.txt"), &lane.join("other.txt")]));
     let text = report(&output);
-    let landed = git(&north.origin, &["rev-parse", "main"]);
+    let committed_landed = git(&north.origin, &["rev-parse", "main"]);
     assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
-    assert!(text.contains(&format!("Done: landed {landed} on main")), "the verb did not queue the committed lane: {text}\n{journal}");
-    assert_eq!(git(&north.origin, &["diff", "--name-only", &base, &landed]), "named.txt\nother.txt", "the lander did not land exactly the committed paths");
+    assert!(text.contains(&format!("Done: landed {committed_landed} on main")), "the verb did not queue the committed lane: {text}\n{journal}");
+    assert_eq!(git(&north.origin, &["diff", "--name-only", &base, &committed_landed]), "committed.txt\nother.txt", "the lander did not land exactly the committed paths");
 }
 
 fn refused_by_both_roads(world: &World, north: &Repository, lane: &Path, path: &Path, refusal: &str) {
