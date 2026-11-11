@@ -12,8 +12,6 @@ pub mod operational;
 
 use std::fmt;
 
-use crate::foundation::clock::Timestamp;
-
 pub use read::{BURNS, keyed, operational_reserve, view_from_config};
 pub use burn::Burn;
 
@@ -87,9 +85,6 @@ impl Account {
     }
 
     fn limit(&self, at: f64) -> Option<Refusal> {
-        if self.week.is_none() {
-            return Some(Refusal { rule: Rule::Unread, line: format!("{} has no week usage reading", self.name) });
-        }
         let full = |window: Option<Window>| window.is_some_and(|window| window.used(at) >= 100.0);
         [("five-hour", self.five_hour), ("week", self.week)].into_iter().find(|(_, window)| full(*window)).map(|(kind, _)| Refusal { rule: Rule::ProviderLimit, line: format!("{} is at its provider's {kind} limit", self.name) })
     }
@@ -185,78 +180,15 @@ impl View {
         self.accounts.iter().find(|account| account.name == name)
     }
 
-    /// Whether `starter` may start one more session on `account`, given what this run has placed.
-    pub fn admit(&self, rules: &Rules, account: &str, starter: Starter, placed: Placed) -> Result<(), Refusal> {
+    /// Whether `starter` may start one more session on `account`: only the declared operational reserve and the provider's own limit refuse.
+    pub fn admit(&self, _rules: &Rules, account: &str, starter: Starter, _placed: Placed) -> Result<(), Refusal> {
         if starter != Starter::Reserved && self.operational.iter().any(|name| name == account) {
             return Err(Refusal { rule: Rule::Operational, line: format!("{account} is the operational reserve: only the privacy judge, lander and canaries may use it") });
         }
-        let keyed = self.keyed.iter().any(|name| account.strip_prefix(name.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with(':')));
-        if starter != Starter::Reserved && !keyed {
-            self.reserved(rules, placed)?;
-        }
-        if keyed {
-            return Ok(());
-        }
-        let chosen = self.account(account).ok_or_else(|| Refusal { rule: Rule::Unread, line: format!("{account} has no usage reading") })?;
-        if let Some(refusal) = chosen.limit(self.at) {
-            return Err(refusal);
-        }
-        if matches!(starter, Starter::Worker | Starter::Urgent { .. }) {
-            self.floor(rules, chosen)?;
-            if starter.governed(rules.urgent_limit) {
-                self.governor(rules, chosen, placed)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// The operational floor: the last percent of each window no new worker may spend, which the
-    /// privacy judge, lander and canaries keep (north#1049).
-    fn floor(&self, rules: &Rules, account: &Account) -> Result<(), Refusal> {
-        let kept = |window: Option<Window>, percent: f64, kind: &str| {
-            let window = window.filter(|_| percent > 0.0)?;
-            let left = 100.0 - window.used(self.at);
-            (left <= percent).then(|| format!("{kind} {left:.0}% left, inside the {percent:.0}% floor"))
-        };
-        let reasons: Vec<String> = [kept(account.five_hour, rules.floor_five_hour, "five-hour"), kept(account.week, rules.floor_week, "week")].into_iter().flatten().collect();
-        if reasons.is_empty() {
-            return Ok(());
-        }
-        Err(Refusal { rule: Rule::Floor, line: format!("{} is inside its operational floor: {}; the privacy judge, lander and canaries keep it", account.name, reasons.join("; ")) })
-    }
-
-    /// The burn governor: the account's use at each window's reset, at the fleet's measured burn plus the expected charge of this worker and each the run has placed, must stay inside the budget that keeps the operational floor. A week that resets first spares the five-hour window its projection (`burn::week_resets_first`), and the drain switch skips the week's projection, leaving the floor.
-    fn governor(&self, rules: &Rules, account: &Account, placed: Placed) -> Result<(), Refusal> {
-        let burn = self.burns.iter().find(|burn| burn.account == account.name).cloned().unwrap_or_default();
-        let week_charge = rules.charge * (placed.workers + 1) as f64 / account.plan_week.max(f64::EPSILON);
-        let week_first = burn::week_resets_first(account.week.and_then(|window| window.resets_at), account.five_hour.and_then(|window| window.resets_at), self.at);
-        let projected = |kind: &str, window: Option<Window>, floor: f64, rate: f64, charge: f64| {
-            let window = window?;
-            let left = window.resets_at.map_or(0.0, |resets| (resets - self.at).max(0.0));
-            let reach = window.used(self.at) + rate * left + charge;
-            let budget = 100.0 - floor;
-            let reset = window.resets_at.map_or_else(|| "its unread reset".to_owned(), |resets| format!("its reset in {:.1} h, {}", left / 3600.0, Timestamp::from_unix_seconds_f64(resets).local_twelve_hour()));
-            (reach > budget).then(|| format!("{} would reach {reach:.0}% of its {kind} window by {reset}, at the fleet's burn of {:.1} points an hour plus {charge:.1} points for this worker, over the {budget:.0}% that keeps its operational floor for the privacy judge, lander and canaries", account.name, rate * 3600.0))
-        };
-        let five_hour = projected("five-hour", account.five_hour, rules.floor_five_hour, if week_first { 0.0 } else { burn.five_hour }, week_charge * burn.five_hour_per_week);
-        let week = if self.drain { None } else { projected("week", account.week, rules.floor_week, burn.week, week_charge) };
-        match five_hour.or(week) {
-            Some(line) => Err(Refusal { rule: Rule::Burn, line }),
+        match self.account(account).and_then(|chosen| chosen.limit(self.at)) {
+            Some(refusal) => Err(refusal),
             None => Ok(()),
         }
-    }
-
-    /// The pooled reserve: whether the pool, less one more charge for each placed worker and this
-    /// one, stays above it.
-    fn reserved(&self, rules: &Rules, placed: Placed) -> Result<(), Refusal> {
-        if self.drain {
-            return Ok(());
-        }
-        let (after, reserve) = (self.pool() - rules.charge * (placed.workers + 1) as f64, self.reserve(rules));
-        if after <= reserve {
-            return Err(Refusal { rule: Rule::Reserve, line: format!("a new worker session would leave {:.1} points of week across all accounts, not above the {reserve:.0}-point reserve; `north fleet drain on` spends it", after.max(0.0)) });
-        }
-        Ok(())
     }
 
     /// One line for a session's grounding or `north spend`: the pool, the reserve and the working
