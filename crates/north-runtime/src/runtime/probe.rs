@@ -1,6 +1,7 @@
 use super::layout::linked_sha;
 use super::live::{Swap, SWAPS_KEPT};
-use super::remote::{limit, ssh};
+use super::remote::{limit, ssh_on};
+use crate::platform::ssh_retry::{Link, Reply, Rerun, retried};
 use crate::platform::{hook_commands, process};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -159,10 +160,10 @@ impl Shell {
         }
     }
 
-    fn bash(&self) -> Command {
+    fn bash(&self, link: Link) -> Command {
         let mut command = match self {
             Self::Here(_) => Command::new("bash"),
-            Self::Ssh(destination) => ssh(destination),
+            Self::Ssh(destination) => ssh_on(destination, link),
         };
         if matches!(self, Self::Ssh(_)) {
             command.arg("bash");
@@ -171,12 +172,24 @@ impl Shell {
         command
     }
 
-    pub(super) fn exec(&self, script: &str, within: Duration) -> std::io::Result<Option<Output>> {
-        process::try_run_command_within(self.bash(), Some(script.as_bytes()), limit(within))
+    fn attempt(&self, script: &str, within: Duration, link: Link) -> Reply<std::io::Result<Option<Output>>> {
+        let result = process::try_run_command_within(self.bash(link), Some(script.as_bytes()), limit(within));
+        let (exit, said) = match &result {
+            Ok(Some(output)) => (output.status.code(), String::from_utf8_lossy(&output.stderr).into_owned()),
+            _ => (None, String::new()),
+        };
+        Reply { value: result, exit, said }
+    }
+
+    pub(super) fn exec(&self, script: &str, within: Duration, rerun: Rerun) -> std::io::Result<Option<Output>> {
+        match self {
+            Self::Here(_) => self.attempt(script, within, Link::Shared).value,
+            Self::Ssh(destination) => retried(destination, rerun, |link| self.attempt(script, within, link)),
+        }
     }
 
     pub(super) fn run(&self, script: &str) -> Result<String, String> {
-        let output = process::try_run_command_within(self.bash(), Some(script.as_bytes()), limit(ASK))
+        let output = self.exec(script, ASK, Rerun::Anywhere)
             .map_err(|error| format!("could not start: {error}"))?
             .ok_or_else(|| format!("no answer within {}s", limit(ASK).as_secs()))?;
         if !output.status.success() {

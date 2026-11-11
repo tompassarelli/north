@@ -11,6 +11,7 @@ use super::stamp::{iso, parse, write_atomic};
 use super::state::State;
 use super::zone::Window;
 use crate::platform::process::run_within;
+use crate::platform::ssh_retry::{Reply, Rerun, retried};
 use crate::shell::shlex_split;
 
 const FORWARD_ENV: [&str; 2] = ["LAPTOP_GRACE", "LAPTOP_BY"];
@@ -99,11 +100,18 @@ impl Ctx {
         words.extend(["north".to_owned(), "fleet".to_owned(), "laptop".to_owned()]);
         words.extend(argv.iter().cloned());
         let command = words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" ");
-        let options = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &destination, &command];
-        let ssh = crate::platform::ssh::argv(&self.ssh, &self.env, &options);
-        let words: Vec<String> = ssh.iter().map(|word| word.to_string_lossy().into_owned()).collect();
-        let refs: Vec<&str> = words[1..].iter().map(String::as_str).collect();
-        let Some(output) = run_within(&words[0], &refs, self.forward_wait) else {
+        let rerun = if argv.first().map(String::as_str) == Some("toggle") { Rerun::BeforeSend } else { Rerun::Anywhere };
+        let output = retried(&destination, rerun, |link| {
+            let mut options = link.options().to_vec();
+            options.extend(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &destination, &command]);
+            let ssh = crate::platform::ssh::argv(&self.ssh, &self.env, &options);
+            let words: Vec<String> = ssh.iter().map(|word| word.to_string_lossy().into_owned()).collect();
+            let refs: Vec<&str> = words[1..].iter().map(String::as_str).collect();
+            let output = run_within(&words[0], &refs, self.forward_wait);
+            let said = output.as_ref().map(|output| String::from_utf8_lossy(&output.stderr).into_owned()).unwrap_or_default();
+            Reply { exit: output.as_ref().and_then(|output| output.status.code()), value: output, said }
+        });
+        let Some(output) = output else {
             return Err(Die::new(124, format!("{destination} timed out; remote outcome unknown")));
         };
         eprint!("{}", String::from_utf8_lossy(&output.stderr));

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::super::ssh::OWN_CONNECTION;
 use super::super::ssh_fixture::{master_words, which, Fixture};
-use super::{probe_with, Dial, Health, Master, Process, SLOW};
+use super::{probe_with, reopen_with, socket, Dial, Health, Master, Process, SLOW};
 
 struct Respawned<'a> {
     fixture: &'a mut Fixture,
@@ -84,4 +84,38 @@ fn a_master_is_left_alone_while_a_direct_connection_is_nearly_as_slow() {
     let mut dial = Scripted { answers: vec![None, Some(Duration::from_millis(2600)), None, None] };
     let health = probe_with(&mut dial, &[which("ssh").into()], &Default::default(), "testhost", &mut Forbidden);
     assert!(matches!(health, Health::Loaded { .. }), "{health:?}");
+}
+
+struct Restarted(Vec<String>);
+
+impl Master for Restarted {
+    fn stop(&mut self, _host: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn start(&mut self, host: &str) -> Result<(), String> {
+        self.0.push(host.to_owned());
+        Ok(())
+    }
+}
+
+#[test]
+fn a_control_socket_nobody_listens_on_is_dropped_and_its_unit_started_but_a_live_master_is_left() {
+    let mut fixture = Fixture::new();
+    let words = master_words(&fixture);
+    let marker = fixture.unit("north-ssh-master-live", &words);
+    fixture.wait_for_socket();
+    let env = fixture.env();
+    let program = [which("ssh").into()];
+
+    let mut restarted = Restarted(Vec::new());
+    assert_eq!(reopen_with(&program, &env, "testhost", &mut restarted), Ok(false));
+    assert!(restarted.0.is_empty());
+
+    let socket = socket(&program, &env, "testhost").unwrap();
+    fixture.stop(&marker);
+    assert!(socket.exists());
+    assert_eq!(reopen_with(&program, &env, "testhost", &mut restarted), Ok(true));
+    assert!(!socket.exists());
+    assert_eq!(restarted.0, ["testhost"]);
 }

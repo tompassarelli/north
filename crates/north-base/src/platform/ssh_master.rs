@@ -126,6 +126,21 @@ fn socket(program: &[OsString], env: &BTreeMap<String, String>, host: &str) -> R
 }
 
 
+pub fn reopen_if_dead(program: &[OsString], env: &BTreeMap<String, String>, host: &str) -> Result<bool, String> {
+    reopen_with(program, env, host, &mut Unit)
+}
+
+fn reopen_with(program: &[OsString], env: &BTreeMap<String, String>, host: &str, master: &mut dyn Master) -> Result<bool, String> {
+    let Ok(socket) = socket(program, env, host) else { return Ok(false) };
+    match std::os::unix::net::UnixStream::connect(&socket) {
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {}
+        _ => return Ok(false),
+    }
+    std::fs::remove_file(&socket).map_err(|error| format!("removing {}: {error}", socket.display()))?;
+    master.start(host)?;
+    Ok(true)
+}
+
 struct Unit;
 
 impl Unit {

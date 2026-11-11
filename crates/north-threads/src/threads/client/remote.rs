@@ -7,6 +7,7 @@ use super::process::{Input, code_of, execute, execute_capturing_stderr, python_j
 use super::{Client, FORWARDED, SSH_TIMEOUT, shell_quote};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::exit::TIMED_OUT_STATUS;
+use crate::platform::ssh_retry::{Link, Reply, Rerun, retried};
 
 impl Client {
     pub(super) fn no_native_reason(&self) -> Option<&'static str> {
@@ -91,17 +92,28 @@ impl Client {
         }
         let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
         let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
-        let mut output = tempfile::tempfile()?;
-        match execute(&argv, Input::Bytes(input.to_vec()), Stdio::from(output.try_clone()?), SSH_TIMEOUT)? {
-            Some(status) if status.success() => {
-                let mut answer = Vec::new();
+        retried(&dest, Rerun::Anywhere, |link| self.ask_once(&dest, &command, input, link))
+    }
+
+    fn ask_once(&self, dest: &str, command: &str, input: &[u8], link: Link) -> Reply<NorthResult<Option<Vec<u8>>>> {
+        let mut options = link.options().to_vec();
+        options.extend(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, command]);
+        let argv = self.ssh_argv(&options);
+        let answered = (|| {
+            let mut output = tempfile::tempfile()?;
+            let status = execute(&argv, Input::Bytes(input.to_vec()), Stdio::from(output.try_clone()?), SSH_TIMEOUT)?;
+            let mut answer = Vec::new();
+            if status.is_some_and(|status| status.success()) {
                 output.seek(io::SeekFrom::Start(0))?;
                 output.read_to_end(&mut answer)?;
-                Ok(Some(answer))
             }
-            Some(status) => Err(NorthError::Refused(format!("{dest} answered exit {}", code_of(status)))),
-            None => Err(NorthError::Refused(format!("{dest} timed out; remote outcome unknown"))),
+            NorthResult::Ok((status, answer))
+        })();
+        match answered {
+            Err(error) => Reply { value: Err(error), exit: None, said: String::new() },
+            Ok((Some(status), answer)) if status.success() => Reply { value: Ok(Some(answer)), exit: Some(0), said: String::new() },
+            Ok((Some(status), _)) => Reply { value: Err(NorthError::Refused(format!("{dest} answered exit {}", code_of(status)))), exit: Some(code_of(status)), said: String::new() },
+            Ok((None, _)) => Reply { value: Err(NorthError::Refused(format!("{dest} timed out; remote outcome unknown"))), exit: None, said: String::new() },
         }
     }
 

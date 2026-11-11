@@ -4,6 +4,7 @@ use super::pin::{self, Event};
 use super::pull;
 use super::remote;
 use crate::land_offload::BuildHost;
+use crate::platform::ssh_retry::Rerun;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -70,7 +71,11 @@ pub(super) fn note(layout: &Layout, target: &str, built: Built) {
 /// Asks `host` to build `target` with its own runtime under its capacity admission, then copies the programs and their built-from stamp here and realises their store closure.
 pub(super) fn build_on(host: &BuildHost, target: &str, runtime: &Path) -> Result<(), Failure> {
     let command = format!("\"$HOME/.local/state/north/current/north\" runtime build {target}");
-    remote::run_reporting(&host.name, "north runtime build", remote::ssh(&host.ssh).arg(command), BUILD)?;
+    remote::run_reporting_again(&host.ssh, &host.name, "north runtime build", Rerun::Anywhere, |link| {
+        let mut ssh = remote::ssh_on(&host.ssh, link);
+        ssh.arg(&command);
+        ssh
+    }, BUILD)?;
     pull::fetch(&host.ssh, target, runtime, &[BUILT_FROM]).map_err(|why| super::failure::failed(1, format!("taking the build from {}: {why}", host.name)))
 }
 

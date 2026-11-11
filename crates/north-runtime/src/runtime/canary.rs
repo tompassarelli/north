@@ -3,6 +3,7 @@ use super::lifecycle::{self, Canarying, Canary};
 use super::failure::DEFERRED;
 use super::update;
 use north_base::foundation::exit::NO_VERDICT;
+use north_base::platform::ssh_retry::Rerun;
 use std::time::Duration;
 
 mod baseline;
@@ -214,7 +215,7 @@ pub(super) struct Live<'a> {
 
 impl Machine for Live<'_> {
     fn probe(&self, probe: &Probe) -> Ran {
-        match self.host.exec(&probe.script, probe.limit) {
+        match self.host.exec(&probe.script, probe.limit, Rerun::BeforeSend) {
             Ok(Some(output)) => classify(output.status.code(), format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))),
             Ok(None) => Ran::Unrun(format!("no verdict within {}s", probe.limit.as_secs())),
             Err(error) => Ran::Unrun(format!("could not start: {error}")),
@@ -230,7 +231,7 @@ impl Machine for Live<'_> {
             };
         }
         let script = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/current/north\" runtime rollback --from {sha}\n");
-        match self.host.exec(&script, REMOTE_ROLLBACK_LIMIT) {
+        match self.host.exec(&script, REMOTE_ROLLBACK_LIMIT, Rerun::BeforeSend) {
             Ok(Some(output)) => match output.status.code().and_then(|code| u8::try_from(code).ok()) {
                 Some(0) => Rollback::To(String::from_utf8_lossy(&output.stdout).trim().rsplit(' ').next().unwrap_or_default().to_owned()),
                 Some(DEFERRED) => Rollback::Deferred(String::from_utf8_lossy(&output.stderr).trim().to_owned()),

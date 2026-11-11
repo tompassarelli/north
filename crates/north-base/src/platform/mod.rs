@@ -50,6 +50,7 @@ pub mod usage_table;
 pub mod wayland_idle;
 pub mod ssh;
 pub mod ssh_master;
+pub mod ssh_retry;
 #[cfg(test)]
 mod ssh_fixture;
 pub mod south_land_limits;

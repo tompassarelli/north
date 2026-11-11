@@ -9,6 +9,7 @@ use north_base::land_ticket::{self, Phase};
 use north_base::lifecycle::Store;
 use north_check_environment::{Environment, instance};
 use north_base::platform::land_queue;
+use north_base::platform::ssh_retry::{Link, Reply, Rerun, retried};
 use north_lander::land::after::follow;
 use north_lander::land::candidate::git;
 use north_lander::land::{link_hold, pause, post_land, queue, watchdog};
@@ -329,10 +330,17 @@ pub fn green_since(ledger: &Path, since: u64) -> bool {
 
 /// Runs `script` with `arguments` under bash on `place`: here, or over ssh with the script on stdin.
 pub fn shell(place: &Place, script: &str, arguments: &[&str]) -> Result<String, String> {
+    match &place.reach {
+        Reach::Ssh(ssh) => retried(ssh, Rerun::Anywhere, |link| attempt(place, script, arguments, link)),
+        _ => attempt(place, script, arguments, Link::Shared).value,
+    }
+}
+
+fn attempt(place: &Place, script: &str, arguments: &[&str], link: Link) -> Reply<Result<String, String>> {
     let mut command = Command::new("timeout");
     command.arg(PROBE_SECONDS);
     match &place.reach {
-        Reach::Ssh(ssh) => command.args(["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", "bash", "-s", "--"]),
+        Reach::Ssh(ssh) => command.args(["ssh", "-T"]).args(link.options()).args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", "bash", "-s", "--"]),
         Reach::Here => command.args(["bash", "-s", "--"]),
         Reach::Scratch { env, namespace } => {
             if let Some(pid) = namespace {
@@ -341,13 +349,23 @@ pub fn shell(place: &Place, script: &str, arguments: &[&str]) -> Result<String, 
             command.env_remove("NORTH_OFFLOAD_ROOT").envs(env.iter().map(|(key, value)| (key, value))).args(["bash", "-s", "--"])
         }
     };
-    let mut child = command.args(arguments).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| format!("{}: {error}", place.name))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(script.as_bytes()).map_err(|error| format!("{}: {error}", place.name))?;
+    let output = piped(command.args(arguments), script).map_err(|error| format!("{}: {error}", place.name));
+    match output {
+        Err(error) => Reply { value: Err(error), exit: None, said: String::new() },
+        Ok(output) => {
+            let said = String::from_utf8_lossy(&output.stderr).into_owned();
+            let value = if output.status.success() { Ok(String::from_utf8_lossy(&output.stdout).into_owned()) } else { Err(format!("{} exited {}: {}", place.name, output.status.code().map_or("on a signal".to_owned(), |code| code.to_string()), said.trim())) };
+            Reply { value, exit: output.status.code(), said }
+        }
     }
-    let output = child.wait_with_output().map_err(|error| format!("{}: {error}", place.name))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    if output.status.success() { Ok(stdout) } else { Err(format!("{} exited {}: {}", place.name, output.status.code().map_or("on a signal".to_owned(), |code| code.to_string()), String::from_utf8_lossy(&output.stderr).trim())) }
+}
+
+fn piped(command: &mut Command, script: &str) -> std::io::Result<std::process::Output> {
+    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(script.as_bytes())?;
+    }
+    child.wait_with_output()
 }
 
 pub fn place_facts(place: Place) -> PlaceFacts {
