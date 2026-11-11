@@ -103,7 +103,10 @@ pub fn run() -> u8 {
         .collect();
     stale.sort_by_key(|(distance, _, _)| std::cmp::Reverse(*distance));
     for (_, slot, head) in stale {
-        let Some(_held) = slot_lock::take(&root.join(format!("{}.lock", slot.name))) else { continue };
+        let Some(_held) = slot_lock::take(&root.join(format!("{}.lock", slot.name))) else {
+            println!("warm: {} is held by a run, skipped", slot.name);
+            continue;
+        };
         return warm(&root, &slot, &head);
     }
     0

@@ -45,9 +45,18 @@ pub fn output(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
 
 pub fn git(directory: &Path, arguments: &[&str]) -> Result<String, String> {
     let attempt = || stdout(arguments, output(directory, arguments)?);
-    match arguments.first() {
+    let result = match arguments.first() {
         Some(&"fetch") => north_git_locks::retry_after_clearing(directory, attempt),
         _ => attempt(),
+    };
+    result.map_err(|error| format!("{error} ({})", repository_of(directory)))
+}
+
+fn repository_of(directory: &Path) -> String {
+    match run(directory, &["rev-parse", "--absolute-git-dir"]) {
+        Ok(found) if found.status.success() => format!("in repository {}", String::from_utf8_lossy(&found.stdout).trim()),
+        Ok(found) => format!("no repository at {}: {}", directory.display(), String::from_utf8_lossy(&found.stderr).trim()),
+        Err(error) => format!("repository of {} unknown: {error}", directory.display()),
     }
 }
 

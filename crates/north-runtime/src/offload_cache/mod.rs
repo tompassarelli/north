@@ -236,7 +236,10 @@ fn slots(root: &Path) -> Vec<Slot> {
 }
 
 fn remove_unlocked(slot: &Slot) -> bool {
-    let Some(_held) = slot_lock::take(&slot.lock) else { return false };
+    let Some(_held) = slot_lock::take(&slot.lock) else {
+        eprintln!("offload cache: {} is held by a run, kept", slot.path.display());
+        return false;
+    };
     let name = slot.path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
     let parent = slot.path.parent().unwrap_or(Path::new("/"));
     let companions: Vec<PathBuf> = COMPANION_DIRS.iter().map(|suffix| parent.join(format!("{name}.{suffix}"))).collect();
