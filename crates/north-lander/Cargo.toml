@@ -19,6 +19,7 @@ north-land-scans = { path = "../north-land-scans" }
 north-land-sandbox = { path = "../north-land-sandbox" }
 north-landing = { path = "../north-landing" }
 north-strategy-types = { path = "../north-strategy-types" }
+rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -30,4 +31,3 @@ workspace = true
 
 [dev-dependencies]
 north-machine-model = { path = "../north-machine-model" }
-rustix.workspace = true

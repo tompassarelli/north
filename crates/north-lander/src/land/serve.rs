@@ -26,6 +26,7 @@ mod handover;
 mod options;
 mod outbox;
 mod round;
+mod tickets;
 
 pub const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
@@ -123,7 +124,7 @@ fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
         }
         None
     } else {
-        Some(outbox::watch(lander, &wake))
+        Some((outbox::watch(lander, &wake), tickets::watch(&lander.queue, &wake)))
     };
     heartbeat::watched(lander, || serve_loop(lander, once, retire, &wake))
 }

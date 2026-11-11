@@ -343,10 +343,10 @@ pub fn queue_revert_in(repo: &Path, queue_dir: &Path, worktree: &Path, branch: &
     let origin = git(repo, &["remote", "get-url", "--push", "origin"])?;
     let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned();
     let micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
-    let ticket = Ticket { origin, root: worktree.to_owned(), host, branch: branch.to_owned(), head: head.clone(), session: None, queued_at: rfc3339(OffsetDateTime::now_utc()), queued_micros: Some(micros), first_commit_secs: None, several_commits: None, red_fix: Some(RedFix::Marker), verdict: None, deferral: None, keep_lane: true, urgent: None, urgent_at: None, lander_fix: None, decided_on: None, published: None, alone_green: None, alone_base: None, alone_unsettled: None };
+    let ticket = Ticket { origin, root: worktree.to_owned(), host, branch: branch.to_owned(), head: head.clone(), session: None, queued_at: rfc3339(OffsetDateTime::now_utc()), queued_micros: Some(micros), first_commit_secs: None, several_commits: None, red_fix: Some(RedFix::Marker), verdict: None, deferral: None, keep_lane: true, urgent: None, urgent_at: None, lander_fix: None, decided_on: None, published: None, alone_green: None, alone_base: None, alone_unsettled: None, gated_from: None };
     let path = queue_dir.join(queue::file_name(micros, branch));
-    queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     north_base::land_ticket::queued(&path, "the sheriff queued a revert").map_err(|error| format!("cannot record {}: {error}", path.display()))?;
+    queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     Ok(head)
 }
 

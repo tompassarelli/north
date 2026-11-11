@@ -195,6 +195,7 @@ impl Repository {
             alone_green: Some(git(&lane, &["rev-parse", "HEAD"])),
             alone_base: Some(git(&lane, &["rev-parse", "origin/main"])),
             alone_unsettled: None,
+            gated_from: None,
             queued_micros: Some(micros),
         };
         queue::write(&self.queue.join(queue::file_name(micros, branch)), &ticket).unwrap();

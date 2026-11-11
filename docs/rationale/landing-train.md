@@ -879,7 +879,11 @@ then S2b and S2c in parallel; then S3 and S4.
   with its `host` field kept, and moves the remote ticket to `outbox/taken/`. Landed messages and
   verdicts are unchanged. An unreachable host gets a waiting line and is tried again 5 s later. A pulled ticket wakes the
   serve loop, so a build host's ticket enters a round within about a second of being queued
-  (2026-11-08: the round-start pull left one waiting 19 s). The
+  (2026-11-08: the round-start pull left one waiting 19 s). A ticket written into the lander's own
+  queue wakes it the same way, through an inotify watch on the queue directory, instead of waiting out the 2 s
+  round pause (north#1138, 2026-11-11: a one-line change waited 0.7 to 1.8 s of a 2.0 s hand-in for pickup). The
+  enqueue records the ticket as queued before it writes the file, so the woken lander never meets a ticket whose
+  record the enqueue is still writing. The
   outbox key is the hash of the origin URL, so a remote host's origin must be spelled as the
   lander's. No host gains an inbound verb or key. Done when: `cargo test --test it land_serve remote`
   passes remote-outbox-lands, remote-outbox-unreachable and remote-enqueue-off-lander-host. The live
@@ -1330,7 +1334,7 @@ stacked one landed at 4:26:22.
 ### Land first again, without probe rounds (2026-11-08)
 
 - Every queued lane has passed its own checks before queueing: the gates, and compile and clippy of its changed crates, which safe-push's checks before queueing run on the lane against current main. The lander treats that as the lane's alone pass, recorded on the ticket as the lane head that passed (`alone_green`) and the main it passed on (`alone_base`). The pass lasts `landing.alone-pass-landings` landings (5 when unset): once main is more first-parent commits past `alone_base` than that, or no longer descends from it, or the lane has no pass for its head, the lane stays out of the batch and, after the round's push, is checked alone on the new main with the lander's checker, one lane per round; a green check records the new pass and the lane joins the next batch, a red one refuses it with its log. Sheriff reverts carry no pass and are never held for one (north#936).
-- Each round cherry-picks every queued lane onto main as one candidate, runs only the pick-time gates and scans, and pushes it with a lease on main. Nothing is checked on a merged tree before the push, and no push waits for an earlier batch's after-landing run; the lease is the only serialization.
+- Each round cherry-picks every queued lane onto main as one candidate, runs only the pick-time gates and scans, and pushes it with a lease on main. A lane whose gates passed before queueing, with nothing uncommitted or untracked in its checkout, carries the main commit they were judged from on its ticket (`gated_from`); when the pick lands on that same commit and leaves the lane's tree unchanged, the lander reuses that verdict instead of judging the gates again in a scratch worktree (north#1138). Nothing is checked on a merged tree before the push, and no push waits for an earlier batch's after-landing run; the lease is the only serialization.
 - The after-landing run now runs the `land.check` lines as well as the `land.after` lines on the landed tree, since they no longer run on any merged tree before the push. A red run bisects inside the batch and reverts the culprit as above.
 - The probe planner (`north-land-probes`), the probe fan-out, the suspect groups and the unbuilt-lane pull were deleted with nothing left calling them. The coverage agreement record lost its `landed` lines, which named the probe's check log.
 

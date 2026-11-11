@@ -25,14 +25,12 @@ impl Wake {
         }
     }
 
-    pub fn wait(&self, timeout: Duration) {
+    pub fn wait(&self, timeout: Duration) -> bool {
         let Ok(rung) = self.rung.lock() else {
             std::thread::sleep(timeout);
-            return;
+            return false;
         };
-        if let Ok((mut rung, _)) = self.bell.wait_timeout_while(rung, timeout, |rung| !*rung) {
-            *rung = false;
-        }
+        self.bell.wait_timeout_while(rung, timeout, |rung| !*rung).is_ok_and(|(mut rung, _)| std::mem::take(&mut *rung))
     }
 }
 
