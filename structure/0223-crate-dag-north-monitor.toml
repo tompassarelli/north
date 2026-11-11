@@ -1,0 +1,4 @@
+[[crate_dag.crate]]
+name = "north-monitor"
+paths = ["crates/north-monitor/src/**"]
+may_use = []
