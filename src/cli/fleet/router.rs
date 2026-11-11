@@ -2,6 +2,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use crate::error::{NorthError, NorthResult};
+use crate::platform::attribution::{self, Cause, Harness};
 use super::claims::{self, SWEEP_VERB, ThreadsCli, release_exited_claims};
 use crate::fleet::model::{ProviderName, Role};
 use crate::fleet::registry::{self, Controlled, Fleet};
@@ -248,10 +249,17 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     if let Err(error) = fleet.release_exited_claims_on(&tasks) {
         eprintln!("north fleet: {} launches with its holder check left to its claim, because the ledger did not say who holds {}: {}", request.name, tasks.join(" "), error.user_message());
     }
-    let record = if take_over { fleet.take_over(&request)? } else { fleet.launch(&request)? };
+    let record = if take_over { fleet.take_over(&request) } else { fleet.launch(&request) }.inspect_err(|error| failed_to_start(&request.name, error))?;
     tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
     Ok(())
+}
+
+/// Records a launch placement let through that failed before its session started, the loss the runtime watch judges a new runtime by; a refusal, a queue or a usage error is a decision, not a failure.
+fn failed_to_start(name: &str, error: &NorthError) {
+    if !matches!(error, NorthError::Refused(_) | NorthError::Saturated(_) | NorthError::Usage(_)) {
+        attribution::record(name, "launch", Cause::Harness(Harness::LaunchFailure), &error.user_message());
+    }
 }
 
 #[cfg(test)]

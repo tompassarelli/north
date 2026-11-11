@@ -22,6 +22,8 @@ pub enum Harness {
     ProviderError,
     /// The launch gate refused to start a session, so no run of it exists to carry the loss.
     LaunchRefusal,
+    /// A launch the gate let through failed before its session started, so no run of it exists to carry the loss.
+    LaunchFailure,
     /// A capacity lease's deadline expired under the command the lease held.
     LeaseTimeout,
     /// A provider's safety classifier flagged a turn and refused it or moved it to a fallback model.
@@ -29,7 +31,7 @@ pub enum Harness {
 }
 
 impl Harness {
-    pub const ALL: [Harness; 14] = [Self::Placement, Self::Access, Self::LandingRefusal, Self::FalseRevert, Self::Capacity, Self::Compaction, Self::Waits, Self::Duplicate, Self::GateRefusal, Self::Halted, Self::ProviderError, Self::LaunchRefusal, Self::LeaseTimeout, Self::SafetyRefusal];
+    pub const ALL: [Harness; 15] = [Self::Placement, Self::Access, Self::LandingRefusal, Self::FalseRevert, Self::Capacity, Self::Compaction, Self::Waits, Self::Duplicate, Self::GateRefusal, Self::Halted, Self::ProviderError, Self::LaunchRefusal, Self::LaunchFailure, Self::LeaseTimeout, Self::SafetyRefusal];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -45,6 +47,7 @@ impl Harness {
             Self::Halted => "halted",
             Self::ProviderError => "provider error",
             Self::LaunchRefusal => "launch refusal",
+            Self::LaunchFailure => "launch failure",
             Self::LeaseTimeout => "lease timeout",
             Self::SafetyRefusal => "safety refusal",
         }

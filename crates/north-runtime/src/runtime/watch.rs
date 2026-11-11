@@ -24,11 +24,11 @@ const SCRATCH: &str = "vn-";
 
 static READING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d[\d.]*").expect("a reading pattern"));
 
-/// What one span held: the sessions this host started, the reason of each launch the gate refused, and this host's session-host exits and land refusals.
+/// What one span held: the sessions this host started, the reason of each launch that failed to start after placement let it through, and this host's session-host exits and land refusals; a launch placement refused or queued is a decision, not a failure, so no span holds it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Window {
     pub(super) launches: usize,
-    pub(super) refusals: Vec<String>,
+    pub(super) failures: Vec<String>,
     pub(super) host_exits: usize,
     pub(super) land_refusals: usize,
 }
@@ -39,7 +39,7 @@ impl Window {
         let moves = |machine: &str, from: Option<&str>, to: &str| Store::open(&layout.ledger()).and_then(|store| store.moves_between(machine, from, to, start, end)).unwrap_or(0);
         Self {
             launches: moves("fleet-session", None, "live"),
-            refusals: launch_refusals(&threads_ledger(layout), &start.iso(), &end.iso()),
+            failures: launch_failures(&threads_ledger(layout), &start.iso(), &end.iso()),
             host_exits: lasting_host_exits(&layout.ledger(), (start, end), Timestamp::from_unix_seconds(judged)),
             land_refusals: moves("land-ticket", None, "failed"),
         }
@@ -59,17 +59,30 @@ fn lasting_host_exits(ledger: &Path, (start, end): (Timestamp, Timestamp), judge
     .map_or(0, |count| usize::try_from(count).unwrap_or(0))
 }
 
-/// A refusal's cause: its reason with every reading blanked, so the gate refusing at load 10.19 and at 10.79 is one cause.
+/// A failure's cause: its reason with every reading blanked, so a failure at load 10.19 and at 10.79 is one cause.
 fn cause(reason: &str) -> String {
     READING.replace_all(reason, "#").into_owned()
 }
 
-/// Whether launches failed more often since the swap than over the hour before: only a refusal whose cause the hour before never saw counts, since the previous runtime shares every other, and only as a share of the launches tried, once the hour before tried `SAMPLE`, so a host that just began launching has no rate to beat.
+/// The failures since the swap whose cause the hour before never saw, since the previous runtime shares every other.
+fn fresh_failures<'a>(since: &'a Window, prior: &Window) -> Vec<&'a str> {
+    let shared: HashSet<String> = prior.failures.iter().map(|reason| cause(reason)).collect();
+    since.failures.iter().filter(|reason| !shared.contains(&cause(reason))).map(String::as_str).collect()
+}
+
+/// Whether launches failed more often since the swap than over the hour before: only a fresh failure counts, and only as a share of the launches tried, once the hour before tried `SAMPLE`, so a host that just began launching has no rate to beat.
 fn launches_failed_more(since: &Window, prior: &Window) -> bool {
-    let shared: HashSet<String> = prior.refusals.iter().map(|reason| cause(reason)).collect();
-    let fresh = since.refusals.iter().filter(|reason| !shared.contains(&cause(reason))).count();
-    let tried_before = prior.launches + prior.refusals.len();
-    fresh >= LEAST && tried_before >= SAMPLE && fresh as f64 / (since.launches + fresh) as f64 > prior.refusals.len() as f64 / tried_before as f64
+    let fresh = fresh_failures(since, prior).len();
+    let tried_before = prior.launches + prior.failures.len();
+    fresh >= LEAST && tried_before >= SAMPLE && fresh as f64 / (since.launches + fresh) as f64 > prior.failures.len() as f64 / tried_before as f64
+}
+
+/// What a rollback names: each kind that rose, and for launch failures the distinct fresh causes it counted.
+fn named(risen: &[&str], since: &Window, prior: &Window) -> String {
+    let mut causes: Vec<String> = fresh_failures(since, prior).into_iter().map(cause).collect();
+    causes.sort();
+    causes.dedup();
+    risen.iter().map(|kind| if *kind == "launch failures" { format!("launch failures ({})", causes.join("; ")) } else { (*kind).to_owned() }).collect::<Vec<_>>().join(", ")
 }
 
 /// The kinds that ran worse in the `watched` seconds since the swap than over the hour before it: launch failures by `launches_failed_more`, and session-host exits and land refusals by rate, each counting only once it happened `LEAST` times, so one stray failure rolls nothing back.
@@ -98,12 +111,13 @@ pub(super) fn watch(layout: &Layout) {
     if at - swapped > WATCH_S || trusted {
         return;
     }
-    let risen = risen(&Window::read(layout, swapped, at, at), &Window::read(layout, swapped - PRIOR_S, swapped, at), at - swapped);
+    let (since, prior) = (Window::read(layout, swapped, at, at), Window::read(layout, swapped - PRIOR_S, swapped, at));
+    let risen = risen(&since, &prior, at - swapped);
     if risen.is_empty() {
         return;
     }
     let short = layout::short(&live);
-    let why = format!("{} rose in the {}s since {short} went live on {name}, over the hour before", risen.join(", "), at - swapped);
+    let why = format!("{} rose in the {}s since {short} went live on {name}, over the hour before", named(&risen, &since, &prior), at - swapped);
     match update::roll_back(layout, &live) {
         Ok(previous) => {
             note(layout, &Event::RolledBack { sha: live.clone(), host: name, at, seconds: at - swapped, walker: land_offload::settles_fleet_here() });
@@ -120,9 +134,9 @@ fn threads_ledger(layout: &Layout) -> PathBuf {
     state.join(if replica { "snapshot.db" } else { "threads.db" })
 }
 
-fn launch_refusals(ledger: &Path, start: &str, end: &str) -> Vec<String> {
+fn launch_failures(ledger: &Path, start: &str, end: &str) -> Vec<String> {
     let Ok(db) = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY) else { return Vec::new() };
-    let Ok(mut statement) = db.prepare("SELECT reason FROM boundary_causes WHERE source = 'launch' AND cause = 'launch refusal' AND at >= ?1 AND at < ?2") else { return Vec::new() };
+    let Ok(mut statement) = db.prepare("SELECT reason FROM boundary_causes WHERE source = 'launch' AND cause = 'launch failure' AND at >= ?1 AND at < ?2") else { return Vec::new() };
     statement.query_map([start, end], |row| row.get::<_, String>(0)).map(|rows| rows.filter_map(Result::ok).collect()).unwrap_or_default()
 }
 
