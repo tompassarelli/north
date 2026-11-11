@@ -1,4 +1,5 @@
 mod accounts;
+mod archive;
 mod config;
 mod fleet;
 pub mod harness;
