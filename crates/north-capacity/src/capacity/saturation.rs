@@ -8,6 +8,7 @@ use super::disk_line::Line;
 use north_base::platform::pushed_token::FRESH_SECONDS;
 
 const DISK_FLOOR: &str = "build_disk_free_gib";
+const COLD_BUILD: &str = "dispatch_cold_build_gib";
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
 const KIB_PER_MIB: f64 = 1024.0;
 const BACKLOG_MARK: &str = "#backlog";
@@ -72,6 +73,9 @@ pub struct Saturation {
     /// Seconds since the App token pushed to the host was written, None when the host mints its own.
     #[serde(default)]
     pub token_age_s: Option<u64>,
+    /// The host's `disk_free_gib` setting, None for the eviction line.
+    #[serde(default)]
+    pub disk_bound_gib: Option<f64>,
 }
 
 pub fn parse(text: &str) -> Option<Saturation> {
@@ -85,7 +89,7 @@ pub fn parse(text: &str) -> Option<Saturation> {
     let kib: f64 = df.nth(1)?.parse().ok()?;
     let backlog = backlog.lines().find_map(Backlog::parse);
     let token_age_s = token.lines().find_map(|line| line.trim().parse().ok());
-    Some(Saturation { memory_total_mib: total_kib / KIB_PER_MIB, memory_available_mib: available_kib / KIB_PER_MIB, disk_free_gib: kib / KIB_PER_GIB, disk_total_gib: total / KIB_PER_GIB, backlog, token_age_s })
+    Some(Saturation { memory_total_mib: total_kib / KIB_PER_MIB, memory_available_mib: available_kib / KIB_PER_MIB, disk_free_gib: kib / KIB_PER_GIB, disk_total_gib: total / KIB_PER_GIB, backlog, token_age_s, disk_bound_gib: None })
 }
 
 impl Saturation {
@@ -93,10 +97,24 @@ impl Saturation {
     pub fn session_room(&self) -> i64 {
         let request = admission::dispatch_request_mib(Class::Agent);
         let spare = self.memory_available_mib - admission::memory_floor_mib(admission::Profile::Unattended, self.memory_total_mib);
-        ((spare / request).floor() as i64).max(0)
+        (((spare / request).floor() as i64).max(0)).min(self.disk_room())
     }
 
-    /// Why `host` takes no new session, the first of: a GitHub token past its trust window, too little available memory beyond a session's own request, a root disk under the build floor or past the eviction line the lease reaper reclaims under, or queued jobs at the limit or load over its threads.
+    pub fn bounded(self, disk_bound_gib: Option<f64>) -> Self {
+        Self { disk_bound_gib, ..self }
+    }
+
+    /// The free GiB a root disk keeps: the host's `disk_free_gib`, else the eviction line the lease reaper reclaims under.
+    pub fn disk_bound(&self) -> f64 {
+        self.disk_bound_gib.unwrap_or_else(|| Line::eviction().floor_gib(self.disk_total_gib))
+    }
+
+    /// Cold builds the root disk takes above its bound, which a worker's first build writes into its lane.
+    fn disk_room(&self) -> i64 {
+        (((self.disk_free_gib - self.disk_bound()) / default(COLD_BUILD)).floor() as i64).max(0)
+    }
+
+    /// Why `host` takes no new session, the first of: a GitHub token past its trust window, too little available memory beyond a session's own request, a root disk under the build floor or under its disk bound, or queued jobs at the limit or load over its threads.
     pub fn refusal(&self, host: &str) -> Option<String> {
         if let Some(age) = self.token_age_s.filter(|age| *age >= FRESH_SECONDS.unsigned_abs()) {
             return Some(format!("{host} skipped: its GitHub token is {} min old, past its {} min trust, so a worker there cannot reach GitHub", age / 60, FRESH_SECONDS / 60));
@@ -109,10 +127,9 @@ impl Saturation {
         if self.disk_free_gib < floor {
             return Some(format!("{host} skipped: {:.1} GiB free on the root disk, under {floor}", self.disk_free_gib));
         }
-        let line = Line::eviction();
-        if line.passed(self.disk_free_gib, self.disk_total_gib) {
-            let under = line.floor_gib(self.disk_total_gib);
-            return Some(format!("{host} skipped: {:.1} GiB free on the root disk, under the {under:.0} GiB line the lease reaper evicts offload slots below", self.disk_free_gib));
+        let bound = self.disk_bound();
+        if self.disk_free_gib < bound {
+            return Some(format!("{host} skipped: {:.1} GiB free on the root disk, under its {bound:.0} GiB disk bound", self.disk_free_gib));
         }
         self.backlog?.refusal(host)
     }
@@ -121,13 +138,13 @@ impl Saturation {
 impl From<Saturation> for north_strategy_types::placement::Saturation {
     fn from(reading: Saturation) -> Self {
         let backlog = reading.backlog.map(|backlog| north_strategy_types::placement::Backlog { queued: backlog.queued, load: backlog.load, threads: backlog.threads, stall: backlog.stall });
-        Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, disk_total_gib: reading.disk_total_gib, backlog, token_age_s: reading.token_age_s }
+        Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, disk_total_gib: reading.disk_total_gib, backlog, token_age_s: reading.token_age_s, disk_bound_gib: reading.disk_bound_gib }
     }
 }
 
 impl From<north_strategy_types::placement::Saturation> for Saturation {
     fn from(reading: north_strategy_types::placement::Saturation) -> Self {
         let backlog = reading.backlog.map(|backlog| Backlog { queued: backlog.queued, load: backlog.load, threads: backlog.threads, stall: backlog.stall });
-        Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, disk_total_gib: reading.disk_total_gib, backlog, token_age_s: reading.token_age_s }
+        Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, disk_total_gib: reading.disk_total_gib, backlog, token_age_s: reading.token_age_s, disk_bound_gib: reading.disk_bound_gib }
     }
 }

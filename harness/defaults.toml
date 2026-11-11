@@ -1730,3 +1730,11 @@ unit = "days of withdrawn fact-graph history north graph retain keeps; asOf or s
 source = "proxy: the longest history reader north had when the horizon was chosen was the climb archive, which read each candidate asOf its landing seq over dispatch's 30-day ARM_WINDOW (crates/north-dispatch/src/dispatch/tier.rs; the archive went with north-climb in bce9c60404, north#970); route replay reads 14 days (docs/rationale/nearest-routing.md); 45 is that 30 plus half again, so a reader that runs late or a horizon taken from an hour-old time mark never meets the edge (north#882, 2026-11-08)"
 fallback = "none: the verb panics without it, since a guessed horizon would delete history a reader needs"
 consumers = ["crates/north-graph-ingest/src/run.rs"]
+
+[dispatch_cold_build_gib]
+value = 8
+allowed = { min = 1, max = 256 }
+unit = "GiB of root disk one new worker's first cold build writes into its lane, which dispatch and fleet placement take off a host's free space above its disk bound for each worker they place, so one round cannot place more workers than the disk holds"
+source = "measured: on 2026-11-11 the GPU host read 3% free after dispatch kept placing workers there, each cold-building 4 to 8 GiB in its lane (north#1136)"
+fallback = "none: the host's room is always the smaller of its memory and disk room"
+consumers = ["crates/north-capacity/src/capacity/saturation.rs"]

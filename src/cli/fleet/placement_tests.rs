@@ -127,7 +127,7 @@ fn a_launch_naming_no_account_moves_to_one_the_spend_rule_admits_and_defers_with
 #[test]
 fn a_deepseek_launch_on_a_saturated_host_is_refused_as_saturated_and_queued_instead_of_starting() {
     use crate::capacity::saturation::{Backlog, Saturation};
-    let reading = |queued, load| Saturation { memory_total_mib: 98_304.0, memory_available_mib: 61_000.0, disk_free_gib: 400.0, disk_total_gib: 936.0, backlog: Some(Backlog { queued, load, threads: 24, stall: None }), token_age_s: None };
+    let reading = |queued, load| Saturation { memory_total_mib: 98_304.0, memory_available_mib: 61_000.0, disk_free_gib: 400.0, disk_total_gib: 936.0, backlog: Some(Backlog { queued, load, threads: 24, stall: None }), token_age_s: None, disk_bound_gib: None };
     let refused = harness_host("whiterabbit", Some(&reading(4, 8.0))).unwrap_err();
     assert!(matches!(&refused, Refusal::Saturated(why) if why.starts_with("whiterabbit skipped: 4 jobs queued in machine-capacity admission")), "{refused:?}");
     assert!(refused.queues("opencode") && !refused.queues("claude"));

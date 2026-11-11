@@ -26,3 +26,14 @@ fn per_machine_admission_reads_memory_and_cpu_pressure_not_a_session_count() {
     let stalled = parse(&reading("0 56.19 20 1500")).unwrap();
     assert!(stalled.refusal("gex45").is_some_and(|why| why.contains("stalled 15%")));
 }
+
+#[test]
+fn a_host_under_its_disk_bound_takes_nothing_and_takes_work_again_once_over_it() {
+    let free = |gib: u64| parse(&format!("65536000\n40000000\n/dev/sda3 981467136 0 {} 90% /\n#backlog\n0 4.0 20 35\n#token\n", gib * 1024 * 1024)).unwrap().bounded(Some(100.0));
+    let under = free(95);
+    assert_eq!(under.refusal("gex45").as_deref(), Some("gex45 skipped: 95.0 GiB free on the root disk, under its 100 GiB disk bound"));
+    assert_eq!(under.session_room(), 0);
+    let over = free(120);
+    assert_eq!(over.refusal("gex45"), None);
+    assert_eq!(over.session_room(), 2);
+}

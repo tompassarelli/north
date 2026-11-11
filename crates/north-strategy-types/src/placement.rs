@@ -149,6 +149,8 @@ pub struct Saturation {
     pub backlog: Option<Backlog>,
     #[serde(default)]
     pub token_age_s: Option<u64>,
+    #[serde(default)]
+    pub disk_bound_gib: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]

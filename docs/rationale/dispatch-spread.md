@@ -19,6 +19,12 @@ gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
   `offload_evict_free_gib` free or 20% of a smaller disk) refuses new sessions in dispatch and in
   `north fleet launch` placement alike. A fixed 85%-used line refused the 936 GiB array at 123 GiB free while the
   reaper, at 94 GiB, slept (north#634); one line means a refused host is always one the reaper is reclaiming.
+- **Disk was read once per round and never charged.** On 2026-11-11 gex45 fell to 3% free because one round placed
+  workers against a disk reading taken before the round, each worker cold-building 4 to 8 GiB in its lane. A host's disk
+  bound is `[hosts.NAME] disk_free_gib`, else the eviction line; under it the host takes nothing and the refusal names the
+  host, its free GiB and the bound, and above it the host's room is the smaller of its memory room and the free space
+  over the bound divided by `dispatch_cold_build_gib` (8), so each placement in a round takes a cold build from the disk
+  and the host takes work again in the first round after free space is back over the bound.
 - **A host whose GitHub token had gone stale was still given boxes.** A host without the App key trusts the token it was
   handed for 55 minutes. Two workers launched on such a host after that trust lapsed stopped with nothing done because
   they could not read their issue (north#818). The saturation probe now also prints the age of that token (empty on a

@@ -182,10 +182,18 @@ impl super::gate::Machine {
 /// The host's saturation reading, from the PLACEMENT_HOSTS fixture alone when that is set, else the cache when under a
 /// minute old, else a fresh probe here or over ssh `destination`; None when unreadable.
 pub(in crate::pacing) fn saturation(name: &str, destination: &str) -> Option<Saturation> {
+    let bound = super::sampling::config().ok().and_then(|cfg| {
+        let setting = cfg.get("hosts")?.get(name)?.get("disk_free_gib")?;
+        setting.as_float().or_else(|| setting.as_integer().map(|whole| whole as f64))
+    });
+    read_saturation(name, destination).map(|reading| reading.bounded(bound))
+}
+
+fn read_saturation(name: &str, destination: &str) -> Option<Saturation> {
     if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
         let fixture = load(Path::new(&path));
         let reading = &fixture[name]["saturation"];
-        return Some(Saturation { memory_total_mib: reading["memory_total_mib"].as_f64()?, memory_available_mib: reading["memory_available_mib"].as_f64()?, disk_free_gib: reading["disk_free_gib"].as_f64()?, disk_total_gib: reading["disk_total_gib"].as_f64().unwrap_or(0.0), backlog: serde_json::from_value(reading["backlog"].clone()).ok(), token_age_s: reading["token_age_s"].as_u64() });
+        return Some(Saturation { memory_total_mib: reading["memory_total_mib"].as_f64()?, memory_available_mib: reading["memory_available_mib"].as_f64()?, disk_free_gib: reading["disk_free_gib"].as_f64()?, disk_total_gib: reading["disk_total_gib"].as_f64().unwrap_or(0.0), backlog: serde_json::from_value(reading["backlog"].clone()).ok(), token_age_s: reading["token_age_s"].as_u64(), disk_bound_gib: None });
     }
     let cache = storage::directory().join("saturation").join(format!("{name}.json"));
     let now = storage::now();
