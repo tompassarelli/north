@@ -208,6 +208,11 @@ impl Runtime for Stream {
         frame["session_id"].as_str()
     }
 
+    fn failed_tool_servers(&self, frame: &Value) -> Vec<String> {
+        let init = frame["type"] == "system" && frame["subtype"] == "init";
+        frame["mcp_servers"].as_array().into_iter().flatten().filter(|server| init && server["status"] == "failed").filter_map(|server| server["name"].as_str().map(str::to_owned)).collect()
+    }
+
     fn quota(&self, _frame: &Value) -> Option<Quota> {
         None
     }

@@ -16,6 +16,7 @@ const PLACEMENT_WAIT: Duration = Duration::from_secs(90);
 const PLACEMENT_HOLD_WAIT: Duration = Duration::from_mins(20);
 const PLACEMENT_HOLD_RETRY: Duration = Duration::from_secs(60);
 const PLACEMENT_BRIEF: &str = "Surface: shell\nNeeds: laptop\n";
+const JUDGED_NORTH: [&str; 3] = ["AGENT_CAPACITY_NORTH", "NORTH_BIN", "NORTH_LAND_NORTH"];
 
 fn placed_account(listing: &str) -> Result<String, String> {
     let target = listing.lines().find_map(|line| line.split_once(": target ").map(|(_, rest)| rest)).ok_or_else(|| format!("`north config agents plan --place` printed no target: {}", listing.trim()))?;
@@ -71,9 +72,13 @@ impl North {
         Ok(process)
     }
 
+    /// The command for `north ARGUMENTS` in the scratch world. Every process it starts runs the judged north: north reads these three variables for the binary a child runs before the live link and PATH, so the lander's notices and checks and the worker's tools judge this build instead of the live runtime (north#1172).
     fn command(&self, arguments: &[&str], variables: &[(&str, &Path)]) -> Command {
         let mut command = Command::new(&self.program);
         exec::operator_environment(&mut command);
+        for pin in JUDGED_NORTH {
+            command.env(pin, &self.program);
+        }
         command
             .args(arguments)
             .current_dir(&self.directory)

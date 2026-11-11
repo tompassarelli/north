@@ -27,6 +27,7 @@ pub use executable::{build_outputs, executable};
 pub use readable::readable;
 pub use removable::{Context, removable};
 pub use hook_screen::Screen;
+pub use broker::SOCKET_ENV as BROKER_SOCKET_ENV;
 pub use sockets::runtime;
 
 pub const FLAG: &str = "--worker-sandbox";

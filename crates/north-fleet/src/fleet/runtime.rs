@@ -143,6 +143,10 @@ pub trait Runtime: Send + Sync {
     fn credential_failure(&self, _frame: &Value) -> Option<ClientRefusal> {
         None
     }
+    /// The tool servers a frame reports as failed to start, so the session runs without the tools they offer.
+    fn failed_tool_servers(&self, _frame: &Value) -> Vec<String> {
+        Vec::new()
+    }
     fn caller_conversation(&self) -> Option<String> {
         None
     }

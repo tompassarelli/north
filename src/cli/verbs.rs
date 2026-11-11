@@ -85,6 +85,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("graph tell", Bookkeeping),
     ("graph", Diagnosis),
     ("guard", Diagnosis),
+    ("hand-in", Landing),
     ("hardcoded-repo-path-check", Diagnosis),
     ("health", Status),
     ("help", Diagnosis),

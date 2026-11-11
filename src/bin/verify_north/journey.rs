@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -18,9 +19,10 @@ Spec: exact
 Scope: one-file
 Surface: shell
 Verify: local-test
-Done when: worker.txt holds the line `the worker's change`, is committed on this branch and is landed on main by `safe-push --to main --wait`.
-In the current directory write the single line `the worker's change` to worker.txt, run `git add worker.txt && git commit -m \"Add the worker's change\"`, then hand in with `safe-push --to main --wait`. Once it prints `Done: landed`, reply with one line that starts `Done:`.";
+Done when: worker.txt holds the line `the worker's change`, and the `hand-in` tool returns `Done: landed` for it, landing it on main.
+In the current directory write the single line `the worker's change` to worker.txt. Then call the `mcp__north__hand-in` tool once with the message `Add the worker's change` and the paths set to the absolute path of worker.txt (the current directory followed by /worker.txt). Do not run git add or git commit first. Once the tool returns `Done: landed`, reply with that line as your only reply.";
 const CHANGED_FILE: &str = "worker.txt";
+const HAND_IN_TOOL: &str = "mcp__north__hand-in";
 const CLAUDE_MODEL: &str = "haiku";
 const HAND_IN_WAIT: Duration = Duration::from_mins(9);
 const SERVE_WAIT: Duration = Duration::from_secs(30);
@@ -29,12 +31,15 @@ const LEDGER_WAIT: Duration = Duration::from_mins(3);
 const QUERY_WAIT: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_secs(1);
 const LANDER_LOCK: &str = "lander.lock";
+const BROKER_SOCKET_ENV: &str = "NORTH_OUTSIDE_BROKER";
 
 type Step = fn(&mut Journey) -> Result<String, String>;
 
+mod hand_in;
+
 const STEPS: [(&str, &str, Step); 4] = [
-    ("1", "`north land serve` serves a scratch repository's queue and a claude haiku worker takes the brief in its lane", take_brief),
-    ("2", "the worker hands in with `safe-push --to main --wait` and reports once its commit lands", hand_in),
+    ("1", "`north land serve` serves a scratch repository's queue, the judged north's outside broker serves the worker's sandbox, and a claude haiku worker takes the brief in its lane", take_brief),
+    ("2", "the worker hands in with one `hand-in` tool call, which returns `Done: landed`", hand_in::hand_in),
     ("3", "the lander landed the worker's commit on origin main", land),
     ("4", "`north ledger worker` records the run done and landed at that commit", ledger_row),
 ];
@@ -52,23 +57,26 @@ struct Journey {
     session: String,
     scratch: Option<Scratch>,
     lander: Option<Process>,
+    broker: Option<Process>,
     landed: Option<String>,
 }
 
 pub fn walk(north: North, notes: Notes, plan: Plan) -> Option<&'static str> {
     let session = format!("vn-{}", plan.stamp);
-    let mut journey = Journey { north, notes, plan, session, scratch: None, lander: None, landed: None };
+    let mut journey = Journey { north, notes, plan, session, scratch: None, lander: None, broker: None, landed: None };
     for (index, (number, title, step)) in STEPS.iter().enumerate() {
         let started = Instant::now();
         let outcome = step(&mut journey);
         report::step(number, title, &outcome, started.elapsed());
         if outcome.is_err() {
             journey.stop_lander();
+            journey.stop_broker();
             journey.keep_evidence();
             STEPS[index + 1..].iter().for_each(|(number, title, _)| report::skipped(number, title));
             return Some(number);
         }
     }
+    journey.stop_broker();
     None
 }
 
@@ -78,6 +86,9 @@ fn take_brief(journey: &mut Journey) -> Result<String, String> {
     let lane = scratch.lane.to_string_lossy().into_owned();
     let lander = journey.serve(&scratch)?;
     journey.lander = Some(lander);
+    let broker = journey.outside_broker(&scratch)?;
+    journey.broker = Some(broker);
+    let socket = scratch.broker.clone();
     journey.scratch = Some(scratch);
     let account = match journey.plan.claude_account.clone() {
         Some(account) => account,
@@ -87,22 +98,9 @@ fn take_brief(journey: &mut Journey) -> Result<String, String> {
     journey.notes.note(&Note::Session(name.clone()));
     let before = processes::session_hosts();
     let launch = ["fleet", "launch", "--provider", "claude", "--account", &account, "--model", CLAUDE_MODEL, "--name", &name, "--parent", "none", "--role", "worker", "--test", "--cwd", &lane, "--no-wait", BRIEF];
-    journey.north.run(&launch, QUERY_WAIT)?;
+    journey.north.run_with(&launch, &[(BROKER_SOCKET_ENV, &socket)], QUERY_WAIT)?;
     journey.watch_host(&before)?;
     Ok(format!("{name} on claude/{account} in {lane}"))
-}
-
-fn hand_in(journey: &mut Journey) -> Result<String, String> {
-    let report = journey.settled_report(HAND_IN_WAIT, |_| true)?;
-    if !report.starts_with("Done:") {
-        return Err(format!("the worker reported {:?}", shorten(&report)));
-    }
-    let scratch = journey.scratch()?;
-    let head = scratch.lane_head()?;
-    if scratch.origin_main()? == scratch.base {
-        return Err(format!("the worker reported {:?} before origin main moved, so it did not wait for its landing", shorten(&report)));
-    }
-    Ok(format!("{} handed in {} at {}", journey.session, scratch::BRANCH, short(&head)))
 }
 
 fn land(journey: &mut Journey) -> Result<String, String> {
@@ -153,6 +151,24 @@ impl Journey {
         }
         lander.terminate();
         Err(format!("`north land serve` held no queue under {} within {} s; it said: {}", queues.display(), SERVE_WAIT.as_secs(), shorten(&fs::read_to_string(&log).unwrap_or_default())))
+    }
+
+    fn outside_broker(&self, scratch: &Scratch) -> Result<Process, String> {
+        let log = scratch.root.join("broker.log");
+        let broker = self.north.start_with(&["--worker-sandbox", "--broker"], &[(BROKER_SOCKET_ENV, &scratch.broker)], &log)?;
+        let answers = || UnixStream::connect(&scratch.broker).is_ok();
+        exec::poll_until(SERVE_WAIT, POLL, || answers() || !broker.alive());
+        if answers() {
+            return Ok(broker);
+        }
+        broker.terminate();
+        Err(format!("the judged north's outside broker did not answer on {} within {} s; it said: {}", scratch.broker.display(), SERVE_WAIT.as_secs(), shorten(&fs::read_to_string(&log).unwrap_or_default())))
+    }
+
+    fn stop_broker(&mut self) {
+        if let Some(broker) = self.broker.take() {
+            broker.terminate();
+        }
     }
 
     fn stop_lander(&mut self) -> String {

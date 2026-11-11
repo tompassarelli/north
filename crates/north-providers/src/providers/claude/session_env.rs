@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, LaunchRequest, Role};
 use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HAND_IN_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV, Seen};
 use crate::platform::git_credential;
@@ -19,7 +18,6 @@ const COMPACT_WINDOW_ENV: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 const READ_TOKEN: &str = r#"CLAUDE_CODE_OAUTH_TOKEN=$(cat -- "$0") || exit; export CLAUDE_CODE_OAUTH_TOKEN; exec "$@""#;
 const READ_API_KEY: &str = r#"ANTHROPIC_API_KEY=$(cat -- "$0") || exit; export ANTHROPIC_API_KEY; exec "$@""#;
 const API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
-const SHELL_PREFIX_ENV: &str = "CLAUDE_CODE_SHELL_PREFIX";
 
 fn account_env(account: &Account) -> Vec<(String, OsString)> {
     (!at_default(account)).then(|| (CONFIG_ENV.into(), account.home.clone().into())).into_iter().collect()
@@ -29,7 +27,7 @@ pub fn invocation(account: &Account) -> Invocation {
     Invocation { prefix: with_credential(account, Vec::new()), env: account_env(account), env_remove: inherited_env(account) }
 }
 
-pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> NorthResult<Vec<(String, OsString)>> {
+pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(String, OsString)> {
     let cap_secs = request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS);
     let cap_ms = (cap_secs * 1000).to_string();
     let hand_in_ms = (cap_secs.max(HAND_IN_CAP_SECS) * 1000).to_string();
@@ -46,8 +44,7 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> NorthRes
     env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
     env.extend(request.window().map(|window| (COMPACT_WINDOW_ENV.into(), window.to_string().into())));
     env.extend(git_credential::session_env().into_iter().map(|(name, value)| (name, value.into())));
-    env.push((SHELL_PREFIX_ENV.into(), super::tool_server::shell_prefix().map_err(NorthError::State)?.into()));
-    Ok(env)
+    env
 }
 
 pub(super) fn model_args(request: &LaunchRequest) -> Vec<String> {

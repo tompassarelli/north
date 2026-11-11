@@ -26,6 +26,7 @@ mod safe_push_entry;
 mod safe_push_tag;
 mod stdio;
 mod worker_sandbox;
+mod hand_in_tool;
 mod support;
 mod threads_ingest_lock;
 mod threads_snapshot;

@@ -21,6 +21,7 @@ use super::{Context, FLAG, LANE_ONLY, MAKER, MARK, SESSION_SCOPE, SOCKETS_HIDDEN
 
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
+pub const SOCKET_ENV: &str = "NORTH_OUTSIDE_BROKER";
 const UNIT: &str = "north-worker-outside";
 const SLICE: &str = "agent.slice";
 const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
@@ -50,9 +51,9 @@ fn runtime() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR").filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw())), PathBuf::from)
 }
 
-/// The broker's socket, in the runtime directory that the worker domain lets a command connect through (sockets.rs).
+/// The broker's socket: the one `NORTH_OUTSIDE_BROKER` names, where verify-north serves the build it judges so a candidate's sandboxed safe-push is not run by the live runtime's broker (north#1172), else the one in the runtime directory that the worker domain lets a command connect through (sockets.rs).
 fn socket() -> PathBuf {
-    runtime().join(DIRECTORY).join(SOCKET)
+    std::env::var_os(SOCKET_ENV).filter(|value| !value.is_empty()).map_or_else(|| runtime().join(DIRECTORY).join(SOCKET), PathBuf::from)
 }
 
 /// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other.
@@ -182,7 +183,7 @@ fn listening(path: &Path) -> bool {
 
 /// Starts `north` as the broker in the transient user service `unit` under `agent.slice`, so the checks and builds it runs for workers count against the agent CPU quota: in the default app.slice a session's brokered safe-push compiled outside the 12-CPU desk bound and held the laptop at load 39 (north#892); whether it started.
 fn start(north: &Path, unit: &str) -> bool {
-    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).arg(format!("--slice={SLICE}")).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).args(std::env::var_os(SOCKET_ENV).map(|socket| format!("--setenv={SOCKET_ENV}={}", socket.to_string_lossy()))).arg(format!("--slice={SLICE}")).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     started.is_ok_and(|status| status.success())
 }
 
@@ -445,7 +446,7 @@ fn multiplexer(request: &Request) -> PathBuf {
 
 /// The namespaces for the sockets and ssh configuration there are now, the last made ones when they still serve them.
 fn namespaces(north: &Path, request: &Request) -> Result<[OwnedFd; 2], String> {
-    let runtime = socket().parent().and_then(Path::parent).map(Path::to_path_buf).ok_or("the broker has no runtime directory")?;
+    let runtime = runtime();
     let now = Laid::now(&runtime, request);
     let mut held = NAMESPACES.lock().map_err(|error| error.to_string())?;
     if !held.as_ref().is_some_and(|made| made.laid.serves(&now)) {

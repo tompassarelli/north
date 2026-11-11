@@ -15,6 +15,7 @@ pub struct Scratch {
     pub origin: PathBuf,
     pub main: PathBuf,
     pub lane: PathBuf,
+    pub broker: PathBuf,
     pub base: String,
 }
 
@@ -42,7 +43,8 @@ impl Scratch {
         git(&main, &["fetch", "-q", "origin"])?;
         git(&main, &["worktree", "add", "-q", "-b", BRANCH, &path(&lane), "origin/main"])?;
         let base = git(&origin, &["rev-parse", "refs/heads/main"])?;
-        Ok(Self { root, origin, main, lane, base })
+        let broker = root.join("broker.sock");
+        Ok(Self { root, origin, main, lane, broker, base })
     }
 
     pub fn origin_main(&self) -> Result<String, String> {

@@ -5,6 +5,7 @@ pub mod build_lag;
 pub mod divergence;
 pub mod enqueue;
 pub mod first_commit;
+pub mod hand_in;
 pub mod lander_fix;
 pub mod link_hold;
 pub mod map_lag;

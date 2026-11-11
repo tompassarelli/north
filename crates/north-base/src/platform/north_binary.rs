@@ -6,9 +6,18 @@ const DELETED_SUFFIX: &[u8] = b" (deleted)";
 
 /// The north binary a child process should run: an explicit AGENT_CAPACITY_NORTH or NORTH_BIN, else the promoted runtime link, else this process's own executable.
 pub fn north_binary() -> PathBuf {
-    let explicit = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    resolve(explicit("AGENT_CAPACITY_NORTH").or_else(|| explicit("NORTH_BIN")), &home, std::env::current_exe().ok())
+    resolve(explicit(), &home, std::env::current_exe().ok())
+}
+
+/// The north binary of this very process, for a child that must run the same version: an explicit AGENT_CAPACITY_NORTH or NORTH_BIN, else this process's own executable.
+pub fn own_binary() -> PathBuf {
+    explicit().unwrap_or_else(|| std::env::current_exe().map_or_else(|_| PathBuf::from("north"), without_deleted_suffix))
+}
+
+fn explicit() -> Option<PathBuf> {
+    let named = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    named("AGENT_CAPACITY_NORTH").or_else(|| named("NORTH_BIN"))
 }
 
 pub fn land_north() -> String {

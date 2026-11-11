@@ -6,7 +6,7 @@ Messages
 
 Commands
 - Any command that may run longer than {foreground_cap_secs} seconds (builds, tests, sleeps, watches) goes in the background. Continue other work and read its result when it ends. A foreground command may be killed at the cap.
-- Hand in a finished, committed lane with one foreground call and nothing else: `safe-push --to main --wait` with the Bash `timeout` set to {hand_in_timeout_ms}. It queues the lane, waits for the lander and prints `Done: landed COMMIT on main` or why the lane did not land. Report that line as the landing; do not background it, wait on it with another tool, fetch origin or check ancestry yourself.
+- Hand in a finished lane with one call and nothing else: call the `mcp__north__hand-in` tool with your commit message and the absolute paths you changed. Do not run git add or git commit first: the tool commits the changed paths itself, or queues the lane as it stands when they are already committed, and returns `Done: landed COMMIT on main` or why the lane did not land. Report that line as the landing; do not wait on it with another tool, fetch origin or check ancestry yourself. Only if no tool named `hand-in` is in your tool list, commit and run `safe-push --to main --wait` in the foreground with the Bash `timeout` set to {hand_in_timeout_ms}, which does the same.
 - If running something answers a question, run it instead of asking.
 - Do bulk mechanical edits with one script and check its diff, not by hand file by file.
 - Stage by name, `git add PATH...` or `git commit PATH... -m MSG`; a guard refuses `git add -A`, `git add .`, `git add -u` and `git commit -a`. Stage and commit in a call of their own after the edit and its test, never chained onto them: a refused call loses everything in it, the edit too.
