@@ -3,13 +3,10 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
-use serde::Deserialize;
-
 use super::{Hold, Lift, bounded};
 use crate::foundation::clock::Timestamp;
 
 const STABLE_PIN: &str = ".local/state/north/channel/stable";
-const AUTOMATIC_LAPTOP_WORDS: [&str; 3] = ["window", "laptop tick", "laptop-auto"];
 const ASK: Duration = Duration::from_secs(10);
 
 fn modified(path: &Path) -> Option<i64> {
@@ -79,23 +76,9 @@ pub(super) fn session_holds(now: i64) -> Vec<Hold> {
     holds
 }
 
-#[derive(Deserialize)]
-struct LaptopWord {
-    state: String,
-    since: String,
-    reason: String,
-    by: String,
-    #[serde(default)]
-    until: Option<String>,
-}
-
-/// The laptop's drain or close word, when a person or session set it; window edges and laptop-auto observations are not set by hand.
 pub(super) fn laptop_word() -> Option<Hold> {
     let said = crate::laptop::Ctx::from_env().main(&["status".to_owned(), "--json".to_owned()]).ok()?;
-    let word: LaptopWord = serde_json::from_str(said.trim()).ok()?;
-    if word.state == "available" || AUTOMATIC_LAPTOP_WORDS.contains(&word.by.as_str()) {
-        return None;
-    }
+    let word = crate::laptop::hand_word(&said)?;
     let lifts = word.until.as_deref().and_then(|until| at(until).or_else(|| Timestamp::parse(until).ok().map(Timestamp::unix_seconds))).map_or_else(|| Lift::Named("the next window edge, or `north fleet laptop open`".into()), Lift::Until);
     Some(Hold { host: "laptop".into(), kind: format!("laptop drain switch ({})", word.state), set_by: word.by, why: word.reason, since: at(&word.since).or_else(|| Timestamp::parse(&word.since).ok().map(Timestamp::unix_seconds)), lifts, lifts_when: String::new(), red: None })
 }

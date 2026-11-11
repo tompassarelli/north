@@ -13,6 +13,7 @@ mod capacity_power_tests;
 
 pub use ctx::{Ctx, hostname};
 pub use die::Die;
+pub use state::{HandWord, hand_word};
 pub use zone::Zone;
 
 const USAGE: &str = "north fleet laptop open|close|drain|toggle|status|tick|observe: the laptop's placement availability, one state on the ledger host.

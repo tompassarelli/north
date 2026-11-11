@@ -25,3 +25,19 @@ pub(super) fn deadline(state: &State) -> Option<i64> {
         _ => None,
     }
 }
+
+const AUTOMATIC_SETTERS: [&str; 3] = ["window", "laptop tick", "laptop-auto"];
+
+pub struct HandWord {
+    pub state: String,
+    pub since: String,
+    pub reason: String,
+    pub by: String,
+    pub until: Option<String>,
+}
+
+/// The drain or close word in a `north fleet laptop status --json` line when a person or session set it; window edges and laptop-auto observations are not set by hand.
+pub fn hand_word(status: &str) -> Option<HandWord> {
+    let state: State = serde_json::from_str(status.trim()).ok()?;
+    (state.state != "available" && !AUTOMATIC_SETTERS.contains(&state.by.as_str())).then_some(HandWord { state: state.state, since: state.since, reason: state.reason, by: state.by, until: state.until })
+}
