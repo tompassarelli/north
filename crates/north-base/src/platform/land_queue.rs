@@ -56,6 +56,36 @@ pub fn local_host() -> String {
     fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
 }
 
+pub const OUTBOX: &str = "outbox";
+pub const DECIDED: &str = "decided";
+
+/// A lane the lander landed from a host: the worktree its ticket names, the head the lander took and the commit it made on main.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct LandedLane {
+    pub root: PathBuf,
+    pub head: String,
+    pub commit: String,
+}
+
+/// The landed tickets from `host` in each of `queues`: its decided area and the verdicts the lander sent back to its outbox.
+pub fn landed_lanes(queues: &[PathBuf], host: &str) -> Vec<LandedLane> {
+    let areas = queues.iter().flat_map(|queue| [queue.join("done"), queue.join(OUTBOX).join(DECIDED)]);
+    let landed = |ticket: &Path| {
+        let ticket = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(ticket).ok()?).ok()?;
+        let commit = ticket["verdict"].as_str()?.strip_prefix("landed ")?.split_whitespace().next()?.to_owned();
+        (ticket["host"].as_str() == Some(host)).then_some(())?;
+        Some(LandedLane { root: PathBuf::from(ticket["root"].as_str()?), head: ticket["head"].as_str()?.to_owned(), commit })
+    };
+    let mut lanes: Vec<LandedLane> = areas
+        .flat_map(|area| fs::read_dir(area).into_iter().flatten().flatten().map(|entry| entry.path()))
+        .filter(|ticket| ticket.extension().is_some_and(|extension| extension == "json"))
+        .filter_map(|ticket| landed(&ticket))
+        .collect();
+    lanes.sort();
+    lanes.dedup();
+    lanes
+}
+
 /// The undecided tickets whose lane is the worktree at `root` on `host`, in any queue under `queues` or its outbox:
 /// ticket files no lander has yet decided, withdrawn or taken from the outbox, so the worktree must stay until each is.
 /// Every host lays its lanes out alike, so a ticket from another host never holds a worktree here.

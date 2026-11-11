@@ -6,6 +6,7 @@ use super::Gc;
 use super::archive::{self, window_hours};
 use super::evidence::{IssueState, LaneFacts, committed, committed_each, lane_class, landed, landed_each, lane_issues, origin_repo, protected_branch};
 use super::exec::{command, git, git_slow, real, verified};
+use super::super::landed_tickets::LandedTickets;
 use super::super::{lane_issue, lane_rejection};
 use super::super::live_process::any_inside;
 use super::super::reap::irreplaceable_ignored;
@@ -37,6 +38,7 @@ struct Container {
     checked_out: HashSet<String>,
     landed: HashMap<String, Landed>,
     committed: HashMap<String, i64>,
+    tickets: LandedTickets,
 }
 
 impl Container {
@@ -174,6 +176,7 @@ impl Gc {
         let committed = committed_each(&main, &tips);
         let origin = origin_repo(&main);
         let previous = self.stale.repo(&name).local_stale.iter().map(|row| (row.path.clone(), row.flagged_at.clone())).collect();
+        let tickets = LandedTickets::read(&self.home.join(".local/state"), &main);
         let mut sweep = Container {
             own: origin.unwrap_or_else(|| name.clone()),
             cutoff_ms: self.now_ms as f64 - self.options.idle_hours * HOUR_MS,
@@ -186,6 +189,7 @@ impl Gc {
             previous,
             local_stale: Vec::new(),
             owned: Vec::new(),
+            tickets,
             landed,
             committed,
         };
@@ -291,11 +295,17 @@ impl Gc {
         let tip = fields.get("HEAD").cloned().unwrap_or_default();
         let status = git(&path, &["status", "--porcelain", "--untracked-files=normal"]);
         let dirty = if !status.ok { "status failed" } else if status.out.is_empty() { "" } else { "dirty" };
+        let landed = sweep.landed(&tip);
+        let proven = if landed.landed || !dirty.is_empty() { None } else { sweep.tickets.landed(&sweep.main, &sweep.base, &path, &tip).map(|commit| format!("landed as {commit}")) };
+        let landed = match proven {
+            Some(how) => Landed { landed: true, ahead: landed.ahead, how },
+            None => landed,
+        };
         let admin = PathBuf::from(worktree_admin(&path));
         let activity_ms = lane_activity_ms(&path, &admin, &sweep.common, &branch, sweep.committed(&tip) as f64 * 1000.0);
         let lane = Worktree {
             place: self.tilde(&path),
-            landed: sweep.landed(&tip),
+            landed,
             age_h: (self.now_ms as f64 - activity_ms) / HOUR_MS,
             locked: fields.contains_key("locked"),
             path,

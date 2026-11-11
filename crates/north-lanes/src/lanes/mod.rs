@@ -3,6 +3,7 @@ mod gc;
 pub use gc::USAGE as GC_USAGE;
 mod hardcoded_paths;
 mod home_move;
+mod landed_tickets;
 mod lane_issue;
 mod lane_rejection;
 mod layout_check;

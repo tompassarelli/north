@@ -67,7 +67,7 @@ impl Container {
     }
 
     fn sweep(&self, dry_run: bool) -> (Vec<String>, Counts) {
-        let sweep = Sweep { dry_run, minimum_age: 7200, only: None, now: SystemTime::now(), proc_root: PathBuf::from("/proc"), queues: self.path().join("land-queue") };
+        let sweep = Sweep { dry_run, minimum_age: 7200, only: None, now: SystemTime::now(), proc_root: PathBuf::from("/proc"), state: self.path().join("state") };
         let (report, failure) = sweep.reap_containers(&[self.path()]);
         assert_eq!(failure, None);
         (report.lines, report.counts)

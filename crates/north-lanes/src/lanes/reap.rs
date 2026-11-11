@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::gc::{BuildTarget, drop_build_target, gib};
+use super::landed_tickets::LandedTickets;
 use super::live_process;
 use super::repo::{find_container, git_checked, git_ok, git_out, is_lander_tree};
 use super::verdict::{Facts, Verdict, retirement_verdict};
@@ -27,7 +28,9 @@ working inside it, is not locked or a rescue branch, AND either:
   merged  — its HEAD is an ancestor of main; or
   equiv   — every commit it is ahead by is patch-equivalent to something
             already on main, or the lane's change adds nothing main does not
-            hold (the rebase- and squash-landed lane).
+            hold (the rebase- and squash-landed lane), or a landed ticket from
+            this host names this lane with the head it still has and the
+            commit the lander made is on main.
 
 Every reap is held back by ignored files that are not disposable caches
 (.direnv/, result symlinks) — docs/private/ notes live there. A lane it keeps
@@ -67,7 +70,7 @@ pub(super) struct Sweep {
     pub(super) only: Option<PathBuf>,
     pub(super) now: SystemTime,
     pub(super) proc_root: PathBuf,
-    pub(super) queues: PathBuf,
+    pub(super) state: PathBuf,
 }
 
 struct Lane<'a> {
@@ -75,6 +78,7 @@ struct Lane<'a> {
     main_ref: String,
     tree: PathBuf,
     locked: &'a [PathBuf],
+    tickets: &'a LandedTickets,
 }
 
 enum Outcome {
@@ -103,7 +107,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    let sweep = Sweep { dry_run, minimum_age: MINIMUM_AGE_SECONDS, only: None, now: SystemTime::now(), proc_root: PathBuf::from("/proc"), queues: land_queue::queues(&home.join(".local/state")) };
+    let sweep = Sweep { dry_run, minimum_age: MINIMUM_AGE_SECONDS, only: None, now: SystemTime::now(), proc_root: PathBuf::from("/proc"), state: home.join(".local/state") };
     let containers = if all { Ok(all_containers(&home)) } else { current_container() };
     let (report, failure) = match containers {
         Ok(containers) => sweep.reap_containers(&containers),
@@ -175,8 +179,9 @@ impl Sweep {
         let (trees, locked) = parse_listing(&listing);
         let sweep_dir = container.join("worktrees");
         let main_ref = git_out(&main_dir, &["rev-parse", "--symbolic-full-name", &format!("{main_branch}@{{upstream}}")]).unwrap_or_else(|| format!("refs/heads/{main_branch}"));
+        let tickets = LandedTickets::read(&self.state, &main_dir);
         for tree in trees.into_iter().filter(|tree| tree.parent() == Some(sweep_dir.as_path()) && !is_lander_tree(tree) && self.only.as_ref().is_none_or(|only| only == tree)) {
-            let lane = Lane { main_dir: &main_dir, main_ref: main_ref.clone(), tree, locked: &locked };
+            let lane = Lane { main_dir: &main_dir, main_ref: main_ref.clone(), tree, locked: &locked, tickets: &tickets };
             if let Some(outcome) = self.judge(&lane) {
                 self.act(&lane, outcome, report)?;
             }
@@ -219,7 +224,7 @@ impl Sweep {
             "locked"
         } else if live_process::has_cwd_inside(&self.proc_root, &lane.tree) {
             "live cwd"
-        } else if !land_queue::waiting_on(&self.queues, &land_queue::local_host(), &lane.tree).is_empty() {
+        } else if !land_queue::waiting_on(&land_queue::queues(&self.state), &land_queue::local_host(), &lane.tree).is_empty() {
             "land ticket waiting"
         } else {
             return None;
@@ -247,6 +252,7 @@ impl Sweep {
             facts.evil_merge = git_out(lane.main_dir, &["rev-list", "--merges", &range]).is_none_or(|merges| !merges.is_empty());
             facts.equivalent = equivalent_to_main(lane.main_dir, &lane.main_ref, &format!("refs/heads/{branch}"));
         }
+        facts.equivalent = facts.equivalent || lane.tickets.landed(lane.main_dir, &lane.main_ref, &lane.tree, head).is_some();
         facts
     }
 
@@ -321,7 +327,7 @@ impl Sweep {
             return true;
         }
         let branch_ref = git_out(&lane.tree, &["symbolic-ref", "--quiet", "HEAD"]).unwrap_or_default();
-        !branch_ref.is_empty() && equivalent_to_main(lane.main_dir, &lane.main_ref, &branch_ref)
+        !branch_ref.is_empty() && equivalent_to_main(lane.main_dir, &lane.main_ref, &branch_ref) || lane.tickets.landed(lane.main_dir, &lane.main_ref, &lane.tree, &head).is_some()
     }
 
     fn remove(&self, lane: &Lane, branch: &str) -> Result<(), String> {

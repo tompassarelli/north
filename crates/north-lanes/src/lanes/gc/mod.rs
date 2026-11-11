@@ -27,6 +27,8 @@ mod strays_tests;
 mod scratch_tests;
 #[cfg(test)]
 mod targets_tests;
+#[cfg(test)]
+mod tickets_tests;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::OpenOptions;

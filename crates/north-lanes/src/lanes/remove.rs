@@ -14,8 +14,8 @@ const USAGE: &str = "usage: north lane remove [--rejected VERDICT] LANE...
 
 Removes each LANE, a directory directly under a project's worktrees/ (named by its absolute path),
 only when nothing in it is at risk. A registered worktree must be clean, hold no ignored file
-beyond build output and caches, have every commit on main or a change main already holds,
-and be neither locked, nor waiting in the land queue, nor the cwd of a live process: it is removed
+beyond build output and caches, have every commit on main, a change main already holds or a landed ticket from this host naming
+the head it still has, and be neither locked, nor waiting in the land queue, nor the cwd of a live process: it is removed
 with its branch, as `north lane reap` does but with no minimum age. A lane it keeps whose tip is
 on main, or whose change main already holds, loses its git-ignored target/ at once unless a
 process holds it open, so a landed lane leaves no build output behind. A directory git no longer
@@ -45,10 +45,10 @@ pub fn run(arguments: &[String]) -> u8 {
         return 2;
     }
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let queues = land_queue::queues(&home.join(".local/state"));
+    let state = home.join(".local/state");
     let mut code = 0;
     for lane in lanes.iter().map(PathBuf::from) {
-        match settle(&lane, verdict, &home, &queues) {
+        match settle(&lane, verdict, &home, &state) {
             Ok(message) => println!("{message}"),
             Err(reason) => {
                 eprintln!("kept {}: {reason}", lane.display());
@@ -59,14 +59,14 @@ pub fn run(arguments: &[String]) -> u8 {
     code
 }
 
-fn settle(lane: &Path, verdict: Option<&str>, home: &Path, queues: &Path) -> Result<String, String> {
+fn settle(lane: &Path, verdict: Option<&str>, home: &Path, state: &Path) -> Result<String, String> {
     match verdict {
-        Some(verdict) => reject(lane, verdict, queues, &home.join("archive/lanes"), Timestamp::now().unix_millis()),
-        None => remove(lane, queues),
+        Some(verdict) => reject(lane, verdict, &land_queue::queues(state), &home.join("archive/lanes"), Timestamp::now().unix_millis()),
+        None => remove(lane, state),
     }
 }
 
-pub(super) fn remove(lane: &Path, queues: &Path) -> Result<String, String> {
+pub(super) fn remove(lane: &Path, state: &Path) -> Result<String, String> {
     if !lane.is_absolute() {
         return Err("name it by its absolute path".to_owned());
     }
@@ -84,7 +84,7 @@ pub(super) fn remove(lane: &Path, queues: &Path) -> Result<String, String> {
     }
     let listing = git_out(&main, &["worktree", "list", "--porcelain"]).unwrap_or_default();
     if listing.lines().filter_map(|line| line.strip_prefix("worktree ")).any(|path| Path::new(path) == lane) {
-        let sweep = Sweep { dry_run: false, minimum_age: 0, only: Some(lane.to_path_buf()), now: SystemTime::now(), proc_root: PathBuf::from("/proc"), queues: queues.to_path_buf() };
+        let sweep = Sweep { dry_run: false, minimum_age: 0, only: Some(lane.to_path_buf()), now: SystemTime::now(), proc_root: PathBuf::from("/proc"), state: state.to_path_buf() };
         let (report, failure) = sweep.reap_containers(&[container.to_path_buf()]);
         return match failure {
             Some(message) => Err(message),
@@ -92,6 +92,6 @@ pub(super) fn remove(lane: &Path, queues: &Path) -> Result<String, String> {
             None => Err(report.lines.join("; ")),
         };
     }
-    orphan::remove(&main, lane, queues)
+    orphan::remove(&main, lane, &land_queue::queues(state))
 }
 

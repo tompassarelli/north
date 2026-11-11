@@ -20,8 +20,8 @@ fn an_empty_shell_nested_inside_the_main_checkout_is_removed_north_1006() {
     std::fs::remove_file(lane.join("f.txt")).unwrap();
     git_in(&main, &["worktree", "lock", lane.to_str().unwrap()]);
 
-    let queues = home.path().join("queues");
-    assert!(remove(&lane, &queues).is_ok());
+    let state = home.path().join("state");
+    assert!(remove(&lane, &state).is_ok());
     assert!(!lane.exists() && !main.join("proj").exists());
     assert!(!git_in(&main, &["worktree", "list"]).contains("config-drift-993"));
 }
@@ -31,7 +31,7 @@ fn a_nested_lane_that_holds_files_is_kept_north_1006() {
     let home = tempfile::tempdir().unwrap();
     let (_, lane) = nested_lane(home.path());
 
-    let kept = remove(&lane, &home.path().join("queues")).unwrap_err();
+    let kept = remove(&lane, &home.path().join("state")).unwrap_err();
     assert!(kept.contains("worktree move"), "{kept}");
     assert!(lane.join("f.txt").exists());
 }
@@ -47,7 +47,7 @@ fn a_squash_landed_lane_is_removed_and_one_with_unlanded_work_is_kept_north_958(
     git_in(&container.main(), &["add", "later.txt"]);
     git_in(&container.main(), &["commit", "-qm", "main advances after the landing"]);
 
-    let removed = remove(&lane, &container.path().join("queues")).expect("a squash-landed lane is spent");
+    let removed = remove(&lane, &container.path().join("state")).expect("a squash-landed lane is spent");
     assert!(!lane.exists(), "{removed}");
     assert!(!git_in(&container.main(), &["worktree", "list"]).contains("squash-landed"));
 
@@ -58,8 +58,8 @@ fn a_squash_landed_lane_is_removed_and_one_with_unlanded_work_is_kept_north_958(
     git_in(&container.main(), &["add", "alpha.txt"]);
     git_in(&container.main(), &["commit", "-qm", "land only the first file"]);
 
-    let queues = container.path().join("queues");
-    let kept = remove(&partial, &queues).unwrap_err();
+    let state = container.path().join("state");
+    let kept = remove(&partial, &state).unwrap_err();
     assert!(kept.contains("unmerged"), "{kept}");
     assert!(partial.exists());
 
@@ -67,7 +67,7 @@ fn a_squash_landed_lane_is_removed_and_one_with_unlanded_work_is_kept_north_958(
     container.commit_in(&dirty, "third.txt");
     container.squash_land("dirty", "land every commit");
     fs::write(dirty.join("scratch.txt"), "uncommitted\n").unwrap();
-    let kept = remove(&dirty, &queues).unwrap_err();
+    let kept = remove(&dirty, &state).unwrap_err();
     assert!(kept.contains("dirty"), "{kept}");
     assert!(dirty.exists());
 }
@@ -83,7 +83,7 @@ fn a_lane_landed_on_origin_is_removed_while_the_hosts_local_main_lags_north_1036
     git_in(&main, &["update-ref", "refs/remotes/origin/main", landed.trim()]);
     git_in(&main, &["branch", "--set-upstream-to=origin/main", "main"]);
 
-    let removed = remove(&lane, &container.path().join("queues")).expect("a lane on origin/main is spent");
+    let removed = remove(&lane, &container.path().join("state")).expect("a lane on origin/main is spent");
     assert!(!lane.exists(), "{removed}");
     assert!(!git_in(&main, &["branch", "--list", "landed-on-origin"]).contains("landed-on-origin"));
 }
