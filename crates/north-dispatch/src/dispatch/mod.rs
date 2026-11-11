@@ -176,6 +176,11 @@ fn open_boxes(issue: &Issue, running: &BTreeMap<String, String>, tried: &BTreeMa
     boxes
 }
 
+/// The first words of a box's text, enough to tell it from its issue's other boxes.
+fn box_words(text: &str) -> String {
+    text.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").split_whitespace().take(8).collect::<Vec<_>>().join(" ")
+}
+
 /// Every ready box placed on a free slot, or skipped with its reason.
 pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let scope = Scope::parse(&survey.cfg);
@@ -200,6 +205,11 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         let running = survey.box_holds.get(&reference).unwrap_or(&none);
         let tried = survey.box_tries.get(&reference).unwrap_or(&none);
         let boxes = open_boxes(issue, running, tried, survey.at, &mut claims);
+        for text in issue.takeable(survey.at) {
+            if let Some(holder) = crate::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
+                outcome.skipped.push((reference.clone(), format!("box `{}` held: {holder}", box_words(text))));
+            }
+        }
         let boxes = survey.mainline.unretired(issue, boxes, &mut outcome.skipped);
         let mut staffed = running.len();
         for box_text in &boxes {
@@ -303,7 +313,8 @@ impl Started {
 /// the mirror copied it is skipped, and so is every box once the proxy has paused dispatch, even in a run that began before the pause.
 fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Option<String>) -> Started {
     let verb = if launch.cloud { "cloud-launch" } else { "launch" };
-    let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, deepseek::rung(launch));
+    let named = facets::declared_in(&launch.brief, "Box").map_or_else(String::new, |text| format!(" box `{}`", box_words(text)));
+    let line = format!("{verb} {}{named} on {} {} as {}", launch.item, launch.host, launch.account, deepseek::rung(launch));
     if let Some(reason) = standing().filter(|_| !dry_run) {
         return Started::Skipped(format!("skip {}: dispatch was paused while this run was working: {reason}", launch.item));
     }

@@ -410,3 +410,18 @@ fn a_dispatch_round_places_only_on_the_listed_providers_and_never_on_an_excluded
     let lines = super::scope::Scope::parse(&planned.cfg).lines();
     assert_eq!(lines, ["dispatch providers: opencode".to_owned(), "dispatch hosts excluded: whiterabbit".to_owned()]);
 }
+
+/// north#1187: on 2026-11-12 a dry-run planned a launch on an issue one of whose boxes an open gate with no default held, and named neither the box nor a skip.
+#[test]
+fn a_box_held_by_an_open_gate_with_no_default_is_skipped_with_a_line_naming_the_gate_and_every_launch_names_its_box() {
+    let (_, accounts) = fleet();
+    let hosts = vec![host("gex45", 24, Ok(0))];
+    let mut survey = survey(vec![issue("north", 1187, "- [ ] the first box is built\n- [ ] the second box is built", &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    let listing = serde_json::json!([{"id": 7, "session": "north-1187-x", "question": "Which?", "closed_ms": null, "default_at_ms": null, "issue": "north#1187", "box": "second box", "host": "gex45"}]);
+    let rows = super::survey::gate_rows(&listing, "gex45");
+    super::survey::gate_holds(rows.into_iter(), &survey.issues, 0.0, &mut survey.box_holds);
+    let outcome = decide(&survey, "test");
+    let boxes: Vec<String> = outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect();
+    assert_eq!(boxes, ["the first box is built"], "{:?}", outcome.skipped);
+    assert!(outcome.skipped.iter().any(|(_, why)| why.contains("the second box is built") && why.contains("open north gate gex45:7")), "{:?}", outcome.skipped);
+}

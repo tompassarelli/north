@@ -114,7 +114,7 @@ pub fn gate_rows(listing: &Value, host: &str) -> Vec<(IssueRef, Option<String>, 
 }
 
 /// The issues the open gates in `rows` hold whole; a box-scoped gate holds instead, in `box_holds`, each takeable box of its issue carrying its text.
-fn gate_holds(rows: impl Iterator<Item = (IssueRef, Option<String>, String)>, issues: &[Issue], at: f64, box_holds: &mut record::BoxHolds) -> Vec<(IssueRef, String)> {
+pub(super) fn gate_holds(rows: impl Iterator<Item = (IssueRef, Option<String>, String)>, issues: &[Issue], at: f64, box_holds: &mut record::BoxHolds) -> Vec<(IssueRef, String)> {
     let mut held = Vec::new();
     for (item, text, why) in rows {
         let Some(text) = text else {
