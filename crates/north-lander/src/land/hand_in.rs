@@ -4,6 +4,9 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::enqueue::{default_branch, git};
+use crate::land::scans::outgoing::denylist::Denylist;
+
+const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub const USAGE: &str = "usage: north hand-in --message TEXT [--] PATH...";
 pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--] PATH...";
@@ -78,6 +81,9 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
             return 1;
         }
     };
+    if request.check.is_some() {
+        ask_early(&named, request.message);
+    }
     if let Some(check) = request.check
         && let Err(failure) = passes(&named.lane.root, check)
     {
@@ -174,4 +180,39 @@ fn normal(path: &Path) -> PathBuf {
         }
     }
     normal
+}
+
+fn ask_early(named: &Named, message: &str) {
+    let root = named.lane.root.clone();
+    let destination = named.lane.destination.clone();
+    let Some(head) = would_be(&root, message, &named.paths) else { return };
+    std::thread::spawn(move || {
+        let Ok(origin) = git(&root, &["remote", "get-url", "--push", "origin"]) else { return };
+        let base = format!("refs/remotes/origin/{destination}");
+        let _ = Denylist::from_env().verdict_within(&root, &origin, (&base, &head, &destination), Some(EARLY_WAIT));
+    });
+}
+
+fn would_be(root: &Path, message: &str, paths: &[String]) -> Option<String> {
+    let index = PathBuf::from(git(root, &["rev-parse", "--path-format=absolute", "--git-path", "index"]).ok()?);
+    let scratch = index.with_file_name(format!("index.finish-{}", std::process::id()));
+    let staged = |arguments: &[&str], input: Option<&str>| apart(root, &scratch, arguments, input);
+    let made = (|| {
+        staged(&["read-tree", "HEAD"], None)?;
+        staged(&[&["add", "--all", "--"][..], &paths.iter().map(String::as_str).collect::<Vec<_>>()].concat(), None)?;
+        let tree = staged(&["write-tree"], None)?;
+        let cleaned = staged(&["stripspace"], Some(message))?;
+        staged(&["commit-tree", tree.trim(), "-p", "HEAD", "-F", "-"], Some(&cleaned))
+    })();
+    let _ = std::fs::remove_file(&scratch);
+    made.map(|head| head.trim().to_owned())
+}
+
+fn apart(root: &Path, index: &Path, arguments: &[&str], input: Option<&str>) -> Option<String> {
+    let mut child = Command::new("git").arg("-C").arg(root).args(arguments).env("GIT_INDEX_FILE", index).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut stdin = child.stdin.take()?;
+    std::io::Write::write_all(&mut stdin, input.unwrap_or_default().as_bytes()).ok()?;
+    drop(stdin);
+    let output = child.wait_with_output().ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
