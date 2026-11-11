@@ -25,6 +25,7 @@ pub(super) fn authorize(argv: &[String]) -> Result<String, Refusal> {
         ["north", "fleet", "usage", "--refresh", "--local", "--json"] => Some("fleet usage".to_string()),
         ["readlink", ".local/state/north/current"] => Some("readlink current".to_string()),
         ["north", "runtime", "health"] => Some("runtime health".to_string()),
+        ["north", "holds", "list", "--here", "--json"] => Some("holds list".to_string()),
         ["south", "land"] =>Some("south land".to_string()),
         _ => None,
     };

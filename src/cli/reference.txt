@@ -321,6 +321,7 @@ Commands:
   runtime lag --processes|--json                List each long-lived north process on this host with the runtime it runs and behind for each whose runtime is not the one its link names, or (--json) as an array the seconds each process on every declared host runs behind the newest landing that changed a runtime input
   lane sync CHECKOUT...                            Fetch and fast-forward each project main checkout to origin/main, outside a worker sandbox
   buck targets [--check] [--root DIR]              Write every workspace crate's Buck2 targets from the Cargo manifests; --check exits 1 on drift
+  holds list [--here] [--json]                  Every stop set by hand on each host (dispatch pause, issue holds, laptop drain switch, stable-pin hold, a lock a unit holds): who set it, why, since when and what lifts it, red once it outlives its lift by 10 minutes or names none
 
 Options:
   -h, --help  Show the operator and agent commands

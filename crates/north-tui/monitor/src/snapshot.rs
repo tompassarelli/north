@@ -50,6 +50,7 @@ pub struct Snapshot {
     pub health: Reading<Health>,
     pub builds: Reading<Builds>,
     pub ladder: Reading<u8>,
+    pub holds: Reading<Holds>,
     pub trends: Trends,
 }
 
@@ -147,6 +148,24 @@ pub struct Health {
     pub green: u32,
     pub amber: Vec<String>,
     pub red: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HoldRow {
+    pub host: String,
+    pub kind: String,
+    pub set_by: String,
+    pub why: String,
+    pub lifts_when: String,
+    pub red: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Holds {
+    pub holds: Vec<HoldRow>,
+    pub unread: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

@@ -1,0 +1,1 @@
+  holds list [--here] [--json]                  Every stop set by hand on each host (dispatch pause, issue holds, laptop drain switch, stable-pin hold, a lock a unit holds): who set it, why, since when and what lifts it, red once it outlives its lift by 10 minutes or names none

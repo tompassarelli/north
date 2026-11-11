@@ -6,7 +6,7 @@ use std::time::UNIX_EPOCH;
 
 use serde::Deserialize;
 
-use crate::snapshot::{Builds, Health};
+use crate::snapshot::{Builds, Health, Holds};
 
 const TAIL_BYTES: u64 = 3_000_000;
 const NEW_FAILURE_S: u64 = 600;
@@ -125,4 +125,9 @@ pub fn builds_of(spans: &[SpanLite], until: f64) -> Builds {
     };
     let longest = |kind: Kind| spans.iter().filter(|span| span.trace == last.trace && span.kind == kind && span.end <= until).map(|span| span.end - span.start).reduce(f64::max);
     Builds { compile_s: longest(Kind::Compile), test_s: longest(Kind::Test), land_checks_s: Some(last.end - last.start), ended_at: Some(last.end as u64) }
+}
+
+pub fn holds() -> Result<Holds, String> {
+    let text = super::run("north", &["holds", "list", "--json"], std::time::Duration::from_secs(40))?;
+    serde_json::from_str(&text).map_err(|error| format!("holds list --json: {error}"))
 }

@@ -4,13 +4,14 @@ use ratatui::text::{Line, Span};
 use super::paint::{Boxed, Fresh, Painter, dim, label, mark, style, title, trend, unknown_line};
 use super::queue::failure_rate;
 use crate::budget::Tone;
-use crate::snapshot::{Builds, Health, Snapshot};
+use crate::snapshot::{Builds, Health, Holds, Snapshot};
 use crate::text::{clock, duration, sparkline_f};
 
 const HEALTH_BOUND: u64 = 15;
 const HEALTH_WRITTEN_BOUND: u64 = 1200;
 const BUILDS_BOUND: u64 = 45;
 const LADDER_BOUND: u64 = 8;
+const HOLDS_BOUND: u64 = 90;
 
 fn ladder_line(painter: &mut Painter, snapshot: &Snapshot) -> Line<'static> {
     let fresh = painter.fresh("ladder", &snapshot.ladder, LADDER_BOUND);
@@ -55,6 +56,21 @@ fn checks_lines(painter: &mut Painter, health: &Health, fresh: &Fresh) -> Vec<Li
     lines
 }
 
+fn holds_lines(painter: &mut Painter, holds: &Holds) -> Vec<Line<'static>> {
+    let red = holds.holds.iter().filter(|hold| hold.red.is_some()).count();
+    let mut lines = vec![Line::from(vec![label("hand stops "), Span::raw(format!("{} standing · ", holds.holds.len())), Span::styled(format!("{red} red"), style(if red == 0 { Tone::Plain } else { Tone::Red }))])];
+    for hold in &holds.holds {
+        let tone = if hold.red.is_some() { Tone::Red } else { Tone::Plain };
+        if let Some(why) = &hold.red {
+            painter.alert(Tone::Red, format!("{} {}: {why}", hold.host, hold.kind));
+        }
+        lines.push(Line::from(Span::styled(format!("  {} {}: {} · by {}", hold.host, hold.kind, hold.why, hold.set_by), style(tone))));
+        lines.push(Line::from(Span::styled(format!("    lifts when {}", hold.lifts_when), dim())));
+    }
+    lines.extend(holds.unread.iter().map(|(host, why)| Line::from(Span::styled(format!("  {host}: holds not read: {why}"), style(Tone::Amber)))));
+    lines
+}
+
 fn seconds(painter: &mut Painter, id: &str, value: Option<f64>) -> Span<'static> {
     value.map_or_else(|| Span::styled("?", dim()), |seconds| painter.metric(id, seconds, duration(seconds.round() as u64)))
 }
@@ -92,6 +108,11 @@ pub fn render(painter: &mut Painter, snapshot: &Snapshot, offset_s: i32) -> Boxe
     lines.extend(unknown_line("health", &fresh));
     if let Some(health) = &snapshot.health.value {
         lines.extend(checks_lines(painter, health, &fresh));
+    }
+    let holds_fresh = painter.fresh("holds", &snapshot.holds, HOLDS_BOUND);
+    lines.extend(unknown_line("holds", &holds_fresh));
+    if let Some(holds) = &snapshot.holds.value {
+        lines.extend(holds_lines(painter, holds));
     }
     let builds_fresh = painter.fresh("builds", &snapshot.builds, BUILDS_BOUND);
     lines.extend(unknown_line("builds", &builds_fresh));

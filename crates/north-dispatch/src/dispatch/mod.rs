@@ -22,7 +22,7 @@ pub use fleets::holder as task_holder;
 pub use survey::github::recheck as work_gone;
 pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub use manual::{Ask, Start, begin as start_hand, boxless_launch_refusal, draw_untasked_window, picked_tier, tier_reason, untasked};
-pub use pause::{review as review_pause, standing as paused};
+pub use pause::{check_passes as pause_check_passes, recorded as recorded_pause, review as review_pause, standing as paused};
 pub use record::{Record as LaunchRecord, directory as launch_directory, read as launch_records};
 pub use tier::{ARM_WINDOW, Effort, Evidence, Rung, Tier, evidenced, seed_cell};
 

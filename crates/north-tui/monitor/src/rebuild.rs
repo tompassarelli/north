@@ -40,6 +40,7 @@ pub fn snapshots(state: &Path, from: u64, to: u64, step: u64) -> Result<Vec<Snap
             health: Reading::failed(at, NOT_KEPT),
             builds: Reading::ok(at, health::builds_of(&spans, at as f64)),
             ladder: ladder.map_or_else(|| Reading::failed(at, NOT_KEPT), |level| Reading::ok(at, level)),
+            holds: Reading::failed(at, NOT_KEPT),
             trends: trends.clone(),
         });
         at += step.max(1);

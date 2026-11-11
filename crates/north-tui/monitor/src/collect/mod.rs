@@ -12,7 +12,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::snapshot::{Builds, Fleet, Health, Host, HostState, Lander, Landing, Reading, Rollout, Snapshot};
+use crate::snapshot::{Builds, Fleet, Health, Holds, Host, HostState, Lander, Landing, Reading, Rollout, Snapshot};
 
 pub enum Update {
     Fleet(Result<Fleet, String>),
@@ -24,6 +24,7 @@ pub enum Update {
     Health(Result<Health, String>),
     Builds(Result<Builds, String>),
     Ladder(Result<u8, String>),
+    Holds(Result<Holds, String>),
 }
 
 pub struct HostTarget {
@@ -126,6 +127,7 @@ pub fn spawn(hosts: Vec<HostTarget>) -> Receiver<Update> {
     every(Duration::from_secs(5), updates.clone(), move || Update::Health(health::checks(&checks)));
     let spans = state.clone();
     every(Duration::from_secs(15), updates.clone(), move || Update::Builds(health::builds_tail(&spans)));
+    every(Duration::from_secs(30), updates.clone(), || Update::Holds(health::holds()));
     every(Duration::from_secs(2), updates, move || Update::Ladder(health::ladder(&state)));
     receiver
 }
@@ -148,6 +150,7 @@ pub fn apply(snapshot: &mut Snapshot, update: Update, at: u64) {
         Update::Health(result) => snapshot.health.update(at, result),
         Update::Builds(result) => snapshot.builds.update(at, result),
         Update::Ladder(result) => snapshot.ladder.update(at, result),
+        Update::Holds(result) => snapshot.holds.update(at, result),
     }
 }
 

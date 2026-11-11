@@ -20,6 +20,7 @@ mod gate;
 mod gate_closing;
 mod gate_relay;
 mod glance;
+mod holds;
 mod hook_stats;
 mod hook_verb;
 mod ledger;
@@ -86,6 +87,7 @@ enum Command {
     BuildCacheGate(Vec<String>),
     Health(Vec<String>),
     Glance(Vec<String>),
+    Holds(Vec<String>),
     GuardLanguage,
     ContractProbe(Vec<String>),
     Grounding(Vec<String>),
@@ -157,6 +159,7 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("build-cache-gate", |_, rest| Command::BuildCacheGate(rest)),
     ("health", |_, rest| Command::Health(rest)),
     ("glance", |_, rest| Command::Glance(rest)),
+    ("holds", |_, rest| Command::Holds(rest)),
     ("contract-probe", |_, rest| Command::ContractProbe(rest)),
     ("remote-serve", |_, rest| Command::RemoteServe(rest)),
 ];
@@ -242,6 +245,10 @@ fn dispatch(command: Command) -> ExitCode {
         Command::BuildCacheGate(arguments) => in_runtime(async move { Ok(build_cache_gate::run_gate(&arguments)) }),
         Command::Health(arguments) => views::health::run(&arguments, |repo| crate::ops::citation_check::verdict(repo, tools::defines)),
         Command::Glance(arguments) => match glance::run(&arguments) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => failure(error),
+        },
+        Command::Holds(arguments) => match holds::run(&arguments) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => failure(error),
         },

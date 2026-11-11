@@ -37,7 +37,7 @@ fn timer(action: &str) -> u8 {
     }
 }
 
-fn check_passes(check: &str) -> bool {
+pub fn check_passes(check: &str) -> bool {
     Command::new("timeout").args([CHECK_SECS, "sh", "-c", check]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
 }
 
@@ -93,6 +93,12 @@ pub fn resume() -> u8 {
         }
     }
     timer("start")
+}
+
+/// The pause recorded under `home` and the path of its record.
+pub fn recorded(home: &Path) -> Option<(Pause, PathBuf)> {
+    let path = record_path(home);
+    Pause::read(&path).map(|pause| (pause, path))
 }
 
 /// The pause standing on this host after this round's lift check: a pause whose check passes or whose expiry came ends here,
