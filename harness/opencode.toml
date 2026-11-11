@@ -6,9 +6,10 @@ source = "https://opencode.ai/docs/go"
 repos = ["south"]
 
 # north fleet dispatch staffs DeepSeek on these hosts, which hold the opencode key, and keeps on Claude every box whose
-# issue title or box text matches one of claude_only: credentials, the worker sandbox, fleet locking (north#1020) and a box
-# whose own text says a DeepSeek session cannot do it (north#1054).
+# issue title or box text matches one of claude_only: credentials, the worker sandbox, fleet locking (north#1020), a box
+# whose own text says a DeepSeek session cannot do it (north#1054), and a box that reads a host's own telemetry, since a
+# lane-only session reads no agent state and so opens neither the capacity database nor the watchdog samples (north#259).
 [dispatch]
 hosts = ["gex45", "cpx62", "cpx62b", "whiterabbit"]
 slot_cap = 16
-claude_only = ['\bcredentials?\b', '\bsecrets?\b', '\bsops\b', '\bpasswords?\b', '\bkeyring\b', '\bsandbox', '\blandlock\b', '\block(s|ed|ing)?\b', '\bflock\b', '\bmutex', '\bA DeepSeek session cannot do\b']
+claude_only = ['\bcredentials?\b', '\bsecrets?\b', '\bsops\b', '\bpasswords?\b', '\bkeyring\b', '\bsandbox', '\blandlock\b', '\block(s|ed|ing)?\b', '\bflock\b', '\bmutex', '\bA DeepSeek session cannot do\b', 'capacity\.db', 'samples\.jsonl']
