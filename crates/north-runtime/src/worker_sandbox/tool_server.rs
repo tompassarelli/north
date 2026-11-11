@@ -74,8 +74,8 @@ fn tool(verb: &str) -> Value {
     if verb == FINISH {
         return json!({
             "name": verb,
-            "description": "Finishes your lane in one call: runs `check`, the box's acceptance command, in the lane; only when it passes, commits the changed `paths` (absolute, all in one lane, the files you edited or created) with `message`, runs every safe-push gate and queues the lane, then returns the ticket without waiting for the lander. A failing check commits and queues nothing and returns its output. When the whole change fits in one answer, send its edits and this call in one message without running the check first: this call runs after them. An accepted call ends your turn, its `Done: queued` line being your report; the lander's refusal, if any, starts your next turn, and a landing needs nothing from you.",
-            "inputSchema": {"type": "object", "properties": {"check": {"type": "string"}, "message": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}}, "required": ["check", "message", "paths"]},
+            "description": "Finishes your lane in one call: runs `check`, the box's acceptance command, in the lane; only when it passes, commits the changed `paths` (absolute, all in one lane, the files you edited or created) with `message`, runs every safe-push gate and queues the lane, then returns the ticket without waiting for the lander. A failing check commits and queues nothing and returns its output. A change that fits in this one answer goes in `files`, each a `path` in your lane and that file's whole new `content`, written before the check, left as written when it fails and needing no place in `paths`; otherwise send your edits and this call in one message without running the check first, as this call runs after them. An accepted call ends your turn, its `Done: queued` line being your report; the lander's refusal, if any, starts your next turn, and a landing needs nothing from you.",
+            "inputSchema": {"type": "object", "properties": {"check": {"type": "string"}, "message": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "files": {"type": "array", "items": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}}, "required": ["check", "message"]},
         });
     }
     json!({
@@ -93,14 +93,26 @@ fn words(verb: &str, arguments: &Value) -> Vec<String> {
     }
     if verb == FINISH {
         let text = |key: &str| arguments[key].as_str().unwrap_or_default().to_owned();
-        return ["--check".to_owned(), text("check"), "--message".to_owned(), text("message"), "--".to_owned()].into_iter().chain(strings(&arguments["paths"])).collect();
+        return ["--check".to_owned(), text("check"), "--message".to_owned(), text("message"), "--files".to_owned(), "-".to_owned(), "--".to_owned()].into_iter().chain(strings(&arguments["paths"])).collect();
     }
     strings(&arguments["arguments"])
 }
 
+fn input(verb: &str, arguments: &Value) -> String {
+    if verb != FINISH {
+        return String::new();
+    }
+    arguments.get("files").filter(|files| files.is_array()).map_or_else(|| "[]".to_owned(), Value::to_string)
+}
+
 fn call(verbs: &[String], north: &Path, params: &Value) -> Result<Value, (i64, String)> {
     let verb = params["name"].as_str().filter(|name| verbs.iter().any(|verb| verb == name)).ok_or_else(|| (BAD_PARAMS, format!("no such tool: {}", params["name"])))?;
-    let output = Command::new(north).arg(verb).args(words(verb, &params["arguments"])).stdin(Stdio::null()).output().map_err(|error| (BAD_PARAMS, format!("{}: {error}", north.display())))?;
+    let unstarted = |error: io::Error| (BAD_PARAMS, format!("{}: {error}", north.display()));
+    let mut child = Command::new(north).arg(verb).args(words(verb, &params["arguments"])).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(unstarted)?;
+    if let Some(mut pipe) = child.stdin.take() {
+        let _ = pipe.write_all(input(verb, &params["arguments"]).as_bytes());
+    }
+    let output = child.wait_with_output().map_err(unstarted)?;
     let text = [output.stderr, output.stdout].map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).concat();
     Ok(json!({"content": [{"type": "text", "text": short(verb, text)}], "isError": !output.status.success()}))
 }

@@ -1,6 +1,7 @@
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Output};
+use std::process::{Child, Output, Stdio};
 
 use north_base::foundation::shim::write_executable;
 use north_base::platform::wait;
@@ -188,4 +189,50 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), "named.txt", "the call committed more than the named path");
     assert_eq!(git(&lane, &["log", "-1", "--format=%s", &queued.head]), "Add the finished note (north#1194)");
     assert_eq!(git(&lane, &["status", "--porcelain", "--", "unnamed.txt"]), "?? unnamed.txt", "the call swept up a path it was not given");
+}
+
+const FILES: &str = "hand_in::a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_written_when_its_check_fails";
+const FILES_ARGUMENTS: &str = "NORTH_FINISH_FILES_IT_ARGUMENTS";
+
+fn finish_files(world: &World, lane: &Path, check: &str, files: &[(PathBuf, &str)]) -> Output {
+    let arguments = ["--check", check, "--message", "Write the finished files (north#1218)", "--files", "-"];
+    let mut call = queueing(world, FILES, FILES_ARGUMENTS, &arguments).current_dir(lane).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let files: Vec<serde_json::Value> = files.iter().map(|(path, content)| serde_json::json!({"path": path, "content": content})).collect();
+    call.stdin.take().unwrap().write_all(serde_json::Value::from(files).to_string().as_bytes()).unwrap();
+    call.wait_with_output().unwrap()
+}
+
+#[test]
+fn a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_written_when_its_check_fails() {
+    if let Ok(arguments) = std::env::var(FILES_ARGUMENTS) {
+        let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
+        let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string()]);
+        std::process::exit(i32::from(hand_in::finish(&arguments, road)));
+    }
+    let (world, north) = scanned_world(JUDGE_PASSES);
+    let lane = worktree(&north, "files");
+    let start = git(&lane, &["rev-parse", "HEAD"]);
+    let (inside, outside, readme) = (lane.join("notes/new.txt"), north.checkout.join("outside.txt"), lane.join("README"));
+
+    let refused = finish_files(&world, &lane, "true", &[(inside.clone(), "inside\n"), (outside.clone(), "outside\n")]);
+    let text = report(&refused);
+    assert_eq!(refused.status.code(), Some(1), "{text}");
+    assert!(text.contains(&format!("{} is outside the lane", outside.display())), "{text}");
+    assert!(!inside.exists() && !outside.exists(), "a refused call wrote a file: {text}");
+
+    let failed = finish_files(&world, &lane, "cat notes/new.txt; exit 3", &[(inside.clone(), "the red draft\n")]);
+    let text = report(&failed);
+    assert_eq!(failed.status.code(), Some(1), "{text}");
+    assert!(text.contains("the red draft") && text.contains("exited 3") && text.contains("NOT queued"), "the check did not run on the written file: {text}");
+    assert_eq!(fs::read_to_string(&inside).unwrap(), "the red draft\n", "a failed check did not leave the file as written");
+    assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a failed check committed: {text}");
+    assert!(queue::pending(&north.queue).unwrap().is_empty(), "a failed check queued: {text}");
+
+    let passed = finish_files(&world, &lane, "grep -q green notes/new.txt", &[(inside, "the green note\n"), (readme, "the rewritten readme\n")]);
+    let text = report(&passed);
+    assert_eq!(passed.status.code(), Some(0), "{text}");
+    let pending = queue::pending(&north.queue).unwrap();
+    let [(_, queued)] = &pending[..] else { panic!("the passing call did not leave one undecided ticket: {pending:?}\n{text}") };
+    assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), "README\nnotes/new.txt", "the call did not commit exactly its files");
+    assert_eq!(git(&lane, &["show", &format!("{}:notes/new.txt", queued.head)]), "the green note");
 }

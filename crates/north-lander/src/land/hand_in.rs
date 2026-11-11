@@ -1,5 +1,7 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194); given `--files`, it first writes their whole contents into the session's own lane, the checkout holding its directory, refusing a path outside it before anything is written (north#1218).
 
+use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -9,7 +11,7 @@ use crate::land::scans::outgoing::denylist::Denylist;
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub const USAGE: &str = "usage: north hand-in --message TEXT [--] PATH...";
-pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--] PATH...";
+pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...";
 
 pub struct Lane {
     pub root: PathBuf,
@@ -31,32 +33,56 @@ impl<F: FnOnce(&Lane) -> u8> Road for F {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct File {
+    path: PathBuf,
+    content: String,
+}
+
 struct Request<'a> {
     check: Option<&'a str>,
     message: &'a str,
     paths: Vec<PathBuf>,
+    files: Vec<File>,
 }
 
 struct Named {
     lane: Lane,
     paths: Vec<String>,
+    targets: Vec<PathBuf>,
     committed: bool,
 }
 
 pub fn run(arguments: &[String], road: impl Road) -> u8 {
     let request = match arguments {
-        [flag, message, rest @ ..] if flag == "--message" => Request { check: None, message, paths: paths(rest) },
+        [flag, message, rest @ ..] if flag == "--message" => Request { check: None, message, paths: paths(rest), files: Vec::new() },
         _ => return usage(arguments, USAGE),
     };
     hand(&request, "hand-in", road)
 }
 
 pub fn finish(arguments: &[String], road: impl Road) -> u8 {
-    let request = match arguments {
-        [check_flag, check, message_flag, message, rest @ ..] if check_flag == "--check" && message_flag == "--message" => Request { check: Some(check), message, paths: paths(rest) },
+    let (check, message, rest) = match arguments {
+        [check_flag, check, message_flag, message, rest @ ..] if check_flag == "--check" && message_flag == "--message" => (check, message, rest),
         _ => return usage(arguments, FINISH_USAGE),
     };
-    hand(&request, "finish", road)
+    let (files, rest) = match rest {
+        [flag, source, rest @ ..] if flag == "--files" => match files(source) {
+            Ok(files) => (files, rest),
+            Err(refusal) => {
+                eprintln!("finish: ✗ {refusal}; NOT written, NOT committed.");
+                return 1;
+            }
+        },
+        _ => (Vec::new(), rest),
+    };
+    hand(&Request { check: Some(check), message, paths: paths(rest), files }, "finish", road)
+}
+
+fn files(source: &str) -> Result<Vec<File>, String> {
+    let text = if source == "-" { io::read_to_string(io::stdin()) } else { fs::read_to_string(source) };
+    let text = text.map_err(|error| format!("the files in {source}: {error}"))?;
+    serde_json::from_str(&text).map_err(|error| format!("the files in {source} are not a JSON list of {{\"path\", \"content\"}}: {error}"))
 }
 
 fn usage(arguments: &[String], usage: &str) -> u8 {
@@ -73,7 +99,7 @@ fn paths(rest: &[String]) -> Vec<PathBuf> {
 }
 
 fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
-    let named = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|directory| name(&directory, request, &road));
+    let named = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|directory| name(&directory, request, &road)).and_then(|named| apply(named, &request.files));
     let named = match named {
         Ok(named) => named,
         Err(refusal) => {
@@ -87,7 +113,8 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
     if let Some(check) = request.check
         && let Err(failure) = passes(&named.lane.root, check)
     {
-        eprintln!("{verb}: ✗ the check `{check}` {failure}; NOT committed, NOT queued.");
+        let kept = if request.files.is_empty() { "" } else { "the files stay as written; " };
+        eprintln!("{verb}: ✗ the check `{check}` {failure}; {kept}NOT committed, NOT queued.");
         return 1;
     }
     match commit(&named, request.message) {
@@ -115,9 +142,11 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     if request.message.trim().is_empty() {
         return Err("the message is empty".to_owned());
     }
-    let paths: Vec<PathBuf> = request.paths.iter().map(|path| normal(&directory.join(path))).collect();
+    let targets: Vec<PathBuf> = request.files.iter().map(|file| normal(&directory.join(&file.path))).collect();
+    let paths: Vec<PathBuf> = request.paths.iter().map(|path| normal(&directory.join(path))).chain(targets.iter().cloned()).collect();
     let Some(first) = paths.first() else { return Err("name the paths to hand in".to_owned()) };
-    let root = checkout(first).ok_or_else(|| format!("{} is in no git checkout", first.display()))?;
+    let home = if targets.is_empty() { first.as_path() } else { directory };
+    let root = checkout(home).ok_or_else(|| format!("{} is in no git checkout", home.display()))?;
     if let Some(outside) = paths.iter().find(|path| checkout(path).as_ref() != Some(&root)) {
         return Err(format!("{} is outside the lane {}", outside.display(), root.display()));
     }
@@ -134,11 +163,21 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     if !unnamed.is_empty() {
         return Err(format!("the lane's commits also change {}, which the hand-in did not name", unnamed.join(" ")));
     }
-    let changed = !git(&root, &[&["status", "--porcelain", "--untracked-files=all", "--"][..], &named.iter().map(String::as_str).collect::<Vec<_>>()].concat())?.is_empty();
-    if !changed && committed.is_empty() {
-        return Err(format!("no changes in {}", named.join(" ")));
+    Ok(Named { lane: Lane { root, destination }, paths: named, targets, committed: !committed.is_empty() })
+}
+
+fn apply(named: Named, files: &[File]) -> Result<Named, String> {
+    for (target, file) in named.targets.iter().zip(files) {
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        }
+        fs::write(target, &file.content).map_err(|error| format!("{}: {error}", target.display()))?;
     }
-    Ok(Named { lane: Lane { root, destination }, paths: named, committed: !committed.is_empty() })
+    let paths: Vec<&str> = named.paths.iter().map(String::as_str).collect();
+    if !named.committed && git(&named.lane.root, &[&["status", "--porcelain", "--untracked-files=all", "--"][..], &paths].concat())?.is_empty() {
+        return Err(format!("no changes in {}", paths.join(" ")));
+    }
+    Ok(named)
 }
 
 fn commit(named: &Named, message: &str) -> Result<(), String> {
