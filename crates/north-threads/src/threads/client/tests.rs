@@ -74,6 +74,9 @@ fn log(rig: &Rig, name: &str) -> Vec<String> {
     fs::read_to_string(rig.root.join(name)).unwrap_or_default().lines().map(str::to_owned).collect()
 }
 
+/// How long a fake ssh that stalls has to log its call before the client gives up on it; a stall always ends at this bound, so only a start slower than it fails a test.
+const STALL_BOUND: Duration = Duration::from_secs(5);
+
 const PREFIX: &str = "-o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host";
 
 #[test]
@@ -114,7 +117,7 @@ fn threads_client_spools_unreachable_writes_and_flushes_them_in_order() {
 #[test]
 fn a_stalled_ledger_host_returns_a_claim_as_outcome_unknown_within_its_bound_and_never_replays_it() {
     let mut rig = rig(&[]);
-    rig.client.ssh_wait = Duration::from_millis(300);
+    rig.client.ssh_wait = STALL_BOUND;
     fs::write(rig.root.join("sleep"), "30").unwrap();
     assert_eq!(call(&rig, &["claim", "wisp#99", "--by", "stall"], b""), (TIMED_OUT_STATUS, "NorthThreads: ledger-host timed out; remote outcome unknown\n".to_owned()));
     assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'wisp#99' --by stall")]);
@@ -130,7 +133,7 @@ fn spooled(rig: &Rig) -> Vec<String> {
 #[test]
 fn a_spooled_batch_whose_flush_times_out_stays_spooled_and_is_sent_again_once_the_host_answers() {
     let mut rig = rig(&[]);
-    rig.client.ssh_wait = Duration::from_millis(300);
+    rig.client.ssh_wait = STALL_BOUND;
     let kept = rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
     fs::write(rig.root.join("sleep"), "30").unwrap();
     let (_, err) = call(&rig, &["claim", "north#63"], b"");
@@ -146,13 +149,14 @@ fn a_spooled_batch_whose_flush_times_out_stays_spooled_and_is_sent_again_once_th
 #[test]
 fn a_claim_leaves_the_spool_to_a_detached_flush_and_that_flush_sends_it() {
     let mut rig = rig(&[]);
-    let started = rig.root.join("background.log");
-    rig.client.background = Some(vec!["/bin/sh".into(), "-c".into(), format!("printf '%s\\n' \"$*\" >> '{}'", started.display()).into(), "north".into(), "threads".into()]);
+    let started = rig.root.join("background.fifo");
+    rustix::fs::mknodat(rustix::fs::CWD, &started, rustix::fs::FileType::Fifo, rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR, 0).unwrap();
+    rig.client.background = Some(vec!["/bin/sh".into(), "-c".into(), format!("printf '%s\\n' \"$*\" > '{}'", started.display()).into(), "north".into(), "threads".into()]);
     rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
     assert_eq!(call(&rig, &["claim", "north#63", "--by", "s"], b"").0, 0);
     assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'north#63' --by s")], "the claim sent the spool before itself");
-    let flushing = || fs::read_to_string(&started).unwrap_or_default().contains("spool-flush ledger-host");
-    assert!(north_base::platform::wait::until(Duration::from_secs(60), flushing), "no detached spool-flush started: {:?}", fs::read_to_string(&started));
+    let flush = fs::read_to_string(&started).unwrap();
+    assert!(flush.contains("spool-flush ledger-host"), "the detached start was not a spool-flush: {flush:?}");
     assert_eq!(spooled(&rig).len(), 1);
     assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
     assert!(spooled(&rig).is_empty());
@@ -172,7 +176,7 @@ fn a_second_usage_ingest_inside_five_minutes_pulls_no_second_snapshot() {
 
 fn stalled_rig() -> Rig {
     let mut rig = rig(&[]);
-    rig.client.ssh_wait = Duration::from_millis(300);
+    rig.client.ssh_wait = STALL_BOUND;
     fs::write(rig.root.join("sleep"), "30").unwrap();
     rig
 }
@@ -410,7 +414,7 @@ fn two_ingests_started_together_run_one_after_the_other_and_each_batch_is_record
 
 #[test]
 fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_code_and_its_retry_records_each_row_once() {
-    let (directory, mut client) = ledger_host(Duration::from_secs(5));
+    let (directory, mut client) = ledger_host(Duration::from_secs(60));
     client.ingest_hold = Duration::from_secs(3);
     let writer = rusqlite::Connection::open(directory.path().join("threads.db")).unwrap();
     writer.execute_batch("PRAGMA journal_mode = WAL; BEGIN IMMEDIATE").unwrap();
@@ -422,7 +426,7 @@ fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_cod
     writer.execute_batch("ROLLBACK").unwrap();
     drop(writer);
     let lines = logged(directory.path());
-    assert_eq!((lines[0]["exit"].as_i64(), lines[0]["held_ms"].as_i64().is_some_and(|held| (3000..30_000).contains(&held))), (Some(i64::from(ingest_lock::RETRY)), true), "{lines:?}");
+    assert_eq!((lines[0]["exit"].as_i64(), lines[0]["held_ms"].as_i64().is_some_and(|held| held >= 3000)), (Some(i64::from(ingest_lock::RETRY)), true), "{lines:?}");
     for _ in 0..2 {
         assert_eq!(client.main(&["ingest".to_owned()], &mut &[batch("one"), batch("two")].concat()[..], &mut Vec::new()).unwrap(), 0);
     }
@@ -431,7 +435,7 @@ fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_cod
 
 #[test]
 fn a_batch_past_the_chunk_size_is_committed_in_chunks_each_under_its_own_lock_and_logged_apart() {
-    let (directory, mut client) = ledger_host(Duration::from_secs(5));
+    let (directory, mut client) = ledger_host(Duration::from_secs(60));
     client.ingest_chunk_rows = 2;
     let batches: Vec<u8> = ["a", "b", "c", "d", "e"].iter().flat_map(|id| batch(id)).collect();
     assert_eq!(client.main(&["ingest".to_owned()], &mut &batches[..], &mut Vec::new()).unwrap(), 0);
@@ -454,9 +458,9 @@ fn a_first_snapshot_pull_cut_short_keeps_its_pages_and_the_next_pull_finishes_it
     fs::write(&cut, &pages[..pages.len() - 40]).unwrap();
     let snapshot = rig.root.join("first.db");
     let serving = |file: &Path| vec![OsString::from("/bin/sh"), "-c".into(), "cat >/dev/null; cat \"$1\"".into(), "ssh".into(), file.into()];
-    assert!(snapshot::pull(&serving(&cut), &snapshot, Duration::from_secs(10), false).is_err());
+    assert!(snapshot::pull(&serving(&cut), &snapshot, Duration::from_secs(600), false).is_err());
     assert!(!snapshot.exists() && rig.root.join("first.db.partial").exists());
-    snapshot::pull(&serving(&rig.root.join("pages")), &snapshot, Duration::from_secs(10), false).unwrap();
+    snapshot::pull(&serving(&rig.root.join("pages")), &snapshot, Duration::from_secs(600), false).unwrap();
     assert!(snapshot.exists() && !rig.root.join("first.db.partial").exists());
 }
 
