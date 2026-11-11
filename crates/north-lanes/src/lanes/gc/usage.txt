@@ -11,6 +11,8 @@ when it is finished, and pushes no tag:
     its tip's tree is a tree on main or every patch it carries has a commit on main with the
     same stable patch-id; a commit's patch-id never changes, so main's are cached per commit in
     .git/north/lane-gc-patch-ids and a run diffs only the commits main gained since the last;
+    each verdict is kept with the main commit it was judged against in
+    .git/north/lane-gc-verdicts.json, so a run judges again only a lane whose tip or main moved;
   - archived: a lane or local branch that is not landed and whose issues are all closed, idle
     7 days, or that names no issue and has no owner, idle 14 days, is first bundled to
     --archive DIR/<project>/ (default ~/archive/lanes; uncommitted and untracked changes ride

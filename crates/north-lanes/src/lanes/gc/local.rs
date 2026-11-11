@@ -4,13 +4,14 @@ use std::time::UNIX_EPOCH;
 
 use super::Gc;
 use super::archive::{self, window_hours};
-use super::evidence::{IssueState, LaneFacts, Landed, committed, committed_each, lane_class, landed, landed_each, lane_issues, origin_repo, protected_branch};
+use super::evidence::{IssueState, LaneFacts, committed, committed_each, lane_class, landed, landed_each, lane_issues, origin_repo, protected_branch};
 use super::exec::{command, git, git_slow, real, verified};
 use super::super::{lane_issue, lane_rejection};
 use super::super::live_process::any_inside;
 use super::super::reap::irreplaceable_ignored;
 use super::super::repo::is_lander_tree;
 use super::half::Lanes;
+use super::judged::Landed;
 use super::liveness::{holds_git_dir, worktree_admin};
 use super::report::Row;
 use super::strays::modified_within;

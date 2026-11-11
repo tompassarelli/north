@@ -11,6 +11,7 @@ use serde_json::Value;
 
 use super::content::MainContent;
 use super::exec::{command, git};
+use super::judged::{Judged, Landed};
 use super::super::lane_issue::recorded;
 
 const CHERRY_LIMIT: u64 = 400;
@@ -20,13 +21,6 @@ static REFS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bRefs\s+([\w.-]+#\
 static ORIGIN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)tompassarelli/([^/]+?)(?:\.git)?$").unwrap()
 });
-
-#[derive(Clone)]
-pub(super) struct Landed {
-    pub(super) landed: bool,
-    pub(super) ahead: u64,
-    pub(super) how: String,
-}
 
 fn counts(repo: &Path, base: &str, tip: &str) -> (u64, u64) {
     let counted = git(repo, &["rev-list", "--left-right", "--count", &format!("{base}...{tip}")]).out;
@@ -236,6 +230,15 @@ impl LaneClass {
 }
 
 pub(super) fn landed_each(repo: &Path, base: &str, tips: &[String]) -> HashMap<String, Landed> {
+    let judged = Judged::read(repo, base);
+    let fresh = judge_each(repo, base, &judged.unjudged(tips));
+    judged.keep(tips, fresh)
+}
+
+fn judge_each(repo: &Path, base: &str, tips: &[String]) -> HashMap<String, Landed> {
+    if tips.is_empty() {
+        return HashMap::new();
+    }
     let tree_of_base = base_tree(repo, base);
     let main = OnceLock::new();
     let next = AtomicUsize::new(0);

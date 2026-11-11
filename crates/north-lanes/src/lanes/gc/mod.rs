@@ -5,6 +5,7 @@ mod content;
 mod evidence;
 mod exec;
 mod half;
+mod judged;
 mod liveness;
 mod local;
 mod remote;

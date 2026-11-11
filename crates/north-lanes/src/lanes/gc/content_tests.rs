@@ -2,7 +2,8 @@ use std::fs;
 use std::path::Path;
 
 use super::content::MainContent;
-use super::evidence::landed;
+use super::evidence::{landed, landed_each};
+use super::judged::Judged;
 use crate::lanes::test_git::{git_in, init_repo};
 
 fn commit(repo: &Path, file: &str, text: &str, subject: &str) {
@@ -66,4 +67,26 @@ fn a_second_gc_run_diffs_only_commits_no_earlier_run_diffed() {
 
     git_in(&main, &["reset", "-q", "--hard", &base]);
     assert_eq!(MainContent::read(&main, "main").holds(&main, "main", &tip), None, "a cached patch id of a commit main no longer holds retires nothing");
+}
+
+#[test]
+fn a_gc_run_judges_again_only_a_lane_whose_tip_or_main_moved() {
+    let root = tempfile::tempdir().unwrap();
+    let main = root.path().canonicalize().unwrap().join("main");
+    init_repo(&main, None);
+    let base = git_in(&main, &["rev-parse", "HEAD"]);
+    git_in(&main, &["checkout", "-q", "-b", "lane", &base]);
+    commit(&main, "g.txt", "the lane's work\n", "g, on the lane");
+    let tip = git_in(&main, &["rev-parse", "HEAD"]);
+    git_in(&main, &["checkout", "-q", "main"]);
+    let tips = vec![tip.clone()];
+
+    let first = landed_each(&main, "main", &tips);
+    assert!(!first[&tip].landed);
+    assert!(Judged::read(&main, "main").unjudged(&tips).is_empty(), "a lane judged against this main is not judged again");
+    assert_eq!(landed_each(&main, "main", &tips), first, "a kept verdict is the verdict judging gives");
+
+    commit(&main, "g.txt", "the lane's work\n", "g, as the lander landed it");
+    assert_eq!(Judged::read(&main, "main").unjudged(&tips), tips, "a lane is judged again once main moves");
+    assert!(landed_each(&main, "main", &tips)[&tip].landed, "a lane main now holds is landed despite the verdict kept against the old main");
 }

@@ -48,9 +48,9 @@ fn patch_ids_of(repo: &Path, commits: &[&str]) -> Option<Vec<(String, String)>> 
     patch_ids(repo, &selection)
 }
 
-fn cache_path(repo: &Path) -> Option<PathBuf> {
+pub(super) fn cache_path(repo: &Path, name: &str) -> Option<PathBuf> {
     let common = git(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-    common.ok.then(|| real(Path::new(&common.out)).join(CACHE))
+    common.ok.then(|| real(Path::new(&common.out)).join(name))
 }
 
 fn cached(path: &Path) -> HashMap<String, String> {
@@ -80,7 +80,7 @@ struct Known {
 
 impl Known {
     fn load(repo: &Path) -> Self {
-        let path = cache_path(repo);
+        let path = cache_path(repo, CACHE);
         let ids = path.as_deref().map(cached).unwrap_or_default();
         Self { path, ids }
     }
