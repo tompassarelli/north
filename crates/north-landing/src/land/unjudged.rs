@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::land::bisect;
@@ -10,53 +13,69 @@ use crate::land::telemetry::Stages;
 
 pub type Lanes = Vec<(PathBuf, Ticket)>;
 
-pub type Verdict<'a> = dyn Fn(&Ticket, &str, Option<Duration>) -> DenylistVerdict + Sync + 'a;
+pub type Verdict = dyn Fn(&Ticket, &str, Option<Duration>) -> DenylistVerdict + Send + Sync;
 
 const PATIENCE: Duration = Duration::from_secs(120);
-const ROUND_WAIT: Duration = Duration::from_secs(10);
+const REASK: Duration = Duration::from_secs(2);
 
-enum Judged {
-    Ready((PathBuf, Ticket)),
-    Judging((PathBuf, Ticket)),
-    Decided,
+struct Ask {
+    head: String,
+    answer: JoinHandle<DenylistVerdict>,
 }
 
-pub fn settle(lander: &Lander, tickets: Lanes, now: Duration, verdict: &Verdict) -> Result<Lanes, String> {
-    let mut settled = Lanes::new();
-    let mut judging = Lanes::new();
-    for (path, ticket) in tickets {
-        let Some(base) = ticket.unjudged_on.clone() else {
-            settled.push((path, ticket));
-            continue;
+#[derive(Default)]
+pub struct Asks {
+    asking: HashMap<PathBuf, Ask>,
+    resting: HashMap<PathBuf, Instant>,
+}
+
+impl Asks {
+    pub fn running(&self) -> usize {
+        self.asking.values().filter(|ask| !ask.answer.is_finished()).count()
+    }
+
+    pub fn settle(&mut self, lander: &Lander, tickets: Lanes, now: Duration, verdict: &Arc<Verdict>) -> Result<Lanes, String> {
+        self.asking.retain(|path, _| tickets.iter().any(|(queued, ticket)| queued == path && ticket.unjudged_on.is_some()));
+        self.resting.retain(|path, _| tickets.iter().any(|(queued, _)| queued == path));
+        let mut settled = Lanes::new();
+        for (path, ticket) in tickets {
+            let Some(base) = ticket.unjudged_on.clone() else {
+                settled.push((path, ticket));
+                continue;
+            };
+            let Some(found) = self.answer(&path, &ticket, now, verdict) else { continue };
+            if let Some(lane) = judged(lander, path, ticket, &base, found, now)? {
+                settled.push(lane);
+            }
+        }
+        Ok(settled)
+    }
+
+    fn answer(&mut self, path: &Path, ticket: &Ticket, now: Duration, verdict: &Arc<Verdict>) -> Option<DenylistVerdict> {
+        let found = match self.asking.remove(path) {
+            Some(ask) if ask.head == ticket.head && !ask.answer.is_finished() => {
+                self.asking.insert(path.to_owned(), ask);
+                return None;
+            }
+            Some(ask) if ask.head == ticket.head => ask.answer.join().unwrap_or_else(|_| DenylistVerdict { lines: Vec::new(), stand: Stand::Judging }),
+            _ => {
+                if self.resting.get(path).is_none_or(|until| Instant::now() >= *until) {
+                    self.resting.remove(path);
+                    self.ask(path, ticket, now, verdict);
+                }
+                return None;
+            }
         };
-        let found = verdict(&ticket, &base, None);
-        sort(judged(lander, path, ticket, &base, found, now)?, &mut settled, &mut judging);
+        if found.stand == Stand::Judging {
+            self.resting.insert(path.to_owned(), Instant::now() + REASK);
+        }
+        Some(found)
     }
-    if !settled.is_empty() || judging.is_empty() {
-        return Ok(settled);
-    }
-    let started = Instant::now();
-    let waited: Vec<DenylistVerdict> = std::thread::scope(|scope| {
-        let asked: Vec<_> = judging.iter().map(|(_, ticket)| scope.spawn(move || awaited(ticket, now, verdict))).collect();
-        asked.into_iter().map(|asked| asked.join().unwrap_or_else(|_| DenylistVerdict { lines: Vec::new(), stand: Stand::Judging })).collect()
-    });
-    for ((path, ticket), found) in judging.into_iter().zip(waited) {
-        let base = ticket.unjudged_on.clone().unwrap_or_default();
-        sort(judged(lander, path, ticket, &base, found, now + started.elapsed())?, &mut settled, &mut Lanes::new());
-    }
-    Ok(settled)
-}
 
-fn awaited(ticket: &Ticket, now: Duration, verdict: &Verdict) -> DenylistVerdict {
-    let base = ticket.unjudged_on.as_deref().unwrap_or_default();
-    verdict(ticket, base, Some(PATIENCE.saturating_sub(age(ticket, now)).min(ROUND_WAIT)))
-}
-
-fn sort(judged: Judged, settled: &mut Lanes, judging: &mut Lanes) {
-    match judged {
-        Judged::Ready(lane) => settled.push(lane),
-        Judged::Judging(lane) => judging.push(lane),
-        Judged::Decided => {}
+    fn ask(&mut self, path: &Path, ticket: &Ticket, now: Duration, verdict: &Arc<Verdict>) {
+        let (asked, verdict, wait) = (ticket.clone(), Arc::clone(verdict), PATIENCE.saturating_sub(age(ticket, now)));
+        let answer = std::thread::spawn(move || verdict(&asked, asked.unjudged_on.as_deref().unwrap_or_default(), Some(wait)));
+        self.asking.insert(path.to_owned(), Ask { head: ticket.head.clone(), answer });
     }
 }
 
@@ -65,7 +84,7 @@ fn age(ticket: &Ticket, now: Duration) -> Duration {
     ticket.queued_micros.map_or(PATIENCE, |queued| Duration::from_micros(u64::try_from(now.saturating_sub(queued)).unwrap_or(u64::MAX)))
 }
 
-fn judged(lander: &Lander, path: PathBuf, ticket: Ticket, base: &str, found: DenylistVerdict, now: Duration) -> Result<Judged, String> {
+fn judged(lander: &Lander, path: PathBuf, ticket: Ticket, base: &str, found: DenylistVerdict, now: Duration) -> Result<Option<(PathBuf, Ticket)>, String> {
     let judged = match found.stand {
         Stand::Pass => {
             println!("north land: the private-kind judge found nothing in {}; it joins the next batch", ticket.branch);
@@ -80,11 +99,11 @@ fn judged(lander: &Lander, path: PathBuf, ticket: Ticket, base: &str, found: Den
             let refusal = format!("failed {}", log.display());
             records::write(lander, &path, &ticket, &Candidate { head: &ticket.head, batch_size: 1, stages: &Stages::empty() }, &Decision::Refused { verdict: &refusal });
             bisect::decide(&path, &ticket, refusal, Some(&log), base)?;
-            return Ok(Judged::Decided);
+            return Ok(None);
         }
         Stand::Judging if age(&ticket, now) < PATIENCE => {
             found.lines.iter().for_each(|line| println!("{line}"));
-            return Ok(Judged::Judging((path, ticket)));
+            return Ok(None);
         }
         Stand::Judging | Stand::NoVerdict => {
             found.lines.iter().for_each(|line| println!("{line}"));
@@ -93,7 +112,7 @@ fn judged(lander: &Lander, path: PathBuf, ticket: Ticket, base: &str, found: Den
         }
     };
     queue::write(&path, &judged).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
-    Ok(Judged::Ready((path, judged)))
+    Ok(Some((path, judged)))
 }
 
 #[cfg(test)]

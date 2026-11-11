@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::{ATTEMPTS, Round, ahead, alone, micros};
@@ -93,7 +94,9 @@ impl Batching for Lander {
         let mut queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
         queued.retain(|(path, _)| !claimed.contains(path));
         let open: Vec<(PathBuf, Ticket)> = queued.iter().filter(|(path, _)| !watch.alone.as_ref().is_some_and(|flight| flight.checks(path))).cloned().collect();
-        let tickets = unjudged::settle(self, if pass.red_only { lander_fix::repairs(&open) } else { open }, now(), &|ticket, base, wait| private_kinds::verdict(&self.repo, ticket, base, wait))?;
+        let repo = self.repo.clone();
+        let verdict: Arc<unjudged::Verdict> = Arc::new(move |ticket, base, wait| private_kinds::verdict(&repo, ticket, base, wait));
+        let tickets = watch.asks.settle(self, if pass.red_only { lander_fix::repairs(&open) } else { open }, now(), &verdict)?;
         if let Some(flow) = self.gate(pass, &queued, tickets.is_empty()) {
             return Ok(flow);
         }
