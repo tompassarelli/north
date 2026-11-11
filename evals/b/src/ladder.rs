@@ -20,6 +20,7 @@ pub struct Plan {
     pub level: usize,
     pub tasks: Vec<Value>,
     pub account: String,
+    pub parent: String,
     pub hosts: Vec<String>,
     pub work: PathBuf,
 }
@@ -49,7 +50,7 @@ fn launch(plan: &Plan, task: &Value, branch: &str, name: &str) -> Run {
     let cwd = scratch::worktree(branch);
     let text = header() + &prompt(task);
     let args = [
-        "fleet", "launch", "--provider", "claude", "--account", &plan.account, "--model", MODEL, "--effort", EFFORT, "--name", name, "--parent", "none", "--role", "worker", "--prompt", "north",
+        "fleet", "launch", "--provider", "claude", "--account", &plan.account, "--model", MODEL, "--effort", EFFORT, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
         "--tier-reason", "Eval B pins claude-opus-5-5 at medium to match Eval A", "--cwd", &cwd, "--no-wait", &text,
     ];
     let launch_start = now();

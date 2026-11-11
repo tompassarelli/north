@@ -109,3 +109,46 @@ pub fn teardown(hosts: &[String]) {
         let _ = ssh(host, &format!("rm -rf {ROOT}"));
     }
 }
+
+fn waiting(queue: &Path) -> Vec<String> {
+    ["", "outbox"]
+        .iter()
+        .flat_map(|area| fs::read_dir(queue.join(area)).into_iter().flatten().flatten())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|extension| extension == "json"))
+        .map(|path| path.display().to_string())
+        .collect()
+}
+
+fn release_host(host: &str, key: &str) -> String {
+    let script = format!(
+        r#"q=$HOME/.local/state/north/land-queue/{key}
+[ -d "$q" ] || {{ echo "{host}: no scratch queue"; exit 0; }}
+held=$(ls "$q"/*.json "$q"/outbox/*.json 2> /dev/null)
+[ -z "$held" ] || {{ echo "{host}: kept $q, a ticket waits: $held"; exit 0; }}
+[ -f "$q/lander.lock" ] && ! flock -n "$q/lander.lock" true && {{ echo "{host}: kept $q, a lander holds it"; exit 0; }}
+rm -rf -- "$q" && echo "{host}: removed $q""#
+    );
+    let ran = ssh(host, &script);
+    if ran.ok() { ran.out.trim().to_owned() } else { format!("{host}: could not check the scratch queue: {}", ran.err.trim()) }
+}
+
+pub fn release_queue(archive: &Path, hosts: &[String]) -> String {
+    let Some(queue) = queue_dir() else { return "no scratch queue under the live land-queue".to_owned() };
+    let key = queue.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let remote: Vec<String> = if key.len() == 16 && key.bytes().all(|b| b.is_ascii_hexdigit()) { hosts.iter().map(|host| release_host(host, &key)).collect() } else { Vec::new() };
+    let here = match waiting(&queue) {
+        held if !held.is_empty() => format!("kept {}, a ticket waits: {}", queue.display(), held.join(" ")),
+        _ if !crate::proc::run("flock", &["-n", &queue.join("lander.lock").to_string_lossy(), "true"], None).ok() => format!("kept {}, a lander holds it", queue.display()),
+        _ => {
+            let kept = archive.join(format!("queue-{key}-{}", sh("date +%m%d-%H%M%S").out.trim()));
+            let copied = crate::proc::run("cp", &["-a", &queue.to_string_lossy(), &kept.to_string_lossy()], None);
+            match (copied.ok(), fs::remove_dir_all(&queue)) {
+                (false, _) => format!("kept {}, archiving it failed: {}", queue.display(), copied.err.trim()),
+                (true, Ok(())) => format!("removed {} (archived in {})", queue.display(), kept.display()),
+                (true, Err(error)) => format!("could not remove {}: {error}", queue.display()),
+            }
+        }
+    };
+    std::iter::once(here).chain(remote).collect::<Vec<_>>().join("; ")
+}

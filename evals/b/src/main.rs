@@ -17,10 +17,11 @@ use serde_json::{Value, json};
 
 const USAGE: &str = "usage:
   eval-b workload --seed S --count N --lander-host HOST --out DIR
-  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A] [--hosts H,H] --work DIR --results FILE
+  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A] [--parent SESSION] [--hosts H,H] --work DIR --results FILE
   eval-b t3-tasks --workload DIR --count N --out FILE
   eval-b t3-rows --workload DIR --from EVAL_A_ROWS --results FILE
-  eval-b summary --results FILE";
+  eval-b summary --results FILE
+  eval-b queue --archive DIR [--hosts H,H]";
 
 fn flags(args: &[String]) -> BTreeMap<String, String> {
     args.chunks(2).filter_map(|pair| Some((pair[0].strip_prefix("--")?.to_owned(), pair.get(1)?.clone()))).collect()
@@ -55,18 +56,23 @@ fn workload(flags: &BTreeMap<String, String>) -> Result<(), String> {
     Ok(())
 }
 
+fn hosts(flags: &BTreeMap<String, String>) -> Vec<String> {
+    flags.get("hosts").map_or("gex45,cpx62,cpx62b", String::as_str).split(',').map(str::to_owned).collect()
+}
+
 fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     let dir = PathBuf::from(need(flags, "workload")?);
     let manifest = read_json(&dir.join("tasks.json"))?;
     let level: usize = need(flags, "level")?.parse().map_err(|_| "--level takes a number".to_owned())?;
     let first: usize = flags.get("first").map_or(Ok(1), |v| v.parse()).map_err(|_| "--first takes a number".to_owned())?;
     let count: usize = flags.get("count").map_or(Ok(level), |v| v.parse()).map_err(|_| "--count takes a number".to_owned())?;
-    let hosts: Vec<String> = flags.get("hosts").map_or("gex45,cpx62,cpx62b", String::as_str).split(',').map(str::to_owned).collect();
+    let parent = flags.get("parent").cloned().or_else(|| std::env::var("NORTH_FLEET_SESSION").ok().filter(|s| !s.is_empty())).ok_or_else(|| format!("name the live fleet session that reads the workers' reports with --parent NAME\n{USAGE}"))?;
+    let hosts = hosts(flags);
     let stamp = proc::sh("date +%m%d-%H%M%S").out.trim().to_owned();
     let work = PathBuf::from(need(flags, "work")?).join(format!("l{level}-{stamp}"));
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let tasks: Vec<Value> = manifest["tasks"].as_array().into_iter().flatten().skip(first - 1).take(count).cloned().collect();
-    let plan = ladder::Plan { level, tasks, account: flags.get("account").cloned().unwrap_or_else(|| "d".to_owned()), hosts, work };
+    let plan = ladder::Plan { level, tasks, account: flags.get("account").cloned().unwrap_or_else(|| "d".to_owned()), parent, hosts, work };
     let branches: Vec<String> = plan.tasks.iter().map(|t| format!("{}-l{level}", t["id"].as_str().unwrap_or_default())).collect();
     scratch::prepare_laptop(&dir.join("repo"), &plan.hosts, &branches)?;
     std::thread::scope(|scope| {
@@ -119,6 +125,7 @@ fn main() -> ExitCode {
         "t3-tasks" => need(&flags, "workload").and_then(|w| t3::tasks(Path::new(w), need(&flags, "count")?.parse().map_err(|_| "--count takes a number".to_owned())?, Path::new(need(&flags, "out")?))),
         "t3-rows" => t3_rows(&flags),
         "summary" => need(&flags, "results").and_then(|r| fs::read_to_string(r).map_err(|e| e.to_string())).map(|text| summary::print(&text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect::<Vec<_>>())),
+        "queue" => need(&flags, "archive").map(|a| println!("scratch queue: {}", scratch::release_queue(Path::new(a), &hosts(&flags)))),
         _ => Err(USAGE.to_owned()),
     };
     match outcome {
