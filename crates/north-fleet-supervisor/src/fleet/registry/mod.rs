@@ -362,16 +362,19 @@ impl Fleet {
     }
 
     fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening, hooks: HooksCheck) -> NorthResult<()> {
+        let opened = self.open_host(record, account, opening)?;
+        self.go_live(record, opening, hooks, opened)
+    }
+
+    /// Starts the session's host, and with it the provider CLI, or joins the shared host it runs in; the session is not yet recorded live, so a launch runs this beside its registration and sends nothing but the CLI's handshake until that is in.
+    fn open_host(&self, record: &SessionRecord, account: &Account, opening: Opening) -> NorthResult<OpenedHost> {
         let since_ms = if record.host_dir.as_os_str().is_empty() { record.created_ms } else { now_ms() };
         self.refuse_on_window(record.conversation.as_deref())?;
         let runtime = self.runtime(record)?;
-        let request = record.relaunch_request();
         self.refuse_headless_proxy(record, runtime.as_ref(), account)?;
         let (instructions, sha) = self.instructions(record)?;
-        let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
-        record.system_prompt_sha = Some(sha);
         let trace = hops::trace_in(&self.root.join(&record.name));
-        let spec = remote::placed(runtime.host(account, &request, opening, &instructions)?, record, &trace)?;
+        let spec = remote::placed(runtime.host(account, &record.relaunch_request(), opening, &instructions)?, record, &trace)?;
         let host_dir = if spec.shared { self.root.join(HOSTS).join(&spec.key) } else { self.root.join(&record.name) };
         let host = Host::new(host_dir.clone());
         let started = !host.running();
@@ -379,6 +382,14 @@ impl Fleet {
             host.start(&spec, &record.provider, idle_exit(record), &account.recorded_label())?;
             host.send(&runtime.handshake())?;
         }
+        Ok(OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms })
+    }
+
+    fn go_live(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost) -> NorthResult<()> {
+        let OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms } = opened;
+        let request = record.relaunch_request();
+        let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
+        record.system_prompt_sha = Some(sha);
         if let Some(reason) = hooks.verdict()? {
             if started {
                 host.terminate()?;
@@ -467,6 +478,24 @@ impl Fleet {
             return Err(NorthError::Usage(format!("invalid session name {name:?}")));
         }
         Ok(self.root.join(name))
+    }
+}
+
+/// A session host a start has running, or joined, and has not yet recorded live.
+struct OpenedHost {
+    runtime: Arc<dyn Runtime>,
+    instructions: String,
+    sha: String,
+    trace: PathBuf,
+    host_dir: PathBuf,
+    host: Host,
+    started: bool,
+    since_ms: u64,
+}
+
+impl OpenedHost {
+    fn abandon(self) -> NorthResult<()> {
+        if self.started { self.host.terminate() } else { Ok(()) }
     }
 }
 

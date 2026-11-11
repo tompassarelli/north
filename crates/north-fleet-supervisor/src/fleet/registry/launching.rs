@@ -14,7 +14,7 @@ use crate::fleet::store::{Claim, SessionRow};
 
 use super::stopping::Halt;
 use super::takeover::Predecessor;
-use super::{Fleet, efforts, session_running};
+use super::{Fleet, OpenedHost, efforts, session_running};
 
 impl Fleet {
     pub fn launch(&self, request: &LaunchRequest) -> NorthResult<SessionRecord> {
@@ -77,35 +77,63 @@ impl Fleet {
         record.overlay = runtime.overlay(&request.name);
         record.account = account.recorded_label();
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
-        self.registrar.register(&row, claim)?;
-        self.succeed(&request.name, claim, |predecessor| {
-            record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
-            self.claim_before_start(request, &tasks, verification)?;
-            let brought = fs::create_dir_all(session_dir).map_err(NorthError::from).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks));
-            let Err(error) = brought else {
-                if let Err(error) = self.inherit_workers(request, &record) {
-                    eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
+        let unrecorded = record.clone();
+        std::thread::scope(|scope| {
+            let early = (claim == Claim::Fresh).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()))));
+            let joined = || early.map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
+            if let Err(error) = self.registrar.register(&row, claim) {
+                self.abandon_early(joined(), session_dir);
+                return Err(error);
+            }
+            self.succeed(&request.name, claim, |predecessor| {
+                record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
+                let claimed = self.claim_before_start(request, &tasks, verification);
+                let opened = joined();
+                if let Err(error) = claimed {
+                    self.abandon_early(opened, session_dir);
+                    return Err(error);
                 }
-                return Ok(record);
-            };
-            claims::release_for(self.claims.as_ref(), &record);
-            Err(match self.discard_failed_launch(session_dir) {
-                Ok(()) => error,
-                Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
+                let brought = fs::create_dir_all(session_dir).map_err(NorthError::from).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, opened));
+                let Err(error) = brought else {
+                    if let Err(error) = self.inherit_workers(request, &record) {
+                        eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
+                    }
+                    return Ok(record);
+                };
+                claims::release_for(self.claims.as_ref(), &record);
+                Err(match self.discard_failed_launch(session_dir) {
+                    Ok(()) => error,
+                    Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
+                })
             })
         })
     }
 
-    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck) -> NorthResult<()> {
+    /// Ends a host started beside a registration or claim that then failed, and removes the directory it ran in.
+    fn abandon_early(&self, opened: Option<NorthResult<OpenedHost>>, session_dir: &Path) {
+        let Some(opened) = opened else { return };
+        let ended = match opened {
+            Ok(opened) => opened.abandon().and_then(|()| self.discard_failed_launch(session_dir)),
+            Err(_) => self.remove_launch_dir(session_dir),
+        };
+        if let Err(error) = ended {
+            eprintln!("north fleet: a launch that did not register left its session host or directory {}: {}", session_dir.display(), error.user_message());
+        }
+    }
+
+    #[allow(clippy::too_many_arguments, reason = "the launch's parts the host start takes, each borrowed from launch_into")]
+    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck, opened: Option<NorthResult<OpenedHost>>) -> NorthResult<()> {
         let opening = match (&request.resume, predecessor) {
             (Some(kept), Some(predecessor)) => {
                 remote::carry_conversation(self.runtime(record)?.as_ref(), request.machine.as_ref(), &self.account(&LaunchRequest { machine: request.machine.clone(), ..predecessor.record().relaunch_request() })?, account, kept)?;
                 Opening::Resume(kept)
             }
-            (Some(kept), None) => Opening::Resume(kept),
-            (None, _) => Opening::Fresh(conversation),
+            _ => fresh_opening(request, conversation),
         };
-        self.start(record, account, opening, hooks)?;
+        match opened {
+            Some(opened) => self.go_live(record, opening, hooks, opened?)?,
+            None => self.start(record, account, opening, hooks)?,
+        }
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
@@ -116,6 +144,10 @@ impl Fleet {
     /// Ends the host of a failed launch and removes its directory however far the launch got, so a host slow to show its provider's exit leaves nothing under the name; renaming it away first means a watchdog racing on the name cannot leave it half removed.
     pub(super) fn discard_failed_launch(&self, session_dir: &Path) -> NorthResult<()> {
         Host::new(session_dir.to_path_buf()).terminate()?;
+        self.remove_launch_dir(session_dir)
+    }
+
+    fn remove_launch_dir(&self, session_dir: &Path) -> NorthResult<()> {
         let discarded = self.root.join(format!(".failed-launch-{}", new_uuid()?));
         fs::rename(session_dir, &discarded)?;
         fs::remove_dir_all(&discarded)?;
@@ -211,5 +243,12 @@ impl Fleet {
         let hooks = HooksCheck::start(self.runtime(&record)?, &account, record.machine.as_ref());
         self.start(&mut record, &account, Opening::Resume(&conversation), hooks)?;
         Ok(record)
+    }
+}
+
+fn fresh_opening<'a>(request: &'a LaunchRequest, conversation: Option<&'a str>) -> Opening<'a> {
+    match &request.resume {
+        Some(kept) => Opening::Resume(kept),
+        None => Opening::Fresh(conversation),
     }
 }
