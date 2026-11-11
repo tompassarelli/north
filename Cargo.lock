@@ -1677,17 +1677,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "north-monitor"
-version = "0.1.0"
-dependencies = [
- "crossterm 0.28.1",
- "ratatui",
- "serde",
- "serde_json",
- "toml_edit",
-]
-
-[[package]]
 name = "north-mutants"
 version = "0.1.0"
 dependencies = [
