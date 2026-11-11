@@ -1,0 +1,1 @@
+  runtime agy [VERSION]                         Install a checksum-verified Agy runtime and select it

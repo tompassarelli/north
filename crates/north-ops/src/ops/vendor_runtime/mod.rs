@@ -1,3 +1,4 @@
+mod agy;
 mod claude;
 mod github;
 mod opencode;
@@ -14,6 +15,7 @@ use regex::Regex;
 use rustix::fs::{FlockOperation, flock};
 use sha2::{Digest, Sha256};
 
+pub use agy::Agy;
 pub use claude::Claude;
 pub use opencode::Opencode;
 pub use pi::Pi;
@@ -186,6 +188,10 @@ fn run_vendor(vendor: &dyn Vendor, arguments: &[String]) -> u8 {
 
 pub fn run_claude(arguments: &[String]) -> u8 {
     run_vendor(&Claude, arguments)
+}
+
+pub fn run_agy(arguments: &[String]) -> u8 {
+    run_vendor(&Agy, arguments)
 }
 
 pub fn run_pi(arguments: &[String]) -> u8 {

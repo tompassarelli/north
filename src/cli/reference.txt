@@ -257,7 +257,8 @@ Commands:
   git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
   github-mirror sync [--repo NAME]...            Copy north's, makgora's, wisp's and firn's issues, branch tips, tags, releases, main CI runs and main check results into ~/.local/state/north/github-mirror.db with conditional reads (an unchanged read answers 304), so dispatch, the CI watch, lane gc --remote and repo audit read the copy instead of GitHub (timer every two minutes)
   ops github budget                              Print each GitHub token's hourly limit left, every fleet session's spend against its hourly share and the costliest callers of the last hour from the broker's calls.log
-  runtime agents [VERSION]                      Update the North, Claude, Pi and OpenCode runtimes
+  runtime agents [VERSION]                      Update the North, Claude, Agy, Pi and OpenCode runtimes
+  runtime agy [VERSION]                         Install a checksum-verified Agy runtime and select it
   runtime claude [VERSION]                      Install a checksum-verified Claude runtime, probe it and select it
   runtime pi [VERSION]                       Install a checksum-verified Pi runtime from the newest stable earendil-works/pi release and select it
   runtime opencode [VERSION]                 Install a checksum-verified OpenCode runtime from the newest stable anomalyco/opencode release and select it
