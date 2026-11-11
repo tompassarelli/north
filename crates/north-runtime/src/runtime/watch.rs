@@ -29,7 +29,7 @@ static READING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d[\d.]*").expec
 pub(super) struct Window {
     pub(super) launches: usize,
     pub(super) failures: Vec<String>,
-    pub(super) host_exits: usize,
+    pub(super) host_exits: Vec<String>,
     pub(super) land_refusals: usize,
 }
 
@@ -46,18 +46,19 @@ impl Window {
     }
 }
 
-/// The session hosts that stopped in `span` and stayed stopped: a host the supervisor started again within `RESTART_S` is a restart, as a promotion moving hosts onto the new runtime makes, and a `vn-*` session is the canary walk's own scratch host, so neither is an exit, and a stop younger than `RESTART_S` at `judged` is not yet known to be either; a session in `parked`, which the fleet parked for capacity such as its account reaching its limit, is a decision rather than an exit.
-fn lasting_host_exits(ledger: &Path, (start, end): (Timestamp, Timestamp), judged: Timestamp, parked: &HashSet<String>) -> usize {
-    let Ok(db) = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY) else { return 0 };
+/// The sessions whose host stopped in `span` and went on running nothing: a host the supervisor started again within `RESTART_S` is a restart, as a promotion moving hosts onto the new runtime makes, and a session the fleet stopped within `RESTART_S` (`north fleet stop`, forget, retire, or a launch whose first turn the account limit refused) is stopped by order, and a `vn-*` session is the canary walk's own scratch host, so none is an exit, and a stop younger than `RESTART_S` at `judged` is not yet known to be any of them; a session in `parked`, which the fleet parked for capacity such as its account reaching its limit, is a decision rather than an exit.
+fn lasting_host_exits(ledger: &Path, (start, end): (Timestamp, Timestamp), judged: Timestamp, parked: &HashSet<String>) -> Vec<String> {
+    let Ok(db) = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY) else { return Vec::new() };
     let Ok(mut statement) = db.prepare(
         "SELECT stop.instance FROM lifecycle_moves stop WHERE stop.machine = 'fleet-session' AND stop.from_state = 'live' AND stop.to_state = 'parked' AND stop.refused = 0 \
          AND stop.at_ms >= ?1 AND stop.at_ms < ?2 AND stop.at_ms <= ?3 - ?4 AND substr(stop.instance, 1, length(?5)) <> ?5 \
-         AND NOT EXISTS (SELECT 1 FROM lifecycle_moves again WHERE again.machine = stop.machine AND again.instance = stop.instance AND again.to_state = 'live' AND again.refused = 0 AND again.move_id > stop.move_id AND again.at_ms <= stop.at_ms + ?4)",
+         AND NOT EXISTS (SELECT 1 FROM lifecycle_moves again WHERE again.machine = stop.machine AND again.instance = stop.instance AND again.to_state IN ('live', 'stopped') AND again.refused = 0 AND again.move_id > stop.move_id AND again.at_ms <= stop.at_ms + ?4) ORDER BY stop.instance",
     ) else {
-        return 0;
+        return Vec::new();
     };
     let stopped = statement.query_map(rusqlite::params![start.unix_millis(), end.unix_millis(), judged.unix_millis(), RESTART_S * 1000, SCRATCH], |row| row.get::<_, String>(0));
-    stopped.map(|rows| rows.filter_map(Result::ok).filter(|instance| !parked.contains(instance.split_once('@').map_or(instance.as_str(), |(name, _)| name))).count()).unwrap_or(0)
+    let sessions = stopped.map(|rows| rows.filter_map(Result::ok).map(|instance| instance.split_once('@').map_or(instance.clone(), |(name, _)| name.to_owned())).collect::<Vec<_>>()).unwrap_or_default();
+    sessions.into_iter().filter(|name| !parked.contains(name)).collect()
 }
 
 /// The sessions the fleet parked for capacity in the span, by the boundary cause it recorded for each.
@@ -85,12 +86,17 @@ fn launches_failed_more(since: &Window, prior: &Window) -> bool {
     fresh >= LEAST && tried_before >= SAMPLE && fresh as f64 / (since.launches + fresh) as f64 > prior.failures.len() as f64 / tried_before as f64
 }
 
-/// What a rollback names: each kind that rose, and for launch failures the distinct fresh causes it counted.
+/// What a rollback names: each kind that rose, and for launch failures the distinct fresh causes it counted, and for session-host exits the sessions whose host it counted.
 fn named(risen: &[&str], since: &Window, prior: &Window) -> String {
     let mut causes: Vec<String> = fresh_failures(since, prior).into_iter().map(cause).collect();
     causes.sort();
     causes.dedup();
-    risen.iter().map(|kind| if *kind == "launch failures" { format!("launch failures ({})", causes.join("; ")) } else { (*kind).to_owned() }).collect::<Vec<_>>().join(", ")
+    let describe = |kind: &str| match kind {
+        "launch failures" => format!("launch failures ({})", causes.join("; ")),
+        "session-host exits" => format!("session-host exits ({})", since.host_exits.join(", ")),
+        other => other.to_owned(),
+    };
+    risen.iter().map(|kind| describe(kind)).collect::<Vec<_>>().join(", ")
 }
 
 /// The kinds that ran worse in the `watched` seconds since the swap than over the hour before it: launch failures by `launches_failed_more`, and session-host exits and land refusals by rate, each counting only once it happened `LEAST` times, so one stray failure rolls nothing back.
@@ -99,7 +105,7 @@ pub(super) fn risen(since: &Window, prior: &Window, watched: i64) -> Vec<&'stati
     let rose = |since: usize, prior: usize| since >= LEAST && since as f64 / watched > prior as f64 / PRIOR_S as f64;
     [
         ("launch failures", launches_failed_more(since, prior)),
-        ("session-host exits", rose(since.host_exits, prior.host_exits)),
+        ("session-host exits", rose(since.host_exits.len(), prior.host_exits.len())),
         ("land refusals", rose(since.land_refusals, prior.land_refusals)),
     ]
     .into_iter()

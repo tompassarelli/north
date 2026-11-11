@@ -8,15 +8,17 @@ use std::time::Duration;
 enum Phase {
     Live,
     Parked,
+    Stopped,
 }
 
 impl State for Phase {
-    const ALL: &'static [Self] = &[Self::Live, Self::Parked];
+    const ALL: &'static [Self] = &[Self::Live, Self::Parked, Self::Stopped];
 
     fn name(self) -> &'static str {
         match self {
             Self::Live => "live",
             Self::Parked => "parked",
+            Self::Stopped => "stopped",
         }
     }
 }
@@ -47,7 +49,7 @@ fn failed(reasons: &[&str]) -> Vec<String> {
 #[test]
 fn a_kind_rolls_the_runtime_back_only_when_it_ran_faster_since_the_swap_than_the_hour_before() {
     let quiet = Window::default();
-    let exits = |host_exits| Window { host_exits, ..Window::default() };
+    let exits = |count: usize| Window { host_exits: (0..count).map(|n| format!("north-{n}")).collect(), ..Window::default() };
     assert_eq!(risen(&exits(1), &quiet, 300), Vec::<&str>::new(), "one stray exit rolls nothing back");
     assert_eq!(risen(&exits(2), &quiet, 300), ["session-host exits"]);
     assert_eq!(risen(&exits(2), &exits(30), 300), Vec::<&str>::new(), "2 in 5 min is slower than 30 an hour");
@@ -77,8 +79,8 @@ fn a_session_host_restarted_onto_the_new_runtime_is_not_an_exit_and_one_that_sta
     let span = (at(0), at(1000));
 
     let none = HashSet::new();
-    assert_eq!(lasting_host_exits(&ledger, span, at(600), &none), 2,"north-3 stayed down and north-4 came back too late; north-1 restarted, vn-2 is a scratch host, north-5 stopped too recently to tell");
-    assert_eq!(lasting_host_exits(&ledger, span, at(700), &none), 3, "north-5 is still down once the restart window has passed");
+    assert_eq!(lasting_host_exits(&ledger, span, at(600), &none).len(), 2,"north-3 stayed down and north-4 came back too late; north-1 restarted, vn-2 is a scratch host, north-5 stopped too recently to tell");
+    assert_eq!(lasting_host_exits(&ledger, span, at(700), &none).len(), 3, "north-5 is still down once the restart window has passed");
     let lasting = |span| Window { host_exits: lasting_host_exits(&ledger, span, at(700), &none), ..Window::default() };
     assert_eq!(risen(&lasting((at(0), at(260))), &Window::default(), 260), Vec::<&str>::new(), "a restart and a scratch host are no exits");
     assert_eq!(risen(&lasting(span), &Window::default(), 1000), ["session-host exits"]);
@@ -155,5 +157,36 @@ fn a_session_parked_by_its_account_limit_is_not_a_session_host_exit() {
         db.execute("INSERT INTO boundary_causes VALUES (?1, 'fleet', 'capacity', 'parked until account d has usage again', ?2)", [session, &at(105).iso()]).unwrap();
     }
     let parked = capacity_parked(&threads, &at(0).iso(), &at(400).iso());
-    assert_eq!(lasting_host_exits(&lifecycle, (at(0), at(400)), at(400), &parked), 1,"only north-3 stopped on its own");
+    assert_eq!(lasting_host_exits(&lifecycle, (at(0), at(400)), at(400), &parked), ["north-3"],"only north-3 stopped on its own");
+}
+
+/// On 2026-11-11 from 9:35 AM +07 the watch rolled whiterabbit back four times for "session-host exits" that were sessions the fleet stopped with `north fleet stop` and hosts whose only turn the account's five-hour limit refused.
+#[test]
+fn a_session_stopped_by_order_or_refused_by_its_account_limit_is_not_a_runtime_exit() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = directory.path().join("ledger.db");
+    let mut store = Store::open(&ledger).unwrap();
+    let at = |seconds: i64| Timestamp::from_unix_seconds(1_800_000_000 + seconds);
+    let mut ended = |session: &str, host_ended: i64, then: Option<(i64, &str)>| {
+        store.transition::<Session>(session, Phase::Live, "a session host started for it", at(host_ended - 100)).unwrap().unwrap();
+        store.transition::<Session>(session, Phase::Parked, "the holder is gone", at(host_ended)).unwrap().unwrap();
+        if let Some((later, cause)) = then {
+            store.transition::<Session>(session, Phase::Stopped, cause, at(later)).unwrap().unwrap();
+        }
+    };
+    ended("n1022-depbox@1", 100, Some((108, "north fleet stop or forget ended the turn")));
+    ended("n1081-reexec@1", 120, Some((123, "stopped after its first turn failed to start")));
+    ended("n1063-views@1", 140, Some((150, "retired")));
+    ended("north-9@1", 160, None);
+    ended("north-8@1", 180, Some((180 + RESTART_S + 30, "retired")));
+    let (span, judged, none) = ((at(0), at(500)), at(500), HashSet::new());
+    let exits = lasting_host_exits(&ledger, span, judged, &none);
+    assert_eq!(exits, ["north-8", "north-9"], "a host that stopped on its own is an exit, even when the fleet retired its session minutes later");
+
+    let ordered = Window { host_exits: lasting_host_exits(&ledger, (at(0), at(155)), at(500), &none), ..Window::default() };
+    assert_eq!(risen(&ordered, &Window::default(), 155), Vec::<&str>::new(), "stops by order and a limit-refused host roll nothing back");
+    let since = Window { host_exits: exits, ..Window::default() };
+    let risen = risen(&since, &Window::default(), 500);
+    assert_eq!(risen, ["session-host exits"]);
+    assert_eq!(named(&risen, &since, &Window::default()), "session-host exits (north-8, north-9)");
 }
