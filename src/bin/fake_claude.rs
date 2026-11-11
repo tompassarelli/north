@@ -324,7 +324,8 @@ fn commit_lane(session: &str, brief: &Value) -> io::Result<()> {
     let project = env::var("FAKE_CLAUDE_PROJECT").unwrap_or_else(|_| lane.to_string_lossy().replace('/', "-"));
     let directory = std::path::Path::new(&config).join("projects").join(project);
     std::fs::create_dir_all(&directory)?;
-    let at = |seconds: u32| format!("2026-11-04T10:00:{seconds:02}Z");
+    let ended = north_core::foundation::clock::Timestamp::now().unix_seconds();
+    let at = |seconds: i64| north_core::foundation::clock::Timestamp::from_unix_seconds(ended - 30 + seconds).iso();
     let user = json!({"type": "user", "timestamp": at(0), "sessionId": session, "message": {"content": brief_text(brief)}});
     let tool = json!({"type": "assistant", "timestamp": at(10), "requestId": "r1", "message": {"model": "claude-sonnet-5-5", "usage": {"input_tokens": 700, "output_tokens": 50}, "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "git commit -qm 'Add the worker'\\''s change'"}}]}});
     let result = json!({"type": "user", "timestamp": at(20), "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}});
