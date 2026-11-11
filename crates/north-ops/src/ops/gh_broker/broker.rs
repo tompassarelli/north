@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
@@ -8,17 +8,20 @@ use super::batch::Batcher;
 use super::http::{Request, Response};
 use super::upstream::Upstream;
 
+pub type Clock = Arc<dyn Fn() -> Instant + Send + Sync>;
+
 pub struct Settings {
     pub fresh: Duration,
     pub write_gap: Duration,
     pub default_hold: Duration,
     pub capacity: usize,
     pub batch_window: Duration,
+    pub clock: Clock,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { fresh: Duration::from_secs(20), write_gap: Duration::from_secs(1), default_hold: Duration::from_secs(60), capacity: 2048, batch_window: Duration::from_millis(25) }
+        Self { fresh: Duration::from_secs(20), write_gap: Duration::from_secs(1), default_hold: Duration::from_secs(60), capacity: 2048, batch_window: Duration::from_millis(25), clock: Arc::new(Instant::now) }
     }
 }
 
@@ -99,7 +102,7 @@ impl Broker {
         let bucket = bucket(request);
         let mut state = self.lock();
         loop {
-            let now = Instant::now();
+            let now = (self.settings.clock)();
             if let Some(until) = state.holds.get(&bucket).copied().filter(|until| *until > now) {
                 return match state.cache.get(&key) {
                     Some(entry) => (entry.response.clone(), Source::Stale),
@@ -129,7 +132,7 @@ impl Broker {
             state = self.lock();
         }
         let upstream = if shared { Source::Batched } else { Source::Upstream };
-        let now = Instant::now();
+        let now = (self.settings.clock)();
         let outcome = if self.hold(&mut state, bucket, &response, now) {
             (response, upstream)
         } else if let Some(entry) = state.cache.get_mut(&key).filter(|_| response.status == 304) {
@@ -149,7 +152,7 @@ impl Broker {
     fn write(&self, request: &Request) -> (Response, Source) {
         let bucket = bucket(request);
         let mut state = self.lock();
-        let now = Instant::now();
+        let now = (self.settings.clock)();
         if let Some(until) = state.holds.get(&bucket).copied().filter(|until| *until > now) {
             return (held(until - now), Source::Held);
         }
@@ -159,7 +162,7 @@ impl Broker {
         std::thread::sleep(slot - now);
         let response = self.upstream.send(request, None);
         let mut state = self.lock();
-        if !self.hold(&mut state, bucket, &response, Instant::now()) && (200..300).contains(&response.status) {
+        if !self.hold(&mut state, bucket, &response, (self.settings.clock)()) && (200..300).contains(&response.status) {
             state.cache.clear();
         }
         (response, Source::Upstream)

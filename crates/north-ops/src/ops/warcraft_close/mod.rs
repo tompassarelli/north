@@ -6,7 +6,7 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, Signal, kill_process};
 
@@ -108,7 +108,10 @@ pub fn close(launch: &Launch, timing: &Timing, out: &mut dyn FnMut(&str), err: &
         }
     }
     signal(&launch.members(), Signal::Kill);
-    sleep(timing.settle);
+    let settled = Instant::now() + timing.settle;
+    while !launch.members().is_empty() && Instant::now() < settled {
+        sleep(timing.poll);
+    }
     let left = launch.members();
     if left.is_empty() {
         out(&format!("warcraft-close: closed {} processes of Tom's Steam launch; a process check finds none left", pids.len()));

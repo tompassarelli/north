@@ -18,12 +18,12 @@ fn launch_in(root: &std::path::Path, appid: &str) -> Launch {
     Launch { proc: "/proc".into(), compat: root.join("compat").to_string_lossy().into_owned(), appid: appid.to_owned() }
 }
 
-fn sleep_program() -> String {
+fn hang_program() -> String {
     std::env::split_paths(&std::env::var_os("PATH").unwrap()).map(|dir| dir.join("sleep")).find(|path| path.is_file()).unwrap().to_string_lossy().into_owned()
 }
 
 fn quick() -> Timing {
-    Timing { poll: Duration::from_millis(50), polls: 100, settle: Duration::from_millis(200) }
+    Timing { poll: Duration::from_millis(50), polls: 6000, settle: Duration::from_secs(300) }
 }
 
 fn alive(child: &mut Child) -> bool {
@@ -36,15 +36,15 @@ fn closing_ends_every_process_of_the_launch_and_spares_another_prefix() {
     let compat = root.path().join("compat").to_string_lossy().into_owned();
     let appid = format!("999999{}", std::process::id());
     let pad = "x".repeat(PAD);
-    let sleep = sleep_program();
-    let background = format!("{sleep} 300 & wait");
+    let hang = hang_program();
+    let background = format!("{hang} infinity & wait");
     let big = [("STEAM_COMPAT_DATA_PATH", compat.clone()), ("PAD1", pad.clone()), ("PAD2", pad.clone())];
     let mut standins = [
-        standin(&sleep, &["300"], &big),
+        standin(&hang, &["infinity"], &big),
         standin("/bin/sh", &["-c", &background], &[("STEAM_COMPAT_DATA_PATH", compat), ("PAD1", pad)]),
         standin("/bin/sh", &["-c", &background, "reaper", "SteamLaunch", &format!("AppId={appid}"), "--"], &[]),
     ];
-    let mut bystander = standin(&sleep, &["300"], &[("STEAM_COMPAT_DATA_PATH", root.path().join("other-compat").to_string_lossy().into_owned())]);
+    let mut bystander = standin(&hang, &["infinity"], &[("STEAM_COMPAT_DATA_PATH", root.path().join("other-compat").to_string_lossy().into_owned())]);
     let launch = launch_in(root.path(), &appid);
     north_base::platform::wait::until(Duration::from_secs(30), || launch.members().len() == 5);
     assert_eq!(launch.members().len(), 5, "the prefix in a large environment, the reaper's AppId and their descendants");

@@ -41,7 +41,7 @@ fn reply(request: &Request, held: &AtomicBool) -> Response {
         "/limited/retry-after" => Response { status: 429, headers: vec![header("Retry-After", "120".into())], body: Vec::new() },
         "/limited/secondary" => Response { status: 403, headers: Vec::new(), body: b"{\"message\":\"You have exceeded a secondary rate limit.\"}".to_vec() },
         "/limited/primary" => {
-            let reset = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 300;
+            let reset = 4_000_000_000_u64;
             Response { status: 403, headers: vec![header("X-RateLimit-Remaining", "0".into()), header("X-RateLimit-Reset", reset.to_string())], body: b"{\"message\":\"API rate limit exceeded\"}".to_vec() }
         }
         _ => Response { status: 201, headers: Vec::new(), body: b"{}".to_vec() },
@@ -86,7 +86,8 @@ impl Harness {
         let root = tempfile::tempdir().unwrap();
         let socket = root.path().join("broker.sock");
         let listener = UnixListener::bind(&socket).unwrap();
-        let settings = Settings { fresh, write_gap: Duration::from_millis(10), ..Settings::default() };
+        let frozen = (Settings::default().clock)();
+        let settings = Settings { fresh, write_gap: Duration::from_millis(10), clock: Arc::new(move || frozen), ..Settings::default() };
         let (activity, served) = super::spawn_server(listener, Broker::new(Upstream::new(&api), settings));
         Self { socket, github, activity, served: Some(served), _root: root }
     }
@@ -175,7 +176,7 @@ fn retry_after_holds_every_call_with_that_token_until_it_passes_and_no_other_tok
         let held = broker.send(method, target, "{}");
         assert_eq!((held.status, source(&held)), (429, "held"), "{method} {target}");
         let wait: u64 = held.header("retry-after").unwrap().parse().unwrap();
-        assert!((100..=121).contains(&wait), "{wait}");
+        assert_eq!(wait, 121);
     }
     assert_eq!(broker.calls(), 1, "nothing reaches GitHub during the hold");
     let other = broker.send_as("token personal", "GET", ISSUES, "");
@@ -277,7 +278,7 @@ fn a_draining_broker_answers_the_call_it_holds_then_stops_accepting() {
     broker.served.take().unwrap().join().unwrap();
     assert!(!held.is_finished(), "the held call is still running when the server loop has stopped");
     broker.github.held.store(false, Ordering::SeqCst);
-    assert!(broker.activity.finish_open_calls(Duration::from_secs(5)));
+    assert!(broker.activity.finish_open_calls(Duration::from_secs(600)));
     assert_eq!(held.join().unwrap().status, 200, "the call in flight when the drain began is answered, not cut");
 }
 

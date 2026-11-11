@@ -1,20 +1,25 @@
 use std::fs;
 use std::path::Path;
 use std::process::{Child, Command};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, UNIX_EPOCH};
 
 use super::family::Family;
 use super::remote::Remote;
 use super::{retain, Policy, Tally};
 
 const HOUR: u64 = 3600;
+const NOW: u64 = 1_700_000_000;
+
+fn hours_before_now(hours: u64) -> u64 {
+    NOW - hours * HOUR
+}
 
 struct Local;
 
 impl Remote for Local {
     fn command(&self, script: &str) -> Command {
         let mut command = Command::new("sh");
-        command.args(["-c", script]);
+        command.args(["-c", script]).env("GIT_TEST_DATE_NOW", NOW.to_string());
         command
     }
 }
@@ -43,7 +48,7 @@ impl Rig {
         if pinned {
             fs::write(directory.join("PINNED"), "").unwrap();
         }
-        let then = SystemTime::now() - Duration::from_secs(age_hours * HOUR);
+        let then = UNIX_EPOCH + Duration::from_secs(hours_before_now(age_hours));
         for path in [directory.join("shots/a.png"), directory.join("log.txt"), directory.join("PINNED"), directory.join("shots"), directory.clone()] {
             if let Ok(file) = fs::File::open(&path) {
                 file.set_modified(then).unwrap();
@@ -54,7 +59,7 @@ impl Rig {
     fn run(&self, dry_run: bool) -> bool {
         let family = Family::new("evidence", &format!("'{}'", self.state.path().display()), "evidence", Duration::from_secs(72 * HOUR));
         let policy = Policy { dry_run, host: String::new(), archive: self.archive.path().to_owned(), batch_entries: 200, out_of_time: Box::new(|| false) };
-        retain(&Local, &family, &policy, super::now(), &mut Tally::default())
+        retain(&Local, &family, &policy, NOW, &mut Tally::default())
     }
 
     fn here(&self, name: &str) -> bool {
@@ -67,7 +72,7 @@ impl Rig {
 }
 
 fn hold(directory: &Path) -> Child {
-    Command::new("sleep").arg("60").current_dir(directory).spawn().unwrap()
+    Command::new("sleep").arg("infinity").current_dir(directory).spawn().unwrap()
 }
 
 #[test]
@@ -95,7 +100,7 @@ fn a_differing_copy_already_in_the_archive_blocks_the_delete() {
 }
 
 fn aged(directory: &Path, inner: &str) {
-    let touch = |flag: &str, path: std::path::PathBuf| assert!(Command::new("touch").args([flag, "-d", "100 hours ago"]).arg(path).status().unwrap().success());
+    let touch = |flag: &str, path: std::path::PathBuf| assert!(Command::new("touch").args([flag, "-d", &format!("@{}", hours_before_now(100))]).arg(path).status().unwrap().success());
     touch("-h", directory.join(inner));
     touch("-c", directory.to_owned());
 }
@@ -152,7 +157,7 @@ impl Store {
         git(&main, &["init", "-q"]);
         for (pin, days) in history {
             fs::write(main.join("build-inputs/hero-models"), pin).unwrap();
-            let date = format!("{} +0000", super::now() - u64::from(*days) * 24 * 3600);
+            let date = format!("{} +0000", NOW - u64::from(*days) * 24 * HOUR);
             assert!(Command::new("git").arg("-C").arg(&main).args(["-c", "user.name=t", "-c", "user.email=t@t", "add", "."]).status().unwrap().success());
             assert!(Command::new("git").arg("-C").arg(&main).args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "earlier pin"]).env("GIT_COMMITTER_DATE", &date).env("GIT_AUTHOR_DATE", &date).status().unwrap().success());
         }
@@ -184,7 +189,7 @@ impl Store {
     }
 
     fn age_and_seal(&self, entry: &Path, age_hours: u64) {
-        let stamp = format!("{age_hours} hours ago");
+        let stamp = format!("@{}", hours_before_now(age_hours));
         assert!(Command::new("find").arg(entry).args(["-exec", "touch", "-h", "-d", &stamp, "{}", "+"]).status().unwrap().success());
         assert!(Command::new("chmod").args(["-R", "a-w"]).arg(entry).status().unwrap().success());
     }
@@ -193,7 +198,7 @@ impl Store {
         let layout = super::store::Layout { store: format!("'{}'", self.home.path().join("store").display()), checkouts: format!("'{}'", self.home.path().join("code").display()) };
         let policy = Policy { dry_run: false, host: String::new(), archive: self.archive.path().to_owned(), batch_entries: 200, out_of_time: Box::new(|| false) };
         let families = super::store::families(&Local, &layout, Duration::from_secs(72 * HOUR))?;
-        Ok(families.iter().all(|family| retain(&Local, family, &policy, super::now(), &mut Tally::default())))
+        Ok(families.iter().all(|family| retain(&Local, family, &policy, NOW, &mut Tally::default())))
     }
 
     fn archived(&self, relative: &str) -> bool {

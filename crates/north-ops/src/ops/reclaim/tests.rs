@@ -1,7 +1,7 @@
 use std::fs::{self, File};
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 
 use super::{Inputs, Policy, Scope, reclaim};
@@ -21,7 +21,7 @@ impl Machine {
         for dir in ["tmp", "proc", "clients", "state", "code", "cache"] {
             fs::create_dir(root.path().join(dir)).unwrap();
         }
-        Self { root, now: SystemTime::now() + 2 * DAY }
+        Self { root, now: UNIX_EPOCH + Duration::from_secs(1_800_000_000) }
     }
 
     pub(super) fn path(&self, relative: &str) -> PathBuf {

@@ -16,9 +16,6 @@ crates/north-lanes/src/lanes/gc/strays_tests.rs	2
 crates/north-lanes/src/lanes/reap_tests.rs	2
 crates/north-lanes/src/lanes/rescue_tests.rs	2
 crates/north-lanes/src/lanes/unpushed_tests.rs	1
-crates/north-ops/src/ops/gh_broker/tests.rs	1
-crates/north-ops/src/ops/reclaim/tests.rs	1
-crates/north-ops/src/ops/retention/tests.rs	1
 crates/north-runtime/src/land_offload/ship/pinned.rs	4
 crates/north-runtime/src/offload_cache/tests.rs	2
 crates/north-runtime/src/runtime/bounded.rs	1
