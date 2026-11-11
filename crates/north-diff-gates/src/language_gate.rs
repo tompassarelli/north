@@ -14,7 +14,7 @@ const ALLOWLIST: &str = ".language-allowlist.json";
 const LIBRARY_GAP: &str = "library";
 const ALTERNATIVE: &str = "write it in Rust under src/ or as a north subcommand";
 const INPUT_LIMIT: u64 = 1024 * 1024;
-const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+pub const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 type Result<T> = std::result::Result<T, String>;
 

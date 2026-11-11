@@ -1,5 +1,6 @@
 pub use north_base::platform;
 pub use north_diff_gates::{build_cache_gate, dep_gate, language_gate};
+use north_diff_gates::language_gate::EMPTY_TREE;
 pub use north_landing_gates::landing;
 
 pub mod doc_links;
@@ -45,6 +46,7 @@ pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integ
        north land scan detector-proof BASE..HEAD
        north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan safe-push-verbs [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps\n       north land scan dep-floor LOCK < LOCK-BEFORE";
 
+/// A bare revision or an empty base is a root commit: its base is the empty tree, so the diff and the history read are of the whole commit.
 pub struct Range<'a> {
     pub base: &'a str,
     pub head: &'a str,
@@ -52,9 +54,14 @@ pub struct Range<'a> {
 
 impl<'a> Range<'a> {
     pub fn parse(range: &'a str) -> Option<Self> {
-        let (base, _) = range.split_once("..")?;
+        let Some((base, _)) = range.split_once("..") else {
+            return (!range.is_empty()).then_some(Self { base: EMPTY_TREE, head: range });
+        };
         let (_, head) = range.rsplit_once("..")?;
-        (!base.is_empty()).then_some(Self { base, head })
+        match base.is_empty() {
+            true => (!head.is_empty()).then_some(Self { base: EMPTY_TREE, head }),
+            false => Some(Self { base, head }),
+        }
     }
 }
 

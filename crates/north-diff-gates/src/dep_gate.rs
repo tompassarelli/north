@@ -1084,6 +1084,9 @@ fn review_reasons(root: &Path, args: &[String]) -> Result<Reviewed, (u8, String)
     let revisions: Vec<_> = args
         .iter()
         .map(|rev| {
+            if rev == crate::language_gate::EMPTY_TREE {
+                return Ok(rev.clone());
+            }
             git(
                 root,
                 &[
