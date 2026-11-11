@@ -61,8 +61,6 @@ impl Runtime for Claude {
                 "--strict-mcp-config",
                 "--permission-mode",
                 "bypassPermissions",
-                "--settings",
-                r#"{"switchModelsOnFlag":true}"#,
             ]
             .map(str::to_owned),
         );
@@ -73,9 +71,7 @@ impl Runtime for Claude {
         }
         argv.extend(session_env::model_args(request));
         argv.extend(session_env::agent_args(request));
-        if !instructions.is_empty() {
-            argv.extend(["--append-system-prompt".into(), instructions.to_owned()]);
-        }
+        argv.extend(session_env::prompt_args(account, request, instructions));
         Ok(HostSpec {
             key: request.name.clone(),
             shared: false,

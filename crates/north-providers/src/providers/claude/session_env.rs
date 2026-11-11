@@ -19,6 +19,8 @@ const READ_TOKEN: &str = r#"CLAUDE_CODE_OAUTH_TOKEN=$(cat -- "$0") || exit; expo
 const READ_API_KEY: &str = r#"ANTHROPIC_API_KEY=$(cat -- "$0") || exit; export ANTHROPIC_API_KEY; exec "$@""#;
 const API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
 const SHELL_PREFIX_ENV: &str = "CLAUDE_CODE_SHELL_PREFIX";
+const FLEET_SETTINGS: &str = r#"{"switchModelsOnFlag":true}"#;
+const WORKER_TOOLS: &str = "Bash,Read,Edit,Write,Grep,Glob";
 
 fn account_env(account: &Account) -> Vec<(String, OsString)> {
     (!at_default(account)).then(|| (CONFIG_ENV.into(), account.home.clone().into())).into_iter().collect()
@@ -57,6 +59,21 @@ fn worker_sandbox() -> (String, OsString) {
 pub(super) fn model_args(request: &LaunchRequest) -> Vec<String> {
     let model = request.model.iter().flat_map(|model| ["--model".to_owned(), model.clone()]);
     model.chain(request.effort.iter().flat_map(|effort| ["--effort".to_owned(), effort.label().to_owned()])).collect()
+}
+
+/// Claude Code keeps only the last `--settings` it is given, so a worker's one settings file is its profile's hook registration.
+pub(super) fn prompt_args(account: &Account, request: &LaunchRequest, instructions: &str) -> Vec<String> {
+    let lean = request.role() == Role::Worker;
+    let mut args = if lean {
+        let settings = account.home.join("settings.json").display().to_string();
+        ["--tools", WORKER_TOOLS, "--setting-sources", "", "--settings", &settings].map(str::to_owned).to_vec()
+    } else {
+        vec!["--settings".to_owned(), FLEET_SETTINGS.to_owned()]
+    };
+    if !instructions.is_empty() {
+        args.extend([if lean { "--system-prompt" } else { "--append-system-prompt" }.to_owned(), instructions.to_owned()]);
+    }
+    args
 }
 
 pub(super) fn agent_args(request: &LaunchRequest) -> Vec<String> {

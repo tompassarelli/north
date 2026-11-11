@@ -125,6 +125,12 @@ fn a_profile_without_the_harness_settings_is_named_unguarded_so_its_launch_is_re
     assert!(Claude.unguarded(&account, &here).is_some_and(|reason| reason.contains("no settings.json")));
     std::fs::write(home.join("settings.json"), HOOKED).unwrap();
     assert_eq!(Claude.unguarded(&account, &here), None);
+    let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), ..request() };
+    let argv = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap().argv;
+    let settings = home.join("settings.json").display().to_string();
+    assert!(argv.windows(2).any(|pair| pair == ["--settings", settings.as_str()]), "a worker's hooks come from the checked settings.json: {argv:?}");
+    assert_eq!(argv.iter().filter(|arg| *arg == "--settings").count(), 1, "Claude Code keeps only the last --settings: {argv:?}");
+    assert!(argv.windows(2).any(|pair| pair == ["--setting-sources", ""]) && argv.windows(2).any(|pair| pair == ["--system-prompt", "orders"]), "{argv:?}");
 
     let remote = scratch.path().join("remote");
     let there = |path: &std::path::Path| std::fs::read_to_string(remote.join(path.strip_prefix("/").unwrap_or(path))).map_or(Seen::Absent, Seen::Text);
