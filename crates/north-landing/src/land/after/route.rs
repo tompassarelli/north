@@ -1,4 +1,5 @@
 pub const SSH_OPTIONS: &[&str] = &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2"];
+pub const REMOTE_NORTH: &str = "n=\"$HOME/.local/state/north/current/north\"; [ -x \"$n\" ] || n=north;";
 
 /// The fleet's ssh hosts in orchestration.toml, none when a test fixture root is declared and the file lies outside it.
 pub fn fleet_hosts() -> Vec<String> {

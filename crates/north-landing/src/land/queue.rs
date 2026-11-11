@@ -78,6 +78,17 @@ pub struct Ticket {
     pub unjudged_on: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gated_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hand_in: Option<HandIn>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HandIn {
+    pub called_micros: u128,
+    pub gates_micros: u128,
+    pub asked_micros: u128,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict_micros: Option<u128>,
 }
 
 impl Ticket {

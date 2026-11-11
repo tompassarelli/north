@@ -9,6 +9,14 @@ pub struct Landed<'a> {
     pub queued: f64,
     pub landed: &'a str,
     pub batch: usize,
+    pub hand_in: Option<HandIn>,
+}
+
+pub struct HandIn {
+    pub called: f64,
+    pub gates: f64,
+    pub asked: f64,
+    pub verdict: Option<f64>,
 }
 
 pub fn trace_of(stages: &Stages, landed: &str) -> String {
@@ -47,5 +55,14 @@ pub fn spans(stages: &Stages, landed: &Landed<'_>) -> Vec<Span> {
         .with("batch", landed.batch.to_string())
         .with("attempts", stages.attempts.to_string());
     let queue = Span::new(&trace, "queued", Category::Queue, landed.queued, started.max(landed.queued)).under(&id);
-    vec![root, queue]
+    let mut spans = vec![root, queue];
+    if let Some(hand_in) = &landed.hand_in {
+        let mut worker = Span::new(&trace, "hand-in", Category::Queue, hand_in.called, landed.queued).under(&id).with("gates_done", hand_in.gates.to_string()).with("verdict_asked", hand_in.asked.to_string()).with("ticket_written", landed.queued.to_string());
+        if let Some(verdict) = hand_in.verdict {
+            worker = worker.with("verdict_in", verdict.to_string());
+            spans.push(Span::new(&trace, "private-kind verdict", Category::Scans, hand_in.asked, verdict).under(&id));
+        }
+        spans.push(worker);
+    }
+    spans
 }
