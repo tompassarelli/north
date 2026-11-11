@@ -21,10 +21,6 @@ const REWRITE_NOTE: &str = "session-kill-guard: wrapped the background `&` job i
 
 static REDIRECTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\d*(?:<>|>>|<<|>|<|&>)").unwrap());
-static TEMPORARY_SCRIPT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^/tmp/\S*\.(?:js|mjs|cjs|ts)$").unwrap());
-static SCRATCHPAD: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^/tmp/claude-\d+/[^/\s]+/[^/\s]+/scratchpad/\S+$").unwrap());
 
 static CONSUMER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?:^|[\n;&|({`'"]|\b(?:do|then|else))[ \t]*(?:(?:until|while)[ \t]|(?:kill|xargs|wait)\b)|--pid\b"#).unwrap()
@@ -65,7 +61,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 fn managed(input: &HookInput, hits: &[Hit]) -> Option<Value> {
-    let wrappable = hits.iter().all(|hit| matches!(hit, Hit::Detached(shape) if shape == UNMANAGED || shape == "nohup" || shape.starts_with("direct ")));
+    let wrappable = hits.iter().all(|hit| matches!(hit, Hit::Detached(shape) if shape == UNMANAGED || shape == "nohup"));
     if !wrappable || input.data["tool_name"] != "Bash" {
         return None;
     }
@@ -444,17 +440,10 @@ fn launch(words: &[String], background: bool) -> Option<String> {
     };
     match word {
         Some(name @ ("nohup" | "setsid" | "disown")) => Some(name.into()),
-        Some(name @ ("bun" | "node")) if args.iter().any(|arg| temporary_script(arg)) => {
-            Some(format!("direct {name} /tmp script"))
-        }
         Some("north") if args.first().map(String::as_str) == Some("capacity") && args.get(1).map(String::as_str) == Some("bounded") => None,
         _ if background => Some(UNMANAGED.into()),
         _ => None,
     }
-}
-
-fn temporary_script(arg: &str) -> bool {
-    TEMPORARY_SCRIPT.is_match(arg) && (!SCRATCHPAD.is_match(arg) || arg.contains("/../"))
 }
 
 fn arguments(words: &[String]) -> Vec<String> {

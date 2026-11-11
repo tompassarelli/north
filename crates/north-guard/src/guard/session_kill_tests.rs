@@ -97,3 +97,21 @@ fn a_self_matching_pgrep_is_refused_only_when_its_output_is_consumed() {
         assert!(denied(command), "{command}");
     }
 }
+
+#[test]
+fn a_foreground_bun_run_of_a_tmp_script_runs_as_written() {
+    let verdict = |command: &str| {
+        let call = serde_json::json!({"tool_name": "Bash", "tool_input": {"command": command}});
+        evaluate(&HookInput::parse(call.to_string().as_bytes()).unwrap())
+    };
+    for command in [
+        "bun /tmp/edit.ts; echo rc=$?; git diff --stat",
+        "node /tmp/edit.mjs",
+        "cd lane && bun /tmp/edit.ts src/a.ts | tail -3",
+    ] {
+        assert!(matches!(verdict(command), Verdict::Allow), "{command}");
+    }
+    for command in ["bun /tmp/edit.ts &", "nohup node /tmp/edit.mjs"] {
+        assert!(matches!(verdict(command), Verdict::Rewrite(..)), "{command}");
+    }
+}

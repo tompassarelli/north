@@ -104,7 +104,7 @@ fn wrap(chars: &[char], segment: &[Piece], background: bool) -> Option<Option<(u
             .join(" ");
         return Some(Some((start, segment[assigned].end, text)));
     }
-    let wrappable = shape == UNMANAGED || shape.starts_with("direct ");
+    let wrappable = shape == UNMANAGED;
     let plain = !NOT_EXECUTABLE.contains(&command.as_str())
         && !sources[assigned].trim_start_matches(|c: char| c.is_ascii_digit()).starts_with(['<', '>']);
     if !wrappable || !plain {
