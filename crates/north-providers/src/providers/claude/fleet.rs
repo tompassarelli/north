@@ -254,7 +254,7 @@ fn observe_user(frame: &Value, transcript: &mut Transcript) {
     }
     for block in content.as_array().into_iter().flatten() {
         match block["type"].as_str() {
-            Some("tool_result") => push(transcript, EntryKind::ToolResult, summarize(&tool_result_text(block), TOOL_RESULT_CHARS)),
+            Some("tool_result") => push(transcript, EntryKind::ToolResult, tool_result_summary(&tool_result_text(block))),
             Some("text") => observe_user_text(frame, block["text"].as_str().unwrap_or_default(), transcript),
             _ => {}
         }
@@ -267,6 +267,16 @@ fn observe_user_text(frame: &Value, text: &str, transcript: &mut Transcript) {
     transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
     let (kind, text) = user_text::entry(text, frame["isReplay"] == true, frame["isSynthetic"] == true);
     push(transcript, kind, text);
+}
+
+fn tool_result_summary(text: &str) -> String {
+    let text = text.trim();
+    let last = text.lines().last().unwrap_or_default();
+    let room = TOOL_RESULT_CHARS.saturating_sub(last.chars().count());
+    if text.chars().count() <= TOOL_RESULT_CHARS || room < TOOL_RESULT_CHARS / 2 {
+        return summarize(text, TOOL_RESULT_CHARS);
+    }
+    format!("{}\n{last}", summarize(text, room))
 }
 
 fn tool_result_text(block: &Value) -> String {

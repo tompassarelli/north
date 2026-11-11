@@ -9,6 +9,9 @@ use std::time::Duration;
 
 use north_base::foundation::shim::write_executable;
 use north_base::platform::wait;
+use north_core::fleet::model::{EntryKind, Transcript};
+use north_core::fleet::runtime::Runtime;
+use north_providers::providers::claude::fleet::Claude;
 use north_providers::providers::claude::{shell_prefix, tool_server_args};
 use north_runtime::worker_sandbox::BROKER_SOCKET_ENV;
 use serde_json::{Value, json};
@@ -175,6 +178,10 @@ fn a_candidates_hand_in_tool_lands_through_its_own_build_while_the_live_link_nam
     assert!(text.contains(&format!("Done: landed {landed} on main")) && called["result"]["isError"] == false, "the tool did not return the lander's verdict: {}", journal());
     assert_eq!(git(&canary.origin, &["rev-parse", &format!("{landed}^")]), base, "{}", journal());
     assert_eq!(git(&canary.origin, &["show", &format!("{landed}:worker.txt")]), CHANGE.trim_end(), "{}", journal());
+    let mut session = Transcript::new();
+    Claude.observe(&json!({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "hand-in", "content": called["result"]["content"]}]}}), &mut session);
+    let recorded = session.entries.iter().find(|entry| entry.kind == EntryKind::ToolResult).map_or("", |entry| entry.text.as_str());
+    assert_eq!(recorded.lines().last(), Some(format!("Done: landed {landed} on main").as_str()), "the session records the tool call's result without its verdict: {recorded}\n{}", journal());
     let reached = fs::read_to_string(canary.path("older.calls")).unwrap_or_default();
     assert!(reached.is_empty(), "the candidate ran the live runtime's north for: {reached}\n{}", journal());
     assert!(live_broker.accept().is_err(), "the candidate's sandbox asked the live runtime's broker: {}", journal());

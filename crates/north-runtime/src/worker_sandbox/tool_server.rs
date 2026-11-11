@@ -85,6 +85,6 @@ fn words(verb: &str, arguments: &Value) -> Vec<String> {
 fn call(verbs: &[String], north: &Path, params: &Value) -> Result<Value, (i64, String)> {
     let verb = params["name"].as_str().filter(|name| verbs.iter().any(|verb| verb == name)).ok_or_else(|| (BAD_PARAMS, format!("no such tool: {}", params["name"])))?;
     let output = Command::new(north).arg(verb).args(words(verb, &params["arguments"])).stdin(Stdio::null()).output().map_err(|error| (BAD_PARAMS, format!("{}: {error}", north.display())))?;
-    let text = [output.stdout, output.stderr].map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).concat();
+    let text = [output.stderr, output.stdout].map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).concat();
     Ok(json!({"content": [{"type": "text", "text": text}], "isError": !output.status.success()}))
 }
