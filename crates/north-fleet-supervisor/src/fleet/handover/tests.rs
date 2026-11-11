@@ -128,9 +128,13 @@ impl Adopted {
 
     fn on(on: &str) -> Self {
         let home = tempfile::tempdir().unwrap();
-        let mut child = Command::new("sleep").arg("600").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        let mut child = Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
         let pid = child.id();
-        std::thread::spawn(move || child.wait());
+        let stdin = child.stdin.take();
+        std::thread::spawn(move || {
+            let _open = stdin;
+            child.wait()
+        });
         let account = |label: &str| Account { provider: Stream.provider(), label: label.into(), home: home.path().join(format!("claude-{label}")), token_file: None, api: label.split_once(':').map(|(_, org)| ApiKey { org: org.into(), file: home.path().join(org) }) };
         let window = Arc::new(Windowed { on: on.to_owned(), accounts: vec![account("b"), account("c"), account("api:gmail")], pid, busy: AtomicBool::new(false), told: Mutex::new(Vec::new()) });
         let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![window.clone()]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));

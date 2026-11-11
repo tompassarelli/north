@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 use north_base::foundation::clock::Timestamp;
@@ -55,7 +55,7 @@ fn a_host_killed_mid_turn_is_an_orphaned_fault_until_the_next_read_parks_its_ses
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path());
     let dir = mid_turn(&fleet, "worker");
-    let mut host = Command::new("sleep").arg("60").spawn().unwrap();
+    let mut host = Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::null()).spawn().unwrap();
     let started = read_record(&dir).unwrap();
     assert_eq!(fleet.phases().unwrap().live(started.launch(), Some(host.id()), "a session host started for it").unwrap(), Phase::Live);
 

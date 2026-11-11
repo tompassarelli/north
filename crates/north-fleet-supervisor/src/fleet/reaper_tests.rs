@@ -250,7 +250,7 @@ struct Nexus {
 
 impl crate::fleet::jobs::JobLeases for Nexus {
     fn leased(&self, _session: &str, _machine: Option<&crate::fleet::model::Machine>) -> crate::error::NorthResult<bool> {
-        let _ = self.release.lock().unwrap().recv_timeout(Duration::from_secs(60));
+        let _ = self.release.lock().unwrap().recv();
         self.ended.store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(true)
     }

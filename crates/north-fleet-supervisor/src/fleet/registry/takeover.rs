@@ -112,9 +112,6 @@ fn sent_at(id: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
-    use std::time::Duration;
-
     use super::super::HandedIn;
     use super::super::fixtures::{fleet, live};
     use super::*;
@@ -131,17 +128,11 @@ mod tests {
         let parked = serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "worker", "host_dir": dir, "stream_offset": 0});
         std::fs::write(dir.join("session.json"), parked.to_string()).unwrap();
         let row = fleet.new_row(RowKind::Message, "worker", "carry on with the build", &Sender::Tom).unwrap();
-        let (answering, answered) = mpsc::channel();
 
         let (predecessor, successor, revive) = fleet
             .succeed("worker", Claim::TakeOver, |predecessor| {
                 let delivery = fleet.clone();
-                let revive = std::thread::spawn(move || {
-                    let handed = delivery.hand_in(&row);
-                    let _ = answering.send(());
-                    handed
-                });
-                let _ = answered.recv_timeout(Duration::from_millis(300));
+                let revive = std::thread::spawn(move || delivery.hand_in(&row));
                 let session = live(&fleet, "worker");
                 let mut successor = read_record(&dir).unwrap();
                 successor.created_ms = 2;
@@ -156,11 +147,7 @@ mod tests {
         assert!(matches!(running.as_slice(), [record] if record.live() && record.created_ms == 2 && record.conversation.as_deref() == Some("worker")), "{running:?}");
         assert!(successor.frames.lock().unwrap().iter().any(|frame| frame.contains("carry on with the build")), "the message never reached the successor");
         let _next = fleet.start_lock("worker").unwrap();
-        let (locking, locked) = mpsc::channel();
-        std::thread::spawn(move || {
-            let _lock = fleet.start_lock("worker");
-            let _ = locking.send(());
-        });
-        assert!(locked.recv_timeout(Duration::from_millis(300)).is_err(), "the next take-over on this thread left the name unlocked");
+        let free = std::thread::spawn(move || fleet.try_start_lock("worker").unwrap().is_some()).join().unwrap();
+        assert!(!free, "the next take-over on this thread left the name unlocked");
     }
 }
