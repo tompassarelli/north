@@ -3,6 +3,7 @@
 //! account the spend rule admits (docs/rationale/spend-rule.md).
 use super::issues::IssueRef;
 use super::cloud::{HOST, SESSIONS};
+use super::scope::{Scope, provider_of};
 use super::slots::{Account, Charge, Pools};
 use super::tier::Route;
 use crate::pacing::placement::room::Rank;
@@ -54,6 +55,7 @@ pub struct Capacity<'a> {
     /// Expected cost of one box in Max 5x points, charged to its account so the next box ranks the others first.
     pub charge: f64,
     pub spend: &'a View,
+    pub scope: &'a Scope,
 }
 
 impl Capacity<'_> {
@@ -91,6 +93,12 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
 /// Admits reviving a session bound to `host` and `account` by the slot and spend rules a launch
 /// meets there, taking the slot and its charge.
 pub fn revive(capacity: &Capacity, pools: &mut Pools, host: &str, account: &str) -> Result<(), String> {
+    if capacity.scope.excludes_host(host) {
+        return Err(capacity.scope.why_not_host(host));
+    }
+    if !capacity.scope.allows_provider(provider_of(account)) {
+        return Err(capacity.scope.why_not_provider(provider_of(account)));
+    }
     let chosen = capacity.accounts.iter().find(|candidate| candidate.name == account).ok_or_else(|| format!("{account} has no usage reading"))?;
     if pools.host(host) == 0 {
         return Err(pools.full(host));

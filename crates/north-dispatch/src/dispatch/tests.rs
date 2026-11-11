@@ -386,3 +386,27 @@ fn a_box_whose_check_names_a_verb_main_never_had_is_placed_and_one_a_landed_comm
     assert_eq!(boxes, [adds], "{:?}", outcome.skipped);
     assert!(outcome.skipped.iter().any(|(_, why)| why.contains("check retired: north scoreboard")), "{:?}", outcome.skipped);
 }
+
+#[test]
+fn a_dispatch_round_places_only_on_the_listed_providers_and_never_on_an_excluded_host() {
+    use super::deepseek::{Seen, Settings};
+    let hosts = vec![host("nexus", 6, Ok(0)), host("whiterabbit", 8, Ok(0))];
+    let accounts = vec![account("claude:a", &["nexus", "whiterabbit"], 80.0)];
+    let boxes = vec![issue("north", 1, "- [ ] add a column", &[]), issue("north", 2, "- [ ] narrow the sandbox reads", &[]), issue("north", 3, "- [ ] a third column", &[])];
+    let mut planned = survey(boxes, Cloud::Closed("no credit".into()), hosts, accounts);
+    let deepseek: toml_edit::DocumentMut = "[dispatch]\nhosts = [\"whiterabbit\", \"nexus\"]\nslot_cap = 4\nclaude_only = ['\\bsandbox']\n".parse().unwrap();
+    planned.deepseek = Seen { settings: Settings::parse(&deepseek), ..Seen::default() };
+
+    let open = decide(&planned, "test");
+    assert!(open.launches.iter().any(|launch| launch.account.starts_with("claude:")), "unrestricted, the sandbox box goes to Claude");
+    assert!(open.launches.iter().any(|launch| launch.host == "whiterabbit"), "unrestricted, the laptop takes work");
+
+    planned.cfg = format!("dispatch_providers = [\"opencode\"]\ndispatch_hosts_excluded = [\"whiterabbit\"]\n{CONFIG}").parse().unwrap();
+    let scoped = decide(&planned, "test");
+
+    let placed: Vec<(String, &str, &str)> = scoped.launches.iter().map(|launch| (launch.item.to_string(), launch.account.as_str(), launch.host.as_str())).collect();
+    assert_eq!(placed, [("north#1".to_owned(), "opencode:go", "nexus"), ("north#3".to_owned(), "opencode:go", "nexus")]);
+    assert!(scoped.skipped.iter().any(|(item, why)| item.to_string() == "north#2" && why.contains("outside dispatch_providers = [opencode]")), "{:?}", scoped.skipped);
+    let lines = super::scope::Scope::parse(&planned.cfg).lines();
+    assert_eq!(lines, ["dispatch providers: opencode".to_owned(), "dispatch hosts excluded: whiterabbit".to_owned()]);
+}

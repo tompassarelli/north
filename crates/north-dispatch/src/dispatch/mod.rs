@@ -10,6 +10,7 @@ use issues::Issue;
 use north_graph_ground::Backlog;
 pub use issues::{IssueRef, OWNER, product_boxes, references};
 use plan::{Candidate, Capacity, Launch, Ready};
+use scope::Scope;
 use slots::Pools;
 use survey::Survey;
 
@@ -54,6 +55,7 @@ mod report;
 mod retired;
 mod revive;
 mod screen;
+mod scope;
 mod slots;
 mod spin;
 mod stops;
@@ -133,7 +135,7 @@ fn ordered<'a>(issues: &'a [Issue], projects: &projects::Projects, backlog: Opti
 
 /// The machines a box may run on, soonest expected start first and in `[placement] order` among
 /// equals, each with why it refuses this box; a host dispatch cannot measure waits no time.
-fn candidates(survey: &Survey, brief: &str) -> Vec<Candidate> {
+fn candidates(survey: &Survey, scope: &Scope, brief: &str) -> Vec<Candidate> {
     let order: Vec<String> = survey.cfg.get("placement").and_then(|rules| rules.get("order")).and_then(toml_edit::Item::as_array).into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
     let class = wait::class(brief);
     let unreadable = survey.home.as_deref().map(|home| crate::platform::home_paths::home_paths(brief, home)).unwrap_or_default();
@@ -144,6 +146,7 @@ fn candidates(survey: &Survey, brief: &str) -> Vec<Candidate> {
             let waits = host.measure.as_ref().map_or(Ok(0.0), |measure| wait::wait(class, measure));
             let apart = host.name != survey.here && survey.laptop.as_deref() != Some(host.name.as_str());
             let refusal = match (host.free(), gate::lacks(&survey.cfg, &host.name, brief), &waits) {
+                _ if scope.excludes_host(&host.name) => Some(scope.why_not_host(&host.name)),
                 (Err(why), _, _) => Some(format!("takes nothing: {why}")),
                 (_, Some(need), _) => Some(format!("does not serve {need}")),
                 (_, _, Err(why)) => Some(why.clone()),
@@ -175,10 +178,11 @@ fn open_boxes(issue: &Issue, running: &BTreeMap<String, String>, tried: &BTreeMa
 
 /// Every ready box placed on a free slot, or skipped with its reason.
 pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
+    let scope = Scope::parse(&survey.cfg);
     let mut pools = Pools::new(&survey.hosts, &survey.accounts).with_cloud(cloud::SESSIONS - survey.cloud_running);
     let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
     let planned = issues::planned_predecessors(&survey.issues);
-    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: survey.rules.charge, spend: &survey.spend };
+    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: survey.rules.charge, spend: &survey.spend, scope: &scope };
     let revival = revive::plan(&revive::Inputs { strands: &survey.strands, saturated: &survey.saturated, revived: &survey.revived }, &capacity, &mut pools);
     let mut holds = survey.holds.clone();
     holds.extend(revival.holds.clone());
@@ -218,8 +222,10 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             };
             let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
             let ready = Ready { item: reference.clone(), brief, code_only, route };
-            let candidates = candidates(survey, &ready.brief);
-            match survey.deepseek.staff(issue, box_text, &ready, &candidates, &mut pools, |pools| plan::place(&ready, &capacity, &candidates, pools)) {
+            let candidates = candidates(survey, &scope, &ready.brief);
+            let claude = |pools: &mut Pools| if scope.allows_provider("claude") { plan::place(&ready, &capacity, &candidates, pools) } else { Err(scope.why_not_provider("claude")) };
+            let staffed_on = if scope.allows_provider(deepseek::PROVIDER) { survey.deepseek.staff(issue, box_text, &ready, &candidates, &mut pools, claude) } else { claude(&mut pools) };
+            match staffed_on {
                 Ok(mut launch) => {
                     screen::arm(survey, &mut launch);
                     claims.take(&paths, &format!("{named}of {reference}, launched in this run"));

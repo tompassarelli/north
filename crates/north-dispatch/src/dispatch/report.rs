@@ -23,6 +23,9 @@ pub(super) fn print(survey: &Survey, dry_run: bool) {
         plan::Cloud::Closed(line) => format!("closed ({line})"),
     };
     println!("cloud lane: {cloud}");
+    for line in super::scope::Scope::parse(&survey.cfg).lines() {
+        println!("{line}");
+    }
     for project in survey.projects.set_aside() {
         println!("paused {project}: paused = true in orchestration.toml, so its issues are not dispatched");
     }
