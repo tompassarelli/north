@@ -2,6 +2,7 @@
 set -euo pipefail
 usage() { echo 'usage: supply-alert normal|urgent TEXT [TITLE]' >&2; exit 2; }
 [[ $# -ge 2 && $# -le 3 ]] || usage
-case "$1" in normal|urgent) ;; *) usage ;; esac
-remote=$(printf '%q ' nexus-alert "$([[ ${SUPPLY_ALERT_TEST:-} == 1 ]] && echo north-fleet-test || echo "$1")" "$2" "${3:-Supply chain}")
-exec ssh -o BatchMode=yes -o ConnectTimeout=10 nexus "$remote"
+case "$1" in normal) level= ;; urgent) level='urgent: ' ;; *) usage ;; esac
+message="${level}${3:-Supply chain}: $2"
+[[ ${SUPPLY_ALERT_TEST:-} == 1 ]] && { printf '%s\n' "$message"; exit 0; }
+exec north fleet send --from service:supply-alert proxy "$message"

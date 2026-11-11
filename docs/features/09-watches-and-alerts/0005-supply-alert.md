@@ -1,1 +1,1 @@
-- Supply alert: `supply-alert normal|urgent TEXT [TITLE]` posts one phone alert through `ssh nexus nexus-alert`, so the ntfy publisher token stays on nexus.
+- Supply alert: `supply-alert normal|urgent TEXT [TITLE]` sends one fleet message to the proxy from `service:supply-alert`, the title first and an urgent one marked so; with `SUPPLY_ALERT_TEST=1` it prints the message instead (north#1173).
