@@ -237,6 +237,9 @@ fn named_lock_waiting_unless(layout: &Layout, name: &str, limit: Duration, waite
 fn pass(layout: &Layout) -> Result<Pass, Failure> {
     if land_offload::runs_pinned_runtime_here() {
         println!("north runtime: {} runs the pinned runtime the settling host ships it after the runtime walked the spine there; it does not follow origin/main", host::name());
+        if let Some(live) = fs::read_link(layout.current()).ok().as_deref().and_then(layout::linked_sha) {
+            republish_if_unpublished(layout, live);
+        }
         return Ok(Pass::Settled);
     }
     let checkout = checkout();
