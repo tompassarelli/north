@@ -33,8 +33,7 @@ pub enum Route {
 impl Settings {
     pub fn read(repo: &Path, to: &str) -> Self {
         let remote_ref = format!("refs/remotes/origin/{to}");
-        let blob = format!("{remote_ref}:.safe-push");
-        let queue = git(repo, &["config", "--blob", &blob, "--get", "landing.queue"]).unwrap_or_default();
+        let queue = git(repo, &["config", "--blob", "HEAD:.safe-push", "--get", "landing.queue"]).unwrap_or_default();
         let hosts = setting::landing(repo, &remote_ref, "landing.lander-host").split_whitespace().map(str::to_owned).chain(setting::outbox_hosts(repo, &remote_ref)).collect();
         Self { queue: if queue.is_empty() { "lander".to_owned() } else { queue }, hosts }
     }

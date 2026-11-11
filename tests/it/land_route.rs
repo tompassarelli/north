@@ -161,6 +161,19 @@ fn a_landing_the_lander_cannot_take_is_refused_naming_why_and_pushes_and_queues_
 }
 
 #[test]
+fn a_lane_that_removes_a_retired_landing_queue_from_dot_safe_push_is_queued_for_the_lander() {
+    let fixture = Fixture::new();
+    let host = local_host();
+    fixture.settle("[landing]\n\tqueue = lock\n\tlander-host = another-host\n", "a retired lock queue");
+    fs::write(fixture.top().join("orchestration.toml"), format!("[hosts.{host}]\nssh = \"tom@{host}\"\n")).unwrap();
+    fs::write(fixture.repo().join(".safe-push"), "[landing]\n\tlander-host = another-host\n").unwrap();
+    fixture.git(&["commit", "-qam", "drop the retired queue"]);
+    let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::var("PATH").unwrap_or_default());
+    assert_eq!(run.status, 0, "{}", run.output);
+    assert!(run.output.contains("Done: queued (outbox)"), "{}", run.output);
+}
+
+#[test]
 fn a_lane_on_a_fleet_ssh_host_the_repository_does_not_list_is_queued_for_the_lander() {
     let fixture = Fixture::new();
     let host = local_host();
