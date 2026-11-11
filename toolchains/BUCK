@@ -39,7 +39,7 @@ system_cxx_toolchain(
     name = "cxx_system",
     archiver = nix_tool("ar"),
     compiler = nix_tool("cc"),
-    compiler_type = "gcc",
+    compiler_type = "clang",
     cxx_compiler = nix_tool("cxx"),
     linker = nix_tool("cc"),
 )

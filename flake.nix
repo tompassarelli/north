@@ -50,8 +50,8 @@
                       rustc = ${rustToolchain}/bin/rustc
                       rustdoc = ${rustToolchain}/bin/rustdoc
                       clippy_driver = ${rustToolchain}/bin/clippy-driver
-                      cc = ${pkgs.stdenv.cc}/bin/cc
-                      cxx = ${pkgs.stdenv.cc}/bin/c++
+                      cc = ${pkgs.clang}/bin/clang
+                      cxx = ${pkgs.clang}/bin/clang++
                       ar = ${pkgs.stdenv.cc.bintools.bintools}/bin/ar
                       python3 = ${pkgs.python3}/bin/python3
                     [north]
@@ -62,7 +62,13 @@
                 in
                 {
                   formatter.${system} = pkgs.nixfmt-tree;
-                  packages.${system}.buck2-toolchain = buck2Toolchain;
+                  packages.${system} = {
+                    buck2-toolchain = buck2Toolchain;
+                    # Off the dev shell so the laptop never compiles it; third-party/reindeer.toml says how to run it.
+                    reindeer = pkgs.reindeer.overrideAttrs (old: {
+                      patches = (old.patches or [ ]) ++ [ ./third-party/reindeer-workspace-dev-dependencies.patch ];
+                    });
+                  };
                   devShells.${system}.default = pkgs.mkShell rec {
                     packages = devPackages;
                     # Cargo hashes workspace members by relative path, so a target outside this checkout is keyed to it lest another checkout's build read as fresh; the checkout's own target stays unkeyed so registry artifacts match its siblings', and `north capacity dev-shell run` and depbox seed that target before the shell opens.

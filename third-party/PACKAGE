@@ -1,0 +1,10 @@
+load("@prelude//rust:cargo_package.bzl", "set_reindeer_platforms")
+
+# Matches the one platform in reindeer.toml, so each build script compiles for linux-x86_64 only.
+set_reindeer_platforms(select({
+    "DEFAULT": None,
+    "prelude//os:linux": select({
+        "DEFAULT": None,
+        "prelude//cpu:x86_64": "linux-x86_64",
+    }),
+}))

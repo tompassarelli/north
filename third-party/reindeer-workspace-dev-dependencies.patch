@@ -1,0 +1,70 @@
+diff --git a/src/index.rs b/src/index.rs
+index 9914530a..61ce74fe 100644
+--- a/src/index.rs
++++ b/src/index.rs
+@@ -195,6 +195,7 @@ impl<'meta> Index<'meta> {
+                 manifest_deps: &manifest_deps,
+                 config,
+                 fixups,
++                workspace_packages: &index.workspace_packages,
+             };
+             // Feature selection for the current workspace.
+             for pkg in &index.workspace_members {
+@@ -295,7 +296,12 @@ impl<'meta> Index<'meta> {
+                             || tgt.kind_cdylib()
+                             || tgt.kind_staticlib()
+                     }
+-                    DepKind::Dev => tgt.kind_bench() || tgt.kind_test() || tgt.kind_example(),
++                    DepKind::Dev => {
++                        tgt.kind_bench()
++                            || tgt.kind_test()
++                            || tgt.kind_example()
++                            || self.workspace_packages.contains(&pkg.id)
++                    }
+                     DepKind::Build => tgt.kind_custom_build(),
+                 } {
+                     let dep = &self.pkgid_to_pkg[&dep_id];
+@@ -365,6 +371,7 @@ struct FeatureResolver<'a, 'meta> {
+     >,
+     config: &'meta Config,
+     fixups: &'a FixupsCache<'meta>,
++    workspace_packages: &'a HashSet<PackageId>,
+ }
+ 
+ impl<'a, 'meta> FeatureResolver<'a, 'meta> {
+@@ -393,7 +400,7 @@ impl<'a, 'meta> FeatureResolver<'a, 'meta> {
+             if !manifest_dep.optional
+                 && match manifest_dep.kind {
+                     DepKind::Normal | DepKind::Build => true,
+-                    DepKind::Dev => false,
++                    DepKind::Dev => self.workspace_packages.contains(&pkgid),
+                 }
+                 && self.evaluate_target_cfg(&manifest_dep.target, platform_name, &fixups)
+                 && !fixups.omit_dep(
+@@ -479,7 +486,7 @@ impl<'a, 'meta> FeatureResolver<'a, 'meta> {
+                             if dep == manifest_dep.rename.as_ref().unwrap_or(&manifest_dep.name)
+                                 && match manifest_dep.kind {
+                                     DepKind::Normal | DepKind::Build => true,
+-                                    DepKind::Dev => false,
++                                    DepKind::Dev => self.workspace_packages.contains(&pkgid),
+                                 }
+                                 && self.evaluate_target_cfg(
+                                     &manifest_dep.target,
+@@ -561,7 +568,7 @@ impl<'a, 'meta> FeatureResolver<'a, 'meta> {
+                 && manifest_dep.optional
+                 && match manifest_dep.kind {
+                     DepKind::Normal | DepKind::Build => true,
+-                    DepKind::Dev => false,
++                    DepKind::Dev => self.workspace_packages.contains(&pkgid),
+                 }
+                 && self.evaluate_target_cfg(&manifest_dep.target, platform_name, &fixups)
+             {
+@@ -825,7 +832,7 @@ fn platforms_for_dependency<'meta>(
+                     is_target_dep = true;
+                 }
+             }
+-            DepKind::Dev => {}
++            DepKind::Dev => is_target_dep = true,
+             DepKind::Build => {
+                 is_exec_dep = true;
+             }

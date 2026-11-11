@@ -420,6 +420,16 @@ claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi)
 - <a id="buildbarn"></a>**Buildbarn** (bb-storage, bb-remote-execution, bb-deployments), https://github.com/buildbarn.
   Informed: the shared store, action cache, scheduler and workers, and their configuration
   ([compile-reuse.md](rationale/compile-reuse.md)). Outcome: adopted.
+- <a id="reindeer"></a>**reindeer** (facebookincubator/reindeer, MIT), https://github.com/facebookincubator/reindeer,
+  its manual https://github.com/facebookincubator/reindeer/blob/main/docs/MANUAL.md and examples `01-intro`,
+  `02-hybrid` and `03-complex-fixups` at commit 6174073c, accessed 2026-11-11.
+  Informed: `third-party/` and its review in [compile-reuse.md](rationale/compile-reuse.md#third-party-crates-reindeer)
+  (north#1115). Outcome: adopted at v2026.05.04.00 with a patch that includes workspace dev-dependencies.
+- <a id="buck2-third-party-fixups"></a>**Buck2's own reindeer fixups**, https://github.com/facebook/buck2/tree/main/shim/third-party/rust/fixups
+  at commit 940470de, and the prelude's `rust/cargo_buildscript.bzl`, accessed 2026-11-11.
+  Informed: which build scripts need running and which read Cargo's environment
+  ([compile-reuse.md](rationale/compile-reuse.md#third-party-crates-reindeer)). Outcome: prior only; north runs
+  every build script instead of copying their per-crate skips.
 - <a id="buck2-dep-files"></a>**Buck2: dep files**, https://buck2.build/docs/rule_authors/dep_files/.
   Informed: a verdict keyed on the inputs a check used, not every input it may read
   ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
