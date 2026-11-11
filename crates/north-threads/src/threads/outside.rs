@@ -61,8 +61,8 @@ impl Issues for Live {
         GitHub.read(items)
     }
 
-    fn body(&self, repo: &str, number: u64) -> Option<String> {
-        GitHub.body(repo, number)
+    fn with_body(&self, repo: &str, number: u64) -> (Issue, Option<String>) {
+        GitHub.with_body(repo, number)
     }
 }
 

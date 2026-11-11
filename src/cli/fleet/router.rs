@@ -215,6 +215,7 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     }
     lineage::reader(fleet, &mut request, caller.as_deref())?;
     super::claude_only::admit(&request)?;
+    super::claim_box::admit(&request)?;
     ranked::admit(fleet, &request, caller.as_deref())?;
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;

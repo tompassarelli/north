@@ -173,19 +173,24 @@ pub fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
     Ok(true)
 }
 
-/// Queues `words` as a write for the ledger host and starts a detached send, so a caller that stopped waiting on the ledger still has its write land once the host answers; false when this host holds the ledger itself and has no spool to queue it in.
-pub fn spool_write(words: &[&str]) -> NorthResult<bool> {
-    let Some(client) = ambient_client(unread_fleet()) else { return Ok(false) };
+/// Queues `words` as a write for the ledger host and starts a detached send, so a caller that stopped waiting on the ledger still has its write land once the host answers; returns the write's name in the spool, `None` when this host holds the ledger itself and has no spool to queue it in.
+pub fn spool_write(words: &[&str]) -> NorthResult<Option<String>> {
+    let Some(client) = ambient_client(unread_fleet()) else { return Ok(None) };
     if client.var("THREADS_DB").is_some() || !client.remote.exists() {
-        return Ok(false);
+        return Ok(None);
     }
     let argv: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();
-    client.spool_argv(&argv, "the caller's bound passed before the ledger host answered")?;
+    let name = client.spool_argv(&argv, "the caller's bound passed before the ledger host answered")?;
     if let Some(program) = &client.background {
         let dest = fs::read_to_string(&client.remote)?;
         detach(program, &[SPOOL_FLUSH.as_ref(), dest.trim().as_ref()]);
     }
-    Ok(true)
+    Ok(Some(name))
+}
+
+/// What the ledger host said when it refused the write [`spool_write`] queued as `name`; `None` while it waits, once it landed, or when the spool cannot be read.
+pub fn spooled_refusal(name: &str) -> Option<String> {
+    ambient_client(unread_fleet())?.spooled_refusal(name)
 }
 
 /// The threads ledger this host reads: `THREADS_DB`, else the mirrored snapshot on a remote client, else the local database.

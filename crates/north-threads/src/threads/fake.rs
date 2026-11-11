@@ -33,8 +33,8 @@ impl Issues for Recorded {
         items.iter().map(|item| (item.clone(), Issue::Unread)).collect()
     }
 
-    fn body(&self, _repo: &str, _number: u64) -> Option<String> {
-        None
+    fn with_body(&self, _repo: &str, _number: u64) -> (Issue, Option<String>) {
+        (Issue::Unread, None)
     }
 }
 

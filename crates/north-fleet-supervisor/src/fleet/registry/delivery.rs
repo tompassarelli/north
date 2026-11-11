@@ -29,11 +29,13 @@ impl Fleet {
         self.deliveries()?.forget::<RowDelivery>(Timestamp::from(before))
     }
 
+    /// Adopts each session's legacy delivery journal, found by its directory alone, since every fleet open runs this and reading each record made every open read the whole registry.
     pub(super) fn adopt_journals(&self) -> NorthResult<()> {
-        for record in self.sessions()? {
-            let journal = self.session_dir(&record.name)?.join("delivered");
+        for entry in std::fs::read_dir(&self.root)?.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(journal) = self.session_dir(&name).map(|dir| dir.join("delivered")) else { continue };
             if journal.is_dir() {
-                adopt(&mut self.deliveries()?, &record.name, &journal, |id| self.took(&record.name, id), |id| FleetRow::check_id(id).is_ok())?;
+                adopt(&mut self.deliveries()?, &name, &journal, |id| self.took(&name, id), |id| FleetRow::check_id(id).is_ok())?;
             }
         }
         Ok(())

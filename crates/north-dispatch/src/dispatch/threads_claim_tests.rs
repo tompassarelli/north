@@ -22,8 +22,9 @@ impl Issues for Seen {
         items.iter().filter_map(|item| Some((item.clone(), *self.0.get(item)?))).collect()
     }
 
-    fn body(&self, repo: &str, number: u64) -> Option<String> {
-        self.1.get(&(repo.to_owned(), number)).cloned()
+    fn with_body(&self, repo: &str, number: u64) -> (Issue, Option<String>) {
+        let item = (repo.to_owned(), number);
+        (self.0.get(&item).copied().unwrap_or(Issue::Unread), self.1.get(&item).cloned())
     }
 }
 
@@ -98,7 +99,7 @@ fn a_claim_made_before_its_issue_opened_is_ignored_by_claim_list_and_dispatch() 
 fn github_answers_a_missing_issue_beside_the_found_ones_and_an_unread_reply_voids_nothing() {
     let items: BTreeSet<(String, u64)> = [("makgora".to_owned(), 453), ("makgora".to_owned(), 4824), ("wisp".to_owned(), 7)].into();
     assert_eq!(
-        issues::query(&items),
+        issues::query(&items, issues::STANDING),
         "query { r0: repository(owner: \"tompassarelli\", name: \"makgora\") { i453: issue(number: 453) { state createdAt } i4824: issue(number: 4824) { state createdAt } } r1: repository(owner: \"tompassarelli\", name: \"wisp\") { i7: issue(number: 7) { state createdAt } } }"
     );
     let reply = serde_json::json!({"data": {"r0": {"i453": {"state": "CLOSED", "createdAt": "2026-10-26T08:09:49Z"}, "i4824": null}, "r1": {"i7": {"state": "OPEN", "createdAt": "2026-10-01T00:00:00Z"}}}});

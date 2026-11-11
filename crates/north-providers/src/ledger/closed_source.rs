@@ -242,15 +242,20 @@ struct Inputs<'a> {
 /// ledger does not hold. A landed run naming a repository outside the catalog (an archived or
 /// renamed one) can never match a closed issue, so it is left out of every cell and named in
 /// `skipped` rather than failing the report for the repositories that are known.
-fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&str, &str, &str) -> NorthResult<HashMap<String, String>>, prices: &PriceTable) -> NorthResult<ClosedReport> {
+fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&str, &str, &str) -> NorthResult<HashMap<String, String>> + Sync, prices: &PriceTable) -> NorthResult<ClosedReport> {
     let mut landed: BTreeMap<&str, usize> = BTreeMap::new();
     for repo in sources.runs.iter().filter(|run| run.landed).filter_map(|run| run.item.as_deref()?.split_once('#').map(|(repo, _)| repo)) {
         *landed.entry(repo).or_default() += 1;
     }
     let known = |repo: &str| sources.catalog.repos.iter().chain(&sources.catalog.native).any(|known| known == repo);
     let mut closed = sources.closed.clone();
-    for repo in landed.keys().filter(|repo| known(repo) && !sources.native.contains(**repo)) {
-        closed.extend(github(repo, since, until)?);
+    let repos: Vec<&str> = landed.keys().copied().filter(|repo| known(repo) && !sources.native.contains(*repo)).collect();
+    let read: Vec<NorthResult<HashMap<String, String>>> = std::thread::scope(|scope| {
+        let reads: Vec<_> = repos.iter().map(|repo| scope.spawn(|| github(repo, since, until))).collect();
+        reads.into_iter().map(|read| read.join().unwrap_or_else(|_| Err(NorthError::State("a closed-issue read panicked".into())))).collect()
+    });
+    for issues in read {
+        closed.extend(issues?);
     }
     let items: HashSet<String> = closed.keys().cloned().collect();
     let mut report = summarize(&sources.runs, &items, since, prices).verified(&closed, sources.corroborated.as_ref());

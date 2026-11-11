@@ -194,11 +194,17 @@ impl Client {
         Ok(path)
     }
 
-    pub(super) fn spool_argv(&self, argv: &[String], cause: &str) -> NorthResult<()> {
+    pub(super) fn spool_argv(&self, argv: &[String], cause: &str) -> NorthResult<String> {
         fs::DirBuilder::new().recursive(true).mode(0o700).create(&self.spool)?;
         fs::set_permissions(&self.spool, fs::Permissions::from_mode(0o700))?;
-        let path = self.spool.join(format!("{}.argv", spool_stem()));
-        self.queue_spooled(&path, python_json(argv).as_bytes(), 0o600, cause)
+        let name = format!("{}.argv", spool_stem());
+        self.queue_spooled(&self.spool.join(&name), python_json(argv).as_bytes(), 0o600, cause)?;
+        Ok(name)
+    }
+
+    pub(super) fn spooled_refusal(&self, name: &str) -> Option<String> {
+        let record = self.spool_records().ok()?.store.current::<SpooledWrite>(name).ok()??;
+        (record.state == Phase::Refused).then_some(record.cause)
     }
 
     /// The spool's lock, or none while another call flushes it: that call sends every spooled write in order, so this one neither waits behind it nor sends any itself.
@@ -293,7 +299,8 @@ impl Client {
             return Ok(ControlFlow::Break(Flush::Busy));
         }
         if code != 0 {
-            spool.refuse(name, &exited(code), (self.clock)())?;
+            let said = sent.stderr.lines().map(str::trim).rfind(|line| !line.is_empty());
+            spool.refuse(name, &said.map_or_else(|| exited(code), |said| format!("{}: {said}", exited(code))), (self.clock)())?;
             writeln!(err, "NorthThreads: remote ingest refused {}; it will not be sent again", path.display())?;
             return Ok(ControlFlow::Continue(Vec::new()));
         }

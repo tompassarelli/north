@@ -7,38 +7,57 @@ use super::Issue;
 use crate::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 
+/// The fields a standing reads of each issue.
+pub const STANDING: &str = "state createdAt";
+
+/// The fields a box claim reads of its one issue: its standing and the body that holds its boxes.
+const WITH_BODY: &str = "state createdAt body";
+
+/// What a refusal of a box its issue lacks says, which `north fleet launch` tells from a ledger it could not read.
+pub const NO_BOX: &str = "names no box of";
+
 pub trait Issues {
     /// Each `(repo, number)` asked for, as GitHub shows it.
     fn read(&self, items: &BTreeSet<(String, u64)>) -> BTreeMap<(String, u64), Issue>;
-    /// The body of `repo`#`number` as GitHub holds it now, `None` when it could not be read.
-    fn body(&self, repo: &str, number: u64) -> Option<String>;
+    /// `repo`#`number` as GitHub shows it, with its body, `None` when the body could not be read, in the one call [`Issues::read`] makes.
+    fn with_body(&self, repo: &str, number: u64) -> (Issue, Option<String>);
 }
 
 pub struct GitHub;
+
+impl GitHub {
+    fn ask(items: &BTreeSet<(String, u64)>, fields: &str) -> Value {
+        let query = format!("query={}", query(items, fields));
+        let output = crate::platform::github::run_owned(&["api".into(), "graphql".into(), "-f".into(), query]);
+        output.ok().and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok()).unwrap_or(Value::Null)
+    }
+}
 
 impl Issues for GitHub {
     fn read(&self, items: &BTreeSet<(String, u64)>) -> BTreeMap<(String, u64), Issue> {
         if items.is_empty() {
             return BTreeMap::new();
         }
-        let query = format!("query={}", query(items));
-        let output = crate::platform::github::run_owned(&["api".into(), "graphql".into(), "-f".into(), query]);
-        let reply = output.ok().and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok()).unwrap_or(Value::Null);
-        answers(items, &reply)
+        answers(items, &Self::ask(items, STANDING))
     }
 
-    fn body(&self, repo: &str, number: u64) -> Option<String> {
-        let (number, repo) = (number.to_string(), format!("{}/{repo}", CATALOG.owner));
-        let issue = crate::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "body"]).ok()?;
-        issue["body"].as_str().map(str::to_owned)
+    fn with_body(&self, repo: &str, number: u64) -> (Issue, Option<String>) {
+        let items = BTreeSet::from([(repo.to_owned(), number)]);
+        let reply = Self::ask(&items, WITH_BODY);
+        let issue = answers(&items, &reply).remove(&(repo.to_owned(), number)).unwrap_or(Issue::Unread);
+        (issue, body(&reply, number))
     }
 }
 
-/// Refuses a box slug the issue's body lacks, ticked or not: a claim on a box its issue lacks holds every box of it in dispatch. A native item or an unreadable body refuses nothing.
-pub fn box_of_issue(issues: &dyn Issues, (repo, number): (&str, u64), slug: &str) -> Result<(), String> {
-    let body = (!CATALOG.is_native(repo)).then(|| issues.body(repo, number)).flatten();
-    match body {
-        Some(body) if !super::names_box(&body, slug) => Err(format!("--box {slug} names no box of {repo}#{number}; a box another issue holds is claimed on that issue, since a claim on a box its issue lacks holds every box of it")),
+/// The body of the one issue `number` a reply to a `WITH_BODY` query names.
+fn body(reply: &Value, number: u64) -> Option<String> {
+    reply["data"]["r0"][format!("i{number}")]["body"].as_str().map(str::to_owned)
+}
+
+/// Refuses a box slug the issue's `body` lacks, ticked or not: a claim on a box its issue lacks holds every box of it in dispatch. A native item or an unread body refuses nothing.
+pub fn box_of_issue(body: Option<&str>, (repo, number): (&str, u64), slug: &str) -> Result<(), String> {
+    match body.filter(|_| !CATALOG.is_native(repo)) {
+        Some(body) if !super::names_box(body, slug) => Err(format!("--box {slug} {NO_BOX} {repo}#{number}; a box another issue holds is claimed on that issue, since a claim on a box its issue lacks holds every box of it")),
         _ => Ok(()),
     }
 }
@@ -52,12 +71,12 @@ fn repositories(items: &BTreeSet<(String, u64)>) -> BTreeMap<&str, Vec<u64>> {
 }
 
 /// One aliased `issue` lookup per item, grouped under one aliased `repository` per repo.
-pub fn query(items: &BTreeSet<(String, u64)>) -> String {
+pub fn query(items: &BTreeSet<(String, u64)>, fields: &str) -> String {
     let lookups: Vec<String> = repositories(items)
         .into_iter()
         .enumerate()
         .map(|(index, (repo, numbers))| {
-            let issues: Vec<String> = numbers.iter().map(|number| format!("i{number}: issue(number: {number}) {{ state createdAt }}")).collect();
+            let issues: Vec<String> = numbers.iter().map(|number| format!("i{number}: issue(number: {number}) {{ {fields} }}")).collect();
             format!("r{index}: repository(owner: \"{}\", name: \"{repo}\") {{ {} }}", CATALOG.owner, issues.join(" "))
         })
         .collect();

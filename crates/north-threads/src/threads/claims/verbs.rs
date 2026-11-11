@@ -103,12 +103,12 @@ fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
     let by = parsed.by.clone().unwrap_or_else(|| context.actor.clone());
     let item = format!("{repo}#{number}");
     let slug = parsed.box_text.as_deref().map(|text| box_slug(text).ok_or_else(|| format!("--box {text} names no word of a box"))).transpose()?;
+    let read = (!CATALOG.is_native(&repo)).then(|| context.issues.with_body(&repo, number));
     if let Some(slug) = &slug {
-        box_of_issue(context.issues, (&repo, number), slug)?;
+        box_of_issue(read.as_ref().and_then(|(_, body)| body.as_deref()), (&repo, number), slug)?;
     }
     let mut db = ledger::open(context.database, true)?;
-    let github = context.issues.read(&github_items(std::iter::once(item.as_str())));
-    let issue = issue_of(&db, &item, &github);
+    let issue = read.map_or_else(|| issue_of(&db, &item, &BTreeMap::new()), |(issue, _)| issue);
     let ancestors: BTreeSet<String> = parsed.parents.iter().cloned().collect();
     let claimant = ledger::Claimant { name: &by, ancestors: &ancestors };
     let (taken, held) = ledger::take(&mut db, (&item, slug.as_deref()), claimant, eta, issue, context.alive.as_ref(), context.now)?;

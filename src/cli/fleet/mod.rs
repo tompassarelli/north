@@ -7,6 +7,7 @@ mod adopt;
 mod budget_notices;
 mod break_glass;
 mod claims;
+mod claim_box;
 mod claude_only;
 mod desktop;
 mod dispatch_tick;

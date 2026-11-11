@@ -44,8 +44,8 @@ pub enum Taken {
     Held,
     /// The ledger recorded the claim after moving it from an earlier owner, and says from whom and why.
     Moved(String),
-    /// The ledger did not answer in time and the claim waits in a spool to land once it does, so no other launch sees it yet.
-    Queued,
+    /// The ledger did not answer in time and the claim waits in a spool, under this name, to land once it does, so no other launch sees it yet.
+    Queued(String),
 }
 
 pub trait Claims: Send + Sync {
@@ -54,6 +54,10 @@ pub trait Claims: Send + Sync {
     /// How long a launch waits for a claim [`Taken::Queued`] to land before it refuses.
     fn queued_claim_wait(&self) -> Duration {
         QUEUED_CLAIM_WAIT
+    }
+    /// What the ledger said when it refused the claim queued under `queued`; `None` while it waits or once it landed.
+    fn refusal(&self, _queued: &str) -> Option<String> {
+        None
     }
     /// Gives the claim up only while `session` still owns it, so a later owner's claim stays.
     fn release(&self, item: &str, session: &str) -> NorthResult<()>;
@@ -76,7 +80,7 @@ pub fn hold_all(claims: &dyn Claims, tasks: &[String], session: &str, ancestors:
             }
             Err(error) => eprintln!("north fleet: {session} does not hold {task} yet: {}", error.user_message()),
             Ok(Taken::Moved(moved)) => eprintln!("north fleet: {moved}"),
-            Ok(Taken::Queued) => queued.push(task.clone()),
+            Ok(Taken::Queued(spooled)) => queued.push((task.clone(), spooled)),
             Ok(Taken::Held) => {}
         }
     }
@@ -93,20 +97,24 @@ fn give_up(claims: &dyn Claims, tasks: &[String], session: &str) {
     }
 }
 
-/// Reads the ledger until every key in `queued` is held by `session`: a key another owner holds refuses, and keys a ledger that answers still does not show when the claim's wait ends refuse too. A ledger that does not answer a read leaves the claim queued, to land once the host reaches it, and the launch starts.
-fn land_queued(claims: &dyn Claims, queued: &[String], session: &str) -> NorthResult<()> {
-    if queued.is_empty() {
+/// Reads the ledger until every key in `queued` is held by `session`: a key the ledger refused once the spool sent it refuses with the ledger's own words, a key another owner holds refuses, and keys a ledger that answers still does not show when the claim's wait ends refuse too. A ledger that does not answer a read leaves the claim queued, to land once the host reaches it, and the launch starts.
+fn land_queued(claims: &dyn Claims, waiting: &[(String, String)], session: &str) -> NorthResult<()> {
+    if waiting.is_empty() {
         return Ok(());
     }
+    let queued: Vec<&str> = waiting.iter().map(|(key, _)| key.as_str()).collect();
     let issues: Vec<String> = queued.iter().map(|key| split_key(key).0.to_owned()).collect();
     let deadline = Instant::now() + claims.queued_claim_wait();
     loop {
+        if let Some((key, why)) = waiting.iter().find_map(|(key, spooled)| Some((key, claims.refusal(spooled)?))) {
+            return Err(NorthError::Refused(format!("the threads ledger refused the claim of {key}: {why}")));
+        }
         let Ok(rows) = claims.holders(Rows::Items(&issues)) else {
             eprintln!("north fleet: the threads ledger did not answer, so {session} starts with {} queued", queued.join(", "));
             return Ok(());
         };
         if let Some(owner) = rows.iter().find(|(held, owner)| owner != session && queued.iter().any(|key| claims.covers(held, key))).map(|(_, owner)| owner) {
-            return Err(NorthError::Refused(format!("{} is already owned by {owner}", split_key(&queued[0]).0)));
+            return Err(NorthError::Refused(format!("{} is already owned by {owner}", split_key(queued[0]).0)));
         }
         if queued.iter().all(|key| rows.iter().any(|(held, owner)| owner == session && claims.covers(held, key))) {
             return Ok(());
@@ -291,7 +299,7 @@ mod tests {
 
     impl Claims for Queues {
         fn hold(&self, _: &str, _: &str, _: &BTreeSet<String>) -> NorthResult<Taken> {
-            Ok(Taken::Queued)
+            Ok(Taken::Queued("spooled".to_owned()))
         }
 
         fn queued_claim_wait(&self) -> Duration {
@@ -319,6 +327,34 @@ mod tests {
         assert!(matches!(&beside, NorthError::Refused(why) if why == "north#1109 is already owned by laptop-lead"), "{}", beside.user_message());
         let unseen = hold_all(&Queues(Some(&[("north#1110", "cpx62-worker")])), &tasks, "cpx62-worker", &BTreeSet::new()).unwrap_err();
         assert!(matches!(&unseen, NorthError::State(why) if why.contains("is only queued")), "{}", unseen.user_message());
+    }
+
+    /// A ledger that queues a claim and, once the spool sends it, refuses it.
+    struct RefusesQueued;
+
+    impl Claims for RefusesQueued {
+        fn hold(&self, _: &str, _: &str, _: &BTreeSet<String>) -> NorthResult<Taken> {
+            Ok(Taken::Queued("1794399091624627536-3178642.argv".to_owned()))
+        }
+
+        fn refusal(&self, queued: &str) -> Option<String> {
+            (queued == "1794399091624627536-3178642.argv").then(|| "the ledger host exited 1: NorthThreads: --box an-ordered-promotion-of-a-landed-commit names no box of north#1144".to_owned())
+        }
+
+        fn release(&self, _: &str, _: &str) -> NorthResult<()> {
+            Ok(())
+        }
+
+        fn holders(&self, _: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// On 2026-11-11 the ledger refused f-promote-order's queued claim 3 s after the spool sent it, and the launch polled for 30 s and then blamed the ledger for not taking it.
+    #[test]
+    fn a_queued_claim_the_ledger_refuses_refuses_the_launch_at_once_in_the_ledgers_words() {
+        let refused = hold_all(&RefusesQueued, &["north#1144@an_ordered_promotion_of_a_landed_commit".to_owned()], "f-promote-order", &BTreeSet::new()).unwrap_err();
+        assert!(matches!(&refused, NorthError::Refused(why) if why.contains("names no box of north#1144")), "{}", refused.user_message());
     }
 
     #[test]

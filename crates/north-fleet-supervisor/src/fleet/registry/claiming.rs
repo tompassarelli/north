@@ -48,7 +48,7 @@ impl Fleet {
         }
         match self.claims.hold(task, name, &self.ancestors(record.parent.as_deref())) {
             Ok(Taken::Moved(moved)) => println!("{moved}"),
-            Ok(Taken::Queued) => println!("{name} holds {task}; its claim is queued and lands once the ledger answers"),
+            Ok(Taken::Queued(_)) => println!("{name} holds {task}; its claim is queued and lands once the ledger answers"),
             Ok(Taken::Held) => println!("{name} holds {task}"),
             Err(error) => eprintln!("north fleet: {name} holds {task} in its record, but the threads ledger did not take its claim: {}", error.user_message()),
         }
@@ -340,7 +340,7 @@ mod queued_claim_tests {
     impl Claims for Spooled {
         fn hold(&self, item: &str, session: &str, _: &BTreeSet<String>) -> NorthResult<Taken> {
             self.waiting.lock().unwrap().push((item.to_owned(), session.to_owned()));
-            Ok(Taken::Queued)
+            Ok(Taken::Queued("spooled".to_owned()))
         }
 
         fn queued_claim_wait(&self) -> Duration {

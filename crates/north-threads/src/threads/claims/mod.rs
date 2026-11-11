@@ -46,7 +46,12 @@ pub fn box_node(item: &str, text: &str) -> Option<String> {
 
 /// Whether `slug` names a box of the issue `body`, ticked or not, as [`same_box`] matches a claim to a box.
 pub fn names_box(body: &str, slug: &str) -> bool {
-    body.lines().filter_map(checked).filter_map(box_slug).any(|line| same_box(slug, &line))
+    boxes(body).filter_map(box_slug).any(|line| same_box(slug, &line))
+}
+
+/// The text of each box of the issue `body`, ticked or not, in its order.
+pub fn boxes(body: &str) -> impl Iterator<Item = &str> {
+    body.lines().filter_map(checked).map(str::trim)
 }
 
 fn checked(line: &str) -> Option<&str> {

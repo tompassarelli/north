@@ -15,6 +15,7 @@ use crate::threads::client;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::SESSION_ENV;
 use crate::threads::catalog::CATALOG;
+use crate::threads::claims::issues::NO_BOX;
 use crate::threads::claims::verbs::OWNED;
 use crate::threads::claims::{box_slug, same_box};
 
@@ -107,7 +108,13 @@ const LEDGER_LIMIT: Duration = Duration::from_secs(2);
 /// How long the background claims sweep waits on one threads ledger call: no verb waits on it, so it outlasts the threads client's own 20 s ssh bound.
 const SWEEP_LIMIT: Duration = Duration::from_secs(30);
 
-type Spooler = Box<dyn Fn(&[&str]) -> NorthResult<bool> + Send + Sync>;
+type Spooler = Box<dyn Fn(&[&str]) -> NorthResult<Option<String>> + Send + Sync>;
+
+/// How the ledger met a write: its answer, or the name of the write the spool holds because it did not answer within the bound.
+enum Written {
+    Said(String),
+    Spooled(String),
+}
 
 pub struct ThreadsCli {
     program: Option<PathBuf>,
@@ -151,16 +158,16 @@ impl ThreadsCli {
         self.answer(args)?.ok_or_else(|| self.unanswered(args))
     }
 
-    /// A write the ledger does not answer within the bound is queued in the threads spool, which sends it once the ledger host answers; None says it was queued, not answered.
-    fn write(&self, args: &[&str]) -> NorthResult<Option<String>> {
+    /// A write the ledger does not answer within the bound is queued in the threads spool, which sends it once the ledger host answers.
+    fn write(&self, args: &[&str]) -> NorthResult<Written> {
         let Some(said) = self.answer(args)? else {
-            if (self.spool)(args)? {
+            if let Some(spooled) = (self.spool)(args)? {
                 eprintln!("north fleet: {}; it is queued and lands once the ledger answers", self.unanswered(args).user_message());
-                return Ok(None);
+                return Ok(Written::Spooled(spooled));
             }
             return Err(self.unanswered(args));
         };
-        Ok(Some(said))
+        Ok(Written::Said(said))
     }
 }
 
@@ -174,9 +181,15 @@ impl Claims for ThreadsCli {
             .chain(ancestors.iter().flat_map(|parent| ["--parent", parent.as_str()]))
             .collect();
         match self.write(&words) {
-            Err(NorthError::Refused(why)) if !why.contains(OWNED) => Err(NorthError::State(why)),
-            other => other.map(|said| said.map_or(Taken::Queued, |said| moved(said.trim(), key, session).map_or(Taken::Held, Taken::Moved))),
+            Err(NorthError::Refused(why)) if !why.contains(OWNED) && !why.contains(NO_BOX) => Err(NorthError::State(why)),
+            Err(error) => Err(error),
+            Ok(Written::Spooled(spooled)) => Ok(Taken::Queued(spooled)),
+            Ok(Written::Said(said)) => Ok(moved(said.trim(), key, session).map_or(Taken::Held, Taken::Moved)),
         }
+    }
+
+    fn refusal(&self, queued: &str) -> Option<String> {
+        client::spooled_refusal(queued)
     }
 
     fn release(&self, key: &str, session: &str) -> NorthResult<()> {
@@ -235,7 +248,7 @@ mod tests {
         let queue = Arc::clone(spooled);
         let spool: Spooler = Box::new(move |args| {
             queue.lock().unwrap().push(args.iter().map(|arg| (*arg).to_owned()).collect());
-            Ok(true)
+            Ok(Some("spooled".to_owned()))
         });
         (directory, ThreadsCli { program: Some(program), limit: Duration::from_millis(300), spool })
     }
@@ -256,7 +269,7 @@ mod tests {
         let spooled = Arc::new(Mutex::new(Vec::new()));
         let (_slow, slow) = ledger("sleep 30", &spooled);
         let begun = Instant::now();
-        assert_eq!(slow.hold("north#7", "cpx62-worker", &BTreeSet::new()).unwrap(), Taken::Queued);
+        assert_eq!(slow.hold("north#7", "cpx62-worker", &BTreeSet::new()).unwrap(), Taken::Queued("spooled".to_owned()));
         slow.release("north#7", "cpx62-worker").unwrap();
         assert!(begun.elapsed() < Duration::from_secs(10), "{:?}", begun.elapsed());
         let words: Vec<Vec<String>> = spooled.lock().unwrap().clone();
@@ -273,5 +286,9 @@ mod tests {
         let (_refusing, refusing) = ledger("echo 'north#7 is already owned by alice' >&2; exit 1", &spooled);
         assert!(matches!(refusing.hold("north#7", "cpx62-worker", &BTreeSet::new()), Err(NorthError::Refused(_))));
         assert_eq!(spooled.lock().unwrap().len(), 3, "a refusal that arrives in time is not queued");
+
+        let (_no_box, no_box) = ledger("echo 'NorthThreads: --box an-ordered-promotion-of-a-landed-commit names no box of north#1144' >&2; exit 1", &spooled);
+        let refused = crate::fleet::claims::hold_all(&no_box, &["north#1144@an_ordered_promotion_of_a_landed_commit".to_owned()], "f-mcp-start", &BTreeSet::new()).unwrap_err();
+        assert!(matches!(&refused, NorthError::Refused(why) if why.contains("names no box of north#1144")), "a box the ledger refuses in time refuses the launch rather than starting it unclaimed: {}", refused.user_message());
     }
 }
