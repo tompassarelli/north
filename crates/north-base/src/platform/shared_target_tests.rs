@@ -5,15 +5,19 @@ use super::*;
 
 const HOUR: Duration = Duration::from_secs(3600);
 
+fn now() -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000)
+}
+
 fn write(path: &Path, bytes: usize, mode: u32, age: Duration) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, vec![0u8; bytes]).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
-    File::options().write(true).open(path).unwrap().set_modified(SystemTime::now() - age).unwrap();
+    File::options().write(true).open(path).unwrap().set_modified(now() - age).unwrap();
 }
 
 fn sweep_now(target: &Path, cap: u64) -> u64 {
-    sweep(target, cap, IDLE, SystemTime::now()).unwrap()
+    sweep(target, cap, IDLE, now()).unwrap()
 }
 
 #[test]

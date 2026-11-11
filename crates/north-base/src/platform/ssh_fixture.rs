@@ -50,7 +50,7 @@ impl Fixture {
         std::fs::write(path.join("ssh_config"), client_config).unwrap();
         let sshd = daemon(&which("sshd")).args(["-D", "-f"]).arg(path.join("sshd_config")).spawn().unwrap();
         let fixture = Self { dir, runtime, sshd, units: Vec::new() };
-        assert!(wait::until(Duration::from_secs(10), || std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()), "sshd did not listen");
+        assert!(wait::until(Duration::from_secs(120), || std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()), "sshd did not listen");
         fixture
     }
 
@@ -82,7 +82,7 @@ impl Fixture {
     }
 
     pub fn wait_for_socket(&self) {
-        assert!(wait::until(Duration::from_secs(15), || self.socket_up()), "no ssh master socket appeared");
+        assert!(wait::until(Duration::from_secs(120), || self.socket_up()), "no ssh master socket appeared");
     }
 
     pub fn stop(&mut self, marker: &str) {

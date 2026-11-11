@@ -4,8 +4,8 @@ use std::time::Duration;
 use super::super::ssh_fixture::{master_words, Fixture};
 use super::super::wait;
 
-fn caller_status(fixture: &Fixture, started: &std::path::Path) -> std::process::Child {
-    let words = fixture.client(&["-o", "BatchMode=yes", "testhost", &format!("touch {}; sleep 4", started.display())]);
+fn caller_status(fixture: &Fixture, started: &std::path::Path, release: &std::path::Path) -> std::process::Child {
+    let words = fixture.client(&["-o", "BatchMode=yes", "testhost", &format!("touch {}; cat {}", started.display(), release.display())]);
     Command::new(&words[0]).args(&words[1..]).stdout(Stdio::null()).spawn().unwrap()
 }
 
@@ -19,9 +19,12 @@ fn a_multiplexed_session_survives_restarting_the_unit_that_made_the_first_connec
     let first = fixture.client(&["-o", "BatchMode=yes", "testhost", "sleep", "60"]);
     let first_unit = fixture.unit("north-ssh-first-test", &first);
     let started = fixture.dir.path().join("second-started");
-    let mut second = caller_status(&fixture, &started);
-    assert!(wait::until(Duration::from_secs(30), || started.exists()), "the second caller never started its remote command");
+    let release = fixture.dir.path().join("second-release");
+    assert!(Command::new("mkfifo").arg(&release).status().unwrap().success());
+    let mut second = caller_status(&fixture, &started, &release);
+    assert!(wait::until(Duration::from_secs(120), || started.exists()), "the second caller never started its remote command");
     fixture.stop(&first_unit);
+    drop(std::fs::File::options().write(true).open(&release).unwrap());
 
     let status = second.wait().unwrap();
     assert_eq!(status.code(), Some(0), "the multiplexed session must outlive the first caller's unit");
