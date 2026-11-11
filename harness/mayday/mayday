@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# mayday 0|1|2|3|4 [--t3] [--self-test] [--dry-run] [--no-launch] [--stop-north] [--relink-stable] [--account a-e] [--repo DIR], or mayday --self-test: move this machine to a ladder level with systemd, links and Claude Code only; no north binary.
+set -euo pipefail
+t0=$(date +%s%N)
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+ns=${XDG_STATE_HOME:-$HOME/.local/state}/north
+ms=${MAYDAY_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/mayday}
+USER=${USER:-$(id -un)}
+usage="usage: mayday 0|1|2|3|4 [--t3] [--self-test] [--dry-run] [--no-launch] [--stop-north] [--relink-stable] [--account a-e] [--repo DIR] | mayday --self-test | mayday 2|3 --t3 [--self-test]"
+level="" dry="" launch=1 stop_north="" relink="" self_test="" t3="" account=${MAYDAY_ACCOUNT:-d} repo=$PWD
+while (($#)); do case $1 in
+  [0-4]|L[0-4]) level=${1#L} ;; --dry-run) dry=1 ;; --no-launch) launch="" ;; --stop-north) stop_north=1 ;;
+  --relink-stable) relink=1 ;; --self-test) self_test=1 ;; --t3) t3=1 ;; --account) account=$2; shift ;; --repo) repo=$2; shift ;;
+  *) echo "mayday: unknown argument $1; $usage" >&2; exit 64 ;; esac; shift; done
+fleet_local="fleet-tick.timer north-dispatch-mirror.timer"
+fleet_remote=${MAYDAY_DISPATCH_HOST:-nexus}:north-dispatch.timer
+north_globs="north-*.timer north-*.service agent-runtime-update.timer verify-north.timer"
+elapsed() { printf '%s' $((($(date +%s%N) - t0) / 1000000)); }
+run() { if [[ -n "$dry" ]]; then printf 'would run: %s\n' "$*"; else "$@" || printf 'mayday: failed (continuing): %s\n' "$*" >&2; fi; }
+on() { local host=$1; shift; if [[ "$host" == local ]]; then run systemctl --user "$@"; else run timeout 10 ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" systemctl --user "$@"; fi; }
+record() { [[ -n "$dry" ]] || printf '%s %s %s\n' "$1" "$2" "$3" >>"$ms/stopped"; }
+stop_fleet() {
+  local unit; for unit in $fleet_local; do on local stop "$unit"; record local "$unit" fleet; done
+  on "${fleet_remote%%:*}" stop "${fleet_remote#*:}"; record "${fleet_remote%%:*}" "${fleet_remote#*:}" fleet
+}
+stop_north_units() {
+  local unit; for unit in $(systemctl --user list-units --state=active --plain --no-legend $north_globs 2>/dev/null | awk '{print $1}'); do
+    on local stop "$unit"; record local "$unit" north; done
+}
+start_recorded() {
+  [[ -s "$ms/stopped" ]] || return 0
+  local host unit kind keep=""; while read -r host unit kind; do
+    if [[ "$1" == all || "$kind" == "$1" ]]; then on "$host" start "$unit"; else keep+="$host $unit $kind"$'\n'; fi
+  done <"$ms/stopped"
+  [[ -n "$dry" ]] || printf '%s' "$keep" >"$ms/stopped"
+}
+relink_stable() {
+  local sha; sha=$(head -c 40 "$ns/channel/stable" 2>/dev/null) || { echo "mayday: no stable pin at $ns/channel/stable" >&2; return 1; }
+  [[ -x "$ns/runtimes/$sha/north" ]] || { echo "mayday: stable runtime $sha is not on this host" >&2; return 1; }
+  run ln -sfn "runtimes/$sha" "$ns/.current.mayday"; run mv -T "$ns/.current.mayday" "$ns/current"
+}
+note_level() {
+  local line; line="L$level since=$(date -Iseconds) by=mayday host=$(hostname)"
+  [[ -n "$dry" ]] && { printf 'would record: %s\n' "$line"; return; }
+  printf '%s\n' "$line" >"$ms/ladder-level"; printf '%s\n' "$line" >"$ns/ladder-level" 2>/dev/null || true
+}
+[[ -z "$self_test" || -n "$t3" ]] || exec "$here/mayday-claude" --self-test --account "$account" --repo "$repo"
+[[ -z "$t3" || "$level" == [23] ]] || { echo "mayday: --t3 is a form of level 2 or 3" >&2; exit 64; }
+[[ -z "$t3" || -z "$self_test" ]] || exec "$here/mayday-t3" "$level" --self-test --account "$account"
+[[ "$level" =~ ^[0-4]$ ]] || { echo "$usage" >&2; exit 64; }
+mkdir -p -m 700 "$ms"
+case $level in
+  0) start_recorded all ;;
+  1|2) start_recorded north; stop_fleet; [[ -z "$relink" ]] || relink_stable ;;
+  3|4) stop_fleet; [[ -z "$stop_north" ]] || stop_north_units ;;
+esac
+note_level
+[[ -z "$t3" ]] || { [[ -z "$dry" && -n "$launch" ]] || exit 0; exec "$here/mayday-t3" "$level" --account "$account" --repo "$repo"; }
+case $level in
+  0|1) printf 'mayday: L%s recorded in %s ms; start the native TUI with: north\n' "$level" "$(elapsed)" ;;
+  2) printf 'mayday: L2 recorded in %s ms; Claude Code with north hooks: claude-%s; T3 Code: mayday 2 --t3\n' "$(elapsed)" "$account"
+     [[ -n "$dry" || -z "$launch" ]] || { cd "$repo" && exec "$HOME/.local/bin/claude-$account"; } ;;
+  3|4) [[ -z "$dry" && -z "$launch" ]] || exec "$here/mayday-claude" "$level" ${dry:+--dry-run} --account "$account" --repo "$repo" ;;
+esac

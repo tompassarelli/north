@@ -53,9 +53,8 @@ metric = "seconds to a usable prompt at the two lowest levels"
 budget = "at most 15"
 guard_kind = "land-check"
 guard = "mayday-self-test"
-state = "missing"
+state = "live"
 incidents = ""
-accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
 
 [[hold]]
 id = "H6"

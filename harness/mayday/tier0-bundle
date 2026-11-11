@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# tier0-bundle [LIST]: build the mayday config directories (level 3 Tier 0 core, level 4 raw) from the tree this script sits in and install the ladder scripts outside every checkout; needs no north binary.
+set -euo pipefail
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+tree=$(cd "$here/../.." && pwd)
+code=${MAYDAY_CODE:-$HOME/code}
+ms=${MAYDAY_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/mayday}
+list=${1:-$here/tier0.list}
+repos=${MAYDAY_REPOS:-"makgora wisp makgora-client battlecraft"}
+die() { printf 'tier0-bundle: %s\n' "$*" >&2; exit 1; }
+[[ -r "$list" ]] || die "no bundle definition at $list"
+command -v jq >/dev/null || die "jq is required"
+source_of() { if [[ "$1" == harness/* ]]; then printf '%s' "$tree/$1"; else printf '%s' "$code/$1"; fi; }
+
+seed_claude_json() {
+  local dir=$1 trusted='{}' repo
+  for repo in $repos; do
+    [[ -d "$code/$repo/main" ]] || continue
+    trusted=$(jq --arg p "$code/$repo/main" '. + {($p): {hasTrustDialogAccepted: true}}' <<<"$trusted")
+  done
+  jq -n --argjson projects "$trusted" '{hasCompletedOnboarding: true, projects: $projects}' >"$dir/.claude.json"
+}
+
+build_l3() {
+  local tmp kind path rest source stamp=""
+  tmp=$(mktemp -d "$ms/.l3.XXXXXX")
+  mkdir -p "$tmp/skills"
+  cp "$here/tier0-preface.md" "$tmp/CLAUDE.md"
+  while read -r kind path rest; do
+    [[ -n "$kind" && "$kind" != '#'* ]] || continue
+    source=$(source_of "$path")
+    case "$kind" in
+      rule) [[ -r "$source" ]] || die "rule $source is missing"
+            printf '\n<!-- %s -->\n' "$path" >>"$tmp/CLAUDE.md"; cat "$source" >>"$tmp/CLAUDE.md" ;;
+      skill) [[ -r "$source/SKILL.md" ]] || die "skill $source is missing"
+             cp -rL "$source" "$tmp/skills/" ;;
+      settings) jq -e '.permissions.deny | length > 0' "$here/$path" >/dev/null || die "settings $path has no deny list"
+                cp "$here/$path" "$tmp/settings.json"; continue ;;
+      *) die "unknown kind $kind in $list" ;;
+    esac
+    stamp+="$path@$(git -C "$(dirname "$source")" rev-parse --short HEAD 2>/dev/null || echo unknown)"$'\n'
+  done <"$list"
+  [[ -s "$tmp/settings.json" ]] || die "the bundle names no settings file"
+  seed_claude_json "$tmp"
+  { printf 'built=%s\n' "$(date -Iseconds)"; sort -u <<<"$stamp"; } >"$tmp/BUNDLE"
+  swap "$tmp" "$ms/l3"
+}
+
+build_l4() {
+  local tmp
+  tmp=$(mktemp -d "$ms/.l4.XXXXXX")
+  printf '{}\n' >"$tmp/settings.json"
+  seed_claude_json "$tmp"
+  printf 'built=%s\nraw=true\n' "$(date -Iseconds)" >"$tmp/BUNDLE"
+  swap "$tmp" "$ms/l4"
+}
+
+swap() {
+  local new=$1 dest=$2 keep
+  for keep in projects todos; do
+    if [[ -e "$dest/$keep" && ! -e "$new/$keep" ]]; then mv "$dest/$keep" "$new/"; fi
+  done
+  if [[ -e "$dest" ]]; then mv -T "$dest" "$dest.old.$$"; fi
+  mv -T "$new" "$dest"
+  rm -rf -- "${dest:?}.old.$$"
+}
+
+mkdir -p -m 700 "$ms" "$ms/bin"
+build_l3
+build_l4
+install -m 755 "$here/mayday" "$here/mayday-claude" "$here/mayday-t3" "$here/mayday-status" "$here/stable-pin" "$ms/bin/"
+printf 'tier0-bundle: L3 at %s (%s skills, %s deny rules), L4 at %s, scripts in %s\n' "$ms/l3" \
+  "$(find "$ms/l3/skills" -mindepth 1 -maxdepth 1 | wc -l)" "$(jq '.permissions.deny|length' "$ms/l3/settings.json")" "$ms/l4" "$ms/bin"

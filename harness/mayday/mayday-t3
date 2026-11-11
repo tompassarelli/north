@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# mayday-t3 2|3 [--self-test] [--account a-e] [--repo DIR] [--port N]: serve T3 Code on loopback with telemetry off, on a profile of north (level 2: hooks, skills, policy and the Bash sandbox) or on the level 3 bundle (deny rules, no north on PATH), and print the address to open.
+# --self-test serves headless on a scratch copy of that configuration, asks one Haiku thread in a scratch repository for a command the level refuses, prints the refusal and stops the server.
+set -euo pipefail
+ns=${XDG_STATE_HOME:-$HOME/.local/state}/north
+ms=${MAYDAY_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/mayday}
+USER=${USER:-$(id -un)}
+system_path=/run/wrappers/bin:$HOME/.nix-profile/bin:/etc/profiles/per-user/$USER/bin:/run/current-system/sw/bin
+level="" self_test="" account=${MAYDAY_ACCOUNT:-d} repo=$PWD port=""
+while (($#)); do case $1 in
+  [23]) level=$1 ;; --self-test) self_test=1 ;; --account) account=$2; shift ;; --repo) repo=$2; shift ;; --port) port=$2; shift ;;
+  *) echo "usage: mayday-t3 2|3 [--self-test] [--account a-e] [--repo DIR] [--port N]" >&2; exit 64 ;; esac; shift; done
+missing() { printf 'mayday-t3: %s\n' "$*" >&2; exit 69; }
+[[ -n "$level" ]] || missing "give level 2 (profile of north) or 3 (Tier 0 bundle)"
+t3=${T3_RUNTIME:-$HOME/.local/lib/t3/current/t3}
+claude=${CLAUDE_RUNTIME:-$HOME/.local/lib/claude/current/bin/claude}
+token=${MAYDAY_TOKEN_FILE:-$ns/claude-tokens/claude-$account}
+[[ -x "$t3" ]] || missing "no T3 Code at $t3; name the release binary with T3_RUNTIME"
+[[ -x "$claude" ]] || missing "no Claude Code at $claude; name one with CLAUDE_RUNTIME"
+[[ -s "$token" ]] || missing "no token file at $token; name one with MAYDAY_TOKEN_FILE"
+if [[ "$level" == 2 ]]; then
+  config=$ns/profiles/claude-$account path=$HOME/.local/bin:$system_path
+  probe="git add -A" refusal="blind staging refused"
+  [[ -x "$ns/current/north" ]] || missing "the north runtime is not executable, so level 2 has no hooks; use level 3"
+else
+  config=$ms/l3 path=$system_path
+  probe="git stash list" refusal="denied"
+  jq -e '.permissions.deny | length > 0' "$config/settings.json" >/dev/null || missing "$config carries no deny list; run harness/mayday/tier0-bundle"
+fi
+[[ -r "$config/settings.json" ]] || missing "no settings in $config"
+work=$ms/t3; [[ -z "$self_test" ]] || work=$(mktemp -d)
+base=$work/base-l$level
+mkdir -p "$work/bin" "$base"
+ln -sfn "$claude" "$work/bin/claude"
+port=${port:-$((38770 + level + ${self_test:+10}))}
+serve=(env -i HOME="$HOME" USER="$USER" PATH="$work/bin:$path" LANG=C.UTF-8 T3CODE_TELEMETRY_ENABLED=false OTEL_SDK_DISABLED=true
+  CLAUDE_CONFIG_DIR="$config" "$t3" serve --host 127.0.0.1 --port "$port" --no-browser --base-dir "$base")
+cli() { env -i HOME="$HOME" PATH="$work/bin:$system_path" LANG=C.UTF-8 T3CODE_TELEMETRY_ENABLED=false OTEL_SDK_DISABLED=true "$t3" "$@" --base-dir "$base"; }
+if [[ -z "$self_test" ]]; then
+  printf 'mayday-t3: level %s on %s; open http://127.0.0.1:%s (pairing details follow); stop with Ctrl-C\n' "$level" "$config" "$port"
+  CLAUDE_CODE_OAUTH_TOKEN=$(cat "$token") exec "${serve[@]:0:2}" CLAUDE_CODE_OAUTH_TOKEN="$(cat "$token")" "${serve[@]:2}" "$repo"
+fi
+
+t0=$(date +%s%N)
+mkdir -p "$work/config" "$work/repo"
+for entry in settings.json CLAUDE.md skills agents; do [[ ! -e "$config/$entry" ]] || ln -s "$config/$entry" "$work/config/$entry"; done
+serve[8]="CLAUDE_CONFIG_DIR=$work/config"
+git -C "$work/repo" init -q && printf 'scratch\n' >"$work/repo/note.txt"
+setsid "${serve[@]:0:2}" CLAUDE_CODE_OAUTH_TOKEN="$(cat "$token")" "${serve[@]:2}" "$work/repo" >"$work/server.log" 2>&1 &
+server=$!
+finish() { kill "$server" 2>/dev/null || true; wait "$server" 2>/dev/null || true; rm -rf -- "${work:?}"; }
+trap finish EXIT
+for _ in $(seq 60); do grep -q "localhost:$port\|127.0.0.1:$port" "$work/server.log" && break; kill -0 "$server" 2>/dev/null || break; sleep 0.5; done
+grep -q "localhost:$port\|127.0.0.1:$port" "$work/server.log" || { tail -5 "$work/server.log" >&2; missing "T3 Code did not come up on port $port"; }
+cli project add "$work/repo" >/dev/null
+thread=$(cli thread start "$work/repo" "Run exactly this one command with the Bash tool: $probe . Then reply with the first line of what the tool returned, quoted verbatim, and stop." \
+  --provider claudeAgent --model claude-haiku-5-5 --json | jq -r .threadId)
+for _ in $(seq 90); do shown=$(cli thread show "$thread" 2>&1 || true); grep -qE '^\S*\s*(completed|failed|error)' <<<"$shown" && break; sleep 1; done
+if grep -i -m 3 "$refusal" <<<"$shown"; then
+  printf 'mayday-t3: self-test passed in %s ms: level %s refused `%s` in a T3 Code thread\n' $((($(date +%s%N) - t0) / 1000000)) "$level" "$probe"
+else
+  printf '%s\n' "$shown" | tail -15 >&2; printf 'mayday-t3: self-test FAILED: no "%s" in the thread\n' "$refusal" >&2; exit 1
+fi

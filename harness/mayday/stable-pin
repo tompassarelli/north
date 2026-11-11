@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# stable-pin show | hold SHA [--dry-run] | release [--dry-run]: read, freeze and unfreeze the north runtime on every host in STABLE_HOSTS; no north binary.
+# The pin file gates north-runtime-follow and agent-runtime-update through their ConditionPathExists line; on the laptop the declared north-stable-hold.service also holds the promotion lock against the lander's after-land promotion.
+set -euo pipefail
+hosts=${STABLE_HOSTS:-"local gex45 nexus cpx62 cpx62b"}
+hold_unit=north-stable-hold.service
+dry=""; [[ " $* " == *" --dry-run "* ]] && dry=1
+state='s=${XDG_STATE_HOME:-$HOME/.local/state}/north'
+on() { local host=$1; shift; if [[ "$host" == local ]]; then bash -c "$*"; else timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=6 "$host" "$*"; fi; }
+act() { if [[ -n "$dry" ]]; then printf 'would run on %s: %s\n' "$1" "$2"; else on "$1" "$2" || { printf 'stable-pin: %s failed: %s\n' "$1" "$2" >&2; failed=1; }; fi; }
+probe=$state'
+c=$(readlink "$s/current"); l=$(readlink "$s/lander" 2>/dev/null || echo -)
+p=$(head -c 40 "$s/channel/stable" 2>/dev/null); f=$(systemctl --user is-active north-runtime-follow.timer 2>/dev/null)
+a=$(systemctl --user is-active agent-runtime-update.timer 2>/dev/null); h=$(systemctl --user is-active north-stable-hold.service 2>/dev/null)
+v=$(readlink "$HOME/.local/lib/claude/current" 2>/dev/null)
+printf "%-11s current=%.10s lander=%.10s pin=%.10s follow=%s agent-update=%s hold=%s claude=%s\n" "$(hostname)" "${c##*/}" "${l##*/}" "${p:--}" "$f" "$a" "$h" "${v##*/}"'
+
+show() { local host; for host in $hosts; do on "$host" "$probe" 2>/dev/null || printf '%-11s unreachable\n' "$host"; done; }
+
+hold() {
+  local sha=$1 host
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "stable-pin: give the full 40-character sha" >&2; exit 64; }
+  for host in $hosts; do
+    on "$host" "$state; test -x \"\$s/runtimes/$sha/north\"" ||
+      { echo "stable-pin: $host lacks runtimes/$sha; promote it there first, the one step that needs north" >&2; exit 1; }
+  done
+  for host in $hosts; do
+    act "$host" "$state; mkdir -p \"\$s/channel\" && printf '%s\n' $sha >\"\$s/channel/.stable.new\" && mv \"\$s/channel/.stable.new\" \"\$s/channel/stable\""
+  done
+  [[ " $hosts " != *" local "* ]] || act local "systemctl --user start $hold_unit"
+}
+
+release() {
+  local host
+  for host in $hosts; do act "$host" "$state; rm -f \"\$s/channel/stable\""; done
+  [[ " $hosts " != *" local "* ]] || act local "systemctl --user stop $hold_unit"
+}
+
+failed=0
+case ${1:-show} in
+  show) show ;;
+  hold) hold "${2:?usage: stable-pin hold SHA [--dry-run]}"; [[ -n "$dry" ]] || show ;;
+  release) release; [[ -n "$dry" ]] || show ;;
+  *) echo "usage: stable-pin show | hold SHA [--dry-run] | release [--dry-run]" >&2; exit 64 ;;
+esac
+exit "$failed"

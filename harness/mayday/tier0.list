@@ -1,0 +1,25 @@
+# Tier 0 portable core for mayday level 3: what tier0-bundle copies into ~/.local/state/mayday/l3.
+# kind  path                                         why
+# A path under harness/ is read from the north tree this file sits in; any other path is read from ~/code.
+# rules: composed into CLAUDE.md in this order, after tier0-preface.md
+rule    south/main/agents/AGENTS.md                  Tom's policy, the baseline of ~/.claude/CLAUDE.md
+rule    harness/code/AGENTS.md                       the rules for target code, today's ~/code/AGENTS.md
+# skills: copied with links resolved, so a broken checkout or runtime cannot remove them mid-session
+skill   harness/skills/debugging                     no north verb
+skill   harness/skills/verification                  no north verb
+skill   harness/skills/planning                      no north verb
+skill   harness/skills/program-craftsmanship         no north verb
+skill   harness/skills/external-code                 no north verb; license checks are Tier 0 policy
+skill   harness/skills/rust-development              no north verb
+skill   harness/skills/nix-development               no north verb
+skill   harness/skills/performance-design            no north verb
+skill   harness/skills/game-design-prototyping      no north verb; game work
+skill   harness/skills/threejs                       no north verb; game work
+skill   harness/skills/effect-development            no north verb
+skill   harness/skills/astro                         no north verb
+skill   harness/skills/warcraft-modding              names north in 5 places, kept for game work
+skill   harness/skills/private-desktop-development   names north in 2 places, kept for captures
+# security policy: Claude Code's own permission rules, enforced by Claude Code with no north binary
+settings tier0-settings.json
+# Left out on purpose: agent-policy, workers, machine-capacity, todo, repo-safety (tier0-preface.md states its level-3
+# rules) and github, which all drive north verbs; makgora and clean-room (inactive); the south credential launchers.

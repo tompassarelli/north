@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# mayday-claude 3|4 [--dry-run] [--account a-e] [--repo DIR] [-- CLAUDE_ARGS...], or mayday-claude --self-test: start vanilla Claude Code on the level 3 (Tier 0 core) or level 4 (raw) config directory with a PATH that holds no north; touches no unit and needs no north binary.
+set -euo pipefail
+t0=$(date +%s%N)
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+ns=${XDG_STATE_HOME:-$HOME/.local/state}/north
+ms=${MAYDAY_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/mayday}
+USER=${USER:-$(id -un)}
+clean_path=/run/wrappers/bin:$HOME/.nix-profile/bin:/etc/profiles/per-user/$USER/bin:/run/current-system/sw/bin
+level="" dry="" self_test="" account=${MAYDAY_ACCOUNT:-d} repo=$PWD; extra=()
+while (($#)); do case $1 in
+  [34]) level=$1 ;; --) shift; extra=("$@"); break ;; --dry-run) dry=1 ;; --self-test) self_test=1 ;; --account) account=$2; shift ;; --repo) repo=$2; shift ;;
+  *) echo "usage: mayday-claude 3|4 [--dry-run] [--account a-e] [--repo DIR] [-- CLAUDE_ARGS...] | mayday-claude --self-test" >&2; exit 64 ;; esac; shift; done
+elapsed() { printf '%s' $((($(date +%s%N) - t0) / 1000000)); }
+missing() { printf 'mayday-claude: %s\n' "$*" >&2; exit 69; }
+
+launch() {
+  local dir=$ms/l$level bin=${CLAUDE_RUNTIME:-$HOME/.local/lib/claude/current/bin/claude} token=${MAYDAY_TOKEN_FILE:-$ns/claude-tokens/claude-$account}
+  [[ -x "$bin" ]] || bin=$(find "$HOME/.local/lib/claude/versions" -path '*/bin/claude' 2>/dev/null | sort -V | tail -1)
+  [[ -x "$bin" ]] || missing "no Claude Code binary under ~/.local/lib/claude; name one with CLAUDE_RUNTIME"
+  [[ -s "$dir/settings.json" ]] || missing "$dir is not built; run harness/mayday/tier0-bundle in a north checkout"
+  [[ -s "$token" ]] || missing "no token file at $token; name one with MAYDAY_TOKEN_FILE"
+  [[ "$level" == 4 ]] || jq -e '.permissions.deny | length > 0' "$dir/settings.json" >/dev/null ||
+    missing "$dir/settings.json carries no deny list, so level 3 would run without Tier 0"
+  local -a envs=(HOME="$HOME" USER="$USER" LOGNAME="$USER" PATH="$clean_path" TERM="${TERM:-xterm-256color}" LANG="${LANG:-C.UTF-8}"
+    SHELL=/run/current-system/sw/bin/bash XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}"
+    SSH_AUTH_SOCK="${SSH_AUTH_SOCK:-}" CLAUDE_CONFIG_DIR="$dir")
+  if [[ -n "$dry" ]]; then
+    printf 'L%s resolved in %s ms; would run: cd %q && env -i %s CLAUDE_CODE_OAUTH_TOKEN=<contents of %s> %s %s\n' "$level" "$(elapsed)" "$repo" "${envs[*]}" "$token" "$bin" "${extra[*]}"
+    return
+  fi
+  cd "$repo" && exec env -i "${envs[@]}" CLAUDE_CODE_OAUTH_TOKEN="$(cat "$token")" "$bin" "${extra[@]}"
+}
+
+check_bottom() {
+  local scratch="" failed=0 state probe; local -a states=()
+  if [[ -x "$here/tier0-bundle" ]]; then
+    scratch=$(mktemp -d); states+=("$scratch/mayday")
+    MAYDAY_STATE=$scratch/mayday "$here/tier0-bundle" || failed=1
+  fi
+  [[ ! -d "$ms/l3" ]] || states+=("$ms")
+  [[ ${#states[@]} -gt 0 ]] || missing "no bundle is installed at $ms and no tier0-bundle sits beside this script"
+  if PATH=$clean_path command -v north safe-push; then echo "mayday-claude: the level 3 and 4 PATH still reaches north" >&2; failed=1; fi
+  for state in "${states[@]}"; do for probe in 3 4; do
+    env -i HOME="$HOME" USER="$USER" PATH="$clean_path" MAYDAY_STATE="$state" MAYDAY_ACCOUNT="$account" MAYDAY_TOKEN_FILE="${MAYDAY_TOKEN_FILE:-}" CLAUDE_RUNTIME="${CLAUDE_RUNTIME:-}" \
+      bash "$here/mayday-claude" "$probe" --dry-run --repo "$repo" || failed=1
+  done; done
+  [[ -z "$scratch" ]] || rm -rf -- "${scratch:?}"
+  printf 'mayday: self-test of levels 3 and 4 %s in %s ms\n' "$([[ $failed == 0 ]] && echo passed || echo FAILED)" "$(elapsed)"
+  exit "$failed"
+}
+
+[[ -z "$self_test" ]] || check_bottom
+[[ -n "$level" ]] || { echo "mayday-claude: give level 3 or 4" >&2; exit 64; }
+launch

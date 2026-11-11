@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# mayday-status: print this host's ladder level and what backs it, and write it to ~/.local/state/north/ladder-level; no north binary.
+set -uo pipefail
+ns=${XDG_STATE_HOME:-$HOME/.local/state}/north
+ms=${MAYDAY_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/mayday}
+now=$(date -Iseconds)
+read -r recorded rest 2>/dev/null <"$ms/ladder-level" || true
+recorded=${recorded:-L0}
+since=$(sed -n 's/.*since=\([^ ]*\).*/\1/p' <<<"${rest:-}"); since=${since:-unrecorded}
+drift=()
+
+current=$(readlink "$ns/current" 2>/dev/null); current=${current##*/}
+stable=$(head -c 40 "$ns/channel/stable" 2>/dev/null || true)
+runtime_ok=no; [[ -n "$current" && -x "$ns/runtimes/$current/north" ]] && runtime_ok=yes
+printf 'runtime   current=%s stable=%s executable=%s\n' "${current:0:10}" "${stable:-unpinned}" "$runtime_ok"
+[[ -z "$stable" || "$stable" == "$current" ]] || drift+=("current ${current:0:10} is not the stable pin ${stable:0:10}")
+
+if systemctl --user show-environment >/dev/null 2>&1; then
+  fleet=$(systemctl --user is-active fleet-tick.timer 2>/dev/null)
+  landers=$(systemctl --user list-units --state=active --plain --no-legend 'north-land@*.service' 2>/dev/null | wc -l)
+  hold=$(systemctl --user is-active north-stable-hold.service 2>/dev/null)
+else
+  fleet=unknown landers=unknown hold=unknown
+fi
+printf 'units     fleet-tick=%s landers-active=%s stable-hold=%s\n' "$fleet" "$landers" "$hold"
+[[ "$recorded" == L0 || "$fleet" != active ]] || drift+=("fleet-tick is active at $recorded")
+[[ -z "$stable" || "$hold" != inactive ]] || drift+=("a stable pin is set but north-stable-hold is not holding the promotion lock")
+
+session=none tier0="not in a session"
+case "${CLAUDE_CONFIG_DIR:-}" in
+  "$ms/l3") session=L3 ;;
+  "$ms/l4") session=L4 ;;
+  "") [[ -n "${CLAUDECODE:-}" ]] && session=default-profile ;;
+  *) session=profile:${CLAUDE_CONFIG_DIR##*/} ;;
+esac
+if [[ "$session" != none ]]; then
+  cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+  deny=$(jq '.permissions.deny // [] | length' "$cfg/settings.json" 2>/dev/null || echo 0)
+  hooks=$(jq '[.hooks // {} | .[][]?.hooks[]?] | length' "$cfg/settings.json" 2>/dev/null || echo 0)
+  prefix=$(jq -r '.env.CLAUDE_CODE_SHELL_PREFIX // "none"' "$cfg/settings.json" 2>/dev/null || echo none)
+  case $session in
+    L3) [[ "$deny" -gt 0 ]] && head -1 "$cfg/CLAUDE.md" 2>/dev/null | grep -q 'Mayday level L3' && tier0="active: $deny deny rules, Tier 0 CLAUDE.md, $(ls "$cfg/skills" 2>/dev/null | wc -l) skills, $hooks hooks" || tier0="BROKEN: deny=$deny or CLAUDE.md lacks the L3 preface" ;;
+    L4) tier0="off by design (raw): deny=$deny hooks=$hooks" ;;
+    *) [[ "$hooks" -gt 0 && "$runtime_ok" == yes ]] && tier0="via north hooks: $hooks hooks, shell prefix $prefix" || tier0="BROKEN: $hooks hooks but runtime executable=$runtime_ok (hooks fail open)" ;;
+  esac
+fi
+printf 'session   %s\ntier0     %s\n' "$session" "$tier0"
+
+level=$recorded
+[[ "$session" == L3 || "$session" == L4 ]] && level=$session
+[[ "$runtime_ok" == yes || "$level" == L3 || "$level" == L4 ]] || drift+=("the north runtime is not executable, so L0 to L2 cannot work")
+printf 'level     %s since=%s\n' "$level" "$since"
+for d in "${drift[@]}"; do printf 'drift     %s\n' "$d"; done
+line="$level since=$since checked=$now host=$(hostname) drift=${#drift[@]}"
+mkdir -p "$ms" && printf '%s\n' "$line" >"$ms/ladder-level.status"
+printf '%s\n' "$line" >"$ns/ladder-level" 2>/dev/null || printf 'mayday-status: could not write %s\n' "$ns/ladder-level" >&2
