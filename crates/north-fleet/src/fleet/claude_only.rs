@@ -53,23 +53,17 @@ mod tests {
         assert!(only.refusal("opencode", "north#2", "Add a column", Some("take the session lock first")).is_some(), "a claude_only box refuses whatever the title");
         assert_eq!(only.refusal("claude", "north#1", title, None), None);
         assert_eq!(only.refusal("opencode", "north#3", "Add a column to fleet list", Some("show the host")), None);
-    }
-
-    #[test]
-    fn a_box_that_reads_a_hosts_telemetry_stays_on_claude() {
-        let only = ClaudeOnly::read();
-        let title = "Capacity from measured usage";
-        let boxes = [
+        let telemetry = "Capacity from measured usage";
+        for text in [
             "from each host's capacity.db, report per hour the batch cores used against the host's threads",
             "read the watchdog samples.jsonl and report the 10-second kernel busy share",
-        ];
-        for (index, text) in boxes.iter().enumerate() {
+        ] {
             for provider in DEEPSEEK_PROVIDERS {
-                let refusal = only.refusal(provider, "north#4", title, Some(text)).unwrap_or_else(|| panic!("{provider} took box {index}, which opens a file a lane-only domain hides"));
+                let refusal = only.refusal(provider, "north#4", telemetry, Some(text)).unwrap_or_else(|| panic!("{provider} took {:?}, which opens a file a lane-only domain hides", text));
                 assert!(refusal.contains("claude_only pattern"), "{refusal}");
             }
-            assert_eq!(only.refusal("claude", "north#4", title, Some(text)), None, "a Claude worker reads the host's state, so it takes the box");
+            assert_eq!(only.refusal("claude", "north#4", telemetry, Some(text)), None, "a Claude worker reads the host's state, so it takes the box");
         }
-        assert_eq!(only.refusal("opencode", "north#5", title, Some("size a run to the measured capacity")), None, "a box about capacity that reads no host file stays available to DeepSeek");
+        assert_eq!(only.refusal("opencode", "north#5", telemetry, Some("size a run to the measured capacity")), None, "a box about capacity that reads no host file stays available to DeepSeek");
     }
 }
