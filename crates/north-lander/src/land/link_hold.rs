@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use north_runtime_follow::LANDER_ROLLBACK;
 
@@ -12,6 +12,7 @@ const FILE: &str = "lander-held";
 const UNREACHED: &str = "lander-unreached";
 const ALARM_AFTER_SECONDS: u64 = 15 * 60;
 pub const RETRY_AFTER_QUIET_SECONDS: u64 = 15 * 60;
+pub const CLOCK: &str = "NORTH_LAND_PROMOTE_CLOCK";
 const PROXY: &str = "proxy";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +27,14 @@ fn parse(text: &str) -> Option<Hold> {
 
 fn render(hold: Hold) -> String {
     format!("{}\n", hold.since)
+}
+
+pub fn now() -> SystemTime {
+    std::env::var(CLOCK).ok().and_then(|seconds| seconds.parse().ok()).map_or_else(SystemTime::now, |seconds| UNIX_EPOCH + Duration::from_secs(seconds))
+}
+
+pub fn now_seconds() -> u64 {
+    now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
 /// The hold a refused promotion extends and whether it has now lasted past the alarm line; the fleet store pages once per hold, keyed by its start.

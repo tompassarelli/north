@@ -6,9 +6,6 @@ crates/north-fleet/src/fleet/host.rs	3
 crates/north-graph/examples/ask_scale.rs	3
 crates/north-guard/src/guard/subagent_teardown_tests.rs	1
 crates/north-lander-doctor/src/tests.rs	2
-crates/north-lander/tests/it/land_chaos.rs	1
-crates/north-lander/tests/it/promote.rs	1
-crates/north-lander/tests/it/serve.rs	1
 crates/north-lanes/src/lanes/gc/scratch_tests.rs	2
 crates/north-lanes/src/lanes/gc/strays_tests.rs	2
 crates/north-lanes/src/lanes/reap_tests.rs	2

@@ -2,9 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::cell::Cell;
 
 use north_base::platform::wait;
+use super::serve::HANG;
 use north_lander::land::candidate::{self, git};
 use north_lander::land::jobs::Chores;
 use north_lander::land::lander::Lander;
@@ -16,9 +17,7 @@ use north_lander::land::{after, after_landing_lifecycle, checks};
 const CHILD: &str = "NORTH_LAND_CHAOS_HOME";
 const LANDER_ROLE: &str = "NORTH_LAND_CHAOS_LANDER";
 const STOPPED_AFTER_RUN: &str = "land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane";
-const DRAIN_LIMIT: Duration = Duration::from_secs(60);
-const SCENARIO_DEADLINE: Duration = Duration::from_secs(180);
-const LANDER_LIFETIME: Duration = Duration::from_secs(120);
+const FIRST_TICKET: u128 = 1_790_000_000_000_000;
 
 const CHECKER: &str = r#"dir="$1"; plan="$1/plan"; calls="$1/calls"
 shift
@@ -28,7 +27,6 @@ while ! mkdir "$calls/$n" 2>/dev/null; do n=$((n + 1)); done
 step=$(sed -n "${n}p" "$plan" 2>/dev/null)
 case "$step" in
 lost) echo "ssh: connect to host gex45 port 22: Connection reset by peer" >&2; exit 255 ;;
-slow) sleep 1; echo "safe-push: verdict green" ;;
 hold) while [ ! -e "$dir/release" ]; do sleep 0.05; done; echo "safe-push: verdict green" ;;
 *) echo "safe-push: verdict green" ;;
 esac
@@ -64,19 +62,15 @@ fn isolated(name: &str, scenario: fn(&World)) {
         .env("NORTH_OFFLOAD_ROOT", home.path().join("offload"))
         .env("GIT_CONFIG_GLOBAL", &gitconfig)
         .env("GIT_CONFIG_NOSYSTEM", "1");
-    let output = north_base::platform::process::try_run_group_traced_within(command, SCENARIO_DEADLINE)
+    let output = north_base::platform::process::try_run_group_traced_within(command, HANG)
         .unwrap()
-        .unwrap_or_else(|processes| panic!("{name} ran past {SCENARIO_DEADLINE:?} in its isolated home: {processes}"));
+        .unwrap_or_else(|processes| panic!("{name} ran past {HANG:?} in its isolated home: {processes}"));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success() && stdout.contains("1 passed"), "{name} failed in its isolated home:\n{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
 }
 
 fn run(directory: &Path, arguments: &[&str]) -> String {
     git(directory, arguments).unwrap_or_else(|error| panic!("{error}"))
-}
-
-fn micros() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros()
 }
 
 struct Lane {
@@ -90,6 +84,7 @@ struct World {
     main: PathBuf,
     plan: PathBuf,
     checker: Vec<String>,
+    tickets: Cell<u128>,
 }
 
 impl World {
@@ -97,7 +92,7 @@ impl World {
         let plan = root.join("checker");
         let script = root.join("checker.sh");
         let checker = vec!["sh".to_owned(), script.display().to_string(), plan.display().to_string()];
-        Self { root: root.to_owned(), origin: root.join("origin.git"), main: root.join("proj/main"), plan, checker }
+        Self { root: root.to_owned(), origin: root.join("origin.git"), main: root.join("proj/main"), plan, checker, tickets: Cell::new(FIRST_TICKET) }
     }
 
     fn new(root: &Path) -> Self {
@@ -157,9 +152,8 @@ impl World {
     }
 
     fn enqueue(&self, lander: &Lander, ticket: &Ticket) -> Lane {
-        let mark = micros();
-        wait::until(Duration::from_secs(5), || micros() > mark);
-        let name = queue::file_name(micros(), &ticket.branch);
+        self.tickets.set(self.tickets.get() + 1);
+        let name = queue::file_name(self.tickets.get(), &ticket.branch);
         queue::write(&lander.queue.join(&name), ticket).unwrap();
         Lane { name, subject: run(&ticket.root, &["log", "-1", "--format=%s", &ticket.head]) }
     }
@@ -195,7 +189,7 @@ impl World {
 
 fn drive(lander: &Lander, state: &mut Watch) -> Vec<String> {
     let mut rounds = Vec::new();
-    let drained = wait::until(DRAIN_LIMIT, || {
+    let drained = wait::until(HANG, || {
         if queue::pending(&lander.queue).unwrap().is_empty() && state.in_flight() == 0 {
             return true;
         }
@@ -211,7 +205,7 @@ fn landed(verdicts: &[String]) {
 }
 
 fn kill_mid_check(world: &World) {
-    world.plan(&["slow"]);
+    world.plan(&["hold"]);
     let killed = world.lander();
     let a = world.enqueue(&killed, &world.lane("a"));
     let b = world.enqueue(&killed, &world.lane("b"));
@@ -225,6 +219,7 @@ fn kill_mid_check(world: &World) {
     let restarted = world.lander();
     drive(&restarted, &mut Watch::default());
     drop(check);
+    fs::write(world.plan.join("release"), "").unwrap();
     landed(&world.settled(&restarted, &[&a, &b]));
 
     let c = world.enqueue(&restarted, &world.lane("c"));
@@ -282,7 +277,7 @@ fn duplicate_branch_names(world: &World) {
 }
 
 fn wait_for(what: &str, ready: impl FnMut() -> bool) {
-    assert!(wait::until(Duration::from_secs(60), ready), "timed out waiting for {what}");
+    assert!(wait::until(HANG, ready), "timed out waiting for {what}");
 }
 
 fn journaled(lander: &Lander) -> usize {
@@ -301,9 +296,10 @@ fn stopped_mid_after_run(world: &World) {
     if std::env::var_os(LANDER_ROLE).is_some() {
         let lander = world.lander();
         let mut watch = Watch::resume(&lander);
-        wait::until(LANDER_LIFETIME, || {
+        let parent = rustix::process::getppid();
+        wait::until(HANG, || {
             let _ = lander.round(&mut watch);
-            false
+            rustix::process::getppid() != parent
         });
         return;
     }
@@ -413,10 +409,10 @@ fn stalled_chores(world: &World) {
     after::begin(&lander, "interrupted", "base", &[], &[]).unwrap();
     let a = world.enqueue(&lander, &world.lane("a"));
     let mut watch = Watch::default();
-    assert!(wait::until(Duration::from_secs(30), || {
+    assert!(wait::until(HANG, || {
         let _ = lander.round(&mut watch);
         queue::pending(&lander.queue).unwrap().is_empty()
-    }), "the queued lane waited 30 s behind the sheriff and the recovery");
+    }), "the queued lane waited behind the sheriff and the recovery");
     landed(&world.settled(&lander, &[&a]));
     let mut running: Vec<&str> = watch.jobs.running().into_iter().map(|(kind, _)| kind.name()).collect();
     running.sort_unstable();

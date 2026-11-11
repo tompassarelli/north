@@ -1,11 +1,15 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use north_base::platform::wait;
 use north_lander::land::queue::{self, Ticket};
 
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
+pub(super) const HOST: &str = "land-test-host";
+pub(super) const HANG: Duration = Duration::from_secs(3600);
+static TICKET_CLOCK: AtomicU64 = AtomicU64::new(1_790_000_000_000_000);
 const TOKEN: &str = "#!/bin/sh\necho app-token\n";
 const GREEN: &str = "#!/bin/sh\n[ -z \"$HOLD\" ] || { : > \"$HOLD.started\"; while [ ! -e \"$HOLD.release\" ]; do sleep 0.05; done; }\necho 'safe-push: verdict green'\n";
 
@@ -42,7 +46,7 @@ fn a_busy_lander_moves_to_a_promoted_link_within_its_bound() {
     command.env("HOLD", &hold);
     let mut child = command.spawn().unwrap();
     let checking = || world.path().join("hold.started").exists();
-    wait::until(Duration::from_secs(60), || checking() || child.try_wait().unwrap().is_some());
+    wait::until(HANG, || checking() || child.try_wait().unwrap().is_some());
     if !checking() {
         let _ = child.kill();
         let output = child.wait_with_output().unwrap();
@@ -51,7 +55,7 @@ fn a_busy_lander_moves_to_a_promoted_link_within_its_bound() {
     }
     std::fs::remove_file(world.path().join("lander")).unwrap();
     std::os::unix::fs::symlink(format!("runtimes/{new}"), world.path().join("lander")).unwrap();
-    let exited = wait::until(Duration::from_secs(10), || child.try_wait().unwrap().is_some());
+    let exited = wait::until(HANG, || child.try_wait().unwrap().is_some());
     std::fs::write(world.path().join("hold.release"), "").unwrap();
     if !exited {
         let _ = child.kill();
@@ -145,6 +149,7 @@ impl World {
             .env("NORTH_LAND_NORTH", self.path().join("bin/north"))
             .env("NORTH_RUNTIME_LINK", self.path().join("lander"))
             .env("GIT_CONFIG_GLOBAL", self.path().join("gitconfig"))
+            .env("RESIDENT_CAP_HOST", HOST)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env_remove("HOLD")
             .stdin(Stdio::null())
@@ -167,11 +172,11 @@ impl Repository {
         std::fs::write(lane.join(file.0), file.1).unwrap();
         git(&lane, &["add", "-A"]);
         git(&lane, &["commit", "-q", "-m", &format!("{message}\n\nIncident-test: none; a fixture lane the incident guard must not look up on GitHub")]);
-        let micros = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros();
+        let micros = u128::from(TICKET_CLOCK.fetch_add(1, Ordering::Relaxed));
         let ticket = Ticket {
             origin: git(&lane, &["remote", "get-url", "--push", "origin"]),
             root: lane.clone(),
-            host: std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned(),
+            host: HOST.to_owned(),
             branch: branch.to_owned(),
             head: git(&lane, &["rev-parse", "HEAD"]),
             session: session.map(str::to_owned),

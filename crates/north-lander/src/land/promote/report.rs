@@ -1,4 +1,4 @@
-use super::{NO_VERDICT, Outcome, Runtime, USAGE, link_hold, parse, promote, served_units, telemetry};
+use super::{NO_VERDICT, Outcome, Runtime, USAGE, link_hold, parse, promote, served_units};
 use crate::land::unit_start;
 use std::fs;
 
@@ -37,7 +37,7 @@ pub fn run(arguments: &[String]) -> u8 {
             let back = if options.dry_run { "would go back" } else { "is back" };
             println!("north land promote: refused: {reason}; the lander link {back} at {held} and {candidate} stays off the lander until current moves on");
             if !options.dry_run {
-                link_hold::held(&runtime.home, telemetry::seconds(), &candidate, &reason);
+                link_hold::held(&runtime.home, link_hold::now_seconds(), &candidate, &reason);
             }
             1
         }
@@ -59,7 +59,7 @@ pub fn run(arguments: &[String]) -> u8 {
             println!("north land promote: refused: {error}");
             if !options.dry_run {
                 let candidate = fs::read_link(runtime.current()).ok().and_then(|target| target.file_name().map(|name| name.to_string_lossy().into_owned())).unwrap_or_default();
-                link_hold::held(&runtime.home, telemetry::seconds(), &candidate, &error);
+                link_hold::held(&runtime.home, link_hold::now_seconds(), &candidate, &error);
             }
             1
         }

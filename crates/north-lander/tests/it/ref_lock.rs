@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::time::Duration;
 
 use north_base::foundation::exit::NO_VERDICT;
 use north_landing::land::checks::Verdict;
@@ -31,7 +30,7 @@ fn a_ref_lock_failure_in_an_after_landing_check_is_rerun_and_judged_environment(
         runs = runs.display(),
         outcome = outcome.display(),
     );
-    let run = Run { runner: vec!["sh".into(), "-c".into(), script, "post-land".into()], worktree: scratch.path().join("probe"), log: log.clone(), outcome, ledger: scratch.path().join("post-land.tsv"), store: scratch.path().join("store.db"), offload_owner: String::new(), capacity: String::new(), deadline: Duration::from_secs(60), host: None, cancel: Default::default(), adoptable: false };
+    let run = Run { runner: vec!["sh".into(), "-c".into(), script, "post-land".into()], worktree: scratch.path().join("probe"), log: log.clone(), outcome, ledger: scratch.path().join("post-land.tsv"), store: scratch.path().join("store.db"), offload_owner: String::new(), capacity: String::new(), deadline: super::serve::HANG, host: None, cancel: Default::default(), adoptable: false };
     let landed = Landed { repo, repository: "owner/repo".into(), base: head.clone(), head: head.clone(), heads: vec![head.clone()], lanes: vec!["lane".into()], tips: Vec::new(), ran: Vec::new() };
     let verdict = settle(&landed, &run, |_, _| true);
     assert_eq!(verdict, Verdict::Green, "the rerun passed, so main is not red");

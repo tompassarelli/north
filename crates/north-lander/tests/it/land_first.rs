@@ -105,7 +105,7 @@ while [ ! -e "$HOME/release" ]; do sleep 0.05; done
 "#;
 
 fn wait_for(what: &str, ready: impl FnMut() -> bool) {
-    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(60), ready), "timed out waiting for {what}");
+    assert!(north_base::platform::wait::until(super::serve::HANG, ready), "timed out waiting for {what}");
 }
 
 #[test]

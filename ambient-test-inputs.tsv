@@ -9,7 +9,6 @@ crates/north-fleet/src/fleet/host.rs	2
 crates/north-fleet/src/fleet/link_tests.rs	3
 crates/north-fleet-supervisor/src/fleet/registry/stopping.rs	1
 crates/north-implicit-state/src/tests.rs	2
-crates/north-lander/tests/it/serve.rs	1
 crates/north-landing/src/land/post_land_tests.rs	1
 crates/north-lanes/src/lanes/reap_tests.rs	1
 crates/north-ops/src/ops/warcraft_close/tests.rs	1

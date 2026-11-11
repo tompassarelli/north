@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use super::candidate::{git, output};
 use super::divergence::{self, Divergence};
 use super::lander::state_home;
-use super::{link_hold, queue, replay, repositories, telemetry};
+use super::{link_hold, queue, replay, repositories};
 use shadow::shadow;
 use tolerance::{Held, only_fixes, tolerated};
 use north_base::foundation::exit::NO_VERDICT;
@@ -124,7 +124,7 @@ fn retry_due(runtime: &Runtime) -> bool {
     let Some(held_since) = modified(&runtime.home.join(REFUSED)) else { return false };
     let Ok(queues) = fs::read_dir(runtime.home.join("land-queue")) else { return false };
     let landed = queues.filter_map(Result::ok).filter_map(|queue| last_landed(&queue.path().join("done")));
-    link_hold::quiet(held_since, landed, SystemTime::now())
+    link_hold::quiet(held_since, landed, link_hold::now())
 }
 
 struct Lane {

@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use north_lander::land::queue::{self, Ticket};
 
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
+const NOW: u64 = 2_000_000_000;
 
 fn candidate_script(verdict: &str, during_replay: &str) -> String {
     format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n[ \"$1 $2\" = \"land replay\" ] && {{ {during_replay} echo 'replay: verdict {verdict}'; }}\nexit 0\n")
@@ -100,7 +101,7 @@ pub(super) fn scenario(script: String, held: Option<Held>, lane_b_verdict: impl 
     std::fs::create_dir_all(north.parent().unwrap()).unwrap();
     north_base::foundation::shim::write_executable(&north, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\n", alarmed.display()));
     if let Some(age) = held_for {
-        let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() - age;
+        let since = NOW - age;
         std::fs::write(state.join("north/lander-held"), format!("{since}\n")).unwrap();
     }
     let mut arguments = vec!["promote", "--shadow-minutes", "0", "--repo", checkout.to_str().unwrap()];
@@ -111,6 +112,7 @@ pub(super) fn scenario(script: String, held: Option<Held>, lane_b_verdict: impl 
     let output = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "serve::lander_process", "--nocapture", "--test-threads", "1"])
         .env(ARGUMENTS, arguments)
+        .env(north_lander::land::link_hold::CLOCK, NOW.to_string())
         .env("XDG_STATE_HOME", &state)
         .env("NORTH_TEST_ROOT", root)
         .env("NORTH_LAND_NORTH", &north)
@@ -275,12 +277,18 @@ impl Chain {
     }
 
     fn promote(&self) -> Promoted {
+        let held_since = std::fs::metadata(self.state.join("north/lander-refused")).and_then(|metadata| metadata.modified()).ok().and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok());
+        self.promote_at(held_since.map_or(NOW, |since| since.as_secs()))
+    }
+
+    fn promote_at(&self, clock: u64) -> Promoted {
         let fleet = self.root.path().join("fleet");
         north_base::foundation::shim::write_executable(&fleet, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n");
         let arguments = ["promote", "--shadow-minutes", "0", "--repo", self.checkout.to_str().unwrap()].join("\n");
         let output = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "serve::lander_process", "--nocapture", "--test-threads", "1"])
             .env(ARGUMENTS, arguments)
+            .env(north_lander::land::link_hold::CLOCK, clock.to_string())
             .env("XDG_STATE_HOME", &self.state)
             .env("NORTH_TEST_ROOT", self.root.path())
             .env("HOME", self.root.path())
@@ -528,8 +536,8 @@ fn a_rollback_never_points_the_lander_at_a_pruned_runtime() {
     assert!(stdout.contains("is no longer on disk, so the lander link stays on the runtime it runs now"), "{stdout}");
 }
 
-fn long_ago(path: &Path) {
-    std::fs::File::options().write(true).open(path).unwrap().set_modified(std::time::UNIX_EPOCH).unwrap();
+fn modified_at(path: &Path, seconds: u64) {
+    std::fs::File::options().write(true).open(path).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds)).unwrap();
 }
 
 #[test]
@@ -540,6 +548,10 @@ fn a_lander_that_cannot_start_pages_once_and_a_held_runtime_is_retried_after_15_
     chain.current(&candidate);
     let refused = chain.state.join("north/lander-refused");
     std::fs::write(&refused, format!("runtimes/{candidate}\n")).unwrap();
+    modified_at(&refused, NOW);
+    for entry in std::fs::read_dir(chain.queue.join("done")).unwrap() {
+        modified_at(&entry.unwrap().path(), NOW);
+    }
     let systemctl = |restarts: u32| {
         let bin = chain.root.path().join("bin");
         std::fs::create_dir_all(&bin).unwrap();
@@ -563,11 +575,11 @@ fn a_lander_that_cannot_start_pages_once_and_a_held_runtime_is_retried_after_15_
     assert_eq!(pages[0].split(" proxy ").next(), pages[1].split(" land-lead ").next(), "both pages name one condition, which the fleet store delivers once");
 
     assert_eq!(chain.lander(), format!("runtimes/{}", chain.held), "{}", thrice.stdout);
-    long_ago(&refused);
+    modified_at(&refused, 0);
     for entry in std::fs::read_dir(chain.queue.join("done")).unwrap() {
-        long_ago(&entry.unwrap().path());
+        modified_at(&entry.unwrap().path(), 0);
     }
-    let retried = chain.promote();
+    let retried = chain.promote_at(NOW);
     assert!(retried.status, "{}", retried.stdout);
     assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{}", retried.stdout);
     assert!(!refused.exists(), "a judged candidate that follows is no longer held off");
