@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::map::{self, Map};
@@ -41,8 +41,12 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
+pub(crate) fn checkout(repository: &str) -> PathBuf {
+    Path::new(&std::env::var_os("HOME").unwrap_or_default()).join("code").join(repository).join("main")
+}
+
 fn enter(repository: &str) -> Result<(), String> {
-    let checkout = Path::new(&std::env::var_os("HOME").unwrap_or_default()).join("code").join(repository).join("main");
+    let checkout = checkout(repository);
     std::env::set_current_dir(&checkout).map_err(|error| format!("cannot enter {}: {error}", checkout.display()))?;
     let fetched = Command::new("git").args(["fetch", "--quiet", "origin", "main"]).status().map_err(|error| format!("git fetch: {error}"))?;
     if fetched.success() { Ok(()) } else { Err(format!("git fetch origin main failed in {}", checkout.display())) }

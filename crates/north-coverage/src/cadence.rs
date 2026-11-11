@@ -69,6 +69,10 @@ fn usage() -> u8 {
 
 pub fn start(root: &Path, reason: &str) -> Result<String, String> {
     let repository = repository(root);
+    let checkout = crate::refresh::checkout(&repository);
+    if !checkout.is_dir() {
+        return Err(format!("{repository} has no checkout at {}, where a refresh runs, so none starts ({reason})", checkout.display()));
+    }
     let log = log_path(&repository);
     if let Some(directory) = log.parent() {
         std::fs::create_dir_all(directory).map_err(|error| format!("cannot create {}: {error}", directory.display()))?;

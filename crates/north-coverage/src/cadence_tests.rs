@@ -14,3 +14,10 @@ fn a_missing_or_day_old_map_is_due_for_a_refresh_and_a_fresh_one_is_not() {
     let reason = unknown_reason(2, 10).unwrap();
     assert!(reason.contains("2 of the 10") && reason.contains("over 10%"), "{reason}");
 }
+
+#[test]
+fn a_repository_with_no_checkout_to_refresh_in_starts_no_refresh_unit() {
+    let served = tempfile::tempdir().unwrap();
+    let why = start(served.path(), "no map yet").unwrap_err();
+    assert!(why.contains("has no checkout at") && why.ends_with("so none starts (no map yet)"), "{why}");
+}
