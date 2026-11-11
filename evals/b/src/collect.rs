@@ -59,14 +59,12 @@ pub fn transcript(dir: &Path) -> Value {
         }
     }
     let tools: Vec<(bool, String)> = records.iter().filter(|r| r["type"] == "assistant" || r["type"] == "user").flat_map(tool_texts).collect();
-    let handins = tools.iter().filter(|(input, t)| *input && t.contains("safe-push --to main")).count();
-    let conflicts = tools.iter().filter(|(input, t)| !*input && t.to_lowercase().contains("conflict") && (t.contains("safe-push") || t.contains("NOT queued") || t.contains("north land"))).count();
     let refusals = tools.iter().filter(|(input, t)| !*input && (t.contains("NOT queued") || t.contains("did not land") || t.contains("refused"))).count();
     let unique = |key: &str| assistant.iter().filter_map(|r| r.pointer(key).and_then(Value::as_str)).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
     json!({
         "first_request_at": assistant.first().and_then(|r| r["timestamp"].as_str()).and_then(rfc3339_epoch),
         "tokens": {"input": tokens[0], "output": tokens[1], "cache_read": tokens[2], "cache_write": tokens[3]},
-        "handins": handins, "conflict_mentions": conflicts, "refusal_mentions": refusals,
+        "handins": handins(&records), "refusal_mentions": refusals,
         "models": unique("/message/model"), "efforts": unique("/effort"), "claude_code": unique("/version"),
         "records": records.len(),
     })
@@ -92,4 +90,53 @@ pub fn last_words(dir: &Path) -> String {
     let session: Value = serde_json::from_str(&fs::read_to_string(dir.join("session.json")).unwrap_or_default()).unwrap_or(Value::Null);
     let text = session["entries"].as_array().into_iter().flatten().rev().find(|e| e["kind"] == "assistant").and_then(|e| e["text"].as_str()).unwrap_or_default();
     text.chars().take(600).collect()
+}
+
+fn text_of(content: &Value) -> String {
+    match content {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join("\n"),
+        other => other.to_string(),
+    }
+}
+
+pub fn handins(records: &[Value]) -> Value {
+    let parts = records.iter().filter(|r| r["type"] == "assistant" || r["type"] == "user").flat_map(|r| r["message"]["content"].as_array().cloned().unwrap_or_default());
+    let mut calls = std::collections::BTreeMap::new();
+    let mut by_tool = 0u64;
+    let (mut handins, mut before_queue, mut by_lander, mut blind, mut masked, mut other_hook, mut fetch_lock, mut reworks) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+    for part in parts {
+        match part["type"].as_str() {
+            Some("tool_use") if part["name"] == "mcp__north__hand-in" || part["input"]["command"].as_str().is_some_and(|c| c.contains("safe-push --to main")) => {
+                handins += 1;
+                by_tool += u64::from(part["name"] == "mcp__north__hand-in");
+                let rework = before_queue + by_lander > 0;
+                reworks += u64::from(rework);
+                calls.insert(part["id"].as_str().unwrap_or_default().to_owned(), rework);
+            }
+            Some("tool_result") => {
+                let Some(&rework) = calls.get(part["tool_use_id"].as_str().unwrap_or_default()) else { continue };
+                let text = text_of(&part["content"]);
+                if text.contains("PreToolUse:Bash hook error") {
+                    if text.contains("blind staging") {
+                        blind += 1;
+                    } else if text.contains("masked-pipeline") {
+                        masked += 1;
+                    } else {
+                        other_hook += 1;
+                    }
+                    reworks -= u64::from(rework);
+                } else if text.contains("cannot lock ref") {
+                    fetch_lock += 1;
+                } else if text.contains("cannot queue the lane: it conflicts") {
+                    before_queue += 1;
+                } else if text.contains("lander did not land") && text.contains("conflict") {
+                    by_lander += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    json!({"handins": handins, "handins_by_tool": by_tool, "reworks": reworks, "conflict_refusals_before_queue": before_queue, "conflict_refusals_by_lander": by_lander,
+           "hook_blocks": {"blind_staging": blind, "masked_pipeline": masked, "other": other_hook}, "fetch_lock_failures": fetch_lock})
 }

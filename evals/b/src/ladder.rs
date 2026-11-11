@@ -39,7 +39,7 @@ pub struct Run {
 }
 
 fn header() -> String {
-    "Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nModel: claude-opus-5-5 at medium effort, pinned so Eval B holds the model fixed as Eval A does.\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane with the one foreground call `safe-push --to main --wait`.\n\n".to_owned()
+    "Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nModel: claude-opus-5-5 at medium effort, pinned so Eval B holds the model fixed as Eval A does.\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n".to_owned()
 }
 
 pub fn prompt(task: &Value) -> String {

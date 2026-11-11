@@ -40,7 +40,7 @@ pub fn rows(from: &Path, shared: &Value) -> Result<Vec<Value>, String> {
                 "launch_epoch": a["started"].as_str().and_then(local_epoch),
                 "landed": landed, "merged": a["merged"], "t_land_s": if landed { a["wall_s"].clone() } else { Value::Null },
                 "failed": !landed, "failure": a["abandon_reason"], "acceptance": a["acceptance"], "hidden_check": a["hidden_check"],
-                "handins": 1 + a["failed_handins"].as_u64().unwrap_or(0), "redos": a["failed_handins"], "conflict": false,
+                "handins": 1 + a["failed_handins"].as_u64().unwrap_or(0), "failed_handins": a["failed_handins"], "redos": 0, "reworks": 0, "rework": false, "conflict": false, "conflict_refusals": 0,
                 "queue_wait_s": 0, "interventions": a["interventions"], "intervention_stalls": a["intervention_stalls"],
                 "tokens": tokens, "tokens_total_spend": total, "cost_usd": a["cost_usd"],
                 "conditions": a["conditions"], "command": a["command"], "raw": a["raw"],

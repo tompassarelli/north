@@ -12,6 +12,10 @@ fn seconds(value: Option<f64>) -> String {
     value.map_or("-".to_owned(), |v| format!("{v:.0} s"))
 }
 
+fn sum(rows: &[&Value], pointer: &str) -> u64 {
+    rows.iter().filter_map(|r| r.pointer(pointer).and_then(Value::as_u64)).sum()
+}
+
 fn share(part: usize, whole: usize) -> String {
     format!("{part} of {whole} ({:.0}%)", 100.0 * part as f64 / whole.max(1) as f64)
 }
@@ -42,7 +46,9 @@ fn level_block(arm: &str, level: u64, rows: &[&Value]) -> Vec<String> {
         format!("  - landed changes per hour: {per_hour} ({} landed, first launch to last landing)", landed.len()),
         format!("  - seconds to land, landed tasks: p50 {}, p95 {}", seconds(percentile(&land, 0.5)), seconds(percentile(&land, 0.95))),
         format!("  - queue wait: p50 {}, p95 {}", seconds(percentile(&waits, 0.5)), seconds(percentile(&waits, 0.95))),
-        format!("  - conflict rate: {}; rework rate (more than one hand-in): {}", share(rows.iter().filter(|r| r["conflict"] == true).count(), rows.len()), share(rows.iter().filter(|r| r["redos"].as_u64().unwrap_or(0) > 0).count(), rows.len())),
+        format!("  - conflict rate (refused for a conflict before the queue or by the lander): {}; rework rate (a hand-in after such a refusal): {}", share(rows.iter().filter(|r| r["conflict"] == true).count(), rows.len()), share(rows.iter().filter(|r| r["redos"].as_u64().unwrap_or(0) > 0).count(), rows.len())),
+        format!("  - hand-ins stopped by a hook: blind staging {}, masked pipeline {}, other {}; fetch-lock failures {}",
+            sum(rows, "/hook_blocks/blind_staging"), sum(rows, "/hook_blocks/masked_pipeline"), sum(rows, "/hook_blocks/other"), sum(rows, "/fetch_lock_failures")),
         format!("  - worker failure rate: {} {failures:?}", share(rows.iter().filter(|r| r["failed"] == true).count(), rows.len())),
         format!("  - interventions (scripted nudges): {}", rows.iter().filter_map(|r| r["interventions"].as_u64()).sum::<u64>()),
         format!("  - tokens: {tokens} in all, {} per task; API-equivalent ${cost:.2}", tokens / rows.len().max(1) as u64),

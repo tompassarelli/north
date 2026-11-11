@@ -57,15 +57,13 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
     let (acceptance, hidden) = if landed { accepted(&plan.work, expect, &run.task) } else { (false, "not-run") };
     let landed_attempt = attempts.as_array().and_then(|a| a.iter().find(|x| x["attributes"]["landed"].is_string())).cloned();
     let first_queued = attempts.as_array().and_then(|a| a.iter().filter_map(|x| x["queued_at"].as_f64()).reduce(f64::min));
-    let handins = transcript["handins"].as_u64().unwrap_or(0);
     let lander_refusals = attempts.as_array().map_or(0, |a| a.iter().filter(|x| !x["attributes"]["landed"].is_string()).count());
-    let conflicts = transcript["conflict_mentions"].as_u64().unwrap_or(0);
     let mut conditions = stamp.clone();
     conditions["host"] = session["machine"].clone();
     conditions["claude_code_observed"] = transcript["claude_code"].clone();
     conditions["models_observed"] = transcript["models"].clone();
     conditions["effort_observed"] = transcript["efforts"].clone();
-    json!({
+    let mut row = json!({
         "arm": "north", "level": plan.level, "task": run.task["id"], "shared": run.task["shared"], "session": run.name, "branch": run.branch,
         "launched_at": local_time(run.launch_start), "launch_epoch": run.launch_start, "launch_s": (run.launch_end - run.launch_start).round(), "launch_exit": run.launch_exit,
         "launch_output": run.launch_output.chars().rev().take(1500).collect::<Vec<_>>().into_iter().rev().collect::<String>(),
@@ -75,11 +73,28 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
         "landed": landed && acceptance, "merged": landed, "t_land_s": if landed { after(run.launch_start, Some(resolved_at)) } else { Value::Null },
         "failed": !(landed && acceptance), "failure": if landed && !acceptance { "acceptance-failed".to_owned() } else if landed { String::new() } else { reason },
         "acceptance": acceptance, "hidden_check": hidden,
-        "handins": handins, "redos": handins.saturating_sub(1), "lander_attempts": attempts.as_array().map_or(0, Vec::len), "lander_refusals": lander_refusals,
-        "conflict": conflicts > 0 || lander_refusals > 0, "conflict_mentions": conflicts,
+        "lander_attempts": attempts.as_array().map_or(0, Vec::len), "lander_refusals": lander_refusals,
         "interventions": run.nudges.len(), "intervention_stalls": run.nudges,
         "tokens": transcript["tokens"], "tokens_total_spend": total, "cost_usd": cost,
         "last_words": if landed { String::new() } else { collect::last_words(&dir) },
         "conditions": conditions, "command": command, "raw": dir,
-    })
+    });
+    counted(&mut row, &transcript["handins"]);
+    row
+}
+
+pub fn counted(row: &mut Value, handins: &Value) {
+    let before = handins["conflict_refusals_before_queue"].as_u64().unwrap_or(0);
+    let by_lander = handins["conflict_refusals_by_lander"].as_u64().unwrap_or(0);
+    let reworks = handins["reworks"].as_u64().unwrap_or(0);
+    for key in ["handins", "handins_by_tool", "conflict_refusals_before_queue", "conflict_refusals_by_lander", "hook_blocks", "fetch_lock_failures", "reworks"] {
+        row[key] = handins[key].clone();
+    }
+    row["conflict_refusals"] = json!(before + by_lander);
+    row["conflict"] = json!(before + by_lander > 0);
+    row["rework"] = json!(reworks > 0);
+    row["redos"] = json!(reworks);
+    if let Some(map) = row.as_object_mut() {
+        map.remove("conflict_mentions");
+    }
 }

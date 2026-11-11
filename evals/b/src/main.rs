@@ -21,6 +21,7 @@ const USAGE: &str = "usage:
   eval-b t3-tasks --workload DIR --count N --out FILE
   eval-b t3-rows --workload DIR --from EVAL_A_ROWS --results FILE
   eval-b summary --results FILE
+  eval-b recount --results FILE
   eval-b queue --archive DIR [--hosts H,H]";
 
 fn flags(args: &[String]) -> BTreeMap<String, String> {
@@ -111,6 +112,26 @@ fn t3_rows(flags: &BTreeMap<String, String>) -> Result<(), String> {
     Ok(())
 }
 
+
+fn recount(flags: &BTreeMap<String, String>) -> Result<(), String> {
+    let results = PathBuf::from(need(flags, "results")?);
+    let text = fs::read_to_string(&results).map_err(|e| format!("{}: {e}", results.display()))?;
+    let mut counted = 0;
+    let rows: Vec<String> = text
+        .lines()
+        .map(|line| {
+            let Ok(mut row) = serde_json::from_str::<Value>(line) else { return line.to_owned() };
+            let Some(raw) = row["raw"].as_str().filter(|_| row["arm"] == "north").map(PathBuf::from).filter(|raw| raw.join("transcript.jsonl").exists()) else { return line.to_owned() };
+            rows::counted(&mut row, &collect::transcript(&raw)["handins"]);
+            counted += 1;
+            row.to_string()
+        })
+        .collect();
+    fs::write(&results, rows.iter().map(|r| format!("{r}\n")).collect::<String>()).map_err(|e| e.to_string())?;
+    println!("eval-b: recounted {counted} north rows of {} in {}", rows.len(), results.display());
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let argv = format!("eval-b {}", args.join(" "));
@@ -124,6 +145,7 @@ fn main() -> ExitCode {
         "ladder" => ladder(&flags, &argv),
         "t3-tasks" => need(&flags, "workload").and_then(|w| t3::tasks(Path::new(w), need(&flags, "count")?.parse().map_err(|_| "--count takes a number".to_owned())?, Path::new(need(&flags, "out")?))),
         "t3-rows" => t3_rows(&flags),
+        "recount" => recount(&flags),
         "summary" => need(&flags, "results").and_then(|r| fs::read_to_string(r).map_err(|e| e.to_string())).map(|text| summary::print(&text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect::<Vec<_>>())),
         "queue" => need(&flags, "archive").map(|a| println!("scratch queue: {}", scratch::release_queue(Path::new(a), &hosts(&flags)))),
         _ => Err(USAGE.to_owned()),
