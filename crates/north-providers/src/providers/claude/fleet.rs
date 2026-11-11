@@ -7,6 +7,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript, UsageLimit};
 use crate::fleet::attachments;
 use crate::fleet::roster::Roster;
+use crate::fleet::tickets::FINISH_TOOL;
 use crate::fleet::turns::TurnSignal;
 use crate::fleet::runtime::{ClientRefusal, HostSpec, Instructions, LiveWindow, Opening, Runtime, Seen, WindowInbox, new_uuid, summarize};
 use crate::fleet::install;
@@ -251,7 +252,13 @@ fn observe_user(frame: &Value, transcript: &mut Transcript) {
     }
     for block in content.as_array().into_iter().flatten() {
         match block["type"].as_str() {
-            Some("tool_result") => push(transcript, EntryKind::ToolResult, tool_result_summary(&tool_result_text(block))),
+            Some("tool_result") => {
+                let text = tool_result_text(block);
+                push(transcript, EntryKind::ToolResult, tool_result_summary(&text));
+                if let Some(report) = accepted_finish(block, &text, transcript) {
+                    push(transcript, EntryKind::Assistant, report.to_owned());
+                }
+            }
             Some("text") => observe_user_text(frame, block["text"].as_str().unwrap_or_default(), transcript),
             _ => {}
         }
@@ -264,6 +271,13 @@ fn observe_user_text(frame: &Value, text: &str, transcript: &mut Transcript) {
     transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
     let (kind, text) = user_text::entry(text, frame["isReplay"] == true, frame["isSynthetic"] == true);
     push(transcript, kind, text);
+}
+
+/// The report line of an accepted `finish` call, which is the session's report because north's hook ends the turn at that call.
+fn accepted_finish<'a>(block: &Value, text: &'a str, transcript: &Transcript) -> Option<&'a str> {
+    let call = transcript.entries.iter().rfind(|entry| entry.kind == EntryKind::Tool)?;
+    let finished = call.text.strip_prefix(FINISH_TOOL).is_some_and(|rest| rest.starts_with(' '));
+    (finished && block["is_error"] != true).then(|| text.lines().rfind(|line| line.starts_with("Done:"))).flatten()
 }
 
 fn tool_result_summary(text: &str) -> String {

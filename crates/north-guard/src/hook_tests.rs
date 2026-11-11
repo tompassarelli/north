@@ -203,3 +203,22 @@ fn stop_denial_blocks_verbatim_and_no_guards_say_nothing() {
     );
 }
 
+
+#[test]
+fn an_accepted_finish_call_ends_the_turn_and_a_refused_one_returns_to_the_model() {
+    crate::guard::activation::TEST_GUARDS_OFF.with(|off| off.set(true));
+    let dispatch = |event: &str, tool: &str, outcome: Value| {
+        let mut input = json!({"hook_event_name": event, "tool_name": tool, "tool_input": {"check": "true", "message": "m", "paths": ["/l/a"]}});
+        input.as_object_mut().unwrap().extend(outcome.as_object().unwrap().clone());
+        let mut output = Vec::new();
+        process(serde_json::to_vec(&input).unwrap().as_slice(), &mut output, &[], "").unwrap();
+        (!output.is_empty()).then(|| serde_json::from_slice::<Value>(&output).unwrap())
+    };
+    let accepted = json!({"tool_response": [{"type": "text", "text": "Done: queued /l lane abc, ticket t1"}]});
+    let ended = dispatch("PostToolUse", "mcp__north__finish", accepted.clone()).expect("an accepted finish call left the turn running");
+    assert_eq!(ended["continue"], false, "{ended}");
+    assert!(ended.get("decision").is_none(), "an accepted finish is no refusal: {ended}");
+    let refused = json!({"error": "finish: ✗ the check `true` exited 1; NOT committed, NOT queued.", "is_interrupt": false});
+    assert_eq!(dispatch("PostToolUseFailure", "mcp__north__finish", refused), None, "a refused finish must reach the model");
+    assert!(dispatch("PostToolUse", "mcp__north__hand-in", accepted).is_none_or(|output| output["continue"] != false), "only the finish call ends the turn");
+}

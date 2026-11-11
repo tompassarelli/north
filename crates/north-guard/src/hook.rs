@@ -146,7 +146,7 @@ impl HookKind {
             Self::PreAsk => &[Guard("north-hook", crate::guard::question_box::evaluate)],
             Self::SpawnCapacity => &[Guard("", crate::guard::spawn_capacity::admission)],
             Self::NativeSpawn => &[Guard("north-hook", crate::guard::proxy_role::evaluate), Guard("spawn-capacity-guard", crate::guard::spawn_capacity::admission)],
-            Self::PostTool => &[Guard("north-hook", crate::guard::worker_lease::evaluate), Guard("north-hook", crate::guard::issue_filing::link), Guard("north-hook", crate::guard::code_health_edit::evaluate), Guard("north-hook", crate::guard::proxy_role::advise_reads)],
+            Self::PostTool => &[Guard("", crate::guard::accepted_finish::evaluate), Guard("north-hook", crate::guard::worker_lease::evaluate), Guard("north-hook", crate::guard::issue_filing::link), Guard("north-hook", crate::guard::code_health_edit::evaluate), Guard("north-hook", crate::guard::proxy_role::advise_reads)],
             Self::PermissionRequest => &[Guard("", crate::guard::tripwire::check)],
             Self::Stop => &[Guard("north-hook", crate::guard::permission_offer::evaluate), Guard("north-hook", crate::guard::permission_offer::evaluate_handoff), Guard("north-hook", crate::guard::recommendation_grounding::evaluate), Guard("north-hook", crate::guard::recommend_acts::evaluate), Guard("", crate::guard::correction_capture::evaluate)],
             Self::RecommendActs => &[Guard("north-hook", crate::guard::recommend_acts::evaluate)],
@@ -203,6 +203,9 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
                         ("permissionDecisionReason", reason.into()),
                     ]),
                 )]));
+            }
+            Verdict::End(reason) => {
+                return Some(Value::object([("continue", Value::Bool(false)), ("stopReason", reason.into())]));
             }
             Verdict::Advise(text) => context.push(text),
             Verdict::Rewrite(updated, text) => {

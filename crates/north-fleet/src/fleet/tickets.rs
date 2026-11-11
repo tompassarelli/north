@@ -5,6 +5,9 @@ use north_base::land_ticket::{self, Phase};
 
 use crate::error::NorthResult;
 
+/// The name Claude Code gives a worker's `finish` tool, served by the `north` tool server: its accepted call queues the session's ticket and ends the turn.
+pub const FINISH_TOOL: &str = "mcp__north__finish";
+
 pub trait Tickets: Send + Sync {
     /// The branches whose newest ticket from this session has not landed.
     fn unlanded(&self, session: &str) -> NorthResult<Vec<String>>;

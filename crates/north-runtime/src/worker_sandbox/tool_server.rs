@@ -74,7 +74,7 @@ fn tool(verb: &str) -> Value {
     if verb == FINISH {
         return json!({
             "name": verb,
-            "description": "Finishes your lane in one call: runs `check`, the box's acceptance command, in the lane; only when it passes, commits the changed `paths` (absolute, all in one lane, the files you edited or created) with `message`, runs every safe-push gate and queues the lane, then returns the ticket without waiting for the lander. A failing check commits and queues nothing and returns its output. The lander's refusal, if any, starts your next turn; a landing needs nothing from you.",
+            "description": "Finishes your lane in one call: runs `check`, the box's acceptance command, in the lane; only when it passes, commits the changed `paths` (absolute, all in one lane, the files you edited or created) with `message`, runs every safe-push gate and queues the lane, then returns the ticket without waiting for the lander. A failing check commits and queues nothing and returns its output. An accepted call ends your turn, its `Done: queued` line being your report; the lander's refusal, if any, starts your next turn, and a landing needs nothing from you.",
             "inputSchema": {"type": "object", "properties": {"check": {"type": "string"}, "message": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}}, "required": ["check", "message", "paths"]},
         });
     }

@@ -82,4 +82,5 @@ pub enum Verdict {
     Rewrite(Value, String),
     Advise(String),
     Approve,
+    End(String),
 }

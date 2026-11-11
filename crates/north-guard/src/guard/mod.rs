@@ -60,6 +60,7 @@ pub mod hook_stats;
 pub mod unlanded_work;
 pub mod proxy_adopt;
 pub mod worker_lease;
+pub mod accepted_finish;
 pub mod compact_state;
 pub mod quiet_phrase;
 pub mod permission_offer;
