@@ -4,11 +4,12 @@ use std::sync::Arc;
 use crate::error::{NorthError, NorthResult};
 use crate::platform::attribution::{self, Cause, Harness};
 use super::claims::{self, SWEEP_VERB, ThreadsCli, release_exited_claims};
-use crate::fleet::model::{ProviderName, Role};
+use crate::fleet::hops;
+use crate::fleet::model::{ProviderName, Role, SessionRecord};
 use crate::fleet::registry::{self, Controlled, Fleet};
 use crate::fleet::store::ControlVerb;
 use crate::fleet::roster::Roster;
-use crate::fleet::runtime::SESSION_ENV;
+use crate::fleet::runtime::{SESSION_ENV, now_ms};
 use crate::fleet::runtimes::Runtimes;
 use crate::pacing::placement::{self as pacing_placement, config};
 use crate::providers::claude::fleet::Claude;
@@ -220,6 +221,7 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;
     let waiting = admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
+    let placing_ms = now_ms();
     let settled = admission::admitted(&request.name, waiting, |first| super::placement::placed(fleet, &request, started.as_ref().map_or(&[][..], |start| start.needs.as_slice()), &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
     let mut placed = match settled {
         Ok(placed) => placed,
@@ -234,6 +236,7 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
         Err(super::placement::Refusal::Saturated(why)) => return Err(NorthError::Saturated(why)),
         Err(refusal) => return Err(refusal.into()),
     };
+    let placed_ms = now_ms();
     if let Some(account) = placed.account.take() {
         request.account = account;
     }
@@ -250,8 +253,20 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     }
     let record = if take_over { fleet.take_over(&request) } else { fleet.launch(&request) }.inspect_err(|error| failed_to_start(&request.name, error))?;
     tier::recorded(started, &request, &record.name);
+    trace_launch(fleet, &record, placing_ms, placed_ms);
     println!("{}", record.name);
     Ok(())
+}
+
+/// Writes the launch command's own hops to the session's trace: from this process's start to registration, and its placement within that.
+fn trace_launch(fleet: &Fleet, record: &SessionRecord, placing_ms: u64, placed_ms: u64) {
+    let Ok(dir) = fleet.session_dir(&record.name) else { return };
+    let trace = hops::trace_in(&dir);
+    let span = |hop, start_ms, end_ms| hops::Span { session: record.name.clone(), hop, start_ms, end_ms };
+    if let Some(asked_ms) = hops::process_started_ms() {
+        hops::record(&trace, &span(hops::Hop::Launch, asked_ms, record.created_ms));
+    }
+    hops::record(&trace, &span(hops::Hop::Placement, placing_ms, placed_ms));
 }
 
 /// Records a launch placement let through that failed before its session started, the loss the runtime watch judges a new runtime by; a refusal, a queue or a usage error is a decision, not a failure.

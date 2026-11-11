@@ -1,9 +1,21 @@
 //! `north fleet hops NAME...`: where each named session's starts spent their time, read from the
 //! launch trace its own processes wrote, one line per start and the medians across them.
+use std::path::PathBuf;
+
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::hops::{Launch, launches, trace_in};
 use crate::fleet::registry::Fleet;
 use crate::foundation::clock::Timestamp;
+
+type End = fn(&Launch) -> Option<u64>;
+
+const ENDS: [(&str, End); 5] = [
+    ("session host", |launch| Some(launch.session_host_ms)),
+    ("remote unit", |launch| launch.remote_unit_ms),
+    ("client's first line", |launch| launch.client_ms),
+    ("request", |launch| launch.request_ms),
+    ("first answer", |launch| launch.response_ms),
+];
 
 pub(super) fn run(fleet: &Fleet, names: &[&str]) -> NorthResult<()> {
     if names.is_empty() {
@@ -11,38 +23,45 @@ pub(super) fn run(fleet: &Fleet, names: &[&str]) -> NorthResult<()> {
     }
     let mut all = Vec::new();
     for name in names {
-        let dir = match fleet.session_dir(name)? {
-            dir if dir.exists() => dir,
-            _ => fleet.retired_session(name).map(|(dir, _)| dir).ok_or_else(|| NorthError::Usage(format!("no session named {name}")))?,
-        };
-        let found = launches(&trace_in(&dir));
+        let found = traced(fleet, name)?;
         if found.is_empty() {
             println!("{name}: no launch trace");
         }
         for launch in &found {
-            println!("{}", line(launch));
+            let registered = Timestamp::from_unix_millis(i64::try_from(launch.registered_ms).unwrap_or(i64::MAX));
+            println!("{} registered {}: {}", launch.session, registered.local_twelve_hour(), line(std::slice::from_ref(launch)));
         }
         all.extend(found);
     }
     if all.len() > 1 {
-        println!("median of {} starts: {}", all.len(), offsets(median(&all, |launch| Some(launch.session_host_ms)), median(&all, |launch| launch.remote_unit_ms), median(&all, |launch| launch.client_ms)));
+        println!("median of {} starts: {}", all.len(), line(&all));
     }
     Ok(())
 }
 
-fn line(launch: &Launch) -> String {
-    let after = |end: Option<u64>| end.map(|end| end.saturating_sub(launch.registered_ms));
-    let registered = Timestamp::from_unix_millis(i64::try_from(launch.registered_ms).unwrap_or(i64::MAX));
-    format!("{} registered {}: {}", launch.session, registered.local_twelve_hour(), offsets(after(Some(launch.session_host_ms)), after(launch.remote_unit_ms), after(launch.client_ms)))
+fn traced(fleet: &Fleet, name: &str) -> NorthResult<Vec<Launch>> {
+    let live = fleet.session_dir(name)?;
+    let retired = || fleet.retired_session(name).map(|(dir, _)| dir);
+    let dirs: Vec<PathBuf> = [Some(live), retired()].into_iter().flatten().collect();
+    if !dirs.iter().any(|dir| dir.exists()) {
+        return Err(NorthError::Usage(format!("no session named {name}")));
+    }
+    Ok(dirs.iter().map(|dir| launches(&trace_in(dir))).find(|found| !found.is_empty()).unwrap_or_default())
 }
 
-fn offsets(session_host: Option<u64>, remote_unit: Option<u64>, client: Option<u64>) -> String {
-    let shown = |ms: Option<u64>| ms.map_or_else(|| "-".to_owned(), |ms| format!("+{ms} ms"));
-    format!("session host {}, remote unit {}, client's first line {}", shown(session_host), shown(remote_unit), shown(client))
+fn line(starts: &[Launch]) -> String {
+    let asked = median(starts, |launch| launch.asked_ms.map(|asked| launch.registered_ms.saturating_sub(asked)));
+    let placement = median(starts, |launch| launch.placement_ms).map_or_else(|| "-".to_owned(), |ms| format!("{ms} ms"));
+    let mut parts = vec![asked.map_or_else(|| "launch command -".to_owned(), |ms| format!("launch command {ms} ms before (placement {placement})"))];
+    parts.extend(ENDS.iter().map(|(label, end)| {
+        let after = median(starts, |launch| end(launch).map(|end| end.saturating_sub(launch.registered_ms)));
+        after.map_or_else(|| format!("{label} -"), |ms| format!("{label} +{ms} ms"))
+    }));
+    parts.join(", ")
 }
 
-fn median(all: &[Launch], end: impl Fn(&Launch) -> Option<u64>) -> Option<u64> {
-    let mut spans: Vec<u64> = all.iter().filter_map(|launch| end(launch).map(|end| end.saturating_sub(launch.registered_ms))).collect();
-    spans.sort_unstable();
-    spans.get(spans.len() / 2).copied()
+fn median(starts: &[Launch], measure: impl Fn(&Launch) -> Option<u64>) -> Option<u64> {
+    let mut values: Vec<u64> = starts.iter().filter_map(measure).collect();
+    values.sort_unstable();
+    values.get(values.len() / 2).copied()
 }

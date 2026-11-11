@@ -7,6 +7,7 @@ use serde_json::json;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::{Host, alive};
 use crate::fleet::model::{Account, Delivery, SessionRecord};
+use crate::fleet::hops;
 use crate::fleet::refusals;
 use crate::fleet::remote::HooksCheck;
 use crate::fleet::runtime::{ClientRefusal, CredentialFailure, Opening, new_uuid, now_ms};
@@ -64,8 +65,9 @@ impl Fleet {
         let runtime = self.runtime(record)?;
         let mut tail = StreamTail::open(stream_path(&record.host_dir), stream_len(&record.host_dir));
         self.send_text(record, &self.recent(runtime.as_ref(), record)?, &new_uuid()?, prompt)?;
+        let sent_ms = now_ms();
         let deadline = Instant::now() + FIRST_TURN_WAIT;
-        let mut prompted = false;
+        let mut prompted = None;
         let mut failed = Vec::new();
         loop {
             for frame in tail.frames()? {
@@ -76,12 +78,14 @@ impl Fleet {
                 let mine = runtime.signals(&frame).into_iter().filter(|signal| record.conversation.as_deref().is_none_or(|conversation| signal.conversation() == conversation));
                 for signal in mine {
                     match signal {
-                        TurnSignal::Prompt { .. } => prompted = true,
-                        _ if prompted => {
-                            self.name_failed_tool_servers(record, &failed);
-                            return Ok(FirstTurn::Answered);
+                        TurnSignal::Prompt { .. } => prompted = prompted.or_else(|| Some(now_ms())),
+                        _ => {
+                            if let Some(prompted_ms) = prompted {
+                                trace_first_turn(&hops::trace_in(&self.root.join(&record.name)), record, sent_ms, prompted_ms);
+                                self.name_failed_tool_servers(record, &failed);
+                                return Ok(FirstTurn::Answered);
+                            }
                         }
-                        _ => {}
                     }
                 }
             }
@@ -126,6 +130,13 @@ impl Fleet {
             eprintln!("north fleet: could not mark {}:{} refused: {error}", record.provider.label(), account.label);
         }
     }
+}
+
+/// The first turn's hops in the session's trace: the prompt until the client echoes it as it sends its request, and that request until the first answer.
+fn trace_first_turn(trace: &std::path::Path, record: &SessionRecord, sent_ms: u64, prompted_ms: u64) {
+    let span = |hop, start_ms, end_ms| hops::Span { session: record.name.clone(), hop, start_ms, end_ms };
+    hops::record(trace, &span(hops::Hop::Request, sent_ms, prompted_ms));
+    hops::record(trace, &span(hops::Hop::Response, prompted_ms, now_ms()));
 }
 
 fn refusal(record: &SessionRecord, failure: &ClientRefusal) -> NorthError {
