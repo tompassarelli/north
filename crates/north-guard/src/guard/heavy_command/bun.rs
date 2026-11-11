@@ -79,34 +79,14 @@ pub(super) fn test_targets(args: &[String]) -> Vec<&str> {
 }
 
 const BOUND_SECONDS: u64 = 15;
-const LIGHT_SUITE_FILES: usize = 50;
-const TEST_MARKS: &[&str] = &[".test.", "_test.", ".spec.", "_spec."];
-
-pub(super) const NOTE: &str = "north-hook: a full `bun test` of this suite of at most 50 test files runs here under a 15 s bound instead of capacity admission; past the bound it stops and names the admitted form.";
+pub(super) const NOTE: &str = "north-hook: a full `bun test` in a git checkout runs here under a 15 s bound instead of capacity admission; past the bound it stops and names the admitted form.";
 
 fn light_suite(cwd: &Path) -> bool {
     let Some(directory) = cwd.to_str() else {
         return false;
     };
-    let Some(listed) = run_within(&["-C", directory, "ls-files", "-z"], Duration::from_secs(2))
-        .filter(|output| output.status.success())
-    else {
-        return false;
-    };
-    let tests = listed
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter_map(|path| std::str::from_utf8(path).ok())
-        .filter(|path| test_file(path))
-        .count();
-    tests <= LIGHT_SUITE_FILES
-}
-
-fn test_file(path: &str) -> bool {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    TEST_MARKS.iter().any(|mark| name.contains(mark))
-        && script_file(name)
-        && !path.split('/').any(|part| part == "node_modules")
+    run_within(&["-C", directory, "rev-parse", "--is-inside-work-tree"], Duration::from_secs(2))
+        .is_some_and(|output| output.status.success())
 }
 
 pub(super) fn wrapped(quoted: &str) -> String {

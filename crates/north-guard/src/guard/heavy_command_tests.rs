@@ -88,3 +88,18 @@ fn a_full_bun_test_of_a_small_suite_runs_under_a_bound_instead_of_being_refused(
     };
     assert!(updated["command"].as_str().unwrap().starts_with("timeout -k 5 15 bash -c 'echo x > a.ts && bun test 2>&1 | tail -5';"));
 }
+
+#[test]
+fn a_full_bun_test_of_a_sixty_one_file_suite_is_bounded_while_one_outside_a_checkout_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let git = |args: &[&str]| {
+        assert!(std::process::Command::new("git").arg("-C").arg(dir.path()).args(args).status().unwrap().success());
+    };
+    git(&["init", "-q"]);
+    for index in 0..61 {
+        std::fs::write(dir.path().join(format!("case{index}.test.ts")), "").unwrap();
+    }
+    git(&["add", "."]);
+    assert!(matches!(verdict_in(dir.path(), "bun test"), Verdict::Rewrite(..)));
+    assert!(matches!(verdict("bun test"), Verdict::Deny(_)));
+}
