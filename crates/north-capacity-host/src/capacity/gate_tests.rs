@@ -83,3 +83,22 @@ fn a_cargo_build_inside_depbox_through_north_dev_shell_run_is_classed_so_depbox_
     assert_eq!(class_of(&words("depbox run -- north capacity dev-shell run -- cargo check"), 0), Some(Class::Moderate));
     assert_eq!(class_of(&words("depbox run -- north capacity dev-shell run -- git status"), 0), None);
 }
+
+/// On 2026-11-11 a type check in a fresh worktree printed "Read-only file system" and ran no compiler, because the shell's root was made inside depbox, which binds the roots directory read-only (north#1154).
+#[test]
+fn a_gated_command_in_a_worktree_whose_dev_shell_has_no_root_yet_runs_its_program() {
+    let temporary = tempfile::tempdir().unwrap();
+    let nix = |name: &str, body: &str| {
+        let path = temporary.path().join(name);
+        north_base::foundation::shim::write_script(&path, &format!("{body}\n"));
+        path
+    };
+    let roots = temporary.path().join("dev-shells");
+    let flake = temporary.path().join("worktree");
+    let fails = nix("nix-fails", "exit 3");
+    assert_eq!(super::dev_shell::ensure_root(&fails, &flake, "/nix/store/def-shell.drv", &roots, true), Err(3), "a root that could not be made let the command start without its shell");
+    let realises = nix("nix-realises", r#"[ "$1" = print-dev-env ] && mkdir -p "$(dirname "$5")" && : > "$5""#);
+    let profile = super::dev_shell::ensure_root(&realises, &flake, "/nix/store/abc-shell.drv", &roots, true).unwrap();
+    assert!(profile.exists(), "the root was not made where the roots directory can be written");
+    assert_eq!(super::dev_shell::ensure_root(&fails, &flake, "/nix/store/abc-shell.drv", &roots, true), Ok(profile), "a rooted shell realised again inside the sandbox, where the roots directory is read-only");
+}

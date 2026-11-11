@@ -159,6 +159,11 @@ pub(super) fn invocation(program: &Path, args: &[String]) -> String {
     format!("{:016x} {}", hasher.finish(), program.display())
 }
 
+/// Whether the gate finds `program` on PATH outside the shims, or else runs it in its project's dev shell.
+pub(super) fn finds_real(program: &str, args: &[String]) -> bool {
+    real_program(program, shell::basename(program), args, &[]).is_some()
+}
+
 fn real_program(program: &str, name: &str, args: &[String], executed: &[String]) -> Option<PathBuf> {
     let own = std::fs::canonicalize(program).ok();
     std::env::split_paths(&std::env::var_os("PATH")?).map(|directory| directory.join(name)).find(|candidate| {

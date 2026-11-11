@@ -11,12 +11,14 @@ use sha2::{Digest, Sha256};
 use super::carry::{self, Boundary};
 use super::depbox_broker;
 use super::depbox_mode::Mode;
+use super::dev_shell;
 use super::effects::Host;
 use super::gate::{self, LEASED};
 
 const USAGE: &str = "usage: north depbox fetch|run -- <command> [args...]\n  fetch  network shared, for installs and fetches\n  run    no network, for builds and tests";
 pub const MARK: &str = "DEPBOX";
 const ADMITTED: &str = "DEPBOX_ADMITTED";
+const ROOTED: &str = "DEPBOX_ROOTED";
 const WORKER_SANDBOXED: &str = "NORTH_WORKER_SANDBOXED";
 const FETCHED: &str = ".local/state/depbox/cargo-fetched";
 const UNSHARE: &str = "/run/current-system/sw/bin/unshare";
@@ -58,9 +60,6 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             return exec(&mut leased, "north capacity host run");
         }
     }
-    if !owns_pid_namespace() {
-        return exec(Command::new(UNSHARE).args(["--user", "--map-current-user", "--pid", "--fork", "--kill-child=KILL", "--mount-proc"]).arg(&north).arg("depbox").args(arguments), UNSHARE);
-    }
     let (mode, command) = match arguments {
         [mode, marker, command @ ..] if marker == "--" && !command.is_empty() && let Some(mode) = Mode::parse(mode) => (mode, command),
         _ => {
@@ -68,6 +67,14 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             return 2;
         }
     };
+    if std::env::var_os(ROOTED).is_none()
+        && let Some(code) = rooted(command)
+    {
+        return code;
+    }
+    if !owns_pid_namespace() {
+        return exec(Command::new(UNSHARE).env(ROOTED, "1").args(["--user", "--map-current-user", "--pid", "--fork", "--kill-child=KILL", "--mount-proc"]).arg(&north).arg("depbox").args(arguments), UNSHARE);
+    }
     match Sandbox::here(mode) {
         Ok(sandbox) => sandbox.enter(command),
         Err((code, message)) => {
@@ -75,6 +82,18 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             code
         }
     }
+}
+
+/// Makes the dev shell root `command` would enter in the sandbox, here where the roots directory can be written, because the sandbox binds it read-only; the exit code when that fails, so the command never starts without its shell.
+fn rooted(command: &[String]) -> Option<u8> {
+    if gate::finds_real(&command[0], &command[1..]) {
+        return None;
+    }
+    let code = dev_shell::prepare_root(command);
+    (code != 0).then(|| {
+        eprintln!("depbox: {} did not run: the dev shell of this checkout has no root and making one failed (exit {code})", command[0]);
+        code
+    })
 }
 
 /// What a sandbox binds of this host: the checkout, the same checkout again at its project's stable sandbox path (so every lane of a project builds into one `target` path that cargo's fingerprints accept), the shared git directory and home's caches and toolchains.

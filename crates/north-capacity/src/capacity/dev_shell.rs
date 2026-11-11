@@ -135,14 +135,24 @@ fn runs_nix(command: &[String]) -> bool {
     command.first().is_none_or(|program| Path::new(program).file_name().is_some_and(|name| name == "nix")) || super::sandbox::sandboxes(command)
 }
 
-/// `command` inside the current directory's project dev shell, when its flake has a `devShells` output this process is not already in and the command is not itself a `nix` invocation.
-pub fn project(north: &str, command: &[String]) -> Option<Vec<String>> {
+/// The nix, flake and derivation of the dev shell `command` would enter from the current directory: none when the directory has no flake with a `devShells` output, the command is itself a `nix` invocation or this process is already in that shell.
+fn entered_by(command: &[String]) -> Option<(PathBuf, PathBuf, String)> {
     let directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     let flake = (!runs_nix(command)).then(|| flake_root(&directory)).flatten()?;
-    let identity = derivation(&nix()?, &flake).ok()?;
-    if inside(&identity) {
-        return None;
-    }
+    let nix = nix()?;
+    let identity = derivation(&nix, &flake).ok()?;
+    (!inside(&identity)).then_some((nix, flake, identity))
+}
+
+/// Makes the root of the dev shell `command` would enter from the current directory, from where the roots directory can be written, so a sandbox that binds it read-only finds the root there; 0 when the command enters no dev shell.
+pub fn prepare_root(command: &[String]) -> u8 {
+    let Some((nix, flake, identity)) = entered_by(command) else { return 0 };
+    ensure_root(&nix, &flake, &identity, &roots(), leased()).err().unwrap_or(0)
+}
+
+/// `command` inside the current directory's project dev shell, when its flake has a `devShells` output this process is not already in and the command is not itself a `nix` invocation.
+pub fn project(north: &str, command: &[String]) -> Option<Vec<String>> {
+    let (_, flake, _) = entered_by(command)?;
     let mut words = vec![north.to_owned(), "capacity".to_owned(), "dev-shell".to_owned(), "run".to_owned(), "--dir".to_owned(), flake.to_string_lossy().into_owned(), "--".to_owned()];
     words.extend_from_slice(command);
     Some(words)
@@ -272,14 +282,29 @@ fn sweep(roots: &Path, keep: &str) {
     }
 }
 
-/// Realises the shell's environment once with the network, under a capacity lease unless this process already holds one, and roots it at `profile`.
-fn prepare(nix: &Path, flake: &Path, profile: &Path, key: &str) -> Result<(), u8> {
+fn leased() -> bool {
+    std::env::var_os("AGENT_CAPACITY_LEASE").is_some_and(|lease| !lease.is_empty())
+}
+
+/// The profile that roots the shell of `identity` under `roots`, realised first when it does not exist yet.
+pub fn ensure_root(nix: &Path, flake: &Path, identity: &str, roots: &Path, leased: bool) -> Result<PathBuf, u8> {
+    let key = root_key(identity);
+    let profile = roots.join(&key).join("profile");
+    point(roots, flake, &key);
+    if !profile.exists() {
+        prepare(nix, flake, &profile, &key, leased)?;
+        sweep(roots, &key);
+    }
+    Ok(profile)
+}
+
+/// Realises the shell's environment once with the network, under a capacity lease unless this process already holds one (`leased`), and roots it at `profile`.
+fn prepare(nix: &Path, flake: &Path, profile: &Path, key: &str, leased: bool) -> Result<(), u8> {
     std::fs::create_dir_all(profile.parent().expect("a root directory")).map_err(|error| {
         eprintln!("north capacity dev-shell: {}: {error}", profile.display());
         1u8
     })?;
     let realise = [nix.to_string_lossy().into_owned(), "print-dev-env".to_owned(), flake.to_string_lossy().into_owned(), "--no-update-lock-file".to_owned(), "--profile".to_owned(), profile.to_string_lossy().into_owned()];
-    let leased = std::env::var_os("AGENT_CAPACITY_LEASE").is_some_and(|lease| !lease.is_empty());
     let mut command = if leased {
         let mut command = std::process::Command::new(&realise[0]);
         command.args(&realise[1..]);
@@ -379,15 +404,10 @@ pub fn command(arguments: &[String], gated: &dyn Fn(&[String]) -> bool) -> u8 {
         trace(&format!("direct {identity}"));
         return run_directly("north capacity dev-shell", &invocation.command);
     }
-    let (roots, key) = (roots(), root_key(&identity));
-    let profile = roots.join(&key).join("profile");
-    point(&roots, &flake, &key);
-    if !profile.exists() {
-        if let Err(code) = prepare(&nix, &flake, &profile, &key) {
-            return code;
-        }
-        sweep(&roots, &key);
-    }
+    let profile = match ensure_root(&nix, &flake, &identity, &roots(), leased()) {
+        Ok(profile) => profile,
+        Err(code) => return code,
+    };
     if invocation.prepare_only {
         return 0;
     }
