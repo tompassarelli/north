@@ -6,7 +6,7 @@ use crate::platform::gh_broker_route::Place;
 use crate::platform::gh_session::{self, Spend};
 use crate::platform::github_app;
 
-const USAGE: &str = "usage: north ops github budget
+const USAGE: &str = "usage: north ops github budget | north ops github push-token --host HOST...
 
 Print what is left of each GitHub token's hourly limit (the user's own login and the North Fleet
 App installation fleet sessions use), every fleet session's spend against its fair share
@@ -22,6 +22,7 @@ const HOUR: u64 = 3600;
 pub fn github(arguments: &[String]) -> u8 {
     match arguments.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["budget"] => budget(),
+        ["push-token", rest @ ..] => super::push_token::run(rest),
         ["-h" | "--help"] => {
             println!("{USAGE}");
             0

@@ -1,1 +1,2 @@
   ops github budget                              Print each GitHub token's hourly limit left, every fleet session's spend against its hourly share and the costliest callers of the last hour from the broker's calls.log
+  ops github push-token --host HOST...           Copy the short-lived push token to each HOST, trying a failed host again every 10 s until it has a fresh token or 27 min have passed
