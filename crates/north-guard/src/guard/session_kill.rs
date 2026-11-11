@@ -7,7 +7,10 @@ use crate::platform::pyjson::Value;
 use crate::shell;
 use commands::{TERMINAL_UNIT, OWN_UNIT, DYNAMIC_UNIT, SHELLS, Script, Systemd, full_pattern, kill, killall, pkill, shell_script, ssh};
 use regex::Regex;
+use rustix::process::getuid;
 use std::fs;
+use std::os::unix::fs::FileTypeExt;
+use std::path::PathBuf;
 use std::sync::LazyLock;
 
 const TEARDOWN_PREFIXES: &[&str] = &[
@@ -17,6 +20,7 @@ const TEARDOWN_PREFIXES: &[&str] = &[
 const LAUNCH_PREFIXES: &[&str] = &["env", "exec", "do", "then", "else", "!", "{"];
 const HOST_RESTART: &str = "firn host restart-user-manager";
 const UNMANAGED: &str = "unmanaged background job";
+const NO_BUS_REASON: &str = "BLOCKED: a background `&` or nohup job would detach an agent child from its owner, and `north capacity bounded` cannot start here because this session has no systemd user bus. Run the command as written, without `&` or nohup, and set run_in_background: true on the Bash call; its completion notification replaces the wait.";
 const REWRITE_NOTE: &str = "session-kill-guard: wrapped the background `&` job in `north capacity bounded 24h --` so the owner reaps it. Write `north capacity bounded <duration> -- <command> &` yourself next time.";
 
 static REDIRECTION: LazyLock<Regex> =
@@ -50,9 +54,24 @@ pub(super) enum Hit {
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
+    evaluate_with(input, user_bus())
+}
+
+fn user_bus() -> bool {
+    let runtime = std::env::var("XDG_RUNTIME_DIR")
+        .ok()
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| PathBuf::from(format!("/run/user/{}", getuid().as_raw())), PathBuf::from);
+    fs::metadata(runtime.join("bus")).is_ok_and(|bus| bus.file_type().is_socket())
+}
+
+fn evaluate_with(input: &HookInput, bus: bool) -> Verdict {
     let hits = input.command().and_then(|s| s.as_str()).map(decide).unwrap_or_default();
     if hits.is_empty() {
         return Verdict::Allow;
+    }
+    if !bus && wrappable(&hits) {
+        return Verdict::Deny(NO_BUS_REASON.into());
     }
     managed(input, &hits).map_or_else(
         || Verdict::Deny(reason(&hits)),
@@ -60,9 +79,12 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     )
 }
 
+fn wrappable(hits: &[Hit]) -> bool {
+    hits.iter().all(|hit| matches!(hit, Hit::Detached(shape) if shape == UNMANAGED || shape == "nohup"))
+}
+
 fn managed(input: &HookInput, hits: &[Hit]) -> Option<Value> {
-    let wrappable = hits.iter().all(|hit| matches!(hit, Hit::Detached(shape) if shape == UNMANAGED || shape == "nohup"));
-    if !wrappable || input.data["tool_name"] != "Bash" {
+    if !wrappable(hits) || input.data["tool_name"] != "Bash" {
         return None;
     }
     let command = input.tool_input["command"].as_str()?;

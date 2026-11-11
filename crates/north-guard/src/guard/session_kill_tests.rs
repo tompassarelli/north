@@ -102,7 +102,7 @@ fn a_self_matching_pgrep_is_refused_only_when_its_output_is_consumed() {
 fn a_foreground_bun_run_of_a_tmp_script_runs_as_written() {
     let verdict = |command: &str| {
         let call = serde_json::json!({"tool_name": "Bash", "tool_input": {"command": command}});
-        evaluate(&HookInput::parse(call.to_string().as_bytes()).unwrap())
+        evaluate_with(&HookInput::parse(call.to_string().as_bytes()).unwrap(), true)
     };
     for command in [
         "bun /tmp/edit.ts; echo rc=$?; git diff --stat",
@@ -113,5 +113,18 @@ fn a_foreground_bun_run_of_a_tmp_script_runs_as_written() {
     }
     for command in ["bun /tmp/edit.ts &", "nohup node /tmp/edit.mjs"] {
         assert!(matches!(verdict(command), Verdict::Rewrite(..)), "{command}");
+    }
+}
+
+#[test]
+fn a_background_job_without_a_user_bus_is_refused_with_the_run_in_background_instruction() {
+    for command in ["bun /tmp/edit.ts &", "nohup node /tmp/edit.mjs", "sleep 5 &"] {
+        let call = serde_json::json!({"tool_name": "Bash", "tool_input": {"command": command}});
+        let input = HookInput::parse(call.to_string().as_bytes()).unwrap();
+        assert!(matches!(evaluate_with(&input, true), Verdict::Rewrite(..)), "{command}");
+        match evaluate_with(&input, false) {
+            Verdict::Deny(reason) => assert!(reason.contains("run_in_background: true"), "{command}: {reason}"),
+            _ => panic!("{command}"),
+        }
     }
 }
