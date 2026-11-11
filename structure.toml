@@ -1197,10 +1197,10 @@ may_use = []
 
 [[crate_dag.crate]]
 name = "north-monitor"
-paths = ["crates/north-monitor/src/**"]
+paths = ["crates/north-tui/monitor/src/**"]
 may_use = []
 [[module]]
 name = "monitor"
-paths = ["crates/north-monitor/src/**"]
+paths = ["crates/north-tui/monitor/src/**"]
 responsibility = "Render one live terminal screen of fleet, landing queue, runtime versions per host, health and ladder level from the cheapest direct source of each number, each read off the render thread with a timeout, so a broken north still shows what is broken."
 may_use = []
