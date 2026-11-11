@@ -18,7 +18,7 @@ for a in @ALIASES@; do
 done
 t="$HOME/.local/state/north/gh-write-token"
 if [ -e "$t" ]; then
-  a=$(( ($(date +%s) - $(stat -c %Y "$t")) / 60 ))
+  a=$(( ($(date +%s) - $(stat -L -c %Y "$t")) / 60 ))
   { [ -s "$t" ] && [ "$a" -lt 55 ]; } || echo "missing: a GitHub token under 55 min old (the one the laptop pushed is $a min old)"
 fi
 exit 0"#;

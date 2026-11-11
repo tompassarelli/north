@@ -37,3 +37,18 @@ fn a_host_under_its_disk_bound_takes_nothing_and_takes_work_again_once_over_it()
     assert_eq!(over.refusal("gex45"), None);
     assert_eq!(over.session_room(), 2);
 }
+
+#[test]
+fn a_token_file_written_just_now_reads_fresh_behind_a_symlink_made_long_ago() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join(".local/state/north");
+    std::fs::create_dir_all(&state).unwrap();
+    let minted = home.path().join("minted-token");
+    std::fs::write(&minted, "token").unwrap();
+    std::os::unix::fs::symlink(&minted, state.join("gh-write-token")).unwrap();
+    let aged = std::process::Command::new("touch").args(["-h", "-d", "@1000000000"]).arg(state.join("gh-write-token")).status().unwrap();
+    assert!(aged.success());
+    let out = std::process::Command::new("sh").args(["-c", super::saturation::PROBE]).env("HOME", home.path()).output().unwrap();
+    let age: u64 = String::from_utf8(out.stdout).unwrap().split("#token").nth(1).unwrap().trim().parse().unwrap();
+    assert!(age < 60, "token age {age}s");
+}

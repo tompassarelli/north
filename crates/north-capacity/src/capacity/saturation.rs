@@ -19,7 +19,7 @@ pub const QUEUED_LIMIT: u32 = 4;
 
 /// Prints, one per line: `MemTotal` and `MemAvailable` in kB, then `df -Pk /`, then the backlog mark and
 /// `north capacity host backlog`, which a host on an older runtime leaves empty, then the token mark and the seconds since the App token the laptop pushes to the host was written, which a host that mints its own token leaves empty.
-pub const PROBE: &str = "awk '/^MemTotal:|^MemAvailable:/ {print $2}' /proc/meminfo; df -Pk / | tail -1; echo '#backlog'; \"$HOME/.local/state/north/current/tree/bin/north\" capacity host backlog 2>/dev/null; echo '#token'; t=\"$HOME/.local/state/north/gh-write-token\"; [ -f \"$t\" ] && echo $(($(date +%s) - $(stat -c %Y \"$t\"))); true";
+pub const PROBE: &str = "awk '/^MemTotal:|^MemAvailable:/ {print $2}' /proc/meminfo; df -Pk / | tail -1; echo '#backlog'; \"$HOME/.local/state/north/current/tree/bin/north\" capacity host backlog 2>/dev/null; echo '#token'; t=\"$HOME/.local/state/north/gh-write-token\"; [ -f \"$t\" ] && echo $(($(date +%s) - $(stat -L -c %Y \"$t\"))); true";
 
 /// The CPU stall, in avg10 basis points, of a host's unleased agent work past which a load over its threads keeps a new session off it.
 pub const STALL_LIMIT: f64 = 1000.0;
