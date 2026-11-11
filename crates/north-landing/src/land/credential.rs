@@ -55,8 +55,23 @@ pub fn mint(program: &[String], app: &str) -> Result<String, String> {
     Ok(token)
 }
 
-pub fn for_push(worktree: &Path, base: &str, program: &[String]) -> Result<String, String> {
-    mint(program, &configured(worktree, base)?)
+fn is_local(remote: &str) -> bool {
+    remote.starts_with('/') || remote.starts_with("./") || remote.starts_with("../") || remote.starts_with("file://")
+}
+
+fn pushes_locally(worktree: &Path) -> bool {
+    let configured = ["remote.origin.pushurl", "remote.origin.url"].iter().find_map(|key| {
+        let read = candidate::output(worktree, &["config", "--get-all", key]).ok().filter(|read| read.status.success())?;
+        Some(String::from_utf8_lossy(&read.stdout).lines().map(str::trim).map(str::to_owned).collect::<Vec<_>>())
+    });
+    configured.is_some_and(|urls| urls.iter().all(|url| is_local(url))) && candidate::git(worktree, &["remote", "get-url", "--push", "origin"]).is_ok_and(|url| is_local(&url))
+}
+
+pub fn for_push(worktree: &Path, base: &str, program: &[String]) -> Result<Option<String>, String> {
+    if pushes_locally(worktree) {
+        return Ok(None);
+    }
+    mint(program, &configured(worktree, base)?).map(Some)
 }
 
 pub fn apply(push: &mut Command, token: &str) {

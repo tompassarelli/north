@@ -56,7 +56,7 @@ impl Pushing for Lander {
         };
         after::begin(self, head, base, included, landing.tips)?;
         stages.pushing();
-        match self.push(head, base, &token)? {
+        match self.push(head, base, token.as_deref())? {
             Pushed::Landed => {}
             Pushed::Moved => {
                 after::abandon(self);

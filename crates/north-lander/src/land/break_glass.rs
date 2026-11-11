@@ -97,7 +97,7 @@ fn land(lander: &Lander, path: &Path, ticket: &Ticket, reason: &str) -> Result<S
     let token = lander.push_token(&base)?;
     let mut stages = Stages::start();
     stages.pushing();
-    match lander.push(head, &base, &token)? {
+    match lander.push(head, &base, token.as_deref())? {
         Pushed::Landed => {}
         Pushed::Moved => return Err(format!("main moved from {base} before the push; nothing pushed, run it again")),
         Pushed::Refused(Refusal::Terminal(line) | Refusal::Retry(line)) => return Err(format!("origin refused the push of {head}: {line}")),

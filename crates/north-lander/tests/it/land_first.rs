@@ -350,3 +350,15 @@ fn a_candidate_is_pushed_while_an_alone_check_is_in_flight() {
     assert!(verdict(&north, "unchecked").starts_with("landed "), "{journal}");
     assert_eq!(calls(&world.path().join("bin/checker.calls")), 1, "the restarted lander ran the alone check again: {journal}");
 }
+
+#[test]
+fn a_lane_lands_into_a_local_origin_although_no_push_token_can_be_minted() {
+    let world = World::new();
+    let north = world.repository("north");
+    checker(&world);
+    north_base::foundation::shim::write_executable(&world.path().join("bin/token"), "#!/bin/sh\necho 'no app key on this host' >&2\nexit 1\n");
+    north.lane("scratch");
+    let journal = serve(&world, &north);
+    assert!(verdict(&north, "scratch").starts_with("landed "), "{journal}");
+    assert_eq!(subjects(&north)[0], "scratch (north#360)", "{journal}");
+}

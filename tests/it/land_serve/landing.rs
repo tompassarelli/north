@@ -25,6 +25,8 @@ fn serve_cas_lost() {
 #[test]
 fn serve_token_scoped() {
     let mut fixture = Fixture::new();
+    git(&fixture.repo, &["config", "remote.origin.url", "https://github.com/north-test/north.git"]);
+    git(&fixture.repo, &["config", &format!("url.{}.insteadOf", fixture.origin.display()), "https://github.com/north-test/north.git"]);
     let a = fixture.lane("a", "a.txt", "a");
     fixture.enqueue(&a, None);
     assert!(fixture.serve().status.success());
