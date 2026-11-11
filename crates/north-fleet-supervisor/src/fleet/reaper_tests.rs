@@ -270,7 +270,7 @@ fn the_reaper_reads_job_leases_from_the_ticks_exchange_and_defers_a_session_whos
     let waits = [wait("expired", "2026-11-06T17:00:00Z"), wait("held", "2026-11-06T17:03:00Z")];
     fleet.cache_leases(&crate::fleet::store::LeaseTable::read(&waits, ["expired".to_owned(), "held".to_owned()], "2026-11-06T17:01:00Z", now_ms())).unwrap();
 
-    let reaped = reap_within(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true, Duration::from_millis(300));
+    let reaped = reap_timed(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true, Duration::from_millis(300), &|| Duration::ZERO);
 
     assert!(!nexus.ended.load(std::sync::atomic::Ordering::SeqCst), "the reaper waited for the lease read to end");
     drop(release);

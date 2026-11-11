@@ -183,6 +183,10 @@ pub fn reap_after(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_m
 
 pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_ms: u64, apply: bool, budget: Duration) -> Reaped {
     let started = Instant::now();
+    reap_timed(fleet, evidence, stale, now_ms, apply, budget, &|| started.elapsed())
+}
+
+pub(crate) fn reap_timed(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_ms: u64, apply: bool, budget: Duration, spent: &dyn Fn() -> Duration) -> Reaped {
     let mut reaped = Reaped { at_ms: now_ms, stale_hours: stale.as_secs() / 3600, ..Reaped::default() };
     let records = fleet.sessions().unwrap_or_default();
     let mut candidates: Vec<(&SessionRecord, Status, Duration)> = records.iter().filter(|record| record.role() != Role::Proxy && !record.adopted() && !record.verification).map(|record| (record, fleet.status(record), quiet(record))).filter(|(record, status, _)| ended_by_host(record) || !record.ended() && matches!(status, Status::Idle | Status::Parked)).collect();
@@ -192,7 +196,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
     let mut verdicts: BTreeMap<String, String> = BTreeMap::new();
     let lanes = evidence.lanes();
     for (done, batch) in candidates.chunks(LEASE_BATCH).enumerate() {
-        if started.elapsed() >= budget {
+        if spent() >= budget {
             reaped.deferred = candidates.len() - done * LEASE_BATCH;
             break;
         }
@@ -217,7 +221,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant && is_final(&entry.text)).or_else(|| entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant)).map(|entry| entry.text.chars().take(LAST_CHARS).collect::<String>());
             due.push((record, verdict.why(stale), last));
         }
-        let leases = fleet.job_leases(&due.iter().map(|(record, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(started.elapsed()));
+        let leases = fleet.job_leases(&due.iter().map(|(record, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(spent()));
         for ((record, why, last), lease) in due.into_iter().zip(leases) {
             retire_unleased(fleet, &mut reaped, apply, (record, why, last), lease);
         }
