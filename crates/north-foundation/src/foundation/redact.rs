@@ -44,7 +44,6 @@ fn file_extension_follows(chars: &[char], i: usize) -> bool {
     !word(chars.get(i + 1 + ext.len())) && FILE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str())
 }
 
-// JS lookaheads (?![0-9a-f]{40,}\b)(?=…\d)(?=…[A-Za-z]) evaluated by hand: the regex crate has no lookaround.
 fn opaque_end(chars: &[char], p: usize) -> Option<usize> {
     let boundary = |i: usize| word(i.checked_sub(1).and_then(|j| chars.get(j))) != word(chars.get(i));
     if !boundary(p) {

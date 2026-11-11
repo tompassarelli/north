@@ -1,5 +1,5 @@
 [[implicit_state.allow]]
 shape = "status-string"
-path = "crates/north-base/src/foundation/check_log.rs"
+path = "crates/north-foundation/src/foundation/check_log.rs"
 reason = "exited and was killed are words of a land check's log line, an external text format read once to find the failed check, never held as state (moved from red_check.rs, north#917)"
 

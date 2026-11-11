@@ -4,7 +4,6 @@ enum Code {
     RedMain = 3,
     NoVerdict = 75,
     SlotsBusy = 96,
-    // 124, 130 and 137 follow coreutils `timeout` and the 128 + signal shell convention.
     TimedOut = 124,
     Cancelled = 130,
     Killed = 137,

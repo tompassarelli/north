@@ -1013,6 +1013,7 @@ name = "north-base"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "north-foundation",
  "north-shared-config",
  "north-strategy-types",
  "percent-encoding",
@@ -1339,6 +1340,17 @@ dependencies = [
  "tempfile",
  "time",
  "toml_edit",
+]
+
+[[package]]
+name = "north-foundation"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
 ]
 
 [[package]]

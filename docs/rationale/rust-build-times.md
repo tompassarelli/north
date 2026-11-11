@@ -76,7 +76,7 @@ The verdicts are against the 10 s cap. When this table was first written, under 
 read `within (50%)` of an 88 s threshold.
 
 Leaf and hub files (relative to the workspace): north `crates/north-code-health/src/code_health/source.rs` and
-`crates/north-base/src/foundation/mod.rs`; relay `relay-agent/src/wait.rs` and `relay-proto/src/wire.rs`
+`crates/north-foundation/src/foundation/mod.rs`; relay `relay-agent/src/wait.rs` and `relay-proto/src/wire.rs`
 (relay-proto is used by the other three crates); window `wisp-window/src/mixer.rs` and
 `wisp-window/src/settings/mod.rs` (49 `crate::settings` uses, the most); controller `src/profile.rs` and
 `src/lib.rs`; makgora-tools `src/wait_state.rs` and `src/stop.rs` (7 uses, the most); firn

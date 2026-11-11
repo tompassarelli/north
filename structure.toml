@@ -41,7 +41,7 @@ reason = "privacy-judge.pending is the name of one refusal rule in the guard tab
 
 [[implicit_state.allow]]
 shape = "status-string"
-path = "crates/north-base/src/foundation/check_log.rs"
+path = "crates/north-foundation/src/foundation/check_log.rs"
 reason = "exited and was killed are words of a land check's log line, an external text format read once to find the failed check, never held as state (moved from red_check.rs, north#917)"
 
 [[implicit_state.allow]]
@@ -142,9 +142,14 @@ name = "north-cli-reference"
 paths = ["crates/north-cli-reference/src/**"]
 may_use = []
 [[crate_dag.crate]]
+name = "north-foundation"
+paths = ["crates/north-foundation/src/**"]
+may_use = []
+
+[[crate_dag.crate]]
 name = "north-base"
 paths = ["crates/north-base/src/**"]
-may_use = ["north-strategy-types", "north-shared-config"]
+may_use = ["north-strategy-types", "north-shared-config", "north-foundation"]
 
 [[crate_dag.crate]]
 name = "north-diff-gates"
@@ -444,7 +449,7 @@ may_use = ["crate-roots", "foundation", "landing", "lifecycle", "land_ticket", "
 
 [[module]]
 name = "foundation"
-paths = ["crates/north-base/src/foundation/**", "crates/north-base/src/error.rs", "crates/north-base/src/test_inputs.rs", "crates/north-base/src/agents_sync.rs"]
+paths = ["crates/north-foundation/src/foundation/**", "crates/north-foundation/src/error.rs", "crates/north-foundation/src/test_inputs.rs", "crates/north-base/src/agents_sync.rs"]
 responsibility = "Error type, clock port and time values, identifiers."
 may_use = []
 
@@ -1014,7 +1019,7 @@ path = "harness/skills/verification/SKILL.md"
 [[build_time]]
 workspace = "."
 leaf = "crates/north-code-health/src/code_health/source.rs"
-hub = "crates/north-base/src/foundation/mod.rs"
+hub = "crates/north-foundation/src/foundation/mod.rs"
 test_no_run_seconds = 10
 contention_ceiling = 0.5
 
