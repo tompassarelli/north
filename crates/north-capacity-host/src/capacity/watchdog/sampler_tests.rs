@@ -1,3 +1,4 @@
+use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 use std::time::Duration;
 
@@ -18,5 +19,5 @@ fn termination_signals_only_a_process_whose_start_time_still_matches() {
     terminate(&[Term { pid, start: "0".into() }]);
     assert!(!wait::until(Duration::from_millis(200), || child.try_wait().unwrap().is_some()), "a recycled pid with another start time is left alone");
     terminate(&[Term { pid, start: start_of(child.id()) }]);
-    assert!(wait::until(Duration::from_secs(5), || child.try_wait().unwrap().is_some()), "the matching process was not terminated");
+    assert_eq!(child.wait().unwrap().signal(), Some(15), "the matching process was not terminated");
 }

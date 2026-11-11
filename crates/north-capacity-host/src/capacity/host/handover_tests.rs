@@ -87,8 +87,9 @@ async fn capacity_a_run_is_claimed_once_by_racing_peers_withdrawn_on_local_admis
     let later = queue(&root, "heavy", true);
     drop(Listening::open(&root, &later).unwrap());
     assert!(release(&root).is_none(), "a run admitted here first is no longer offered");
+    let before_give_back = wait::after(Duration::ZERO);
     oldest_door.give_back();
-    oldest_door.tend_at(wait::after(Duration::ZERO));
+    oldest_door.tend_at(before_give_back);
     assert!(release(&root).is_none(), "a failed run waits before it is offered again");
     oldest_door.tend_at(wait::after(REPUBLISH_AFTER));
     assert_eq!(release(&root).map(|(name, _)| name), Some(oldest), "a failed run is offered again after the wait");
