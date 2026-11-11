@@ -1,4 +1,5 @@
-use super::{RESTART_S, Window, launch_failures, lasting_host_exits, named, risen};
+use super::{RESTART_S, Window, capacity_parked, launch_failures, lasting_host_exits, named, risen};
+use std::collections::HashSet;
 use north_base::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, State, Store};
 use std::time::Duration;
@@ -75,9 +76,10 @@ fn a_session_host_restarted_onto_the_new_runtime_is_not_an_exit_and_one_that_sta
     stops("north-5@1", 590, None);
     let span = (at(0), at(1000));
 
-    assert_eq!(lasting_host_exits(&ledger, span, at(600)), 2, "north-3 stayed down and north-4 came back too late; north-1 restarted, vn-2 is a scratch host, north-5 stopped too recently to tell");
-    assert_eq!(lasting_host_exits(&ledger, span, at(700)), 3, "north-5 is still down once the restart window has passed");
-    let lasting = |span| Window { host_exits: lasting_host_exits(&ledger, span, at(700)), ..Window::default() };
+    let none = HashSet::new();
+    assert_eq!(lasting_host_exits(&ledger, span, at(600), &none), 2,"north-3 stayed down and north-4 came back too late; north-1 restarted, vn-2 is a scratch host, north-5 stopped too recently to tell");
+    assert_eq!(lasting_host_exits(&ledger, span, at(700), &none), 3, "north-5 is still down once the restart window has passed");
+    let lasting = |span| Window { host_exits: lasting_host_exits(&ledger, span, at(700), &none), ..Window::default() };
     assert_eq!(risen(&lasting((at(0), at(260))), &Window::default(), 260), Vec::<&str>::new(), "a restart and a scratch host are no exits");
     assert_eq!(risen(&lasting(span), &Window::default(), 1000), ["session-host exits"]);
 }
@@ -134,4 +136,24 @@ fn the_2026_11_11_rollback_of_ca9d6ae1_does_not_happen() {
     let (since, prior) = (counted(&iso(swapped), &iso(judged), 0), counted(&iso(swapped - 3600), &iso(swapped), 82));
     assert_eq!(risen(&since, &prior, judged - swapped), ["launch failures"], "the replay holds the refusals that rolled ca9d6ae1 back when counted as failures");
     assert!(named(&["launch failures"], &since, &prior).contains("provider limit: claude:e is at its provider's five-hour limit"));
+}
+
+/// On 2026-11-11 at about 8:56 AM +07 the watch rolled 7c3b1b1b back for "session-host exits" that were the fleet parking account d's sessions at its limit.
+#[test]
+fn a_session_parked_by_its_account_limit_is_not_a_session_host_exit() {
+    let directory = tempfile::tempdir().unwrap();
+    let lifecycle = directory.path().join("ledger.db");
+    let mut store = Store::open(&lifecycle).unwrap();
+    let at = |seconds: i64| Timestamp::from_unix_seconds(1_800_000_000 + seconds);
+    for (session, stopped) in [("n1106-no-diagnosis@1", 100), ("n1022-depbox@1", 110), ("north-3@1", 120)] {
+        store.transition::<Session>(session, Phase::Live, "launched", at(stopped - 50)).unwrap().unwrap();
+        store.transition::<Session>(session, Phase::Parked, "the holder is gone", at(stopped)).unwrap().unwrap();
+    }
+    let (_threads, threads) = ledger(&[]);
+    let db = rusqlite::Connection::open(&threads).unwrap();
+    for session in ["n1106-no-diagnosis", "n1022-depbox"] {
+        db.execute("INSERT INTO boundary_causes VALUES (?1, 'fleet', 'capacity', 'parked until account d has usage again', ?2)", [session, &at(105).iso()]).unwrap();
+    }
+    let parked = capacity_parked(&threads, &at(0).iso(), &at(400).iso());
+    assert_eq!(lasting_host_exits(&lifecycle, (at(0), at(400)), at(400), &parked), 1,"only north-3 stopped on its own");
 }
