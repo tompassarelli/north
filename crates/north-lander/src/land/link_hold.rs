@@ -67,13 +67,17 @@ pub fn clear(home: &Path) {
     release_rollback(home);
 }
 
-/// Names the runtime the lander link leaves for a promotion's candidate, so runtime collection keeps it while the candidate is judged and a rollback has somewhere to go.
+/// Names the runtime the lander link leaves for a promotion's candidate, so runtime collection keeps it while the candidate is judged and a rollback has somewhere to go; only a verdict releases it, so a promotion that arrives while an earlier candidate is still judged keeps it and judges against the last judged runtime.
 pub fn record_rollback(home: &Path, previous: &Path) {
     let _ = fs::write(home.join(LANDER_ROLLBACK), format!("{}\n", previous.display()));
 }
 
 pub fn release_rollback(home: &Path) {
     let _ = fs::remove_file(home.join(LANDER_ROLLBACK));
+}
+
+pub fn rollback_of(home: &Path) -> Option<PathBuf> {
+    fs::read_to_string(home.join(LANDER_ROLLBACK)).ok().map(|text| PathBuf::from(text.trim())).filter(|held| !held.as_os_str().is_empty())
 }
 
 /// A promotion whose replays of `candidate` reached no verdict, and how many promotions in a row did so.

@@ -1,11 +1,11 @@
-use super::{Options, Repository, Runtime, link_hold, output, swap, unit};
+use super::{Options, Outcome, Repository, Runtime, link_hold, output, swap, unit};
 use std::fs;
 use std::path::Path;
 
 /// Points the lander link at `target` before any replay: land-first applies here as it does to a lane, so the runtime
 /// current names runs the lander as soon as its canary passed, and the recorded-round replay and shadow judge it after.
 /// Returns a settled line instead when another runtime already runs ahead of `target` or current moved before the link did.
-pub(super) fn move_first(options: &Options, runtime: &Runtime, repositories: &[Repository], target: &Path) -> Result<Option<String>, String> {
+fn move_first(options: &Options, runtime: &Runtime, repositories: &[Repository], target: &Path) -> Result<Option<String>, String> {
     let checkout = repositories.first().map(|repository| repository.checkout.as_path());
     let sha = |link: &Path| link.file_name().map(|name| name.to_string_lossy().into_owned());
     let descends = |earlier: &Path, later: &Path| match (checkout, sha(earlier), sha(later)) {
@@ -25,10 +25,27 @@ pub(super) fn move_first(options: &Options, runtime: &Runtime, repositories: &[R
         return Ok(None);
     }
     unit::stop(runtime);
-    if let Some(previous) = fs::read_link(runtime.lander()).ok().filter(|previous| previous != target) {
+    if link_hold::rollback_of(&runtime.home).is_none() && let Some(previous) = fs::read_link(runtime.lander()).ok().filter(|previous| previous != target) {
         link_hold::record_rollback(&runtime.home, &previous);
     }
     swap(&runtime.lander(), target).map_err(|error| format!("{}: {error}; the lander link is unchanged", runtime.lander().display()))?;
     println!("north land promote: the lander link now points at {}; the recorded-round replay and shadow judge it after", target.display());
     Ok(None)
+}
+
+/// Moves the link first and hands the replay that judges it to its unit; `None` means this promotion judges the candidate itself, on a dry run or when the unit could not start.
+pub(super) fn arrive(options: &Options, runtime: &Runtime, repositories: &[Repository], binary: &Path, target: &Path, held: Option<&Path>) -> Result<Option<Outcome>, String> {
+    if let Some(result) = move_first(options, runtime, repositories, target)? {
+        return Ok(Some(Outcome::Settled(result)));
+    }
+    if options.dry_run {
+        return Ok(None);
+    }
+    match unit::hand_off(runtime, options, binary, target, held) {
+        Ok(handed) => Ok(Some(Outcome::Handed(handed))),
+        Err(why) => {
+            println!("north land promote: {why}; this promotion replays the recorded rounds itself");
+            Ok(None)
+        }
+    }
 }

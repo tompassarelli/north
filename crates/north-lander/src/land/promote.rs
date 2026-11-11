@@ -14,58 +14,23 @@ use north_base::foundation::exit::NO_VERDICT;
 
 mod arrival;
 mod report;
+mod options;
 mod unit;
 
 pub use report::run;
-use arrival::move_first;
+use arrival::arrive;
+use options::{Options, parse};
 
 const USAGE: &str = "usage: north land promote [--dry-run] [--judge CANDIDATE [--held RUNTIME]] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]";
 pub const REFUSED: &str = "lander-refused";
 const ROUNDS: usize = 8;
 const MATCHED_PAST_UNREACHED: usize = 2;
 const WALK: usize = 256;
-const SHADOW_MINUTES: u64 = 15;
 const SHADOW_PAUSE: Duration = Duration::from_secs(30);
 const LANDER_PATHS: [&str; 6] = ["crates/north-landing/", "crates/north-land-checks/", "crates/north-lander/", "crates/north-safe-push/", "crates/north-runtime/", "tests/it/land"];
 
 mod shadow;
 mod tolerance;
-
-struct Options {
-    dry_run: bool,
-    shadow_minutes: u64,
-    repos: Vec<PathBuf>,
-    checker: String,
-    judge: Option<PathBuf>,
-    held: Option<PathBuf>,
-}
-
-fn parse(arguments: &[String]) -> Option<Options> {
-    let mut options = Options { dry_run: false, shadow_minutes: SHADOW_MINUTES, repos: Vec::new(), checker: "safe-push".to_owned(), judge: None, held: None };
-    let mut rest = arguments.iter();
-    while let Some(argument) = rest.next() {
-        match argument.as_str() {
-            "--dry-run" => options.dry_run = true,
-            flag => set(&mut options, flag, rest.next()?)?,
-        }
-    }
-    if options.repos.is_empty() {
-        options.repos.push(PathBuf::from("."));
-    }
-    (options.held.is_none() || options.judge.is_some()).then_some(options)
-}
-
-fn set(options: &mut Options, flag: &str, value: &str) -> Option<()> {
-    match flag {
-        "--judge" => options.judge = Some(PathBuf::from(value)),
-        "--held" => options.held = Some(PathBuf::from(value)),
-        "--shadow-minutes" => options.shadow_minutes = value.parse().ok()?,
-        "--repo" => options.repos.push(PathBuf::from(value)),
-        "--checker" => value.clone_into(&mut options.checker),
-        _ => return None,
-    }
-    Some(())
-}
 
 struct Runtime {
     home: PathBuf,
@@ -300,7 +265,8 @@ fn promote(options: &Options) -> Result<Outcome, String> {
             if let Some(settled) = already_settled(&runtime, &target) {
                 return Ok(Outcome::Settled(settled));
             }
-            (target, fs::read_link(runtime.lander()).ok())
+            let held = link_hold::rollback_of(&runtime.home).filter(|held| *held != target).or_else(|| fs::read_link(runtime.lander()).ok());
+            (target, held)
         }
     };
     let binary = runtime.binary(&target);
@@ -308,16 +274,8 @@ fn promote(options: &Options) -> Result<Outcome, String> {
         return Err(format!("candidate {} has no {}", target.display(), binary.display()));
     }
     let repositories: Vec<Repository> = options.repos.iter().map(|repo| Repository::open(repo)).collect::<Result<_, _>>()?;
-    if options.judge.is_none() {
-        if let Some(result) = move_first(options, &runtime, &repositories, &target)? {
-            return Ok(Outcome::Settled(result));
-        }
-        if !options.dry_run {
-            match unit::hand_off(&runtime, options, &binary, &target, held_target.as_deref()) {
-                Ok(handed) => return Ok(Outcome::Handed(handed)),
-                Err(why) => println!("north land promote: {why}; this promotion replays the recorded rounds itself"),
-            }
-        }
+    if options.judge.is_none() && let Some(outcome) = arrive(options, &runtime, &repositories, &binary, &target, held_target.as_deref())? {
+        return Ok(outcome);
     }
     judge(options, &runtime, &binary, &repositories, &target, held_target.as_deref())
 }
