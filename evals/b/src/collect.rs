@@ -13,14 +13,23 @@ pub fn session(work: &Path, name: &str) {
     let _ = fs::write(dir.join("session.json"), &shown);
     let _ = fs::write(dir.join("spend.txt"), run("north", &["fleet", "spend", name], None).out);
     let session: Value = serde_json::from_str(&shown).unwrap_or(Value::Null);
-    if let (Some(machine), Some(conversation)) = (session["machine"].as_str(), session["conversation"].as_str()) {
+    if let Some(conversation) = session["conversation"].as_str() {
         let find = format!("fd -t f -H -I -g '{conversation}.jsonl' ~/.local/state/north/profiles -x cat");
-        let text = if machine == crate::proc::sh("hostname -s").out.trim() { crate::proc::sh(&find).out } else { ssh(machine, &find).out };
+        let machine = machine(&session);
+        let text = if machine == here() { crate::proc::sh(&find).out } else { ssh(&machine, &find).out };
         let _ = fs::write(dir.join("transcript.jsonl"), text);
     }
     let stopped = run("north", &["fleet", "stop", name], None);
     let forgot = run("north", &["fleet", "forget", name], None);
     let _ = fs::write(dir.join("teardown.log"), format!("{}{}{}{}", stopped.out, stopped.err, forgot.out, forgot.err));
+}
+
+pub fn machine(session: &Value) -> String {
+    session["machine"].as_str().map_or_else(here, str::to_owned)
+}
+
+fn here() -> String {
+    crate::proc::sh("hostname -s").out.trim().to_owned()
 }
 
 pub fn spend(dir: &Path) -> (Option<f64>, Option<u64>) {

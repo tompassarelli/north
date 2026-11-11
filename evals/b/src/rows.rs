@@ -59,7 +59,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
     let first_queued = attempts.as_array().and_then(|a| a.iter().filter_map(|x| x["queued_at"].as_f64()).reduce(f64::min));
     let lander_refusals = attempts.as_array().map_or(0, |a| a.iter().filter(|x| !x["attributes"]["landed"].is_string()).count());
     let mut conditions = stamp.clone();
-    conditions["host"] = session["machine"].clone();
+    conditions["host"] = json!(collect::machine(&session));
     conditions["claude_code_observed"] = transcript["claude_code"].clone();
     conditions["models_observed"] = transcript["models"].clone();
     conditions["effort_observed"] = transcript["efforts"].clone();
