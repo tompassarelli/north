@@ -71,7 +71,7 @@ impl Runtime for Claude {
         }
         argv.extend(session_env::model_args(request));
         argv.extend(session_env::agent_args(request));
-        argv.extend(session_env::prompt_args(account, request, instructions));
+        argv.extend(session_env::prompt_args(account, request, instructions)?);
         Ok(HostSpec {
             key: request.name.clone(),
             shared: false,
