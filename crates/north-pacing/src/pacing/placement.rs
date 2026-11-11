@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use toml_edit::Item;
 
 pub mod case;
+mod credit;
 pub mod gate;
 mod hosts;
 pub use hosts::{Pass, pass};
@@ -13,7 +14,8 @@ mod reach;
 pub mod recent;
 mod repository;
 pub mod room;
-use hosts::{credit, laptop, resident, saturation};
+use credit::credit;
+use hosts::{laptop, resident, saturation};
 pub use inputs::{cloud_credit, config, laptop_state, now, pace_directory, pace_state, resident_clis};
 
 pub(super) fn field<'a>(text: &'a str, key: &str) -> &'a str {

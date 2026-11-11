@@ -3,6 +3,7 @@
 //! can run it again (docs/rationale/strategy-kernel.md).
 use super::super::storage;
 use super::gate::{self, Decision, Machine};
+use super::credit;
 use super::hosts::{self, Facts};
 use super::room::{Basis, Rank};
 use super::{local, strings};
@@ -39,13 +40,13 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
     let unprobed = gate::machines(&cfg);
     let surveyed = hosts::surveyed(&unprobed, ask.launch.cwd.as_deref());
     let machines = unprobed.iter().zip(surveyed).map(|(machine, facts)| recorded(machine, facts, ask.fleet_load)).collect();
-    let credit_name = hosts::credit_name(&cfg);
+    let credit_name = credit::credit_name(&cfg);
     Ok(Case {
         at,
         launch: ask.launch.clone(),
         brief: ask.brief.to_owned(),
         config: config(&cfg, crate::platform::decision_log::sha256_hex(text.as_bytes())),
-        credit: hosts::credit_case(&credit_name),
+        credit: credit::credit_case(&credit_name),
         roster: gate::standings(&gate, ask.roster),
         usage,
         machines,
@@ -66,7 +67,7 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
         Machine { placed_recently, ..machine.probed(recorded.map(facts).unwrap_or_default(), &hosted) }
     }).collect();
     let basis = Basis::new(&cfg, case.at);
-    let credit = hosts::credit_verdict(&case.credit, case.config.cloud_credit.as_deref().unwrap_or_default(), case.at);
+    let credit = credit::credit_verdict(&case.credit, case.config.cloud_credit.as_deref().unwrap_or_default(), case.at);
     let here = case.here.name.as_str();
     let family = launch_family(&case.launch);
     let coordinator = is_coordinator(&case.launch);
