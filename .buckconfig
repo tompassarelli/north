@@ -1,0 +1,29 @@
+[cells]
+  root = .
+  prelude = prelude
+  toolchains = toolchains
+  none = none
+
+[cell_aliases]
+  config = prelude
+  ovr_config = prelude
+  fbcode = none
+  fbsource = none
+  fbcode_macros = none
+  buck = none
+
+[external_cells]
+  prelude = bundled
+
+[parser]
+  target_platform_detector_spec = target:root//...->toolchains//platforms:dev \
+    target:prelude//...->toolchains//platforms:dev \
+    target:toolchains//...->toolchains//platforms:dev
+
+[build]
+  execution_platforms = toolchains//platforms:exec
+
+[project]
+  ignore = .git, target, buck-out, lib/automation-chrome/node_modules
+
+<?file:.buckconfig.flake>

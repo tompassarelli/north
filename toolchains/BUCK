@@ -1,0 +1,42 @@
+load("@prelude//toolchains:cxx.bzl", "system_cxx_toolchain")
+load("@prelude//toolchains:python.bzl", "system_python_bootstrap_toolchain")
+load(":nix.bzl", "nix_tool")
+load(":rust.bzl", "nix_rust_toolchain")
+
+nix_rust_toolchain(
+    name = "rust",
+    clippy_driver = nix_tool("clippy_driver"),
+    compiler = nix_tool("rustc"),
+    default_edition = "2024",
+    linker = "rust-lld",
+    rustc_flags = select({
+        "//mode:dev": [
+            "-Zcodegen-backend=cranelift",
+            "-Copt-level=0",
+            "-Cdebuginfo=line-tables-only",
+        ],
+        "//mode:release": [
+            "-Copt-level=3",
+            "-Cstrip=debuginfo",
+        ],
+    }),
+    rustc_target_triple = "x86_64-unknown-linux-gnu",
+    rustdoc = nix_tool("rustdoc"),
+    visibility = ["PUBLIC"],
+)
+
+system_cxx_toolchain(
+    name = "cxx",
+    archiver = nix_tool("ar"),
+    compiler = nix_tool("cc"),
+    compiler_type = "gcc",
+    cxx_compiler = nix_tool("cxx"),
+    linker = nix_tool("cc"),
+    visibility = ["PUBLIC"],
+)
+
+system_python_bootstrap_toolchain(
+    name = "python_bootstrap",
+    interpreter = nix_tool("python3"),
+    visibility = ["PUBLIC"],
+)

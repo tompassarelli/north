@@ -1,0 +1,24 @@
+load(":defs.bzl", "execution_platform")
+
+_HOST = [
+    "prelude//cpu/constraints:x86_64",
+    "prelude//os/constraints:linux",
+]
+
+platform(
+    name = "dev",
+    constraint_values = _HOST + ["//mode:dev"],
+    visibility = ["PUBLIC"],
+)
+
+platform(
+    name = "release",
+    constraint_values = _HOST + ["//mode:release"],
+    visibility = ["PUBLIC"],
+)
+
+execution_platform(
+    name = "exec",
+    constraint_values = _HOST + ["//mode:dev"],
+    visibility = ["PUBLIC"],
+)

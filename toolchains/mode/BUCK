@@ -1,0 +1,16 @@
+constraint_setting(
+    name = "mode",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "dev",
+    constraint_setting = ":mode",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "release",
+    constraint_setting = ":mode",
+    visibility = ["PUBLIC"],
+)

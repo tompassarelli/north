@@ -6,3 +6,5 @@ __pycache__/
 
 # The features index is written at build and land time from docs/features/, never tracked.
 /docs/features.md
+/buck-out/
+/.buckconfig.flake

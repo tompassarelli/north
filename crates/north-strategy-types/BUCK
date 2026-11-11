@@ -1,0 +1,10 @@
+rust_library(
+    name = "north-strategy-types",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "north_strategy_types",
+    crate_root = "src/lib.rs",
+    visibility = ["PUBLIC"],
+    deps = [
+        "//third-party:serde",
+    ],
+)

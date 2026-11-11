@@ -282,6 +282,14 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Outcome: adopted as unmodified upstream binaries run as separate programs; nothing is copied into North or
   redistributed, so the MIT notice stays with each upstream archive and repository.
 
+- <a id="buck2"></a>**Buck2 and its prelude**, https://buck2.build/docs/ (concepts/buckconfig, prelude rules) and
+  https://github.com/facebook/buck2 at tag `2026-04-15` (daemon `7600cb80070a88b88be67aa5d20d6a93cffa0223`), MIT OR
+  Apache-2.0; accessed 2026-11-11.
+  Informed: [compile-reuse.md](rationale/compile-reuse.md), `.buckconfig`, `toolchains/`, the flake's `buck2` and
+  `buck2-toolchain` entries; north#1115.
+  Outcome: adopted as the unmodified nixpkgs binary with its bundled prelude; the toolchain rule in
+  `toolchains/rust.bzl` follows the prelude's `system_rust_toolchain` with store paths in place of `PATH` lookups.
+
 - <a id="threejs-skills"></a>**CloudAI-X/threejs-skills**,
   https://github.com/CloudAI-X/threejs-skills/blob/b1c623076c661fc9b03dac19292e825a5d106823/README.md; accessed:
   not recorded.
