@@ -66,7 +66,7 @@ pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path) -> Nort
     let nonce = new_uuid()?;
     let (q_unit, q_dir) = (quote(&unit), quote(&dir));
     let mut launch = format!(
-        "sh -c {} {}; systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
+        "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
         quote(PRUNE),
         quote(&held.to_string_lossy()),
         quote(&nonce),
@@ -81,7 +81,7 @@ pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path) -> Nort
         launch.push(' ');
         launch.push_str(&quote(arg));
     }
-    let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch };
+    let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch, master: None };
     let argv = [vec![std::env::current_exe()?.display().to_string(), "session-link".into()], link.arguments()].concat();
     Ok(HostSpec { argv, cwd: home.to_path_buf(), ..spec })
 }

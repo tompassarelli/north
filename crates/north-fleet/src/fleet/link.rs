@@ -23,7 +23,8 @@ pub use north_fleet_store::ssh::quote;
 
 const USAGE: &str = "Usage: north session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND";
 const ATTACH_USAGE: &str = "Usage: north session-attach DIR UNIT NONCE OFFSET";
-const OPTIONS: [&str; 11] = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "-o", "ControlPath=none"];
+const OPTIONS: [&str; 9] = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"];
+const MASTER_IDLE: &str = "ControlPersist=2h";
 const RETRY_FIRST: Duration = Duration::from_secs(1);
 const RETRY_MOST: Duration = Duration::from_secs(15);
 const DRAIN: Duration = Duration::from_secs(2);
@@ -64,6 +65,7 @@ pub struct Link {
     pub dir: String,
     pub nonce: String,
     pub launch: String,
+    pub master: Option<PathBuf>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -129,7 +131,7 @@ impl Link {
             }
         }
         match (destination, unit, dir, nonce, launch) {
-            (Some(destination), Some(unit), Some(dir), Some(nonce), Some(launch)) => Ok(Self { ssh: binary("ssh"), destination, unit, dir, nonce, launch }),
+            (Some(destination), Some(unit), Some(dir), Some(nonce), Some(launch)) => Ok(Self { ssh: binary("ssh"), destination, unit, dir, nonce, launch, master: None }),
             _ => Err(usage()),
         }
     }
@@ -247,9 +249,37 @@ impl Link {
         format!("exec sh -c {} {} {} {} {offset}", quote(ATTACH), quote(&self.dir), quote(&self.unit), quote(&self.nonce))
     }
 
+    /// Connects through this host's link master to the destination, starting one when none answers: a fresh handshake to gex45 took 1.4 s longer than a multiplexed channel on 2026-11-11, and a link whose master is gone or not yet up connects directly, as before.
+    pub fn through_master(self) -> Self {
+        let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR").filter(|dir| !dir.is_empty()) else { return self };
+        let name: String = self.destination.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        let master = PathBuf::from(runtime).join("north-links").join(&name);
+        if std::os::unix::net::UnixStream::connect(&master).is_err() {
+            let _ = std::fs::remove_file(&master);
+            if master.parent().is_some_and(|dir| std::fs::create_dir_all(dir).is_ok()) {
+                self.start_master(&master, &name);
+            }
+        }
+        Self { master: Some(master), ..self }
+    }
+
+    fn start_master(&self, master: &std::path::Path, name: &str) {
+        let mut start = std::process::Command::new(binary("systemd-run"));
+        start.args(["--user", "--scope", "--quiet", "--collect", &format!("--unit=north-link-master-{name}"), "--"]).arg(&self.ssh).args(["-M", "-N", "-f", "-S"]).arg(master);
+        start.args(OPTIONS).args(["-o", MASTER_IDLE]).arg(&self.destination).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        if let Ok(mut child) = start.spawn() {
+            std::thread::spawn(move || child.wait());
+        }
+    }
+
     fn ssh(&self, command: &str) -> Command {
         let mut ssh = Command::new(&self.ssh);
-        ssh.args(OPTIONS).arg(&self.destination).arg("--").arg(command).stderr(Stdio::inherit()).kill_on_drop(true);
+        ssh.args(OPTIONS);
+        match &self.master {
+            Some(master) => ssh.args(["-o", "ControlMaster=no", "-S"]).arg(master),
+            None => ssh.args(["-o", "ControlPath=none"]),
+        };
+        ssh.arg(&self.destination).arg("--").arg(command).stderr(Stdio::inherit()).kill_on_drop(true);
         ssh
     }
 
@@ -263,7 +293,7 @@ impl Link {
 }
 
 pub async fn run(arguments: &[String]) -> NorthResult<u8> {
-    let link = Link::parse(arguments)?;
+    let link = Link::parse(arguments)?.through_master();
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let stop = async move {
         term.recv().await;

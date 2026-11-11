@@ -26,9 +26,9 @@ wait "$cli"; code=$?
 kill "$watch" 2>/dev/null
 exit "$code""#;
 
-/// `sh -c PRUNE HELD`: removes held directories untouched for three days whose service is gone.
+/// `sh -c PRUNE HELD UNIT`: removes held directories untouched for three days whose service is gone, other than UNIT's, which a launch beside it is making.
 pub const PRUNE: &str = r#"for h in "$0"/*.service; do
-  [ -d "$h" ] && [ -z "$(find "$h" -maxdepth 1 -mmin -4320 -print -quit)" ] && ! systemctl --user -q is-active "${h##*/}" &&
+  [ "${h##*/}" != "$1" ] && [ -d "$h" ] && [ -z "$(find "$h" -maxdepth 1 -mmin -4320 -print -quit)" ] && ! systemctl --user -q is-active "${h##*/}" &&
     rm -f "$h/in" "$h/out" "$h/err" "$h/status" "$h/attach" "$h/feed" "$h/nonce" && rmdir "$h"
 done"#;
 
