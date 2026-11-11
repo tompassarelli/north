@@ -94,7 +94,7 @@ pub(super) fn run(layout: &Layout, order: &Order, settling: &dyn Host, others: &
     ordered.and(restored)
 }
 
-/// The settling host builds first, since every other host is shipped what it built; then every host judges and promotes on its own, so a failed canary on one leaves only that host on its old runtime.
+/// The settling host builds, judges and goes live first, since every other host is shipped what it built and takes it only once its canary passed there; then every other host judges and promotes on its own while the settling host's lander follows, so a failed canary on one remote host leaves only that host on its old runtime and none waits on the lander's replay.
 fn promote_everywhere(layout: &Layout, order: &Order, settling: &dyn Host, others: &[&dyn Host]) -> Result<(), Failure> {
     if let Err(failure) = settling.acquire(&order.sha) {
         for host in std::iter::once(settling).chain(others.iter().copied()) {
@@ -102,24 +102,37 @@ fn promote_everywhere(layout: &Layout, order: &Order, settling: &dyn Host, other
         }
         return Err(failure);
     }
+    let pinned = match live_on(layout, order, settling) {
+        Ok(pinned) => pinned,
+        Err(failure) => {
+            for host in others {
+                record(layout, order, host.name(), &format!("not run: {} did not go live", settling.name()), false);
+            }
+            return Err(reported(failure));
+        }
+    };
+    let pinned_here = pin_on(order, settling, pinned).map_err(reported);
     let failures: Vec<Failure> = std::thread::scope(|scope| {
-        let ordering: Vec<_> = std::iter::once(settling).chain(others.iter().copied()).map(|host| scope.spawn(move || promote_host(layout, order, host))).collect();
-        ordering.into_iter().filter_map(|ordered| ordered.join().unwrap_or_else(|_| Err(failed(1, "a host's promotion panicked"))).err()).collect()
+        let following = scope.spawn(|| settling.settled());
+        let ordering: Vec<_> = others.iter().map(|host| scope.spawn(move || live_on(layout, order, *host).and_then(|pinned| pin_on(order, *host, pinned)).map_err(reported))).collect();
+        let failed = ordering.into_iter().filter_map(|ordered| ordered.join().unwrap_or_else(|_| Err(reported(failed(1, "a host's promotion panicked")))).err()).collect();
+        let _ = following.join();
+        failed
     });
-    for failure in &failures {
-        eprintln!("north runtime order: {}", failure.message);
-    }
-    match failures.into_iter().next() {
-        Some(failure) => Err(failure),
-        None => Ok(()),
-    }
+    pinned_here.and(failures.into_iter().next().map_or(Ok(()), Err))
+}
+
+fn reported(failure: Failure) -> Failure {
+    eprintln!("north runtime order: {}", failure.message);
+    failure
 }
 
 fn record(layout: &Layout, order: &Order, host: &str, canary: &str, live: bool) {
     pin::note(layout, &Event::Ordered { sha: order.sha.clone(), host: host.to_owned(), orderer: order.orderer.clone(), reason: order.reason.clone(), canary: canary.to_owned(), live, at: pin::now() });
 }
 
-fn promote_host(layout: &Layout, order: &Order, host: &dyn Host) -> Result<(), Failure> {
+/// Takes `host` live on the ordered runtime once its canary passed there, and says whether the host keeps a stable pin to rewrite.
+fn live_on(layout: &Layout, order: &Order, host: &dyn Host) -> Result<bool, Failure> {
     let (name, short) = (host.name(), layout::short(&order.sha));
     let prepared = host.pinned().and_then(|pinned| host.acquire(&order.sha).map(|()| pinned));
     let pinned = match prepared {
@@ -139,12 +152,14 @@ fn promote_host(layout: &Layout, order: &Order, host: &dyn Host) -> Result<(), F
     }
     record(layout, order, name, "passed", true);
     println!("north runtime order: {name}: {short} passed its canary and is live");
-    let written = match pinned {
-        true => host.write_pin(&order.sha).map_err(|failure| failed(1, format!("{name}: {short} is live but its stable pin was not written: {}", failure.message))),
+    Ok(pinned)
+}
+
+fn pin_on(order: &Order, host: &dyn Host, pinned: bool) -> Result<(), Failure> {
+    match pinned {
+        true => host.write_pin(&order.sha).map_err(|failure| failed(1, format!("{}: {} is live but its stable pin was not written: {}", host.name(), layout::short(&order.sha), failure.message))),
         false => Ok(()),
-    };
-    host.settled();
-    written
+    }
 }
 
 struct Here<'a> {

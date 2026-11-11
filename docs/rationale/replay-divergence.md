@@ -77,3 +77,19 @@ refuses the candidate. The canary gate lives in `north runtime promote`: the set
 link from the spine walk once it passed, and a host that takes a shipped runtime follows at its swap,
 since that runtime only arrives after its canary passed on the settling host.
 
+
+## The replay runs in a unit of its own (2026-11-12, north#1183)
+
+With the link already moved, nothing but the lander's own judgement waited on the replay, yet
+`north land promote` still ran it inline. The ordered promotion of ab62f49061 on 2026-11-12 went live
+on the settling host at 12:28:38 AM; its remote hosts had already ended within ten seconds of the
+build, and their lines, the order's exit and the return of the promotion hold then waited on eight
+sequential replays of nine to twelve minutes each, until `north runtime promote` killed the replay at
+its 30-minute bound at 12:58:49 AM. The kill came before any verdict, so the lander served the new build
+unjudged and the next promotion of that commit found the link already on it. Now `north land promote`
+moves the link, starts `north-lander-replay.service` with `north land promote --judge CANDIDATE --held
+RUNTIME`, and returns. The unit replays every recorded round, judges, rolls the link back on an
+untolerated divergence and pages exactly as the inline replay did, logs its verdict to
+`~/.local/state/north/lander-replay.log`, and is bounded by no caller, so the guard always reaches a
+verdict. A newer promotion stops the unit before it moves the link, as it stopped an older inline replay.
+When the unit cannot start, the promotion runs the replay itself, and `--dry-run` always does.

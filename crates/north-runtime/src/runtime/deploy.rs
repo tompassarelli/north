@@ -80,7 +80,7 @@ pub(super) fn stage_runtime(host: &str, target: &str, runtime: &Path) -> Result<
 fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
     let _staging = named_lock_waiting(&Layout::from_env(), &stage_lock(host), limit(COPY), "north runtime deploy")?;
     println!("north runtime deploy: {host}: nix-store --realise of {} store paths unless runtimes/{} is already whole there", references.len(), layout::short(target));
-    let prepared = output(host, "prepare", ssh(host).args(["sh", "-c", prepare_script(target, references).as_str()]), REALISE)?;
+    let prepared = output(host, "prepare", ssh(host).args(["sh", "-c", &land_offload::ship::quote(&prepare_script(target, references))]), REALISE)?;
     let basis = match Prepared::read(&prepared) {
         Prepared::Whole => {
             println!("north runtime deploy: {host}: runtimes/{} is already whole, so nothing is copied", layout::short(target));
@@ -93,7 +93,7 @@ fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>
     let mut copy = Command::new("rsync");
     copy.args(["-a", "-z", "--timeout=120", "-e", OWN_RSH]).args(basis.map(|basis| format!("--copy-dest=../{basis}"))).args(PROGRAMS.map(|program| runtime.join(program))).arg(runtime.join(BUILT_FROM)).arg(runtime.join(TREE)).arg(destination);
     run(host, "rsync", &mut copy, COPY)?;
-    run(host, "install", ssh(host).args(["sh", "-c", install_script(target).as_str()]), PROBE)
+    run(host, "install", ssh(host).args(["sh", "-c", &land_offload::ship::quote(&install_script(target))]), PROBE)
 }
 
 /// One lock per destination, so the land checks that find a runtime missing on a host at once ship it once and the rest find it whole, instead of each sending it over the same link.

@@ -53,7 +53,7 @@ fn child_within_with(child: &mut Child, limit: Duration, poll: fn(&mut Child) ->
             child.wait()?;
             return Ok(None);
         }
-        std::thread::sleep(Duration::from_millis(10));
+        await_exit(child, limit.saturating_sub(started.elapsed()));
     }
 }
 
@@ -164,7 +164,7 @@ fn run_until(mut command: Command, input: Option<&[u8]>, limit: Duration, group:
                 return Ok(Ended::Stopped);
             }
         }
-        std::thread::sleep(Duration::from_millis(1));
+        await_exit(&child, STOP_POLL.saturating_sub(asked.elapsed()).min(limit.saturating_sub(started.elapsed())));
     };
     let mut output = output;
     output.rewind()?;
@@ -175,6 +175,17 @@ fn run_until(mut command: Command, input: Option<&[u8]>, limit: Duration, group:
     let mut stderr = Vec::new();
     errors.read_to_end(&mut stderr)?;
     Ok(Ended::Finished(Output { status, stdout, stderr }))
+}
+
+/// Sleeps until `child` exits or `within` passes, whichever comes first, woken by the child's pidfd rather than by polling; a kernel without pidfds falls back to a 10 ms nap.
+fn await_exit(child: &Child, within: Duration) {
+    let pidfd = i32::try_from(child.id()).ok().and_then(rustix::process::Pid::from_raw).and_then(|pid| rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()).ok());
+    let Some(pidfd) = pidfd else {
+        std::thread::sleep(within.min(Duration::from_millis(10)));
+        return;
+    };
+    let mut exited = [rustix::event::PollFd::new(&pidfd, rustix::event::PollFlags::IN)];
+    let _ = rustix::event::poll(&mut exited, i32::try_from(within.as_millis()).unwrap_or(i32::MAX));
 }
 
 fn tree(pid: u32) -> String {

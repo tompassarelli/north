@@ -5,6 +5,27 @@ use north_lander::land::queue::{self, Ticket};
 
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
 const NOW: u64 = 2_000_000_000;
+const UNIT_RECORDS: &str = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n";
+
+fn unit_runs_inline() -> String {
+    let lander = std::env::current_exe().unwrap();
+    format!("#!/bin/sh\nwhile [ $# -gt 0 ] && [ \"$1\" != -- ]; do shift; done\nshift 3\n{ARGUMENTS}=\"$(printf '%s\\n' \"$@\")\" '{}' --exact serve::lander_process --nocapture --test-threads 1\necho $? > \"$0.status\"\n", lander.display())
+}
+
+fn units(root: &Path, systemd_run: &str) -> PathBuf {
+    let units = root.join("units");
+    std::fs::create_dir_all(&units).unwrap();
+    north_base::foundation::shim::write_executable(&units.join("systemd-run"), systemd_run);
+    north_base::foundation::shim::write_executable(&units.join("systemctl"), "#!/bin/sh\n");
+    units
+}
+
+fn judged(units: &Path, promoted: bool) -> bool {
+    let status = units.join("systemd-run.status");
+    let judged = std::fs::read_to_string(&status).map_or(promoted, |code| code.trim() == "0");
+    let _ = std::fs::remove_file(status);
+    judged
+}
 
 fn candidate_script(verdict: &str, during_replay: &str) -> String {
     format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n[ \"$1 $2\" = \"land replay\" ] && {{ {during_replay} echo 'replay: verdict {verdict}'; }}\nexit 0\n")
@@ -108,10 +129,12 @@ pub(super) fn scenario(script: String, held: Option<Held>, lane_b_verdict: impl 
     if held_for.is_none() {
         arguments.push("--dry-run");
     }
+    let units = units(root, &unit_runs_inline());
     let arguments = arguments.join("\n");
     let output = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "serve::lander_process", "--nocapture", "--test-threads", "1"])
         .env(ARGUMENTS, arguments)
+        .env("PATH", format!("{}:{}", units.display(), std::env::var("PATH").unwrap_or_default()))
         .env(north_lander::land::link_hold::CLOCK, NOW.to_string())
         .env("XDG_STATE_HOME", &state)
         .env("NORTH_TEST_ROOT", root)
@@ -124,7 +147,7 @@ pub(super) fn scenario(script: String, held: Option<Held>, lane_b_verdict: impl 
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let calls = std::fs::read_to_string(candidate.with_extension("calls")).unwrap_or_default();
-    Promoted { status: output.status.success(), stdout, calls, alarms: std::fs::read_to_string(&alarmed).unwrap_or_default(), candidate: candidate_name }
+    Promoted { status: judged(&units, output.status.success()), stdout, calls, alarms: std::fs::read_to_string(&alarmed).unwrap_or_default(), candidate: candidate_name }
 }
 
 pub(super) fn unfit_signature(log: &Path) -> String {
@@ -282,6 +305,11 @@ impl Chain {
     }
 
     fn promote_at(&self, clock: u64) -> Promoted {
+        self.promote_through(clock, &unit_runs_inline())
+    }
+
+    fn promote_through(&self, clock: u64, systemd_run: &str) -> Promoted {
+        let units = units(self.root.path(), systemd_run);
         let fleet = self.root.path().join("fleet");
         north_base::foundation::shim::write_executable(&fleet, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n");
         let arguments = ["promote", "--shadow-minutes", "0", "--repo", self.checkout.to_str().unwrap()].join("\n");
@@ -293,13 +321,13 @@ impl Chain {
             .env("NORTH_TEST_ROOT", self.root.path())
             .env("HOME", self.root.path())
             .env("NORTH_LAND_NORTH", &fleet)
-            .env("PATH", format!("{}:{}", self.root.path().join("bin").display(), std::env::var("PATH").unwrap_or_default()))
+            .env("PATH", format!("{}:{}:{}", self.root.path().join("bin").display(), units.display(), std::env::var("PATH").unwrap_or_default()))
             .env("GIT_CONFIG_GLOBAL", self.root.path().join("gitconfig"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .stdin(Stdio::null())
             .output()
             .unwrap();
-        Promoted { status: output.status.success(), stdout: String::from_utf8_lossy(&output.stdout).into_owned(), calls: String::new(), alarms: String::new(), candidate: String::new() }
+        Promoted { status: judged(&units, output.status.success()), stdout: String::from_utf8_lossy(&output.stdout).into_owned(), calls: String::new(), alarms: String::new(), candidate: String::new() }
     }
 
     fn reverts(&self) -> Vec<Ticket> {
@@ -583,4 +611,24 @@ fn a_lander_that_cannot_start_pages_once_and_a_held_runtime_is_retried_after_15_
     assert!(retried.status, "{}", retried.stdout);
     assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{}", retried.stdout);
     assert!(!refused.exists(), "a judged candidate that follows is no longer held off");
+}
+
+#[test]
+fn a_promotion_moves_the_lander_link_and_hands_its_eight_round_replay_to_a_unit_of_its_own_instead_of_running_it_before_it_returns() {
+    let chain = Chain::new();
+    for (micros, branch) in (2..9).zip(["lane-b", "lane-c", "lane-d", "lane-e", "lane-f", "lane-g", "lane-h"]) {
+        chain.land(micros, branch);
+    }
+    let candidate = chain.commit("crates/north-landing/src/land/rule.rs", "Change a landing rule");
+    chain.runtime(&candidate, "echo 'replay: verdict landed'");
+    chain.current(&candidate);
+    let promoted = chain.promote_through(NOW, UNIT_RECORDS);
+    let stdout = &promoted.stdout;
+    assert!(promoted.status, "{stdout}");
+    assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{stdout}");
+    let binary = chain.state.join(format!("north/runtimes/{candidate}/tree/bin/north"));
+    let replays = std::fs::read_to_string(binary.with_extension("calls")).unwrap_or_default();
+    assert!(!replays.contains("land replay"), "the promotion replayed recorded rounds before it returned: {replays}");
+    let started = std::fs::read_to_string(chain.root.path().join("units/systemd-run.calls")).unwrap_or_default();
+    assert!(started.contains(&format!("-- {} land promote --judge runtimes/{candidate} --held runtimes/{}", binary.display(), chain.held)), "{started}\n{stdout}");
 }

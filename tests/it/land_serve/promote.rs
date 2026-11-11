@@ -1,11 +1,11 @@
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::process::Output;
 
 use super::{Fixture, executable};
 
 const SYSTEMCTL: &str = "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>\"$LAND_TRACE/systemctl\"\n";
+const SYSTEMD_RUN: &str = "#!/usr/bin/env bash\nwhile [ $# -gt 0 ] && [ \"$1\" != -- ]; do shift; done\nshift\n\"$@\"\necho $? > \"$LAND_TRACE/judged\"\n";
 
 fn runtime(fixture: &Fixture, name: &str, binary: Option<&str>) -> PathBuf {
     let bin = fixture.state.join("north/runtimes").join(name).join("tree/bin");
@@ -27,16 +27,20 @@ fn lander_link(fixture: &Fixture) -> Option<PathBuf> {
     fs::read_link(fixture.state.join("north/lander")).ok()
 }
 
-fn promote(fixture: &Fixture, extra: &[&str]) -> (Output, String) {
+fn promote(fixture: &Fixture, extra: &[&str]) -> (Option<i32>, String) {
     let output = fixture.north().args(["land", "promote", "--shadow-minutes", "0", "--repo", fixture.repo.to_str().unwrap(), "--checker", fixture.trace.join("checker").to_str().unwrap()]).args(extra).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     eprintln!("{stdout}{}", String::from_utf8_lossy(&output.stderr));
-    (output, stdout)
+    let judged = fixture.trace.join("judged");
+    let code = fs::read_to_string(&judged).ok().and_then(|code| code.trim().parse().ok()).or(output.status.code());
+    let _ = fs::remove_file(judged);
+    (code, stdout)
 }
 
 fn served() -> Fixture {
     let mut fixture = Fixture::new();
     executable(&fixture.bin.join("systemctl"), SYSTEMCTL);
+    executable(&fixture.bin.join("systemd-run"), SYSTEMD_RUN);
     let lanes: Vec<PathBuf> = [("a", "a.txt", "a\n"), ("b", "b.txt", "b\n"), ("c", "app.txt", "ALPHA\nbeta\ngamma\n"), ("d", "app.txt", "alpha\nBETA\ngamma\n")].iter().map(|(name, file, text)| fixture.lane(name, file, text)).collect();
     for lane in &lanes {
         fixture.enqueue(lane, None);
@@ -59,21 +63,21 @@ fn promote_moves_the_link_before_its_replay_and_rolls_back_with_lander_refused_w
 
     let drifted = runtime(&fixture, "drifted", Some(&replaying(&["lander_probe"], "failed drifted judgement")));
     point(&fixture, "current", &drifted);
-    let (output, stdout) = promote(&fixture, &[]);
-    assert_eq!(output.status.code(), Some(1));
+    let (code, stdout) = promote(&fixture, &[]);
+    assert_eq!(code, Some(1));
     assert_eq!(fs::read_to_string(fixture.trace.join("seen-link")).unwrap().trim(), "runtimes/drifted", "the lander link moves before the replay that judges it");
     assert!(stdout.contains("refused: round lane-") && stdout.contains("but the candidate replayed failed drifted judgement") && stdout.contains("the held runtime replayed landed") && stdout.contains("the lander link is back at"), "{stdout}");
     assert!(!stdout.contains("shadow:"), "a replay mismatch refuses before the shadow");
     assert_eq!(lander_link(&fixture), Some(good));
     assert_eq!(fs::read_to_string(fixture.state.join("north/lander-refused")).unwrap(), "runtimes/drifted\n");
-    assert!(fixture.read("systemctl").lines().all(|call| call.starts_with("--user show ")), "a rollback only reads the units, it restarts none: {}", fixture.read("systemctl"));
+    assert!(fixture.read("systemctl").lines().all(|call| call.starts_with("--user show ") || call.starts_with("--user stop north-lander-replay")), "a rollback only reads the units, it restarts none: {}", fixture.read("systemctl"));
 
     let held = runtime(&fixture, "held", Some(&replaying(&["old_red"], "failed old red")));
     let same = runtime(&fixture, "same", Some(&replaying(&["old_red"], "failed old red")));
     point(&fixture, "lander", &held);
     point(&fixture, "current", &same);
-    let (output, stdout) = promote(&fixture, &[]);
-    assert_eq!(output.status.code(), Some(0), "{stdout}");
+    let (code, stdout) = promote(&fixture, &[]);
+    assert_eq!(code, Some(0), "{stdout}");
     assert_eq!(fs::read_to_string(fixture.trace.join("seen-link")).unwrap().trim(), "runtimes/same", "the candidate's link is live during its replay");
     assert!(stdout.contains("not a hold, the held runtime replays it the same way: no new failure"), "{stdout}");
     assert_eq!(lander_link(&fixture), Some(same));

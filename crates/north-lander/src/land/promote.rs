@@ -14,11 +14,12 @@ use north_base::foundation::exit::NO_VERDICT;
 
 mod arrival;
 mod report;
+mod unit;
 
 pub use report::run;
 use arrival::move_first;
 
-const USAGE: &str = "usage: north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]";
+const USAGE: &str = "usage: north land promote [--dry-run] [--judge CANDIDATE [--held RUNTIME]] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]";
 pub const REFUSED: &str = "lander-refused";
 const ROUNDS: usize = 8;
 const MATCHED_PAST_UNREACHED: usize = 2;
@@ -35,24 +36,35 @@ struct Options {
     shadow_minutes: u64,
     repos: Vec<PathBuf>,
     checker: String,
+    judge: Option<PathBuf>,
+    held: Option<PathBuf>,
 }
 
 fn parse(arguments: &[String]) -> Option<Options> {
-    let mut options = Options { dry_run: false, shadow_minutes: SHADOW_MINUTES, repos: Vec::new(), checker: "safe-push".to_owned() };
+    let mut options = Options { dry_run: false, shadow_minutes: SHADOW_MINUTES, repos: Vec::new(), checker: "safe-push".to_owned(), judge: None, held: None };
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match argument.as_str() {
             "--dry-run" => options.dry_run = true,
-            "--shadow-minutes" => options.shadow_minutes = rest.next()?.parse().ok()?,
-            "--repo" => options.repos.push(PathBuf::from(rest.next()?)),
-            "--checker" => options.checker = rest.next()?.clone(),
-            _ => return None,
+            flag => set(&mut options, flag, rest.next()?)?,
         }
     }
     if options.repos.is_empty() {
         options.repos.push(PathBuf::from("."));
     }
-    Some(options)
+    (options.held.is_none() || options.judge.is_some()).then_some(options)
+}
+
+fn set(options: &mut Options, flag: &str, value: &str) -> Option<()> {
+    match flag {
+        "--judge" => options.judge = Some(PathBuf::from(value)),
+        "--held" => options.held = Some(PathBuf::from(value)),
+        "--shadow-minutes" => options.shadow_minutes = value.parse().ok()?,
+        "--repo" => options.repos.push(PathBuf::from(value)),
+        "--checker" => value.clone_into(&mut options.checker),
+        _ => return None,
+    }
+    Some(())
 }
 
 struct Runtime {
@@ -268,6 +280,7 @@ fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker:
 
 enum Outcome {
     Settled(String),
+    Handed(String),
     Moved(String),
     MovedUnjudged { candidate: String, reason: String },
     Rolled { candidate: String, held: String, reason: String },
@@ -280,44 +293,61 @@ fn name(target: &Path) -> String {
 
 fn promote(options: &Options) -> Result<Outcome, String> {
     let runtime = Runtime::from_env();
-    let target = fs::read_link(runtime.current()).map_err(|error| format!("{}: {error}", runtime.current().display()))?;
-    if let Some(settled) = already_settled(&runtime, &target) {
-        return Ok(Outcome::Settled(settled));
-    }
+    let (target, held_target) = match &options.judge {
+        Some(candidate) => (candidate.clone(), options.held.clone()),
+        None => {
+            let target = fs::read_link(runtime.current()).map_err(|error| format!("{}: {error}", runtime.current().display()))?;
+            if let Some(settled) = already_settled(&runtime, &target) {
+                return Ok(Outcome::Settled(settled));
+            }
+            (target, fs::read_link(runtime.lander()).ok())
+        }
+    };
     let binary = runtime.binary(&target);
     if !binary.is_file() {
         return Err(format!("candidate {} has no {}", target.display(), binary.display()));
     }
     let repositories: Vec<Repository> = options.repos.iter().map(|repo| Repository::open(repo)).collect::<Result<_, _>>()?;
-    let held_target = fs::read_link(runtime.lander()).ok();
-    let held_binary = held_target.as_deref().map(|held| runtime.binary(held)).filter(|binary| binary.is_file());
-    let fixes = held_target.as_deref().is_some_and(|held| repositories.iter().all(|repository| only_fixes(&repository.checkout, held, &target)));
-    let held = Held { binary: held_binary.as_deref(), only_fixes: fixes };
-    // Land first: the link moves as soon as current has its canary behind it, and the replay and shadow judge it after.
-    if let Some(result) = move_first(options, &runtime, &repositories, &target)? {
-        return Ok(Outcome::Settled(result));
+    if options.judge.is_none() {
+        if let Some(result) = move_first(options, &runtime, &repositories, &target)? {
+            return Ok(Outcome::Settled(result));
+        }
+        if !options.dry_run {
+            match unit::hand_off(&runtime, options, &binary, &target, held_target.as_deref()) {
+                Ok(handed) => return Ok(Outcome::Handed(handed)),
+                Err(why) => println!("north land promote: {why}; this promotion replays the recorded rounds itself"),
+            }
+        }
     }
+    judge(options, &runtime, &binary, &repositories, &target, held_target.as_deref())
+}
+
+/// Replays the recorded rounds against `target`, which the lander link already points at, and shadows the queue; a divergence it cannot tolerate moves the link back to `held_target`.
+fn judge(options: &Options, runtime: &Runtime, binary: &Path, repositories: &[Repository], target: &Path, held_target: Option<&Path>) -> Result<Outcome, String> {
+    let held_binary = held_target.map(|held| runtime.binary(held)).filter(|binary| binary.is_file());
+    let fixes = held_target.is_some_and(|held| repositories.iter().all(|repository| only_fixes(&repository.checkout, held, target)));
+    let held = Held { binary: held_binary.as_deref(), only_fixes: fixes };
     println!("north land promote: candidate {} replays recorded rounds with {} after the link moved", target.display(), binary.display());
     let (mut divergences, mut unreached) = (Vec::new(), Vec::new());
     let mut replayed = 0;
-    for repository in &repositories {
-        replayed += replay_recorded(&binary, &held, repository, &options.checker, &mut divergences, &mut unreached);
+    for repository in repositories {
+        replayed += replay_recorded(binary, &held, repository, &options.checker, &mut divergences, &mut unreached);
     }
-    if let Some(outcome) = unreached_only(replayed, divergences.is_empty(), &unreached, &target) {
+    if let Some(outcome) = unreached_only(replayed, divergences.is_empty(), &unreached, target) {
         return Ok(outcome);
     }
     if !divergences.is_empty() {
-        if let Some(outcome) = judge_diverged(options, &runtime, &repositories, held_target.as_deref(), &target, &divergences)? {
+        if let Some(outcome) = judge_diverged(options, runtime, repositories, held_target, target, &divergences)? {
             return Ok(outcome);
         }
         replayed += divergences.len();
     }
     if replayed == 0 {
-        return Ok(Outcome::MovedUnjudged { candidate: name(&target), reason: "no recorded round could be replayed".to_owned() });
+        return Ok(Outcome::MovedUnjudged { candidate: name(target), reason: "no recorded round could be replayed".to_owned() });
     }
-    let shadowed = match shadow(&binary, &repositories, &options.checker, options.shadow_minutes) {
+    let shadowed = match shadow(binary, repositories, &options.checker, options.shadow_minutes) {
         Ok(shadowed) => shadowed,
-        Err(reason) => return roll_back(options, &runtime, held_target.as_deref(), &target, format!("the shadow lander refused it: {reason}")),
+        Err(reason) => return roll_back(options, runtime, held_target, target, format!("the shadow lander refused it: {reason}")),
     };
     println!("north land promote: shadow: {shadowed}");
     let _ = fs::remove_file(runtime.home.join(REFUSED));

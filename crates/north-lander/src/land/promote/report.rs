@@ -48,6 +48,10 @@ pub fn run(arguments: &[String]) -> u8 {
             println!("north land promote: refused: {reason}; the held runtime {gone} is no longer on disk, so the lander link stays on the runtime it runs now");
             1
         }
+        Ok(Outcome::Handed(handed)) => {
+            println!("north land promote: {handed}");
+            0
+        }
         Ok(Outcome::Settled(result)) => {
             println!("north land promote: {result}");
             if !options.dry_run {

@@ -3,7 +3,7 @@ Command { name: "checks", usage: "north land checks --base BASE --head HEAD [--d
 Command { name: "enqueue", usage: "north land enqueue [--repo DIR] [--message FILE]", run: enqueue::run },
 Command { name: "follow", usage: "", run: after::follow::run },
 Command { name: "profile", usage: "north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]", run: trace::report::run },
-Command { name: "promote", usage: "north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]", run: promote::run },
+Command { name: "promote", usage: "north land promote [--dry-run] [--judge CANDIDATE [--held RUNTIME]] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]", run: promote::run },
 Command { name: "reuse", usage: "north land reuse report [--since DURATION]", run: shadow::reuse_run },
 Command { name: "replay", usage: "north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...", run: replay::run },
 Command { name: "requeue", usage: "north land requeue TICKET --reason TEXT [--repo DIR]", run: requeue::run },
