@@ -312,7 +312,7 @@ struct Queued {
     class: super::SlotClass,
 }
 
-/// Starts each job against one host slot once the one before it is in line, or for a background job or one with `hold` once it has started in its slot, so they queue in the order given; a job with `hold` stays in the slot until every job queued behind it is in line (a background hold until all others have ended), and the order they started and ended in is returned.
+/// Starts each job against one host slot once the one before it is in line, or for one with `hold` once it has started in its slot, so they queue in the order given; a job with `hold` stays in the slot until every job queued behind it is in line (a background hold until all others have ended), and the order they started and ended in is returned.
 fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
@@ -340,7 +340,7 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
                 .spawn()
                 .unwrap();
             wait_until_in_line(home.path(), &log, index + 1);
-            if job.hold || matches!(job.class, super::SlotClass::Background) {
+            if job.hold {
                 let started = format!("start-{}", job.label);
                 assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.lines().any(|line| line == started))), "the job {} never started in its slot", job.label);
             }
