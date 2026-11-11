@@ -119,6 +119,27 @@ fn an_account_whose_week_resets_first_is_not_tripped_by_its_five_hour_projection
     assert_eq!(tripwire::trip(&rules(), "claude:e", &samples, Some(NOW + HOUR + 30.0 * 60.0), &[], 0.0, NOW), None);
 }
 
+/// The 2026-11-11 8:30 AM +07 failure: e's five-hour window reset to 0% while the newest reading the tick had was the old window's 100%, so a zero rise projected to 100% and every e launch queued.
+#[test]
+fn a_breaker_just_after_a_five_hour_reset_with_no_rise_admits_the_launch() {
+    let reset = NOW - 30.0;
+    let old = |minutes: f64| Sample { at: reset - minutes * 60.0, used_pct: 100.0, resets_at: Some(reset) };
+    let stale = [old(14.0), old(7.0), old(1.0)];
+    let week = Some(NOW + 1.5 * HOUR);
+    let trip = tripwire::trip(&rules(), "claude:e", &stale, week, &[], 0.0, NOW);
+    assert_eq!(trip, None, "{trip:?}");
+    let opened = [stale.as_slice(), &[Sample { at: reset, used_pct: 0.0, resets_at: Some(reset + 5.0 * HOUR) }]].concat();
+    assert_eq!(tripwire::trip(&rules(), "claude:e", &opened, week, &[], 0.0, NOW), None, "one reading since the reset is no rise");
+    let view = View { at: NOW, accounts: vec![account("claude:e", 0.0, 80.0)], trips: trip.into_iter().collect(), ..View::default() };
+    assert_eq!(view.admit(&rules(), "claude:e", Starter::Worker, Placed::default()), Ok(()));
+}
+
+#[test]
+fn a_zero_point_rise_never_trips_the_breaker() {
+    let flat = [Sample { at: NOW - 15.0 * 60.0, used_pct: 100.0, resets_at: Some(NOW + HOUR) }, Sample { at: NOW, used_pct: 100.0, resets_at: Some(NOW + HOUR) }];
+    assert_eq!(tripwire::trip(&rules(), "claude:e", &flat, None, &[], 0.0, NOW), None);
+}
+
 /// 2026-11-11 6:00 to 6:35 AM +07: spine fixes queued urgent on an account over its week projection, behind a governor meant to pace ordinary work.
 #[test]
 fn an_urgent_launch_passes_a_holding_governor_up_to_its_limit() {
