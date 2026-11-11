@@ -299,24 +299,44 @@ pub fn laptop_running(sessions: &[(Session, String)], laptop: &str, dispatched: 
     i64::try_from(listed).unwrap_or(i64::MAX).max(dispatched)
 }
 
-/// A dispatched session's `north fleet show --json`: a launch registers where dispatch ran, except on the laptop,
-/// whose job queue starts it in the laptop's own registry and whose retired sessions it mirrors as `reports`.
-pub(super) fn shown(launch: &record::Record, laptop: Option<&str>, reports: &Value) -> Result<Value, String> {
-    if laptop == Some(launch.host.as_str()) {
-        return reports.get(&launch.name).cloned().ok_or_else(|| format!("{} runs in the laptop's registry and its report is not among those mirrored", launch.name));
+/// What the laptop copies of its own registry, which no host here reaches: its `fleet list` and the `reports` of its resting
+/// and retired sessions.
+pub(super) struct LaptopRegistry<'a> {
+    pub host: &'a str,
+    pub listing: &'a Value,
+    pub reports: &'a Value,
+}
+
+/// A dispatched session's `north fleet show --json`, or None while it has no report: a launch registers where dispatch ran,
+/// except on the laptop, whose job queue starts it in the laptop's own registry. A laptop session the mirrored listing shows
+/// starting or working has not reported yet, and one it does not show is still in the queue or ended there unregistered.
+pub(super) fn shown(launch: &record::Record, laptop: Option<&LaptopRegistry>) -> Result<Option<Value>, String> {
+    let Some(laptop) = laptop.filter(|laptop| laptop.host == launch.host) else {
+        return remote_json(None, &["fleet", "show", &launch.name, "--json"]).map(Some);
+    };
+    if let Some(report) = laptop.reports.get(&launch.name) {
+        return Ok(Some(report.clone()));
     }
-    remote_json(None, &["fleet", "show", &launch.name, "--json"])
+    if laptop.reports.is_null() || !laptop.listing.is_array() {
+        return Err(format!("{} runs in the laptop's registry, whose reports or fleet list did not copy here", launch.name));
+    }
+    let listed = laptop.listing.as_array().into_iter().flatten().find(|session| session["name"] == launch.name.as_str());
+    match listed.and_then(|session| session["status"].as_str()) {
+        Some(status @ ("idle" | "parked" | "exited")) => Err(format!("{} rests {status} in the laptop's registry and its report is not among those mirrored", launch.name)),
+        _ => Ok(None),
+    }
 }
 
 /// Reads the holds of each open box's last dispatched session's final report, from the session while the fleet lists it
 /// and from its archive once the reaper has retired it.
-pub(super) fn stopped(records: &[record::Record], issues: &mut [Issue], show: impl Fn(&record::Record) -> Result<Value, String>, retired: impl Fn(&str) -> Option<RetiredReport>, grounds: &Ledger, notes: &mut Vec<String>) {
+pub(super) fn stopped(records: &[record::Record], issues: &mut [Issue], show: impl Fn(&record::Record) -> Result<Option<Value>, String>, retired: impl Fn(&str) -> Option<RetiredReport>, grounds: &Ledger, notes: &mut Vec<String>) {
     let launches = super::stops::last_launches(records);
     for issue in issues.iter_mut().filter(|issue| issue.unticked() > 0) {
         let Some(launch) = launches.get(&issue.reference()) else { continue };
         let evidence = super::spin::Evidence { reopened: issue.reopened(launch.box_text.as_deref()), time: grounds.time(&launch.name), end: grounds.end(&launch.name) };
         match show(launch) {
-            Ok(session) => issue.stop = super::stops::stop(&session, launch, &evidence),
+            Ok(Some(session)) => issue.stop = super::stops::stop(&session, launch, &evidence),
+            Ok(None) => {}
             Err(why) => match retired(&launch.name) {
                 Some(report) => issue.stop = super::stops::retired_stop(&report, launch, &evidence),
                 None => notes.push(format!("{} report unread, so {} may relaunch: {why}", launch.name, issue.reference())),
@@ -327,16 +347,17 @@ pub(super) fn stopped(records: &[record::Record], issues: &mut [Issue], show: im
 
 /// The sessions of contested tries that did no work on their item, each with why its try is not spent.
 /// A forgotten session's report went with it, so its try is not counted against the item.
-pub(super) fn unspent(records: &[record::Record], at: f64, forgotten: &BTreeSet<String>, report: impl Fn(&record::Record) -> Result<Value, String>, issues: &[Issue], grounds: &Ledger, notes: &mut Vec<String>) -> BTreeMap<String, String> {
+pub(super) fn unspent(records: &[record::Record], at: f64, forgotten: &BTreeSet<String>, report: impl Fn(&record::Record) -> Result<Option<Value>, String>, issues: &[Issue], grounds: &Ledger, notes: &mut Vec<String>) -> BTreeMap<String, String> {
     let mut found = BTreeMap::new();
     for launch in record::contested(records, at) {
         let issue = IssueRef::parse(&launch.item).and_then(|item| issues.iter().find(|issue| issue.reference() == item));
         let evidence = super::spin::Evidence { reopened: issue.is_some_and(|issue| issue.reopened(launch.box_text.as_deref())), time: grounds.time(&launch.name), end: grounds.end(&launch.name) };
         match report(launch) {
-            Ok(session) => found.extend(super::tries::unspent(&session, &evidence).map(|why| (launch.name.clone(), why))),
-            Err(_) if forgotten.contains(&launch.name) => {
+            Ok(Some(session)) => found.extend(super::tries::unspent(&session, &evidence).map(|why| (launch.name.clone(), why))),
+            Ok(None) | Err(_) if forgotten.contains(&launch.name) => {
                 found.insert(launch.name.clone(), "was forgotten before its report was read".to_owned());
             }
+            Ok(None) => {}
             Err(why) => notes.push(format!("{} report unread, so its try counts: {why}", launch.name)),
         }
     }
@@ -384,7 +405,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let mut notes = Vec::new();
     let laptop = fleets::laptop(&cfg, &here);
     let (cfg_ref, here_ref, repos) = (&cfg, here.as_str(), projects.repos());
-    let (fleet_lists, gates, (mut issues, open), claim_lists, (report, ledger), remote_arms, grounds, cloud, strands) = std::thread::scope(|scope| {
+    let (fleet_lists, gates, (mut issues, open), claim_lists, (report, ledger), remote_arms, grounds, cloud, strands, jobs) = std::thread::scope(|scope| {
         let fleet_lists = read(scope, |notes| fleets::everywhere(cfg_ref, here_ref, &["fleet", "list", "--json"], "fleet", at, PROBE, notes));
         let gates = read(scope, |notes| fleets::everywhere(cfg_ref, here_ref, &["gate", "list", "--json"], "gates", at, PROBE, notes));
         let issues = read(scope, |notes| github::open_issues(repos, at, notes));
@@ -398,6 +419,10 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         let grounds = read(scope, Ledger::read);
         let cloud = read(scope, |_| cloud(cfg_ref, here_ref, at));
         let strands = read(scope, |notes| super::strands::read(cfg_ref, here_ref, at, notes));
+        let jobs = read(scope, |notes| remote_json(None, &["threads", "queue", "--json"]).unwrap_or_else(|why| {
+            notes.push(format!("threads queue unread, so a laptop launch waiting there over {:.0} min reads as forgotten: {why}", record::LAPTOP_SHOW_S / 60.0));
+            Value::Null
+        }));
         (
             joined(fleet_lists, &mut notes),
             joined(gates, &mut notes),
@@ -408,6 +433,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
             joined(grounds, &mut notes),
             joined(cloud, &mut notes),
             joined(strands, &mut notes),
+            joined(jobs, &mut notes),
         )
     });
     let sessions: Vec<(Session, String)> = fleet_lists.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
@@ -421,11 +447,14 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         box_holds.entry(item).or_default().entry(slug).or_insert(why);
     }
     let laptop_reports = laptop.as_deref().map_or(Value::Null, |host| fleets::mirrored_reports(&record::directory(), host, &mut notes));
+    let laptop_listing = laptop.as_deref().and_then(|host| fleet_lists.iter().find(|(name, _)| name == host)).map_or(&Value::Null, |(_, listing)| listing);
+    let laptop_registry = laptop.as_deref().map(|host| LaptopRegistry { host, listing: laptop_listing, reports: &laptop_reports });
     let copies = fleets::copy_times(&record::directory(), "fleet", laptop.as_deref());
-    let forgotten = fleets::forgotten(&fleet_lists, &copies, &records, at);
+    let queued = fleets::queued_launches(&jobs);
+    let forgotten = fleets::forgotten(&fleet_lists, &copies, &queued, &records, at);
     let listed = fleets::listed(&fleet_lists);
-    let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop.as_deref(), &laptop_reports), &issues, &grounds, &mut notes);
-    holds.extend(record::holds(&records, at, &unspent, &fleets::gone(&fleet_lists, &copies, &records, at)));
+    let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop_registry.as_ref()), &issues, &grounds, &mut notes);
+    holds.extend(record::holds(&records, at, &unspent, &fleets::gone(&fleet_lists, &copies, &queued, &records, at)));
     let mut box_tries = record::BoxHolds::new();
     for (item, boxes) in record::box_retries(&records, at, &unspent) {
         let Some(issue) = issues.iter().find(|issue| issue.reference() == item) else { continue };
@@ -434,7 +463,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
             box_tries.entry(item.clone()).or_default().insert(slug, why);
         }
     }
-    for (item, boxes) in record::box_launching(&records, at, &fleets::gone(&fleet_lists, &copies, &records, at)) {
+    for (item, boxes) in record::box_launching(&records, at, &fleets::gone(&fleet_lists, &copies, &queued, &records, at)) {
         for (slug, why) in boxes {
             box_holds.entry(item.clone()).or_default().entry(slug).or_insert(why);
         }
@@ -452,7 +481,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     }
     let rules = Rules::configured();
     let spend = spend_view(&cfg, roster, &here, &rules, &sessions, at);
-    stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref(), &laptop_reports), crate::fleet::registry::retired_report_here, &grounds, &mut notes);
+    stopped(&records, &mut issues, |launch| shown(launch, laptop_registry.as_ref()), crate::fleet::registry::retired_report_here, &grounds, &mut notes);
     let launches = super::stops::last_launches(&records);
     let learned = super::host_needs::read(&record::directory());
     for issue in &mut issues {

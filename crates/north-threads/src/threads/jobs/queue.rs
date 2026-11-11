@@ -246,6 +246,28 @@ fn drop_job(db: &Connection, id: i64, reason: &str, by: &str, now: Timestamp) ->
     Ok(changed == 1)
 }
 
+/// Each job as `threads queue --json` lists it, with the command only while the job is open, since a finished one's is history.
+fn listed_json(rows: Vec<(Job, Option<String>, Option<String>)>, polls: &[Poll], now: Timestamp) -> Outcome {
+    let mut jobs = Vec::with_capacity(rows.len());
+    for (job, host, _) in rows {
+        let waiting = waiting(&job, polls, now);
+        let cmd = if job.finished.is_none() { cmd_of(&job)? } else { text_or_null(None) };
+        jobs.push(Value::object([
+            ("id", integer(job.id)),
+            ("placement", job.placement.into()),
+            ("item", text_or_null(job.item)),
+            ("cmd", cmd),
+            ("state", job.state.into()),
+            ("queued", job.queued.into()),
+            ("taken", text_or_null(job.taken)),
+            ("finished", text_or_null(job.finished)),
+            ("host", text_or_null(host)),
+            ("waiting", text_or_null(waiting)),
+        ]));
+    }
+    Ok(format!("{}\n", pyjson::dumps(&Value::Array(jobs))))
+}
+
 fn list(context: &Context, json: bool) -> Outcome {
     let db = open(context.database, false)?;
     let latest = |what: &str| format!("(SELECT {what} FROM job_runs j WHERE j.name = 'queue-' || q.id ORDER BY started DESC LIMIT 1)");
@@ -255,20 +277,7 @@ fn list(context: &Context, json: bool) -> Outcome {
     let rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
     let polls = polls(&db)?;
     if json {
-        let jobs = rows.into_iter().map(|(job, host, _)| {
-            let waiting = waiting(&job, &polls, context.now);
-            Value::object([
-                ("id", integer(job.id)),
-                ("placement", job.placement.into()),
-                ("state", job.state.into()),
-                ("queued", job.queued.into()),
-                ("taken", text_or_null(job.taken)),
-                ("finished", text_or_null(job.finished)),
-                ("host", text_or_null(host)),
-                ("waiting", text_or_null(waiting)),
-            ])
-        });
-        return Ok(format!("{}\n", pyjson::dumps(&Value::Array(jobs.collect()))));
+        return listed_json(rows, &polls, context.now);
     }
     let mut out = vec![["id", "placement", "item", "state", "queued", "wait", "finished", "job_run", "cmd"].map(str::to_owned).to_vec()];
     for (job, _, run) in &rows {

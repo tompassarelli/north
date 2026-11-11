@@ -1,6 +1,6 @@
 //! `north fleet reports --json`: the entries dispatch reads of this registry's sessions retired in the last two days, of the newest of each task, and
-//! of each live DeepSeek session resting between turns, whose `Done:` queues its review (north#1020), in the shape of `show --json`, which the laptop
-//! mirrors to the host that runs dispatch, since no host there reaches the laptop's archive. A retired session's transcript no longer changes, so
+//! of each live session from those two days resting between turns, whose stop holds its box (north#872) and whose DeepSeek `Done:` queues its
+//! review (north#1020), in the shape of `show --json`, which the laptop mirrors to the host that runs dispatch, since no host there reaches the laptop's archive. A retired session's transcript no longer changes, so
 //! each is read once and kept beside it; a live one is read afresh.
 use std::fs;
 
@@ -17,19 +17,19 @@ use super::usage::usage;
 const KEPT_MS: u64 = 48 * 60 * 60 * 1000;
 const TOOL_CHARS: usize = 400;
 const MIRRORED: &str = "mirror-report-read.json";
-const DEEPSEEK: &str = "opencode";
 
 pub(super) fn run(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
     if flags != ["--json"] {
         return Err(usage());
     }
+    let since = now_ms().saturating_sub(KEPT_MS);
     let mut found = Map::new();
-    for name in fleet.retired_names_read(now_ms().saturating_sub(KEPT_MS)) {
+    for name in fleet.retired_names_read(since) {
         if let Some(report) = retired(fleet, &name) {
             found.insert(name, report);
         }
     }
-    for record in fleet.sessions()?.into_iter().filter(|record| record.provider.label() == DEEPSEEK && matches!(fleet.status(record), Status::Idle | Status::Parked)) {
+    for record in fleet.sessions()?.into_iter().filter(|record| record.created_ms >= since && matches!(fleet.status(record), Status::Idle | Status::Parked | Status::Exited)) {
         if let Ok(follower) = fleet.follow(&record.name) {
             found.insert(record.name.clone(), report(&record.name, follower.transcript()));
         }

@@ -368,11 +368,17 @@ fn a_laptop_launch_reads_its_stop_from_the_reports_the_laptop_mirrors_north_706(
     let mut boxes = [issue("wisp", 188, "- [ ] a", &[])];
     let mut notes = Vec::new();
 
-    super::survey::stopped(std::slice::from_ref(&launch), &mut boxes, |launch| super::survey::shown(launch, Some("whiterabbit"), &reports), |_| None, &super::grounds::Ledger::default(), &mut notes);
+    let listing = serde_json::json!([{"name": "wisp-188-d1646", "status": "parked"}]);
+    let laptop = |reports| super::survey::LaptopRegistry { host: "whiterabbit", listing: &listing, reports };
+    super::survey::stopped(std::slice::from_ref(&launch), &mut boxes, |launch| super::survey::shown(launch, Some(&laptop(&reports))), |_| None, &super::grounds::Ledger::default(), &mut notes);
 
     assert!(notes.is_empty(), "{notes:?}");
     assert_eq!(boxes[0].stop.climb.as_ref().map(|climb| climb.report.as_str()), Some("Not done: the capture still fails."), "dispatch noted wisp-188-d1646 report unread and could relaunch the box");
-    assert!(super::survey::shown(&launch, Some("whiterabbit"), &serde_json::Value::Null).is_err(), "a report the laptop has not mirrored stays unread");
+    assert!(super::survey::shown(&launch, Some(&laptop(&serde_json::Value::Null))).is_err(), "a report the laptop has not mirrored stays unread");
+    let mirrored_none = serde_json::json!({});
+    assert!(super::survey::shown(&launch, Some(&laptop(&mirrored_none))).is_err(), "a parked session's report the mirror lacks stays unread");
+    let queued = record::Record { name: "north-1059-d0023".into(), ..launch.clone() };
+    assert_eq!(super::survey::shown(&queued, Some(&laptop(&mirrored_none))), Ok(None), "north-1059-d0023, still in the laptop's job queue, has no report to read yet");
 }
 
 #[test]

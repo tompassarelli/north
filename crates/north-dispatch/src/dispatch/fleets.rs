@@ -124,19 +124,20 @@ fn names_outside(fleets: &[(String, Value)], holding: fn(&Value) -> bool) -> BTr
 
 /// The names of dispatch launches whose sessions no longer hold their items: sessions some listing
 /// shows and none shows running, and the `forgotten` ones.
-pub fn gone(fleets: &[(String, Value)], copies: &BTreeMap<String, f64>, records: &[record::Record], at: f64) -> BTreeSet<String> {
-    stopped_names(fleets).into_iter().chain(forgotten(fleets, copies, records, at)).collect()
+pub fn gone(fleets: &[(String, Value)], copies: &BTreeMap<String, f64>, queued: &BTreeSet<String>, records: &[record::Record], at: f64) -> BTreeSet<String> {
+    stopped_names(fleets).into_iter().chain(forgotten(fleets, copies, queued, records, at)).collect()
 }
 
 /// The names of dispatch launches absent from every listing though the listing of the host they
 /// launched on was read and taken late enough after the launch for it to show. A listing was taken
-/// at `at` unless `copies` holds the time its host copied it.
-pub fn forgotten(fleets: &[(String, Value)], copies: &BTreeMap<String, f64>, records: &[record::Record], at: f64) -> BTreeSet<String> {
+/// at `at` unless `copies` holds the time its host copied it. A launch still `queued` in a job queue has not registered yet,
+/// however long it waits there.
+pub fn forgotten(fleets: &[(String, Value)], copies: &BTreeMap<String, f64>, queued: &BTreeSet<String>, records: &[record::Record], at: f64) -> BTreeSet<String> {
     let listed = listed(fleets);
     records
         .iter()
         .filter(|launch| launch.launched && !launch.cloud && !launch.hand && copies.get(&launch.host).copied().unwrap_or(at) - launch.at >= record::LAPTOP_SHOW_S)
-        .filter(|launch| !listed.contains(&launch.name))
+        .filter(|launch| !listed.contains(&launch.name) && !queued.contains(&launch.name))
         .filter(|launch| fleets.iter().any(|(host, listing)| *host == launch.host && listing.is_array()))
         .map(|launch| launch.name.clone())
         .collect()
@@ -195,7 +196,7 @@ pub fn holder(task: &str, local: Value, notes: &mut Vec<String>) -> Option<(Issu
     }
     let sessions: Vec<(Session, String)> = fleets.iter().flat_map(|(host, listing)| running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
     let records = record::read(&record::directory());
-    held(&items, &sessions, &record::launching(&records, at, &gone(&fleets, &copies, &records, at)))
+    held(&items, &sessions, &record::launching(&records, at, &gone(&fleets, &copies, &BTreeSet::new(), &records, at)))
 }
 
 pub fn remote_json(ssh: Option<&str>, command: &[&str]) -> Result<Value, String> {
@@ -316,6 +317,21 @@ pub fn everywhere(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, a
     }
     found.extend(others(cfg, here, command, kind, at, limit, notes));
     found
+}
+
+/// The session names of the `north fleet launch` jobs `threads queue --json` shows waiting or running, which register only
+/// once the queue's host starts them.
+pub fn queued_launches(jobs: &Value) -> BTreeSet<String> {
+    jobs.as_array()
+        .into_iter()
+        .flatten()
+        .filter(|job| matches!(job["state"].as_str(), Some("queued" | "requeued" | "taken")))
+        .filter_map(|job| {
+            let words = job["cmd"].as_array()?;
+            let at = words.iter().position(|word| word == "--name")?;
+            words.get(at + 1)?.as_str().map(str::to_owned)
+        })
+        .collect()
 }
 
 /// Every session name some listing shows, whatever its status.

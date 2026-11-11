@@ -133,7 +133,7 @@ impl World {
     }
 
     fn gone(&self) -> BTreeSet<String> {
-        fleets::gone(&self.listings(), &BTreeMap::new(), &self.records, self.at)
+        fleets::gone(&self.listings(), &BTreeMap::new(), &BTreeSet::new(), &self.records, self.at)
     }
 
     fn snapshot(&self) -> Snapshot {
