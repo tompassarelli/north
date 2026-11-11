@@ -20,7 +20,7 @@ Scope: one-file
 Surface: shell
 Verify: local-test
 Done when: worker.txt holds the line `the worker's change`, and the `hand-in` tool returns `Done: landed` for it, landing it on main.
-In the current directory write the single line `the worker's change` to worker.txt. Then call the `mcp__north__hand-in` tool once with the message `Add the worker's change` and the paths set to the absolute path of worker.txt (the current directory followed by /worker.txt). Do not run git add or git commit first. Once the tool returns `Done: landed`, reply with that line as your only reply.";
+In the current directory write the single line `the worker's change` to worker.txt. Then call the `mcp__north__hand-in` tool once with the message `Add the worker's change` and the paths set to the absolute path of worker.txt (the current directory followed by /worker.txt). Do not run git add or git commit first. The tool blocks until the lane lands and ends with the line `Done: landed SHA on main`; reply with that `Done: landed` line, copied exactly as the tool returned it, as your only reply.";
 const CHANGED_FILE: &str = "worker.txt";
 const HAND_IN_TOOL: &str = "mcp__north__hand-in";
 const CLAUDE_MODEL: &str = "haiku";
