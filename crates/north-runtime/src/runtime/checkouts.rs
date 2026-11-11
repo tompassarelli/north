@@ -56,7 +56,8 @@ while [ $# -ge 2 ]; do
     continue
   fi
   if ! git -C "$d" fetch -q --no-auto-maintenance origin main 2>/dev/null; then printf '%s: fetch failed\n' "$p"; continue; fi
-  behind=$(git -C "$d" rev-list --count HEAD..origin/main 2>/dev/null) || {{ printf '%s: cannot count commits behind origin\n' "$p"; continue; }}
+  if git -C "$d" rev-parse -q --verify HEAD >/dev/null 2>&1; then unborn=0 range=HEAD..origin/main; else unborn=1 range=origin/main; fi
+  behind=$(git -C "$d" rev-list --count "$range" 2>/dev/null) || {{ printf '%s: cannot count commits behind origin\n' "$p"; continue; }}
   [ "$behind" = 0 ] && continue
   branch=$(git -C "$d" symbolic-ref -q --short HEAD 2>/dev/null) || branch=
   if [ "$branch" != main ]; then
@@ -65,7 +66,10 @@ while [ $# -ge 2 ]; do
     if ! git -C "$d" switch -q main 2>/dev/null; then printf '%s: detached with no local main to switch to\n' "$p"; continue; fi
   fi
   if [ -n "$(git -C "$d" status --porcelain --untracked-files=no 2>/dev/null)" ]; then printf '%s: uncommitted changes\n' "$p"; continue; fi
-  if git -C "$d" merge -q --ff-only origin/main 2>/dev/null; then printf '%s: fast-forwarded %s commits\n' "$p" "$behind"; else printf '%s: %s commits behind and not fast-forwardable\n' "$p" "$behind"; fi
+  if git -C "$d" merge -q --ff-only origin/main 2>/dev/null; then
+    if [ "$unborn" = 1 ]; then git -C "$d" branch -q --set-upstream-to=origin/main main 2>/dev/null; fi
+    printf '%s: fast-forwarded %s commits\n' "$p" "$behind"
+  else printf '%s: %s commits behind and not fast-forwardable\n' "$p" "$behind"; fi
 done
 exit 0"#
     )
@@ -214,6 +218,21 @@ mod tests {
         assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: fast-forwarded 1 commits\n");
         assert_eq!(git(&checkout, &["symbolic-ref", "-q", "--short", "HEAD"]), "main", "a detached checkout at an ancestor returns to main");
         assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), ahead);
+    }
+
+    #[test]
+    fn lane_sync_fast_forwards_a_main_with_no_commits() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let (origin, home) = host(scratch.path());
+        let checkout = home.join("code/south/main");
+        std::fs::remove_dir_all(&checkout).expect("remove");
+        std::fs::create_dir_all(&checkout).expect("checkout");
+        git(&checkout, &["init", "-q", "-b", "main"]);
+        git(&checkout, &["remote", "add", "origin", &origin.display().to_string()]);
+        let tip = git(&origin, &["rev-parse", "main"]);
+        assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: fast-forwarded 1 commits\n", "a main with no commits yet was kept as it was and `cannot count commits behind origin` printed");
+        assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), tip);
+        assert_eq!(git(&checkout, &["rev-parse", "--abbrev-ref", "main@{upstream}"]), "origin/main");
     }
 
     #[test]

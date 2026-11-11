@@ -7,6 +7,8 @@ use crate::platform::{git, harness, shared_config};
 
 use super::{home, operator_dir, repo_root};
 
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 const NOT_PUBLISHED: &str = "agents sync: generation not published";
 
 pub fn operator_directory() -> NorthResult<PathBuf> {
@@ -154,11 +156,13 @@ pub(super) fn current_main(
         Ok(sweep) => sweep.removed.iter().for_each(|lock| say(format!("agents sync: {name} cleared the stale git lock {}", lock.display()))),
         Err(error) => say(format!("agents sync: {name} could not clear stale git locks: {error}")),
     }
+    let unborn = git(&["rev-parse", "-q", "--verify", "HEAD"]).is_none();
     let fetched = git(&["fetch", "-q", "origin", "main"]).is_some();
     let mut behind = 0;
     if fetched {
         stamp_fetch(directory, now);
-        behind = count(&["rev-list", "--count", "HEAD..origin/main"])
+        let range = if unborn { "origin/main" } else { "HEAD..origin/main" };
+        behind = count(&["rev-list", "--count", range])
             .ok_or_else(|| format!("{name} main: cannot count commits behind origin"))?;
         if behind == 0 {
             return Ok(());
@@ -201,6 +205,9 @@ pub(super) fn current_main(
         _ => fast_forward(directory, fetched, &git),
     };
     let Some(reason) = reason else {
+        if unborn && fetched {
+            git(&["branch", "-q", "--set-upstream-to=origin/main", "main"]);
+        }
         return Ok(());
     };
     Err(match fetched {
@@ -240,7 +247,9 @@ fn clear_identical_untracked(directory: &Path) -> Vec<String> {
             .map(|output| output.stdout.split(|byte| *byte == 0).filter(|path| !path.is_empty()).map(|path| String::from_utf8_lossy(path).into_owned()).collect())
             .unwrap_or_default()
     };
-    let incoming = lines(&["diff", "-z", "--no-renames", "--name-only", "--diff-filter=A", "HEAD", "origin/main"]);
+    let unborn = git::run(directory, &["rev-parse", "-q", "--verify", "HEAD"]).is_ok_and(|output| !output.status.success());
+    let base = if unborn { EMPTY_TREE } else { "HEAD" };
+    let incoming = lines(&["diff", "-z", "--no-renames", "--name-only", "--diff-filter=A", base, "origin/main"]);
     let mut differing = Vec::new();
     for path in lines(&["ls-files", "-z", "--others", "--exclude-standard"]).into_iter().filter(|path| incoming.contains(path)) {
         let blob = git::run(directory, &["cat-file", "blob", &format!("origin/main:{path}")]).ok().filter(|output| output.status.success());
