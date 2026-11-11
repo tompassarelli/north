@@ -19,3 +19,15 @@ fn an_alert_line_stays_under_300_characters_and_after_its_first_says_only_what_c
     let long = "x".repeat(400);
     assert!(news(&red(0..3, &long), None, LINE_CHARS).unwrap().chars().count() <= LINE_CHARS);
 }
+
+#[test]
+fn a_cleared_alert_leaves_no_detail_for_show_to_print() {
+    let state = tempfile::tempdir().unwrap();
+    let incidents = state.path().join("incidents.json");
+    let standing = Alert { severity: Severity::Info, ..red(0..2, "north: possible red main: agent_text_reads") };
+    let detail = detail_file(state.path(), &detail_name(&standing.key));
+    deliver(state.path(), &incidents, std::slice::from_ref(&standing), &[], 60, &Fleet::default());
+    assert!(detail.exists(), "a standing alert keeps its lane list for north ops watch show");
+    deliver(state.path(), &incidents, &[], &[], 120, &Fleet::default());
+    assert!(!detail.exists(), "on 2026-11-11 north ops watch show still printed a possible red main the watch had cleared, because the cleared alert's detail file stayed");
+}

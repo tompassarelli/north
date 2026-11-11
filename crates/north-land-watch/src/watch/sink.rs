@@ -97,6 +97,7 @@ pub fn deliver(state: &Path, path: &Path, alerts: &[Alert], unavailable: &[Strin
     let ended: Vec<String> = incidents.keys().filter(|key| !alerts.iter().any(|alert| &alert.key == *key) && !unavailable.iter().any(|prefix| key.starts_with(prefix.as_str()))).cloned().collect();
     for key in ended {
         let Some(incident) = incidents.remove(&key) else { continue };
+        let _ = fs::remove_file(detail_file(details, &detail_name(&key)));
         let minutes = now.saturating_sub(incident.since) / 60;
         if incident.severity > Severity::Info {
             send_all(&recipients(incident.owner.as_deref(), outbox), &clip(&format!("{OPENED}cleared after {minutes} min: {}", incident.summary), LINE_CHARS), outbox, &mut lines);
