@@ -3,6 +3,7 @@ pub mod admin;
 pub mod api_probe;
 pub mod api_pool;
 pub mod client_probe;
+mod launch_prompt;
 mod limit;
 pub mod runs;
 mod quota;

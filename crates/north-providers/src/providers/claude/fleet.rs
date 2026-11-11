@@ -14,7 +14,7 @@ use crate::fleet::link::quote;
 use crate::platform::attribution::{self, Cause, Harness};
 
 use super::session_env::{self, claude_env};
-use super::{accounts, limit, quota, turns, user_text, window_inbox};
+use super::{accounts, launch_prompt, limit, quota, turns, user_text, window_inbox};
 
 const PROVIDER: &str = "claude";
 const TOOL_RESULT_CHARS: usize = 400;
@@ -71,7 +71,7 @@ impl Runtime for Claude {
         }
         argv.extend(session_env::model_args(request));
         argv.extend(session_env::agent_args(request));
-        argv.extend(session_env::prompt_args(account, request, instructions)?);
+        argv.extend(launch_prompt::args(account, request, instructions)?);
         Ok(HostSpec {
             key: request.name.clone(),
             shared: false,

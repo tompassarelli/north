@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, LaunchRequest, Role};
 use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HAND_IN_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV, Seen};
 use crate::platform::git_credential;
@@ -20,10 +19,6 @@ const READ_TOKEN: &str = r#"CLAUDE_CODE_OAUTH_TOKEN=$(cat -- "$0") || exit; expo
 const READ_API_KEY: &str = r#"ANTHROPIC_API_KEY=$(cat -- "$0") || exit; export ANTHROPIC_API_KEY; exec "$@""#;
 const API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
 const SHELL_PREFIX_ENV: &str = "CLAUDE_CODE_SHELL_PREFIX";
-const FLEET_SETTINGS: &str = r#"{"switchModelsOnFlag":true}"#;
-const WORKER_TOOLS: &str = "Bash,Read,Edit,Write,Grep,Glob,TaskStop";
-const RESEARCH_TOOLS: &str = ",WebSearch,WebFetch";
-const POLICY_FILE: &str = "CLAUDE.md";
 
 fn account_env(account: &Account) -> Vec<(String, OsString)> {
     (!at_default(account)).then(|| (CONFIG_ENV.into(), account.home.clone().into())).into_iter().collect()
@@ -62,34 +57,6 @@ fn worker_sandbox() -> (String, OsString) {
 pub(super) fn model_args(request: &LaunchRequest) -> Vec<String> {
     let model = request.model.iter().flat_map(|model| ["--model".to_owned(), model.clone()]);
     model.chain(request.effort.iter().flat_map(|effort| ["--effort".to_owned(), effort.label().to_owned()])).collect()
-}
-
-/// A worker's system prompt is north's text followed by the account profile's policy file, which is the same for every session of the account; its repository's own instruction files come back through the project and local setting sources, and its one settings file is its profile's hook registration because Claude Code keeps only the last `--settings`.
-pub(super) fn prompt_args(account: &Account, request: &LaunchRequest, instructions: &str) -> NorthResult<Vec<String>> {
-    if request.role() != Role::Worker {
-        let mut args = vec!["--settings".to_owned(), FLEET_SETTINGS.to_owned()];
-        if !instructions.is_empty() {
-            args.extend(["--append-system-prompt".to_owned(), instructions.to_owned()]);
-        }
-        return Ok(args);
-    }
-    let settings = account.home.join("settings.json").display().to_string();
-    let tools = if researches(request) { format!("{WORKER_TOOLS}{RESEARCH_TOOLS}") } else { WORKER_TOOLS.to_owned() };
-    let mut args = ["--tools", &tools, "--setting-sources", "project,local", "--settings", &settings].map(str::to_owned).to_vec();
-    let policy = match std::fs::read_to_string(account.home.join(POLICY_FILE)) {
-        Ok(text) => text,
-        Err(error) if error.kind() == ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(NorthError::State(format!("{}: {error}", account.home.join(POLICY_FILE).display()))),
-    };
-    let prompt = [instructions, policy.trim_end()].iter().filter(|text| !text.is_empty()).copied().collect::<Vec<_>>().join("\n\n");
-    if !prompt.is_empty() {
-        args.extend(["--system-prompt".to_owned(), prompt]);
-    }
-    Ok(args)
-}
-
-fn researches(request: &LaunchRequest) -> bool {
-    north_pace::router::brief::brief_header(&request.prompt).get("category").is_some_and(|category| category.trim().eq_ignore_ascii_case("research"))
 }
 
 pub(super) fn agent_args(request: &LaunchRequest) -> Vec<String> {
