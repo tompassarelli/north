@@ -3,6 +3,8 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::ledger::{self, Ledger};
 
+const CHECK_USAGE: &str = "Usage: north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO) | north task check (--observations | --dry-run | --body-file FILE | --repo OWNER/REPO) ...";
+
 const USAGE: &str = "Usage: north ledger (flow|incident|opencode|tempo|worker) ... | north ledger duplicate [--days N] [--json] | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task comment REPO#N --body TEXT | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO) | north task rewrite-cargo [--dry-run] [--repo OWNER/REPO] [--tree DIR]";
 
 pub fn run(arguments: &[String]) -> ExitCode {
@@ -50,6 +52,7 @@ fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
             eprintln!("{task_ref} check exit {exit}");
             Ok(ExitCode::from(u8::try_from(exit).unwrap_or(1)))
         }
+        ["task", "check", ..] => Err(NorthError::Usage(CHECK_USAGE.into())),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
 }
@@ -60,4 +63,21 @@ fn comment(reference: &str, body: &str) -> NorthResult<ExitCode> {
     crate::platform::github::comment(&repository, number, body).map_err(NorthError::Usage)?;
     println!("commented on {repository}#{number}");
     Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bare_task_check_reference_prints_task_checks_own_usage() {
+        let directory = std::env::temp_dir().join(format!("north-task-check-usage-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let store = Ledger::open(&directory.join("ledger.db")).unwrap();
+        let arguments: Vec<String> = ["task", "check", "north#1188"].iter().map(|word| (*word).to_owned()).collect();
+        let error = dispatch(&store, &arguments).unwrap_err();
+        std::fs::remove_dir_all(&directory).unwrap();
+        assert!(error.user_message().contains("north task check REF -- CMD..."), "{}", error.user_message());
+        assert!(!error.user_message().contains("north ledger"), "{}", error.user_message());
+    }
 }
