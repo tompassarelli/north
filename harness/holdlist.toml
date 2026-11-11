@@ -1,0 +1,158 @@
+# What north must not lose (north#1127, docs/rationale/holdlist.md). One [[hold]] per guarantee: `metric` is what is measured, `budget` the most it may read, `guard` the test, concern, eval or land check that keeps it, `state` whether that guard is in the tree (`live`) or still to be written (`missing`, with the date and reason in `accepted_risk`). A [[hold.also]] names a further guard of the same hold. `north land scan holdlist-guards-resolve` judges a lane that drops a live guard or removes or weakens a hold without a `Holdlist: REASON` commit trailer.
+
+[[hold]]
+id = "H1"
+what = "The stable channel moves only by deliberate promotion"
+metric = "hosts whose runtime differs from the pin"
+budget = "0"
+guard_kind = "concern"
+guard = "stable-pin"
+state = "missing"
+incidents = ""
+accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+
+[[hold]]
+id = "H2"
+what = "A runtime that breaks the core loop never reaches a second host"
+metric = "hosts reached by a failed canary"
+budget = "0"
+guard_kind = "test"
+guard = "a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming_the_probe"
+state = "live"
+incidents = ""
+
+[[hold]]
+id = "H3"
+what = "A deliberate stop of sessions never rolls a runtime back"
+metric = "rollbacks caused by ordered stops"
+budget = "0"
+guard_kind = "test"
+guard = "a_session_stopped_by_order_or_refused_by_its_account_limit_is_not_a_runtime_exit"
+state = "live"
+incidents = ""
+
+[[hold]]
+id = "H4"
+what = "A rollback target exists and was judged"
+metric = "rollbacks onto a deleted or unjudged runtime"
+budget = "0"
+guard_kind = "test"
+guard = "a_rollback_lands_only_on_a_runtime_whose_canary_passed"
+state = "live"
+incidents = "north#1096"
+
+[[hold.also]]
+guard_kind = "test"
+guard = "a_runtime_that_goes_live_by_promote_settle_or_update_gets_a_canary_verdict"
+state = "live"
+
+[[hold]]
+id = "H5"
+what = "The bottom of the degradation ladder is always reachable without the north binary"
+metric = "seconds to a usable prompt at the two lowest levels"
+budget = "at most 15"
+guard_kind = "land-check"
+guard = "mayday-self-test"
+state = "missing"
+incidents = ""
+accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+
+[[hold]]
+id = "H6"
+what = "The lander serves"
+metric = "lander unit restarts in 5 minutes; minutes with a non-empty queue and no landing"
+budget = "at most 3; at most 30"
+guard_kind = "concern"
+guard = "lander-serving"
+state = "missing"
+incidents = ""
+accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+
+[[hold]]
+id = "H7"
+what = "Time to land holds at low load"
+metric = "p95 time to land at 5 workers"
+budget = "at most 10 min"
+guard_kind = "eval"
+guard = "load-ladder"
+state = "missing"
+incidents = ""
+accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+
+[[hold]]
+id = "H8"
+what = "Red main is seen and owned fast"
+metric = "minutes main is red before a revert or fix is in flight"
+budget = "at most 15"
+guard_kind = "test"
+guard = "a_red_main_episode_messages_the_proxy_once_with_the_suspect_and_ends_only_on_a_green_run_that_reran_its_failing_tests_or_on_the_sheriffs_revert"
+state = "live"
+incidents = ""
+
+[[hold.also]]
+guard_kind = "eval"
+guard = "sheriff-blame"
+state = "missing"
+accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+
+[[hold]]
+id = "H9"
+what = "No landing rests on a claim"
+metric = "landed lanes whose named check the checker did not observe passing"
+budget = "0"
+guard_kind = "test"
+guard = "checker_verified_reads_the_stamp_on_the_box_a_runs_brief_named_and_the_whole_issue_only_without_one"
+state = "live"
+incidents = "north#872"
+
+[[hold]]
+id = "H10"
+what = "The coordinator is never halted by its own guards and can always delegate"
+metric = "coordinator turns ended by a guard"
+budget = "0"
+guard_kind = "test"
+guard = "a_proxy_over_its_read_budget_is_refused_and_its_turn_continues"
+state = "live"
+incidents = "north#1106"
+
+[[hold.also]]
+guard_kind = "test"
+guard = "harness_required_loads_spend_no_proxy_read_budget"
+state = "live"
+
+[[hold.also]]
+guard_kind = "test"
+guard = "the_proxy_has_no_diagnosis_budget_without_break_glass"
+state = "live"
+
+[[hold.also]]
+guard_kind = "test"
+guard = "break_glass_is_refused_while_a_worker_can_launch"
+state = "live"
+
+[[hold]]
+id = "H11"
+what = "The laptop stays usable while its owner works"
+metric = "protected desktop pressure"
+budget = "at most 20%"
+guard_kind = "test"
+guard = "capacity admission for every provider"
+state = "missing"
+incidents = ""
+accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+
+[[hold.also]]
+guard_kind = "concern"
+guard = "desktop-pressure"
+state = "missing"
+accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+
+[[hold]]
+id = "H12"
+what = "A finished session holds no claim"
+metric = "claims held by exited sessions"
+budget = "0"
+guard_kind = "test"
+guard = "a_done_session_whose_lane_landed_gives_up_every_claim_and_leaves_the_fleet_in_one_reaper_tick"
+state = "live"
+incidents = "north#1054"

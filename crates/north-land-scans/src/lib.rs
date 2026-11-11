@@ -13,6 +13,7 @@ pub mod gate_shadow;
 pub mod generated;
 pub mod generated_registry;
 pub mod git;
+pub mod holdlist;
 pub(crate) mod host_paths;
 pub mod incident_guard;
 pub mod language;
@@ -43,6 +44,7 @@ pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integ
        north land scan doc-links BASE..HEAD
        north land scan gate-shadow BASE..HEAD
        north land scan generated-registry BASE..HEAD
+       north land scan holdlist-guards-resolve BASE..HEAD
        north land scan detector-proof BASE..HEAD
        north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan safe-push-verbs [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps\n       north land scan dep-floor LOCK < LOCK-BEFORE";
 
@@ -100,6 +102,7 @@ fn ranged(directory: &Path, name: &str, range: &str) -> Option<u8> {
         "detector-proof" => detector_proof::run(directory, range),
         "generated-registry" => generated_registry::scan(directory, range, &mut out),
         "gate-shadow" => gate_shadow::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
+        "holdlist-guards-resolve" => holdlist::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "tool-removal" => {
             let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
             tool_removal::scan(directory, &home, range, &mut out)
