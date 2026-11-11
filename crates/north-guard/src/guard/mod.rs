@@ -21,6 +21,7 @@ pub mod frozen_topics;
 pub mod issue_filing;
 pub mod issue_labels;
 pub mod blind_stage;
+mod blind_stage_tests;
 pub mod reviewer_cli;
 pub mod gh_write;
 pub mod public_text;

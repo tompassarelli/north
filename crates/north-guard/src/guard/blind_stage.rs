@@ -31,9 +31,24 @@ pub fn decide(input: &HookInput) -> Verdict {
         return Verdict::Rewrite(updated, COMMIT_NOTE.into());
     }
     let hit = hits.join(" and ");
+    let advice = enumerated(input).unwrap_or_else(|| {
+        "enumerate the paths you intend to commit instead, e.g. `git add path/to/file` or `git commit path/to/file -m '...'`.".to_owned()
+    });
     Verdict::Deny(format!(
-        "BLOCKED: blind staging refused ({hit}) — enumerate the paths you intend to commit instead, e.g. `git add path/to/file` or `git commit path/to/file -m '...'`. A commit MESSAGE or heredoc body that merely mentions the phrase is unaffected — only a real command-position invocation is denied. Rare explicit override: `north config agents off north-hook` (persistent, live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
+        "BLOCKED: blind staging refused ({hit}) — {advice} A commit MESSAGE or heredoc body that merely mentions the phrase is unaffected — only a real command-position invocation is denied. Rare explicit override: `north config agents off north-hook` (persistent, live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
     ))
+}
+
+fn enumerated(input: &HookInput) -> Option<String> {
+    let command = input.tool_input["command"].as_str()?;
+    let found = super::commit_paths::enumerated(command, input.cwd().unwrap_or("."))?;
+    let rest = if found.commits { "" } else { ", then the rest of your command without the blind flag" };
+    let mut advice = format!("run this instead, which names every tracked file changed here: `{}`{rest}.", found.command);
+    if !found.untracked.is_empty() {
+        let shown: Vec<&str> = found.untracked.iter().take(UNTRACKED_SHOWN).map(String::as_str).collect();
+        advice.push_str(&format!(" It leaves out the untracked files; add the ones you created to its `git add`: {}.", shown.join(" ")));
+    }
+    Some(advice)
 }
 
 fn blind_add(word: &str) -> bool {
@@ -47,6 +62,7 @@ fn blind_commit(word: &str) -> bool {
     matches!(word, "-a" | "--all") || (short_cluster(word) && word[1..].contains(['a', 'A']))
 }
 
+const UNTRACKED_SHOWN: usize = 20;
 const COMMIT_NOTE: &str = "north-hook: rewrote `git commit -a` to `git commit -m MSG -- PATHS` naming the tracked modified files, since nothing else was staged. Name the paths yourself next time.";
 
 fn committed(input: &HookInput) -> Option<crate::platform::pyjson::Value> {
