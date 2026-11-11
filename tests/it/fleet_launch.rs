@@ -16,6 +16,10 @@ static FIXTURE: std::sync::LazyLock<support::template::Template> = std::sync::La
 pub(crate) fn fixture(root: &Path, trace: &str) {
     FIXTURE.copy_into(root);
     reader(root);
+    provider(root, trace);
+}
+
+fn provider(root: &Path, trace: &str) {
     executable(&root.join("bin/claude"), &format!("exec {} --trace {trace} \"$@\"\n", crate::support::bin_exe!("CARGO_BIN_EXE_fake_claude")));
 }
 
@@ -128,7 +132,7 @@ fn a_launch_whose_provider_exits_before_the_host_registers_leaves_no_session_dir
 
     assert!(!failed.status.success(), "{}", text(&failed.stdout));
     assert!(!session.exists(), "the failed launch left {session:?}: {:?}", fs::read_dir(&session).map(|entries| entries.flatten().map(|entry| entry.file_name()).collect::<Vec<_>>()));
-    fixture(root, "fold");
+    provider(root, "fold");
     let retried = launch(root);
     let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "narrow", "answer this"]);
     let answered = |shown: &str| shown.split_once("] answer this").is_some_and(|(_, after)| after.contains("OK"));

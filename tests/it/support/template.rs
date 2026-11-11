@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::tree::Tree;
@@ -19,6 +20,8 @@ impl Template {
     }
 
     pub fn copy_into(&self, destination: &Path) {
+        let used = fs::read_dir(destination).is_ok_and(|mut entries| entries.next().is_some());
+        assert!(!used, "{} already holds files, and a template fills only an empty root: a process from an earlier step may still have one of them open", destination.display());
         self.tree.write(destination);
     }
 }
