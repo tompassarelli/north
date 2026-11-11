@@ -64,7 +64,6 @@ fn enter(point: EntryPoint, arguments: &[String]) -> std::process::ExitCode {
     }
     match point {
         EntryPoint::SafePush => std::process::ExitCode::from(cli::remote_land::safe_push(arguments)),
-        EntryPoint::WorkerSandbox => worker_sandbox::run(arguments, hook::command_refusal),
     }
 }
 

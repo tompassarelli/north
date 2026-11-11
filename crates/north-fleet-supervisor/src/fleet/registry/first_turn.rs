@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::{Host, alive};
-use crate::fleet::model::{Account, Delivery, SessionRecord};
+use crate::fleet::model::{Account, SessionRecord};
 use crate::fleet::refusals;
 use crate::fleet::runtime::{ClientRefusal, CredentialFailure, Opening, new_uuid, now_ms};
 use crate::fleet::transcript::{StreamTail, stream_len, stream_path};
@@ -64,21 +64,16 @@ impl Fleet {
         self.send_text(record, &self.recent(runtime.as_ref(), record)?, &new_uuid()?, prompt)?;
         let deadline = Instant::now() + FIRST_TURN_WAIT;
         let mut prompted = false;
-        let mut failed = Vec::new();
         loop {
             for frame in tail.frames()? {
                 if let Some(failure) = runtime.credential_failure(&frame) {
                     return Ok(FirstTurn::Failed(failure));
                 }
-                failed.extend(runtime.failed_tool_servers(&frame));
                 let mine = runtime.signals(&frame).into_iter().filter(|signal| record.conversation.as_deref().is_none_or(|conversation| signal.conversation() == conversation));
                 for signal in mine {
                     match signal {
                         TurnSignal::Prompt { .. } => prompted = true,
-                        _ if prompted => {
-                            self.name_failed_tool_servers(record, &failed);
-                            return Ok(FirstTurn::Answered);
-                        }
+                        _ if prompted => return Ok(FirstTurn::Answered),
                         _ => {}
                     }
                 }
@@ -91,14 +86,6 @@ impl Fleet {
             }
             std::thread::sleep(FIRST_TURN_POLL);
         }
-    }
-
-    /// Names to the session's parent each tool server its client could not start, since the session itself only lacks the tools and carries on without them.
-    fn name_failed_tool_servers(&self, record: &SessionRecord, failed: &[String]) {
-        let Some(parent) = record.parent.as_deref().filter(|_| !failed.is_empty()) else { return };
-        let name = &record.name;
-        let text = format!("[from {name}] its tool server {} did not start, so it runs without the tools that server offers; see north fleet show {name}", failed.join(", "));
-        self.tell(parent, &text, Delivery::Queued);
     }
 
     fn note_credential_failure(&self, record: &SessionRecord, failure: &ClientRefusal) -> NorthResult<()> {
@@ -139,7 +126,3 @@ fn refusal(record: &SessionRecord, failure: &ClientRefusal) -> NorthError {
         }
     })
 }
-
-#[cfg(test)]
-#[path = "first_turn_tests.rs"]
-mod tests;

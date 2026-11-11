@@ -10,7 +10,6 @@ pub const FLAG: &str = "--tool-server";
 const PROTOCOL: &str = "2025-06-18";
 const NO_SUCH_METHOD: i64 = -32601;
 const BAD_PARAMS: i64 = -32602;
-const HAND_IN: &str = "hand-in";
 
 pub fn enter(arguments: &[String], screen: super::Screen) -> Option<std::process::ExitCode> {
     match arguments.split_first() {
@@ -59,13 +58,6 @@ fn answer(verbs: &[String], north: &Path, request: &Value) -> Option<Value> {
 }
 
 fn tool(verb: &str) -> Value {
-    if verb == HAND_IN {
-        return json!({
-            "name": verb,
-            "description": "Hands in your finished lane in one call: commits the changed `paths` (absolute, all in one lane) with `message`, or queues the lane as it stands when they are already committed, then runs every safe-push gate, queues the lane and waits for the lander. Returns `Done: landed COMMIT on main`, or why it did not land.",
-            "inputSchema": {"type": "object", "properties": {"message": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}}, "required": ["message", "paths"]},
-        });
-    }
     json!({
         "name": verb,
         "description": format!("Runs `north {verb} ARGUMENTS...` in this session and returns what it printed."),
@@ -73,18 +65,10 @@ fn tool(verb: &str) -> Value {
     })
 }
 
-fn words(verb: &str, arguments: &Value) -> Vec<String> {
-    let strings = |value: &Value| value.as_array().map_or_else(Vec::new, |words| words.iter().filter_map(Value::as_str).map(str::to_owned).collect());
-    if verb == HAND_IN {
-        let message = arguments["message"].as_str().unwrap_or_default().to_owned();
-        return ["--message".to_owned(), message, "--".to_owned()].into_iter().chain(strings(&arguments["paths"])).collect();
-    }
-    strings(&arguments["arguments"])
-}
-
 fn call(verbs: &[String], north: &Path, params: &Value) -> Result<Value, (i64, String)> {
     let verb = params["name"].as_str().filter(|name| verbs.iter().any(|verb| verb == name)).ok_or_else(|| (BAD_PARAMS, format!("no such tool: {}", params["name"])))?;
-    let output = Command::new(north).arg(verb).args(words(verb, &params["arguments"])).stdin(Stdio::null()).output().map_err(|error| (BAD_PARAMS, format!("{}: {error}", north.display())))?;
+    let arguments: Vec<&str> = params["arguments"]["arguments"].as_array().map_or_else(Vec::new, |words| words.iter().filter_map(Value::as_str).collect());
+    let output = Command::new(north).arg(verb).args(arguments).stdin(Stdio::null()).output().map_err(|error| (BAD_PARAMS, format!("{}: {error}", north.display())))?;
     let text = [output.stdout, output.stderr].map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).concat();
     Ok(json!({"content": [{"type": "text", "text": text}], "isError": !output.status.success()}))
 }

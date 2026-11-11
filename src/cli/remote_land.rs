@@ -15,16 +15,6 @@ pub fn safe_push(arguments: &[String]) -> u8 {
     entry::safe_push(arguments, &host_facts())
 }
 
-pub fn hand_in(arguments: &[String]) -> u8 {
-    north_lander::land::hand_in::run(arguments, |lane| match std::env::set_current_dir(&lane.root) {
-        Ok(()) => safe_push(&["--to".to_owned(), lane.destination.clone(), "--wait".to_owned()]),
-        Err(error) => {
-            eprintln!("hand-in: {}: {error}", lane.root.display());
-            1
-        }
-    })
-}
-
 pub fn ledger_client(config: &DocumentMut, here: &str) -> bool {
     config
         .get("hosts")

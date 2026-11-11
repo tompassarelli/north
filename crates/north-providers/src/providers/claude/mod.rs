@@ -16,4 +16,4 @@ mod user_text;
 mod window_inbox;
 
 pub use session_env::invocation;
-pub use tool_server::{shell_prefix, tool_server_args};
+pub use tool_server::{sandbox_wrapper, tool_server_args};

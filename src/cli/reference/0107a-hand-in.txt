@@ -1,1 +1,0 @@
-  hand-in --message TEXT [--] PATH...            Stage and commit exactly the changed PATH... in their lane with TEXT, or queue the lane as it stands when PATH... are already committed on it, then hand the lane in as safe-push --to main --wait does and print its verdict

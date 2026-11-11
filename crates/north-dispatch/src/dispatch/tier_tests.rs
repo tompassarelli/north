@@ -201,8 +201,6 @@ fn a_hand_launched_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_la
         start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_| super::grounds::Grounds::default()).unwrap()
     };
     let scratch = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(scratch.path().join("home")).unwrap();
-    std::fs::write(scratch.path().join("home/settings.json"), r#"{"hooks": {"PreToolUse": [{}]}}"#).unwrap();
     let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None, api: None };
     let window = |prompt: &str| {
         let request = LaunchRequest {
