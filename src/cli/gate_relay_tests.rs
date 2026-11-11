@@ -24,12 +24,13 @@ fn convo(dir: &Path, rows: &[Value]) -> std::path::PathBuf {
     .unwrap();
     db.execute("INSERT INTO files VALUES (1, ?1, 'anthropic', NULL, '/home/tom/code/north/main')", [transcript.to_string_lossy()]).unwrap();
     let mut lines = String::new();
+    let mut seen = std::collections::HashSet::new();
     for (number, row) in rows.iter().enumerate() {
         let id = 10_519_700 + number as i64;
         lines.push_str(&format!("{row}\n"));
         let text = row["message"]["content"].as_str().or_else(|| row["attachment"]["prompt"].as_str()).unwrap();
         db.execute("INSERT INTO body VALUES (?1, ?2)", (id, text)).unwrap();
-        db.execute("INSERT INTO msg VALUES (?1, 1, ?2, ?3, 'user', NULL, ?1, 0)", (id, number as i64 + 1, row["timestamp"].as_str().unwrap())).unwrap();
+        db.execute("INSERT INTO msg VALUES (?1, 1, ?2, ?3, 'user', NULL, ?1, ?4)", (id, number as i64 + 1, row["timestamp"].as_str().unwrap(), i64::from(!seen.insert(text.to_owned())))).unwrap();
     }
     fs::write(transcript, lines).unwrap();
     index
@@ -52,6 +53,8 @@ fn a_proxy_window_relays_an_answer_tom_typed_hours_earlier_from_a_turn_a_fleet_m
         json!({"type": "user", "timestamp": "2026-11-07T04:00:00Z", "message": {"content": "This session is being continued from a previous conversation. 1. encrypt it"}}),
         delivered("2026-11-07T09:30:00Z", "[from service:north-fleet] gate 12 still waits on Tom"),
         delivered("2026-11-07T09:31:00Z", "[from north-88-d1828] 1"),
+        typed("2026-11-07T01:30:00Z", "2"),
+        typed("2026-11-07T09:40:00Z", "2"),
     ];
     let index = convo(dir.path(), &rows);
     let home = Path::new("/home/tom");
@@ -60,13 +63,13 @@ fn a_proxy_window_relays_an_answer_tom_typed_hours_earlier_from_a_turn_a_fleet_m
     let ask = GateRequest { verification: false, issue: None, box_text: None, session: "north-88-d1828".into(), question: "Upload the capture?".into(), options: vec!["encrypt it".into(), "keep it local".into()], recommend: 2, default: 0, default_after_ms: 0 };
     let gate = book.open_gate(&ask, opened_ms).unwrap();
 
-    for (cited, why) in [(10_519_702, "not a human turn"), (10_519_703, "not a human turn"), (10_519_704, "not a human turn")] {
-        let refused = tom_turn(&index, home, CONVERSATION, opened_ms, cited).unwrap_err().user_message();
+    for (cited, why) in [(10_519_702, "not typed by a person"), (10_519_703, "not typed by a person"), (10_519_704, "not typed by a person"), (10_519_799, "not in the convo store")] {
+        let refused = tom_turn(&index, home, CONVERSATION, cited).unwrap_err().user_message();
         assert!(refused.contains(why), "turn {cited}: {refused}");
     }
-    assert!(tom_turn(&index, home, "another-conversation", opened_ms, 10_519_701).unwrap_err().user_message().contains("not in this session's own conversation"));
+    assert!(tom_turn(&index, home, "another-conversation", 10_519_701).unwrap_err().user_message().contains("not in this session's own conversation"));
 
-    let turn = tom_turn(&index, home, CONVERSATION, opened_ms, 10_519_701).unwrap();
+    let turn = tom_turn(&index, home, CONVERSATION, 10_519_701).unwrap();
     assert_eq!(turn.text, "2. keep it local");
     let mut delivered = Vec::new();
     let closure = relay_gate(&book, gate, 2, Relay { turn: &turn, relayer: "proxy", parent: None }, opened_ms + 7 * 3_600_000, |session, text| {
@@ -76,6 +79,15 @@ fn a_proxy_window_relays_an_answer_tom_typed_hours_earlier_from_a_turn_a_fleet_m
     .unwrap();
     assert_eq!(closure.by.label(), "tom");
     assert!(delivered[0].1.contains("Tom answered: keep it local\nrelayed by proxy from convo turn 10519701"), "{delivered:?}");
+
+    let bare = book.open_gate(&ask, opened_ms).unwrap();
+    let relay = |number: usize, cited: i64| {
+        let turn = tom_turn(&index, home, CONVERSATION, cited).unwrap();
+        relay_gate(&book, bare, number, Relay { turn: &turn, relayer: "proxy", parent: None }, opened_ms + 7 * 3_600_000, |_, _| Ok(()))
+    };
+    assert!(relay(2, 10_519_705).unwrap_err().user_message().contains("typed before the gate opened"));
+    assert!(relay(1, 10_519_706).unwrap_err().user_message().contains("names option 2, not 1"));
+    assert_eq!(relay(2, 10_519_706).unwrap().by.label(), "tom");
 }
 
 #[test]
@@ -105,7 +117,7 @@ fn the_coordinator_window_closes_its_own_defaulted_gate_from_a_turn_tom_typed_af
     .unwrap();
     assert_eq!(closure.by.label(), "tom");
 
-    let turn = tom_turn(&index, Path::new("/home/tom"), CONVERSATION, opened_ms, 10_519_702).unwrap();
+    let turn = tom_turn(&index, Path::new("/home/tom"), CONVERSATION, 10_519_702).unwrap();
     let parent_refused = relay_gate(&book, relayed, 1, Relay { turn: &turn, relayer: "proxy", parent: Some("lead") }, opened_ms + 600_000, |_, _| panic!("a gate its asker's parent answers took a relay")).unwrap_err().user_message();
     assert!(parent_refused.contains("parent lead"), "{parent_refused}");
     let closure = relay_gate(&book, relayed, 1, Relay { turn: &turn, relayer: "proxy", parent: None }, opened_ms + 600_000, |_, text| {
