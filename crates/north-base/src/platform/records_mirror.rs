@@ -13,6 +13,8 @@ pub const KEPT: Duration = Duration::from_secs(7 * 86_400);
 pub const FRESH: Duration = Duration::from_secs(300);
 const LEDGERS: [&str; 5] = ["north/enqueue-refusals.jsonl", "north/runtime-pins.jsonl", "north/runtime-lag.jsonl", "safe-push/post-land.tsv", TICK_JOURNAL];
 const TREES: [&str; 3] = ["north/land-queue", "north/gates", "north/decisions/placement"];
+pub const QUEUES: &str = "north/land-queue";
+pub const CHECKOUT_PREFIX: &str = "post-land";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Stamp {
@@ -94,6 +96,9 @@ fn walk(state: &Path, relative: &Path, since: SystemTime, found: &mut Vec<PathBu
         let (Ok(kind), Ok(metadata)) = (entry.file_type(), entry.metadata()) else { continue };
         let path = relative.join(entry.file_name());
         if kind.is_dir() {
+            if relative.parent() == Some(Path::new(QUEUES)) && entry.file_name().to_string_lossy().starts_with(CHECKOUT_PREFIX) {
+                continue;
+            }
             walk(state, &path, since, found);
         } else if kind.is_file() && path.extension().is_none_or(|extension| extension != "lock") && metadata.modified().is_ok_and(|modified| modified >= since) {
             found.push(path);

@@ -4,15 +4,15 @@ use super::follow::own_scope;
 use super::remote::OWN_RSH;
 use crate::land_offload;
 use crate::platform::host;
-use crate::platform::records_mirror::{self, ROOT, STAMP, Stamp, TICK_JOURNAL};
+use crate::platform::records_mirror::{self, CHECKOUT_PREFIX, QUEUES, ROOT, STAMP, Stamp, TICK_JOURNAL};
 use rustix::fs::{FlockOperation, flock};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const LOCK: &str = "north/records-mirror.lock";
 const LAST: &str = "north/records-mirror.last";
@@ -23,7 +23,21 @@ const JOURNAL_FIRST: &str = "--since=-24h";
 const JOURNAL_CAP_BYTES: u64 = 8 << 20;
 const READ_JOURNAL: Duration = Duration::from_secs(5);
 const COPY: Duration = Duration::from_secs(10 * 60);
+const PRUNE: Duration = Duration::from_secs(60);
 const RSYNC_PARTIAL: [i32; 2] = [23, 24];
+const BATCH_BYTES: u64 = 1 << 30;
+const BATCH_FILES: usize = 20_000;
+const BANDWIDTH_KIB: u32 = 8192;
+const PARTIAL_DIR: &str = ".rsync-partial";
+
+type Signature = (u64, u128);
+type Sent = BTreeMap<String, Signature>;
+
+#[derive(Clone, Debug, PartialEq)]
+struct Entry {
+    path: PathBuf,
+    signature: Signature,
+}
 
 pub fn publish() -> Vec<String> {
     if !land_offload::settles_fleet_here() {
@@ -62,40 +76,99 @@ fn publish_from(state: &Path, destinations: &[String]) -> Result<(usize, Vec<Str
     }
     let stamp = Stamp { host: host::name(), state: state.to_owned(), at: records_mirror::now() };
     fs::write(state.join(STAMP), serde_json::to_vec(&stamp).map_err(|error| failed(1, error.to_string()))?)?;
-    let mut current = records_mirror::selected(state, SystemTime::now());
-    current.push(PathBuf::from(STAMP));
+    let mut paths = records_mirror::selected(state, SystemTime::now());
+    paths.push(PathBuf::from(STAMP));
+    let current: Vec<Entry> = paths.into_iter().filter_map(|path| signature(&state.join(&path)).map(|signature| Entry { path, signature })).collect();
     fs::create_dir_all(state.join(SENT))?;
-    let failures = std::thread::scope(|scope| {
-        let copies: Vec<_> = destinations.iter().map(|destination| (destination, scope.spawn(|| copy(state, destination, &current)))).collect();
-        copies.into_iter().filter_map(|(destination, copy)| copy.join().unwrap_or_else(|_| Err("the copy panicked".to_owned())).err().map(|why| format!("records mirror: not copied to {destination}: {why}"))).collect()
-    });
+    let failures = destinations.iter().filter_map(|destination| prune(state, destination).and_then(|()| copy(state, destination, &current)).err().map(|why| format!("records mirror: not copied to {destination}: {why}"))).collect();
     Ok((current.len(), failures))
 }
 
-fn copy(state: &Path, destination: &str, current: &[PathBuf]) -> Result<(), String> {
-    let sent = state.join(SENT).join(destination.replace('/', "_"));
-    let kept: BTreeSet<&Path> = current.iter().map(PathBuf::as_path).collect();
-    let before = fs::read(&sent).unwrap_or_default();
-    let gone = before.split(|byte| *byte == 0).filter(|path| !path.is_empty()).map(|path| Path::new(std::str::from_utf8(path).unwrap_or_default())).filter(|path| !path.as_os_str().is_empty() && !kept.contains(path));
-    let listed: Vec<u8> = current.iter().map(PathBuf::as_path).chain(gone).flat_map(|path| path.as_os_str().as_encoded_bytes().iter().copied().chain([0])).collect();
-    let list = sent.with_extension("list");
-    fs::write(&list, &listed).map_err(|error| error.to_string())?;
+fn prune(state: &Path, destination: &str) -> Result<(), String> {
+    let empty = state.join(SENT).join("empty");
+    for queue in fs::read_dir(state.join(QUEUES)).into_iter().flatten().flatten() {
+        fs::create_dir_all(empty.join(QUEUES).join(queue.file_name())).map_err(|error| error.to_string())?;
+    }
     let mut rsync = Command::new("rsync");
     rsync
-        .args(["-a", "--copy-dirlinks", "--delete-missing-args", "--from0", "--timeout=20", "-e", OWN_RSH])
-        .arg(format!("--files-from={}", list.display()))
-        .arg(format!("{}/", state.display()))
+        .args(["-r", "--delete", "--timeout=20", "-e", OWN_RSH])
+        .arg(format!("--include=/{QUEUES}/*/{CHECKOUT_PREFIX}*/***"))
+        .args(["--include=/north/".to_owned(), format!("--include=/{QUEUES}/"), format!("--include=/{QUEUES}/*/"), "--exclude=*".to_owned()])
+        .arg(format!("{}/", empty.display()))
         .arg(format!("{destination}:.local/state/{ROOT}/"))
         .stdin(Stdio::null())
         .stdout(Stdio::null());
-    let (status, said) = bounded::status_keeping_stderr(&mut rsync, COPY, 4).map_err(|error| error.to_string())?;
-    if !status.success() && !status.code().is_some_and(|code| RSYNC_PARTIAL.contains(&code)) {
-        return Err(format!("rsync {status}: {}", said.join(" | ")));
+    let (status, said) = bounded::status_keeping_stderr(&mut rsync, PRUNE, 4).map_err(|error| error.to_string())?;
+    match status.success() {
+        true => Ok(()),
+        false => Err(format!("rsync {status} while removing the checkouts the mirror no longer carries: {}", said.join(" | "))),
     }
-    let now: Vec<u8> = current.iter().flat_map(|path| path.as_os_str().as_encoded_bytes().iter().copied().chain([0])).collect();
-    fs::write(&sent, now).map_err(|error| error.to_string())
 }
 
+fn signature(path: &Path) -> Option<Signature> {
+    let metadata = fs::metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos()))
+}
+
+fn copy(state: &Path, destination: &str, current: &[Entry]) -> Result<(), String> {
+    let sent = state.join(SENT).join(destination.replace('/', "_"));
+    let list = sent.with_extension("list");
+    let started = Instant::now();
+    sync(&sent, current, |paths| {
+        let listed: Vec<u8> = paths.iter().flat_map(|path| path.as_os_str().as_encoded_bytes().iter().copied().chain([0])).collect();
+        fs::write(&list, &listed).map_err(|error| error.to_string())?;
+        let mut rsync = Command::new("rsync");
+        rsync
+            .args(["-a", "--copy-dirlinks", "--delete-missing-args", "--from0", "--timeout=20", "--partial-dir", PARTIAL_DIR, "-e", OWN_RSH])
+            .arg(format!("--bwlimit={BANDWIDTH_KIB}"))
+            .arg(format!("--files-from={}", list.display()))
+            .arg(format!("{}/", state.display()))
+            .arg(format!("{destination}:.local/state/{ROOT}/"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null());
+        let (status, said) = bounded::status_keeping_stderr(&mut rsync, COPY.saturating_sub(started.elapsed()), 4).map_err(|error| error.to_string())?;
+        match status.success() || status.code().is_some_and(|code| RSYNC_PARTIAL.contains(&code)) {
+            true => Ok(()),
+            false => Err(format!("rsync {status}: {}", said.join(" | "))),
+        }
+    })
+}
+
+fn sync(sent: &Path, current: &[Entry], mut send: impl FnMut(&[PathBuf]) -> Result<(), String>) -> Result<(), String> {
+    let mut done: Sent = fs::read(sent).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+    let mut gone: Vec<PathBuf> = done.keys().filter(|path| !current.iter().any(|entry| entry.path.to_str() == Some(path.as_str()))).map(PathBuf::from).collect();
+    gone.sort();
+    let mut pending: Vec<&Entry> = current.iter().filter(|entry| done.get(entry.path.to_string_lossy().as_ref()) != Some(&entry.signature)).collect();
+    pending.reverse();
+    let mut batches: Vec<Vec<&Entry>> = Vec::new();
+    while let Some(entry) = pending.pop() {
+        let mut bytes = 0;
+        let mut batch = Vec::new();
+        let mut next = Some(entry);
+        while let Some(entry) = next.take() {
+            bytes += entry.signature.0;
+            batch.push(entry);
+            next = pending.pop_if(|_| bytes < BATCH_BYTES && batch.len() < BATCH_FILES);
+        }
+        batches.push(batch);
+    }
+    if batches.is_empty() && !gone.is_empty() {
+        batches.push(Vec::new());
+    }
+    for (index, batch) in batches.iter().enumerate() {
+        let removed = if index == 0 { std::mem::take(&mut gone) } else { Vec::new() };
+        let listed: Vec<PathBuf> = batch.iter().map(|entry| entry.path.clone()).chain(removed.iter().cloned()).collect();
+        send(&listed)?;
+        for entry in batch {
+            done.insert(entry.path.to_string_lossy().into_owned(), entry.signature);
+        }
+        for path in &removed {
+            done.remove(path.to_string_lossy().as_ref());
+        }
+        fs::write(sent, serde_json::to_vec(&done).map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
 fn export_journal(state: &Path) -> Result<(), String> {
     let cursor = state.join(CURSOR);
     let mut journalctl = Command::new("journalctl");
@@ -127,3 +200,7 @@ fn export_journal(state: &Path) -> Result<(), String> {
     }
     OpenOptions::new().create(true).append(true).open(&journal).and_then(|mut file| file.write_all(lines.as_bytes())).map_err(|error| error.to_string())
 }
+
+#[cfg(test)]
+#[path = "mirror_tests.rs"]
+mod tests;
