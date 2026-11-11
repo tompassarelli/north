@@ -139,14 +139,14 @@ pub fn safe_push(scratch: &Scratch) -> PathBuf {
         return bin.join("safe-push");
     }
     std::fs::create_dir_all(&bin).unwrap();
-    shim::write_script(&bin.join("north"), &NORTH_SHIM.replace("REAL_NORTH", &format!("'{}'", env!("CARGO_BIN_EXE_north"))));
+    shim::write_script(&bin.join("north"), &NORTH_SHIM.replace("REAL_NORTH", &format!("'{}'", crate::support::bin_exe!("CARGO_BIN_EXE_north"))));
     shim::write_script(&bin.join("gh"), GH_SHIM);
     link(&bin)
 }
 
 pub fn link(directory: &Path) -> PathBuf {
     let entry = directory.join("safe-push");
-    symlink(env!("CARGO_BIN_EXE_north"), &entry).unwrap();
+    symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &entry).unwrap();
     entry
 }
 

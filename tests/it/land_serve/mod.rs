@@ -128,7 +128,7 @@ fn build_template(root: &Path) -> String {
     executable(&trace.join("checker"), CHECKER);
     executable(&trace.join("north"), NORTH);
     executable(&trace.join("mint"), MINT);
-    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_push_trace_git"), bin.join("git")).unwrap();
+    std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_push_trace_git"), bin.join("git")).unwrap();
     git(&repo, &["rev-parse", "HEAD"])
 }
 
@@ -198,7 +198,7 @@ impl Fixture {
 
     fn north(&self) -> Command {
         let path = format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap());
-        let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+        let mut command = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         command
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -211,7 +211,7 @@ impl Fixture {
             .env("NORTH_LAND_NORTH", self.trace.join("north"))
             .env("LAND_ORIGIN", &self.origin)
             .env("LAND_LEDGER", self.root.join("threads.db"))
-            .env("LAND_REAL_NORTH", env!("CARGO_BIN_EXE_north"))
+            .env("LAND_REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .env("LAND_REPO", &self.repo)
             .env("FAKE_REMOTE_HOMES", self.root.join("remote-homes"))
             .env("GH_TOKEN", "push-token")
@@ -279,7 +279,7 @@ impl Fixture {
     }
 
     fn land_enqueue(&self, lane: &Path, state: &Path, session: &str) -> Output {
-        let output = Command::new(env!("CARGO_BIN_EXE_north")).args(["land", "enqueue"]).current_dir(lane).env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1").env("XDG_STATE_HOME", state).env("NORTH_TEST_ROOT", state).env("HOME", state.join("home")).env_remove("SAFE_PUSH_SOUTH").env_remove("SAFE_PUSH_DENYLIST").env("NORTH_FLEET_SESSION", session).env_remove("NORTH_LAND_SERVING").output().unwrap();
+        let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["land", "enqueue"]).current_dir(lane).env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1").env("XDG_STATE_HOME", state).env("NORTH_TEST_ROOT", state).env("HOME", state.join("home")).env_remove("SAFE_PUSH_SOUTH").env_remove("SAFE_PUSH_DENYLIST").env("NORTH_FLEET_SESSION", session).env_remove("NORTH_LAND_SERVING").output().unwrap();
         eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         output
     }
@@ -288,7 +288,7 @@ impl Fixture {
 #[test]
 fn a_lander_whose_state_lies_outside_the_declared_fixture_root_refuses_before_it_serves() {
     let scratch = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
         .args(["land", "serve", "--once"])
         .env("XDG_STATE_HOME", scratch.path().join("state"))
         .env("NORTH_TEST_ROOT", scratch.path().join("elsewhere"))

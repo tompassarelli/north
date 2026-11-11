@@ -50,7 +50,7 @@ impl Rig {
         let runtime = root.join(".local/state/north/current");
         fs::create_dir_all(&runtime).unwrap();
         for link in [tools.join("north"), runtime.join("north")] {
-            std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), link).unwrap();
+            std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), link).unwrap();
         }
         crate::safe_push::link(&tools);
         shim::write_script(&tools.join("betterleaks"), "exit 0\n");
@@ -77,7 +77,7 @@ impl Rig {
     }
 
     fn north(&self, args: &[&str]) -> Output {
-        fleet_launch::environment(Command::new(env!("CARGO_BIN_EXE_north")), &self.root, "here").env("FAKE_CLAUDE_PROJECT", "-home-tom-code-proj-worktrees-worker").env("NORTH_TEST_ROOT", &self.root).args(args).output().unwrap()
+        fleet_launch::environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), &self.root, "here").env("FAKE_CLAUDE_PROJECT", "-home-tom-code-proj-worktrees-worker").env("NORTH_TEST_ROOT", &self.root).args(args).output().unwrap()
     }
 
     fn command(&self, program: impl AsRef<std::ffi::OsStr>, directory: &Path) -> Command {
@@ -87,7 +87,7 @@ impl Rig {
             .env("GOLDEN_CHECKS", self.root.join("checks"))
             .env("NORTH_TEST_ROOT", &self.root)
             .env_remove("XDG_CONFIG_HOME")
-            .env("NORTH_LAND_NORTH", env!("CARGO_BIN_EXE_north"))
+            .env("NORTH_LAND_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .env_remove("NORTH_LAND_SERVING")
             .env_remove("SAFE_PUSH_LAND_CAPACITY")
             .env_remove("SAFE_PUSH_LAND_OFFLOAD_HOST")
@@ -178,7 +178,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     assert_eq!((tickets[0].1.branch.as_str(), tickets[0].1.head.as_str(), tickets[0].1.session.as_deref()), ("worker", lane_head.as_str(), Some("worker")));
     assert!(!rig.root.join("checks").exists(), "no land check ran before the lander took the ticket");
 
-    let served = rig.command(env!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).arg("--app-token").arg(rig.root.join("bin/app-token")).output().unwrap();
+    let served = rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).arg("--app-token").arg(rig.root.join("bin/app-token")).output().unwrap();
     let said = text(&served);
     assert!(served.status.success(), "{said}");
     let landed = git(&rig.origin, &["rev-parse", "refs/heads/main"]);
@@ -204,7 +204,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
 
     git(&rig.main, &["fetch", "-q", "origin"]);
     let profile = rig.root.join(".local/state/north/profiles/claude-a");
-    let recorded = rig.command(env!("CARGO_BIN_EXE_north"), &rig.root).args(["ledger", "worker", "--session", &conversation, "--since", "2026-11-01"]).env("CLAUDE_CONFIG_DIR", &profile).env("LEDGER_REPOS", &rig.main).output().unwrap();
+    let recorded = rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.root).args(["ledger", "worker", "--session", &conversation, "--since", "2026-11-01"]).env("CLAUDE_CONFIG_DIR", &profile).env("LEDGER_REPOS", &rig.main).output().unwrap();
     assert!(recorded.status.success(), "{}", text(&recorded));
     let runs = rows(&database, "SELECT agent, item, outcome, role, landed, landed_sha, category, spec, scope, verify FROM runs", 10);
     let expected: Vec<String> = [conversation.as_str(), "north#1", "done", "worker", "1", landed.as_str(), "tooling", "exact", "one-file", "local-test"].map(str::to_owned).to_vec();
@@ -215,7 +215,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     assert!(stopped.status.success(), "{}", text(&stopped));
     assert_eq!(rows(&database, "SELECT agent FROM runs", 1), vec![vec![conversation]], "the session host records its conversation's run as it exits");
     eventually("every process of the run to end", || lingering(&rig.root).is_empty().then_some(()));
-    let retired = rig.command(env!("CARGO_BIN_EXE_north"), &rig.root).args(["lane", "gc", "--root"]).arg(&rig.root).args(["--idle-hours", "0", "--state"]).arg(rig.root.join("gc.json")).output().unwrap();
+    let retired = rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.root).args(["lane", "gc", "--root"]).arg(&rig.root).args(["--idle-hours", "0", "--state"]).arg(rig.root.join("gc.json")).output().unwrap();
     assert!(retired.status.success(), "{}", text(&retired));
     assert!(text(&retired).contains("retired 1 worktrees, 1 local branches"), "{}", text(&retired));
     assert!(!rig.lane.exists(), "the landed lane is gone");

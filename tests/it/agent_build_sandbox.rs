@@ -34,7 +34,7 @@ fn a_build_script_run_through_the_agent_path_reads_no_credential_and_reaches_no_
     fs::write(crate_dir.join("build.rs"), BUILD_SCRIPT.replace("SECRET", &secret.display().to_string()).replace("PORT", &listener.local_addr().unwrap().port().to_string())).unwrap();
     assert!(Command::new("git").args(["init", "-q"]).current_dir(&crate_dir).status().unwrap().success());
     let shims = home.join(".cargo/bin");
-    link(Path::new(env!("CARGO_BIN_EXE_north")), &shims.join("north"));
+    link(Path::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), &shims.join("north"));
     north_core::foundation::shim::copy_executable(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/cargo"), shims.join("cargo"));
     if let Some(rustup) = std::env::var_os("HOME").map(|real| Path::new(&real).join(".rustup")).filter(|rustup| rustup.exists()) {
         link(&rustup, &home.join(".rustup"));

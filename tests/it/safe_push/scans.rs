@@ -10,7 +10,7 @@ const SKIP: &str = concat!("it.sk", "ip(");
 const MUTANT_MARKER: &str = concat!("MUT", "ANT:r1");
 
 fn north(fixture: &Fixture, directory: &Path, arguments: &[&str]) -> Observed {
-    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
         .current_dir(directory)
         .args(arguments)
         .env("HOME", fixture.root.join("home"))

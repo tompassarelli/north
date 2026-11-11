@@ -63,7 +63,7 @@ impl Fixture {
 
     fn plan(&self, arguments: &[&str], signed_in: bool) -> Output {
         let path = format!("{}:{}", self.path("bin").display(), std::env::var("PATH").unwrap_or_default());
-        Command::new(env!("CARGO_BIN_EXE_north"))
+        Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .args(["config", "agents", "plan"])
             .args(arguments)
             .env("NORTH_HOME", env!("CARGO_MANIFEST_DIR"))

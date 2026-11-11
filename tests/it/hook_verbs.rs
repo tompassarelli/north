@@ -11,7 +11,7 @@ fn run_hook(verb: &str, active: &str, payload: &str, env: &[(&str, &Path)]) -> S
     let home = root.path().join("home");
     let project = home.join("code/project");
     std::fs::create_dir_all(&project).unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+    let mut command = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
     command
         .args(["hook", verb])
         .env_clear()

@@ -14,7 +14,7 @@ impl Hosts {
         let hosts = Self { root: tempfile::tempdir().unwrap() };
         let bin = hosts.path("bin");
         fs::create_dir_all(&bin).unwrap();
-        symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
+        symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
         fs::create_dir_all(hosts.path("far")).unwrap();
         let ssh = format!("while [ \"$1\" != -- ]; do shift; done\nshift\nPATH=\"{}:$PATH\" HOME=\"{}\" exec sh -c \"$1\"\n", bin.display(), hosts.path("far").display());
         shim::write_script(&bin.join("ssh"), &ssh);

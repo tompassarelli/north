@@ -23,7 +23,7 @@ impl TomWindow {
         fs::write(tom.path("active"), "hook north-hook\n").unwrap();
         let record = json!({"pid": tom.window.id(), "sessionId": "tom-window", "kind": "interactive", "messagingSocketPath": tom.path("window.sock")});
         fs::write(sessions.join(format!("{}.json", tom.window.id())), record.to_string()).unwrap();
-        let north = env!("CARGO_BIN_EXE_north");
+        let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
         shim::write_script(&tom.path("recording-north"), &format!("echo \"$*\" >>'{}'\nexec '{north}' \"$@\"\n", tom.path("calls").display()));
         let hook = format!(
             "exec env -u NORTH_FLEET_SESSION -u NORTH_FLEET_ROLE -u NORTH_HOOK_ID HOME='{}' CLAUDE_PID={} CLAUDE_CONFIG_DIR='{}' NORTH_FLEET_DIR='{}' NORTH_BIN='{}' LANE_GC_UNLANDED=/dev/null NORTH_AGENT_ACTIVE='{}' '{north}' \"$@\"\n",

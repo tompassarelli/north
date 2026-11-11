@@ -16,7 +16,7 @@ fn a_remote_command_through_the_fleet_ssh_path_runs_in_a_scope_the_far_watchdog_
     fs::create_dir_all(&shim).unwrap();
     fs::create_dir_all(&far).unwrap();
     symlink(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/ssh"), shim.join("ssh")).unwrap();
-    symlink(env!("CARGO_BIN_EXE_north"), far.join("north")).unwrap();
+    symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), far.join("north")).unwrap();
     write_script(&far.join("ssh"), FAR_SSH);
     write_script(&far.join("systemd-run"), FAR_SYSTEMD_RUN);
     let _bus = UnixListener::bind(scratch.path().join("bus")).unwrap();
@@ -46,7 +46,7 @@ fn a_remote_command_through_the_fleet_ssh_path_runs_in_a_scope_the_far_watchdog_
         .collect();
     let recorded = scratch.path().join("samples.jsonl");
     fs::write(&recorded, samples.join("\n")).unwrap();
-    let replay = Command::new(env!("CARGO_BIN_EXE_north")).args(["capacity", "watchdog", "replay"]).arg(&recorded).args(["--cpus", "20"]).output().unwrap();
+    let replay = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["capacity", "watchdog", "replay"]).arg(&recorded).args(["--cpus", "20"]).output().unwrap();
     let actions = String::from_utf8_lossy(&replay.stdout);
     assert!(replay.status.success(), "{}", String::from_utf8_lossy(&replay.stderr));
     assert!(actions.contains(&format!("session {SESSION}: 17 cores in {unit}")) && !actions.contains("no fleet session"), "{actions}");

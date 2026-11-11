@@ -139,7 +139,7 @@ fn a_public_destination_runs_the_deny_list_scan_and_the_private_kind_judge_and_n
     write(&kinds, "[[kind]]\nid = \"fixture-kind\"\ndescription = \"a fixture kind\"\n");
     std::fs::create_dir_all(south.join("main")).unwrap();
     shim::write_script(&fixture.bin.join("claude"), "if grep -q walnut-lantern; then echo 'fixture-kind | walnut-lantern'; else echo NONE; fi\n");
-    let (profiles, cache, north) = (fixture.root.join("profiles"), fixture.root.join("verdicts"), Path::new(env!("CARGO_BIN_EXE_north")));
+    let (profiles, cache, north) = (fixture.root.join("profiles"), fixture.root.join("verdicts"), Path::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")));
     let login = fixture.root.join("home/.claude");
     write(&login.join(".credentials.json"), "{\"claudeAiOauth\":{}}");
     let environment = [

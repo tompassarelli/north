@@ -176,11 +176,11 @@ impl Host {
     }
 
     pub fn launcher() -> String {
-        format!("{} capacity host", env!("CARGO_BIN_EXE_north"))
+        format!("{} capacity host", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
     }
 
     pub fn helper(&self, arguments: &[&str]) -> Command {
-        let mut command = self.command(env!("CARGO_BIN_EXE_north"));
+        let mut command = self.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         command.args(["capacity", "host"]).args(arguments);
         command.stderr(self.helper_log());
         command
@@ -216,7 +216,7 @@ impl Host {
             ("AGENT_CAPACITY_DISK_FREE_GIB", "500".to_owned()),
             ("AGENT_CAPACITY_SETTLE_SECONDS", "1".to_owned()),
             ("AGENT_CAPACITY_MEMINFO", self.path("meminfo").display().to_string()),
-            ("AGENT_CAPACITY_NORTH", env!("CARGO_BIN_EXE_north").to_owned()),
+            ("AGENT_CAPACITY_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north").to_owned()),
             ("AGENTS_ORCHESTRATION", self.path("orchestration.toml").display().to_string()),
             ("CAPACITY_WATCHDOG_DIR", self.path("no-watchdog").display().to_string()),
             ("GAME_RESERVE_STATE", self.path("game-reserve.json").display().to_string()),

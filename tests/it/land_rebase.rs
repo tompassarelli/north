@@ -79,7 +79,7 @@ impl Fixture {
 
     fn north(&self, directory: &Path, arguments: &[&str]) -> Scan {
         let path = format!("{}:{}", self.bin().display(), std::env::var("PATH").unwrap_or_default());
-        let output: Output = Command::new(env!("CARGO_BIN_EXE_north"))
+        let output: Output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .current_dir(directory)
             .args(["land", "scan"])
             .args(arguments)

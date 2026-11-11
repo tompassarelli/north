@@ -14,7 +14,7 @@ fn a_runtime_a_live_session_host_runs_from_survives_pruning_until_that_host_exit
     let newer = ["4444444444444444444444444444444444444444", "5555555555555555555555555555555555555555", "6666666666666666666666666666666666666666", "7777777777777777777777777777777777777777", "8888888888888888888888888888888888888888"];
     let aged = |sha: &str, seconds: u64| File::open(host.runtime(sha)).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(seconds)).unwrap();
     host.built(old);
-    shim::copy_executable(env!("CARGO_BIN_EXE_north"), host.runtime(old).join("north"));
+    shim::copy_executable(crate::support::bin_exe!("CARGO_BIN_EXE_north"), host.runtime(old).join("north"));
     aged(old, 1_000);
     for (index, sha) in newer.iter().enumerate() {
         host.built(sha);

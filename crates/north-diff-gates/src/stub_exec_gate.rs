@@ -15,7 +15,7 @@ pub const ROOTS: [&str; 3] = ["crates", "src", "tests"];
 const REMEDY: &str = "write executable test stubs with north_core::foundation::shim::write_script or write_executable and copy binaries with copy_executable";
 
 static SITE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"from_mode\(0o7[0-7]{2}\)|fn executable\(path: &Path, |fs::copy\(\s*(?:concat!\(env!\("CARGO_MANIFEST_DIR"\), "/bin|Path::new\(env!\("CARGO_MANIFEST_DIR"\)\)\.join\("bin|env!\("CARGO_BIN_EXE)"#).expect("site pattern")
+    Regex::new(r#"from_mode\(0o7[0-7]{2}\)|fn executable\(path: &Path, |fs::copy\(\s*(?:concat!\(env!\("CARGO_MANIFEST_DIR"\), "/bin|Path::new\(env!\("CARGO_MANIFEST_DIR"\)\)\.join\("bin|(?:env|bin_exe)!\("CARGO_BIN_EXE)"#).expect("site pattern")
 });
 
 pub fn sites(text: &str) -> usize {

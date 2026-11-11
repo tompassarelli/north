@@ -103,7 +103,7 @@ struct Observed {
 fn shims(copy: &Path, case: &Case) -> PathBuf {
     let bin = copy.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
+    symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
     shim::write_script(&bin.join("gh"), &format!("printf '%s\\n' {}\n", case.visibility));
     if case.cancel == Some("scan") {
         shim::write_script(&bin.join("betterleaks"), "kill -TERM $PPID\nsleep 1\n");
@@ -249,7 +249,7 @@ fn all_entries(staged: &[Staged]) -> Vec<Observed> {
     let directory = tempfile::tempdir().unwrap();
     let entry = crate::safe_push::link(directory.path());
     let script_program = [entry.to_str().unwrap()];
-    let binary_program = [env!("CARGO_BIN_EXE_north"), "safe-push"];
+    let binary_program = [crate::support::bin_exe!("CARGO_BIN_EXE_north"), "safe-push"];
     std::thread::scope(|scope| {
         let runs: Vec<_> = staged.iter().map(|staged| (scope.spawn(|| run(&staged.script, &script_program, &staged.case)), scope.spawn(|| run(&staged.binary, &binary_program, &staged.case)))).collect();
         runs.into_iter().zip(staged).map(|((script, binary), staged)| compare(script.join().unwrap(), binary.join().unwrap(), &staged.case)).collect()

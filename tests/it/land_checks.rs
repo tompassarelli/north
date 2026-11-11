@@ -112,7 +112,7 @@ impl Fixture {
     }
 
     fn command_through(&self, base: &str, head: &str, safe_push: &Path) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+        let mut command = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         let path = format!("{}:{}", self.path("stubs").display(), std::env::var("PATH").unwrap_or_default());
         command
             .current_dir(&self.repo)
@@ -122,7 +122,7 @@ impl Fixture {
             .arg(self.path("outcome"))
             .env("PATH", path)
             .env("NORTH_LAND_NORTH", self.path("stubs/north"))
-            .env("REAL_NORTH", env!("CARGO_BIN_EXE_north"))
+            .env("REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .env("STUB_TRACE", self.path("trace"))
             .env("XDG_STATE_HOME", self.path("state"))
             .env("XDG_CACHE_HOME", self.path("cache"))
@@ -195,7 +195,7 @@ fn land_publish() {
         git(&fixture.repo, &["config", "user.email", "t@example.invalid"]);
         let link = fixture.path("link/safe-push");
         fs::create_dir_all(fixture.path("link")).unwrap();
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), &link).unwrap();
+        std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &link).unwrap();
         assert_eq!(fs::canonicalize(&link).unwrap().file_name().unwrap(), "north");
         script(&fixture.path("stubs/betterleaks"), "printf 'betterleaks %s\\n' \"$*\" >>\"$STUB_TRACE\"\nexit \"$STUB_LEAKS_STATUS\"\n");
         let output = fixture.command_through(&fixture.base, &fixture.head, &link).env("HOME", fixture.path("home")).env_remove("SAFE_PUSH_DENYLIST").env_remove("SAFE_PUSH_SOUTH").env("STUB_LEAKS_STATUS", leaks).output().unwrap();
@@ -399,7 +399,7 @@ fn north_from_the_tree(fixture: &Fixture) {
 fn head_north(fixture: &Fixture, command: &str, uncovered: bool) -> Output {
     let mut run = Command::new("bash");
     run.current_dir(&fixture.repo).args(["-c", command]);
-    run.env("REAL_NORTH", env!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
+    run.env("REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
     run.env_remove("SAFE_PUSH_LAND_RUNTIME_HEAD");
     if uncovered {
         run.env("STUB_UNCOVERED", "1");
@@ -408,7 +408,7 @@ fn head_north(fixture: &Fixture, command: &str, uncovered: bool) -> Output {
 }
 
 fn render_features(fixture: &Fixture, message: &str) -> String {
-    let render = Command::new(env!("CARGO_BIN_EXE_north")).current_dir(&fixture.repo).args(["docs", "features-index"]).output().unwrap();
+    let render = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).current_dir(&fixture.repo).args(["docs", "features-index"]).output().unwrap();
     assert!(render.status.success(), "{}", text(&render));
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", message]);
@@ -494,7 +494,7 @@ fn run_head_north(fixture: &Fixture, command: &str) -> Output {
 fn head_north_command(fixture: &Fixture, command: &str) -> Command {
     let mut run = Command::new("bash");
     run.current_dir(&fixture.repo).args(["-c", command]).env("HEAD_NORTH_SETTLE", "1");
-    run.env("REAL_NORTH", env!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
+    run.env("REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
     run
 }
 

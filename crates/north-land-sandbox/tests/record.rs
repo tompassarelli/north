@@ -26,7 +26,7 @@ impl Scene {
     }
 
     fn sandbox(&self) -> Command {
-        let mut sandbox = Command::new(env!("CARGO_BIN_EXE_north-land-sandbox"));
+        let mut sandbox = Command::new(sandbox_binary());
         sandbox.args(["land", "sandbox", "exec", "--tree"]).arg(self.tree()).current_dir(self.tree()).env_remove("CARGO_TARGET_DIR").env_remove("LANG").env_remove("LC_ALL").env_remove("LANGUAGE").env_remove("LOCALE_ARCHIVE");
         sandbox
     }
@@ -196,4 +196,11 @@ fn a_child_stopped_by_sigstop_still_dies_of_sigterm() {
     let file = scene.root.path().join("recorded");
     let output = scene.sandbox().arg("--record").arg(&file).args(["--", "sh", "-c", script]).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "143", "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+fn sandbox_binary() -> std::path::PathBuf {
+    option_env!("CARGO_BIN_EXE_north-land-sandbox").map_or_else(
+        || std::path::absolute(std::env::var_os("CARGO_BIN_EXE_north-land-sandbox").expect("CARGO_BIN_EXE_north-land-sandbox is set at compile or run time")).expect("the working directory resolves"),
+        std::path::PathBuf::from,
+    )
 }

@@ -9,7 +9,7 @@ fn config_agents_sync_creates_each_declared_profile_missing_on_this_host() {
     fs::write(home.join(".claude/settings.json"), "{}").unwrap();
     let policy = scratch.path().join("orchestration.toml");
     fs::write(&policy, "[accounts.claude.profiles.b]\nlaunchhost = { path = \"~/profiles/claude-b\" }\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
         .args(["config", "agents", "sync"])
         .env("HOME", &home)
         .env("AGENTS_ORCHESTRATION", &policy)

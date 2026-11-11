@@ -48,7 +48,7 @@ impl Fixture {
         let bin = root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(root.join("gh-state")).unwrap();
-        symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
+        symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
         shim::write_script(&bin.join("gh"), GH);
         shim::write_script(&bin.join("betterleaks"), "exit 0\n");
         Self { scratch }
@@ -84,7 +84,7 @@ impl Fixture {
     }
 
     fn release(&self, arguments: &[&str]) -> Output {
-        self.command(env!("CARGO_BIN_EXE_north"), &self.repo()).args(["land", "release"]).args(arguments).output().unwrap()
+        self.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &self.repo()).args(["land", "release"]).args(arguments).output().unwrap()
     }
 
     fn remote_tag(&self, tag: &str) -> Option<String> {

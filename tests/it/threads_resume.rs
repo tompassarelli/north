@@ -35,7 +35,7 @@ impl Rig {
         let home = root.join("home");
         fs::create_dir_all(root.join("bin")).unwrap();
         fs::write(root.join("activation.active"), "hook north-hook\n").unwrap();
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), root.join("bin/north")).unwrap();
+        std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), root.join("bin/north")).unwrap();
         bash(&root.join("bin/gh"), GH);
         Rig { _scratch: scratch, root, home }
     }
@@ -53,7 +53,7 @@ impl Rig {
     }
 
     fn threads(&self, args: &[&str], local: bool) -> String {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+        let mut command = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         command.arg("threads").args(args)
             .env("HOME", &self.home)
             .env("NORTH_AGENT_ACTIVE", self.root.join("activation.active"))

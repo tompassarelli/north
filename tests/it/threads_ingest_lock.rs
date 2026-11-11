@@ -4,12 +4,12 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 fn threads(root: &Path, verb: &str) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+    let mut command = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
     command
         .args(["threads", verb])
         .env("HOME", root)
         .env("THREADS_DB", root.join("threads.db"))
-        .env("NORTH_BIN", env!("CARGO_BIN_EXE_north"))
+        .env("NORTH_BIN", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
         .env("PATH", std::env::var("PATH").unwrap_or_default());
     command
 }

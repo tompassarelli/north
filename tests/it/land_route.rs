@@ -102,7 +102,7 @@ impl Fixture {
             .args(arguments)
             .current_dir(self.repo())
             .env("PATH", path)
-            .env("REAL_NORTH", env!("CARGO_BIN_EXE_north"))
+            .env("REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .env("HOME", self.top().join("home"))
             .env("AGENTS_ORCHESTRATION", self.top().join("orchestration.toml"))
             .env("XDG_STATE_HOME", self.top().join("state"))

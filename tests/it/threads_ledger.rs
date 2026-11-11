@@ -53,7 +53,7 @@ impl Rig {
     }
 
     fn command(&self, program: &str, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+        let mut command = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         command
             .arg(program)
             .args(args)
@@ -61,7 +61,7 @@ impl Rig {
             .env("THREADS_DB", self.db())
             .env("GH_TRACE", self.root.join("gh.trace"))
             .env("AGENTS_ORCHESTRATION", self.root.join("orchestration.toml"))
-            .env("NORTH_BIN", env!("CARGO_BIN_EXE_north"))
+            .env("NORTH_BIN", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .env("NORTH_HOME", env!("CARGO_MANIFEST_DIR"))
             .env("THREADS_ALIVE_OWNERS", r#"["alice","bob","fixture"]"#)
             .env("PATH", format!("{}:{}", self.root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
@@ -140,7 +140,7 @@ impl Remote<'_> {
         fs::create_dir_all(home.join(".config/threads")).unwrap();
         fs::write(home.join(".config/threads/remote"), "nexus\n").unwrap();
         fs::create_dir_all(rig.root.join("remote")).unwrap();
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), rig.root.join("remote/north")).unwrap();
+        std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), rig.root.join("remote/north")).unwrap();
         bash(&rig.root.join("bin/ssh"), SSH);
         Remote { rig, home }
     }

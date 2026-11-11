@@ -56,14 +56,14 @@ fn north_enqueue_with(fixture: &Fixture, environment: &[(&str, &Path)]) -> std::
 }
 
 fn north_enqueue_run(fixture: &Fixture, arguments: &[&str], environment: &[(&str, &Path)]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_north"))
+    Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
         .args(["land", "enqueue", "--repo"])
         .arg(&fixture.repo)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .args(arguments)
         .env("XDG_STATE_HOME", &fixture.state)
-        .env("NORTH_LAND_NORTH", env!("CARGO_BIN_EXE_north"))
+        .env("NORTH_LAND_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
         .env("HOME", fixture.root.join("home"))
         .env_remove("SAFE_PUSH_SOUTH")
         .env_remove("SAFE_PUSH_DENYLIST")

@@ -93,7 +93,7 @@ impl Fixture {
     }
 
     fn north(&self, directory: &Path, arguments: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_north"))
+        Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .current_dir(directory)
             .args(arguments)
             .env("HOME", self.home())

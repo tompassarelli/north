@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn north() -> &'static str {
-    env!("CARGO_BIN_EXE_north")
+    crate::support::bin_exe!("CARGO_BIN_EXE_north")
 }
 
 fn linked_twice(scratch: &Path) -> PathBuf {

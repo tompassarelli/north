@@ -39,10 +39,10 @@ impl Rig {
     }
 
     fn north(&self, arguments: &[&str], mode: &str) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+        let mut command = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         command.args(arguments)
             .env("HOME", &self.root)
-            .env("NORTH", env!("CARGO_BIN_EXE_north"))
+            .env("NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .env("SCRATCH", &self.root)
             .env("THREADS_DB", &self.source)
             .env("MODE", mode)

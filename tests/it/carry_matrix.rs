@@ -147,7 +147,7 @@ impl Matrix {
                 symlink(found, bin.join(tool)).unwrap();
             }
         }
-        symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
+        symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
         shim::copy_executable(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/cargo"), bin.join("cargo"));
         shim::write_script(&bin.join("nix"), &FAKE_NIX.replace("@TOOLCHAIN@", &toolchain.display().to_string()));
         shim::write_script(&bin.join("ssh"), FAKE_SSH);
@@ -182,7 +182,7 @@ impl Matrix {
     }
 
     fn north(&self, arguments: &[&str], probe: &[&str]) -> Output {
-        self.command(env!("CARGO_BIN_EXE_north")).args(arguments).args(probe).output().unwrap()
+        self.command(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(arguments).args(probe).output().unwrap()
     }
 
     fn sandboxed(&self, script: &str, probe: &[&str]) -> Output {
@@ -198,7 +198,7 @@ impl Matrix {
             "capacity exec --dev-shell" => self.north(&["capacity", "exec", "--dev-shell", self.project.to_str().unwrap(), "--"], probe),
             "offload run" => {
                 let line = probe.iter().map(|word| format!("'{}'", word.replace('\'', "'\\''"))).collect::<Vec<_>>().join(" ");
-                self.command(env!("CARGO_BIN_EXE_north")).args(["capacity", "offload", "run", "--host", "gex45", "--base", &self.base, "--head", &self.head, "--timeout", "30", "--", &line]).env("SAFE_PUSH_LANDING", "1").output().unwrap()
+                self.command(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["capacity", "offload", "run", "--host", "gex45", "--base", &self.base, "--head", &self.head, "--timeout", "30", "--", &line]).env("SAFE_PUSH_LANDING", "1").output().unwrap()
             }
             "land-shell --dev" => self.sandboxed("land-shell", probe),
             "depbox run" => self.sandboxed("depbox", probe),

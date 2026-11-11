@@ -8,7 +8,7 @@ fn live() -> bool {
 }
 
 fn north() -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+    let mut command = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
     command.args(["capacity", "bounded"]);
     command
 }

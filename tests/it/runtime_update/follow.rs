@@ -28,7 +28,7 @@ fn a_fleet_watchdog_moves_onto_each_promoted_runtime_in_place_and_keeps_watching
     let host = Host::new();
     for sha in RUNTIMES {
         host.built(sha);
-        shim::copy_executable(env!("CARGO_BIN_EXE_north"), host.runtime(sha).join("north"));
+        shim::copy_executable(crate::support::bin_exe!("CARGO_BIN_EXE_north"), host.runtime(sha).join("north"));
     }
     promote(&host, RUNTIMES[0]);
     let mut session_host = spawn(Command::new("sleep").arg("600"));
@@ -72,7 +72,7 @@ fn a_session_host_moves_onto_each_promoted_runtime_in_place_and_keeps_its_provid
     let host = Host::new();
     for sha in RUNTIMES {
         host.built(sha);
-        shim::copy_executable(env!("CARGO_BIN_EXE_north"), host.runtime(sha).join("north"));
+        shim::copy_executable(crate::support::bin_exe!("CARGO_BIN_EXE_north"), host.runtime(sha).join("north"));
     }
     promote(&host, RUNTIMES[0]);
     let (state, socket) = (host.path("state/north/fleet/worker-1"), host.path("worker-1.sock"));

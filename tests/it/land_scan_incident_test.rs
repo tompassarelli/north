@@ -80,7 +80,7 @@ impl Fixture {
 
     fn scan_as(&self, name: &str, round: &str) -> Scan {
         let path = format!("{}:{}", self.root.path().join("bin").display(), std::env::var("PATH").unwrap_or_default());
-        let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .current_dir(&self.repo)
             .args(["land", "scan", name, &format!("{}..HEAD", self.base)])
             .env("PATH", path)

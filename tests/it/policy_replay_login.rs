@@ -52,7 +52,7 @@ impl Replay {
 
     fn sweep(&self) -> Output {
         let root = self.scratch.path();
-        Command::new(env!("CARGO_BIN_EXE_north"))
+        Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .args(["policy-replay", "sweep"])
             .args([
                 root.join("agents/replay/a.json"),

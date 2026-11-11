@@ -81,7 +81,7 @@ impl Rig {
     }
 
     fn lane_gc(&self, now: &str, extra: &[(&str, &str)], args: &[&str]) -> String {
-        let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .args(["lane", "gc"])
             .arg("--root")
             .arg(self.home.join("code"))

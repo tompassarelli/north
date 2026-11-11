@@ -32,7 +32,7 @@ impl Scene {
     }
 
     fn exec(&self, enforce: bool, command: &[&str]) -> Output {
-        let mut sandbox = Command::new(env!("CARGO_BIN_EXE_north-land-sandbox"));
+        let mut sandbox = Command::new(sandbox_binary());
         sandbox.args(["land", "sandbox", "exec", "--tree"]).arg(self.tree()).current_dir(self.tree()).env_remove("LANG").env_remove("LC_ALL").env_remove("LANGUAGE").env_remove("LOCALE_ARCHIVE");
         if enforce {
             sandbox.arg("--enforce").arg(self.path_set());
@@ -95,4 +95,11 @@ fn the_exit_status_of_the_command_is_the_exit_status_of_the_run() {
     let scene = Scene::new();
     assert_eq!(scene.exec(false, &["sh", "-c", "exit 7"]).status.code(), Some(7));
     assert_eq!(scene.exec(false, &["sh", "-c", "kill -TERM $$"]).status.code(), Some(143));
+}
+
+fn sandbox_binary() -> std::path::PathBuf {
+    option_env!("CARGO_BIN_EXE_north-land-sandbox").map_or_else(
+        || std::path::absolute(std::env::var_os("CARGO_BIN_EXE_north-land-sandbox").expect("CARGO_BIN_EXE_north-land-sandbox is set at compile or run time")).expect("the working directory resolves"),
+        std::path::PathBuf::from,
+    )
 }

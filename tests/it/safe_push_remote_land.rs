@@ -31,9 +31,9 @@ impl Gex45 {
         fs::create_dir_all(root.join("home/.local/state/north/current")).unwrap();
         fs::write(root.join("home/.config/threads/remote"), "nexus\n").unwrap();
         fs::write(root.join("orchestration.toml"), "[hosts.gex45]\nledger_client = true\n\n[hosts.nexus]\nsettles_fleet = true\n").unwrap();
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), tools.join("north")).unwrap();
+        std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), tools.join("north")).unwrap();
         crate::safe_push::link(&tools);
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), root.join("home/.local/state/north/current/north")).unwrap();
+        std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), root.join("home/.local/state/north/current/north")).unwrap();
         let trace = root.join("trace");
         shim::write_script(&tools.join("ssh"), &format!("printf 'ssh %s\\n' \"$*\" >>'{}'\ncat >'{}'\necho {LANDED}\n", trace.display(), root.join("received.mbox").display()));
         shim::write_script(&tools.join("git"), &format!("for word in \"$@\"; do [ \"$word\" != push ] || {{ printf 'git %s\\n' \"$*\" >>'{}'; break; }}; done\nexec '{}' \"$@\"\n", trace.display(), real_git()));

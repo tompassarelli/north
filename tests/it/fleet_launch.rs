@@ -16,7 +16,7 @@ static FIXTURE: std::sync::LazyLock<support::template::Template> = std::sync::La
 pub(crate) fn fixture(root: &Path, trace: &str) {
     FIXTURE.copy_into(root);
     reader(root);
-    executable(&root.join("bin/claude"), &format!("exec {} --trace {trace} \"$@\"\n", env!("CARGO_BIN_EXE_fake_claude")));
+    executable(&root.join("bin/claude"), &format!("exec {} --trace {trace} \"$@\"\n", crate::support::bin_exe!("CARGO_BIN_EXE_fake_claude")));
 }
 
 fn reader(root: &Path) {
@@ -62,7 +62,7 @@ fn north_on(root: &Path, host: &str, args: &[&str]) -> Output {
 }
 
 fn north_as(root: &Path, host: &str, sender: &[(&str, &str)], args: &[&str]) -> Output {
-    environment(Command::new(env!("CARGO_BIN_EXE_north")), root, host).args(args).envs(sender.iter().copied()).output().unwrap()
+    environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, host).args(args).envs(sender.iter().copied()).output().unwrap()
 }
 
 pub(crate) fn environment(mut command: Command, root: &Path, host: &str) -> Command {
@@ -177,12 +177,12 @@ fn a_launch_starts_while_the_ledger_host_is_too_loaded_to_say_who_holds_its_task
     fs::write(root.join(".config/threads/remote"), "loaded-ledger-host\n").unwrap();
     fs::create_dir_all(root.join(".local/state/threads")).unwrap();
     fs::copy(root.join("threads.db"), root.join(".local/state/threads/snapshot.db")).unwrap();
-    executable(&root.join("bin/north"), &format!("exec {} \"$@\"\n", env!("CARGO_BIN_EXE_north")));
+    executable(&root.join("bin/north"), &format!("exec {} \"$@\"\n", crate::support::bin_exe!("CARGO_BIN_EXE_north")));
     executable(&root.join("bin/ssh"), &format!("for word; do command=$word; done\ncase $command in *holder*) sleep 3;; esac\nTHREADS_DB={} exec sh -c \"$command\"\n", root.join("threads.db").display()));
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
     let brief = brief.display().to_string();
-    let far_ledger = |args: &[&str]| environment(Command::new(env!("CARGO_BIN_EXE_north")), root, "here").env_remove("THREADS_DB").args(args).output().unwrap();
+    let far_ledger = |args: &[&str]| environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, "here").env_remove("THREADS_DB").args(args).output().unwrap();
 
     let launched = far_ledger(&["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--test", "--task", "makgora#4", "--system-prompt", &brief, "start the box"]);
     let listed = text(&north(root, &["fleet", "list"]).stdout);
@@ -202,7 +202,7 @@ fn a_test_launch_without_a_declared_fixture_root_refuses_before_it_writes_a_sess
     fs::write(&brief, BRIEF).unwrap();
     let brief = brief.display().to_string();
 
-    let refused = environment(Command::new(env!("CARGO_BIN_EXE_north")), root, "here")
+    let refused = environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, "here")
         .env_remove("NORTH_TEST_ROOT")
         .args(["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--test", "--system-prompt", &brief, "start the box"])
         .output()

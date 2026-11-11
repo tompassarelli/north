@@ -125,7 +125,7 @@ impl Host {
             true => self.path("bin").display().to_string(),
             false => format!("{}:{}", self.path("bin").display(), std::env::var("PATH").unwrap()),
         };
-        Command::new(env!("CARGO_BIN_EXE_north"))
+        Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .args(args)
             .env("PATH", path)
             .env("HOME", self.path("home"))

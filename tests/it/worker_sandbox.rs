@@ -68,7 +68,7 @@ impl Home {
     fn run_in(&self, directory: &Path, command: &str, sandboxed: bool) -> Output {
         let mut outer = self.outer(directory);
         if sandboxed {
-            outer.arg("--").arg(env!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]);
+            outer.arg("--").arg(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]);
         } else {
             outer.args(["--", "bash", "-c", command]);
         }
@@ -76,7 +76,7 @@ impl Home {
     }
 
     fn run_in_lane_only(&self, program: &[&str]) -> Output {
-        self.run_in_lane_only_by(Path::new(env!("CARGO_BIN_EXE_north")), program)
+        self.run_in_lane_only_by(Path::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), program)
     }
 
     fn run_in_lane_only_by(&self, north: &Path, program: &[&str]) -> Output {
@@ -140,7 +140,7 @@ fn a_worker_command_meets_a_null_device_at_every_runtime_socket_north_does_not_n
     std::fs::create_dir_all(runtime.join("manager")).unwrap();
     let _listeners: Vec<std::os::unix::net::UnixListener> = ["daemon.sock", "manager/private", "north-kept.sock", "wayland-1"].iter().map(|name| std::os::unix::net::UnixListener::bind(runtime.join(name)).unwrap()).collect();
     let command = r#"test -c "$XDG_RUNTIME_DIR/daemon.sock" && test -c "$XDG_RUNTIME_DIR/manager/private" && test -S "$XDG_RUNTIME_DIR/north-kept.sock" && test -S "$XDG_RUNTIME_DIR/wayland-1" && ! umount "$XDG_RUNTIME_DIR/daemon.sock""#;
-    let output = Command::new(env!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &runtime).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", &runtime).current_dir(&runtime).output().unwrap();
+    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &runtime).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", &runtime).current_dir(&runtime).output().unwrap();
     assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stderr).matches("north worker-sandbox:").count(), 0, "{}", String::from_utf8_lossy(&output.stderr));
 }
@@ -183,7 +183,7 @@ fn a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime
     file(&home.path().join(".local/lib/claude/versions/1/token"));
     let north = home.path().join(".local/state/north/runtimes/host/north");
     std::fs::create_dir_all(north.parent().unwrap()).unwrap();
-    north_core::foundation::shim::copy_executable(env!("CARGO_BIN_EXE_north"), &north);
+    north_core::foundation::shim::copy_executable(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &north);
 
     for (program, says) in [(&shim, "shim"), (&on_path, "on-path"), (&runtime, "runtime"), (&opencode, "opencode"), (&pi, "pi")] {
         let output = home.run_in_lane_only_by(&north, &[program.to_str().unwrap()]);
@@ -200,7 +200,7 @@ fn a_lane_created_after_the_session_started_runs_its_scripts_in_a_fresh_domain_t
     let home = Home::new();
     let scratch = home.path().join("scratch");
     std::fs::create_dir_all(&scratch).unwrap();
-    let north = Path::new(env!("CARGO_BIN_EXE_north"));
+    let north = Path::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
     let session = |directory: &Path, fresh: bool, program: &[&str]| {
         let mut outer = home.outer(directory);
         outer.arg("--setenv").arg("NORTH_SANDBOX_SCRATCH").arg(&scratch);
@@ -242,7 +242,7 @@ fn a_lane_only_shell_ends_with_done_instead_of_running_safe_push_north_1041() {
     let head = Command::new("git").arg("-C").arg(&lane).args(["rev-parse", "HEAD"]).output().unwrap();
     assert!(head.status.success(), "{}", String::from_utf8_lossy(&head.stderr));
     let sha = String::from_utf8_lossy(&head.stdout).trim().to_owned();
-    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
         .args(["safe-push", "--to", "main"])
         .current_dir(&lane)
         .env_clear()
@@ -270,7 +270,7 @@ fn a_git_stash_run_through_the_wrapper_with_no_hook_is_refused_with_the_hooks_me
     std::fs::write(repository.join("work.txt"), "unfinished").unwrap();
     let active = home.path().join("activation.active");
     std::fs::write(&active, "hook north-hook\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
         .args(["--worker-sandbox", "git stash"])
         .current_dir(&repository)
         .env_clear()
@@ -314,7 +314,7 @@ fn a_sandboxed_worker_opens_a_gate_and_records_a_box_check() {
     let resident = rusqlite::Connection::open(state.join("ledger.db")).unwrap();
     resident.query_row("pragma journal_mode=wal", [], |_| Ok(())).unwrap();
     let command = child("1793000000000-956");
-    let output = Command::new(env!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
+    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
     let report = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(output.status.success(), "{report}");
     let names = |directory: &str| -> Vec<String> { std::fs::read_dir(home.path().join(directory)).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect() };
@@ -336,7 +336,7 @@ impl Drop for Broker {
 fn a_sandboxed_worker_fast_forwards_a_main_checkout_through_the_broker() {
     let home = Home::new();
     let runtime = tempfile::Builder::new().prefix("n1097").tempdir_in("/tmp").unwrap();
-    let north = env!("CARGO_BIN_EXE_north");
+    let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
     let socket = runtime.path().join("north-outside/broker.sock");
     let _broker = Broker(Command::new(north).args(["--worker-sandbox", "--broker"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("XDG_RUNTIME_DIR", runtime.path()).spawn().unwrap());
     assert!(north_core::platform::wait::until(std::time::Duration::from_secs(5), || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");

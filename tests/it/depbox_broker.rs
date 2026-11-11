@@ -6,7 +6,7 @@ fn depbox(scratch: &std::path::Path, broker: &std::path::Path, target: &std::pat
     let checkout = home.join("code/fixture/main");
     std::fs::create_dir_all(&checkout).unwrap();
     assert!(Command::new("git").args(["init", "-q"]).current_dir(&checkout).status().unwrap().success());
-    Command::new(env!("CARGO_BIN_EXE_north"))
+    Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
         .args(["depbox", "run", "--", "nc", "-U", "-w", "2"])
         .arg(target)
         .current_dir(&checkout)
@@ -42,7 +42,7 @@ fn dependency_code_in_depbox_cannot_connect_to_the_broker_socket() {
     let checkout = scratch.path().join("home/code/fixture/main");
     let victim = checkout.join("kept.txt");
     std::fs::write(&victim, "kept").unwrap();
-    let handed_off = Command::new(env!("CARGO_BIN_EXE_north"))
+    let handed_off = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
         .args(["depbox", "run", "--", "rm", "-f", "kept.txt"])
         .current_dir(&checkout)
         .env("HOME", scratch.path().join("home"))

@@ -3,8 +3,6 @@ use std::process::{Command, Stdio};
 
 use north_core::foundation::shim;
 
-const NORTH: &str = env!("CARGO_BIN_EXE_north");
-
 const INSTALLED_NORTH: &str = "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>\"$SCRATCH/installed-calls\"\nexit 97\n";
 const GH: &str = "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>\"$SCRATCH/gh-calls\"\n[ \"$1 $2\" = \"issue view\" ] && cat \"$SCRATCH/gh-state/$3\" 2>/dev/null && exit 0\nexit 1\n";
 const NORTH_STUB: &str = r#"#!/usr/bin/env bash
@@ -71,7 +69,7 @@ impl Desk {
             .env("PATH", path)
             .env("HOME", self.scratch.join("home"))
             .env("SCRATCH", &self.scratch)
-            .env("NORTH_LOCAL", NORTH)
+            .env("NORTH_LOCAL", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .env("THREADS_DB", self.scratch.join("threads.db"))
             .env("XDG_STATE_HOME", self.scratch.join("state"))
             .env("GIT_CONFIG_COUNT", "2")
@@ -130,7 +128,7 @@ impl Desk {
     }
 
     fn north(&self, args: &[&str], now: Option<u64>, stdin: &str) -> (i32, String) {
-        let mut command = Command::new(NORTH);
+        let mut command = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         self.env(&mut command);
         command.args(args).current_dir(&self.container).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         if let Some(now) = now {
@@ -150,7 +148,7 @@ impl Desk {
     fn queue(&self, number: u32, follows: &str, tier: &str) -> String {
         let note = format!("Delegation: role=worker budget=0\nItem: north#{number}\nFollows: {follows}\nCategory: feature\n");
         let item = format!("north#{number}");
-        let mut command = Command::new(NORTH);
+        let mut command = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         self.env(&mut command);
         command.env("THREADS_FORWARDED", "1").args(["threads", "queue", "follow", &item, "--tier", tier, "--parent", "galileo-parent"]);
         command.current_dir(&self.container).stdin(Stdio::piped()).stdout(Stdio::piped());

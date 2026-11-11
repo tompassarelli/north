@@ -12,7 +12,7 @@ fn runtime(fixture: &Fixture, name: &str, binary: Option<&str>) -> PathBuf {
     fs::create_dir_all(&bin).unwrap();
     match binary {
         Some(body) => executable(&bin.join("north"), body),
-        None => symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap(),
+        None => symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap(),
     }
     PathBuf::from("runtimes").join(name)
 }
@@ -48,7 +48,7 @@ fn served() -> Fixture {
 
 fn replaying(failing: &[&str], verdict: &str) -> String {
     let lines: String = failing.iter().map(|test| format!("echo 'replay: failure cargo {test}'; ")).collect();
-    format!("#!/usr/bin/env bash\nif [ \"$1 $2\" = \"land replay\" ]; then {lines}readlink \"$XDG_STATE_HOME/north/lander\" > \"$LAND_TRACE/seen-link\"; echo 'replay: verdict {verdict}'; exit 0; fi\nexec {} \"$@\"\n", env!("CARGO_BIN_EXE_north"))
+    format!("#!/usr/bin/env bash\nif [ \"$1 $2\" = \"land replay\" ]; then {lines}readlink \"$XDG_STATE_HOME/north/lander\" > \"$LAND_TRACE/seen-link\"; echo 'replay: verdict {verdict}'; exit 0; fi\nexec {} \"$@\"\n", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
 }
 
 #[test]

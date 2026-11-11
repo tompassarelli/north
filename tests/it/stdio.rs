@@ -37,7 +37,7 @@ fn cli_output_survives_backpressure_from_a_nonblocking_parent() {
     })).unwrap()).unwrap();
     let (mut output, output_writer) = nonblocking_pipe();
     let (_errors, errors_writer) = nonblocking_pipe();
-    let mut process = Process(Command::new(env!("CARGO_BIN_EXE_north")).args(["fleet", "list", "--json"])
+    let mut process = Process(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["fleet", "list", "--json"])
         .env("HOME", scratch.path())
         .env("NORTH_FLEET_SESSION", "")
         .stdin(Stdio::null())
