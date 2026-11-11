@@ -19,6 +19,31 @@
               (
                 rustToolchain:
                 let
+                  devPackages = [
+                    (pkgs.runCommandLocal "capacity-gate-shims" { }
+                      "install -Dm755 ${./bin/cargo} $out/bin/cargo; install -Dm755 ${./bin/cargo} $out/bin/bun"
+                    )
+                    rustToolchain
+                    pkgs.buck2
+                    pkgs.shellcheck
+                    pkgs.cargo-deny
+                    pkgs.osv-scanner
+                    pkgs.cargo-mutants
+                    pkgs.cargo-nextest
+                    pkgs.rust-analyzer
+                    # The release firn's bunRelease installs on every host, so tests here run the bun the north services run.
+                    (pkgs.bun.overrideAttrs (_old: {
+                      version = "1.4.4";
+                      src = pkgs.fetchurl {
+                        url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64-baseline.zip";
+                        hash = "sha256-4ERutVmVdy65iUvrrppr42jZhai5Jx7hJEhvmUbu3XY=";
+                      };
+                    }))
+                    pkgs.openssh
+                    pkgs.age
+                    pkgs.ast-grep
+                    (pkgs.python3.withPackages (python: [ python.websockets ]))
+                  ];
                   # Absolute store paths, so each Buck2 action's key names the exact toolchain that runs it.
                   buck2Toolchain = pkgs.writeText "north-buck2-toolchain.buckconfig" ''
                     [nix]
@@ -29,37 +54,17 @@
                       cxx = ${pkgs.stdenv.cc}/bin/c++
                       ar = ${pkgs.stdenv.cc.bintools.bintools}/bin/ar
                       python3 = ${pkgs.python3}/bin/python3
+                    [north]
+                      test_path = ${
+                        pkgs.lib.makeBinPath (devPackages ++ [ pkgs.git ] ++ pkgs.stdenv.initialPath)
+                      }:/run/wrappers/bin:/run/current-system/sw/bin
                   '';
                 in
                 {
                   formatter.${system} = pkgs.nixfmt-tree;
                   packages.${system}.buck2-toolchain = buck2Toolchain;
                   devShells.${system}.default = pkgs.mkShell rec {
-                    packages = [
-                      (pkgs.runCommandLocal "capacity-gate-shims" { }
-                        "install -Dm755 ${./bin/cargo} $out/bin/cargo; install -Dm755 ${./bin/cargo} $out/bin/bun"
-                      )
-                      rustToolchain
-                      pkgs.buck2
-                      pkgs.shellcheck
-                      pkgs.cargo-deny
-                      pkgs.osv-scanner
-                      pkgs.cargo-mutants
-                      pkgs.cargo-nextest
-                      pkgs.rust-analyzer
-                      # The release firn's bunRelease installs on every host, so tests here run the bun the north services run.
-                      (pkgs.bun.overrideAttrs (_old: {
-                        version = "1.4.4";
-                        src = pkgs.fetchurl {
-                          url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64-baseline.zip";
-                          hash = "sha256-4ERutVmVdy65iUvrrppr42jZhai5Jx7hJEhvmUbu3XY=";
-                        };
-                      }))
-                      pkgs.openssh
-                      pkgs.age
-                      pkgs.ast-grep
-                      (pkgs.python3.withPackages (python: [ python.websockets ]))
-                    ];
+                    packages = devPackages;
                     # Cargo hashes workspace members by relative path, so a target outside this checkout is keyed to it lest another checkout's build read as fresh; the checkout's own target stays unkeyed so registry artifacts match its siblings', and `north capacity dev-shell run` and depbox seed that target before the shell opens.
                     shellHook = ''
                       checkout=$PWD

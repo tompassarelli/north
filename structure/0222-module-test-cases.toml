@@ -1,0 +1,6 @@
+[[module]]
+name = "test_cases"
+paths = ["crates/north-test-cases/src/**"]
+responsibility = "Run one libtest binary's cases one process each, as nextest does, and print a status line per case, so a Buck2 test target reports per-test verdicts."
+may_use = []
+

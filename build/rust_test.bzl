@@ -1,0 +1,75 @@
+"""North's Rust test targets: one per nextest binary, each case in its own process, cached by its declared inputs."""
+
+def _north_files_impl(ctx: AnalysisContext) -> list[Provider]:
+    return [DefaultInfo(default_outputs = ctx.attrs.srcs)]
+
+north_files = rule(
+    impl = _north_files_impl,
+    doc = "A package's source files handed on unchanged, so a test reads each at its repository path; filegroup would copy them under buck-out.",
+    attrs = {
+        "srcs": attrs.list(attrs.source(), default = []),
+    },
+)
+
+def _north_test_impl(ctx: AnalysisContext) -> list[Provider]:
+    resources = [resource[DefaultInfo].default_outputs for resource in ctx.attrs.resources]
+    command = cmd_args(
+        ctx.attrs._runner[RunInfo],
+        "--binary-id",
+        ctx.attrs.binary_id,
+        "--",
+        ctx.attrs.binary[RunInfo],
+        hidden = resources,
+    )
+    return [
+        DefaultInfo(default_outputs = ctx.attrs.binary[DefaultInfo].default_outputs),
+        RunInfo(args = command),
+        ExternalRunnerTestInfo(
+            type = "rust",
+            command = [command],
+            env = ctx.attrs.env,
+            labels = ctx.attrs.labels,
+            run_from_project_root = True,
+            use_project_relative_paths = True,
+            supports_test_execution_caching = True,
+        ),
+    ]
+
+_north_test = rule(
+    impl = _north_test_impl,
+    attrs = {
+        "binary": attrs.dep(providers = [RunInfo]),
+        "binary_id": attrs.string(),
+        "env": attrs.dict(key = attrs.string(), value = attrs.arg(), default = {}),
+        "labels": attrs.list(attrs.string(), default = []),
+        "resources": attrs.list(attrs.dep(), default = []),
+        "_runner": attrs.exec_dep(default = "//crates/north-test-cases:north-test-cases", providers = [RunInfo]),
+    },
+)
+
+def _test_path():
+    path = read_root_config("north", "test_path", "")
+    return {"PATH": path} if path else {}
+
+def manifest_dir_flags():
+    """`CARGO_MANIFEST_DIR` as the package's path from the repository root, set through rustc rather than `env`, where the prelude would make it an absolute path into one checkout's buck-out."""
+    return ["-Zunstable-options", "--env-set=CARGO_MANIFEST_DIR=" + (native.package_name() or ".")]
+
+def north_rust_test(name, binary_id, env = {}, run_env = {}, resources = [], labels = [], rustc_flags = [], **kwargs):
+    """The test binary `name`-bin, built as `cargo test` builds it, and the test target `name` that runs its cases."""
+    if "CARGO_MANIFEST_DIR" in env:
+        fail("north_rust_test sets CARGO_MANIFEST_DIR itself; drop it from env")
+    native.rust_binary(
+        name = name + "-bin",
+        env = env,
+        rustc_flags = ["--test"] + manifest_dir_flags() + rustc_flags,
+        **kwargs
+    )
+    _north_test(
+        name = name,
+        binary = ":" + name + "-bin",
+        binary_id = binary_id,
+        env = _test_path() | env | {"CARGO_MANIFEST_DIR": native.package_name() or "."} | run_env,
+        resources = ([":files"] if native.package_name() else []) + ["//:files"] + resources,
+        labels = labels,
+    )

@@ -411,6 +411,15 @@ claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi)
 - <a id="buck2-dep-files"></a>**Buck2: dep files**, https://buck2.build/docs/rule_authors/dep_files/.
   Informed: a verdict keyed on the inputs a check used, not every input it may read
   ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
+- <a id="buck2-test"></a>**Buck2: `buck2 test`** and the **built-in test runner**, https://buck2.build/docs/users/commands/test/,
+  https://github.com/facebook/buck2/tree/940470de53ffb79a393a542b92c60e0adf281927/app/buck2_test_runner (read 2026-11-11).
+  Informed: one verdict per test target, a case runner for nextest's per-test count, test results reused only
+  from remote execution ([compile-reuse.md](rationale/compile-reuse.md)). Outcome: adopted.
+- <a id="buck2-test-execution"></a>**Buck2: test execution** (`ExternalRunnerTestInfo`, `run_from_project_root`,
+  test execution caching), https://buck2.build/docs/rule_authors/test_execution/,
+  https://github.com/facebook/buck2/blob/940470de53ffb79a393a542b92c60e0adf281927/app/buck2_test/src/orchestrator.rs
+  (read 2026-11-11). Informed: the `north_rust_test` rule, the project root as working directory, and verdict
+  reuse read from `TestRunEnd` cache hits ([compile-reuse.md](rationale/compile-reuse.md)). Outcome: adopted.
 - <a id="buildxl"></a>**BuildXL** (Microsoft Build Accelerator), https://github.com/microsoft/BuildXL.
   Informed: the two-phase lookup of verdict reuse, a weak fingerprint selecting observed path sets and a strong
   fingerprint over their current content, absent paths and listings included
@@ -457,6 +466,9 @@ claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi)
   https://nexte.st/docs/features/target-runners/.
   Informed: one process per test and the runner hook that records each test's reads
   ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
+- <a id="nextest-env"></a>**cargo-nextest: environment variables**, https://nexte.st/docs/configuration/env-vars/
+  (read 2026-11-11). Informed: the run-time `CARGO_MANIFEST_DIR` and `CARGO_BIN_EXE_<bin>` that Buck2 test targets
+  set, and the run-time read of `CARGO_BIN_EXE_*` ([compile-reuse.md](rationale/compile-reuse.md)). Outcome: adopted.
 - <a id="landlock"></a>**Landlock: unprivileged access control** (Linux kernel documentation),
   https://docs.kernel.org/userspace-api/landlock.html.
   Informed: the read fence of the land sandbox ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.

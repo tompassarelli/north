@@ -1868,6 +1868,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-test-cases"
+version = "0.1.0"
+
+[[package]]
 name = "north-threads"
 version = "0.1.0"
 dependencies = [

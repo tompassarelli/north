@@ -1164,3 +1164,14 @@ reason = "the outcome is the runs table's text column read back from the scratch
 shape = "phase-suffix"
 path = "crates/north-shared-config/src/lib.rs"
 reason = "the suffix names the temporary file a stamp is written to before its atomic rename, a file name and not a lifecycle phase (north#722)"
+[[crate_dag.crate]]
+name = "north-test-cases"
+paths = ["crates/north-test-cases/src/**"]
+may_use = []
+
+[[module]]
+name = "test_cases"
+paths = ["crates/north-test-cases/src/**"]
+responsibility = "Run one libtest binary's cases one process each, as nextest does, and print a status line per case, so a Buck2 test target reports per-test verdicts."
+may_use = []
+
