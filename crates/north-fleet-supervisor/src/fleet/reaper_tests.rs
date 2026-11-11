@@ -201,7 +201,7 @@ fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_w
         std::fs::write(queue.join("1-queued.json"), json!({"root": "/elsewhere", "branch": "queued-lane", "session": "queued"}).to_string()).unwrap();
         let evidence = Sight { running: [("running".to_owned(), Work::Detached)].into(), ..Sight::default() };
     
-        let spent = reap_within(&fleet, &evidence, Duration::ZERO, now_ms(), true, Duration::ZERO);
+        let spent = reap_within(&fleet, &evidence, Duration::ZERO, now_ms(), true, Duration::ZERO, &|| Duration::ZERO);
         let fresh = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
         let stale = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
     
@@ -270,7 +270,7 @@ fn the_reaper_reads_job_leases_from_the_ticks_exchange_and_defers_a_session_whos
     let waits = [wait("expired", "2026-11-06T17:00:00Z"), wait("held", "2026-11-06T17:03:00Z")];
     fleet.cache_leases(&crate::fleet::store::LeaseTable::read(&waits, ["expired".to_owned(), "held".to_owned()], "2026-11-06T17:01:00Z", now_ms())).unwrap();
 
-    let reaped = reap_timed(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true, Duration::from_millis(300), &|| Duration::ZERO);
+    let reaped = reap_within(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true, Duration::from_millis(300), &|| Duration::ZERO);
 
     assert!(!nexus.ended.load(std::sync::atomic::Ordering::SeqCst), "the reaper waited for the lease read to end");
     drop(release);

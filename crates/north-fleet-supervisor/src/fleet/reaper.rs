@@ -174,19 +174,15 @@ impl Reaped {
 }
 
 pub fn reap(fleet: &Fleet, evidence: &dyn Evidence, now_ms: u64, apply: bool) -> Reaped {
-    reap_within(fleet, evidence, stale_after(), now_ms, apply, BUDGET)
+    let started = Instant::now();
+    reap_within(fleet, evidence, stale_after(), now_ms, apply, BUDGET, &|| started.elapsed())
 }
 
 pub fn reap_after(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_ms: u64, apply: bool) -> Reaped {
-    reap_within(fleet, evidence, stale, now_ms, apply, Duration::MAX)
+    reap_within(fleet, evidence, stale, now_ms, apply, Duration::MAX, &|| Duration::ZERO)
 }
 
-pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_ms: u64, apply: bool, budget: Duration) -> Reaped {
-    let started = Instant::now();
-    reap_timed(fleet, evidence, stale, now_ms, apply, budget, &|| started.elapsed())
-}
-
-pub(crate) fn reap_timed(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_ms: u64, apply: bool, budget: Duration, spent: &dyn Fn() -> Duration) -> Reaped {
+pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_ms: u64, apply: bool, budget: Duration, spent: &dyn Fn() -> Duration) -> Reaped {
     let mut reaped = Reaped { at_ms: now_ms, stale_hours: stale.as_secs() / 3600, ..Reaped::default() };
     let records = fleet.sessions().unwrap_or_default();
     let mut candidates: Vec<(&SessionRecord, Status, Duration)> = records.iter().filter(|record| record.role() != Role::Proxy && !record.adopted() && !record.verification).map(|record| (record, fleet.status(record), quiet(record))).filter(|(record, status, _)| ended_by_host(record) || !record.ended() && matches!(status, Status::Idle | Status::Parked)).collect();
