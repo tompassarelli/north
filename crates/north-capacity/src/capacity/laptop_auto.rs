@@ -139,17 +139,15 @@ enum BatteryAlert {
     ChargerLost,
     Low,
     Critical,
-    Action,
 }
 
 impl BatteryAlert {
-    const SHUTDOWN_WARNING: &str = "At the action level the laptop saves its memory to disk and the screen goes dark for about two minutes. Do not press or hold the power button. Plug in now.";
+    const POWER_OFF_WARNING: &str = "At 8% with no charger connected the laptop powers off and open windows are lost. Plug in now.";
 
     fn reached(warning_level: Option<u8>) -> Self {
         match warning_level {
             Some(3) => Self::Low,
-            Some(4) => Self::Critical,
-            Some(5) => Self::Action,
+            Some(4 | 5) => Self::Critical,
             _ => Self::ChargerLost,
         }
     }
@@ -159,13 +157,12 @@ impl BatteryAlert {
             Self::ChargerLost => "charger-lost",
             Self::Low => "low",
             Self::Critical => "critical",
-            Self::Action => "action",
         }
     }
 
     fn recorded(marker: &Path) -> Option<Self> {
         let name = fs::read_to_string(marker).ok()?;
-        [Self::ChargerLost, Self::Low, Self::Critical, Self::Action].into_iter().find(|alert| alert.name() == name.trim())
+        [Self::ChargerLost, Self::Low, Self::Critical].into_iter().find(|alert| alert.name() == name.trim())
     }
 
     fn message(self, percent: u8) -> (String, &'static str) {
@@ -175,8 +172,7 @@ impl BatteryAlert {
                 "The charger or its cable dropped power while plugged in. Plug it in or reseat the cable.",
             ),
             Self::Low => (format!("Laptop battery low at {percent}%"), "The laptop is still on battery. Plug in or reseat the charger."),
-            Self::Critical => (format!("Laptop battery critical at {percent}%"), Self::SHUTDOWN_WARNING),
-            Self::Action => (format!("Laptop battery at {percent}%: saving memory to disk now"), Self::SHUTDOWN_WARNING),
+            Self::Critical => (format!("Laptop battery critical at {percent}%"), Self::POWER_OFF_WARNING),
         }
     }
 }
