@@ -138,8 +138,7 @@ pub(super) fn install_script(target: &str) -> String {
     format!("set -e; t=.local/state/north/runtimes/{target}; exec 9>>\"$t.lock\"; flock -w {INSTALL_LOCK_WAIT} 9; if [ -d \"$t/{TREE}\" ] && [ -f \"$t/{BUILT_FROM}\" ] && [ -x \"$t/north\" ]; then rm -rf \"$t.staging\"; exit 0; fi; rm -rf \"$t.old\"; if [ -e \"$t\" ]; then mv \"$t\" \"$t.old\"; fi; mv \"$t.staging\" \"$t\"; rm -rf \"$t.old\"")
 }
 
-fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
-    stage(host, target, runtime, references)?;
+pub(super) fn promote_staged(host: &str, target: &str, runtime: &Path) -> Result<(), Failure> {
     println!("north runtime deploy: {host}: promoting {} with the shipped north", layout::short(target));
     let shipped = format!(".local/state/north/runtimes/{target}/north");
     run_reporting(host, &format!("north runtime update --sha {}", layout::short(target)), ssh(host).args([shipped.as_str(), "runtime", "update", "--sha", target]), PROMOTE)?;
@@ -147,6 +146,11 @@ fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>)
         host_facts::relay(&Layout::from_env(), &runtime.join("north"), host, &relayed.host);
     }
     Ok(())
+}
+
+fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
+    stage(host, target, runtime, references)?;
+    promote_staged(host, target, runtime)
 }
 
 /// Detached, so the update lock is released for the next build while the copy continues; `promote` stays alive until it has shipped, and its own copy then finds the runtime whole or waits on the host's stage lock.

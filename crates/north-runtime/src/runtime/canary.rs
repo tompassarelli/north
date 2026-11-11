@@ -4,13 +4,13 @@ use super::failure::DEFERRED;
 use super::update;
 use north_base::foundation::exit::NO_VERDICT;
 use std::time::Duration;
-use probes::Probe;
 
 mod baseline;
 mod launch;
 mod probes;
 
 pub(super) use launch::probe as launch_probe;
+pub(super) use probes::{Landers, Probe};
 
 const TAIL_LINES: usize = 12;
 const TAIL_BYTES: usize = 1200;
@@ -41,7 +41,7 @@ pub(super) trait Machine: Sync {
     fn launchable_providers(&self) -> Vec<String>;
     fn sessions_reach_hub(&self, host: &str) -> bool;
     fn settles_fleet(&self, host: &str) -> bool;
-    fn lander_repositories(&self) -> Option<probes::Landers>;
+    fn lander_repositories(&self) -> Option<Landers>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -124,6 +124,30 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
             machine.alarm(&format!("north runtime canary: {failure}; {host} could not roll back: {why}"));
             Verdict::Stuck
         }
+    }
+}
+
+/// Judges a runtime that is not live yet: every core-loop probe must exit 0 against `runtimes/SHA`, and nothing is rolled back, quarantined or alarmed, since the host's live runtime was never replaced. The error names each probe that failed or could not run.
+pub(super) fn preflight(layout: &Layout, host: &str, sha: &str, machine: &impl Machine) -> Result<(), String> {
+    let instance = format!("{host}/{sha}");
+    let short = layout::short(sha);
+    match lifecycle::state_of::<Canarying>(layout, &instance).ok().flatten() {
+        Some(Canary::Passed | Canary::Trusted) => return Ok(()),
+        Some(state) if state.judged() => return Err(format!("{short} was already judged {state:?} on {host}")),
+        _ => {}
+    }
+    lifecycle::move_to::<Canarying>(layout, &instance, Canary::Judging, "running the core-loop probes before the runtime is live").map_err(|failure| failure.message)?;
+    let (probes, ran) = run_probes(host, sha, short, machine);
+    let Tallies { failures, faults, unrun, .. } = tallies(&probes, &ran);
+    let problems: Vec<String> = failures.into_iter().chain(faults).chain(unrun).collect();
+    let (state, cause) = match problems.is_empty() {
+        true => (Canary::Passed, format!("all {} core-loop probes exited 0 before the runtime went live", probes.len())),
+        false => (Canary::Unjudged, problems.join("; ")),
+    };
+    lifecycle::move_to::<Canarying>(layout, &instance, state, &cause).map_err(|failure| failure.message)?;
+    match problems.is_empty() {
+        true => Ok(()),
+        false => Err(problems.join("; ")),
     }
 }
 
@@ -248,7 +272,7 @@ impl Machine for Live<'_> {
         matches!(self.host, super::probe::Shell::Here(_)) && crate::land_offload::settles_fleet_here()
     }
 
-    fn lander_repositories(&self) -> Option<probes::Landers> {
+    fn lander_repositories(&self) -> Option<Landers> {
         self.host.run(&probes::repositories_script()).ok().map(|listing| probes::parse_repositories(&listing))
     }
 }

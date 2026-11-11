@@ -175,6 +175,26 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     Ok(previous)
 }
 
+/// An ordered promotion's go-live on this host: the runtime was built and passed its canary before this, so only the swap is left, and a pass that left `current` elsewhere (held back, rolled back, or moved) is a failure, not a quiet success.
+pub(super) fn go_live_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
+    let _promoting = promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime order")?;
+    let checkout = checkout();
+    let previous = fs::read_link(layout.current()).ok();
+    if previous.as_deref() != Some(layout::link(target).as_path()) {
+        advance(layout, &checkout, target, previous.as_deref())?;
+        if layout.live_sha().as_deref() != Some(target) {
+            return Err(failed(1, format!("{} did not go live here: current is {}", layout::short(target), layout.live_sha().as_deref().map_or("missing", layout::short))));
+        }
+    }
+    pin::promoted(layout, target);
+    Ok(())
+}
+
+pub(super) fn build_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
+    let _building = promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime order")?;
+    built(layout, &checkout(), target).map(|_| ())
+}
+
 pub(super) fn promotion_waiting(layout: &Layout, limit: Duration, waiter: &str) -> Result<File, Failure> {
     named_lock_waiting(layout, PROMOTE_LOCK, limit, waiter)
 }
@@ -408,7 +428,7 @@ pub(super) fn checkout() -> PathBuf {
         .unwrap_or_else(|| layout::home().join(CHECKOUT))
 }
 
-fn git<S: AsRef<OsStr>>(checkout: &Path, args: &[S]) -> Result<String, Failure> {
+pub(super) fn git<S: AsRef<OsStr>>(checkout: &Path, args: &[S]) -> Result<String, Failure> {
     let output = process::run("git", Some(checkout), args)?;
     if !output.status.success() {
         let shown = args.iter().map(|arg| arg.as_ref().to_string_lossy()).collect::<Vec<_>>();
@@ -468,7 +488,7 @@ fn reap_unfinished_copies(runtimes: &Path, idle: Duration) -> std::io::Result<()
     Ok(())
 }
 
-fn fetch(checkout: &Path) -> Result<(), Failure> {
+pub(super) fn fetch(checkout: &Path) -> Result<(), Failure> {
     let mut command = Command::new("git");
     command.arg("-C").arg(checkout).args(["fetch", "-q"]);
     let status = bounded::status(&mut command, FETCH_LIMIT).map_err(|error| failed(1, format!("git fetch failed: {error}")))?;

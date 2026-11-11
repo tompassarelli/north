@@ -140,6 +140,13 @@ cadence keeps that: each promotion still goes live everywhere within the 2-minut
   fast path per slot interval stays at 6. This replaces the `Main-red:` trailer of 64f4e8ec6b, because a broken
   lander (north#902) is the same emergency as red main and needs the same path. `north runtime status` prints the
   fast-path count for the last 24 h, so overuse shows.
+- **Ordered promotion.** A commit already on origin/main reaches the settling host and every deploy host at once with
+  `north runtime order --reason REASON [--commit REV]`, run as the coordinator's step on the settling host, with no
+  landing trailer and no hand steps. Each host builds or fetches that runtime, runs its canary probes against it
+  before it is live, goes live only on a pass and rewrites its stable pin where it had one; a failed canary leaves
+  that host on its old runtime and names the probe. The command stops `north-stable-hold.service` for the run and
+  starts it again, which is why a worker sandbox that cannot see the systemd user manager cannot run it. One
+  `ordered` row per host in `runtime-pins.jsonl` records the commit, who ordered it, the reason and the verdict.
 - **One build per slot.** Ten minutes before each slot, the settling host asks the build host predicted to finish
   soonest to build origin/main's head. At the slot it promotes the newest head whose artifact is ready. Build-ahead
   for queued candidates (18afcca179) narrows to candidates that carry `Live-fix:`, the only landings whose

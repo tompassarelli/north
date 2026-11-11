@@ -31,6 +31,8 @@ pub enum Event {
     Built { sha: String, host: String, at: i64, seconds: i64, binary: String },
     /// The coordinator was paged about a due promotion not live `LIVE_PAGE` after it fell due.
     Paged { sha: String, at: i64 },
+    /// One host of an ordered promotion: who ordered the commit and why, what that host's canary said before it went live, and whether it did.
+    Ordered { sha: String, host: String, orderer: String, reason: String, canary: String, live: bool, at: i64 },
     /// How long a landing waited for its release runtime after the lander pushed: 0 s when the lander built the tree ahead while the lane queued.
     #[serde(rename = "artifact-ready")]
     ArtifactReady { sha: String, tree: String, seconds: i64, at: i64 },
@@ -39,7 +41,7 @@ pub enum Event {
 impl Event {
     pub fn at(&self) -> i64 {
         match self {
-            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::ArtifactReady { at, .. } => *at,
+            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::Ordered { at, .. } | Self::ArtifactReady { at, .. } => *at,
         }
     }
 }

@@ -12,7 +12,7 @@ const FETCH: &str = "for file in \"$HOME\"/code/*/main/.safe-push; do\n  [ -f \"
 pub(super) const PROVIDERS: [&str; 3] = ["claude", "opencode", "pi"];
 
 pub(in crate::runtime) struct Probe {
-    pub(super) name: String,
+    pub(in crate::runtime) name: String,
     pub(super) script: String,
     pub(super) limit: Duration,
 }
