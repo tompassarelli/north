@@ -16,7 +16,7 @@ src/cli/scoreboard/workers_tests.rs	1
 tests/it/capacity_live.rs	2
 tests/it/golden_path.rs	2
 tests/it/land_route.rs	1
-tests/it/land_serve/post_land.rs	2
+tests/it/land_serve/post_land.rs	1
 tests/it/run_bounded.rs	1
 tests/it/safe_push/preflight.rs	1
 tests/it/safe_push_tag.rs	2

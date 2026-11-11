@@ -110,6 +110,16 @@ fn a_bisection_prefix_runs_the_failed_test_alone_so_the_lane_that_carries_the_br
     assert!(tree.iter().any(|file| file == "wide.txt") && !tree.iter().any(|file| file == "broken.txt"), "{tree:?}");
 }
 
+fn exits(pid: i32) -> bool {
+    let Some(pid) = rustix::process::Pid::from_raw(pid) else { return false };
+    let pidfd = match rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()) {
+        Ok(pidfd) => pidfd,
+        Err(error) => return error == rustix::io::Errno::SRCH,
+    };
+    let mut exited = [rustix::event::PollFd::new(&pidfd, rustix::event::PollFlags::IN)];
+    rustix::event::poll(&mut exited, 120_000).is_ok_and(|ready| ready == 1)
+}
+
 fn until(what: &str, done: impl Fn() -> bool) {
     assert!(north_core::platform::wait::until(Duration::from_secs(120), done), "timed out waiting for {what}");
 }
@@ -210,7 +220,7 @@ fn an_after_landing_run_past_its_deadline_reaches_no_verdict_stays_journaled_and
     assert!(fixture.fleet().iter().all(|call| !call.contains("post-land checks failed") && !call.contains("red main")), "{:?}", fixture.fleet());
     let hung = fs::read_to_string(fixture.trace.join("hung")).unwrap();
     let pid: i32 = hung.lines().next().unwrap().trim().parse().unwrap();
-    assert!(!Path::new(&format!("/proc/{pid}")).exists(), "the stuck run was killed");
+    assert!(exits(pid), "the stuck run was killed");
     serve.kill().unwrap();
     let _ = serve.wait();
 }
