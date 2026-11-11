@@ -41,6 +41,11 @@ fn accepted(work: &Path, expect: &Path, task: &Value) -> (bool, &'static str) {
     (acceptance, if hidden { "pass" } else { "fail" })
 }
 
+fn main_commits(work: &Path, task: &Value) -> usize {
+    let id = task["id"].as_str().unwrap_or_default();
+    git(&work.join("verify"), &["log", "--format=%H", "--", &format!("src/{id}.ts")]).out.lines().count().saturating_sub(1)
+}
+
 fn after(launch: f64, at: Option<f64>) -> Value {
     at.map_or(Value::Null, |t| json!((t - launch).round()))
 }
@@ -75,6 +80,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
         "failed": !(landed && acceptance), "failure": if landed && !acceptance { "acceptance-failed".to_owned() } else if landed { String::new() } else { reason },
         "acceptance": acceptance, "hidden_check": hidden,
         "lander_attempts": attempts.as_array().map_or(0, Vec::len), "lander_refusals": lander_refusals,
+        "landings": attempts.as_array().map_or(0, |a| a.iter().filter(|x| x["attributes"]["landed"].is_string()).count()), "main_commits": main_commits(&plan.work, &run.task), "wave": run.wave,
         "interventions": run.nudges.len(), "intervention_stalls": run.nudges,
         "tokens": transcript["tokens"], "tokens_total_spend": total, "cost_usd": cost,
         "last_words": if landed { String::new() } else { collect::last_words(&dir) },

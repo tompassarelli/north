@@ -85,6 +85,32 @@ impl Lander {
     pub fn alive(&mut self) -> bool {
         matches!(self.0.try_wait(), Ok(None))
     }
+
+    pub fn kill_when_queued(&mut self, restart_log: &Path, queued: usize, down_s: u64, stop: &std::sync::atomic::AtomicBool) -> serde_json::Value {
+        let threshold = serde_json::json!({"queued_threshold": queued, "down_s": down_s});
+        loop {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                return serde_json::json!({"fired": false, "plan": threshold});
+            }
+            let tickets = queue_dir().map(|q| tickets(&q)).unwrap_or_default();
+            if tickets.len() >= queued {
+                let pid = self.0.id();
+                let killed_at = crate::proc::now();
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+                std::thread::sleep(std::time::Duration::from_secs(down_s));
+                let restarted_at = crate::proc::now();
+                let restart = Self::start(restart_log).map(|lander| *self = lander);
+                return serde_json::json!({"fired": true, "plan": threshold, "signal": "SIGKILL", "pid": pid, "killed_at": killed_at, "restarted_at": restarted_at,
+                                          "tickets_at_kill": tickets, "restart_error": restart.err()});
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+    }
+}
+
+fn tickets(queue: &Path) -> Vec<String> {
+    fs::read_dir(queue).into_iter().flatten().filter_map(Result::ok).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".json")).collect()
 }
 
 impl Drop for Lander {

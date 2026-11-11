@@ -13,12 +13,13 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::{Value, json};
 
 const USAGE: &str = "usage:
   eval-b workload --seed S --count N --lander-host HOST --out DIR
-  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A] [--parent SESSION] [--hosts H,H] --work DIR --results FILE
+  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A] [--parent SESSION] [--hosts H,H] [--burst INITIAL:AFTER_S] [--kill-lander QUEUED:DOWN_S] --work DIR --results FILE
   eval-b t3-tasks --workload DIR --count N --out FILE
   eval-b t3-rows --workload DIR --from EVAL_A_ROWS --results FILE
   eval-b summary --results FILE
@@ -58,6 +59,12 @@ fn workload(flags: &BTreeMap<String, String>) -> Result<(), String> {
     Ok(())
 }
 
+fn pair(flags: &BTreeMap<String, String>, key: &str) -> Result<Option<(usize, u64)>, String> {
+    let Some(value) = flags.get(key) else { return Ok(None) };
+    let parsed = value.split_once(':').and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?)));
+    parsed.map(Some).ok_or_else(|| format!("--{key} takes N:SECONDS, got {value}"))
+}
+
 fn hosts(flags: &BTreeMap<String, String>) -> Vec<String> {
     flags.get("hosts").map_or("gex45,cpx62,cpx62b", String::as_str).split(',').map(str::to_owned).collect()
 }
@@ -74,7 +81,8 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     let work = PathBuf::from(need(flags, "work")?).join(format!("l{level}-{stamp}"));
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let tasks: Vec<Value> = manifest["tasks"].as_array().into_iter().flatten().skip(first - 1).take(count).cloned().collect();
-    let plan = ladder::Plan { level, tasks, account: flags.get("account").cloned().unwrap_or_else(|| "d".to_owned()), parent, hosts, work };
+    let plan = ladder::Plan { level, tasks, account: flags.get("account").cloned().unwrap_or_else(|| "d".to_owned()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)) };
+    let kill = pair(flags, "kill-lander")?;
     let branches: Vec<String> = plan.tasks.iter().map(|t| format!("{}-l{level}", t["id"].as_str().unwrap_or_default())).collect();
     scratch::prepare_laptop(&dir.join("repo"), &plan.hosts, &branches)?;
     std::thread::scope(|scope| {
@@ -87,9 +95,23 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
         scratch::teardown(&plan.hosts);
         return Err(format!("the scratch lander did not stay up; see {}", plan.work.join("lander.log").display()));
     }
-    let conditions = rows::conditions(&plan, manifest["base"].as_str().unwrap_or_default(), manifest["seed"].as_u64().unwrap_or(0));
+    let mut conditions = rows::conditions(&plan, manifest["base"].as_str().unwrap_or_default(), manifest["seed"].as_u64().unwrap_or(0));
     eprintln!("eval-b: level {level}, {} tasks, lanes ready on {:?}, lander up", plan.tasks.len(), plan.hosts);
-    let runs = ladder::drive(&plan, &stamp);
+    if let Some((initial, after)) = plan.burst {
+        conditions["burst"] = json!({"initial": initial, "after_s": after});
+    }
+    let stop = AtomicBool::new(false);
+    let restart_log = plan.work.join("lander-restart.log");
+    let (runs, outage) = std::thread::scope(|scope| {
+        let (lander, restart_log, stop) = (&mut lander, &restart_log, &stop);
+        let watcher = kill.map(|(queued, down)| scope.spawn(move || lander.kill_when_queued(restart_log, queued, down, stop)));
+        let runs = ladder::drive(&plan, &stamp);
+        stop.store(true, Ordering::Relaxed);
+        (runs, watcher.and_then(|w| w.join().ok()))
+    });
+    if let Some(outage) = outage {
+        conditions["lander_kill"] = outage;
+    }
     rows::verify(&plan.work)?;
     let expect = dir.join("expect");
     let command = format!("{argv} (rows in {})", plan.work.display());

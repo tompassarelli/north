@@ -23,6 +23,7 @@ pub struct Plan {
     pub parent: String,
     pub hosts: Vec<String>,
     pub work: PathBuf,
+    pub burst: Option<(usize, f64)>,
 }
 
 pub struct Run {
@@ -37,6 +38,7 @@ pub struct Run {
     pub resolved: Option<(f64, String)>,
     pub settled_since: Option<f64>,
     pub load_at_launch: Value,
+    pub wave: &'static str,
 }
 
 fn header() -> String {
@@ -47,7 +49,7 @@ pub fn prompt(task: &Value) -> String {
     format!("{}\n\nThe change is done when this acceptance command passes, run from the repository root: {}\n", task["text"].as_str().unwrap_or_default(), task["check"].as_str().unwrap_or_default())
 }
 
-fn launch(plan: &Plan, task: &Value, branch: &str, name: &str) -> Run {
+fn launch(plan: &Plan, task: &Value, branch: &str, name: &str, wave: &'static str) -> Run {
     let cwd = scratch::worktree(branch);
     let text = header() + &prompt(task);
     let args = [
@@ -68,6 +70,7 @@ fn launch(plan: &Plan, task: &Value, branch: &str, name: &str) -> Run {
         resolved: if ran.ok() { None } else { Some((now(), "launch-refused".to_owned())) },
         settled_since: None,
         load_at_launch: crate::proc::host_loads(&plan.hosts),
+        wave,
     }
 }
 
@@ -117,8 +120,15 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
     let mut active: Vec<Run> = Vec::new();
     let mut done: Vec<Run> = Vec::new();
     let mut collectors = Vec::new();
+    let began = now();
     loop {
-        let free = plan.level.saturating_sub(active.len());
+        let held = plan.burst.filter(|&(_, after)| now() - began < after);
+        let free = held.map_or(plan.level.saturating_sub(active.len()), |(initial, _)| initial.saturating_sub(active.len() + done.len()));
+        let wave = match (plan.burst, held) {
+            (None, _) => "",
+            (Some(_), Some(_)) => "in-flight",
+            (Some(_), None) => "burst",
+        };
         let batch: Vec<&Value> = (0..free).filter_map(|_| pending.pop()).collect();
         let launched: Vec<Run> = thread::scope(|scope| {
             let handles: Vec<_> = batch
@@ -127,7 +137,7 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
                     let id = task["id"].as_str().unwrap_or_default();
                     let branch = format!("{id}-l{}", plan.level);
                     let name = format!("evalb-l{}-{id}-{stamp}", plan.level);
-                    scope.spawn(move || launch(plan, task, &branch, &name))
+                    scope.spawn(move || launch(plan, task, &branch, &name, wave))
                 })
                 .collect();
             handles.into_iter().filter_map(|h| h.join().ok()).collect()
