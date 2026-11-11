@@ -71,14 +71,54 @@ fn quote(word: &str) -> String {
     format!("'{}'", word.replace('\'', r"'\''"))
 }
 
+/// `sh -c FREE KEPT MACHINE LANE SSH ARGS...`: runs the removal over ssh and ends normally when `north
+/// lane remove` keeps the lane (its exit 1), writing `SECONDS<TAB>MACHINE<TAB>LANE<TAB>REASON` to KEPT and
+/// to its own output; any other end, ssh's 255 included, repeats the output on stderr and exits with it.
+const FREE: &str = r#"log=$0 machine=$1 lane=$2; shift 2
+out=$("$@" 2>&1); code=$?
+[ "$code" -eq 1 ] || { printf '%s\n' "$out" >&2; exit "$code"; }
+reason=$(printf %s "${out#"kept $lane: "}" | tr '\t\n' '  ')
+printf '%s\t%s\t%s\t%s\n' "$(date +%s)" "$machine" "$lane" "$reason" >> "$log"
+printf 'lane %s on %s kept: %s\n' "$lane" "$machine" "$reason""#;
+
+/// A lane `north lane remove` kept after its session ended, as the free step recorded it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KeptLane {
+    pub at_secs: u64,
+    pub machine: String,
+    pub lane: String,
+    pub reason: String,
+}
+
+/// The lanes recorded in `kept` at or after `since_secs`, oldest first.
+pub fn kept_lanes(kept: &Path, since_secs: u64) -> Vec<KeptLane> {
+    let text = std::fs::read_to_string(kept).unwrap_or_default();
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.splitn(4, '\t');
+            let at_secs = fields.next()?.parse().ok()?;
+            Some(KeptLane { at_secs, machine: fields.next()?.to_owned(), lane: fields.next()?.to_owned(), reason: fields.next()?.to_owned() })
+        })
+        .filter(|lane| lane.at_secs >= since_secs)
+        .collect()
+}
+
+fn free_command(ssh: &Path, destination: &str, machine: &str, lane: &Path, kept: &Path) -> Command {
+    let script = format!("PATH=\"$HOME/.local/bin:$PATH\" north lane remove {}", quote(&lane.to_string_lossy()));
+    let mut command = Command::new("sh");
+    command.args(["-c", FREE]).arg(kept).arg(machine).arg(lane).arg(ssh).args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "--", &script]);
+    command.stdin(Stdio::null());
+    command
+}
+
 /// Frees the lane a session worked in on the machine it ran on, once the session has ended: runs
 /// `north lane remove` there, which removes a finished lane with its worktree and target and keeps
-/// one that still holds unlanded, uncommitted, locked or queued work. A deletion outlives the fleet
-/// tick that asked for it: the ssh runs as its own transient user unit, so the tick's cgroup stop
-/// does not kill it, and a host without a user manager falls back to a plain child.
-pub fn free_lane(ssh: &Path, destination: &str, lane: &Path) -> Result<(), String> {
-    let script = format!("PATH=\"$HOME/.local/bin:$PATH\" north lane remove {}", quote(&lane.to_string_lossy()));
-    let arguments = [String::from("-T"), String::from("-o"), String::from("BatchMode=yes"), String::from("-o"), String::from("ConnectTimeout=5"), destination.to_owned(), String::from("--"), script];
+/// one that still holds unlanded, uncommitted, locked or queued work; a kept lane is recorded in
+/// `kept` and is not a failure. A deletion outlives the fleet tick that asked for it: the ssh runs as
+/// its own transient user unit, so the tick's cgroup stop does not kill it, and a host without a user
+/// manager falls back to a plain child.
+pub fn free_lane(ssh: &Path, destination: &str, machine: &str, lane: &Path, kept: &Path) -> Result<(), String> {
+    let free = free_command(ssh, destination, machine, lane, kept);
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
     let unit = format!("north-lane-free-{}-{stamp}", std::process::id());
     let mut detached = Command::new("systemd-run");
@@ -86,13 +126,13 @@ pub fn free_lane(ssh: &Path, destination: &str, lane: &Path) -> Result<(), Strin
     if let Some(socket) = std::env::var("SSH_AUTH_SOCK").ok().filter(|socket| !socket.is_empty()) {
         detached.arg(format!("--setenv=SSH_AUTH_SOCK={socket}"));
     }
-    let started = detached.arg("--").arg(ssh).args(&arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let started = detached.arg("--").arg(free.get_program()).args(free.get_args()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     if started.is_ok_and(|status| status.success()) {
         return Ok(());
     }
-    let mut command = Command::new(ssh);
-    command.args(&arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    command.spawn().map(drop).map_err(|error| format!("cannot free lane {} on {destination}: {error}", lane.display()))
+    let mut fallback = free;
+    fallback.stdout(Stdio::null()).stderr(Stdio::null());
+    fallback.spawn().map(drop).map_err(|error| format!("cannot free lane {} on {destination}: {error}", lane.display()))
 }
 
 /// A held session's service running on this machine: when it became active and whether a placing
@@ -157,3 +197,7 @@ fn systemctl(arguments: &[&str]) -> String {
     command.arg("--user").args(arguments);
     try_run_command_within(command, None, WAIT).ok().flatten().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).into_owned()).unwrap_or_default()
 }
+
+#[cfg(test)]
+#[path = "held_tests.rs"]
+mod tests;

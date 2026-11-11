@@ -166,6 +166,9 @@ pub(super) fn reap(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if let Ok(told) = fleet.retirement() {
         println!("graph: {} idle or parked sessions told, {} dead letters in 24 h", told.verdicts.len(), told.dead_letters_24h.unwrap_or(0));
     }
+    for lane in fleet.kept_lanes_since((now_ms() / 1000).saturating_sub(24 * 3600)) {
+        println!("lane {} on {} kept in the last 24 h: {}", lane.lane, lane.machine, lane.reason);
+    }
     Ok(())
 }
 

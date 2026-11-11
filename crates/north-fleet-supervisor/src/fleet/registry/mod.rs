@@ -144,7 +144,8 @@ impl Fleet {
         let Ports { runtimes, ledger, claims, registrar, leases } = ports;
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes), desk: Arc::new(NoDesk) };
+        let kept = root.join(lanes::KEPT_LANES);
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), desk: Arc::new(NoDesk) };
         fleet.adopt_journals()?;
         Ok(fleet)
     }

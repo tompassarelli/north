@@ -1,6 +1,8 @@
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
+use north_session_host::held::{KeptLane, kept_lanes};
+
 use crate::error::{NorthError, NorthResult};
 
 use super::super::model::SessionRecord;
@@ -8,6 +10,8 @@ use super::super::overlap::worktree_in_use;
 use super::super::runtime::binary;
 use super::super::transcript::{WINDOW_SIZE, read_window, stream_path};
 use super::Fleet;
+
+pub(super) const KEPT_LANES: &str = ".kept-lanes.tsv";
 
 /// The worktree a remote session worked in, on the machine that holds it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,11 +28,13 @@ pub trait RemoteLanes: Send + Sync {
 
 /// A remote session's lane lives on its machine, so this frees it over ssh; a local session's lane
 /// stays where its worker or `north lane gc` left it.
-pub struct OverSshLanes;
+pub struct OverSshLanes {
+    pub kept: PathBuf,
+}
 
 impl RemoteLanes for OverSshLanes {
     fn free(&self, lane: &RemoteLane) -> NorthResult<()> {
-        north_session_host::held::free_lane(&binary("ssh"), &lane.ssh, &lane.path).map_err(NorthError::State)
+        north_session_host::held::free_lane(&binary("ssh"), &lane.ssh, &lane.machine, &lane.path, &self.kept).map_err(NorthError::State)
     }
 }
 
@@ -56,6 +62,11 @@ impl Fleet {
             other.name != record.name && other.machine.as_ref().is_some_and(|held| held.name == machine.name) && (other.cwd == path || worktree_of(other, worktrees).as_ref() == Some(&path))
         });
         (!shared).then(|| RemoteLane { machine: machine.name.clone(), ssh: machine.ssh.clone(), path })
+    }
+
+    /// The lanes freeing kept since `since_secs`, with the machine, the lane and the reason `north lane remove` gave.
+    pub fn kept_lanes_since(&self, since_secs: u64) -> Vec<KeptLane> {
+        kept_lanes(&self.root.join(KEPT_LANES), since_secs)
     }
 
     pub(super) fn free_remote_lane(&self, session: &str, lane: Option<&RemoteLane>) {
