@@ -62,7 +62,7 @@ pub fn account_home(provider: &str, label: &str) -> Option<PathBuf> {
 }
 
 pub fn read_streak(transcript: &str, hook: &Value) -> Option<ReadStreak> {
-    installed().ok().map(|host| (host.read_streak)(transcript, hook, crate::guard::proxy_role::spends_no_look))
+    installed().ok().map(|host| (host.read_streak)(transcript, hook, crate::guard::proxy_loads::spends_no_look))
 }
 
 pub fn status_verb(words: &[&str]) -> bool {

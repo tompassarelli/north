@@ -1,7 +1,8 @@
 #![cfg(test)]
 
 use super::host::{MessageReads, ReadStreak};
-use super::proxy_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, decide, harness_load, lane_changes, streak_verdict};
+use super::proxy_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, decide, lane_changes, streak_verdict};
+use super::proxy_loads::harness_load;
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
 
