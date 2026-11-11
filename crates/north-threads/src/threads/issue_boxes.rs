@@ -21,6 +21,10 @@ pub const KIND: &str = "issue_boxes";
 
 static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{7,40}\b").expect("the sha pattern compiles"));
 
+pub fn row(item: &str, body: &str) -> String {
+    format!("{}\n", serde_json::json!({"type": KIND, "item": item, "body": body}))
+}
+
 pub fn ensure(db: &Connection) -> Result<(), Failure> {
     db.execute(SCHEMA, [])?;
     Ok(())

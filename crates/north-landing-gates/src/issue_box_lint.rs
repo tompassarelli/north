@@ -43,7 +43,7 @@ fn flagged(body: &str) -> Vec<&str> {
 fn gh(args: &[&str]) -> Result<serde_json::Value, String> {
     crate::platform::github::json(args)
 }
-fn repository(repo: &str) -> &str {
+pub fn repository(repo: &str) -> &str {
     repo.strip_prefix("tompassarelli/").unwrap_or(repo)
 }
 pub fn slug(repo: &str) -> String {

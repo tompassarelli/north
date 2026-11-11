@@ -2,7 +2,6 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -30,6 +29,12 @@ impl Issue {
         let (repo, number) = issue_box_lint::issue(item)?;
         let number = number.parse().map_err(|_| format!("{item}: the issue number is too large"))?;
         Ok(Issue { repo: issue_box_lint::slug(repo), number })
+    }
+}
+
+impl Issue {
+    pub fn item(&self) -> String {
+        format!("{}#{}", issue_box_lint::repository(&self.repo), self.number)
     }
 }
 
@@ -166,6 +171,16 @@ fn untick(body: &str, box_text: &str, sha: &str) -> Change {
     }
 }
 
+pub trait Tracker {
+    fn body(&self, issue: &Issue) -> Result<String, String>;
+    fn set_body(&self, issue: &Issue, body: &str) -> Result<(), String>;
+    fn close(&self, issue: &Issue, comment: &str) -> Result<(), String>;
+}
+
+pub trait Ledger {
+    fn record(&self, item: &str, body: &str) -> Result<(), String>;
+}
+
 pub struct Gh {
     program: PathBuf,
     limit: Duration,
@@ -185,20 +200,22 @@ impl Gh {
         }
         Err(format!("gh {verb}: {}", String::from_utf8_lossy(&output.stderr).trim()))
     }
+}
 
-    pub fn body(&self, issue: &Issue) -> Result<String, String> {
+impl Tracker for Gh {
+    fn body(&self, issue: &Issue) -> Result<String, String> {
         let number = issue.number.to_string();
         let stdout = self.run(&["issue", "view", &number, "--repo", &issue.repo, "--json", "body", "--jq", ".body"], None)?;
         let text = String::from_utf8(stdout).map_err(|error| error.to_string())?;
         Ok(text.strip_suffix('\n').unwrap_or(&text).to_owned())
     }
 
-    pub fn set_body(&self, issue: &Issue, body: &str) -> Result<(), String> {
+    fn set_body(&self, issue: &Issue, body: &str) -> Result<(), String> {
         let number = issue.number.to_string();
         self.run(&["issue", "edit", &number, "--repo", &issue.repo, "--body-file", "-"], Some(body.as_bytes())).map(|_| ())
     }
 
-    pub fn close(&self, issue: &Issue, comment: &str) -> Result<(), String> {
+    fn close(&self, issue: &Issue, comment: &str) -> Result<(), String> {
         let number = issue.number.to_string();
         self.run(&["issue", "close", &number, "--repo", &issue.repo, "--comment", comment], None).map(|_| ())
     }
@@ -211,7 +228,7 @@ pub enum Outcome {
     Refused(String),
 }
 
-pub fn write(github: &Gh, issue: &Issue, edit: &Edit, deadline: Instant) -> Result<Outcome, String> {
+pub fn write(github: &dyn Tracker, issue: &Issue, edit: &Edit, deadline: Instant) -> Result<Outcome, String> {
     for _ in 0..ATTEMPTS {
         if Instant::now() >= deadline {
             return Err(format!("{issue}: the deadline passed before the edit was verified"));
@@ -229,7 +246,7 @@ pub fn write(github: &Gh, issue: &Issue, edit: &Edit, deadline: Instant) -> Resu
     Err(format!("{issue}: the edit did not stay after {ATTEMPTS} attempts (a concurrent writer replaced the body, or a write was dropped)"))
 }
 
-pub fn close_when_done(github: &Gh, issue: &Issue, edit: &Edit) -> Result<bool, String> {
+pub fn close_when_done(github: &dyn Tracker, issue: &Issue, edit: &Edit) -> Result<bool, String> {
     let Edit::Land { sha, .. } = edit else { return Ok(false) };
     if !landing::closable(&github.body(issue)?) {
         return Ok(false);
@@ -298,18 +315,25 @@ pub struct Drained {
     pub closed: usize,
     pub waiting: usize,
     pub failure: Option<String>,
+    pub recorded: usize,
+    pub unrecorded: Vec<String>,
 }
 
-pub fn drain(directory: &Path, github: &Gh, limit: Duration) -> io::Result<Drained> {
+pub fn drain(directory: &Path, github: &dyn Tracker, ledger: &dyn Ledger, limit: Duration) -> io::Result<Drained> {
     let deadline = Instant::now() + limit;
     let entries = pending(directory)?;
     let mut drained = Drained::default();
+    let mut ticked: Vec<&Issue> = Vec::new();
     for (position, (path, entry)) in entries.iter().enumerate() {
         if Instant::now() >= deadline {
             drained.waiting = entries.len() - position;
             break;
         }
-        match write(github, &entry.issue, &entry.edit, deadline) {
+        let outcome = write(github, &entry.issue, &entry.edit, deadline);
+        if outcome.is_ok() && !matches!(entry.edit, Edit::Append { .. }) && !ticked.contains(&&entry.issue) {
+            ticked.push(&entry.issue);
+        }
+        match outcome {
             Ok(outcome @ (Outcome::Written | Outcome::Already)) => match close_when_done(github, &entry.issue, &entry.edit) {
                 Ok(closed) => {
                     if outcome == Outcome::Written {
@@ -337,9 +361,15 @@ pub fn drain(directory: &Path, github: &Gh, limit: Duration) -> io::Result<Drain
             }
         }
     }
+    for issue in ticked {
+        match github.body(issue).and_then(|body| ledger.record(&issue.item(), &body)) {
+            Ok(()) => drained.recorded += 1,
+            Err(why) => drained.unrecorded.push(format!("{issue}: {why}")),
+        }
+    }
     Ok(drained)
 }
 
-pub fn drain_in_background(directory: PathBuf, github: Gh, limit: Duration) -> JoinHandle<io::Result<Drained>> {
-    std::thread::spawn(move || drain(&directory, &github, limit))
-}
+#[cfg(test)]
+#[path = "issue_body_tests.rs"]
+mod tests;

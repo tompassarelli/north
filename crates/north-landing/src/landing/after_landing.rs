@@ -3,6 +3,7 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::issue_body::Ledger;
 use crate::platform::rolling_issue::{self, Tracker};
 
 const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD
@@ -101,7 +102,7 @@ fn parse(arguments: &[String]) -> Option<Args> {
     Some(Args { git_dir: git_dir.into(), base: base.clone(), head: head.clone() })
 }
 
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], ledger: &dyn Ledger) -> u8 {
     if let [flag] = arguments
         && (flag == "-h" || flag == "--help")
     {
@@ -112,7 +113,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     };
-    for line in check_boxes(&args).into_iter().chain(tick_boxes(&args)) {
+    for line in check_boxes(&args).into_iter().chain(tick_boxes(&args, ledger)) {
         println!("after-landing: {line}");
     }
     match gate_and_file(&args) {
@@ -151,7 +152,7 @@ fn check_boxes(args: &Args) -> Vec<String> {
         .collect()
 }
 
-fn tick_boxes(args: &Args) -> Vec<String> {
+fn tick_boxes(args: &Args, ledger: &dyn Ledger) -> Vec<String> {
     let main = match main_checkout(&args.git_dir) {
         Ok(main) => main,
         Err(error) => return vec![format!("no box ticked: {error}")],
@@ -163,21 +164,23 @@ fn tick_boxes(args: &Args) -> Vec<String> {
     let queue = crate::land::queue::directory(&crate::land::lander::state_home(), &origin);
     let mut lines = crate::land::after::tick::queue(&queue, &main, &args.base, &args.head);
     lines.extend(crate::land::after::tick::revert_queue(&queue, &main, &args.base, &args.head));
-    lines.push(drained(&crate::issue_body::directory(&queue)));
+    lines.push(drained(&crate::issue_body::directory(&queue), ledger));
     lines
 }
 
-fn drained(outbox: &Path) -> String {
+fn drained(outbox: &Path, ledger: &dyn Ledger) -> String {
     let github = crate::issue_body::Gh::new(crate::issue_body::CALL_LIMIT);
-    match crate::issue_body::drain(outbox, &github, crate::issue_body::DRAIN_LIMIT) {
+    match crate::issue_body::drain(outbox, &github, ledger, crate::issue_body::DRAIN_LIMIT) {
         Ok(drained) => format!(
-            "issue bodies: {} written, {} already, {} refused, {} closed, {} waiting{}",
+            "issue bodies: {} written, {} already, {} refused, {} closed, {} waiting{}; {} recorded for the ledger{}",
             drained.written,
             drained.already,
             drained.refused,
             drained.closed,
             drained.waiting,
-            drained.failure.map_or_else(String::new, |why| format!(" ({why})"))
+            drained.failure.map_or_else(String::new, |why| format!(" ({why})")),
+            drained.recorded,
+            if drained.unrecorded.is_empty() { String::new() } else { format!(" ({})", drained.unrecorded.join("; ")) }
         ),
         Err(error) => format!("issue bodies: cannot drain {}: {error}", outbox.display()),
     }

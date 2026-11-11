@@ -13,6 +13,14 @@ use crate::{
 mod graph;
 mod subverbs;
 
+struct HostLedger;
+
+impl north_landing::issue_body::Ledger for HostLedger {
+    fn record(&self, item: &str, body: &str) -> Result<(), String> {
+        crate::threads::client::ingest(crate::threads::issue_boxes::row(item, body).as_bytes())
+    }
+}
+
 const UNIFORM: &[(&str, Run)] = &[
     ("agent-policy-contract", agent_policy_contract::run),
     ("dep-gate", dep_gate::run),
@@ -26,7 +34,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("landed-tree", landed_tree::run),
     ("stale-revert", stale_revert::run),
     ("merge-driver", merge_set::run),
-    ("after-landing", after_landing::run),
+    ("after-landing", |arguments| after_landing::run(arguments, &HostLedger)),
     ("bin-references", bin_references::run),
     ("safe-push", super::remote_land::safe_push),
     ("follows-release", follows_release::run),

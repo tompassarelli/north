@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 
-use crate::issue_body::{Gh, Issue, CALL_LIMIT};
+use crate::issue_body::{Gh, Issue, Tracker, CALL_LIMIT};
 use crate::land::after::tick::{self, Tick};
 
 const SHORT_SHA: usize = 12;
