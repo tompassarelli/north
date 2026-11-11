@@ -8,3 +8,4 @@ __pycache__/
 /docs/features.md
 /buck-out/
 /.buckconfig.flake
+/rust-project.json

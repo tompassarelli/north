@@ -1,0 +1,32 @@
+load("@prelude//rust:outputs.bzl", "RustcExtraOutputsInfo")
+
+_RUST_RULES = "^(rust_binary|rust_library|rust_test)$"
+
+_VERDICT = 'if [ -s "$1" ]; then cat "$1" >&2; exit 1; fi; : > "$2"'
+
+def _first_party(target) -> bool:
+    return target.label.package.split("/")[0] != "third-party"
+
+def _clippy_impl(ctx: bxl.Context):
+    universe = ctx.target_universe([label for expression in ctx.cli_args.targets for label in expression]).target_set()
+    targets = [target for target in ctx.cquery().kind(_RUST_RULES, universe) if _first_party(target)]
+    actions = ctx.bxl_actions().actions
+    verdicts = []
+    for label, analysis in ctx.analysis(targets).items():
+        diagnostics = analysis.providers()[RustcExtraOutputsInfo].clippy.compile_output.diag_txt
+        verdict = actions.declare_output("clippy/{}/{}.ok".format(label.raw_target().package, label.raw_target().name))
+        actions.run(
+            cmd_args("/bin/sh", "-c", _VERDICT, "clippy", diagnostics, verdict.as_output()),
+            category = "clippy_verdict",
+            identifier = str(label.raw_target()),
+        )
+        verdicts.append(verdict)
+    ctx.output.ensure_multiple(verdicts)
+    ctx.output.print("clippy: {} targets clean".format(len(verdicts)))
+
+clippy = bxl_main(
+    impl = _clippy_impl,
+    cli_args = {
+        "targets": cli_args.list(cli_args.target_expr()),
+    },
+)

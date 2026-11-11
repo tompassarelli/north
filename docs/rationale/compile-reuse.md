@@ -47,6 +47,61 @@ measurements.
   sccache skips incremental crates and was measured slower than lane seeding (build-cost.md, 31 Oct). Buck2 keys each
   action by its inputs and speaks the Remote Execution API, which is what one store for the whole fleet needs.
 
+## Editor and lint (north#1115 box 10)
+
+- rust-analyzer reads a `rust-project.json` that `rust-project` writes from the Buck2 graph. `rust-project` ships in
+  the same nixpkgs `buck2` package (`bin/rust-project`, built from `integrations/rust-project` at the same tag), so it
+  adds no dependency: same licence, maintainers and pin as the review below. It runs only `buck2` (the prelude's
+  `rust/rust-analyzer/resolve_deps.bxl`, under its own isolation dir `.rust-analyzer`) and `rustc --print=sysroot`.
+- Generating it: in the dev shell, `rust-project develop --prefer-rustup-managed-toolchain //crates/...` writes
+  `rust-project.json` at the root. The file is git-ignored because it holds absolute store and `buck-out` paths.
+  rust-analyzer picks it up ahead of `Cargo.toml` without any editor settings. An editor can instead load only the
+  targets that own each opened file through the discovery protocol, with `rust-analyzer.workspace.discoverConfig` set
+  to `{"command": ["rust-project", "develop-json", "--sysroot-mode=rustc", "{arg}"], "progressLabel": "buck2",
+  "filesToWatch": ["BUCK"]}`. Check-on-save is `rust-analyzer.check.overrideCommand` set to
+  `["rust-project", "check", "$saved_file"]`, which builds `[clippy.json]` for the saved file's targets. At this tag
+  the generated test runnable names the program `buck`, so run-test lenses fail; run tests through `buck2 test`.
+- std sources: rust-analyzer reads std from `$(rustc --print=sysroot)/lib/rustlib/src/rust/library`, so
+  `rust-toolchain.toml` carries `rust-src`. Without it, `rust-project` stops at "finding std source code" with
+  ENOENT. Adding the component leaves `rustc -vV` unchanged, and that output is the toolchain identity Cargo
+  fingerprints. Checked on cpx62b: after the change, `cargo check -p north-strategy-types` into the same target
+  directory re-checked nothing.
+- What runs when the file is generated: `rust-project` builds the code the editor needs ("building generated code"):
+  proc-macro dylibs and build-script `OUT_DIR`s. Check-on-save builds clippy. All of these are Buck2 actions, so on
+  the laptop they run through box 6's remote execution and only their outputs download. The laptop generates its
+  file only once box 6 is live there. A file copied from a build host does not work, because its paths point into
+  that host's `buck-out`.
+- Measured on cpx62b, 2026-11-11, with north-strategy-types (the one first-party target on main): generation took 6 s
+  and covered 8 crates. `rust-analyzer analysis-stats` on the file reports 237 expressions, 0 with unknown types and
+  0 failed bodies.
+
+### Clippy
+
+- `[clippy.json]` and `[clippy.txt]` are built with infallible diagnostics (prelude `rust/build.bzl`). A build of
+  either exits 0 whatever clippy reports, so it cannot gate.
+- The gate is `lint/clippy.bxl`. It takes `[clippy.txt]` for every first-party `rust_library`, `rust_binary` and
+  `rust_test` the patterns name, and adds one `clippy_verdict` action per target that prints the text and fails
+  when it is non-empty. Each verdict is an action keyed by its diagnostics, so an unchanged crate is a cache hit on
+  every host.
+- At the cut-over, `buck2 bxl //lint/clippy.bxl:clippy -- --targets //...` replaces
+  `cargo clippy --all-targets --workspace --locked --offline -- -D warnings`. For one crate it is
+  `--targets //crates/DIR/...`. The two match as follows:
+  - `--all-targets` maps to every library, binary and test target.
+  - `-D warnings` maps to any non-empty diagnostics.
+  - `[workspace.lints]` (`unsafe_code = "forbid"` and seven clippy lints at warn, inherited by every crate) maps to
+    `toolchains//:rust`'s `warn_lints` and `-Funsafe_code`. Those flags reach first-party crates only, because
+    `cargo.rust_library` caps third-party lints with `--cap-lints=allow`.
+  - There is no `clippy.toml` to carry.
+- Measured on cpx62b, 2026-11-11: the clean tree passes (`clippy: 1 targets clean`, exit 0). A pedantic
+  `cloned_instead_of_copied`, which only the workspace list enables, fails it with exit 3 and the rendered warning.
+
+### rustfmt
+
+No landing check runs rustfmt. `cargo fmt --all --check` reports 21,492 diffs on main (2026-11-11), and there is no
+`rustfmt.toml` (rust-build-times.md). The cut-over therefore has no fmt check to move, and none is added. Editors
+format with rustfmt at each crate's edition from `rust-project.json` (2024 for every crate). The plain run equal to
+`cargo fmt --all --check` is `rustfmt --edition 2024 --check` over each crate root.
+
 ## Worker sandbox
 
 A Buck2 daemon outlives the command that starts it and keeps that command's Landlock domain. The worker sandbox
