@@ -1,0 +1,5 @@
+[[module]]
+name = "evals"
+paths = ["evals/**"]
+responsibility = "Measurement runners that drive north and other harnesses from outside, as a user would: the Eval B load ladder against plain T3 Code."
+may_use = []

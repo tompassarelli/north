@@ -1204,3 +1204,8 @@ name = "monitor"
 paths = ["crates/north-tui/monitor/src/**"]
 responsibility = "Render one live terminal screen of fleet, landing queue, runtime versions per host, health and ladder level from the cheapest direct source of each number, each read off the render thread with a timeout, so a broken north still shows what is broken."
 may_use = []
+[[module]]
+name = "evals"
+paths = ["evals/**"]
+responsibility = "Measurement runners that drive north and other harnesses from outside, as a user would: the Eval B load ladder against plain T3 Code."
+may_use = []
