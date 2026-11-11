@@ -1,11 +1,10 @@
-use super::argument_words::{is_plain_argument, is_redirect_operator};
 use self::cpu::{cpu_file, cpu_throttle};
 use crate::hook_input::{HookInput, Verdict};
 use crate::nix_command::{self, Inner};
 use crate::{platform::pyjson::Value, shell};
 use std::path::{Path, PathBuf};
 
-mod bounded;
+mod bun;
 mod cpu;
 mod local_write;
 
@@ -35,7 +34,7 @@ pub fn judge(input: &HookInput) -> Verdict {
             replaced(input, format!("north capacity host run --owner heavy-command-guard --timeout-seconds 1200 -- bash -c {}", quote(command))),
             "Heavy command routed through machine-capacity admission.".into(),
         ),
-        Decision::Bound => Verdict::Rewrite(replaced(input, bounded::wrapped(&quote(command))), bounded::NOTE.into()),
+        Decision::Bound => Verdict::Rewrite(replaced(input, bun::wrapped(&quote(command))), bun::NOTE.into()),
     }
 }
 
@@ -242,7 +241,7 @@ fn classify(words: &[String], cwd: &Path) -> Decision {
         return Decision::Route;
     }
     if name == "bun" {
-        return bun_command(args, &plain, cwd);
+        return bun::bun_command(args, &plain, cwd);
     }
     Decision::Allow
 }
@@ -273,80 +272,6 @@ fn cargo_command(args: &[String]) -> Decision {
     } else {
         Decision::Allow
     }
-}
-
-fn bun_command(args: &[String], plain: &[&str], cwd: &Path) -> Decision {
-    let runner = plain.first() == Some(&"test");
-    let plain = plain.strip_prefix(&["run"]).unwrap_or(plain);
-    if plain.first() == Some(&"test") {
-        return bun_tests(args, runner.then_some(cwd));
-    }
-    if plain.starts_with(&["wisp", "map", "build"]) {
-        return Decision::Route;
-    }
-    if plain.starts_with(&["wisp", "view"])
-        || (plain.starts_with(&["wisp", "headless"]) && args.iter().any(|s| s == "--render"))
-    {
-        return Decision::Route;
-    }
-    if plain.first() == Some(&"tsc") && args.iter().any(|s| matches!(s.as_str(), "--build" | "-b"))
-    {
-        return Decision::Route;
-    }
-    Decision::Allow
-}
-
-fn bun_tests(args: &[String], runner: Option<&Path>) -> Decision {
-    let targets = test_targets(args);
-    match targets.as_slice() {
-        [] if runner.is_some_and(bounded::light_suite) => Decision::Bound,
-        [] => refuse("bun test (full suite)"),
-        [file] if !file.contains(['*', '?', '[']) && script_file(file) => Decision::Allow,
-        _ => Decision::Route,
-    }
-}
-
-fn script_file(path: &str) -> bool {
-    [".ts", ".js", ".tsx", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]
-        .iter()
-        .any(|suffix| path.ends_with(suffix))
-}
-
-fn test_targets(args: &[String]) -> Vec<&str> {
-    let mut skip = false;
-    args.iter()
-        .skip_while(|arg| *arg != "test")
-        .skip(1)
-        .filter(|arg| {
-            if skip {
-                skip = false;
-                return false;
-            }
-            if matches!(
-                arg.as_str(),
-                "--timeout"
-                    | "--rerun-each"
-                    | "--retry"
-                    | "--seed"
-                    | "--test-name-pattern"
-                    | "-t"
-                    | "--reporter"
-                    | "--reporter-outfile"
-                    | "--preload"
-                    | "--coverage-dir"
-                    | "--max-concurrency"
-            ) {
-                skip = true;
-                return false;
-            }
-            if is_redirect_operator(arg) {
-                skip = true;
-                return false;
-            }
-            is_plain_argument(arg)
-        })
-        .map(String::as_str)
-        .collect()
 }
 
 fn refuse(command: &str) -> Decision {
@@ -408,7 +333,7 @@ fn farm_only(words: &[String], set: &[&str], cwd: &Path) -> Option<String> {
     };
     if shell::basename(&words[0]) == "bun"
         && args.first().is_some_and(|s| s == "test")
-        && !test_targets(args).is_empty()
+        && !bun::test_targets(args).is_empty()
     {
         return None;
     }
