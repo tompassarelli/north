@@ -180,6 +180,10 @@ impl Runtime for Claude {
         turns::credential_failure(frame)
     }
 
+    fn failed_tool_servers(&self, frame: &Value) -> Vec<String> {
+        turns::failed_tool_servers(frame)
+    }
+
     fn window_inbox(&self, accounts: &[Account], conversation: &str) -> Option<WindowInbox> {
         window_inbox::find(accounts, conversation)
     }

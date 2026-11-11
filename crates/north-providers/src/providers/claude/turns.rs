@@ -58,6 +58,15 @@ fn call_signal(frame: &Value, conversation: &str) -> Option<TurnSignal> {
     Some(TurnSignal::Call { conversation: conversation.to_owned(), call: message["id"].as_str()?.to_owned(), tokens }).filter(|_| usage.is_object())
 }
 
+/// The servers the session's init frame lists as failed: Claude Code connects its MCP servers before the first turn and names each with its status there.
+pub(super) fn failed_tool_servers(frame: &Value) -> Vec<String> {
+    if frame["type"] != "system" || frame["subtype"] != "init" {
+        return Vec::new();
+    }
+    let servers = frame["mcp_servers"].as_array().into_iter().flatten();
+    servers.filter(|server| server["status"] == "failed").filter_map(|server| server["name"].as_str().map(str::to_owned)).collect()
+}
+
 pub(super) fn credential_failure(frame: &Value) -> Option<ClientRefusal> {
     let text = match frame["type"].as_str() {
         Some("result") => frame["result"].as_str(),
