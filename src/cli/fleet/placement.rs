@@ -185,7 +185,13 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
     if let Some(why) = lead_refusal(fleet.host(), &launch, |host| trusted(host, fleet.host())) {
         return Ok(Err(Refusal::Final(why)));
     }
-    let placed = check(&launch, &text, overrides, &machine_load(fleet)?, &fleet.roster(), report)?;
+    let (roster, load) = (fleet.roster(), machine_load(fleet)?);
+    let (placed, view) = std::thread::scope(|scope| {
+        let view = scope.spawn(|| crate::dispatch::spend_now(&roster));
+        let placed = check(&launch, &text, overrides, &load, &roster, report);
+        (placed, view.join().unwrap_or_else(|_| Err("its read panicked".to_owned())))
+    });
+    let placed = placed?;
     if let Ok(placed) = &placed
         && let Some(why) = home_path_refusal(request, placed.machine.as_ref())
     {
@@ -195,15 +201,13 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
         return Ok(placed);
     }
     let starter = if request.role == Some(Role::Proxy) || text.contains("[routine:") { Starter::Reserved } else { Starter::Worker };
-    let view = match crate::dispatch::spend_now(&fleet.roster()) {
+    let view = match view {
         Ok(read) => read,
         Err(why) => return Ok(Err(Refusal::Spend(format!("spend view unread: {why}")))),
     };
     let admits = |account: &str| view.admit(&format!("claude:{account}"), starter).map_err(|refusal| refusal.to_string());
     let chosen = placed.as_ref().ok().and_then(|placed| placed.account.clone()).unwrap_or_else(|| request.account.clone());
     let others: Vec<&str> = view.accounts.iter().filter_map(|other| other.name.strip_prefix("claude:")).collect();
-    let roster = fleet.roster();
-    let load = machine_load(fleet)?;
     let settled = if request.account.is_empty() {
         with_room(&chosen, &others, admits, |other| check(&Launch { account: other, ..launch }, &text, overrides, &load, &roster, false), placed)?
     } else {

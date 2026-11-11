@@ -234,10 +234,14 @@ pub fn laptop(cfg: &DocumentMut, here: &str) -> Option<String> {
 /// One `north` JSON listing from every host but `here`: an ssh host over its destination, the laptop
 /// from the copy it leaves in the dispatch record as `KIND-HOST.json`, any other host over ssh by name.
 pub fn others(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f64, limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
-    let laptop = laptop(cfg, here);
-    let mut found: Vec<(String, Value)> = laptop.iter().filter(|name| name.as_str() != here && hosts(cfg).contains(name)).map(|host| (host.clone(), mirrored(&record::directory(), kind, host, at, notes))).collect();
+    let mut found = laptop_copy(cfg, here, kind, at, notes);
     found.extend(reached(cfg, here, command, limit, notes));
     found
+}
+
+fn laptop_copy(cfg: &DocumentMut, here: &str, kind: &str, at: f64, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+    let laptop = laptop(cfg, here);
+    laptop.iter().filter(|name| name.as_str() != here && hosts(cfg).contains(name)).map(|host| (host.clone(), mirrored(&record::directory(), kind, host, at, notes))).collect()
 }
 
 pub(super) fn hosts(cfg: &DocumentMut) -> Vec<String> {
@@ -245,6 +249,53 @@ pub(super) fn hosts(cfg: &DocumentMut) -> Vec<String> {
 }
 
 pub fn reached(cfg: &DocumentMut, here: &str, command: &[&str], limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+    reached_via(cfg, here, command, notes, &|_, ssh| remote_json_within(Some(ssh), command, limit))
+}
+
+/// [`everywhere`] for a launch's spend view: this host's listing read now, and each other host's from the one another launch
+/// recorded under `SHARED_SECONDS` ago, else asked by the one launch holding that host's turn, which launches starting
+/// meanwhile wait for and then read; a decider may rank on a reading up to 30 s old (docs/rationale/placement.md).
+pub fn everywhere_shared(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f64, limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+    let records = record::directory().join("shared");
+    let mut found = here_listing(here, command, limit, notes);
+    found.extend(laptop_copy(cfg, here, kind, at, notes));
+    found.extend(reached_via(cfg, here, command, notes, &|host, ssh| shared_read(&records, &format!("{kind}-{host}"), || remote_json_within(Some(ssh), command, limit))));
+    found
+}
+
+const SHARED_SECONDS: f64 = 30.0;
+
+fn shared_read(records: &Path, key: &str, read: impl FnOnce() -> Result<Value, String>) -> Result<Value, String> {
+    let path = records.join(format!("{key}.json"));
+    let fresh = || crate::pacing::placement::now() - SHARED_SECONDS;
+    if let Some(listing) = shared_listing(&path, fresh()) {
+        return Ok(listing);
+    }
+    let _turn = turn(records, key);
+    if let Some(listing) = shared_listing(&path, fresh()) {
+        return Ok(listing);
+    }
+    let listing = read()?;
+    let taken = crate::pacing::placement::now();
+    let written = path.with_extension(format!("{}.part", std::process::id()));
+    let _ = std::fs::write(&written, serde_json::json!({"at": taken, "listing": listing}).to_string()).and_then(|()| std::fs::rename(&written, &path));
+    Ok(listing)
+}
+
+fn shared_listing(path: &Path, since: f64) -> Option<Value> {
+    let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let taken = recorded["at"].as_f64()?;
+    (taken >= since && taken <= crate::pacing::placement::now()).then(|| recorded["listing"].clone())
+}
+
+fn turn(records: &Path, key: &str) -> Option<std::fs::File> {
+    std::fs::create_dir_all(records).ok()?;
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(records.join(format!("{key}.lock"))).ok()?;
+    file.lock().ok()?;
+    Some(file)
+}
+
+fn reached_via(cfg: &DocumentMut, here: &str, command: &[&str], notes: &mut Vec<String>, read: &(dyn Fn(&str, &str) -> Result<Value, String> + Sync)) -> Vec<(String, Value)> {
     let laptop = laptop(cfg, here);
     let machines = gate::machines(cfg);
     let targets: Vec<(String, String)> = hosts(cfg)
@@ -256,12 +307,12 @@ pub fn reached(cfg: &DocumentMut, here: &str, command: &[&str], limit: Duration,
         })
         .collect();
     let reads: Vec<(String, Result<Value, String>)> = std::thread::scope(|scope| {
-        let jobs: Vec<_> = targets.iter().map(|(host, ssh)| (host, scope.spawn(move || remote_json_within(Some(ssh), command, limit)))).collect();
+        let jobs: Vec<_> = targets.iter().map(|(host, ssh)| (host, scope.spawn(move || read(host, ssh)))).collect();
         jobs.into_iter().map(|(host, job)| (host.clone(), job.join().unwrap_or_else(|_| Err("listing read panicked".into())))).collect()
     });
     let mut found = Vec::new();
-    for (host, read) in reads {
-        match read {
+    for (host, listing) in reads {
+        match listing {
             Ok(listing) => found.push((host, listing)),
             Err(why) => notes.push(format!("{host} north {} unread: {why}", command[..2].join(" "))),
         }
@@ -310,13 +361,19 @@ pub fn copy_times(directory: &Path, kind: &str, laptop: Option<&str>) -> BTreeMa
 
 /// One `north` JSON listing from this host and from every other, each with the host it came from.
 pub fn everywhere(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f64, limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
-    let mut found = Vec::new();
-    match remote_json_within(None, command, limit) {
-        Ok(listing) => found.push((here.to_owned(), listing)),
-        Err(why) => notes.push(format!("{here} north {} unread: {why}", command[..2].join(" "))),
-    }
+    let mut found = here_listing(here, command, limit, notes);
     found.extend(others(cfg, here, command, kind, at, limit, notes));
     found
+}
+
+fn here_listing(here: &str, command: &[&str], limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+    match remote_json_within(None, command, limit) {
+        Ok(listing) => vec![(here.to_owned(), listing)],
+        Err(why) => {
+            notes.push(format!("{here} north {} unread: {why}", command[..2].join(" ")));
+            Vec::new()
+        }
+    }
 }
 
 /// The session names of the `north fleet launch` jobs `threads queue --json` shows waiting or running, which register only

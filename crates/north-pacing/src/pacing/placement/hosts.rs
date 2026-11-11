@@ -250,6 +250,8 @@ const STALE_LIMIT_SECONDS: f64 = 600.0;
 
 const ACCOUNTS_CACHE_SECONDS: f64 = 600.0;
 
+const SHARED_SECONDS: f64 = 30.0;
+
 type Memo = Mutex<Option<HashMap<String, Facts>>>;
 
 static PASS: Memo = Mutex::new(None);
@@ -291,21 +293,30 @@ pub(in crate::pacing) fn probed_machines(machines: Vec<Machine>, fleet_load: &BT
 
 /// Each machine's facts in one ssh round trip apiece, asked at once; a host silent past `SURVEY_DEADLINE` is placed from its last recorded reading.
 pub(in crate::pacing) fn surveyed(machines: &[Machine], cwd: Option<&str>) -> Vec<Facts> {
-    survey_via(&PASS, machines, cwd, SURVEY_DEADLINE, Arc::new(fetch), &silent_host)
+    survey_via(&PASS, &records(), machines, cwd, SURVEY_DEADLINE, Arc::new(fetch), &silent_host)
 }
 
-type Ask = Arc<dyn Fn(&str, &str, Option<&str>) -> Facts + Send + Sync>;
+/// What a launch asks a host: everything placement reads, or only whether its directory is there when it reads another launch's answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Asked {
+    Everything,
+    Directory,
+}
 
-fn survey_via(memo: &'static Memo, machines: &[Machine], cwd: Option<&str>, deadline: Duration, ask: Ask, silent: &dyn Fn(&Machine, Option<&str>) -> Facts) -> Vec<Facts> {
+type Asker = dyn Fn(&str, &str, Option<&str>, Asked) -> Facts + Send + Sync;
+
+type Ask = Arc<Asker>;
+
+fn survey_via(memo: &'static Memo, records: &Path, machines: &[Machine], cwd: Option<&str>, deadline: Duration, ask: Ask, silent: &dyn Fn(&Machine, Option<&str>) -> Facts) -> Vec<Facts> {
     let started = Instant::now();
     let waiting: Vec<_> = machines
         .iter()
         .map(|machine| {
             let (send, receive) = mpsc::channel();
-            let (machine, cwd, ask) = (machine.clone(), cwd.map(str::to_owned), Arc::clone(&ask));
+            let (machine, cwd, ask, records) = (machine.clone(), cwd.map(str::to_owned), Arc::clone(&ask), records.to_path_buf());
             std::thread::spawn(move || {
                 let key = format!("{}\0{}\0{}", machine.name, machine.ssh, cwd.clone().unwrap_or_default());
-                let _ = send.send(remembered(memo, key, || ask(&machine.name, &machine.ssh, cwd.as_deref())));
+                let _ = send.send(remembered(memo, key, || answered(&records, &machine, cwd.as_deref(), &*ask)));
             });
             receive
         })
@@ -319,13 +330,50 @@ fn survey_via(memo: &'static Memo, machines: &[Machine], cwd: Option<&str>, dead
         .collect()
 }
 
-fn record_path(name: &str) -> std::path::PathBuf {
-    storage::directory().join("survey").join(format!("{name}.json"))
+/// The host's facts from an answer another launch recorded under `SHARED_SECONDS` ago, asking the host only for this launch's
+/// directory; else from the one launch that holds the host's survey turn, which launches starting meanwhile wait for and then read.
+fn answered(records: &Path, machine: &Machine, cwd: Option<&str>, ask: &Asker) -> Facts {
+    let reused = |facts: Facts| match cwd {
+        Some(_) => Facts { has_cwd: ask(&machine.name, &machine.ssh, cwd, Asked::Directory).has_cwd, ..facts },
+        None => facts,
+    };
+    if let Some(facts) = shared(records, &machine.name, storage::now()) {
+        return reused(facts);
+    }
+    let _turn = turn(records, &machine.name);
+    if let Some(facts) = shared(records, &machine.name, storage::now()) {
+        return reused(facts);
+    }
+    ask(&machine.name, &machine.ssh, cwd, Asked::Everything)
 }
 
-fn record(name: &str, facts: &Facts) {
-    let path = record_path(name);
-    let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new("."))).and_then(|()| std::fs::write(&path, json!({"at": storage::now(), "facts": facts}).to_string()));
+/// The answer recorded under `SHARED_SECONDS` ago, its saturation reading still under `SATURATION_CACHE_SECONDS` old; an answer
+/// that held no live count or no saturation reading is asked again.
+fn shared(records: &Path, name: &str, now: f64) -> Option<Facts> {
+    let recorded = load(&records.join(format!("{name}.json")));
+    let age = recorded["at"].as_f64().map(|at| now - at).filter(|age| (0.0..SHARED_SECONDS).contains(age))?;
+    let mut facts = serde_json::from_value::<Facts>(recorded["facts"].clone()).ok()?;
+    facts.saturation_age_s = Some(facts.saturation_age_s? + age);
+    (facts.live.is_some() && facts.saturation.is_some() && facts.saturation_age_s.is_some_and(|aged| aged < SATURATION_CACHE_SECONDS)).then_some(facts)
+}
+
+fn turn(records: &Path, name: &str) -> Option<std::fs::File> {
+    std::fs::create_dir_all(records).ok()?;
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(records.join(format!("{name}.lock"))).ok()?;
+    file.lock().ok()?;
+    Some(file)
+}
+
+fn records() -> std::path::PathBuf {
+    storage::directory().join("survey")
+}
+
+fn record_path(name: &str) -> std::path::PathBuf {
+    records().join(format!("{name}.json"))
+}
+
+fn record(records: &Path, name: &str, facts: &Facts) {
+    let _ = std::fs::create_dir_all(records).and_then(|()| std::fs::write(records.join(format!("{name}.json")), json!({"at": storage::now(), "facts": facts}).to_string()));
 }
 
 /// The host's last answered facts marked stale with their age; nothing known when none is on record or it is older than `STALE_LIMIT_SECONDS`.
@@ -368,13 +416,16 @@ impl Machine {
     }
 }
 
-fn fetch(name: &str, destination: &str, cwd: Option<&str>) -> Facts {
+fn fetch(name: &str, destination: &str, cwd: Option<&str>, asked: Asked) -> Facts {
     if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
         let has_cwd = cwd.map(|_| load(Path::new(&path))[name]["has_cwd"].as_bool().unwrap_or(false));
         let saturation = saturation(name, destination);
         return Facts { live: resident(name, destination), accounts: signed_in(name, destination, false), claude_ai: signed_in(name, destination, true), saturation_age_s: saturation.map(|_| 0.0), saturation, has_cwd, stale_age_s: None };
     }
     let here = name == local();
+    if asked == Asked::Directory {
+        return Facts { has_cwd: cwd.map(|directory| directory_there(here, destination, directory)), ..Facts::default() };
+    }
     let cache = storage::directory().join("saturation").join(format!("{name}.json"));
     let now = storage::now();
     let cached = load(&cache);
@@ -409,9 +460,17 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>) -> Facts {
         let _ = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&cache, json!({"at": now, "reading": reading}).to_string()));
     }
     if answer.is_some() || here {
-        record(name, &Facts { has_cwd: None, stale_age_s: None, ..facts.clone() });
+        record(&records(), name, &Facts { has_cwd: None, stale_age_s: None, ..facts.clone() });
     }
     facts
+}
+
+fn directory_there(here: bool, destination: &str, directory: &str) -> bool {
+    if here {
+        return Path::new(directory).is_dir();
+    }
+    let answer = ssh_script(destination, &script(false, false, false, Some(directory))).ok().filter(|r| r.code == 0);
+    answer.is_some_and(|r| sections(&r.out).iter().any(|(label, _)| label == "cwd"))
 }
 
 const RESIDENT_BINARY: &str = ".local/state/north/current/tree/bin/north";

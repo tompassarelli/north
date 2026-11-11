@@ -221,7 +221,7 @@ fn spend_view(cfg: &DocumentMut, roster: &Roster, here: &str, rules: &Rules, ses
 pub fn spend_now(roster: &Roster) -> Result<View, String> {
     let cfg = placement::config()?;
     let (here, at, rules) = (crate::platform::host::name(), placement::now(), Rules::configured());
-    let listings = fleets::everywhere(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, &mut Vec::new());
+    let listings = fleets::everywhere_shared(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, &mut Vec::new());
     let sessions: Vec<(Session, String)> = listings.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
     Ok(spend_view(&cfg, roster, &here, &rules, &sessions, at))
 }
