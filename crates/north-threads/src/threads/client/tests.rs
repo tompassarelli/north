@@ -482,3 +482,23 @@ fn pulls_that_accept_a_recent_image_share_one_build_and_pulls_that_demand_a_fres
     assert_ne!(served(false), first, "a fresh pull was answered from the old image");
     assert_ne!(served(true), first, "the fresh build did not replace the kept image");
 }
+
+#[test]
+fn a_pull_that_demands_a_fresh_image_of_an_unchanged_ledger_is_answered_without_a_rebuild() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = directory.path().join("ledger.db");
+    let connection = rusqlite::Connection::open(&ledger).unwrap();
+    connection.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE t(v); INSERT INTO t VALUES (1);").unwrap();
+    let serve = || snapshot::serve(&ledger, false, &mut &snapshot::manifest_bytes(0, &[], false)[..], &mut Vec::new()).unwrap();
+    let built = || std::fs::metadata(directory.path().join("ledger.db.served-full")).unwrap().modified().unwrap();
+    for file in ["ledger.db", "ledger.db-wal"] {
+        std::fs::File::options().write(true).open(directory.path().join(file)).unwrap().set_modified(std::time::SystemTime::UNIX_EPOCH).unwrap();
+    }
+    serve();
+    let first = built();
+    serve();
+    assert_eq!(built(), first, "an unchanged ledger was rebuilt");
+    connection.execute_batch("INSERT INTO t VALUES (2);").unwrap();
+    serve();
+    assert_ne!(built(), first, "a changed ledger was answered from the old image");
+}

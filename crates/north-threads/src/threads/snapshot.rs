@@ -19,10 +19,11 @@ use crate::threads::catalog::CATALOG;
 use crate::threads::verb::names_native_ref;
 
 pub const MAGIC: &[u8] = b"NORTH-SNAPSHOT-PAGES 1\n";
-/// Opens a manifest that accepts an image built up to `REUSE_SECONDS` ago; `MAGIC` opens one that demands an image built now.
+/// Opens a manifest that accepts an image built up to `REUSE_SECONDS` ago; `MAGIC` opens one that demands an image of the ledger as it is now, which an unchanged ledger's kept image is.
 const MAGIC_RECENT: &[u8] = b"NORTH-SNAPSHOT-PAGES 2\n";
-/// How long the ledger host serves one built image to callers that accept a recent one, so the peers' pulls share one build of the 800 MB ledger.
-const REUSE_SECONDS: u64 = 300;
+/// How long the ledger host serves one built image of a changed ledger to callers that accept a recent one, so the peers' pulls, which come about six minutes apart each, share one build of the 800 MB ledger.
+const REUSE_SECONDS: u64 = 600;
+const STAMP_MARGIN: Duration = Duration::from_millis(50);
 pub const REMOTE_COMMAND: &str = "north threads snapshot-pages";
 pub const SNAPSHOT_SECONDS: u64 = 900;
 /// How old a snapshot may be before a call that reads it pulls it again.
@@ -37,10 +38,11 @@ type Hash = [u8; 32];
 
 /// Streams the pages of the ledger image that differ from the caller's manifest; `withhold_native`
 /// builds the image with every row naming a native item removed. A manifest that accepts a recent image
-/// is answered from the image the last build left beside the ledger, built anew once that is older than `REUSE_SECONDS`.
+/// is answered from the image the last build left beside the ledger, built anew once that is older than `REUSE_SECONDS`; any manifest is
+/// answered from it while the ledger has not been written since that build began.
 pub fn serve(database: &Path, withhold_native: bool, input: &mut dyn Read, output: &mut dyn Write) -> io::Result<()> {
     let (manifest_size, manifest, recent) = read_manifest(input)?;
-    let served = served(database, withhold_native, recent.then_some(Duration::from_secs(REUSE_SECONDS)))?;
+    let served = served(database, withhold_native, if recent { Duration::from_secs(REUSE_SECONDS) } else { Duration::ZERO })?;
     let size = served.size;
     let mut out = BufWriter::with_capacity(1 << 16, output);
     out.write_all(MAGIC)?;
@@ -68,16 +70,17 @@ struct Served {
     body: u64,
 }
 
-fn served(database: &Path, withhold_native: bool, reuse: Option<Duration>) -> io::Result<Served> {
+fn served(database: &Path, withhold_native: bool, reuse: Duration) -> io::Result<Served> {
     let path = suffixed(database, if withhold_native { ".served-withheld" } else { ".served-full" });
-    if let Some(found) = reuse.and_then(|age| open_served(&path, age)) {
+    if let Some(found) = open_served(&path, database, reuse) {
         return Ok(found);
     }
     let building = OpenOptions::new().create(true).append(true).open(suffixed(&path, ".lock"))?;
     building.lock()?;
-    if let Some(found) = reuse.and_then(|age| open_served(&path, age)) {
+    if let Some(found) = open_served(&path, database, reuse) {
         return Ok(found);
     }
+    let stamp = SystemTime::now() - STAMP_MARGIN;
     let image = image(database, withhold_native)?;
     let size = page_size(&image).ok_or_else(|| invalid("the ledger image has no SQLite header"))?;
     let hashes: Vec<Hash> = image.chunks_exact(size).map(hash_of).collect();
@@ -86,18 +89,26 @@ fn served(database: &Path, withhold_native: bool, reuse: Option<Duration>) -> io
     hashes.iter().for_each(|hash| head.extend(hash));
     head.extend(hash_of(&image));
     let tmp = suffixed(&path, &format!(".{}.tmp", std::process::id()));
-    let written = File::create(&tmp).and_then(|mut file| file.write_all(&head).and_then(|()| file.write_all(&image)));
+    let written = File::create(&tmp).and_then(|mut file| file.write_all(&head).and_then(|()| file.write_all(&image)).and_then(|()| file.set_modified(stamp)));
     if let Err(error) = written.and_then(|()| fs::rename(&tmp, &path)) {
         let _ = fs::remove_file(&tmp);
         return Err(error);
     }
-    open_served(&path, Duration::MAX).ok_or_else(|| invalid("the built ledger image cannot be read back"))
+    open_served(&path, database, Duration::MAX).ok_or_else(|| invalid("the built ledger image cannot be read back"))
 }
 
-fn open_served(path: &Path, within: Duration) -> Option<Served> {
+fn last_written(database: &Path) -> Option<SystemTime> {
+    let modified = |path: &Path| fs::metadata(path).and_then(|meta| meta.modified());
+    let log = modified(&suffixed(database, "-wal")).ok();
+    Some(modified(database).ok()?.max(log.unwrap_or(SystemTime::UNIX_EPOCH)))
+}
+
+fn open_served(path: &Path, database: &Path, within: Duration) -> Option<Served> {
     let file = File::open(path).ok()?;
     let meta = file.metadata().ok()?;
-    if SystemTime::now().duration_since(meta.modified().ok()?).is_ok_and(|age| age > within) {
+    let built = meta.modified().ok()?;
+    let unchanged = last_written(database).is_some_and(|written| written <= built);
+    if !unchanged && SystemTime::now().duration_since(built).is_ok_and(|age| age > within) {
         return None;
     }
     let mut head = [0; 8];
