@@ -3,7 +3,7 @@ mod kinds;
 
 use std::io::Read;
 
-use north_base::platform::private_text::{Finding, render};
+use north_base::platform::private_text::{ASKING_STATUS, AT_ONCE_ENV, Finding, render};
 
 use crate::runtime_access::RuntimeAccess;
 
@@ -31,8 +31,9 @@ pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
         return 2;
     };
     match judged(text, kinds.map(String::as_str), access) {
-        Ok(findings) if findings.is_empty() => 0,
-        Ok(findings) => {
+        Ok(None) => u8::try_from(ASKING_STATUS).unwrap_or(2),
+        Ok(Some(findings)) if findings.is_empty() => 0,
+        Ok(Some(findings)) => {
             print!("{}", render(&findings));
             1
         }
@@ -43,7 +44,7 @@ pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
     }
 }
 
-fn judged(text: &str, kinds: Option<&str>, access: &RuntimeAccess) -> Result<Vec<Finding>, String> {
+fn judged(text: &str, kinds: Option<&str>, access: &RuntimeAccess) -> Result<Option<Vec<Finding>>, String> {
     let text = match text {
         "-" => {
             let mut held = String::new();
@@ -53,8 +54,11 @@ fn judged(text: &str, kinds: Option<&str>, access: &RuntimeAccess) -> Result<Vec
         file => std::fs::read_to_string(file).map_err(|error| format!("cannot read {file}: {error}"))?,
     };
     if text.trim().is_empty() {
-        return Ok(Vec::new());
+        return Ok(Some(Vec::new()));
     }
     let list = kinds::load(kinds)?;
-    judge::judge(&list, &text, &judge::Cache::from_env(), &|tier, prompt| judge::ask_subscription(tier, prompt, access))
+    let cache = judge::Cache::from_env();
+    let at_once = std::env::var_os(AT_ONCE_ENV).is_some_and(|value| !value.is_empty());
+    let Some(_turn) = cache.turn(&text, !at_once) else { return Ok(None) };
+    judge::judge(&list, &text, &cache, &|tier, prompt| judge::ask_subscription(tier, prompt, access)).map(Some)
 }

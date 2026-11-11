@@ -49,22 +49,25 @@ pub fn publication(dir: &Path, base: &str, head: &str) -> Step {
     commit_email_scan(dir, &[range])
 }
 
-/// Whether the enqueue's scans judged the lane, or only lacked the private-kind verdict the lander must ask for again.
+/// Whether the enqueue's scans judged the lane, lacked only the private-kind verdict the lander must ask for again, or left the private-kind judge asking a model, whose verdict the lander waits for before it lands the lane.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Gate {
     Judged,
     NoVerdict,
+    Judging,
 }
 
-pub fn enqueue_gate(root: &Path, base: &str, denylist: &Denylist, origin: &str, destination: &str) -> Result<Gate, String> {
+pub fn enqueue_gate(root: &Path, (base, head): (&str, &str), denylist: &Denylist, origin: &str, destination: &str, lander_waits: bool) -> Result<Gate, String> {
     if on_path("betterleaks") {
-        secrets(root, &format!("{base}..HEAD")).map_err(|_| "secret scan refused the landing".to_owned())?;
+        secrets(root, &format!("{base}..{head}")).map_err(|_| "secret scan refused the landing".to_owned())?;
     } else {
         println!("safe-push: ⚠ betterleaks is not on PATH here, so this lane was not scanned for secrets before queueing; the lander's scan stays the gate.");
     }
-    match denylist.scan_stand(root, origin, base, "HEAD", destination).map_err(|_| "deny-list scan refused the landing".to_owned())? {
+    let stand = if lander_waits { denylist.stand_at_once(root, origin, base, head, destination) } else { denylist.scan_stand(root, origin, base, head, destination) };
+    match stand.map_err(|_| "deny-list scan refused the landing".to_owned())? {
         Stand::Pass => Ok(Gate::Judged),
         Stand::NoVerdict => Ok(Gate::NoVerdict),
+        Stand::Judging => Ok(Gate::Judging),
         Stand::Refuse => unreachable!("scan_stand returns a refusal as Err"),
     }
 }

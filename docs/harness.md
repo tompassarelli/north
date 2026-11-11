@@ -164,7 +164,10 @@ lanes" entries in [features/04-landing-and-lanes/](features/04-landing-and-lanes
    `landing.lander-host`, nor an ssh host of the fleet's `[hosts]`, nor in `landing.remote-hosts`, and any `landing.queue` other than the
    lander, naming the setting to add; otherwise `north land enqueue` runs the outgoing scans and
    the land checks the lane adds, squashes the lane to one commit unless `--several-commits`, and
-   queues it; the worker reports `Done: queued <branch>` and ends its turn;
+   queues it, printing the seconds each step before queueing took (`safe-push: timings:`); a public lane whose
+   private-kind judge is still asking a model queues with that verdict outstanding, and the lander on the same
+   host lands it only once the verdict is in ([private-text-judge](rationale/private-text-judge.md)); the worker
+   reports `Done: queued <branch>` and ends its turn;
 
 2. the lander (`north land serve`) takes the queued lanes, urgent first, and plans candidates that
    are each origin/main plus a prefix of them, one per free build slot, building each on its own

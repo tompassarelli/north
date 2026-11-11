@@ -17,6 +17,8 @@ mod arguments;
 mod refuse;
 mod verdict;
 use verdict::Verdict;
+mod timings;
+use timings::Timings;
 use refuse::{judge_lane_gates, refuse_archived, refuse_conflict, refuse_stale_revert, refuse_static_gates, refuse_unfetchable};
 use super::scans::outgoing;
 use super::slots::runner;
@@ -68,7 +70,7 @@ fn run_git(repo: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn default_branch(repo: &Path) -> String {
+pub(super) fn default_branch(repo: &Path) -> String {
     git(repo, &["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"])
         .ok()
         .and_then(|reference| reference.strip_prefix("refs/remotes/origin/").map(str::to_owned))
@@ -198,61 +200,73 @@ fn marks(root: &Path, base: &str, head: &str, destination: &str) -> Result<Marks
 }
 
 pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment) -> Result<Queued, String> {
+    let timings = Timings::start();
+    let queued = timed_enqueue(repo, shape, keep_lane, environment, &timings);
+    println!("{}", timings.line());
+    queued
+}
+
+fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment, timings: &Timings) -> Result<Queued, String> {
     let (root, branch) = checkout(repo)?;
     let origin = git(&root, &["remote", "get-url", "--push", "origin"]).map_err(|_| "origin has no push URL".to_owned())?;
-    repositories::servable(&root).map_err(|error| format!("the lander cannot serve this repository: {error}"))?;
-    refuse_archived(&origin)?;
+    timings.stage("servable", || repositories::servable(&root)).map_err(|error| format!("the lander cannot serve this repository: {error}"))?;
+    timings.stage("archived", || refuse_archived(&origin))?;
     let destination = default_branch(&root);
-    let (remote_ref, base) = fetch_base(&root, &destination)?;
-    refuse_conflict(&root, &base, &destination)?;
-    super::scans::generated_registry::check(&root, &base, &git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?)?;
-    let folded = crate::landing::merge_continue::fold(&root, &root.join(crate::landing::merge_set::DEFAULT_CONFIG), &base)?;
+    let (remote_ref, base) = timings.stage("fetch", || fetch_base(&root, &destination))?;
+    timings.stage("conflict", || refuse_conflict(&root, &base, &destination))?;
+    let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+    timings.stage("generated registry", || super::scans::generated_registry::check(&root, &base, &lane_head))?;
+    let folded = timings.stage("merge fold", || crate::landing::merge_continue::fold(&root, &root.join(crate::landing::merge_set::DEFAULT_CONFIG), &base))?;
     if !folded.is_empty() {
         println!("safe-push: sorted {} and folded the result into the lane", folded.join(", "));
     }
-    let alone_tree = check_lane(&root, &base, &branch, &origin, &destination, environment)?;
-    if alone_tree.is_none() {
-        println!("safe-push: the private-kind judge has no verdict yet, so the lane waits in the landing queue and the lander judges it again in its alone check before it lands.");
-    }
-    let first_commit_secs = first_commit::seconds(&root, &branch, &base);
-    let (squash, several_commits) = match shape {
-        Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
-        Shape::SeveralCommits { reason } => (Squash::Kept(format!("--several-commits: {reason}")), Some(reason.to_owned())),
-    };
-    let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-    let alone = checked_alone(&root, &head, alone_tree.as_deref(), &base);
-    lane_squash::refuse_unfinished_subject(&root, &branch)?;
     let lander_host = setting::landing(&root, &remote_ref, "landing.lander-host");
-    let queue = queue::directory(environment.state_home, &origin);
-    super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session)?;
-    let gated_from = judge_lane_gates(environment, &root, &branch, &base, &head, lander_ledger_at(&lander_host, &queue, environment))?;
-    judged(environment, &root, &branch, &head, "revert guard", refuse_stale_revert(&root, &base, &head))?;
-    let (red_fix, lander_fix, urgent) = marks(&root, &base, &head, &destination)?;
-    let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
-    let ticket = Ticket {
-        origin,
-        root: root.clone(),
-        host: environment.host.to_owned(),
-        branch: branch.clone(),
-        head,
-        session: environment.session.map(str::to_owned),
-        queued_at: rfc3339(OffsetDateTime::now_utc()),
-        queued_micros: Some(queued_micros),
-        first_commit_secs,
-        several_commits,
-        red_fix,
-        keep_lane,
-        urgent,
-        lander_fix,
-        published: published(&root, &branch, &destination),
-        gated_from,
-        ..alone
-    };
     let outbox = is_other_host(&lander_host, environment.host);
-    let directory = if outbox { queue.join(queue::OUTBOX) } else { queue };
-    let path = directory.join(queue::file_name(queued_micros, &branch));
-    file(&directory, &path, &ticket, outbox)?;
-    Ok(Queued { path, outbox, ticket, squash })
+    std::thread::scope(|scope| {
+        let scan = scope.spawn(|| timings.stage("outgoing scan", || outgoing::enqueue_gate(&root, (&base, &lane_head), environment.denylist, &origin, &destination, !outbox)));
+        let checked_tree = check_lane(&root, &base, &branch, environment, timings)?;
+        let first_commit_secs = first_commit::seconds(&root, &branch, &base);
+        let (squash, several_commits) = timings.stage("squash", || Ok::<_, String>(match shape {
+            Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
+            Shape::SeveralCommits { reason } => (Squash::Kept(format!("--several-commits: {reason}")), Some(reason.to_owned())),
+        }))?;
+        let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+        lane_squash::refuse_unfinished_subject(&root, &branch)?;
+        let queue = queue::directory(environment.state_home, &origin);
+        timings.stage("requeue", || super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session))?;
+        let gated_from = timings.stage("lane gates", || judge_lane_gates(environment, &root, &branch, &base, &head, lander_ledger_at(&lander_host, &queue, environment)))?;
+        judged(environment, &root, &branch, &head, "revert guard", timings.stage("revert guard", || refuse_stale_revert(&root, &base, &head)))?;
+        let (red_fix, lander_fix, urgent) = timings.stage("marks", || marks(&root, &base, &head, &destination))?;
+        let gate = scan.join().map_err(|_| "the outgoing scan panicked".to_owned())??;
+        match gate {
+            outgoing::Gate::Judged => {}
+            outgoing::Gate::NoVerdict => println!("safe-push: the private-kind judge has no verdict yet, so the lane waits in the landing queue and the lander judges it again in its alone check before it lands."),
+            outgoing::Gate::Judging => println!("safe-push: the private-kind judge is still judging this lane's text, so the lane waits in the landing queue and the lander lands it once the verdict is in."),
+        }
+        let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
+        let ticket = Ticket {
+            origin: origin.clone(),
+            root: root.clone(),
+            host: environment.host.to_owned(),
+            branch: branch.clone(),
+            session: environment.session.map(str::to_owned),
+            queued_at: rfc3339(OffsetDateTime::now_utc()),
+            queued_micros: Some(queued_micros),
+            first_commit_secs,
+            several_commits,
+            red_fix,
+            keep_lane,
+            urgent,
+            lander_fix,
+            published: published(&root, &branch, &destination),
+            gated_from,
+            ..checked_alone(&root, head, &checked_tree, gate, &base)
+        };
+        let directory = if outbox { queue.join(queue::OUTBOX) } else { queue };
+        let path = directory.join(queue::file_name(queued_micros, &branch));
+        timings.stage("ticket", || file(&directory, &path, &ticket, outbox))?;
+        Ok(Queued { path, outbox, ticket, squash })
+    })
 }
 
 /// The lane's branch and the root of its checkout.
@@ -277,25 +291,24 @@ fn judged(environment: &Environment, root: &Path, branch: &str, head: &str, gate
     landing_refusals::Lane { at: "enqueue", root: &root.to_string_lossy(), branch, head }.judged(environment.state_home, gate, outcome)
 }
 
-fn checked_alone(root: &Path, head: &str, checked_tree: Option<&str>, base: &str) -> Ticket {
-    let passed = checked_tree.is_some_and(|checked| git(root, &["rev-parse", "--verify", &format!("{head}^{{tree}}")]).is_ok_and(|tree| tree == checked));
-    Ticket { alone_green: passed.then(|| head.to_owned()), alone_base: passed.then(|| base.to_owned()), ..Ticket::default() }
+fn checked_alone(root: &Path, head: String, checked_tree: &str, gate: outgoing::Gate, base: &str) -> Ticket {
+    let unchanged = git(root, &["rev-parse", "--verify", &format!("{head}^{{tree}}")]).is_ok_and(|tree| tree == checked_tree);
+    let passed = unchanged && gate == outgoing::Gate::Judged;
+    let unjudged = unchanged && gate == outgoing::Gate::Judging;
+    Ticket { alone_green: passed.then(|| head.clone()), alone_base: passed.then(|| base.to_owned()), unjudged_on: unjudged.then(|| base.to_owned()), head, ..Ticket::default() }
 }
 
-/// The checked tree when every gate judged the lane, or `None` when only the private-kind judge had no verdict yet.
-fn check_lane(root: &Path, base: &str, branch: &str, origin: &str, destination: &str, environment: &Environment) -> Result<Option<String>, String> {
+fn check_lane(root: &Path, base: &str, branch: &str, environment: &Environment, timings: &Timings) -> Result<String, String> {
     let lane_head = git(root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-    if let Err(gate) = refuse_static_gates(root, base, "HEAD") {
+    if let Err(gate) = timings.stage("static gates", || refuse_static_gates(root, base, "HEAD")) {
         judged(environment, root, branch, &lane_head, gate, Err(format!("{gate} refused the landing")))?;
     }
     let bodies = git(root, &["log", "--format=%B", &format!("{base}..HEAD")])?;
     judged(environment, root, branch, &lane_head, "commit trailers", super::divergence::refuse_malformed(&bodies))?;
-    let gate = outgoing::enqueue_gate(root, base, environment.denylist, origin, destination)?;
-    runner::fails_first(root, base, &lane_head)?;
-    refuse_unfetchable(root, base, &lane_head)?;
-    runner::refuse_queue_checks(root, base, &lane_head)?;
-    let tree = git(root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])?;
-    Ok((gate == outgoing::Gate::Judged).then_some(tree))
+    timings.stage("fails first", || runner::fails_first(root, base, &lane_head))?;
+    timings.stage("crate fetch", || refuse_unfetchable(root, base, &lane_head))?;
+    timings.stage("queue checks", || runner::refuse_queue_checks(root, base, &lane_head))?;
+    git(root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])
 }
 
 pub fn run(arguments: &[String]) -> u8 {

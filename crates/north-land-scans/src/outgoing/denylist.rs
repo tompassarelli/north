@@ -14,6 +14,8 @@ use crate::slug::slug_of;
 const SOUTH_ENV: &str = "SAFE_PUSH_SOUTH";
 const DENYLIST_ENV: &str = "SAFE_PUSH_DENYLIST";
 
+type Judge = fn(&str) -> Result<Option<Vec<Finding>>, String>;
+
 pub struct Denylist {
     pub south: PathBuf,
     pub south_named: bool,
@@ -27,6 +29,7 @@ pub enum Stand {
     Refuse,
     /// The private-kind judge timed out or could not run: the push is held, but as a transient the next round retries, never as a refusal.
     NoVerdict,
+    Judging,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -73,10 +76,27 @@ impl Denylist {
     }
 
     /// Scans and returns the stand: a pass or a no verdict is `Ok`, while a hard refusal is `Err`. An enqueue queues a
-    /// lane that reached no verdict, without an alone pass, so the lander judges it again before it lands.
+    /// lane that reached no verdict, without an alone pass, so the lander judges it again before it lands. `stand_at_once`
+    /// also returns `Judging` when the private-kind judge is still asking a model, which it leaves running.
     pub fn scan_stand(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<Stand> {
-        let verdict = self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag), || Self::private_kinds(root, base, head, tag));
-        if verdict.refused() {
+        self.stand(root, origin_url, (base, head, tag), |text| private_text::judge(text).map(Some))
+    }
+
+    pub fn stand_at_once(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<Stand> {
+        self.stand(root, origin_url, (base, head, tag), private_text::judge_at_once)
+    }
+
+    pub fn verdict_at_once(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> DenylistVerdict {
+        self.judged(root, origin_url, (base, head, tag), private_text::judge_at_once)
+    }
+
+    fn judged(&self, root: &Path, origin_url: &str, (base, head, tag): (&str, &str, &str), judge: Judge) -> DenylistVerdict {
+        self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag), || Self::private_kinds(root, base, head, tag, judge))
+    }
+
+    fn stand(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), judge: Judge) -> Step<Stand> {
+        let verdict = self.judged(root, origin_url, range, judge);
+        if matches!(verdict.stand, Stand::Refuse | Stand::NoVerdict) {
             cancelled()?;
         }
         verdict.lines.iter().for_each(|line| println!("{line}"));
@@ -100,7 +120,7 @@ impl Denylist {
         &self,
         visibility: impl FnOnce() -> String,
         findings: impl FnOnce() -> Result<BTreeSet<String>, Fault>,
-        judged: impl FnOnce() -> Result<Vec<Finding>, String>,
+        judged: impl FnOnce() -> Result<Option<Vec<Finding>>, String>,
     ) -> DenylistVerdict {
         let named = self.south_named || self.config.is_some() || self.kinds.is_some();
         if !named && !self.south.is_dir() {
@@ -144,15 +164,16 @@ impl Denylist {
         self.south.join("main").is_dir() || self.kinds.is_some()
     }
 
-    fn private_kinds(root: &Path, base: &str, head: &str, tag: &str) -> Result<Vec<Finding>, String> {
+    fn private_kinds(root: &Path, base: &str, head: &str, tag: &str, judge: Judge) -> Result<Option<Vec<Finding>>, String> {
         let prose = denylist::prose_range(root, base, head, Some(tag))?;
-        if prose.trim().is_empty() { Ok(Vec::new()) } else { private_text::judge(&prose) }
+        if prose.trim().is_empty() { Ok(Some(Vec::new())) } else { judge(&prose) }
     }
 
-    fn report_kinds(judged: Result<Vec<Finding>, String>, visibility: &str) -> DenylistVerdict {
+    fn report_kinds(judged: Result<Option<Vec<Finding>>, String>, visibility: &str) -> DenylistVerdict {
         match judged {
-            Ok(found) if found.is_empty() => DenylistVerdict::pass(Vec::new()),
-            Ok(found) => {
+            Ok(None) => DenylistVerdict { lines: Vec::new(), stand: Stand::Judging },
+            Ok(Some(found)) if found.is_empty() => DenylistVerdict::pass(Vec::new()),
+            Ok(Some(found)) => {
                 let mut lines: Vec<String> = found.iter().map(|finding| format!("privacy: {}", private_text::destination(finding))).collect();
                 lines.push(format!("safe-push: ✗ PRIVATE KIND for a {visibility} repository, the outgoing messages or docs name private detail; NOT pushed."));
                 DenylistVerdict::refuse(lines)

@@ -15,11 +15,14 @@ const JUDGE_P90_SECS: u64 = 28;
 const HOOK_MARGIN_SECS: u64 = 15;
 const HOOK_LIMIT: Duration = Duration::from_secs(HOOK_TIMEOUT_SECS as u64 - HOOK_MARGIN_SECS);
 const _: () = assert!(HOOK_LIMIT.as_secs() >= JUDGE_P90_SECS + 10, "the hook must wait past the judge's measured p90 (13 to 28 s on 2026-11-08) with room to spare");
+const AT_ONCE_LIMIT: Duration = Duration::from_millis(300);
 const JUDGE_ARGS: [&str; 5] = ["check", "privacy", "judge", "--text", "-"];
 const SPAN_CHARS: usize = 160;
 const JUDGE_SLOTS: usize = 4;
 const SLOT_POLL: Duration = Duration::from_millis(100);
 pub const KINDS_ENV: &str = "NORTH_PRIVATE_KINDS";
+pub const AT_ONCE_ENV: &str = "NORTH_PRIVACY_AT_ONCE";
+pub const ASKING_STATUS: i32 = 3;
 pub const SEGMENT_BREAK: &str = "\u{1e}\n";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -45,6 +48,17 @@ pub fn judge(text: &str) -> Result<Vec<Finding>, String> {
     let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| Path::new(&std::env::var_os("HOME").unwrap_or_default()).join(".local/state"), std::path::PathBuf::from);
     let _slot = slot(&state.join("north/privacy-judge"));
     verdict(&process::run_command_within(command(), Some(text.as_bytes()), JUDGE_LIMIT).ok_or("the private-text judge did not finish")?)
+}
+
+pub fn judge_at_once(text: &str) -> Result<Option<Vec<Finding>>, String> {
+    let mut command = command();
+    command.env(AT_ONCE_ENV, "1");
+    match process::run_command_or_leave(command, text.as_bytes(), AT_ONCE_LIMIT) {
+        Ok(Some(output)) if output.status.code() == Some(ASKING_STATUS) => Ok(None),
+        Ok(Some(output)) => verdict(&output).map(Some),
+        Ok(None) => Ok(None),
+        Err(error) => Err(format!("the private-text judge did not start: {error}")),
+    }
 }
 
 pub fn judge_in_hook(text: &str) -> Result<Vec<Finding>, String> {

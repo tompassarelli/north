@@ -195,6 +195,7 @@ impl Repository {
             alone_green: Some(git(&lane, &["rev-parse", "HEAD"])),
             alone_base: Some(git(&lane, &["rev-parse", "origin/main"])),
             alone_unsettled: None,
+            unjudged_on: None,
             gated_from: None,
             queued_micros: Some(micros),
         };

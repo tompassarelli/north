@@ -29,7 +29,7 @@ fn a_judge_that_times_out_holds_the_push_as_no_verdict_not_a_refusal() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("main")).unwrap();
     let denylist = Denylist { south: dir.path().to_path_buf(), south_named: false, config: None, kinds: None };
-    let judged = |judge: Result<Vec<Finding>, String>| denylist.verdict(|| "PUBLIC".to_owned(), || Ok(BTreeSet::new()), || judge).stand;
+    let judged = |judge: Result<Vec<Finding>, String>| denylist.verdict(|| "PUBLIC".to_owned(), || Ok(BTreeSet::new()), || judge.map(Some)).stand;
     assert_eq!(judged(Err("the private-text judge did not finish".to_owned())), Stand::NoVerdict);
     assert_eq!(judged(Err("the private-text judge could not run (exit 2): no model".to_owned())), Stand::NoVerdict);
     assert_eq!(judged(Ok(vec![Finding { kind: "address".to_owned(), span: "x".to_owned() }])), Stand::Refuse, "a judge that names a private kind still refuses");
@@ -41,7 +41,7 @@ fn an_unreachable_deny_list_holds_the_push_as_no_verdict_and_a_scan_failure_stil
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("main")).unwrap();
     let denylist = Denylist { south: dir.path().to_path_buf(), south_named: false, config: None, kinds: None };
-    let scanned = |findings: Result<BTreeSet<String>, Fault>| denylist.verdict(|| "PUBLIC".to_owned(), || findings, || Ok(Vec::new())).stand;
+    let scanned = |findings: Result<BTreeSet<String>, Fault>| denylist.verdict(|| "PUBLIC".to_owned(), || findings, || Ok(Some(Vec::new()))).stand;
     assert_eq!(scanned(Err(Fault::Unavailable("no network".to_owned()))), Stand::NoVerdict);
     assert_eq!(scanned(Err(Fault::Failed("the deny-list is missing".to_owned()))), Stand::Refuse);
     assert_eq!(scanned(Ok(BTreeSet::from(["fake-private-term in notes.txt".to_owned()]))), Stand::Refuse, "a matched private value still refuses");
@@ -59,7 +59,7 @@ fn a_public_push_whose_override_names_a_missing_or_empty_source_is_refused_and_o
     std::fs::write(&empty_kinds, "\n").unwrap();
     let stand = |vars: &[(&str, &Path)]| {
         let denylist = Denylist::from_vars(|name| vars.iter().chain([&("HOME", home.as_path())]).find(|(set, _)| *set == name).map(|(_, value)| value.as_os_str().to_owned()));
-        denylist.verdict(|| "PUBLIC".to_owned(), || Ok(BTreeSet::new()), || Ok(Vec::new())).stand
+        denylist.verdict(|| "PUBLIC".to_owned(), || Ok(BTreeSet::new()), || Ok(Some(Vec::new()))).stand
     };
     assert_eq!(stand(&[("SAFE_PUSH_SOUTH", &missing)]), Stand::Refuse, "ds-940b: SAFE_PUSH_SOUTH at a missing directory skipped the scan");
     assert_eq!(stand(&[("SAFE_PUSH_SOUTH", &no_main)]), Stand::Refuse, "a named south with no main checkout has no deny-list to scan");

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use north_base::platform::private_text::{Finding, SEGMENT_BREAK, parse, render};
+use rustix::fs::{FlockOperation, flock};
 use sha2::{Digest, Sha256};
 
 use super::kinds::Kinds;
@@ -56,6 +57,35 @@ impl Cache {
         if stored.is_err() {
             let _ = std::fs::remove_file(&temporary);
         }
+    }
+}
+
+pub struct Turn {
+    held: std::fs::File,
+    path: PathBuf,
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+        let _ = flock(&self.held, FlockOperation::Unlock);
+    }
+}
+
+impl Cache {
+    /// This run's turn to judge `text`, so two runs given one text ask the models once and the second reads the first's cached verdicts: `None` when another run holds it and `wait` is off, and a turn of nothing when the lock cannot be made.
+    pub fn turn(&self, text: &str, wait: bool) -> Option<Option<Turn>> {
+        let name: String = Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect();
+        let path = self.dir.join(format!("{name}.asking"));
+        let opened = std::fs::create_dir_all(&self.dir).and_then(|()| std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path));
+        let Ok(held) = opened else { return Some(None) };
+        if flock(&held, FlockOperation::NonBlockingLockExclusive).is_ok() {
+            return Some(Some(Turn { held, path }));
+        }
+        if !wait {
+            return None;
+        }
+        Some(flock(&held, FlockOperation::LockExclusive).is_ok().then_some(Turn { held, path }))
     }
 }
 

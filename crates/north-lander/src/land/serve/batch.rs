@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use super::{ATTEMPTS, Round, ahead, alone, micros};
+use super::{ATTEMPTS, Round, ahead, alone, micros, unjudged};
 use super::round::{Landing, Pushing};
 use crate::land::after;
 use crate::land::alone_flight;
@@ -91,7 +91,7 @@ impl Batching for Lander {
         let mut queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
         queued.retain(|(path, _)| !claimed.contains(path));
         let open: Vec<(PathBuf, Ticket)> = queued.iter().filter(|(path, _)| !watch.alone.as_ref().is_some_and(|flight| flight.checks(path))).cloned().collect();
-        let tickets = if pass.red_only { lander_fix::repairs(&open) } else { open };
+        let tickets = unjudged::settle(self, if pass.red_only { lander_fix::repairs(&open) } else { open })?;
         if let Some(flow) = self.gate(pass, &queued, tickets.is_empty()) {
             return Ok(flow);
         }

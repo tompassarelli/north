@@ -202,6 +202,53 @@ fn a_lane_whose_private_kind_judge_exits_75_is_queued_without_an_alone_pass_and_
     assert!(subjects(&north).iter().any(|subject| subject == "Add a public note"), "{journal}");
 }
 
+const JUDGE_ASKS_A_MODEL_ONCE_A_TEXT: &str = "#!/bin/sh\ntext=$(cat)\nasked=\"$0.$(printf %s \"$text\" | cksum | cut -d' ' -f1)\"\nif [ ! -e \"$asked\" ]; then\n  : > \"$asked\"\n  sleep 2\nfi\ncase \"$text\" in\n  *'lives at'*) printf 'address\\tthe owner lives at 1 Example Road\\n'; exit 1 ;;\nesac\nexit 0\n";
+
+#[test]
+fn a_lane_whose_private_kind_judge_is_still_asking_is_queued_at_once_and_the_lander_lands_it_or_refuses_it_on_the_verdict_north_1138() {
+    let world = World::new();
+    let north = world.repository("north");
+    let bin = world.path().join("bin");
+    north_base::foundation::shim::write_executable(&bin.join("judge"), JUDGE_ASKS_A_MODEL_ONCE_A_TEXT);
+    north_base::foundation::shim::write_executable(&bin.join("betterleaks"), NO_SECRETS);
+    north_base::foundation::shim::write_executable(&bin.join("gh"), PUBLIC_REPO);
+    fs::write(world.path().join("denylist.toml"), "[[rules]]\nid = \"fixture\"\n").unwrap();
+    fs::write(world.path().join("private-kinds.toml"), "[[kind]]\nid = \"address\"\n").unwrap();
+    checker(&world);
+    let base = git(&north.origin, &["rev-parse", "main"]);
+
+    for (branch, note) in [("prose", "a public note about the method\n"), ("private", "the owner lives at 1 Example Road\n")] {
+        let lane = north.checkout.parent().unwrap().join("worktrees").join(branch);
+        git(&north.checkout, &["worktree", "add", "-q", "-b", branch, lane.to_str().unwrap(), "origin/main"]);
+        fs::write(lane.join(format!("{branch}.txt")), note).unwrap();
+        git(&lane, &["add", "-A"]);
+        git(&lane, &["commit", "-q", "-m", &format!("Add the {branch} note")]);
+        let output = enqueue(&world, &lane);
+        let text = report(&output);
+        assert_eq!(output.status.code(), Some(0), "{text}");
+        assert!(text.contains("Done: queued"), "{text}");
+        assert!(text.contains("the private-kind judge is still judging this lane's text"), "the enqueue waited for the judge's model call before queueing: {text}");
+    }
+    for (_, ticket) in queue::pending(&north.queue).unwrap() {
+        assert_eq!((ticket.unjudged_on.as_deref(), ticket.alone_green.as_deref()), (Some(base.as_str()), None), "{} was vouched for before its private-kind verdict", ticket.branch);
+    }
+
+    let mut lander = world.land(&["serve", "--once", "--repo", north.checkout.to_str().unwrap(), "--checker", bin.join("checker").to_str().unwrap(), "--app-token", bin.join("token").to_str().unwrap()]);
+    lander
+        .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
+        .env("NORTH_BIN", bin.join("judge"))
+        .env("SAFE_PUSH_DENYLIST", world.path().join("denylist.toml"))
+        .env("NORTH_PRIVATE_KINDS", world.path().join("private-kinds.toml"))
+        .env_remove("SAFE_PUSH_SOUTH");
+    let output = lander.output().unwrap();
+    let journal = report(&output);
+    assert_eq!(output.status.code(), Some(0), "{journal}");
+    assert!(!journal.contains("has no alone pass for its head"), "a lane only waiting for its private-kind verdict was checked alone: {journal}");
+    assert!(verdict(&north, "prose").starts_with("landed "), "{journal}");
+    assert!(verdict(&north, "private").starts_with("failed "), "a lane whose text the judge refused was not refused by the lander: {journal}");
+    assert_eq!(subjects(&north).iter().filter(|subject| subject.starts_with("Add the ")).collect::<Vec<_>>(), ["Add the prose note"], "{journal}");
+}
+
 #[test]
 fn a_lane_whose_alone_pass_is_six_landings_old_lands_in_the_same_batch_as_a_fresh_lane_without_another_alone_check() {
     let world = World::new();
