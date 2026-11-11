@@ -104,8 +104,8 @@ fn replace_with(command: &mut Command, name: &str) -> u8 {
 /// The lock files of `checkout`, tracked or not, whose content differs from origin/main's.
 pub fn changed_locks(checkout: &Path) -> Result<Vec<String>, String> {
     let pathspecs: Vec<String> = LOCKS.iter().map(|name| format!(":(glob)**/{name}")).collect();
-    git(checkout, &["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]).map_err(|_| "no origin/main to compare its lock files with".to_owned())?;
-    let mut changed = git(checkout, &[&["diff", "--name-only", "origin/main", "--"][..], &pathspecs.iter().map(String::as_str).collect::<Vec<_>>()].concat())?;
+    git(checkout, &["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main^{commit}"]).map_err(|_| "no origin/main to compare its lock files with".to_owned())?;
+    let mut changed = git(checkout, &[&["diff", "--name-only", "refs/remotes/origin/main", "--"][..], &pathspecs.iter().map(String::as_str).collect::<Vec<_>>()].concat())?;
     changed.retain(|path| !only_workspace_packages_differ(checkout, path));
     changed.extend(git(checkout, &[&["ls-files", "--others", "--exclude-standard", "--"][..], &pathspecs.iter().map(String::as_str).collect::<Vec<_>>()].concat())?);
     changed.sort();
@@ -117,7 +117,7 @@ fn only_workspace_packages_differ(checkout: &Path, path: &str) -> bool {
     if !path.ends_with("Cargo.lock") {
         return false;
     }
-    let (Ok(base), Ok(lane)) = (git(checkout, &["show", &format!("origin/main:{path}")]), std::fs::read_to_string(checkout.join(path))) else { return false };
+    let (Ok(base), Ok(lane)) = (git(checkout, &["show", &format!("refs/remotes/origin/main:{path}")]), std::fs::read_to_string(checkout.join(path))) else { return false };
     let base = base.join("\n");
     outside_packages(&base) == outside_packages(&lane) && local_packages(&lane).difference(&local_packages(&base)).all(|name| workspace_names(checkout).is_some_and(|members| members.contains(name)))
 }

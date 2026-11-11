@@ -10,7 +10,7 @@ const USAGE: &str = "usage: north bin-references --repo DIR --base REV --head RE
 const PREFIXES: [&str; 3] = ["tree/bin/", "${northBin}/", "north/bin/"];
 const BARE: [&str; 1] = [""];
 const ORACLE: &str = "oracle = ";
-const SOURCE_REF: &str = "origin/main";
+const SOURCE_REF: &str = "refs/remotes/origin/main";
 const NORTH: [&str; 1] = ["north"];
 const LAUNCHER: &str = ":-north}\" ";
 

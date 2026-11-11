@@ -41,7 +41,7 @@ impl Scratch {
         git(&root, &["clone", "-q", "--bare", &path(&main), &path(&origin)])?;
         git(&main, &["remote", "add", "origin", &path(&origin)])?;
         git(&main, &["fetch", "-q", "origin"])?;
-        git(&main, &["worktree", "add", "-q", "-b", BRANCH, &path(&lane), "origin/main"])?;
+        git(&main, &["worktree", "add", "-q", "-b", BRANCH, &path(&lane), "refs/remotes/origin/main"])?;
         let base = git(&origin, &["rev-parse", "refs/heads/main"])?;
         let broker = root.join("broker.sock");
         Ok(Self { root, origin, main, lane, broker, base })

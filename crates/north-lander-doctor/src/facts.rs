@@ -313,7 +313,7 @@ pub fn landings(committed: &[u64]) -> usize {
 fn lag(checkout: &Path, lander: &str) -> Option<u64> {
     let sha = Path::new(lander).file_name()?.to_str()?;
     let at = |revision: &str| git(checkout, &["log", "-1", "--format=%ct", revision]).ok()?.trim().parse::<u64>().ok();
-    let main = at("origin/main")?;
+    let main = at("refs/remotes/origin/main")?;
     let ours = at(sha)?;
     Some(main.saturating_sub(ours))
 }

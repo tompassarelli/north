@@ -144,11 +144,11 @@ impl Main {
         let lock = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(common.join("north-done-when.lock"))?;
         lock.lock()?;
         if path.join(".git").exists() {
-            git::stdout(&path, &["checkout", "--quiet", "--detach", "--force", "origin/main"], |output| failed("checkout origin/main", output)).map_err(NorthError::Refused)?;
+            git::stdout(&path, &["checkout", "--quiet", "--detach", "--force", "refs/remotes/origin/main"], |output| failed("checkout origin/main", output)).map_err(NorthError::Refused)?;
             git::stdout(&path, &["clean", "-fdq"], |output| failed("clean", output)).map_err(NorthError::Refused)?;
         } else {
             let location = path.to_string_lossy().into_owned();
-            git::stdout(repo, &["worktree", "add", "--quiet", "--detach", "--force", &location, "origin/main"], |output| failed("worktree add", output)).map_err(NorthError::Refused)?;
+            git::stdout(repo, &["worktree", "add", "--quiet", "--detach", "--force", &location, "refs/remotes/origin/main"], |output| failed("worktree add", output)).map_err(NorthError::Refused)?;
         }
         Ok(Checkout::Lane { path, _lock: lock })
     }
@@ -156,7 +156,7 @@ impl Main {
     fn scratch(repo: &Path) -> NorthResult<Checkout> {
         let checkout = tempfile::Builder::new().prefix("done-when-").tempdir()?;
         let path = checkout.path().to_string_lossy().into_owned();
-        git::stdout(repo, &["worktree", "add", "--quiet", "--detach", &path, "origin/main"], |output| failed("worktree add", output)).map_err(NorthError::Refused)?;
+        git::stdout(repo, &["worktree", "add", "--quiet", "--detach", &path, "refs/remotes/origin/main"], |output| failed("worktree add", output)).map_err(NorthError::Refused)?;
         Ok(Checkout::Scratch(checkout))
     }
 

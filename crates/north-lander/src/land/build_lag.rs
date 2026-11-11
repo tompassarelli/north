@@ -81,7 +81,7 @@ pub fn report(repo: &Path) -> Option<Lag> {
         return None;
     }
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-    Some(match git(&checkout, &["rev-parse", "--verify", "origin/main^{commit}"]) {
+    Some(match git(&checkout, &["rev-parse", "--verify", "refs/remotes/origin/main^{commit}"]) {
         Ok(main) => measure(&checkout, own_build(), main.trim(), now),
         Err(error) => own_build().map_or(Lag::Unpromoted, |build| Lag::Unknown { build: build.to_owned(), why: error }),
     })

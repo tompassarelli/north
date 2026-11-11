@@ -56,3 +56,22 @@ fn a_new_lane_records_its_issue_in_a_per_branch_file_and_never_writes_upstream_c
     assert!(create(&container.join("worktrees/other"), "995", None).is_err(), "an issue must name its number as #N");
     assert!(!container.join("worktrees/other").exists());
 }
+
+#[test]
+fn a_local_branch_named_origin_main_does_not_move_a_new_lane_off_the_remotes_main() {
+    let root = tempfile::tempdir().unwrap();
+    let container = root.path().canonicalize().unwrap().join("north");
+    let main = container.join("main");
+    init_repo(&main, None);
+    git_in(&main, &["remote", "add", "origin", "https://github.com/tompassarelli/north.git"]);
+    git_in(&main, &["update-ref", "refs/remotes/origin/main", "refs/heads/main"]);
+    let remote_main = git_in(&main, &["rev-parse", "refs/remotes/origin/main"]);
+    git_in(&main, &["checkout", "-q", "-b", "origin/main"]);
+    git_in(&main, &["commit", "-q", "--allow-empty", "-m", "stray"]);
+    git_in(&main, &["checkout", "-q", "main"]);
+    let lane = container.join("worktrees/stray-ref");
+
+    assert_eq!(create(&lane, "#1213", None).unwrap(), "north#1213");
+
+    assert_eq!(git_in(&lane, &["rev-parse", "HEAD"]), remote_main);
+}

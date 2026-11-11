@@ -145,7 +145,7 @@ fn commit(named: &Named, message: &str) -> Result<(), String> {
 }
 
 fn lane_changes(root: &Path, destination: &str) -> Result<Vec<String>, String> {
-    let range = format!("origin/{destination}...HEAD");
+    let range = format!("refs/remotes/origin/{destination}...HEAD");
     Ok(git(root, &["diff", "--name-only", &range, "--"])?.lines().map(str::to_owned).collect())
 }
 

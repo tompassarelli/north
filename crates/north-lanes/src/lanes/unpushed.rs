@@ -17,14 +17,14 @@ pub(super) fn inspect(main_dir: &Path) -> Result<Option<Unpushed>, String> {
         return Ok(None);
     }
     git_checked(main_dir, &["fetch", "-q", "origin", "main"])?;
-    let commits = git_out(main_dir, &["log", "--oneline", "origin/main..HEAD"])
+    let commits = git_out(main_dir, &["log", "--oneline", "refs/remotes/origin/main..HEAD"])
         .ok_or("could not list the commits ahead of origin/main")?;
     if commits.is_empty() {
         return Ok(None);
     }
     let head = git_out(main_dir, &["rev-parse", "HEAD"]).ok_or("could not read HEAD")?;
     let target =
-        git_out(main_dir, &["rev-parse", "origin/main"]).ok_or("could not read origin/main")?;
+        git_out(main_dir, &["rev-parse", "refs/remotes/origin/main"]).ok_or("could not read origin/main")?;
     let (keep, create) = keep_branch(main_dir, &head);
     Ok(Some(Unpushed {
         head,
