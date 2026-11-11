@@ -19,9 +19,10 @@ mod verdict;
 use verdict::Verdict;
 mod timings;
 use timings::Timings;
-use refuse::{judge_lane_gates, refuse_archived, refuse_conflict, refuse_stale_revert, refuse_static_gates, refuse_unfetchable};
+mod alone;
+use alone::{check_lane, checked_alone};
+use refuse::{judge_lane_gates, refuse_archived, refuse_conflict, refuse_stale_revert};
 use super::scans::outgoing;
-use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::Denylist;
 use crate::landing_refusals;
@@ -238,11 +239,6 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         judged(environment, &root, &branch, &head, "revert guard", timings.stage("revert guard", || refuse_stale_revert(&root, &base, &head)))?;
         let (red_fix, lander_fix, urgent) = timings.stage("marks", || marks(&root, &base, &head, &destination))?;
         let gate = scan.join().map_err(|_| "the outgoing scan panicked".to_owned())??;
-        match gate {
-            outgoing::Gate::Judged => {}
-            outgoing::Gate::NoVerdict => println!("safe-push: the private-kind judge has no verdict yet, so the lane waits in the landing queue and the lander judges it again in its alone check before it lands."),
-            outgoing::Gate::Judging => println!("safe-push: the private-kind judge is still judging this lane's text, so the lane waits in the landing queue and the lander lands it once the verdict is in."),
-        }
         let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
         let ticket = Ticket {
             origin: origin.clone(),
@@ -291,25 +287,6 @@ fn judged(environment: &Environment, root: &Path, branch: &str, head: &str, gate
     landing_refusals::Lane { at: "enqueue", root: &root.to_string_lossy(), branch, head }.judged(environment.state_home, gate, outcome)
 }
 
-fn checked_alone(root: &Path, head: String, checked_tree: &str, gate: outgoing::Gate, base: &str) -> Ticket {
-    let unchanged = git(root, &["rev-parse", "--verify", &format!("{head}^{{tree}}")]).is_ok_and(|tree| tree == checked_tree);
-    let passed = unchanged && gate == outgoing::Gate::Judged;
-    let unjudged = unchanged && gate == outgoing::Gate::Judging;
-    Ticket { alone_green: passed.then(|| head.clone()), alone_base: passed.then(|| base.to_owned()), unjudged_on: unjudged.then(|| base.to_owned()), head, ..Ticket::default() }
-}
-
-fn check_lane(root: &Path, base: &str, branch: &str, environment: &Environment, timings: &Timings) -> Result<String, String> {
-    let lane_head = git(root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-    if let Err(gate) = timings.stage("static gates", || refuse_static_gates(root, base, "HEAD")) {
-        judged(environment, root, branch, &lane_head, gate, Err(format!("{gate} refused the landing")))?;
-    }
-    let bodies = git(root, &["log", "--format=%B", &format!("{base}..HEAD")])?;
-    judged(environment, root, branch, &lane_head, "commit trailers", super::divergence::refuse_malformed(&bodies))?;
-    timings.stage("fails first", || runner::fails_first(root, base, &lane_head))?;
-    timings.stage("crate fetch", || refuse_unfetchable(root, base, &lane_head))?;
-    timings.stage("queue checks", || runner::refuse_queue_checks(root, base, &lane_head))?;
-    git(root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])
-}
 
 pub fn run(arguments: &[String]) -> u8 {
     if std::env::var_os("NORTH_LAND_SERVING").is_some_and(|value| !value.is_empty()) {
