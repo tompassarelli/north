@@ -103,8 +103,8 @@ fn launch_on(root: &Path, host: &str) -> Output {
     north_on(root, host, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", &brief, "start the box"])
 }
 
-/// A verification launch skips placement and the spend floor, so a first turn can be fed on an account whose
-/// sampled windows sit inside the floor.
+/// A verification launch skips placement and the spend check, so a first turn can be fed on an account whatever
+/// its sampled windows read.
 fn launch_test(root: &Path) -> Output {
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
@@ -293,3 +293,4 @@ fn a_revived_proxy_opens_in_a_window_on_the_desktop_and_starts_no_host_where_the
     assert!(shown.status.success(), "{}", text(&shown.stderr));
     assert!(opened.contains("--title=north proxy -e env") && opened.ends_with("fleet interactive proxy --after-turn\n"), "{opened}");
 }
+

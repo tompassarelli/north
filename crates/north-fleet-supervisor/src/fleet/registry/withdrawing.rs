@@ -125,9 +125,8 @@ mod tests {
             role: None,
             resume: None,
             compact_window: None,
-            urgent: false,
         };
-        QueuedLaunch::new(request, Priority::Normal, created_ms, "burn governor".into())
+        QueuedLaunch::new(request, Priority::Normal, created_ms, "provider limit".into())
     }
 
     fn names(fleet: &Fleet) -> Vec<String> {

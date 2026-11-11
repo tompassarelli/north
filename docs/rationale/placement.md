@@ -56,7 +56,7 @@ Beside them:
   (`crates/north-capacity/src/capacity/lease_lifecycle.rs`), and a session holds an agent-class lease.
 - The watchdog sampler (`crates/north-capacity-host/src/capacity/watchdog/sampler.rs`) writes load, pressure,
   memory, busy cores and leases every 30 s on every host. Nothing that places reads it.
-- The GPU lease, the spend rule with its breaker (docs/rationale/spend-rule.md), the cloud lane, the disk
+- The GPU lease, the spend rule (docs/rationale/spend-rule.md), the cloud lane, the disk
   lines and the pull hand-over's sandbox.
 - The flow alarm (`crates/north-flow/src/flow/capacity.rs`) tells the proxy when the laptop carries fleet
   builds beside a free build host for five minutes.
@@ -216,7 +216,7 @@ every reaching host asleep, queued runs stay where they are and admission still 
 
 Kept: the recorded case, decision log and replay; admission on each host and its classes; the laptop's
 bands, freeze, game reserve, playtest hold and battery rule; the eligibility filters; account ranking, the
-spend rule and its breaker; the cloud lane; the GPU lease (its exclusive class stays its own box, and the
+spend rule; the cloud lane; the GPU lease (its exclusive class stays its own box, and the
 reading only carries whether one is held); disk lines and budgets; the pull hand-over and its sandbox; the
 watchdog's overload caps.
 

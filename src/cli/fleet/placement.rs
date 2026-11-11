@@ -12,7 +12,7 @@ use crate::pacing::placement::case;
 use crate::pacing::placement::gate::{self, CloudLane, Decision, Target};
 use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::decision_log;
-use crate::spend::{self, Starter};
+use crate::spend::Starter;
 use crate::usage::decide::world::ModelFamily;
 use north_strategy_types::placement::{self as record, Case};
 use north_strategy_types::Kind;
@@ -194,14 +194,12 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
     if placed.is_err() {
         return Ok(placed);
     }
-    let reserved = request.role == Some(Role::Proxy) || text.contains("[routine:");
-    let sessions = fleet.sessions()?;
-    let starter = |account: &str| Starter::launched(reserved, request.urgent, || sessions.iter().filter(|record| record.urgent && record.account == account && fleet.running(record)).count());
-    let (view, rules) = match crate::dispatch::spend_now(&fleet.roster()) {
+    let starter = if request.role == Some(Role::Proxy) || text.contains("[routine:") { Starter::Reserved } else { Starter::Worker };
+    let view = match crate::dispatch::spend_now(&fleet.roster()) {
         Ok(read) => read,
         Err(why) => return Ok(Err(Refusal::Spend(format!("spend view unread: {why}")))),
     };
-    let admits = |account: &str| view.admit(&rules, &format!("claude:{account}"), starter(account), spend::Placed::default()).map_err(|refusal| refusal.to_string());
+    let admits = |account: &str| view.admit(&format!("claude:{account}"), starter).map_err(|refusal| refusal.to_string());
     let chosen = placed.as_ref().ok().and_then(|placed| placed.account.clone()).unwrap_or_else(|| request.account.clone());
     let others: Vec<&str> = view.accounts.iter().filter_map(|other| other.name.strip_prefix("claude:")).collect();
     let roster = fleet.roster();
@@ -221,6 +219,14 @@ pub(super) fn harness_host(host: &str, reading: Option<&crate::capacity::saturat
         Some(why) => Err(Refusal::Saturated(format!("{why}; it starts there once the host has room"))),
         None => Ok(Placed::default()),
     }
+}
+
+/// Whether the spend rule admits one more session on the request's own account: what a tick's hand-over checks before it starts a session elsewhere.
+pub(super) fn spend_admits(fleet: &Fleet, request: &LaunchRequest) -> NorthResult<()> {
+    let starter = if request.role == Some(Role::Proxy) { Starter::Reserved } else { Starter::Worker };
+    let view = crate::dispatch::spend_now(&fleet.roster()).map_err(|why| NorthError::Saturated(format!("spend view unread: {why}")))?;
+    let account = format!("{}:{}", request.provider.label(), request.account);
+    view.admit(&account, starter).map_err(|refusal| NorthError::Saturated(refusal.to_string()))
 }
 
 /// The placement `chosen` when the spend rule admits its account; otherwise the first other account the rule admits that placement also

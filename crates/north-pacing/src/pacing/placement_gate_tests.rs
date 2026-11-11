@@ -253,21 +253,6 @@ fn a_replayed_coordinator_launch_reads_the_fable_meter_and_falls_back_to_opus_hi
 }
 
 #[test]
-fn an_account_held_until_another_is_spent_takes_no_launch_while_that_one_has_week_left() {
-    let cfg: DocumentMut = "[accounts.claude]\nheld_until_spent = { b = \"a\" }\n".parse().unwrap();
-    let at = crate::foundation::clock::rfc3339_seconds("2026-10-19T00:00:00Z").unwrap();
-    let listed = roster(&[("a", None), ("b", None)]);
-    let placed = |a_week: f64| {
-        let quota = gate(&[("claude:a", control((100.0, "2026-10-19T03:00:00Z"), a_week)), ("claude:b", control((0.0, "2026-10-19T03:00:00Z"), 0.0))]);
-        let decision = gate::decide(CODE_ONLY, &cfg, gate::verdicts(&quota, &listed, &Basis::new(&cfg, at)), (false, String::new()), &[], "here", false);
-        (target(&decision), decision.verdict("claude:b").unwrap().line.clone())
-    };
-    let (held, line) = placed(40.0);
-    assert!(held.starts_with("held") && line.contains("held until claude:a is spent"), "{held}: {line}");
-    assert_eq!(placed(100.0).0, "claude:b");
-}
-
-#[test]
 fn the_declared_operational_reserve_is_never_offered_to_a_worker() {
     let cfg: DocumentMut = "[accounts.claude]\nreserve = [\"b\"]\n".parse().unwrap();
     let at = crate::foundation::clock::rfc3339_seconds("2026-10-19T00:00:00Z").unwrap();

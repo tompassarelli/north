@@ -68,7 +68,6 @@ mod tests {
             role: Some(role),
             resume: None,
             compact_window: None,
-            urgent: false,
                     };
         let record = SessionRecord::launched(&request, None, None, false, 2);
         (request, record)

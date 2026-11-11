@@ -178,7 +178,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut pools = Pools::new(&survey.hosts, &survey.accounts).with_cloud(cloud::SESSIONS - survey.cloud_running);
     let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
     let planned = issues::planned_predecessors(&survey.issues);
-    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: survey.rules.charge, spend: &survey.spend, rules: &survey.rules };
+    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: survey.rules.charge, spend: &survey.spend };
     let revival = revive::plan(&revive::Inputs { strands: &survey.strands, saturated: &survey.saturated, revived: &survey.revived }, &capacity, &mut pools);
     let mut holds = survey.holds.clone();
     holds.extend(revival.holds.clone());

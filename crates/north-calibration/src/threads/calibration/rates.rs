@@ -6,7 +6,6 @@ use rusqlite::Connection;
 use super::forward::{Figure, Row};
 use super::read::every_run;
 use crate::foundation::clock::Timestamp;
-use crate::usage::decide::world::{Rate, Rates};
 
 pub const ACCOUNT_RATE_HOURS: usize = 20;
 const POOLED: &str = "pooled";
@@ -121,50 +120,4 @@ pub const RATE_METHOD: u32 = 2;
 /// The `source` stamp of a rate row the current method measured.
 pub fn method_stamp() -> String {
     format!("rate method {RATE_METHOD}")
-}
-
-/// What an account's newest rate rows give a guard that prices spend: rates it may use, why the newest ones are stale, or nothing measured.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Priced {
-    Measured(Rates),
-    Stale(String),
-    Unmeasured,
-}
-
-/// Why a rate row may not price spend at `now`: written by another rate method, or older than `max_hours`.
-pub fn stale(cell: &str, at: &str, source: &str, now: Timestamp, max_hours: f64) -> Option<String> {
-    if !source.ends_with(&method_stamp()) {
-        return Some(format!("the newest {cell} points-per-dollar row, written {at}, was measured by an earlier rate method than this binary's {}", method_stamp()));
-    }
-    let hours = Timestamp::parse(at).map_or(f64::INFINITY, |written| (now.unix_seconds() - written.unix_seconds()) as f64 / 3600.0);
-    (hours > max_hours).then(|| format!("the newest {cell} points-per-dollar row, written {at}, is older than spend_rate_max_h's {max_hours} h"))
-}
-
-/// An account's rates from the newest calibration that wrote a window's `rate` rows: its own row of that calibration when measured over at least `ACCOUNT_RATE_HOURS` hours, else that calibration's pooled row; a row an earlier calibration wrote is never read, and the row picked is stale when it fails `stale`.
-pub fn priced(db: &Connection, account: &str, now: Timestamp) -> rusqlite::Result<Priced> {
-    let max_hours = super::registry("spend_rate_max_h");
-    let newest = |owner: &str, window: &str| -> rusqlite::Result<Option<(f64, usize, String, String)>> {
-        let mut statement = db.prepare("SELECT value, n, at, COALESCE(source, '') FROM calibration WHERE kind = 'rate' AND cell = ?1 AND value IS NOT NULL AND at = (SELECT max(at) FROM calibration WHERE kind = 'rate' AND cell LIKE ?2) ORDER BY rowid DESC LIMIT 1")?;
-        let mut found = statement.query_map([format!("{owner} {window}"), format!("% {window}")], |row| Ok((row.get::<_, f64>(0)?, row.get::<_, i64>(1)? as usize, row.get(2)?, row.get(3)?)))?;
-        found.next().transpose()
-    };
-    let pick = |window: &str| -> rusqlite::Result<Option<Result<Rate, String>>> {
-        let (owner, row) = match newest(account, window)? {
-            Some(row) if row.1 >= ACCOUNT_RATE_HOURS => (account, row),
-            _ => match newest(POOLED, window)? {
-                Some(row) => (POOLED, row),
-                None => return Ok(None),
-            },
-        };
-        let (points_per_usd, n, at, source) = row;
-        if let Some(why) = stale(&format!("{owner} {window}"), &at, &source, now, max_hours) {
-            return Ok(Some(Err(why)));
-        }
-        Ok(Some(Ok(if owner == POOLED { Rate::Pooled { points_per_usd, n: n as u32 } } else { Rate::Account { points_per_usd, n: n as u32 } })))
-    };
-    Ok(match (pick("five_hour")?, pick("week")?) {
-        (Some(Err(why)), _) | (_, Some(Err(why))) => Priced::Stale(why),
-        (Some(Ok(five_hour)), Some(Ok(week))) => Priced::Measured(Rates { five_hour, week }),
-        _ => Priced::Unmeasured,
-    })
 }

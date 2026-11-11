@@ -1,54 +1,29 @@
-//! The spend rule (docs/rationale/spend-rule.md): the only reasons a new worker may not start on usage
-//! grounds are a pooled reserve, an operational floor and a burn governor. The provider's own limit stops an account that has
-//! no room at all. Everything here is a pure function of a recorded `View`; `read` gathers one from this
-//! host's state files.
-pub mod burn;
+//! What north knows of account spend (docs/rationale/spend-rule.md): each account's sampled windows, the week
+//! left across them, and the two reasons a session may not start on an account: the provider has stopped it, or
+//! the policy declares it the operational reserve. Everything here is a pure function of a recorded `View`;
+//! `read` gathers one from this host's state files.
 mod read;
-mod starting;
 #[cfg(test)]
 mod tests;
-pub mod drain;
 pub mod operational;
 
 use std::fmt;
 
-pub use read::{BURNS, keyed, operational_reserve, view_from_config};
-pub use burn::Burn;
+pub use read::{operational_reserve, view_from_config};
 
-/// The rule's knobs, from harness/defaults.toml.
+/// The view's settings, from harness/defaults.toml.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rules {
-    /// Percent of the combined week of all counted accounts that must stay unspent across them together, unless the drain switch is on.
-    pub reserve: f64,
-    /// Percent of an account's week kept for operational callers; no new worker starts inside it.
-    pub floor_week: f64,
-    /// Percent of an account's five-hour window kept for operational callers; no new worker starts inside it.
-    pub floor_five_hour: f64,
-    /// Points of a Max 5x week one new worker is expected to take from the pool.
+    /// Points of a Max 5x week one new worker is expected to take, which dispatch charges an account so its next box ranks the others first.
     pub charge: f64,
-    /// Minutes over which the fleet's rise in an account's five-hour window is measured for the burn governor.
-    pub five_hour_burn_min: f64,
-    /// Hours over which the fleet's rise in an account's week is measured for the burn governor.
-    pub week_burn_h: f64,
     /// Hours after which an account's reading no longer counts toward the pool.
     pub reading_max_h: f64,
-    /// Urgent sessions per account that may run past the burn governor at once.
-    pub urgent_limit: usize,
 }
 
 impl Rules {
     pub fn configured() -> Self {
         let number = crate::platform::harness::default_number;
-        Self {
-            reserve: number("spend_reserve"),
-            floor_week: number("spend_floor_week"),
-            floor_five_hour: number("spend_floor_five_hour"),
-            charge: number("spend_worker_charge"),
-            five_hour_burn_min: number("spend_burn_five_hour_min"),
-            week_burn_h: number("spend_burn_week_h"),
-            reading_max_h: number("spend_reading_max_h"),
-            urgent_limit: number("spend_urgent_limit") as usize,
-        }
+        Self { charge: number("spend_worker_charge"), reading_max_h: number("spend_reading_max_h") }
     }
 }
 
@@ -97,54 +72,29 @@ pub struct View {
     pub at: f64,
     pub accounts: Vec<Account>,
     pub working: usize,
-    /// The fleet's measured burn on each account, which the burn governor projects to the account's resets.
-    pub burns: Vec<Burn>,
-    /// Accounts that bill per token on an API key, and through the prefix their pinned `label:org` forms: no plan windows to read, so no window limit applies.
-    pub keyed: Vec<String>,
     /// Accounts the policy declares an operational reserve (`[accounts.claude] reserve`): only the privacy judge, lander and canaries may use them, so no worker or subagent starts on them and their weeks stay out of the pool.
     pub operational: Vec<String>,
-    /// Tom's drain switch is on: the reserve is skipped and every account may be spent to its provider limit.
-    pub drain: bool,
 }
 
-/// What one run has already started, so it cannot place past the reserve.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Placed {
-    pub workers: usize,
-}
-
-/// Who starts: a worker meets every rule; an Agent-tool subagent runs inside its parent's session, so
-/// it meets the reserve; the proxy, a scheduled routine or one of Tom's own sessions
-/// may use the reserve. An urgent worker (a spine fix launched `--priority urgent`)
-/// meets every rule a worker does but the burn governor while fewer than `Rules::urgent_limit` urgent
-/// sessions already run on its account, `running` being that count.
+/// Who starts: a worker or an Agent-tool subagent, or a reserved caller (the proxy, a scheduled routine, one of
+/// Tom's own sessions, the privacy judge, lander and canaries), which alone may use the operational reserve.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Starter {
     Worker,
-    Urgent { running: usize },
-    Subagent,
     Reserved,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rule {
-    Reserve,
     Operational,
-    Floor,
-    Burn,
     ProviderLimit,
-    Unread,
 }
 
 impl fmt::Display for Rule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::Reserve => "spend reserve",
             Self::Operational => "operational reserve",
-            Self::Floor => "spend floor",
-            Self::Burn => "burn governor",
             Self::ProviderLimit => "provider limit",
-            Self::Unread => "no usage reading",
         })
     }
 }
@@ -162,18 +112,9 @@ impl fmt::Display for Refusal {
 }
 
 impl View {
-    fn pooled(&self) -> impl Iterator<Item = &Account> {
-        self.accounts.iter().filter(|account| account.counted && !self.operational.contains(&account.name))
-    }
-
     /// Points of a Max 5x week left across the counted accounts, less the operational reserve.
     pub fn pool(&self) -> f64 {
-        self.pooled().map(|account| account.week_left(self.at)).sum()
-    }
-
-    /// The reserve in Max 5x week points: its percent of the combined week of the counted accounts.
-    pub fn reserve(&self, rules: &Rules) -> f64 {
-        rules.reserve * self.pooled().map(|account| account.plan_week).sum::<f64>()
+        self.accounts.iter().filter(|account| account.counted && !self.operational.contains(&account.name)).map(|account| account.week_left(self.at)).sum()
     }
 
     pub fn account(&self, name: &str) -> Option<&Account> {
@@ -181,7 +122,7 @@ impl View {
     }
 
     /// Whether `starter` may start one more session on `account`: only the declared operational reserve and the provider's own limit refuse.
-    pub fn admit(&self, _rules: &Rules, account: &str, starter: Starter, _placed: Placed) -> Result<(), Refusal> {
+    pub fn admit(&self, account: &str, starter: Starter) -> Result<(), Refusal> {
         if starter != Starter::Reserved && self.operational.iter().any(|name| name == account) {
             return Err(Refusal { rule: Rule::Operational, line: format!("{account} is the operational reserve: only the privacy judge, lander and canaries may use it") });
         }
@@ -191,10 +132,8 @@ impl View {
         }
     }
 
-    /// One line for a session's grounding or `north spend`: the pool, the reserve and the working
-    /// sessions.
-    pub fn line(&self, rules: &Rules) -> String {
-        let reserve = if self.drain { "drain on, no reserve".to_owned() } else { format!("reserve {:.0}", self.reserve(rules)) };
-        format!("spend: {:.0} week points left across accounts, {reserve}; {} worker sessions working", self.pool(), self.working)
+    /// One line for a session's grounding or `north spend`: the pool and the working sessions.
+    pub fn line(&self) -> String {
+        format!("spend: {:.0} week points left across accounts; {} worker sessions working", self.pool(), self.working)
     }
 }

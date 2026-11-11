@@ -1,111 +1,90 @@
-# Spend rule: one reserve, one floor, one burn governor
+# Spend rule: north holds back no launch on usage grounds
 
-Decided 2026-11-07 under north#702: north spends account capacity as fast as useful work allows, and only these
-rules may stop a new worker. Before this, about 35 files read pace state and each derived its own limit from a
-usage projection; the gates disagreed, and on 2026-11-07 dispatch saw 18 ready boxes and 10 free slots and
-launched none. This note states the rule, names every gate that existed on that date, and gives each one its
-fate.
+Decided 2026-11-11 under north#1076: north refuses, queues, caps and delays no launch on a reading, a
+projection or a rate of account usage. The owner ordered every usage limiter removed on that date; a new
+design may follow later and starts from nothing here. This supersedes the decisions of 2026-11-07 (north#702,
+one pooled reserve), 2026-11-09 (north#1000, the reserve restated at 5 percent) and 2026-11-10 (north#1049, a
+per-account operational floor), which this note used to state. The second half of the note keeps the list of
+every gate that existed on 2026-11-07 and its fate, because it explains why no usage gate should come back
+by accident.
 
-## The rule
+## What still stops a start
 
-One module, `north_pace::spend`, holds the rule. Dispatch, `north fleet launch`, the spawn hook and
-follows-release call it, and nothing else may refuse a worker on usage grounds. A refusal names the rule that
-fired: `spend reserve`, `operational reserve`, `spend floor`, `burn governor`, `provider limit` or `no usage reading`.
+One module, `north_pace::spend`, answers whether a session may start on an account. Dispatch,
+`north fleet launch`, the spawn hook, hand-over and follows-release call it. It refuses for two reasons, and a
+refusal names which: `provider limit` or `operational reserve`.
 
-1. **Pooled reserve.** One reserve covers all accounts together. The pool is the sum, over the accounts
-   spend counts, of each account's unspent share of its week (all of it once the week has reset), scaled by
-   its plan's size from the model catalog's weekly multipliers. The reserve is
-   `spend_reserve` (5, restated 2026-11-09 under north#1000) percent of the combined week of all counted
-   accounts, in the same units, so it means "a twentieth of everything" whatever the plans are. A worker starts only if the pool, less `spend_worker_charge` for
-   it and for each worker this run has already placed, stays above the reserve. Workers may drain any single
-   account to the operational floor (rule 2), and reserved starters to the provider's limit. An account that
-   refills first returns its week to the pool. The proxy, scheduled routines (a `[routine:...]` brief) and
-   Tom's own sessions are not held by the reserve and go to whichever account still has headroom.
-   An account named in `[accounts.claude] reserve` (a plan account by label, an API organization as `api:ORG`) is the
-   operational reserve (north#1049, north#1076): workers and subagents never start on it, placement and dispatch never
-   offer it, its week stays out of the pool, and `north fleet accounts --plan` lists it as operational-only.
-2. **Operational floor.** Each subscription account keeps `spend_floor_week` (5) percent of its week and
-   `spend_floor_five_hour` (10) percent of its five-hour window for the privacy judge, the lander and the
-   canaries (north#1049). A new worker refuses on `spend floor` once either window has that much or less left,
-   so a busy fleet cannot spend the capacity the gates that let it land need. A reserved starter (the proxy,
-   routines and Tom's own sessions) still passes inside the floor. The drain switch turns off the pooled
-   reserve, not this floor.
+1. **The provider's own limit.** An account at 100 percent of its five-hour or week window cannot run
+   anything, so placement skips it and a launch that named it waits in the launch queue for the reset. A
+   session that reaches the limit mid-run parks and is revived at the reset, or continues on another account
+   in its own conversation (north#998). This is the provider's rule, read from its own figures; north adds no
+   margin below it.
+2. **The declared operational reserve.** An account named in `[accounts.claude] reserve` (a plan account by
+   label, an API organization as `api:ORG`) takes no worker and no subagent; only the privacy judge, the
+   lander and the canaries use it. The entry in use names prepaid API credit, so this is a spending boundary
+   the owner decides, kept on purpose when the limiters went: workers do not go onto that credit. Placement
+   and dispatch never offer such an account, its week stays out of the pool, and
+   `north fleet accounts --plan` lists it as operational-only.
 
-3. **Burn governor (north#1076).** A worker starts on an account only if the account's use at its next five-hour
-   reset and at its next week reset stays inside the budget that keeps the operational floor (100 less
-   `spend_floor_five_hour` and `spend_floor_week`). The projection is the window's used percent now, plus the fleet's
-   measured burn on that account held to the reset, plus the expected charge of this worker and of each worker the
-   run has placed. The burn is the five-hour rise of the last `spend_burn_five_hour_min` minutes
-   and the week's rise of the last `spend_burn_week_h` hours, which `north fleet tick` writes per account to
-   `agents/spend/burns.json` and spawners read for as long as the five-hour span. The charge is
-   `spend_worker_charge` Max 5x week points, in the account's own week percent, and in five-hour percent through the
-   account's measured five-hour-to-week points per dollar (none while unmeasured). A five-hour window that resets
-   after a week that resets first, or within an hour of it, is not projected, and the drain
-   switch skips the week's projection, leaving the floor. The refusal names the account, the projection, the window, the burn and the
-   reset time.
+The money refusal and its ceiling also stay (`router::money_refusal`): an account whose overflow would bill
+money past a plan window is refused. That is cost policy, not pacing.
 
-The provider's own limit is not a north rule. An account at the end of either window cannot run anything, so
-placement skips it and the refusal names `provider limit`.
-
-**No per-account cover (2026-11-09, north#1000).** An earlier rule (north#259) refused a worker on an account whose
-windows could not cover one worker run at its p90. It is deleted: a worker that reaches a provider limit
-mid-run continues on another account in its own conversation (north#998), so admission does not predict
-whether a session fits in one account. The reserve pools every account, the operational floor (rule 2,
-north#1049) keeps the last 5% of a week and 10% of a five-hour window for operational callers, and the
-provider limit is the only other account-level usage stop. The proxy, routines and Tom's sessions, and
-Agent-tool subagents, meet only the provider limit.
-
-**Drain.** `north fleet drain on [--until TIME]` turns the reserve off until `north fleet drain off` or the time
-passes; every account may then be spent past the pooled reserve, to its provider limit unless it is inside the
-operational floor. The floor stays. The switch lives in `spend/drain.json` in the agents
-state directory of the host that admits the launch, and `north fleet usage` prints the mode on its first line. The proxy flips it only on Tom's own word to drain; without that word the
-default reserve applies. A refusal reads "a new worker session would leave N points of week across all
-accounts, not above the M-point reserve".
-The money refusal and its ceiling stay; they are cost policy, not pacing.
-
-Nothing else refuses: no pace line, no week spread over the hours to reset beyond the burn governor's, no pace line, no hold,
-grant, reservation or per-account `allowed_workers` beyond the operational floor, no stale-sample hold, and no
-requirement that a named account match placement's first pick.
+Nothing else refuses: no pooled reserve, no per-account floor, no burn projection, no pace line, no week
+spread over the hours to reset, no hold, grant, reservation, per-account worker count, drain switch,
+stale-sample hold or missing-reading refusal, and no requirement that a named account match placement's
+first pick. Machine admission by measured memory and CPU pressure is a different rule and is unchanged.
 
 **Readings.** Spend reads the last sampled used percent of each account's five-hour and week windows from
-`usage-gate.json`. A week window whose reset has passed reads 0. A five-hour window with no reading since its reset is
-unread, not 0: the provider stops sending it (a setup token's 429 on a full week carries only the 7d headers, and
-accounts a and b got no 5h headers from 2026-10-31 while they worked), so spend stops nothing on it, the week
-reading decides, and `north fleet accounts --plan` prints `5h unread` (north#872). An account counts toward the pool only while a
-host is signed in to it and its reading is younger than `spend_reading_max_h`; an older or signed-out
-account adds nothing, so a dead account cannot hold the pool open. A stale reading still lets its account
-start work under the pool the fresh accounts give, because the provider's limit stops it when it runs out.
-An account with no week reading starts nothing.
+`usage-gate.json`. A window whose reset has passed reads 0. A five-hour window with no reading since its
+reset is unread, not 0: the provider stops sending it (a setup token's 429 on a full week carries only the
+7d headers), so spend stops nothing on it and `north fleet accounts --plan` prints `5h unread` (north#872).
+An account with no reading at all is admitted; the provider decides. `north spend [--json]` prints the view:
+the week points left across the accounts a host is signed in to and whose reading is younger than
+`spend_reading_max_h`, and the worker sessions working. It is a readout and stops nothing.
 
-**Charges between readings.** A run charges each of its own placements against the pool. Starts by other
-spawners between two samples are not charged; the sampler reads every few minutes, so at most a few starts
-fall in that gap, and the reserve absorbs them.
+**Order.** Order decides only which source takes a worker. Placement ranks plan accounts and API grants
+earliest deadline first (`room::Rank`, north#723): first a source the fleet's measured burn could not use up
+before its deadline, then the soonest deadline (a plan's weekly reset while its week has room, a grant's
+expiry), then week room per plan unit per hour to reset, less `spend_worker_charge` for each box this run
+has placed on it, then five-hour room. `north fleet accounts --plan` prints the order with each source's
+reason. Order never refuses.
 
-**Order.** Rules decide whether a worker may start; order decides only which source takes it. Placement
-ranks plan accounts and API grants earliest deadline first (`room::Rank`, north#723): first a source the fleet's
-measured burn could not use up before its deadline, then the soonest deadline (a plan's weekly reset while its
-week has room, a grant's expiry), then week room per plan unit per hour to reset, less this run's charges, then
-five-hour room. `north fleet accounts --plan` prints the order with each source's reason. Order never refuses.
+**Agent-tool subagents** run inside their parent's session and lane, so they add no session. The spawn hook
+asks spend about the account the parent bills, and so meets the same two reasons.
 
-**Providers.** The pool, the reserve, the floor and the burn governor cover Claude accounts. Other providers have no plan
-accounts in use; a launch on one meets its provider's limit.
+**Handover.** A running session whose account reaches the provider's limit is handed to the first account in
+room order that spend admits.
 
-**Agent-tool subagents** run inside their parent's session and lane, so they add no session.
-The spawn hook applies the reserve to the account the parent bills.
+**Follows-release.** A released follower is a new worker, so release asks `spend::admit`. A refusal leaves
+the follower waiting for the next release pass rather than failing it.
 
-**Handover.** A running session whose account reaches the provider's limit is handed to the account in room
-order that spend admits as a reserved starter. It adds no session, so the reserve does not hold it.
+**Budget notices** (`usage::budget`) tell a session and its lead when a box has spent twice its stated p90,
+or half its p50 in a quarter of its minutes. They ask for a one-line check and stop nothing.
 
-**Where the burn is measured.** In `north fleet tick` on every host whose copy of the usage table holds a
-five-hour reading from the last 30 minutes. The tick reads the table's five-hour and week readings, which every
-host shares, and writes each account's burn to `agents/spend/burns.json` there, where dispatch, fleet launch and
-the spawn hook on that host read it. The worker's five-hour charge is priced by the calibrated points per dollar:
-a rate row whose source lacks the current `rate method N` stamp or one older than `spend_rate_max_h` hours prices
-nothing, so the governor charges a new worker no five-hour points on that account. `north spend [--json]` prints
-the view.
+## Deleted on 2026-11-11 (north#1076)
 
-**Follows-release.** A released follower is a new worker, so release asks `spend::admit`. A
-refusal leaves the follower waiting for the next release pass rather than failing it.
+Each of these refused, queued or capped a launch the provider would have accepted. All are gone with their
+settings, state files, refusal texts, commands and tests.
+
+- **The spend tripwire and its circuit breaker**, which stopped every launch after a rise in spend.
+- **The burn governor**, which projected an account's use to its window resets from the fleet's measured burn
+  and refused or queued a worker whose projection passed the floor's budget (`spend/burn.rs`,
+  `agents/spend/burns.json`, `spend_burn_five_hour_min`, `spend_burn_week_h`, `spend_rate_max_h`), with the
+  cap of two urgent launches per account past it (`spend_urgent_limit`). A launch started with
+  `--priority urgent` now only goes first in the launch queue.
+- **The pooled reserve** (`spend_reserve`, 5 percent of the combined week of all counted accounts), with the
+  charge a run took from the pool for each worker it placed.
+- **The operational floor** (`spend_floor_week`, `spend_floor_five_hour`), which kept the last 5 percent of a
+  week and 10 percent of a five-hour window of each account for the privacy judge, lander and canaries. Those
+  callers now try the declared operational reserve first and meet the provider's limit like everything else.
+- **The drain switch** (`north fleet drain on|off`, `spend/drain.json`, the mode line of `north fleet usage`),
+  which lifted the pooled reserve and has nothing left to lift.
+- **The refusal of an account with no usage reading**, in spend and in placement, whose verdict on an account with
+  no sampled window was `no live quota sample`. Such an account is now offered like any other.
+- **The hold of one account until another is spent** (`[accounts.PROVIDER] held_until_spent`, `Basis::held`), which
+  kept an account out of placement and dispatch while the named account had week left.
+- **The workstream budget breaker's trip**, which told a workstream's sessions to stop at four times their
+  p90, with its alert to the owner and its clears.
 
 ## Every gate on 2026-11-07, and its fate
 
@@ -116,7 +95,7 @@ refusal leaves the follower waiting for the next release pass rather than failin
 - `projection.rs` (`project`, `week_refusal`) and `north tune`'s projection scoring, along with the launch
   record's `projection` field: **deleted**.
 - `exhaustion.rs` (the five-hour stop short of the provider's, the five-hour burn cap, the exhausted week):
-  **deleted**. The provider limit and rule 1 replace it.
+  **deleted**. The provider limit replaces it.
 - `admission.rs`: the `refusal` "Hold:" for a stale sample or exhaustion is **deleted**. `interval`, the
   sampler's read cadence, is not a gate; it **moves** into the sampler.
 - `target.rs` (spend targets, `[pace."ACCOUNT"] spend_to_pct` by `by`): **deleted**. `seconds` and
@@ -145,7 +124,8 @@ refusal leaves the follower waiting for the next release pass rather than failin
   reaches the provider's limit, are **kept**; `hand_over_target` picks its account as **Handover** says.
 - Spend breaker: its start refusal for a tripped workstream (`place`'s trip check and the `tripped:` line in
   `north ledger worker --recommend`) is **deleted**. Its budget notices to running sessions are **kept**,
-  since they stop no start.
+  since they stop no start; they live in `usage::budget`. Its trip, which told a workstream's sessions to stop at
+  four times their p90, with its alert and its clears, was **deleted** on 2026-11-11 (north#1076).
 
 `north-dispatch`, `pacing`:
 - `sampling.rs`: `update_controls`, the controller, phone notices and grant retention are **deleted**.
@@ -168,14 +148,14 @@ refusal leaves the follower waiting for the next release pass rather than failin
 `north-dispatch`, `dispatch`:
 - `plan.rs` (`takes`, `burned`, `burn_line`, `pace_held`, `week_line`, `burn_held`, the launch
   `projection`, the `pin` for a rank that disagrees with placement): **replaced** by `spend::admit` with
-  this run's placed workers and charges.
+  the charges of this run ordering its accounts.
 - `slots.rs` (`Account.workers` and `Pools.workers`, from `allowed_workers`): **deleted**.
 - `survey.rs` (the 15-minute pace-control staleness refusal, `account_refusal` with the week box reserve,
   `pace_workers`, `five_hour_burn`, `readings`): **replaced** by the spend view.
 
 `north-guard`, spawn hook (`spawn_capacity`):
 - The usage-freshness "Hold:" with its forced refresh, `pace_hold`, grants and the `reserve` op: **replaced**
-  by `spend::admit` (reserve) on the billed account.
+  by `spend::admit` on the billed account.
 - The money refusal, the flow gate and the CPU capacity refusal: **kept**. They concern cost, landing
   flow and machine capacity, not usage pace.
 - `gate_summary` (`north hook spawn-gate`): **replaced** by the spend view line.
@@ -196,7 +176,7 @@ Other readers:
 - `threads/runs/hook_rules.rs` (classifying spawn-hook denials by `Hold:`): **updated** to the rule names.
 - `harness/defaults.toml`: `pace_*`, `plan_stop`, `five_hour_burn_cap_pct_h`, `claude_session_target`,
   `spawn_reservation_ttl_s`, `grant_reservation_hold_s`, `placement_drain_margin`,
-  `reservation_fallback_points` and the replay quota floors are **deleted**. `spend_reserve`,
+  `reservation_fallback_points` and the replay quota floors are **deleted**. `spend_reserve` (deleted 2026-11-11),
   `spend_worker_charge` and `spend_reading_max_h` are **added**.
 - South's orchestration `[pace.*]` tables and the firn unit that described pace enforcement: **deleted** and
   **reworded** in their own repositories.
@@ -209,10 +189,10 @@ machines and landing contention. They do not bound account spend.
 
 Every deleted gate answered one question in its own way: will this account run out before its window
 resets? The answers came from different projections, so they disagreed, and the most conservative one won.
-The provider already enforces running out. North needs only to keep a little capacity for Tom and the proxy
-(rule 1). A per-account floor would strand a tenth of every account,
-so the reserve is pooled (Tom,
-2026-11-07).
+The provider already enforces running out. The reserve, floor and governor that replaced those gates between
+2026-11-07 and 2026-11-11 were fewer, but each was still an approximation of the provider's answer, and each
+queued work the provider would have run. So north keeps none: it reads usage to rank accounts and to report,
+and leaves stopping to the provider.
 
 ## Tier defaults (north#702 2026-11-07, north#966 2026-11-09)
 

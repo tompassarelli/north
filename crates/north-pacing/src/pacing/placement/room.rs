@@ -182,16 +182,6 @@ impl<'a> Basis<'a> {
         crate::spend::operational_reserve(self.cfg).iter().any(|name| name == account).then(|| "reserve: operational callers only (privacy judge, lander, canaries)".to_owned())
     }
 
-    /// Why `account` takes no launch yet: its `[accounts.PROVIDER] held_until_spent` entry names another account
-    /// whose week in `windows` (the usage gate's windows by account) still has room.
-    pub fn held(&self, account: &str, windows: &Value) -> Option<String> {
-        let (provider, label) = account.split_once(':')?;
-        let first = self.cfg.get("accounts")?.get(provider)?.get("held_until_spent")?.get(label)?.as_str()?;
-        let first = format!("{provider}:{first}");
-        let week = room(&windows[&first], self.at).week;
-        (week > 0.0).then(|| format!("held until {first} is spent ({week:.0}% of its week left)"))
-    }
-
     pub fn rank(&self, available: bool, account: &str, usage: &Value) -> Rank {
         if !available {
             return Rank::default();

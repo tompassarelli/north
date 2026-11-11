@@ -253,7 +253,7 @@
           "tool": "Bash"
         },
         {
-          "command": "cd /home/tom/code/north/main; rg -n -i 'circuit breaker|breaker' harness/*.toml /home/tom/code/south/main/agents/orchestration.toml 2>/dev/null | cut -c1-330 | sed -n 1,12p; echo \"== code\"; rg -n -l 'circuit breaker' crates src 2>/dev/null | head -5; rg -n 'fn .*breaker|breaker_(reset|clear|off)|exp",
+          "command": "cd /home/tom/code/north/main; rg -n -i 'breaker' harness/*.toml /home/tom/code/south/main/agents/orchestration.toml 2>/dev/null | cut -c1-330 | sed -n 1,12p; echo \"== code\"; rg -n -l 'breaker' crates src 2>/dev/null | head -5; rg -n 'fn .*breaker|breaker_(reset|clear|off)|exp",
           "looking": true,
           "looks": 8,
           "tool": "Bash"

@@ -2,7 +2,7 @@
 //! its admission queue takes. Whether an account may take a worker is the spend rule's call
 //! (`crate::spend`), which counts the workers this run has started.
 pub use crate::pacing::placement::room::{Charge, PlanSize, Room};
-use crate::spend::{Placed, Rules, Starter, View};
+use crate::spend::{Starter, View};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -86,8 +86,8 @@ impl Account {
         self.name.split_once(':').map_or(self.name.as_str(), |(provider, _)| provider)
     }
 
-    pub fn line(&self, spend: &View, rules: &Rules) -> String {
-        let state = match spend.admit(rules, &self.name, Starter::Reserved, Placed::default()) {
+    pub fn line(&self, spend: &View) -> String {
+        let state = match spend.admit(&self.name, Starter::Reserved) {
             Ok(()) => "open".to_owned(),
             Err(refusal) => format!("out: {refusal}"),
         };
@@ -115,8 +115,6 @@ pub struct Pools {
     signed_in: BTreeMap<String, Vec<String>>,
     /// Points of its own percent each account is charged for the boxes planned on it this run, which orders the next pick.
     charged: BTreeMap<String, Charge>,
-    /// The workers this run has started, which the spend rule's reserve counts.
-    placed: Placed,
     cloud: i64,
     /// The opencode workers this run has started, which count against their own slot cap.
     deepseek: usize,
@@ -129,7 +127,6 @@ impl Pools {
             builds: hosts.iter().filter_map(|host| Some((host.name.clone(), host.builds?))).collect(),
             signed_in: accounts.iter().map(|account| (account.name.clone(), account.hosts.clone())).collect(),
             charged: BTreeMap::new(),
-            placed: Placed::default(),
             cloud: 0,
             deepseek: 0,
         }
@@ -162,11 +159,6 @@ impl Pools {
         if self.serves(host, account) { self.host(host) } else { 0 }
     }
 
-    /// What this run has started so far.
-    pub fn placed(&self) -> Placed {
-        self.placed
-    }
-
     /// The host's free session slots this run, no more than the builds its admission queue takes.
     pub fn host(&self, host: &str) -> i64 {
         self.hosts.get(host).copied().unwrap_or(0).min(self.builds.get(host).copied().unwrap_or(i64::MAX))
@@ -184,13 +176,8 @@ impl Pools {
         self.hosts.keys().filter(|host| self.signed_in.keys().any(|account| self.serves(host, account))).map(|host| self.host(host)).sum()
     }
 
+    /// Takes a session slot and a build on `host`.
     pub fn take(&mut self, host: &str) {
-        self.take_slot(host);
-        self.placed.workers += 1;
-    }
-
-    /// Takes a session slot and a build on `host` for a worker the Claude spend rule does not count.
-    pub fn take_slot(&mut self, host: &str) {
         for free in self.hosts.get_mut(host).into_iter().chain(self.builds.get_mut(host)) {
             *free = (*free - 1).max(0);
         }

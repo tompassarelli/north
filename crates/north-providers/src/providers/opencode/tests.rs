@@ -52,7 +52,6 @@ fn request(cwd: &Path) -> LaunchRequest {
         role: None,
         resume: None,
         compact_window: None,
-        urgent: false,
             }
 }
 

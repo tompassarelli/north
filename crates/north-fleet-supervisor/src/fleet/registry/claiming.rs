@@ -232,7 +232,6 @@ mod launch_tests {
             role: None,
             resume: None,
             compact_window: None,
-            urgent: false,
                     }
     }
 
@@ -288,7 +287,6 @@ mod ghost_tests {
             role: None,
             resume: None,
             compact_window: None,
-            urgent: false,
         }
     }
 
@@ -305,7 +303,7 @@ mod ghost_tests {
             let _ = fs::remove_dir_all(fleet.root.join("safety-lead"));
             fs::create_dir_all(fleet.root.join("safety-lead")).unwrap();
             claims.hold("north#1054", "safety-lead", &BTreeSet::new()).unwrap();
-            fleet.queue_launch(&QueuedLaunch::new(wanted.clone(), Priority::Normal, 1, "burn governor".into())).unwrap();
+            fleet.queue_launch(&QueuedLaunch::new(wanted.clone(), Priority::Normal, 1, "provider limit".into())).unwrap();
             assert_eq!(fleet.queued_launches().unwrap().len(), 1);
 
             let launched = if take_over { fleet.take_over(&wanted) } else { fleet.launch(&wanted) };
@@ -388,7 +386,6 @@ mod queued_claim_tests {
             role: None,
             resume: None,
             compact_window: None,
-            urgent: false,
         }
     }
 

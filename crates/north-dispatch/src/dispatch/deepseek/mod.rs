@@ -150,7 +150,7 @@ impl Seen {
         cap::admit(self.running + pools.deepseek_placed(), self.settings.slot_cap)?;
         let serves = |host: &str| candidates.iter().any(|candidate| candidate.host == host && candidate.refusal.is_none());
         let host = self.settings.hosts.iter().find(|host| serves(host) && pools.host(host) > 0).ok_or_else(|| format!("no DeepSeek host ({}) serves this box with a free slot", self.settings.hosts.join(", ")))?;
-        pools.take_slot(host);
+        pools.take(host);
         pools.take_deepseek();
         let route = super::tier::Route { effort: None, effort_arm: false, signal: None, ..ready.route.clone() };
         let local = Some(format!("north fleet dispatch: DeepSeek takes this box on {host}, the host that holds the opencode key (north#1020)"));

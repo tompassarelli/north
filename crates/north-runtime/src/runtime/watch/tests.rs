@@ -88,7 +88,7 @@ fn a_session_host_restarted_onto_the_new_runtime_is_not_an_exit_and_one_that_sta
 
 #[test]
 fn launch_failures_on_a_host_with_no_launches_before_the_swap_or_with_a_cause_the_previous_runtime_shares_roll_nothing_back() {
-    let failed = Window { failures: failed(&["session host died at start: exit 101", "no login for claude:c", "burn governor: claude:e would reach 104% of its five-hour window"]), ..Window::default() };
+    let failed = Window { failures: failed(&["session host died at start: exit 101", "no login for claude:c", "provider limit: claude:e is at its provider's five-hour limit"]), ..Window::default() };
     assert_eq!(risen(&failed, &Window::default(), 120), Vec::<&str>::new(), "a host that just began launching has no rate to beat");
     let capacity = |load: &str| format!("Capacity leases and unleased heavy load commit {load} of the 8 CPUs the machine can hand out, protected desktop pressure is 0.02% (limit 20%)");
     let before = Window { launches: 6, failures: vec![capacity("10.19"), capacity("10.19"), capacity("10.19")], ..Window::default() };
@@ -117,8 +117,7 @@ fn a_refused_or_queued_launch_is_not_a_launch_failure_for_the_runtime_watch() {
     let (_home, path) = ledger(&[
         (at, "launch refusal", "n1036-admission would start on gex45, but its prompt names /home/tom/.local/state/north/decisions/admission/, under this host's home, which gex45 cannot read"),
         (at, "launch refusal", "cpx62b skipped: 4 jobs queued in machine-capacity admission (limit 4); it starts there once the host has room"),
-        (at, "launch refusal", "burn governor: claude:d would reach 150% of its five-hour window by its reset in 3.2 h"),
-        (at, "launch refusal", "burn governor: claude:e would reach 104% of its five-hour window"),
+        (at, "launch refusal", "provider limit: claude:e is at its provider's five-hour limit"),
         (at, "launch failure", "the claim of north#1109 is only queued: the threads ledger did not take it within 30 s"),
     ]);
     assert_eq!(launch_failures(&path, "2026-11-11T00:00:00Z", "2026-11-11T01:00:00Z"), ["the claim of north#1109 is only queued: the threads ledger did not take it within 30 s"]);

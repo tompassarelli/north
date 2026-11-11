@@ -356,7 +356,7 @@ fn on_north_576(host: &Host) -> u64 {
 
 #[test]
 fn a_lead_or_proxy_at_its_floor_goes_to_the_source_above_the_floor_with_most_headroom_else_parks_until_the_soonest_windfall_and_a_worker_on_spent_api_credit_waits_for_its_grant() {
-    use crate::usage::decide::world::{Account, Host as Machine, Label, Provider, Rate, Rates, Settings, Unix, Window, World};
+    use crate::usage::decide::world::{Account, Host as Machine, Label, Provider, Rate, Rates, Unix, Window, World};
     use crate::usage::decide::{View, view};
     let host = host("nexus");
     on_north_576(&host);
@@ -371,8 +371,7 @@ fn a_lead_or_proxy_at_its_floor_goes_to_the_source_above_the_floor_with_most_hea
     assert!(["a", "d"].contains(&launched[0].account.as_str()), "{}", launched[0].account);
     let rate = Rate::Pooled { points_per_usd: 1.0, n: 0 };
     let account = Account { provider: Provider::Claude, label: Label("a".into()), weight: 1.0, signed_in: [Machine("nexus".into())].into(), extra_usage_enabled: Some(false), extra_usage_spend: None, rates: Rates { five_hour: rate, week: rate }, credit: None };
-    let settings = Settings::default();
-    let world = World { now: Unix((NOW_MS / 1000) as i64), accounts: &[account], readings: &table.0.readings, limits: &table.0.limits, sessions: &[], settings: &settings };
+    let world = World { now: Unix((NOW_MS / 1000) as i64), accounts: &[account], readings: &table.0.readings, limits: &table.0.limits, sessions: &[] };
     assert!(matches!(view(&world, &Label("a".into()), Window::FiveHour), View::Stale { .. }), "a's 5-hour reading whose reset passed is unknown, not out");
 
     on_the_floor();

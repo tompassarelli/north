@@ -245,79 +245,22 @@ source = "measured: north defaults-measure box_calibration_n, snapshot 2026-10-1
 fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
 consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
-[spend_reserve]
-value = 5
-allowed = { min = 0, max = 100 }
-unit = "percent of the combined week of all counted accounts (the sum of their plan_week) that must stay unspent across them together; a new worker starts only while the pooled week left after it stays above this, and the drain switch turns it off"
-source = "tom, 2026-11-09 (paraphrased): the fleet keeps one small reserve of about 5% in total across every account for ad hoc needs and nothing else holds workers back on usage grounds (north#1000); north#1049 later carved the per-account operational floor for the privacy judge, lander and canaries out of each subscription, so the pooled reserve is no longer the only usage stop"
-fallback = "none: the reserve is a stated amount, not a measurement"
-consumers = ["crates/north-pace/src/spend/mod.rs"]
-
-[spend_floor_week]
-value = 5
-allowed = { min = 0, max = 100 }
-unit = "percent of an account's weekly window kept for operational callers, so no new worker starts while the week has this much or less left"
-source = "tom, 2026-11-10: the reserve is a floor carved out of the Claude subscriptions, starting at the last 5% of the week window (north#1049)"
-fallback = "none: a stated amount, not a measurement"
-consumers = ["crates/north-pace/src/spend/mod.rs"]
-
-[spend_floor_five_hour]
-value = 10
-allowed = { min = 0, max = 100 }
-unit = "percent of an account's five-hour window kept for operational callers, so no new worker starts while the window has this much or less left"
-source = "tom, 2026-11-10: the reserve is a floor carved out of the Claude subscriptions, starting at the last 10% of the five-hour window (north#1049)"
-fallback = "none: a stated amount, not a measurement"
-consumers = ["crates/north-pace/src/spend/mod.rs"]
-
-[spend_urgent_limit]
-value = 2
-allowed = { min = 0, max = 8 }
-unit = "urgent sessions per account that run past the burn governor at once"
-source = "north#1076 box, 2026-11-11: a spine fix (lander, canary, dispatch or red main) queued behind a governor meant to pace ordinary work, so `--priority urgent` passes it up to this many at once per account"
-fallback = "none: a stated bound, not a measurement"
-consumers = ["crates/north-pace/src/spend/mod.rs"]
-
 [spend_reading_max_h]
 value = 2
 allowed = { min = 0, max = 168 }
-unit = "hours after which an account's week reading no longer counts toward the pooled reserve"
-source = "north#702 review, 2026-11-07: a signed-out or unsampled account must not hold the pool open; the sampler reads every few minutes, so two hours is many missed reads"
+unit = "hours after which an account's week reading no longer counts toward the week points `north spend` reports left across accounts"
+source = "north#702 review, 2026-11-07: a signed-out or unsampled account must not count as week left; the sampler reads every few minutes, so two hours is many missed reads"
 fallback = "none: a stated bound, not a measurement"
 consumers = ["crates/north-pace/src/spend/read.rs"]
 
 [spend_worker_charge]
 value = 1.0
 allowed = { min = 0, max = 100 }
-unit = "points of one Max 5x week one new worker is expected to take from the pooled week, charged before the reserve is compared"
+unit = "points of one Max 5x week one new worker is expected to take, which dispatch charges an account so the next box of the run ranks the other accounts first"
 source = "prior: one point per worker, the charge dispatch already placed on a box before this rule"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs with week readings before and after, to measure a worker's week points" }
 fallback = "every worker charges one point"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
-
-[spend_burn_five_hour_min]
-value = 15
-allowed = { min = 1, max = 300 }
-unit = "minutes over which the fleet's rise in an account's five-hour window is measured for the burn governor, which holds that rate to the window's reset"
-source = "tom: 2026-11-07 starting span (north#702)"
-fallback = "none"
-consumers = ["crates/north-pace/src/spend/mod.rs"]
-
-[spend_burn_week_h]
-value = 6
-allowed = { min = 1, max = 168 }
-unit = "hours over which the fleet's rise in an account's week window is measured for the burn governor, which holds that rate to the week's reset"
-source = "prior: the five-hour span's 15 minutes held to a week's reset would turn one burst into days of burn, and a week reading moves by whole steps; six hours spans a work session and a week reading's steps (north#1076)"
-settles_when = { need = 20, count = "count_worker_runs", what = "worker runs with week readings before and after, to compare the projected week with the week each reset reached" }
-fallback = "none: a stated span, not a measurement"
-consumers = ["crates/north-pace/src/spend/mod.rs", "src/cli/fleet/burns.rs"]
-
-[spend_rate_max_h]
-value = 3
-allowed = { min = 1, max = 168 }
-unit = "hours after which an account's newest points-per-dollar row no longer prices a worker's week charge in five-hour points for the burn governor"
-source = "north#838, 2026-11-08: calibrate_after_min recalibrates about hourly, so three hours is two missed calibrations; a guard on an older figure refused launches on a stale input"
-fallback = "the burn governor charges a new worker no five-hour points on that account"
-consumers = ["crates/north-calibration/src/threads/calibration/rates.rs"]
 
 [dispatch_freeze_alarm_min]
 value = 15

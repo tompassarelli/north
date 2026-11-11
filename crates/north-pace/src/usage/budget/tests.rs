@@ -1,8 +1,8 @@
-use super::{Answer, Estimate, Judged, Spending, State, judge};
+use super::{Estimate, Judged, Spending, State, judge};
 
 const ISSUE: &str = "north#385";
 
-fn worker(name: &str, spent: f64, created_ms: u64, p90: f64) -> Spending {
+fn worker(name: &str, spent: f64, p90: f64) -> Spending {
     Spending {
         name: name.to_owned(),
         parent: Some("lead-385".to_owned()),
@@ -13,39 +13,17 @@ fn worker(name: &str, spent: f64, created_ms: u64, p90: f64) -> Spending {
         live: true,
         spent: Some(spent),
         minutes: 30.0,
-        created_ms,
         estimate: Some(Estimate { p50: Some(p90 / 2.0), p90, minutes: 30.0 }),
         landed: 0,
     }
 }
 
-fn tick(now_ms: u64, sessions: &[Spending], answers: &[Answer], state: &State) -> Judged {
-    judge(now_ms, sessions, answers, state)
-}
-
-fn kinds(judged: &Judged) -> Vec<(&'static str, String)> {
-    judged.events.iter().map(|event| (event.kind, event.scope.clone())).collect()
-}
-
-/// North#385 ran up $1.86 against a p90 of $0.37, 5.0x.
-fn replay() -> (Judged, Judged, Judged) {
-    let early = tick(1_000, &[worker("n385", 0.20, 0, 0.37)], &[], &State::default());
-    let first = tick(2_000, &[worker("n385", 1.86, 0, 0.37)], &[], &early.state);
-    let second = tick(3_000, &[worker("n385", 1.90, 0, 0.37)], &[], &first.state);
-    (early, first, second)
-}
-
-#[test]
-fn a_run_past_four_times_p90_trips_on_the_second_tick_and_not_the_first() {
-    let (early, first, second) = replay();
-    assert!(early.events.is_empty() && early.tells.is_empty());
-    assert!(first.events.iter().all(|event| event.kind != "trip") && first.tells.is_empty() && first.alerts.is_empty(), "{first:?}");
-    assert!(kinds(&second).contains(&("trip", format!("workstream:{ISSUE}"))), "{second:?}");
-    assert_eq!(second.alerts.len(), 1, "Tom sees the trip once");
+fn tick(now_ms: u64, sessions: &[Spending], state: &State) -> Judged {
+    judge(now_ms, sessions, state)
 }
 
 fn umbrella_box(name: &str, box_name: &str, spent: f64, p90: f64) -> Spending {
-    Spending { workstream: "north#112".to_owned(), box_id: format!("north#112 {box_name}"), parent: Some("lead-112".to_owned()), estimate: Some(Estimate { p50: Some(10.83), p90, minutes: 30.0 }), ..worker(name, spent, 0, p90) }
+    Spending { workstream: "north#112".to_owned(), box_id: format!("north#112 {box_name}"), parent: Some("lead-112".to_owned()), estimate: Some(Estimate { p50: Some(10.83), p90, minutes: 30.0 }), ..worker(name, spent, p90) }
 }
 
 /// North#112's boxes on 2026-11-05 evening: $36.65 together against one box's p90 of $18.29, each under its own.
@@ -60,8 +38,8 @@ fn umbrella(r1: f64) -> Vec<Spending> {
 }
 
 fn twice(sessions: &[Spending]) -> Judged {
-    let first = tick(1_000, sessions, &[], &State::default());
-    tick(2_000, sessions, &[], &first.state)
+    let first = tick(1_000, sessions, &State::default());
+    tick(2_000, sessions, &first.state)
 }
 
 #[test]
@@ -69,10 +47,6 @@ fn one_umbrella_box_past_its_own_p90_alerts_and_an_early_spend_under_p90_is_told
     let warned = twice(&umbrella(40.0));
     assert_eq!(warned.alerts, ["Budget warning: north#112 Proxy role R1: role on the session record has spent $40.00 against E p50 $10.83, p90 $18.29, 2x its p90."], "{warned:?}");
     assert!(warned.events.iter().all(|event| event.scope != "workstream:north#112"), "the issue's $69.65 is within its boxes' summed p90");
-    let tripped = twice(&umbrella(80.0));
-    assert_eq!(tripped.alerts.len(), 1, "{tripped:?}");
-    assert!(tripped.alerts[0].starts_with("Budget tripped: north#112 Proxy role R1"));
-    assert_eq!(tripped.tells.iter().map(|tell| tell.to.as_str()).collect::<Vec<_>>(), ["r1"], "only the box past its p90 is told to stop");
     let early = twice(&fast(0.6));
     assert_eq!(told(&early), ["n637"], "{early:?}");
     assert!(early.tells[0].text.contains("past half of p50 in under a quarter of the expected minutes"), "{early:?}");
@@ -82,7 +56,7 @@ fn one_umbrella_box_past_its_own_p90_alerts_and_an_early_spend_under_p90_is_told
 }
 
 fn fast(spent: f64) -> Vec<Spending> {
-    vec![Spending { minutes: 2.0, ..worker("n637", spent, 0, 2.0) }]
+    vec![Spending { minutes: 2.0, ..worker("n637", spent, 2.0) }]
 }
 
 fn told(judged: &Judged) -> Vec<&str> {
@@ -90,7 +64,7 @@ fn told(judged: &Judged) -> Vec<&str> {
 }
 
 fn north_706(name: &str, spent: f64, (p50, p90): (f64, f64), landed: u32) -> Spending {
-    Spending { workstream: "tompassarelli/north#706".to_owned(), box_id: format!("tompassarelli/north#706@{name}"), parent: Some("proxy".to_owned()), minutes: 80.0, estimate: Some(Estimate { p50: Some(p50), p90, minutes: 72.0 }), landed, ..worker(name, spent, 0, p90) }
+    Spending { workstream: "tompassarelli/north#706".to_owned(), box_id: format!("tompassarelli/north#706@{name}"), parent: Some("proxy".to_owned()), minutes: 80.0, estimate: Some(Estimate { p50: Some(p50), p90, minutes: 72.0 }), landed, ..worker(name, spent, p90) }
 }
 
 fn sandbox(wipe: f64, landed: u32) -> Vec<Spending> {
@@ -100,8 +74,8 @@ fn sandbox(wipe: f64, landed: u32) -> Vec<Spending> {
 #[test]
 fn a_session_handed_more_boxes_is_judged_against_each_and_one_box_past_twice_its_p90_still_warns() {
     let before = twice(&sandbox(28.53, 1));
-    let after = tick(3_000, &sandbox(29.20, 2), &[], &before.state);
-    let after = tick(4_000, &sandbox(29.20, 2), &[], &after.state);
+    let after = tick(3_000, &sandbox(29.20, 2), &before.state);
+    let after = tick(4_000, &sandbox(29.20, 2), &after.state);
     assert!([&before, &after].iter().all(|judged| judged.alerts.is_empty() && judged.tells.is_empty()), "{before:?} {after:?}");
     let overrun = twice(&sandbox(28.53, 0));
     assert_eq!(overrun.alerts, ["Budget warning: tompassarelli/north#706@n706-wipe has spent $28.53 against E p50 $3.62, p90 $11.65, 2x its p90."], "{overrun:?}");

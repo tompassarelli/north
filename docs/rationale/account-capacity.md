@@ -8,6 +8,14 @@ when a window fills (P4); explain every decision from its inputs in one line (P5
 decides today, specifies the replacement as pure functions over recorded readings, lists what is deleted and splits
 the work into boxes. It edits no code.
 
+The breaker's trip this plan specifies (the `Tripped` row of the breaker table, its clears and the stop it tells a
+workstream's sessions in box 10b) was deleted on 2026-11-11 (north#1076); the warnings and velocity notes stay as
+budget notices, and the rest of the plan reads as written on its date.
+
+The reserve this plan specifies (P2, `[usage.reserve]`, the `free` gate) and every later usage limiter were deleted
+on 2026-11-11 by the owner's order (north#1076, [spend-rule.md](spend-rule.md)): nothing below the provider's own
+limit holds a launch.
+
 Words: **usage** is a provider account's allowance (five-hour, weekly and model-scoped weekly windows); **cores** is
 machine capacity (cores, memory, leases, the capacity watchdog), which this plan does not touch. Code, docs and reports
 on the account side say usage, never capacity.

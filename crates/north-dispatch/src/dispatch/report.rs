@@ -7,9 +7,9 @@ pub(super) fn print(survey: &Survey, dry_run: bool) {
     for host in &survey.hosts {
         println!("{}", host.line());
     }
-    println!("{}", survey.spend.line(&survey.rules));
+    println!("{}", survey.spend.line());
     for account in &survey.accounts {
-        println!("{}", account.line(&survey.spend, &survey.rules));
+        println!("{}", account.line(&survey.spend));
     }
     let pools = Pools::new(&survey.hosts, &survey.accounts);
     for host in &survey.hosts {

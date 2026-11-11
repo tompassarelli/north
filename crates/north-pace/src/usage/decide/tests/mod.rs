@@ -39,7 +39,6 @@ pub struct Fixture {
     pub readings: Vec<Reading>,
     pub limits: Vec<LimitEvent>,
     pub sessions: Vec<Session>,
-    pub settings: Settings,
 }
 
 impl Fixture {
@@ -50,7 +49,6 @@ impl Fixture {
             readings: &self.readings,
             limits: &self.limits,
             sessions: &self.sessions,
-            settings: &self.settings,
         }
     }
 }

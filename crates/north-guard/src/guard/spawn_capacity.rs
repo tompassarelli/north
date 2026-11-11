@@ -9,7 +9,7 @@ mod usage;
 mod world;
 
 pub use briefs::Event;
-use crate::spend::{self, Placed, Rules, Starter, View};
+use crate::spend::{self, Rules, Starter, View};
 use toml_edit::DocumentMut;
 pub use world::Live;
 
@@ -40,9 +40,9 @@ pub fn admission(input: &HookInput) -> Verdict {
 /// rule admits a subagent on each account.
 pub fn gate_summary(world: &impl World) -> Value {
     let cpu = capacity(world).is_none_or(|(provisioned, limit, protected)| provisioned < limit && protected <= PROTECTED_PRESSURE_LIMIT);
-    let (view, rules) = spend_view(world);
-    let accounts: Vec<Value> = view.accounts.iter().map(|account| json!([account.name, view.admit(&rules, &account.name, Starter::Subagent, Placed::default()).is_ok()])).collect();
-    json!({"cpu": cpu, "accounts": accounts, "spend": view.line(&rules)})
+    let view = spend_view(world);
+    let accounts: Vec<Value> = view.accounts.iter().map(|account| json!([account.name, view.admit(&account.name, Starter::Worker).is_ok()])).collect();
+    json!({"cpu": cpu, "accounts": accounts, "spend": view.line()})
 }
 
 pub fn decide(world: &impl World, event: &Event) -> Option<String> {
@@ -56,8 +56,8 @@ fn spawn(world: &impl World, event: &Event) -> Result<Vec<String>, String> {
     let provider = event.provider();
     let mut reasons: Vec<String> = usage::money_refusal(world, provider)?.into_iter().collect();
     if let Some(account) = world.billed(provider) {
-        let (view, rules) = spend_view(world);
-        if let Err(refusal) = view.admit(&rules, &account, Starter::Subagent, Placed::default()) {
+        let view = spend_view(world);
+        if let Err(refusal) = view.admit(&account, Starter::Worker) {
             logs::denial(world, event, "spend", Some(&refusal.to_string()));
             reasons.push(refusal.to_string());
         }
@@ -71,10 +71,9 @@ fn spawn(world: &impl World, event: &Event) -> Result<Vec<String>, String> {
 
 /// The spend view from this host's state as last sampled; a subagent adds no session, so the active
 /// count is not read.
-fn spend_view(world: &impl World) -> (View, Rules) {
+fn spend_view(world: &impl World) -> View {
     let cfg = std::fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse::<DocumentMut>().ok()).unwrap_or_default();
-    let rules = Rules::configured();
-    (spend::view_from_config(&cfg, &state_dir(world).join("agents"), &rules, 0, world.now(), |_| true), rules)
+    spend::view_from_config(&cfg, &state_dir(world).join("agents"), &Rules::configured(), 0, world.now(), |_| true)
 }
 
 fn flow_refusal(world: &impl World, event: &Event) -> Option<String> {

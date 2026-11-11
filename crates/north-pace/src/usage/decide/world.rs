@@ -9,12 +9,6 @@ pub struct Host(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Name(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Workstream(pub String);
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BoxId(pub String);
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RowId(pub i64);
 
@@ -138,50 +132,8 @@ pub struct Session {
     pub owner: Owner,
     pub account: Label,
     pub family: ModelFamily,
-    pub workstream: Option<Workstream>,
-    pub box_id: Option<BoxId>,
     pub standing: Standing,
-    pub spent: Option<Usd>,
-    pub active_minutes: f64,
-    pub expected: Expected,
     pub parked_since: Option<Unix>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Expected {
-    pub p50: Usd,
-    pub p90: Usd,
-    pub minutes: f64,
-    pub source: EstimateSource,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum EstimateSource {
-    Cell(String),
-    CategoryPool(String),
-    TierMedian(String),
-    BriefEta { minutes: f64 },
-    Budget(Usd),
-    None,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Clear {
-    pub workstream: Workstream,
-    pub p90: Usd,
-    pub by: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Trip {
-    pub workstream: Workstream,
-    pub spent: Usd,
-    pub p90: Usd,
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Settings {
-    pub clears: Vec<Clear>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -191,5 +143,4 @@ pub struct World<'a> {
     pub readings: &'a [Reading],
     pub limits: &'a [LimitEvent],
     pub sessions: &'a [Session],
-    pub settings: &'a Settings,
 }

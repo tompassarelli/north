@@ -68,7 +68,7 @@ pub(super) fn sized(name: &str, hosts: &[&str], plan: PlanSize, room: Room) -> A
 pub(super) fn view(accounts: &[Account]) -> View {
     let window = |left: f64, reset_h: f64| Some(Window { used_pct: 100.0 - left, resets_at: Some(reset_h * 3600.0) });
     let spent = |account: &Account| spend::Account { name: account.name.clone(), plan_week: account.plan.week, five_hour: window(account.room.five_hour, 5.0), week: window(account.room.week, account.room.week_reset_h), counted: true };
-    View { at: 0.0, accounts: accounts.iter().map(spent).collect(), working: 0, burns: Vec::new(), keyed: Vec::new(), operational: Vec::new(), drain: false }
+    View { at: 0.0, accounts: accounts.iter().map(spent).collect(), working: 0, operational: Vec::new() }
 }
 
 /// The shipped rules, so these tests pin slots and order alone.
@@ -207,7 +207,7 @@ fn the_main_red_workflows_boxless_issue_is_neither_named_for_a_box_nor_given_a_c
 }
 
 #[test]
-fn a_dispatcher_with_no_api_key_places_on_the_host_that_holds_one_when_every_plan_is_under_the_reserve() {
+fn a_dispatcher_with_no_api_key_places_on_the_host_that_holds_one() {
     let (hosts, _) = fleet();
     let low = Room { five_hour: 90.0, week: 5.0, week_reset_h: 100.0 };
     let plans = vec![sized("claude:a", &["nexus"], MAX_5X, low), sized("claude:b", &["gex45"], MAX_5X, low)];
@@ -217,7 +217,7 @@ fn a_dispatcher_with_no_api_key_places_on_the_host_that_holds_one_when_every_pla
     assert_eq!(grants.iter().map(|grant| (grant.name.as_str(), grant.hosts.clone())).collect::<Vec<_>>(), [("claude:api:proton", vec!["gex45".to_owned()])], "nexus dispatch dropped every grant because its own roster holds no api key (north#723)");
 
     let mut surveyed = survey(vec![issue("makgora", 7, "- [ ] a", &[])], Cloud::Closed("no credit".into()), hosts, plans.iter().cloned().chain(grants).collect());
-    surveyed.spend = View { keyed: vec!["claude:api".into()], ..view(&plans) };
+    surveyed.spend = view(&plans);
     let outcome = decide(&surveyed, "test");
     assert_eq!(outcome.launches.iter().map(|launch| (launch.host.as_str(), launch.account.as_str())).collect::<Vec<_>>(), [("gex45", "claude:api:proton")], "{:?}", outcome.skipped);
 }

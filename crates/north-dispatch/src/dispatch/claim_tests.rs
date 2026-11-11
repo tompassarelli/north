@@ -53,7 +53,6 @@ fn a_hand_launch_whose_brief_opens_with_its_issue_holds_it_so_dispatch_refuses_n
         role: None,
         resume: None,
         compact_window: None,
-        urgent: false,
             };
     let record = SessionRecord::launched(&request, None, None, false, 1_794_090_424_000);
     let laptop = serde_json::json!([{"name": record.name, "status": "working", "tasks": record.tasks().collect::<Vec<_>>()}]);

@@ -8,12 +8,7 @@ fn proxy(account: &str) -> Session {
         owner: Owner::Fleet,
         account: label(account),
         family: ModelFamily::Fable,
-        workstream: None,
-        box_id: None,
         standing: Standing::Proxy,
-        spent: None,
-        active_minutes: 0.0,
-        expected: Expected { p50: Usd(0.0), p90: Usd(0.0), minutes: 0.0, source: EstimateSource::None },
         parked_since: None,
     }
 }

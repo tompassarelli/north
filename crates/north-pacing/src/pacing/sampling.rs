@@ -1,6 +1,6 @@
 use super::{process, readout, storage};
 use crate::foundation::clock::rfc3339_seconds;
-use crate::spend::{self, Placed, Rules, Starter};
+use crate::spend::{self, Rules, Starter};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use storage::{load, number, rows, save};
@@ -219,7 +219,7 @@ pub(super) fn standings(directory: &std::path::Path, cfg: &toml_edit::DocumentMu
     view.accounts
         .iter()
         .map(|account| {
-            let refusal = view.admit(&rules, &account.name, Starter::Worker, Placed::default()).err().map(|refusal| refusal.to_string());
+            let refusal = view.admit(&account.name, Starter::Worker).err().map(|refusal| refusal.to_string());
             json!({"at": at, "account": account.name, "admits": refusal.is_none(), "refusal": refusal, "workers": workers.by_account.get(&account.name).copied().unwrap_or(0)})
         })
         .collect()

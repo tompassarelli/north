@@ -93,9 +93,6 @@ pub struct LaunchRequest {
     /// The auto-compact window a relaunch keeps from the session it restarts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_window: Option<u64>,
-    /// Launched with `--priority urgent`: a spine fix the burn governor admits up to its urgent limit per account.
-    #[serde(default)]
-    pub urgent: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -331,8 +328,6 @@ pub struct SessionRecord {
     pub last_sender: Option<LastSender>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_window: Option<u64>,
-    #[serde(default)]
-    pub urgent: bool,
     /// Whether Claude Code compacts the session on idle (on by default since v2.1.299), recorded beside its window so the window arm's cost can be read with and without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_compaction: Option<bool>,
@@ -400,7 +395,6 @@ impl SessionRecord {
             capacity_need: request.capacity_need.clone(),
             last_sender: None,
             compact_window: request.window(),
-            urgent: request.urgent,
             idle_compaction: super::compaction::idle_compaction(request.provider.label()),
             eta_min: request.eta_min(),
             addressed_since_ms: None,
@@ -509,7 +503,6 @@ impl SessionRecord {
             role: Some(self.role()),
             resume: None,
             compact_window: self.compact_window,
-            urgent: self.urgent,
         }
     }
 }

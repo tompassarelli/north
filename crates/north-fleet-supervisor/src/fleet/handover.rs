@@ -18,7 +18,7 @@ use super::waits::Run;
 use crate::error::NorthResult;
 use crate::foundation::clock::Timestamp;
 use crate::usage::decide::world::{
-    Account, Credit, EstimateSource, Expected, Host, Label, LimitEvent, ModelFamily, Name, Owner, Provider, Rate, Rates, Reading, Session, Settings, Standing, Unix, Usd, World,
+    Account, Credit, Host, Label, LimitEvent, ModelFamily, Name, Owner, Provider, Rate, Rates, Reading, Session, Standing, Unix, World,
 };
 use crate::usage::decide::{Action, Assessments, assess};
 
@@ -73,8 +73,7 @@ pub fn hand_over(
             session_of(record, standing, parked.map(|wait| wait.parked_at))
         })
         .collect();
-    let settings = Settings::default();
-    let world = World { now, accounts: &accounts, readings: &observed.readings, limits: &limits, sessions: &sessions, settings: &settings };
+    let world = World { now, accounts: &accounts, readings: &observed.readings, limits: &limits, sessions: &sessions };
     let previous = Assessments { all_out: fleet.all_out_announced().then_some(crate::usage::decide::AllOut { earliest_resume: None, announce: false }), ..Assessments::default() };
     let assessed = assess(&world, &previous);
     match &assessed.all_out {
@@ -181,12 +180,7 @@ fn session_of(record: &SessionRecord, standing: Standing, parked_since: Option<U
         owner: Owner::Fleet,
         account: Label(record.account.clone()),
         family: family_of(record.model.as_deref()),
-        workstream: None,
-        box_id: None,
         standing,
-        spent: None,
-        active_minutes: 0.0,
-        expected: Expected { p50: Usd(0.0), p90: Usd(0.0), minutes: 0.0, source: EstimateSource::None },
         parked_since,
     }
 }

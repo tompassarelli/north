@@ -567,7 +567,6 @@ constants = [
   "crates/north-lander/src/land/watchdog.rs::STALE_MICROS",
   "src/cli/fleet/admission.rs::LIMIT",
   "src/cli/fleet/admission.rs::POLL",
-  "src/cli/fleet/breaker.rs::ANSWER_WINDOW_MS",
   "src/cli/fleet/claims.rs::LEDGER_LIMIT",
   "src/cli/fleet/limit.rs::QUERY",
   "src/cli/fleet/list.rs::MISSING_MINUTES",

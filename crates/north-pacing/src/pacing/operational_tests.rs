@@ -1,5 +1,5 @@
 use crate::spend::operational;
-use crate::spend::{Account, Placed, Rule, Rules, Starter, View, Window};
+use crate::spend::{Account, Rule, Starter, View, Window};
 
 const NOW: f64 = 1_794_300_000.0;
 const HOUR: f64 = 3600.0;
@@ -22,10 +22,9 @@ fn operational_callers_try_the_reserve_before_shared_capacity() {
     assert_eq!(operational::order(&reserve, labels(&["a", "c", "d", "e", "r"])), labels(&["r", "a", "c", "d", "e"]), "the reserve is tried before every shared account");
     assert_eq!(operational::order(&[], labels(&["a", "c"])), labels(&["a", "c"]), "no reserve declared leaves the shared order");
 
-    let rules = Rules::configured();
     let view = View { at: NOW, accounts: vec![account("claude:a", 20.0, 100.0), account("claude:c", 20.0, 100.0), account("claude:d", 20.0, 100.0), account("claude:e", 100.0, 40.0), account("claude:r", 0.0, 10.0)], ..View::default() };
     for shared in ["claude:a", "claude:c", "claude:d", "claude:e"] {
-        assert_eq!(view.admit(&rules, shared, Starter::Reserved, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::ProviderLimit), "{shared} had nothing left for the judge");
+        assert_eq!(view.admit(shared, Starter::Reserved).map_err(|refusal| refusal.rule), Err(Rule::ProviderLimit), "{shared} had nothing left for the judge");
     }
-    assert_eq!(view.admit(&rules, "claude:r", Starter::Reserved, Placed::default()), Ok(()), "the judge is answered on the reserve");
+    assert_eq!(view.admit("claude:r", Starter::Reserved), Ok(()), "the judge is answered on the reserve");
 }

@@ -32,7 +32,6 @@ fn request() -> LaunchRequest {
         role: None,
         resume: None,
         compact_window: None,
-        urgent: false,
             }
 }
 

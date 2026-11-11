@@ -8,7 +8,7 @@ use super::Outcome;
 use super::record;
 use super::survey::Survey;
 use crate::platform::process::run_within;
-use crate::spend::{Placed, Starter};
+use crate::spend::Starter;
 
 const FILE: &str = "freeze.json";
 
@@ -47,7 +47,7 @@ pub fn step(previous: Option<Stretch>, frozen: Option<String>, at: f64, limit_mi
 
 /// The refusal of each account the spend rule keeps a worker off, with the rule it is.
 pub fn guards(survey: &Survey) -> Vec<String> {
-    survey.accounts.iter().filter_map(|account| survey.spend.admit(&survey.rules, &account.name, Starter::Worker, Placed::default()).err().map(|refusal| format!("{refusal} ({})", account.name))).collect()
+    survey.accounts.iter().filter_map(|account| survey.spend.admit(&account.name, Starter::Worker).err().map(|refusal| format!("{refusal} ({})", account.name))).collect()
 }
 
 /// Keeps the stretch in `FILE` across runs and tells the proxy once it passes the limit; a failed send is retried on the next frozen run. Returns false when a page due this run did not go out.

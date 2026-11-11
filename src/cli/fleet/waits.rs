@@ -119,15 +119,14 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.park_limited", own: None, run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
             ProbeJob { name: "probes.settle.api_spent", own: Some(API_SPENT), run: Box::new(|fleet| said(api_spent(&fleet))) },
             ProbeJob { name: "probes.settle.api_reading", own: Some(API_READING), run: Box::new(|_| said(super::accounts::poll_tick())) },
-            ProbeJob { name: "probes.settle.breaker", own: None, run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
+            ProbeJob { name: "probes.settle.budget_notices", own: None, run: Box::new(|fleet| said(super::budget_notices::watch(&fleet, &tell_tom, now_ms()))) },
             ProbeJob { name: "probes.settle.promises", own: Some(super::promises::RUN * 2), run: Box::new(|fleet| said(super::promises::watch(&fleet, now_ms()))) },
-            ProbeJob { name: "probes.settle.spend_burns", own: None, run: Box::new(|_| said(super::burns::watch(now_ms()))) },
             ProbeJob {
                 name: "probes.settle.hand_over",
                 own: None,
                 run: Box::new(|fleet| {
                     let lanes = reaper::Evidence::lanes(&reaper::Here);
-                    let handed = hand_over(&fleet, &UsageTable, &lanes, &|record| holds_unlanded_lane(&record.name, &lane_of(&record.cwd, |worktrees| worktree_of(record, worktrees)), &lanes), &|request| super::burns::spend_admits(&fleet, request).and_then(|()| fleet.take_over(request)), &tell_tom, now_ms());
+                    let handed = hand_over(&fleet, &UsageTable, &lanes, &|record| holds_unlanded_lane(&record.name, &lane_of(&record.cwd, |worktrees| worktree_of(record, worktrees)), &lanes), &|request| super::placement::spend_admits(&fleet, request).and_then(|()| fleet.take_over(request)), &tell_tom, now_ms());
                     said(handed.lines.into_iter().chain(handed.alert))
                 }),
             },

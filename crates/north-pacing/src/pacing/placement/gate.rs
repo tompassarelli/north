@@ -260,7 +260,7 @@ fn relevant(window: &Value, family: Option<ModelFamily>) -> bool {
 pub fn verdict(account: &str, sampled: &Value, family: Option<ModelFamily>) -> Verdict {
     let windows: Vec<&Value> = rows(sampled).iter().filter(|window| relevant(window, family)).collect();
     if windows.iter().all(|w| w["used_pct"].as_f64().is_none()) {
-        return unavailable(account, "no live quota sample".into());
+        return Verdict { account: account.into(), available: true, exhausted: false, headroom: 100.0, rank: Rank::default(), line: format!("{account} available: no live quota sample, so the provider decides"), owners: Vec::new() };
     }
     if let Some(reason) = windows.iter().find_map(|window| window_refusal(window)) {
         return Verdict { exhausted: true, ..unavailable(account, reason) };
@@ -486,8 +486,7 @@ pub fn verdicts_for(gate: &Value, roster: &Roster, basis: &Basis, family: ModelF
     verdicts_of_for(gate, &standings(gate, roster), basis, Some(family))
 }
 
-/// The verdicts on each account given its recorded standing in the roster; an account held until another is
-/// spent is unavailable while that one has week left.
+/// The verdicts on each account given its recorded standing in the roster.
 pub fn verdicts_of(gate: &Value, standings: &BTreeMap<String, record::Standing>, basis: &Basis) -> Vec<Verdict> {
     verdicts_of_for(gate, standings, basis, None)
 }
@@ -496,7 +495,7 @@ pub fn verdicts_of_for(gate: &Value, standings: &BTreeMap<String, record::Standi
     let windows = &gate["claude"]["windows"];
     standing_verdicts(gate, standings, family)
         .into_iter()
-        .map(|verdict| match basis.operational(&verdict.account).or_else(|| basis.held(&verdict.account, windows).filter(|_| verdict.available)) {
+        .map(|verdict| match basis.operational(&verdict.account) {
             Some(why) => Verdict { owners: verdict.owners, ..unavailable(&verdict.account, why) },
             None => {
                 let rank = match family {

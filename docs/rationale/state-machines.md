@@ -166,9 +166,8 @@ fixes in each machine's code from history.
     (`crates/north-runtime/src/offload_cache/mod.rs:307-325`); overload caps recorded even when `systemctl` failed and
     forgotten when `overload.json` is lost (`crates/north-capacity-host/src/capacity/watchdog/act.rs:202`);
     `disk-reclaim.stamp` written before the reclaim. Shapes: presence-flag, marker-stamp.
-20. **Spend breaker and usage gate** (30: 15 x 2). An unknown breaker label becomes Within and un-trips
-    (`crates/north-pace/src/usage/breaker/state.rs:66`); each reader of `usage-gate.json` judges its staleness alone. Shapes: status-string,
-    mtime-read.
+20. **Usage gate** (30: 15 x 2). Each reader of `usage-gate.json` judges its staleness alone. Shape: mtime-read. The spend
+    breaker's status string went with its trip on 2026-11-11 (north#1076); budget notices keep a typed assessment.
 21. **Worker run lifecycle** (27: 9 x 3). `runs.outcome` mixes lifecycle with result; a spawn-hook worker that goes
     quiet keeps a `running` row with `ended=''` forever and never releases its claim
     (`crates/north-threads/src/threads/runs/record.rs:126-146,367`,

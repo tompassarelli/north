@@ -18,7 +18,7 @@ mod detail;
 mod fast;
 mod gate;
 pub mod reset;
-pub mod breaker;
+pub mod budget;
 pub mod decide;
 pub mod meter;
 pub mod outlook;

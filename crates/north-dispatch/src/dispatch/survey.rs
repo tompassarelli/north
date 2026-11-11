@@ -182,7 +182,7 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
     let windows = &usage["claude"]["windows"];
     let mut found = Vec::new();
     for (name, sample) in windows.as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:")) {
-        match basis.operational(name).or_else(|| basis.held(name, windows)) {
+        match basis.operational(name) {
             Some(why) => notes.push(format!("{name} {why}")),
             None => found.push(account(name, sample, &basis, signed_in(cfg, roster, name, here), at, notes)),
         }
@@ -217,13 +217,13 @@ fn spend_view(cfg: &DocumentMut, roster: &Roster, here: &str, rules: &Rules, ses
 }
 
 /// The spend view as a dispatch survey reads it, for `north fleet launch`: every reached host's
-/// active worker sessions, with the rules it applies.
-pub fn spend_now(roster: &Roster) -> Result<(View, Rules), String> {
+/// active worker sessions.
+pub fn spend_now(roster: &Roster) -> Result<View, String> {
     let cfg = placement::config()?;
     let (here, at, rules) = (crate::platform::host::name(), placement::now(), Rules::configured());
     let listings = fleets::everywhere(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, &mut Vec::new());
     let sessions: Vec<(Session, String)> = listings.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
-    Ok((spend_view(&cfg, roster, &here, &rules, &sessions, at), rules))
+    Ok(spend_view(&cfg, roster, &here, &rules, &sessions, at))
 }
 
 /// NorthThreads claim listings from this host's ledger, every ssh host's, and the laptop's copy, since a host whose
