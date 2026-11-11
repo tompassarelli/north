@@ -1,4 +1,4 @@
-Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--message FILE | --several-commits REASON]
+Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--wait] [--message FILE | --several-commits REASON]
        safe-push [--dry-run] --tag NAME
        safe-push [--dry-run] --delete-tag NAME
        safe-push abandon [BRANCH | scratch/NAME | --superseded BRANCH [--by COMMIT]]
@@ -33,6 +33,9 @@ Options:
   --keep-lane  with --to main from ~/code/<project>/worktrees/<slug>, keep the
                lane and its branch after the lander lands it, and keep the
                cargo target its land checks otherwise remove
+  --wait      with --to main, wait up to 25 min for the lander's verdict and print
+               "Done: landed COMMIT on main" (exit 0) or why the lane did not
+               land (exit 1); the one call a fleet session hands in with
   --message FILE
                with --to main, the message of the one commit the lane lands as
                (default: the first lane commit's message, the other subjects

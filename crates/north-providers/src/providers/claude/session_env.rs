@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::fleet::model::{Account, LaunchRequest, Role};
-use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV, Seen};
+use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HAND_IN_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV, Seen};
 use crate::platform::git_credential;
 
 use super::accounts::default_home;
@@ -29,13 +29,15 @@ pub fn invocation(account: &Account) -> Invocation {
 }
 
 pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(String, OsString)> {
-    let cap_ms = (request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS) * 1000).to_string();
+    let cap_secs = request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS);
+    let cap_ms = (cap_secs * 1000).to_string();
+    let hand_in_ms = (cap_secs.max(HAND_IN_CAP_SECS) * 1000).to_string();
     let mut env = account_env(account);
     env.extend([
         ("DISABLE_AUTOUPDATER".into(), "1".into()),
         ("DISABLE_INSTALLATION_CHECKS".into(), "1".into()),
-        ("BASH_DEFAULT_TIMEOUT_MS".into(), cap_ms.clone().into()),
-        ("BASH_MAX_TIMEOUT_MS".into(), cap_ms.into()),
+        ("BASH_DEFAULT_TIMEOUT_MS".into(), cap_ms.into()),
+        ("BASH_MAX_TIMEOUT_MS".into(), hand_in_ms.into()),
         (SESSION_ENV.into(), request.name.clone().into()),
         (ROLE_ENV.into(), request.role().label().into()),
         (ACTOR_ENV.into(), request.name.clone().into()),

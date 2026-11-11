@@ -8,6 +8,7 @@ pub(super) struct Arguments<'a> {
     pub message: Option<String>,
     pub several_commits: Option<&'a str>,
     pub keep_lane: bool,
+    pub wait: bool,
 }
 
 impl Arguments<'_> {
@@ -42,11 +43,15 @@ pub(super) fn parse(arguments: &[String]) -> Result<Arguments<'_>, u8> {
         [flag, rest @ ..] if flag == "--keep-lane" => (true, rest),
         rest => (false, rest),
     };
+    let (wait, rest) = match rest {
+        [flag, rest @ ..] if flag == "--wait" => (true, rest),
+        rest => (false, rest),
+    };
     if !rest.is_empty() {
         eprintln!("{USAGE}");
         return Err(64);
     }
-    Ok(Arguments { repo, message, several_commits, keep_lane })
+    Ok(Arguments { repo, message, several_commits, keep_lane, wait })
 }
 
 fn read_message(file: &str) -> Result<String, u8> {

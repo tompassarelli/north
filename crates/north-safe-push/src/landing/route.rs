@@ -16,7 +16,7 @@ use north_landing::land::lander::state_home;
 use north_lander::land::enqueue;
 use north_landing::land::{hold, queue, repositories, setting};
 
-const USAGE: &str = "usage: safe-push --to BRANCH [--message FILE | --several-commits REASON] [--keep-lane]";
+const USAGE: &str = "usage: safe-push --to BRANCH [--message FILE | --several-commits REASON] [--keep-lane] [--wait]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Settings {
@@ -82,6 +82,9 @@ fn ticket_arguments(request: &Arguments) -> Vec<String> {
     }
     if request.keep_lane {
         arguments.push("--keep-lane".to_owned());
+    }
+    if request.wait {
+        arguments.push("--wait".to_owned());
     }
     arguments
 }

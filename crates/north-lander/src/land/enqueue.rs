@@ -12,9 +12,11 @@ use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket, rfc3339};
 use super::repositories;
 use super::setting;
-use north_base::land_ticket;
+use north_base::land_ticket::{self, HAND_IN_WAIT};
 mod arguments;
 mod refuse;
+mod verdict;
+use verdict::Verdict;
 use refuse::{refuse_archived, refuse_conflict, refuse_lane_gates, refuse_stale_revert, refuse_static_gates, refuse_unfetchable};
 use super::scans::outgoing;
 use super::slots::runner;
@@ -22,7 +24,7 @@ use crate::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::Denylist;
 use crate::landing_refusals;
 
-const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane]";
+const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane] [--wait]";
 pub const REFUSALS: &str = "north/enqueue-refusals.jsonl";
 
 #[derive(Clone, Copy, Debug)]
@@ -317,12 +319,32 @@ pub fn run(arguments: &[String]) -> u8 {
                 Squash::Unchanged => {}
             }
             println!("Done: queued {}{} {} {}", if queued.outbox { "(outbox) " } else { "" }, queued.ticket.root.display(), queued.ticket.branch, queued.ticket.head);
-            0
+            if parsed.wait { hand_in(repo, &queued, &state_home) } else { 0 }
         }
         Err(error) => {
             record_refusal(&state_home, repo, &error);
             eprintln!("safe-push: ✗ cannot queue the lane: {error}; NOT queued.");
             1
+        }
+    }
+}
+
+/// Waits for the lander's verdict on the lane just queued and prints the commit it landed as, or why it did not land.
+fn hand_in(repo: &Path, queued: &Queued, state_home: &Path) -> u8 {
+    let destination = default_branch(&queued.ticket.root);
+    let git_dir = git(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).map_or_else(|_| queued.ticket.root.clone(), PathBuf::from);
+    match (verdict::Hand { queued, state_home, git_dir, destination: &destination }).wait(HAND_IN_WAIT) {
+        Verdict::Landed(commit) => {
+            println!("Done: landed {commit} on {destination}");
+            0
+        }
+        Verdict::Refused(verdict) => {
+            eprintln!("safe-push: ✗ the lander did not land {}: {verdict}; NOT landed.", queued.ticket.branch);
+            1
+        }
+        Verdict::Undecided => {
+            println!("safe-push: no verdict after {} min, so {} is still in the landing queue; the lander sends its verdict to the session that queued it.", HAND_IN_WAIT.as_secs() / 60, queued.ticket.branch);
+            0
         }
     }
 }

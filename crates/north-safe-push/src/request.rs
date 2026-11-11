@@ -7,6 +7,7 @@ pub struct Arguments {
     pub dry_run: bool,
     pub keep_lane: bool,
     pub direct: bool,
+    pub wait: bool,
     pub message: Option<String>,
     pub several_commits: Option<String>,
     pub tag: Option<String>,
@@ -63,6 +64,7 @@ pub fn arguments(arguments: &[String]) -> Result<Plan, Refusal> {
             "--dry-run" => set_once(&mut parsed.dry_run, "--dry-run")?,
             "--keep-lane" => set_once(&mut parsed.keep_lane, "--keep-lane")?,
             "--direct" => set_once(&mut parsed.direct, "--direct")?,
+            "--wait" => set_once(&mut parsed.wait, "--wait")?,
             "--tag" => rest = take_value(&mut parsed.tag, "--tag", "--tag needs a name", tail)?,
             "--delete-tag" => rest = take_value(&mut parsed.delete_tag, "--delete-tag", "--delete-tag needs a name", tail)?,
             "--to" => rest = take_value(&mut parsed.to, "--to", "--to needs a branch name", tail)?,
@@ -106,7 +108,7 @@ fn take_value<'a>(
 
 fn check_combination(parsed: &Arguments) -> Result<(), Refusal> {
     if parsed.delete_tag.is_some() {
-        let others = parsed.tag.is_some() || parsed.to.is_some() || parsed.keep_lane || parsed.direct || parsed.message.is_some() || parsed.several_commits.is_some();
+        let others = parsed.tag.is_some() || parsed.to.is_some() || parsed.keep_lane || parsed.direct || parsed.wait || parsed.message.is_some() || parsed.several_commits.is_some();
         if others {
             return Err(usage_error("--delete-tag cannot be combined with other arguments but --dry-run"));
         }
@@ -116,6 +118,9 @@ fn check_combination(parsed: &Arguments) -> Result<(), Refusal> {
     }
     if parsed.keep_lane && parsed.to.is_none() {
         return Err(usage_error("--keep-lane needs --to"));
+    }
+    if parsed.wait && (parsed.to.is_none() || parsed.dry_run) {
+        return Err(usage_error("--wait needs --to and cannot be combined with --dry-run"));
     }
     if (parsed.message.is_some() || parsed.several_commits.is_some()) && parsed.to.is_none() {
         return Err(usage_error("--message and --several-commits need --to"));

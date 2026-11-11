@@ -5,7 +5,8 @@ Messages
 - Your final message in a turn is your report.{report_lead} North keeps it in the session transcript and records the turn's exit and tokens in its ledger. Do not write status files, ACK lines or check-in messages.
 
 Commands
-- Any command that may run longer than {foreground_cap_secs} seconds (builds, tests, landing, sleeps, watches) goes in the background. Continue other work and read its result when it ends. A foreground command may be killed at the cap.
+- Any command that may run longer than {foreground_cap_secs} seconds (builds, tests, sleeps, watches) goes in the background. Continue other work and read its result when it ends. A foreground command may be killed at the cap.
+- Hand in a finished, committed lane with one foreground call and nothing else: `safe-push --to main --wait` with the Bash `timeout` set to {hand_in_timeout_ms}. It queues the lane, waits for the lander and prints `Done: landed COMMIT on main` or why the lane did not land. Report that line as the landing; do not background it, wait on it with another tool, fetch origin or check ancestry yourself.
 - If running something answers a question, run it instead of asking.
 - Do bulk mechanical edits with one script and check its diff, not by hand file by file.
 

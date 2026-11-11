@@ -71,6 +71,9 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
     {
         return None;
     }
+    if is_hand_in(input.command()?.as_str()?) {
+        return None;
+    }
     let reason = blocking(
         input.command()?.as_str()?,
         timeout_seconds(&input.tool_input["timeout"]),
@@ -78,6 +81,13 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
     Some(format!(
         "Workers never block in the foreground on {reason}: the lead's messages reach you only between tool calls and must arrive at once. Rerun it with run_in_background: true and wait for its completion notification or a Monitor event, checking messages in between."
     ))
+}
+
+/// Whether the command is the one hand-in call alone, `safe-push --to main --wait`, which waits for the lander in the foreground by design.
+fn is_hand_in(command: &str) -> bool {
+    let mut words = command.split_whitespace();
+    let alone = !command.contains([';', '&', '|', '\n', '`', '$', '(']);
+    alone && words.next().is_some_and(|program| program.rsplit('/').next() == Some("safe-push")) && words.any(|word| word == "--wait")
 }
 
 fn timeout_seconds(timeout: &Value) -> Option<f64> {

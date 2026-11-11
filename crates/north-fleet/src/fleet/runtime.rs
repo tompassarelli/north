@@ -159,6 +159,8 @@ pub trait Runtime: Send + Sync {
 
 
 pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
+/// The foreground maximum a session may ask for, which only its hand-in call uses: the hand-in wait and room to print its verdict.
+pub const HAND_IN_CAP_SECS: u64 = north_base::land_ticket::HAND_IN_WAIT.as_secs() + 300;
 pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 pub const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 pub const ACTOR_ENV: &str = "THREADS_ACTOR";

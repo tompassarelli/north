@@ -4,7 +4,7 @@ use north_core::foundation::shim;
 use north_landing::land::queue;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -221,4 +221,25 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     assert!(!rig.lane.exists(), "the landed lane is gone");
     assert_eq!(git(&rig.main, &["branch", "--list", "worker"]), "");
     assert!(!git(&rig.main, &["worktree", "list", "--porcelain"]).contains(&rig.lane.display().to_string()));
+}
+
+#[test]
+fn a_hand_in_returns_the_landed_commit_in_one_call() {
+    let rig = Rig::new();
+    let base = git(&rig.origin, &["rev-parse", "refs/heads/main"]);
+    fs::write(rig.lane.join("worker.txt"), "the worker's change").unwrap();
+    git(&rig.lane, &["add", "worker.txt"]);
+    git(&rig.lane, &["commit", "-qm", "Add the worker's change"]);
+
+    let hand_in = rig.command(rig.safe_push(), &rig.lane).args(["--to", "main", "--wait"]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let queue = queue::directory(&rig.root.join(".local/state"), rig.origin.to_str().unwrap());
+    let queued = north_core::platform::wait::until(Duration::from_secs(30), || queue::pending(&queue).is_ok_and(|tickets| !tickets.is_empty()));
+    let served = queued.then(|| rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).arg("--app-token").arg(rig.root.join("bin/app-token")).output().unwrap());
+    let handed = hand_in.wait_with_output().unwrap();
+    let said = format!("{}{}", text(&handed), served.as_ref().map(text).unwrap_or_default());
+
+    let landed = git(&rig.origin, &["rev-parse", "refs/heads/main"]);
+    assert_ne!(landed, base, "{said}");
+    assert!(handed.status.success(), "{said}");
+    assert_eq!(String::from_utf8_lossy(&handed.stdout).lines().last(), Some(format!("Done: landed {landed} on main").as_str()), "the one call ends on the commit main now holds: {said}");
 }
