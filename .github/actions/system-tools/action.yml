@@ -1,0 +1,37 @@
+name: System tools
+description: Installs system packages from the runner's apt mirror, and from the flake's pinned nixpkgs when the mirror cannot answer.
+inputs:
+  packages:
+    description: Space-separated package names, the same in apt and in nixpkgs.
+    required: true
+  fail-first-apt-attempt:
+    description: Make the first apt attempt fail, to show the install survives it.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - id: apt
+      continue-on-error: true
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        CI_APT_FAIL_FIRST_ATTEMPT: ${{ inputs.fail-first-apt-attempt }}
+      run: bash "$GITHUB_ACTION_PATH/apt-install.sh" $PACKAGES
+    - id: nix
+      if: steps.apt.outcome == 'failure'
+      shell: bash
+      run: |
+        echo "::warning::apt could not install ${{ inputs.packages }}; installing them from the flake's nixpkgs"
+        command -v nix >/dev/null && echo "present=true" >> "$GITHUB_OUTPUT" || true
+    - if: steps.apt.outcome == 'failure' && steps.nix.outputs.present != 'true'
+      uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      with:
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+    - if: steps.apt.outcome == 'failure'
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        nix profile install --inputs-from . $(printf 'nixpkgs#%s ' $PACKAGES)
+        echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"

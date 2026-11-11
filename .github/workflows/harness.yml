@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install harness test tools
+      - name: 'Environment: harness tools'
         id: tools
         uses: ./.github/actions/harness
         with:

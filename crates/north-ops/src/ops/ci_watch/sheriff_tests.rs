@@ -71,3 +71,30 @@ fn the_sheriff_closes_main_is_red_once_cargo_and_harness_pass_on_a_commit_after_
     assert!(repaired_by(&culprits, &[run("later", "success"), run("ddd", "success")], after).is_none());
     assert!(repaired_by(&culprits, &[run("later", "success")], after).is_none());
 }
+
+#[test]
+fn a_run_that_failed_only_in_its_environment_steps_is_not_a_red_main() {
+    let step = |name: &str, conclusion: &str| Step { name: name.into(), conclusion: Some(conclusion.into()), number: 1 };
+    let job = |id: u64, conclusion: &str, steps: Vec<Step>| Job { id, name: format!("job {id}"), conclusion: Some(conclusion.into()), steps };
+    let situation = |jobs: Vec<Job>| Situation {
+        attempt: 1,
+        conclusion: Some("failure".into()),
+        original: jobs,
+        confirmed: Vec::new(),
+        previous: Some(Previous { sha: "green".into(), conclusion: Some("success".into()) }),
+        commits: Vec::new(),
+        on_main: true,
+        head: "aaa".into(),
+        tip: "aaa".into(),
+        successor: None,
+    };
+    let unset = situation(vec![
+        job(1, "failure", vec![step("Environment: harness tools", "failure"), step("Shell tests", "skipped")]),
+        job(2, "failure", vec![step("Environment: cargo tests", "failure"), step("cargo test catches its planted fault", "skipped")]),
+    ]);
+    let verdict = decide(&unset);
+    assert_eq!(verdict.kind, Kind::None, "{}", verdict.reason);
+    assert!(verdict.reason.starts_with("Environment not set up"), "{}", verdict.reason);
+    let mixed = situation(vec![job(1, "failure", vec![step("Environment: cargo tests", "failure"), step("Test", "failure")])]);
+    assert_eq!(decide(&mixed).kind, Kind::Confirm);
+}

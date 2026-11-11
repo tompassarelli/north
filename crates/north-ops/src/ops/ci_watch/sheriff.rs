@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{Call, TITLE, gh, gh_json};
+use crate::platform::ci_environment::failed_only_in_environment;
 use crate::platform::cleanup::{MAIN_RED, MAIN_RED_BODY};
 
 const USAGE: &str = "usage: north main-red RUN_ID";
@@ -108,6 +109,9 @@ fn failing_step(jobs: &[Job]) -> Option<(&Job, &Step)> {
 pub fn decide(s: &Situation) -> Decision {
     if matches!(s.conclusion.as_deref(), None | Some("cancelled")) {
         return Decision::new(Kind::None, "The run was cancelled or never concluded; nothing to revert");
+    }
+    if failed(&s.conclusion) && failed_only_in_environment(s.original.iter().flat_map(|job| &job.steps).map(|step| (step.name.as_str(), step.conclusion.as_deref()))) {
+        return Decision::new(Kind::None, "Environment not set up: only environment steps failed, so no commit is blamed and the run is not a red main");
     }
     let Some((job, step)) = failing_step(&s.original) else {
         return Decision::new(if failed(&s.conclusion) { Kind::Report } else { Kind::None }, "No failing test step was recorded");
@@ -439,7 +443,7 @@ pub fn sheriff(id: u64) -> Result<(), String> {
             )?;
         }
         Kind::Report => report(existing.as_ref(), &marker, &detail)?,
-        Kind::None => {}
+        Kind::None => println!("{}", verdict.reason),
     }
     Ok(())
 }

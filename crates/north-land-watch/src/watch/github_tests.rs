@@ -18,3 +18,19 @@ fn a_run_queued_244_s_raises_no_alarm_and_one_past_the_queued_floor_does() {
     let alert = queued(&stuck, &stuck.repos[0]).expect("a run queued past the floor alarms");
     assert!(alert.summary.contains("queued over 600 s"), "{}", alert.summary);
 }
+
+#[test]
+fn a_main_run_that_failed_only_in_its_environment_steps_warns_and_does_not_page_a_red_main() {
+    let run = |environment_only| Run { name: "Canary".into(), head_branch: "main".into(), event: "push".into(), status: "completed".into(), conclusion: Some("failure".into()), head_sha: "5b284a8f28ac".into(), environment_only, ..Run::default() };
+    let alerts = |environment_only| {
+        let context = WatchContext { now: NOW, repos: vec![RepoFacts { name: "north".into(), runs: vec![run(environment_only)], ..RepoFacts::default() }], ..WatchContext::default() };
+        red_main(&context, &context.repos[0])
+    };
+    assert_eq!(alerts(true).len(), 1);
+    assert_eq!(alerts(true)[0].severity, Severity::Warn);
+    assert!(alerts(true)[0].summary.contains("environment not set up"));
+    assert_eq!(alerts(false)[0].severity, Severity::Page);
+    let jobs = r#"{"jobs":[{"steps":[{"name":"Environment: cargo tests","conclusion":"failure"},{"name":"Test","conclusion":"skipped"}]}]}"#;
+    assert!(super::super::facts::failed_only_in_environment_steps(jobs));
+    assert!(!super::super::facts::failed_only_in_environment_steps(&jobs.replace("skipped", "failure")));
+}

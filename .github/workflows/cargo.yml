@@ -48,7 +48,8 @@ jobs:
           rustup: false
           cache-key: cargo-test
           save: ${{ github.ref == 'refs/heads/main' && matrix.shard == 1 }}
-      - name: Cargo test environment (bubblewrap with apt retries)
+      - name: 'Environment: cargo tests'
+        id: environment
         uses: ./.github/actions/cargo-test-environment
         with:
           dev-shell: true
@@ -81,6 +82,11 @@ jobs:
           done < "$out/binaries"
           [ "$shard" != 1 ] || cargo test --locked --doc || status=1
           exit "$status"
+      - name: Record that this shard never ran
+        if: ${{ !cancelled() && steps.environment.outcome == 'failure' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/cargo-shard"
+          echo "environment not set up" | tee "$RUNNER_TEMP/cargo-shard/environment-not-set-up"
       - name: Kernel OOM kills
         if: always()
         run: sudo dmesg | grep -iE "out of memory|oom-kill|killed process" || echo "no OOM kill"
@@ -105,7 +111,15 @@ jobs:
         with:
           pattern: cargo-shard-*
           path: shards
+      - name: Find shards that never ran
+        id: shards
+        run: |
+          if find shards -name environment-not-set-up | grep -q .; then
+            echo "never-ran=true" >> "$GITHUB_OUTPUT"
+            echo "::error::environment not set up; the shards never ran: $(find shards -name environment-not-set-up | cut -d/ -f2 | sort | tr '\n' ' ')"
+          fi
       - name: The shards together run every cargo test binary and case once
+        if: ${{ steps.shards.outputs.never-ran != 'true' }}
         run: |
           [ "$(find shards -mindepth 1 -maxdepth 1 | wc -l)" = 3 ] || { echo "::error::expected 3 shard listings, found: $(ls shards)"; exit 1; }
           for shard in shards/*; do cmp shards/cargo-shard-1/cases "$shard/cases" || { echo "::error::$shard listed different tests than shard 1"; exit 1; }; done

@@ -52,6 +52,8 @@ pub struct Run {
     pub created_at: String,
     pub updated_at: String,
     pub html_url: String,
+    #[serde(skip)]
+    pub environment_only: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -139,7 +141,10 @@ fn repo_facts(name: &str, state: &Path) -> Option<RepoFacts> {
     let mut facts = RepoFacts { name: name.to_owned(), slug: slug.clone(), autoland, ..RepoFacts::default() };
     let answer = output("gh", None, &["api", &format!("repos/{slug}/actions/runs?per_page=40")]);
     match read_runs(answer, &state.join("north/watch").join(format!("runs-{name}.json"))) {
-        Ok(runs) => facts.runs = runs,
+        Ok(mut runs) => {
+            mark_environment_failures(&mut runs, &slug);
+            facts.runs = runs;
+        }
         Err(error) => facts.error = Some(error),
     }
     if autoland {
@@ -149,6 +154,25 @@ fn repo_facts(name: &str, state: &Path) -> Option<RepoFacts> {
         }
     }
     Some(facts)
+}
+
+fn mark_environment_failures(runs: &mut [Run], slug: &str) {
+    let mut newest: BTreeMap<String, usize> = BTreeMap::new();
+    for (index, run) in runs.iter().enumerate().filter(|(_, run)| run.head_branch == "main" && run.event == "push" && run.status == "completed" && run.conclusion.as_deref() == Some("failure")) {
+        if newest.get(&run.name).is_none_or(|seen| runs[*seen].created_at < run.created_at) {
+            newest.insert(run.name.clone(), index);
+        }
+    }
+    for index in newest.into_values() {
+        let jobs = output("gh", None, &["api", &format!("repos/{slug}/actions/runs/{}/jobs?per_page=100", runs[index].id)]);
+        runs[index].environment_only = jobs.is_ok_and(|text| failed_only_in_environment_steps(&text));
+    }
+}
+
+pub fn failed_only_in_environment_steps(jobs: &str) -> bool {
+    let Ok(body) = serde_json::from_str::<Value>(jobs) else { return false };
+    let steps = body["jobs"].as_array().into_iter().flatten().flat_map(|job| job["steps"].as_array().into_iter().flatten());
+    north_base::platform::ci_environment::failed_only_in_environment(steps.map(|step| (step["name"].as_str().unwrap_or_default(), step["conclusion"].as_str())))
 }
 
 fn defers_to_lander() -> bool {

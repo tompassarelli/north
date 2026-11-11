@@ -4,6 +4,9 @@ inputs:
   force-slow-download:
     description: Run the browser download as if it were too slow, so its 2 s bound fails it.
     default: 'false'
+  fail-first-apt-attempt:
+    description: Make the first apt attempt fail, to show the install survives it.
+    default: 'false'
   build:
     description: Build the north commands first; a job whose command builds them itself skips it.
     default: 'true'
@@ -34,10 +37,13 @@ runs:
       run: |
         [ "$BUILD" != true ] || cargo build --locked
         echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+    - uses: ./.github/actions/system-tools
+      with:
+        packages: ripgrep shellcheck bubblewrap
+        fail-first-apt-attempt: ${{ inputs.fail-first-apt-attempt }}
     - name: Test tools
       shell: bash
       run: |
-        sudo apt-get install -y --no-install-recommends ripgrep shellcheck bubblewrap
         bash "$GITHUB_ACTION_PATH/../ci-tools.sh"
         git config --global init.defaultBranch main
         git config --global user.name north-fleet-ci
@@ -49,7 +55,7 @@ runs:
           sudo tee "/etc/apparmor.d/$tool" >/dev/null <<PROFILE
         abi <abi/4.0>,
         include <tunables/global>
-        profile $tool /usr/bin/$tool flags=(unconfined) {
+        profile $tool $(realpath "$(command -v "$tool")") flags=(unconfined) {
           userns,
         }
         PROFILE

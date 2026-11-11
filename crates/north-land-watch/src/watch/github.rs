@@ -49,6 +49,11 @@ fn red_main(context: &WatchContext, repo: &RepoFacts) -> Vec<Alert> {
     let lanes = distinct_lanes(recent_land_check_failures(context, &repo.name));
     let mut alerts = Vec::new();
     for (workflow, run) in latest.into_iter().filter(|(_, run)| run.conclusion.as_deref().is_some_and(|conclusion| FAILED.contains(&conclusion))) {
+        if run.environment_only {
+            let summary = format!("{} {workflow} on main commit {} did not run: environment not set up, no commit is blamed ({})", repo.name, &run.head_sha[..run.head_sha.len().min(12)], run.html_url);
+            alerts.push(raise(repo, &format!("environment-not-set-up:{workflow}"), Severity::Warn, None, summary, at(&run.updated_at).unwrap_or(context.now)));
+            continue;
+        }
         let short = &run.head_sha[..run.head_sha.len().min(12)];
         let summary = format!("{} main is red: {workflow} failed on main commit {short} ({})", repo.name, run.html_url);
         let since = at(&run.updated_at).unwrap_or(context.now);

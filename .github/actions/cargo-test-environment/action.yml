@@ -4,6 +4,9 @@ inputs:
   dev-shell:
     description: The job's steps run in the Nix dev shell, which brings bun and ast-grep.
     default: 'false'
+  fail-first-apt-attempt:
+    description: Make the first apt attempt fail, to show the install survives it.
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -15,32 +18,23 @@ runs:
       with:
         path: ~/.cache/ci-tools
         key: ci-tools-betterleaks-1.10.0-ast-grep-0.42.1
-    - name: Sandbox boundary and scanner
+    - uses: ./.github/actions/system-tools
+      with:
+        packages: bubblewrap
+        fail-first-apt-attempt: ${{ inputs.fail-first-apt-attempt }}
+    - name: Scanner
       shell: bash
       env:
         DEV_SHELL: ${{ inputs.dev-shell }}
       run: |
-        if ! command -v bwrap >/dev/null; then
-          installed=false
-          for attempt in 1 2 3; do
-            sudo timeout 90 apt-get -o Acquire::http::Timeout=20 -o Acquire::Retries=2 update -qq || true
-            if sudo timeout 90 apt-get -o Acquire::http::Timeout=20 -o Acquire::Retries=2 install -y --no-install-recommends bubblewrap; then
-              installed=true
-              break
-            fi
-            echo "::warning::apt could not install bubblewrap (attempt $attempt of 3)"
-            sleep 10
-          done
-          "$installed" || { echo "::error::bubblewrap is not installable from the apt mirror"; exit 1; }
-        fi
         CI_TOOLS_SKIP_AST_GREP="$DEV_SHELL" bash "$GITHUB_ACTION_PATH/../ci-tools.sh"
     - name: Allow bubblewrap user namespaces
       shell: bash
       run: |
-        sudo tee /etc/apparmor.d/bwrap >/dev/null <<'PROFILE'
+        sudo tee /etc/apparmor.d/bwrap >/dev/null <<PROFILE
         abi <abi/4.0>,
         include <tunables/global>
-        profile bwrap /usr/bin/bwrap flags=(unconfined) {
+        profile bwrap $(realpath "$(command -v bwrap)") flags=(unconfined) {
           userns,
         }
         PROFILE

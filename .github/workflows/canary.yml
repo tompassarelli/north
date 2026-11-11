@@ -6,6 +6,11 @@ on:
       - 'docs/**'
       - '**.md'
   workflow_dispatch:
+    inputs:
+      fail_first_apt_attempt:
+        description: Make the first apt install attempt of each environment step fail, to show the job survives it.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,21 +26,33 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Toolchain and cargo cache
         uses: ./.github/actions/rust
-      - name: Cargo test environment
+      - name: 'Environment: cargo tests'
+        id: environment
         uses: ./.github/actions/cargo-test-environment
+        with:
+          fail-first-apt-attempt: ${{ inputs.fail_first_apt_attempt && 'true' || 'false' }}
       - name: cargo test catches its planted fault
         run: harness/scripts/canary.sh cargo-test
       - name: clippy catches its planted fault
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
         run: harness/scripts/canary.sh clippy
       - name: Portable skill check catches its planted fault
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
         run: harness/scripts/canary.sh portable-skill-check
+      - name: Planted-fault checks skipped
+        if: ${{ !cancelled() && steps.environment.outcome == 'failure' }}
+        run: echo "::error::environment not set up; the three planted-fault checks did not run"
   harness:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install harness test tools
+      - name: 'Environment: harness tools'
+        id: environment
         uses: ./.github/actions/harness
+        with:
+          fail-first-apt-attempt: ${{ inputs.fail_first_apt_attempt && 'true' || 'false' }}
       - name: Shell and Python tests catch their planted fault
         run: harness/scripts/canary.sh harness-tests
+      - name: Planted-fault check skipped
+        if: ${{ !cancelled() && steps.environment.outcome == 'failure' }}
+        run: echo "::error::environment not set up; the planted-fault check did not run"
