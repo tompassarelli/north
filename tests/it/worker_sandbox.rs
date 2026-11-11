@@ -134,6 +134,45 @@ fn a_delete_whose_target_is_computed_at_run_time_cannot_remove_a_protected_direc
 }
 
 #[test]
+fn a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_harness_state() {
+    let home = Home::new();
+    let root = home.path();
+    file(&root.join(".bashrc"));
+    file(&root.join("code/north-data/profiles/claude-a/settings.json"));
+    for store in ["code/north-data/fleet/spool", ".local/state/threads/spool", ".local/state/agents", ".cache"] {
+        std::fs::create_dir_all(root.join(store)).unwrap();
+    }
+    let lock = root.join("code/p/main/.git/index.lock");
+    file(&lock);
+    assert!(Command::new("touch").args(["-d", "2 minutes ago"]).arg(&lock).status().unwrap().success());
+    let runtime = tempfile::Builder::new().prefix("worker-writes").tempdir_in("/tmp").unwrap();
+    let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
+    let socket = runtime.path().join("north-outside/broker.sock");
+    let _broker = Broker(Command::new(north).args(["--worker-sandbox", "--broker"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", root).env("XDG_RUNTIME_DIR", runtime.path()).spawn().unwrap());
+    assert!(north_core::platform::wait::until(std::time::Duration::from_secs(5), || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
+    let sandboxed = |command: &str| {
+        let output = Command::new(north).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", root).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", runtime.path()).current_dir(home.lane()).output().unwrap();
+        (String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
+    };
+    let refused = [".bashrc", "new-file", ".local/state/north/profiles/claude-a/settings.json", "code/p/main/new.rs"];
+    let written = ["code/p/worktrees/lane/scratch/out.log", "code/p/worktrees/lane/new.txt", ".local/state/north/fleet/spool/m.json", ".local/state/threads/spool/s.jsonl", ".local/state/convo/index.db", ".local/state/agents/a.jsonl", ".cache/c"];
+    let mut command: String = refused.iter().chain(&written).map(|relative| format!("printf x >> \"$HOME/{relative}\"; ")).collect();
+    command.push_str("printf x >> \"$XDG_RUNTIME_DIR/r\" && git add new.txt && git -c user.name=t -c user.email=t@t commit -qm new && git -C \"$HOME/code/p/main\" worktree add -q \"$HOME/code/p/worktrees/fresh\" -b fresh && printf x >> \"$HOME/code/p/worktrees/fresh/src.rs\" && echo all-written");
+    let (stdout, stderr) = sandboxed(&command);
+    assert!(!stderr.contains("north worker-sandbox:"), "{stderr}");
+    for relative in refused {
+        let content = std::fs::read_to_string(root.join(relative)).ok();
+        assert!(content.as_deref().is_none_or(|kept| kept == "kept"), "a worker command wrote {relative} outside its lane: {stderr}");
+    }
+    for relative in written {
+        assert!(std::fs::read_to_string(root.join(relative)).is_ok_and(|content| content.ends_with('x')), "a worker command could not write {relative}: {stderr}");
+    }
+    assert!(stdout.contains("all-written"), "a worker command could not write its scratch, commit in its lane or create a lane: {stderr}");
+    let (_, unlocked) = sandboxed(&format!("{north} lane unlock {}", root.join("code/p/main").display()));
+    assert!(!lock.exists(), "a worker's lane unlock left a stale lock: {unlocked}");
+}
+
+#[test]
 fn a_worker_command_meets_a_null_device_at_every_runtime_socket_north_does_not_name_south_86() {
     let scratch = tempfile::Builder::new().prefix("s86").tempdir_in("/tmp").unwrap();
     let runtime = scratch.path().canonicalize().unwrap();

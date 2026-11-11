@@ -1,4 +1,4 @@
-//! `north --worker-sandbox COMMAND`: runs one shell command of an agent session under a Landlock domain. Every agent session's domain keeps the operator's own logins unreadable, since an agent calls GitHub as an App installation, and sets git's GitHub credential helper to that App. It also refuses to execute build output (a lane's `target/` and `node_modules/`) by its path, so the code a lane's dependencies bring runs only inside depbox, which the toolchain shims enter, or through `north lane exec` for a lane whose lock files equal main's. A worker's domain also confines removal: a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. Creating and writing files stays open everywhere for a Claude worker: its domain guards removal, not edits. A lane-only domain also limits opening files for writing to the trees the command may remove and the device files. Reading is open apart from the logins. When a worker command hands work to another local process, the outside broker carries the same removal roots to that process, and depbox applies them again inside the mount namespace it must build outside the domain. See docs/rationale/worker-sandbox.md.
+//! `north --worker-sandbox COMMAND`: runs one shell command of an agent session under a Landlock domain. Every agent session's domain keeps the operator's own logins unreadable, since an agent calls GitHub as an App installation, and sets git's GitHub credential helper to that App. It also refuses to execute build output (a lane's `target/` and `node_modules/`) by its path, so the code a lane's dependencies bring runs only inside depbox, which the toolchain shims enter, or through `north lane exec` for a lane whose lock files equal main's. A worker's domain also confines removal: a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. A worker's domain also confines writing and creating files, directories and links to the trees it may remove, the device files, the agent state other than the client profiles and setup tokens, and its projects' worktrees directories, so a worker command cannot change the operator's dotfiles and configuration, the client profiles, the local bin directories or a main checkout's files; a lane-only domain confines them to the trees it may remove and the device files. Reading is open apart from the logins. When a worker command hands work to another local process, the outside broker carries the same removal roots to that process, and depbox applies them again inside the mount namespace it must build outside the domain. See docs/rationale/worker-sandbox.md.
 mod broker;
 mod brokered_reads;
 mod except;
@@ -12,6 +12,7 @@ mod removable;
 mod hook_screen;
 mod sockets;
 mod sweep;
+mod writable;
 pub mod tool_server;
 
 use std::ffi::OsString;
@@ -29,6 +30,7 @@ pub use removable::{Context, removable};
 pub use hook_screen::Screen;
 pub use broker::SOCKET_ENV as BROKER_SOCKET_ENV;
 pub use sockets::runtime;
+use writable::writable;
 
 pub const FLAG: &str = "--worker-sandbox";
 const OUTSIDE: &str = "--outside";
@@ -57,14 +59,14 @@ fn confine_removal(roots: &[PathBuf]) -> Result<RulesetStatus, String> {
 }
 
 fn writing() -> BitFlags<AccessFs> {
-    AccessFs::WriteFile | AccessFs::Truncate
+    AccessFs::WriteFile | AccessFs::Truncate | AccessFs::MakeReg | AccessFs::MakeDir | AccessFs::MakeSym | AccessFs::MakeFifo | AccessFs::MakeSock | AccessFs::MakeChar | AccessFs::MakeBlock
 }
 
 fn removal() -> BitFlags<AccessFs> {
     AccessFs::RemoveDir | AccessFs::RemoveFile | AccessFs::Refer
 }
 
-/// Restricts this process, and everything it starts, to reading only files beneath `readable`, given `executable` to executing only files beneath it, and given `roots` to removing and renaming away only beneath them. Refer is handled either way, so a file cannot be linked or moved to where it would become readable or executable.
+/// Restricts this process, and everything it starts, to reading only files beneath `readable`, given `executable` to executing only files beneath it, given `roots` to removing and renaming away only beneath them, and given `writable` to opening files for writing and creating entries only beneath it. Refer is handled either way, so a file cannot be linked or moved to where it would become readable or executable.
 pub fn confine(roots: Option<&[PathBuf]>, readable: &[PathBuf], executable: Option<&[PathBuf]>, writable: Option<&[PathBuf]>) -> Result<RulesetStatus, String> {
     let handled = if roots.is_some() { removal() } else { BitFlags::from(AccessFs::Refer) };
     let handled = if executable.is_some() { handled | AccessFs::Execute } else { handled };
@@ -147,7 +149,8 @@ fn shell(command: &str, screen: Screen) -> std::process::ExitCode {
     broker::ensure();
     let hidden = confined && hide_sockets(&context);
     let roots = confined.then(|| removable(&context));
-    report(confine(roots.as_deref(), &readable(&context), Some(&executable(&context)), None));
+    let writable = roots.as_deref().map(|roots| writable(&context, roots));
+    report(confine(roots.as_deref(), &readable(&context), Some(&executable(&context)), writable.as_deref()));
     let shell = std::env::var_os("SHELL").filter(|shell| !shell.is_empty()).unwrap_or_else(|| OsString::from("bash"));
     let error = Command::new(shell).arg("-c").arg(command).envs(git_credential::session_env()).env_remove(SWEPT).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {error}");
@@ -166,7 +169,8 @@ fn program(program: &[String], lift: bool, screen: Screen) -> std::process::Exit
     let roots = confined.then(|| removable(&context));
     let executable = (!lift).then(|| executable(&context));
     let readable = if fenced { lane_only::readable_in_lane(&context, &[]) } else { readable(&context) };
-    report(confine(roots.as_deref(), &readable, executable.as_deref(), None));
+    let writable = roots.as_deref().map(|roots| if fenced { lane_only::writable_in_lane(roots) } else { writable(&context, roots) });
+    report(confine(roots.as_deref(), &readable, executable.as_deref(), writable.as_deref()));
     let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)

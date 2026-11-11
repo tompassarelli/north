@@ -32,6 +32,7 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
 
 struct Canary {
     root: tempfile::TempDir,
+    run: tempfile::TempDir,
     candidate: PathBuf,
     origin: PathBuf,
     main: PathBuf,
@@ -40,7 +41,8 @@ struct Canary {
 
 impl Canary {
     fn new() -> Self {
-        let root = tempfile::tempdir().unwrap();
+        let root = tempfile::Builder::new().prefix("hand-in").tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+        let run = tempfile::Builder::new().prefix("hand-in-run").tempdir_in("/tmp").unwrap();
         let path = |name: &str| root.path().join(name);
         let runtimes = path("home/.local/state/north/runtimes");
         let older = runtimes.join(OLDER_RUNTIME).join("north");
@@ -52,11 +54,9 @@ impl Canary {
         let candidate = path("candidate/north");
         fs::create_dir_all(path("candidate")).unwrap();
         symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &candidate).unwrap();
-        for directory in ["state", "run"] {
-            fs::create_dir_all(path(directory)).unwrap();
-        }
+        fs::create_dir_all(path("home/.local/state")).unwrap();
 
-        let (origin, main, lane) = (path("project/origin.git"), path("project/main"), path("project/worktrees/worker"));
+        let (origin, main, lane) = (path("home/code/project/origin.git"), path("home/code/project/main"), path("home/code/project/worktrees/worker"));
         fs::create_dir_all(&main).unwrap();
         git(&main, &["init", "-q", "-b", "main"]);
         for (key, value) in [("user.name", "canary"), ("user.email", "canary@example.invalid"), ("commit.gpgsign", "false")] {
@@ -71,7 +71,7 @@ impl Canary {
         git(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
         git(&main, &["fetch", "-q", "origin"]);
         git(&main, &["worktree", "add", "-q", "-b", "worker", lane.to_str().unwrap(), "origin/main"]);
-        Self { root, candidate, origin, main, lane }
+        Self { root, run, candidate, origin, main, lane }
     }
 
     fn path(&self, name: &str) -> PathBuf {
@@ -86,11 +86,11 @@ impl Canary {
             .env("PATH", path)
             .env("HOME", self.path("home"))
             .env("TMPDIR", std::env::temp_dir())
-            .env("XDG_STATE_HOME", self.path("state"))
-            .env("XDG_RUNTIME_DIR", self.path("run"))
-            .env("NORTH_TEST_ROOT", self.path("state"))
+            .env("XDG_STATE_HOME", self.path("home/.local/state"))
+            .env("XDG_RUNTIME_DIR", self.run.path())
+            .env("NORTH_TEST_ROOT", self.path("home/.local/state"))
             .env("NORTH_FLEET_TEST", "1")
-            .env("THREADS_DB", self.path("state/threads.db"))
+            .env("THREADS_DB", self.path("home/.local/state/threads.db"))
             .env("NORTH_PUSH_LOG", self.path("pushes.tsv"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("OLDER_NORTH_CALLS", self.path("older.calls"))
@@ -110,7 +110,7 @@ impl Canary {
     }
 
     fn held_queue(&self) -> bool {
-        let queues = fs::read_dir(self.path("state/north/land-queue")).map(|entries| entries.flatten().map(|entry| entry.path().join("lander.lock")).collect::<Vec<_>>()).unwrap_or_default();
+        let queues = fs::read_dir(self.path("home/.local/state/north/land-queue")).map(|entries| entries.flatten().map(|entry| entry.path().join("lander.lock")).collect::<Vec<_>>()).unwrap_or_default();
         queues.iter().any(|lock| fs::File::open(lock).is_ok_and(|file| rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockShared).is_err()))
     }
 
@@ -120,7 +120,7 @@ impl Canary {
         let entry = &config["mcpServers"]["north"];
         let line: Vec<&str> = std::iter::once(entry["command"].as_str().unwrap()).chain(entry["args"].as_array().unwrap().iter().filter_map(Value::as_str)).collect();
         let prefix = shell_prefix(&self.candidate).expect("a launch links worker-sandbox beside its north");
-        let mut server = self.command(&prefix).arg(line.join(" ")).current_dir(&self.lane).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        let mut server = self.command(&prefix).env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").arg(line.join(" ")).current_dir(&self.lane).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
         let mut stdin = server.stdin.take().unwrap();
         for request in requests {
             writeln!(stdin, "{request}").unwrap();
@@ -154,8 +154,8 @@ impl Drop for Running {
 fn a_candidates_hand_in_tool_lands_through_its_own_build_while_the_live_link_names_an_older_one() {
     let canary = Canary::new();
     let base = git(&canary.origin, &["rev-parse", "main"]);
-    fs::create_dir_all(canary.path("run/north-outside")).unwrap();
-    let live_broker = UnixListener::bind(canary.path("run/north-outside/broker.sock")).unwrap();
+    fs::create_dir_all(canary.run.path().join("north-outside")).unwrap();
+    let live_broker = UnixListener::bind(canary.run.path().join("north-outside/broker.sock")).unwrap();
     live_broker.set_nonblocking(true).unwrap();
     let _broker = canary.start(&["--worker-sandbox", "--broker"], &[], "broker.log");
     canary.until(|| canary.path("broker.sock").exists(), "the candidate's outside broker listened", "broker.log");

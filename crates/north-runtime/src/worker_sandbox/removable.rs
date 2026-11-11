@@ -67,18 +67,27 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     let state = home.join(".local/state");
     let protected: Vec<PathBuf> = PROTECTED_STATE.iter().map(|store| state.join(store)).collect();
     roots.extend(beneath_except(&state, &protected, Entries::Directories));
-    let lanes: Vec<PathBuf> = lane(home, &context.cwd).into_iter().chain(context.named_lanes.iter().cloned()).collect();
-    let projects = project(home, &context.cwd).into_iter().chain(context.named_projects.iter().cloned()).chain(lanes.iter().filter_map(|lane| lane.parent().and_then(Path::parent)).map(Path::to_path_buf));
-    for project in projects {
+    for project in projects(context) {
         roots.extend(common_git_dir(&project.join("main")));
         roots.push(project.join("main/.git"));
         roots.extend(check_lane(&project));
     }
-    for lane in lanes {
+    for lane in lanes(context) {
         roots.extend(common_git_dir(&lane));
         roots.push(lane);
     }
     roots
+}
+
+/// The lanes a command run from `context` works in: the one it runs in and the ones it names.
+fn lanes(context: &Context) -> Vec<PathBuf> {
+    lane(&context.home, &context.cwd).into_iter().chain(context.named_lanes.iter().cloned()).collect()
+}
+
+/// The projects a command run from `context` works in: the one it runs in, the ones it names, and those of its lanes.
+pub(super) fn projects(context: &Context) -> Vec<PathBuf> {
+    let parents = lanes(context).into_iter().filter_map(|lane| lane.parent().and_then(Path::parent).map(Path::to_path_buf));
+    project(&context.home, &context.cwd).into_iter().chain(context.named_projects.iter().cloned()).chain(parents).collect()
 }
 
 /// A Landlock rule holds an inode, so the done-when lane must exist before the domain is built.
