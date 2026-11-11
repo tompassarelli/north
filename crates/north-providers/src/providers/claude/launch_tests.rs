@@ -188,20 +188,23 @@ const SHELL_PREFIX: &str = "CLAUDE_CODE_SHELL_PREFIX";
 fn the_spawned_tool_server_is_an_existing_executable(profile: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
     let account = Account { provider: Claude.provider(), label: "a".into(), home: profile.to_path_buf(), token_file: None, api: None };
-    let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), ..request() };
-    let spec = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
-    let last = |flag: &str| spec.argv.windows(2).rev().find(|pair| pair[0] == flag).map(|pair| pair[1].clone());
-    let config: serde_json::Value = serde_json::from_str(&last("--mcp-config").expect("a worker launch configures its tool server")).unwrap();
-    let entry = &config["mcpServers"]["north"];
-    assert!(entry["args"].as_array().is_some_and(|args| args.iter().all(serde_json::Value::is_string)), "the entry's arguments are a list: {entry}");
-    let settings = last("--settings").unwrap();
-    let settings: serde_json::Value = serde_json::from_str(&settings).unwrap_or_else(|_| serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap());
-    let process = spec.env.iter().find(|(name, _)| name == SHELL_PREFIX).map(|(_, value)| value.to_string_lossy().into_owned());
-    let prefix = settings["env"][SHELL_PREFIX].as_str().map(str::to_owned).or(process);
-    let command = entry["command"].as_str().unwrap();
-    for program in [prefix.as_deref().unwrap_or(command), command] {
-        let executable = std::fs::metadata(program).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0);
-        assert!(executable, "Claude Code spawns {program:?} as one program path for the tool server, and it is no executable: {:?}", spec.argv);
+    let placed = crate::fleet::model::Machine { name: "far".into(), ssh: "tom@far".into() };
+    for machine in [None, Some(placed)] {
+        let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), machine, ..request() };
+        let spec = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
+        let last = |flag: &str| spec.argv.windows(2).rev().find(|pair| pair[0] == flag).map(|pair| pair[1].clone());
+        let config: serde_json::Value = serde_json::from_str(&last("--mcp-config").expect("a worker launch configures its tool server")).unwrap();
+        let entry = &config["mcpServers"]["north"];
+        assert!(entry["args"].as_array().is_some_and(|args| args.iter().all(serde_json::Value::is_string)), "the entry's arguments are a list: {entry}");
+        let settings = last("--settings").unwrap();
+        let settings: serde_json::Value = serde_json::from_str(&settings).unwrap_or_else(|_| serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap());
+        let process = spec.env.iter().find(|(name, _)| name == SHELL_PREFIX).map(|(_, value)| value.to_string_lossy().into_owned());
+        let prefix = settings["env"][SHELL_PREFIX].as_str().map(str::to_owned).or(process);
+        let command = entry["command"].as_str().unwrap();
+        for program in [prefix.as_deref().unwrap_or(command), command] {
+            let executable = std::fs::metadata(program).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0);
+            assert!(executable, "Claude Code spawns {program:?} as one program path for the tool server, and it is no executable: {:?}", spec.argv);
+        }
     }
 }
 

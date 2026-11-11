@@ -12,7 +12,7 @@ const RESEARCH_TOOLS: &str = ",WebSearch,WebFetch";
 const POLICY_FILE: &str = "CLAUDE.md";
 
 /// A worker's system prompt is north's text followed by the account profile's policy file, which is the same for every session of the account; its repository's own instruction files come back through the project and local setting sources, and its one settings file is its profile's hook registration because Claude Code keeps only the last `--settings`. A settings file's env outranks the process environment and the profile's names a prefix of two words, so the launch's `prefix` goes into that one settings file (north#1172).
-pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &str, prefix: Option<&Path>) -> NorthResult<Vec<String>> {
+pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &str, prefix: &Path) -> NorthResult<Vec<String>> {
     if request.role() != Role::Worker {
         let mut args = vec!["--settings".to_owned(), with_prefix(json!({"switchModelsOnFlag": true}), prefix).to_string()];
         if !instructions.is_empty() {
@@ -35,21 +35,16 @@ pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &st
     Ok(args)
 }
 
-fn worker_settings(account: &Account, prefix: Option<&Path>) -> NorthResult<String> {
+fn worker_settings(account: &Account, prefix: &Path) -> NorthResult<String> {
     let path = account.home.join("settings.json");
-    if prefix.is_none() {
-        return Ok(path.display().to_string());
-    }
     let unreadable = |error: String| NorthError::State(format!("{}: {error}", path.display()));
     let text = std::fs::read_to_string(&path).map_err(|error| unreadable(error.to_string()))?;
     let profile = serde_json::from_str(&text).map_err(|error| unreadable(error.to_string()))?;
     Ok(with_prefix(profile, prefix).to_string())
 }
 
-fn with_prefix(mut settings: Value, prefix: Option<&Path>) -> Value {
-    if let Some(prefix) = prefix {
-        settings["env"][SHELL_PREFIX_ENV] = json!(prefix.display().to_string());
-    }
+fn with_prefix(mut settings: Value, prefix: &Path) -> Value {
+    settings["env"][SHELL_PREFIX_ENV] = json!(prefix.display().to_string());
     settings
 }
 
