@@ -16,6 +16,7 @@ use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::SESSION_ENV;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::verbs::OWNED;
+use crate::threads::claims::{box_slug, same_box};
 
 /// The `repo#N` form `threads claim` records, whichever spelling `--task` carried.
 fn canonical(item: &str) -> String {
@@ -198,6 +199,16 @@ impl Claims for ThreadsCli {
             .filter_map(|row| Some((claim_key(row["item"].as_str()?, row["box"].as_str()), row["owner"].as_str()?.to_owned())))
             .collect())
     }
+
+    fn covers(&self, held: &str, key: &str) -> bool {
+        let ((held_item, held_box), (item, wanted)) = (split_key(held), split_key(key));
+        canonical(held_item) == canonical(item)
+            && match (held_box.map(box_slug), wanted.map(box_slug)) {
+                (None, None) => true,
+                (Some(Some(held)), Some(Some(wanted))) => same_box(&held, &wanted),
+                _ => false,
+            }
+    }
 }
 
 /// `north fleet hold REPO#N` adds the issue to the calling session's record and claim; `--release REPO#N` drops both, so dispatch staffs it again.
@@ -227,6 +238,16 @@ mod tests {
             Ok(true)
         });
         (directory, ThreadsCli { program: Some(program), limit: Duration::from_millis(300), spool })
+    }
+
+    /// On 2026-11-11 a launch on cpx62 whose box the laptop had claimed under its name was refused after 30 s: its claim timed out into the spool, and the ledger answered the box by its slug while the launch looked for its text.
+    #[test]
+    fn a_queued_box_claim_the_ledger_holds_under_its_slug_starts_the_launch() {
+        let spooled = Arc::new(Mutex::new(Vec::new()));
+        let held = r#"[{"item":"north#1054","box":"a-dispatch-run-launches-what-its-own-plan-says-i","owner":"cpx62-n1054-proof"}]"#;
+        let (_ledger, slow) = ledger(&format!("case \"$2\" in holder) echo '{held}';; *) sleep 30;; esac"), &spooled);
+        let keys = [claim_key("tompassarelli/north#1054", Some("A dispatch run launches what its own plan says it would"))];
+        crate::fleet::claims::hold_all(&slow, &keys, "cpx62-n1054-proof", &BTreeSet::new()).unwrap();
     }
 
     /// On 2026-11-07 from cpx62 every launch's claim on a loaded nexus passed the 2 s bound and was dropped, so dispatch staffed the item beside its owner.

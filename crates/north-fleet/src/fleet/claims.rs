@@ -59,6 +59,10 @@ pub trait Claims: Send + Sync {
     fn release(&self, item: &str, session: &str) -> NorthResult<()>;
     /// The claim rows `rows` names as (item, owner), including those no dispatch or launch honours any more.
     fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>>;
+    /// Whether the key `held`, as [`Claims::holders`] spells it, is the claim key `key` a launch asked for.
+    fn covers(&self, held: &str, key: &str) -> bool {
+        held == key
+    }
 }
 
 /// Claims every task before the session starts, so a live holder refuses the launch and nothing is left half-claimed; a ledger that cannot be read waits for the claim `hold_for` makes once the session runs. A claim the ledger only queued is waited for until it lands, because a second launch of the same item sees no holder before then; one that does not land in time refuses the launch.
@@ -101,10 +105,10 @@ fn land_queued(claims: &dyn Claims, queued: &[String], session: &str) -> NorthRe
             eprintln!("north fleet: the threads ledger did not answer, so {session} starts with {} queued", queued.join(", "));
             return Ok(());
         };
-        if let Some(owner) = rows.iter().find(|(key, owner)| owner != session && queued.contains(key)).map(|(_, owner)| owner) {
+        if let Some(owner) = rows.iter().find(|(held, owner)| owner != session && queued.iter().any(|key| claims.covers(held, key))).map(|(_, owner)| owner) {
             return Err(NorthError::Refused(format!("{} is already owned by {owner}", split_key(&queued[0]).0)));
         }
-        if queued.iter().all(|key| rows.iter().any(|(held, owner)| held == key && owner == session)) {
+        if queued.iter().all(|key| rows.iter().any(|(held, owner)| owner == session && claims.covers(held, key))) {
             return Ok(());
         }
         if Instant::now() >= deadline {
