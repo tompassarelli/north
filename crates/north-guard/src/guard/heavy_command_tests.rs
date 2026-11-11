@@ -75,3 +75,16 @@ fn a_narrowing_variable_set_inside_a_background_group_permits_a_farm_only_run() 
     assert!(matches!(verdict_in(dir.path(), "(bun scripts/lua-tests.ts > out.log) &"), Verdict::Deny(_)));
     assert!(matches!(verdict_in(dir.path(), "bun scripts/lua-tests.ts"), Verdict::Deny(_)));
 }
+
+#[test]
+fn a_full_bun_test_of_a_small_suite_runs_under_a_bound_instead_of_being_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.test.ts"), "").unwrap();
+    for args in [&["init", "-q"][..], &["add", "a.test.ts"]] {
+        assert!(std::process::Command::new("git").arg("-C").arg(dir.path()).args(args).status().unwrap().success());
+    }
+    let Verdict::Rewrite(updated, _) = verdict_in(dir.path(), "echo x > a.ts && bun test 2>&1 | tail -5") else {
+        panic!("the full bun test of a one-file suite was not bounded")
+    };
+    assert!(updated["command"].as_str().unwrap().starts_with("timeout -k 5 15 bash -c 'echo x > a.ts && bun test 2>&1 | tail -5';"));
+}

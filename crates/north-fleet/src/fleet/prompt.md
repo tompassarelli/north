@@ -9,6 +9,7 @@ Commands
 - Hand in a finished, committed lane with one foreground call and nothing else: `safe-push --to main --wait` with the Bash `timeout` set to {hand_in_timeout_ms}. It queues the lane, waits for the lander and prints `Done: landed COMMIT on main` or why the lane did not land. Report that line as the landing; do not background it, wait on it with another tool, fetch origin or check ancestry yourself.
 - If running something answers a question, run it instead of asking.
 - Do bulk mechanical edits with one script and check its diff, not by hand file by file.
+- Stage by name, `git add PATH...` or `git commit PATH... -m MSG`; a guard refuses `git add -A`, `git add .`, `git add -u` and `git commit -a`. Stage and commit in a call of their own after the edit and its test, never chained onto them: a refused call loses everything in it, the edit too.
 
 Evidence
 - A claim of done carries what was observed: the command and its output, the sha on origin/main, a captured exit code. North verifies landed and passed by itself, so a claim it cannot verify counts as not done.

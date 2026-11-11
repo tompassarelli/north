@@ -5,6 +5,7 @@ use crate::nix_command::{self, Inner};
 use crate::{platform::pyjson::Value, shell};
 use std::path::{Path, PathBuf};
 
+mod bounded;
 mod cpu;
 mod local_write;
 
@@ -15,6 +16,7 @@ const PREFIXES: &[&str] = &[
 #[derive(Debug, PartialEq)]
 pub(super) enum Decision {
     Allow,
+    Bound,
     Route,
     Refuse(String),
 }
@@ -29,28 +31,27 @@ pub fn judge(input: &HookInput) -> Verdict {
         Decision::Route if let Some(segment) = local_write::first(command, 0) => Verdict::Deny(format!(
             "`{segment}` changes files or the git index, and an offloaded build runs the whole command on the build host, so that change would not reach this worktree. Run it as its own command first, then the build alone."
         )),
-        Decision::Route => {
-            let wrapped = format!(
-                "north capacity host run --owner heavy-command-guard --timeout-seconds 1200 -- bash -c {}",
-                quote(command)
-            );
-            let mut updated = input.tool_input.clone();
-            let field = match &updated["command"] {
-                Value::String(_) | Value::Array(_) => "command",
-                _ => "cmd",
-            };
-            let wrapped = Value::from(wrapped);
-            updated[field] = if updated[field].as_array().is_some() {
-                Value::Array(vec!["bash".into(), "-lc".into(), wrapped])
-            } else {
-                wrapped
-            };
-            Verdict::Rewrite(
-                updated,
-                "Heavy command routed through machine-capacity admission.".into(),
-            )
-        }
+        Decision::Route => Verdict::Rewrite(
+            replaced(input, format!("north capacity host run --owner heavy-command-guard --timeout-seconds 1200 -- bash -c {}", quote(command))),
+            "Heavy command routed through machine-capacity admission.".into(),
+        ),
+        Decision::Bound => Verdict::Rewrite(replaced(input, bounded::wrapped(&quote(command))), bounded::NOTE.into()),
     }
+}
+
+fn replaced(input: &HookInput, command: String) -> Value {
+    let mut updated = input.tool_input.clone();
+    let field = match &updated["command"] {
+        Value::String(_) | Value::Array(_) => "command",
+        _ => "cmd",
+    };
+    let command = Value::from(command);
+    updated[field] = if updated[field].as_array().is_some() {
+        Value::Array(vec!["bash".into(), "-lc".into(), command])
+    } else {
+        command
+    };
+    updated
 }
 
 fn quote(text: &str) -> String {
@@ -88,9 +89,9 @@ pub(super) fn decide(source: &str, cwd: &Path, leased: bool, depth: usize) -> De
         return Decision::Allow;
     };
     let mut cwd = cwd.to_path_buf();
-    let (mut refusals, mut routed) = (Vec::new(), false);
+    let (mut refusals, mut pace) = (Vec::new(), Pace::Free);
     for body in shell::shell_substitutions(&text) {
-        fold(decide(&body, &cwd, leased, depth + 1), &mut refusals, &mut routed);
+        fold(decide(&body, &cwd, leased, depth + 1), &mut refusals, &mut pace);
     }
     for segment in shell::segments(&tokens) {
         let start = shell::command(&segment, PREFIXES);
@@ -103,12 +104,12 @@ pub(super) fn decide(source: &str, cwd: &Path, leased: bool, depth: usize) -> De
             cwd = cwd.join(&words[1]);
             continue;
         }
-        fold(segment_decision(words, &set, &cwd, leased, depth), &mut refusals, &mut routed);
+        fold(segment_decision(words, &set, &cwd, leased, depth), &mut refusals, &mut pace);
     }
     if !leased && cpu_redirect(source) {
-        fold(refuse("only machine-capacity may throttle CPU; to lower agent.slice now without admission, run north capacity mode relieve PERCENT [--minutes N]"), &mut refusals, &mut routed);
+        fold(refuse("only machine-capacity may throttle CPU; to lower agent.slice now without admission, run north capacity mode relieve PERCENT [--minutes N]"), &mut refusals, &mut pace);
     }
-    settled(refusals, routed)
+    settled(refusals, pace)
 }
 
 fn collapse_substitutions(text: &str) -> String {
@@ -135,20 +136,27 @@ fn collapse_substitutions(text: &str) -> String {
     out
 }
 
-fn settled(refusals: Vec<String>, routed: bool) -> Decision {
-    if !refusals.is_empty() {
-        Decision::Refuse(refusals.join("\n"))
-    } else if routed {
-        Decision::Route
-    } else {
-        Decision::Allow
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Pace {
+    Free,
+    Bounded,
+    Routed,
+}
+
+fn settled(refusals: Vec<String>, pace: Pace) -> Decision {
+    match pace {
+        _ if !refusals.is_empty() => Decision::Refuse(refusals.join("\n")),
+        Pace::Routed => Decision::Route,
+        Pace::Bounded => Decision::Bound,
+        Pace::Free => Decision::Allow,
     }
 }
 
-fn fold(decision: Decision, refusals: &mut Vec<String>, routed: &mut bool) {
+fn fold(decision: Decision, refusals: &mut Vec<String>, pace: &mut Pace) {
     match decision {
         Decision::Refuse(reason) if !refusals.contains(&reason) => refusals.push(reason),
-        Decision::Route => *routed = true,
+        Decision::Route => *pace = Pace::Routed,
+        Decision::Bound => *pace = (*pace).max(Pace::Bounded),
         Decision::Refuse(_) | Decision::Allow => {}
     }
 }
@@ -157,12 +165,12 @@ fn segment_decision(words: &[String], set: &[&str], cwd: &Path, leased: bool, de
     let Some(commands) = nix_command::launched(words) else {
         return own_decision(words, set, cwd, leased, depth);
     };
-    let (mut refusals, mut routed) = (Vec::new(), false);
-    fold(own_decision(words, set, cwd, leased, depth), &mut refusals, &mut routed);
+    let (mut refusals, mut pace) = (Vec::new(), Pace::Free);
+    fold(own_decision(words, set, cwd, leased, depth), &mut refusals, &mut pace);
     for command in commands {
-        fold(segment_decision(command, set, cwd, leased, depth + 1), &mut refusals, &mut routed);
+        fold(segment_decision(command, set, cwd, leased, depth + 1), &mut refusals, &mut pace);
     }
-    settled(refusals, routed)
+    settled(refusals, pace)
 }
 
 fn own_decision(words: &[String], set: &[&str], cwd: &Path, leased: bool, depth: usize) -> Decision {
@@ -177,7 +185,7 @@ fn own_decision(words: &[String], set: &[&str], cwd: &Path, leased: bool, depth:
     } else if !leased && cpu_throttle(words) {
         refuse("only machine-capacity may throttle CPU; to lower agent.slice now without admission, run north capacity mode relieve PERCENT [--minutes N]")
     } else if !leased {
-        classify(words)
+        classify(words, cwd)
     } else {
         Decision::Allow
     }
@@ -210,7 +218,7 @@ fn nested(words: &[String], cwd: &Path, leased: bool) -> Option<Nested> {
     })
 }
 
-fn classify(words: &[String]) -> Decision {
+fn classify(words: &[String], cwd: &Path) -> Decision {
     let name = shell::basename(&words[0]);
     let args = &words[1..];
     let plain: Vec<_> = args
@@ -234,7 +242,7 @@ fn classify(words: &[String]) -> Decision {
         return Decision::Route;
     }
     if name == "bun" {
-        return bun_command(args, &plain);
+        return bun_command(args, &plain, cwd);
     }
     Decision::Allow
 }
@@ -267,10 +275,11 @@ fn cargo_command(args: &[String]) -> Decision {
     }
 }
 
-fn bun_command(args: &[String], plain: &[&str]) -> Decision {
+fn bun_command(args: &[String], plain: &[&str], cwd: &Path) -> Decision {
+    let runner = plain.first() == Some(&"test");
     let plain = plain.strip_prefix(&["run"]).unwrap_or(plain);
     if plain.first() == Some(&"test") {
-        return bun_tests(args);
+        return bun_tests(args, runner.then_some(cwd));
     }
     if plain.starts_with(&["wisp", "map", "build"]) {
         return Decision::Route;
@@ -287,9 +296,10 @@ fn bun_command(args: &[String], plain: &[&str]) -> Decision {
     Decision::Allow
 }
 
-fn bun_tests(args: &[String]) -> Decision {
+fn bun_tests(args: &[String], runner: Option<&Path>) -> Decision {
     let targets = test_targets(args);
     match targets.as_slice() {
+        [] if runner.is_some_and(bounded::light_suite) => Decision::Bound,
         [] => refuse("bun test (full suite)"),
         [file] if !file.contains(['*', '?', '[']) && script_file(file) => Decision::Allow,
         _ => Decision::Route,
