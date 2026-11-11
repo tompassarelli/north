@@ -65,7 +65,7 @@ fn fake_upstream(reply: impl Fn(&str, &str) -> (u16, Value) + Send + 'static) ->
             log.lock().unwrap().push((target.clone(), headers, body.clone()));
             let (status, answer) = reply(&target, &format!("{auth}\n{body}"));
             let text = answer.to_string();
-            write!(stream, "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", text.len()).unwrap();
+            write!(stream, "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nGitHub-Authentication-Token-Expiration: 2027-01-02 03:04:05 UTC\r\nX-OAuth-Scopes: repo\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", text.len()).unwrap();
         }
     });
     (base, seen)
@@ -245,4 +245,68 @@ fn create_repository_is_always_private() {
         assert_eq!(call(&broker, 1001, method, target, &headers, &private).0, 403, "{method} {target} was not refused");
     }
     assert_eq!(seen.lock().unwrap().len(), 1, "a call other than POST /user/repos reached GitHub");
+}
+
+const PLANTED: &str = "github_pat_PLANTEDfakeOWNERtoken0123456789";
+
+struct Copied {
+    text: String,
+    cleared: std::cell::Cell<bool>,
+}
+
+impl crate::intake::Clipboard for Copied {
+    fn read(&self) -> Result<String, String> {
+        Ok(format!("{}\n", self.text))
+    }
+
+    fn clear(&self) -> Result<(), String> {
+        self.cleared.set(true);
+        Ok(())
+    }
+}
+
+fn south_with_a_recipient() -> (tempfile::TempDir, std::path::PathBuf) {
+    let south = tempfile::tempdir().unwrap();
+    let key = south.path().join("age.txt");
+    assert!(Command::new("age-keygen").arg("-o").arg(&key).output().unwrap().status.success());
+    let recipient = Command::new("age-keygen").arg("-y").arg(&key).output().unwrap().stdout;
+    std::fs::create_dir_all(south.path().join("secrets")).unwrap();
+    std::fs::create_dir_all(south.path().join("agents")).unwrap();
+    std::fs::write(south.path().join(".sops.yaml"), format!("creation_rules:\n  - path_regex: secrets/[^/]+\\.yaml$\n    age: {}\n", String::from_utf8(recipient).unwrap().trim())).unwrap();
+    std::fs::write(south.path().join("agents/credentials.toml"), "[[credential]]\nsource = \"secrets/github-user.yaml\"\nreach = \"broker:github-user\"\nuse = \"the owner's token\"\nkind = \"machine\"\nrenewal = \"tom: mint a new token\"\n").unwrap();
+    (south, key)
+}
+
+#[test]
+fn the_owner_token_is_stored_encrypted_and_never_printed() {
+    let (south, key) = south_with_a_recipient();
+    let secrets = south.path().join("secrets");
+    let (github, seen) = fake_upstream(|_, _| (200, json!({ "login": "owner" })));
+    let clipboard = Copied { text: PLANTED.to_owned(), cleared: std::cell::Cell::new(false) };
+    let mut printed = Vec::new();
+
+    crate::intake::run(&secrets, &github, &clipboard, &mut printed).unwrap();
+
+    let printed = String::from_utf8(printed).unwrap();
+    assert_eq!(printed, "expires: 2027-01-02 03:04:05 UTC\npermissions: repo\n");
+    assert!(clipboard.cleared.get(), "the clipboard still holds the token");
+    let sent = seen.lock().unwrap();
+    assert_eq!(sent[0].0, "/user");
+    assert_eq!(sent[0].1.iter().find(|(name, _)| name.eq_ignore_ascii_case("authorization")).unwrap().1, format!("Bearer {PLANTED}"));
+    let stored = std::fs::read(secrets.join(GITHUB_USER_FILE)).unwrap();
+    assert!(!stored.windows(PLANTED.len()).any(|window| window == PLANTED.as_bytes()), "the stored file holds the token in the clear");
+    let decrypted = Command::new("sops").env("SOPS_AGE_KEY_FILE", &key).args(["-d", "--extract", "[\"token\"]"]).arg(secrets.join(GITHUB_USER_FILE)).output().unwrap();
+    assert_eq!(String::from_utf8(decrypted.stdout).unwrap().trim(), PLANTED);
+    let registry = std::fs::read_to_string(south.path().join("agents/credentials.toml")).unwrap();
+    assert!(registry.contains("expires = \"2027-01-02\""), "{registry}");
+
+    let (refusing, _) = fake_upstream(|_, _| (401, json!({ "message": "Bad credentials" })));
+    let refused = Copied { text: PLANTED.to_owned(), cleared: std::cell::Cell::new(false) };
+    let again = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(again.path().join("secrets")).unwrap();
+    std::fs::create_dir_all(again.path().join("agents")).unwrap();
+    std::fs::copy(south.path().join("agents/credentials.toml"), again.path().join("agents/credentials.toml")).unwrap();
+    let error = crate::intake::run(&again.path().join("secrets"), &refusing, &refused, &mut Vec::new()).unwrap_err();
+    assert!(error.contains("401") && !error.contains(PLANTED), "{error}");
+    assert!(!refused.cleared.get() && !again.path().join("secrets").join(GITHUB_USER_FILE).exists());
 }

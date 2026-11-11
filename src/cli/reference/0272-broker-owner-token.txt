@@ -1,0 +1,1 @@
+  broker owner-token                               Store the GitHub token on the clipboard encrypted as the broker's github-user credential, clear the clipboard and print only its expiry and permissions

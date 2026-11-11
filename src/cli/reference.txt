@@ -278,6 +278,7 @@ Commands:
   broker serve [--user]                          Run the credential broker that holds the app credentials and cloud tokens
   broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]...  Print a scoped one-hour GitHub App installation token
   broker inspect [--json]                          Print the repositories and permissions the broker granted the token on stdin
+  broker owner-token                               Store the GitHub token on the clipboard encrypted as the broker's github-user credential, clear the clipboard and print only its expiry and permissions
   gh-broker serve [--resident]|release|quota    Serve, release or read the GitHub call broker
   gh-session REAL_GH [ARGS...]                  Run gh through the GitHub broker (gh's own --help passes through)
   git-credential get                            Answer a git credential request through the GitHub broker
