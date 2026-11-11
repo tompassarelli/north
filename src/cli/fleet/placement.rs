@@ -496,6 +496,10 @@ pub(super) fn machine_load(fleet: &Fleet) -> NorthResult<BTreeMap<String, i64>> 
 #[path = "placement_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "placement_burst_tests.rs"]
+mod burst_tests;
+
 /// Where a fresh session starts: `HOST:/PATH` names a `[hosts.HOST]` machine and a directory there,
 /// anything else is a directory here; none is the current directory.
 pub(super) fn working_directory(cwd: Option<PathBuf>) -> NorthResult<(PathBuf, Option<Machine>)> {
