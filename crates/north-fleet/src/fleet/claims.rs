@@ -89,7 +89,7 @@ fn give_up(claims: &dyn Claims, tasks: &[String], session: &str) {
     }
 }
 
-/// Reads the ledger until every key in `queued` is held by `session`: a key another owner holds refuses, and keys still unread when the claim's wait ends refuse too. Each read sends the spooled claims first.
+/// Reads the ledger until every key in `queued` is held by `session`: a key another owner holds refuses, and keys a ledger that answers still does not show when the claim's wait ends refuse too. A ledger that does not answer a read leaves the claim queued, to land once the host reaches it, and the launch starts.
 fn land_queued(claims: &dyn Claims, queued: &[String], session: &str) -> NorthResult<()> {
     if queued.is_empty() {
         return Ok(());
@@ -97,13 +97,15 @@ fn land_queued(claims: &dyn Claims, queued: &[String], session: &str) -> NorthRe
     let issues: Vec<String> = queued.iter().map(|key| split_key(key).0.to_owned()).collect();
     let deadline = Instant::now() + claims.queued_claim_wait();
     loop {
-        if let Ok(rows) = claims.holders(Rows::Items(&issues)) {
-            if let Some(owner) = rows.iter().find(|(key, owner)| owner != session && queued.contains(key)).map(|(_, owner)| owner) {
-                return Err(NorthError::Refused(format!("{} is already owned by {owner}", split_key(&queued[0]).0)));
-            }
-            if queued.iter().all(|key| rows.iter().any(|(held, owner)| held == key && owner == session)) {
-                return Ok(());
-            }
+        let Ok(rows) = claims.holders(Rows::Items(&issues)) else {
+            eprintln!("north fleet: the threads ledger did not answer, so {session} starts with {} queued", queued.join(", "));
+            return Ok(());
+        };
+        if let Some(owner) = rows.iter().find(|(key, owner)| owner != session && queued.contains(key)).map(|(_, owner)| owner) {
+            return Err(NorthError::Refused(format!("{} is already owned by {owner}", split_key(&queued[0]).0)));
+        }
+        if queued.iter().all(|key| rows.iter().any(|(held, owner)| held == key && owner == session)) {
+            return Ok(());
         }
         if Instant::now() >= deadline {
             return Err(NorthError::State(format!("the claim of {} is only queued: the threads ledger did not take it within {} s, so {session} does not start beside a holder it cannot see", queued.join(", "), claims.queued_claim_wait().as_secs())));
@@ -278,6 +280,41 @@ mod tests {
                 .cloned()
                 .collect())
         }
+    }
+
+    /// A ledger that only queues a claim, and whose reads give no answer or answer with these rows.
+    struct Queues(Option<&'static [(&'static str, &'static str)]>);
+
+    impl Claims for Queues {
+        fn hold(&self, _: &str, _: &str, _: &BTreeSet<String>) -> NorthResult<Taken> {
+            Ok(Taken::Queued)
+        }
+
+        fn queued_claim_wait(&self) -> Duration {
+            Duration::from_millis(100)
+        }
+
+        fn release(&self, _: &str, _: &str) -> NorthResult<()> {
+            Ok(())
+        }
+
+        fn holders(&self, _: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
+            let rows = self.0.ok_or_else(|| NorthError::State("the threads ledger did not answer".into()))?;
+            Ok(rows.iter().map(|(item, owner)| ((*item).to_owned(), (*owner).to_owned())).collect())
+        }
+    }
+
+    /// On 2026-11-11 every launch on gex45, cpx62 and cpx62b was refused for 30 s of unanswered reads, because a build host cannot reach the ledger on nexus within the bound, also when the laptop already held the box under the launch's name.
+    #[test]
+    fn a_launch_on_a_host_that_cannot_reach_the_ledger_starts_when_its_claim_is_held_or_queued() {
+        let tasks = ["north#1109".to_owned()];
+        hold_all(&Queues(None), &tasks, "cpx62-worker", &BTreeSet::new()).unwrap();
+        hold_all(&Queues(Some(&[("north#1109", "cpx62-worker")])), &tasks, "cpx62-worker", &BTreeSet::new()).unwrap();
+
+        let beside = hold_all(&Queues(Some(&[("north#1109", "laptop-lead")])), &tasks, "cpx62-worker", &BTreeSet::new()).unwrap_err();
+        assert!(matches!(&beside, NorthError::Refused(why) if why == "north#1109 is already owned by laptop-lead"), "{}", beside.user_message());
+        let unseen = hold_all(&Queues(Some(&[("north#1110", "cpx62-worker")])), &tasks, "cpx62-worker", &BTreeSet::new()).unwrap_err();
+        assert!(matches!(&unseen, NorthError::State(why) if why.contains("is only queued")), "{}", unseen.user_message());
     }
 
     #[test]
