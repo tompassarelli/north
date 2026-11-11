@@ -2,7 +2,6 @@ mod cli;
 mod credentials;
 mod curl;
 mod github;
-mod intake;
 mod policy;
 mod proxy;
 mod repository;

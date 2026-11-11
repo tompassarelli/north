@@ -13,7 +13,7 @@ use crate::policy::Policy;
 use crate::server::Broker;
 
 const PRINTED_VALIDITY: u64 = 2700;
-const USAGE: &str = "usage: north broker serve [--user | --socket PATH --policy FILE] | north broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]... [--valid-for SECONDS] | north broker inspect [--json] | north broker owner-token
+const USAGE: &str = "usage: north broker serve [--user | --socket PATH --policy FILE] | north broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]... [--valid-for SECONDS] | north broker inspect [--json]
 
 The credential broker (south#94): the one process that holds the GitHub App keys and the cloud API tokens.
 serve         run it. As a system service (the default) it listens on /run/north-broker/broker.sock, loads each secret
@@ -26,7 +26,6 @@ github-token  print an installation token for the app, limited to the repositori
               returns only a token with at least that long to live, minting a new one when the held one has less, so a token
               printed for another process to keep outlives a 30-minute refresh
 inspect       read a token on stdin and print the repositories and permissions the broker granted it
-owner-token   take the GitHub token the owner copied (the clipboard), check it with GitHub, store it encrypted as the github-user.yaml credential, clear the clipboard and print only its expiry and the permissions GitHub reports; the broker then holds it behind one call, POST /user/repos with a private-only body
 Every request is logged to stderr with the caller's uid, pid and systemd unit and what was granted; the user broker's stderr is broker.log beside its socket. Clients take the socket
 from NORTH_BROKER_SOCKET, else /run/north-broker/broker.sock, else their own ${XDG_RUNTIME_DIR}/north-broker/broker.sock.
 A cloud call goes to the same socket as plain HTTP at /hcloud/..., /digitalocean/... or /cloudflare/... with any placeholder
@@ -45,7 +44,6 @@ pub fn run(arguments: &[String]) -> u8 {
         ["serve", rest @ ..] => serve(rest),
         ["github-token", rest @ ..] => finish(github_token(rest)),
         ["inspect", rest @ ..] => finish(inspect(rest)),
-        ["owner-token"] => finish(owner_token()),
         _ => {
             eprintln!("{USAGE}");
             2
@@ -81,10 +79,6 @@ fn github_token(arguments: &[&str]) -> Result<(), String> {
     let app = app.ok_or("--app agent|lander is required")?;
     println!("{}", Client::discover().github_token(&app, &repositories, &permissions, valid_for)?.token);
     Ok(())
-}
-
-fn owner_token() -> Result<(), String> {
-    crate::intake::run(&Source::south_secrets(), crate::intake::GITHUB_API, &crate::intake::Wayland, &mut std::io::stdout())
 }
 
 fn inspect(arguments: &[&str]) -> Result<(), String> {
