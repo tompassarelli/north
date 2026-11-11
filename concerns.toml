@@ -192,9 +192,16 @@ class = "ready"
 
 [[concern]]
 name = "ready-runtime-live-p90"
-source = "north#1022: a landing that changes a runtime input is live fast: the pinned runtime is promoted on each landing, not on a clock, and landing to live p90 is at most 2 min over the newest 1 h (raised 2026-11-10 from 10 min)"
+source = "north#1022: a promotion that falls due is live fast: the pinned runtime is promoted at six fixed slots a day, or at once for a landing carrying Live-fix:, and due to live p90 is at most 2 min over the newest 24 h, since one hour holds at most one slot (docs/rationale/propagation.md, Promotion cadence; restated 2026-11-11 from landing to live over 1 h)"
 unit = "s"
 max = 120
+class = "ready"
+
+[[concern]]
+name = "ready-runtime-age"
+source = "north#1022: the running runtime is at most a day old: the oldest landing that changes a runtime input and still waits for a promotion has waited at most 24 h (Tom's 2026-11-10 answer 2 in south agents/decisions/harness/throughput-strategy-2026-11-10.md; returned 2026-11-11 with the promotion cadence)"
+unit = "h"
+max = 24
 class = "ready"
 
 [[concern]]

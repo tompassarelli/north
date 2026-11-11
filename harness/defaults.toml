@@ -870,6 +870,22 @@ source = "tom: Tom asked that a north landing count as done only once it is live
 fallback = "a landing younger than the deadline is reported but not judged"
 consumers = ["crates/north-runtime/src/runtime/settle.rs"]
 
+[runtime_promotion_slot_sec]
+value = 14400
+allowed = { min = 600, max = 86400 }
+unit = "seconds between the fixed slots, counted from 00:00 UTC, at which the host that settles the fleet promotes origin/main's newest head whose release runtime is ready; a landing waits for its slot unless its commit carries a Live-fix: trailer, which promotes at once and takes the next slot's place"
+source = "tom: the pinned runtime is promoted at most 6 times a day with a fast path for red-main fixes (south agents/decisions/harness/throughput-strategy-2026-11-10.md answer 2); measured: the per-landing rule promoted 74 runtimes in 8 h 53 min on 2026-11-10 with landing to live p90 627 s (docs/rationale/propagation.md, Promotion cadence)"
+fallback = "none: the schedule is read on every pass"
+consumers = ["crates/north-runtime/src/runtime/cadence.rs"]
+
+[runtime_slot_build_lead_sec]
+value = 600
+allowed = { min = 0, max = 3600 }
+unit = "seconds before a slot at which the settling host has origin/main's head built, once per slot, so the slot promotes a runtime that is ready"
+source = "measured: a runtime build took 74 s on a build host with a warm target and 6 min 10 s on one with a cold target on 2026-11-11 (docs/rationale/propagation.md, Promotion cadence); ten minutes covers the cold build"
+fallback = "a head not built by its slot is built at the slot, and the promotion is late by the build"
+consumers = ["crates/north-runtime/src/runtime/cadence.rs"]
+
 [north_process_leak_window_sec]
 value = 3600
 allowed = { min = 600, max = 86400 }

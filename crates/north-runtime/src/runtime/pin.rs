@@ -10,18 +10,26 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const JOURNAL: &str = "runtime-pins.jsonl";
 
-/// How long a landing may wait for the promotion that makes it live before the settling host pages the coordinator: a stuck promotion is noticed before settle fails the landing at `landing_live_deadline_sec`.
+/// How long a due promotion may stay unserved before the settling host pages the coordinator: a stuck promotion is noticed before settle fails the landing at `landing_live_deadline_sec`.
 const LIVE_PAGE: i64 = 5 * 60;
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Reason {
+    Slot,
+    FastPath,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "event", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Event {
     Landed { sha: String, at: i64 },
+    Due { sha: String, reason: Reason, at: i64 },
     Promoted { sha: String, at: i64 },
     Walked { sha: String, host: String, at: i64 },
     RolledBack { sha: String, host: String, at: i64, seconds: i64, walker: bool },
     Built { sha: String, host: String, at: i64, seconds: i64, binary: String },
-    /// The coordinator was paged about a landing that waited past `LIVE_PAGE` for its promotion.
+    /// The coordinator was paged about a due promotion not live `LIVE_PAGE` after it fell due.
     Paged { sha: String, at: i64 },
     /// How long a landing waited for its release runtime after the lander pushed: 0 s when the lander built the tree ahead while the lane queued.
     #[serde(rename = "artifact-ready")]
@@ -31,52 +39,39 @@ pub enum Event {
 impl Event {
     pub fn at(&self) -> i64 {
         match self {
-            Self::Landed { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::ArtifactReady { at, .. } => *at,
+            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::ArtifactReady { at, .. } => *at,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Due {
+pub(super) enum Ahead {
     Current,
     Unchanged,
-    Promote,
+    Changed,
 }
 
-pub(super) fn due(pinned: Option<&str>, main: &str, changes_runtime: impl FnOnce(&str) -> bool) -> Due {
+pub(super) fn ahead(pinned: Option<&str>, main: &str, changes_runtime: impl FnOnce(&str) -> bool) -> Ahead {
     match pinned {
-        None => Due::Promote,
-        Some(pinned) if pinned == main => Due::Current,
-        Some(pinned) if changes_runtime(pinned) => Due::Promote,
-        Some(_) => Due::Unchanged,
+        None => Ahead::Changed,
+        Some(pinned) if pinned == main => Ahead::Current,
+        Some(pinned) if changes_runtime(pinned) => Ahead::Changed,
+        Some(_) => Ahead::Unchanged,
     }
 }
 
-/// Whether origin/main at `main` needs a promotion here: a landing that changes a runtime input since the pin is journaled once, so the scoreboard times it to live.
-pub(super) fn observe(layout: &Layout, checkout: &Path, main: &str) -> Due {
+/// How origin/main at `main` stands to the pin here: a head that changes a runtime input since the pin is journaled once as a landing, so the schedule and the runtime-age bar date its wait.
+pub(super) fn observe(layout: &Layout, checkout: &Path, main: &str) -> Ahead {
     let pinned = layout.live_sha();
-    let due = due(pinned.as_deref(), main, |pinned| !reuse::unchanged_by(checkout, pinned, main, runtime_input));
-    if due == Due::Promote && !read(&layout.state).iter().any(|event| matches!(event, Event::Landed { sha, .. } if sha == main)) {
+    let ahead = ahead(pinned.as_deref(), main, |pinned| !reuse::unchanged_by(checkout, pinned, main, runtime_input));
+    if ahead == Ahead::Changed && !read(&layout.state).iter().any(|event| matches!(event, Event::Landed { sha, .. } if sha == main)) {
         note(layout, &Event::Landed { sha: main.to_owned(), at: now() });
     }
-    due
+    ahead
 }
 
-/// The runtime this host should run: origin/main when a commit since the pin changes a runtime input, else the pin it runs.
-pub(super) fn target(layout: &Layout, checkout: &Path, main: &str) -> String {
-    let pinned = layout.live_sha();
-    adopt_recorded_promotion(layout, pinned.as_deref());
-    match (observe(layout, checkout, main), pinned) {
-        (Due::Unchanged, Some(pinned)) => {
-            println!("north runtime pinned: {} stays live; {} changes no runtime input since it", layout::short(&pinned), layout::short(main));
-            pinned
-        }
-        _ => main.to_owned(),
-    }
-}
-
-/// The landings still waiting for a promotion, oldest first, with when each landed. A promotion of a landed sha makes live that landing and every one journaled before it, not those that landed while it built; a promotion of any other sha makes all of them live.
-fn waiting(events: &[Event]) -> Vec<(&str, i64)> {
+/// The landings still waiting for a promotion, oldest first, with when each landed. A promotion of a landed sha makes live that landing and every one journaled before it, not those that landed after; a promotion of any other sha makes all of them live.
+pub(super) fn waiting(events: &[Event]) -> Vec<(&str, i64)> {
     let mut landings: Vec<(&str, i64)> = Vec::new();
     for event in events {
         match event {
@@ -91,26 +86,42 @@ fn waiting(events: &[Event]) -> Vec<(&str, i64)> {
     landings
 }
 
-fn waiting_since(events: &[Event]) -> Option<i64> {
+pub(super) fn waiting_since(events: &[Event]) -> Option<i64> {
     waiting(events).first().map(|&(_, at)| at)
 }
 
-/// Pages the coordinator once per landing when the oldest landing has waited `LIVE_PAGE` for the promotion that makes it live; `send` carries the text and says whether it was delivered, and only a delivered page is journaled, so a failed send is tried again by the next caller. A landing the live runtime is, or descends from (`contained(live, landing)`), is live whatever the journal holds, so a runtime that came live by a path that journaled no promotion is not paged about, and its recorded promotion is journaled here.
+fn unserved(events: &[Event]) -> &[Event] {
+    let served = events.iter().rposition(|event| matches!(event, Event::Promoted { .. })).map_or(0, |last| last + 1);
+    &events[served..]
+}
+
+pub(super) fn owed(events: &[Event]) -> Vec<(&str, Reason, i64)> {
+    unserved(events).iter().filter_map(|event| match event {
+        Event::Due { sha, reason, at } => Some((sha.as_str(), *reason, *at)),
+        _ => None,
+    }).collect()
+}
+
+/// Pages the coordinator once per stuck promotion: when the oldest promotion that fell due (at its slot, or when a `Live-fix:` landing was seen) is not live `LIVE_PAGE` later. A landing waiting for its slot is on schedule and pages nothing, and due promotions that queue behind a stuck one join its page. `send` carries the text and says whether it was delivered, and only a delivered page is journaled, so a failed send is tried again by the next caller. A sha the live runtime is, or descends from (`contained(live, sha)`), is live whatever the journal holds.
 pub(super) fn page(layout: &Layout, now: i64, host: &str, contained: &mut dyn FnMut(&str, &str) -> bool, send: &mut dyn FnMut(&str) -> bool) {
     let live = layout.live_sha();
     adopt_recorded_promotion(layout, live.as_deref());
     let events = read(&layout.state);
     let mut runs = |sha: &str| live.as_deref().is_some_and(|live| live == sha || contained(live, sha));
-    let Some((sha, landed)) = waiting(&events).into_iter().find(|&(sha, landed)| now - landed < LIVE_PAGE || !runs(sha)) else { return };
-    let seconds = now - landed;
-    let paged = events.iter().any(|event| matches!(event, Event::Paged { sha: page, .. } if page == sha));
-    if seconds < LIVE_PAGE || paged {
+    let Some((sha, reason, due)) = owed(&events).into_iter().find(|&(sha, _, due)| now - due < LIVE_PAGE || !runs(sha)) else { return };
+    let seconds = now - due;
+    if seconds < LIVE_PAGE || unserved(&events).iter().any(|event| matches!(event, Event::Paged { .. })) {
         return;
     }
     let pinned = live.unwrap_or_else(|| "none".to_owned());
+    let kind = match reason {
+        Reason::Slot => "slot",
+        Reason::FastPath => "Live-fix",
+    };
     let delivered = send(&format!(
-        "north runtime: landing {} is not live 5 min after it landed ({host} has waited {seconds}s for its promotion; pinned runtime is {})",
+        "north runtime: the {kind} promotion of {} due at {} is not live 5 min later ({host} has waited {seconds}s for it; pinned runtime is {})",
         layout::short(sha),
+        iso(due),
         layout::short(&pinned)
     ));
     if delivered {
@@ -119,7 +130,7 @@ pub(super) fn page(layout: &Layout, now: i64, host: &str, contained: &mut dyn Fn
 }
 
 /// The promotion lifecycle dates each runtime that went live here; the pin a host took before this journal existed is adopted once, so status and the bars date it.
-fn adopt_recorded_promotion(layout: &Layout, live: Option<&str>) {
+pub(super) fn adopt_recorded_promotion(layout: &Layout, live: Option<&str>) {
     let Some(live) = live else { return };
     if read(&layout.state).iter().any(|event| matches!(event, Event::Promoted { sha, .. } if sha == live)) {
         return;
@@ -183,7 +194,7 @@ pub fn status(state: &Path, live: Option<&str>) -> String {
     }
 }
 
-fn iso(at: i64) -> String {
+pub(super) fn iso(at: i64) -> String {
     crate::foundation::clock::Timestamp::from_unix_seconds(at).iso()
 }
 
@@ -193,8 +204,10 @@ pub struct Bars {
     pub breaks_reaching_second_host: Option<usize>,
     pub rollback_seconds: Option<f64>,
     pub rollbacks: usize,
-    /// Seconds from each landing in the window that changed a runtime input to the promotion that made it live, or to the window's end while it still waits.
-    pub landing_to_live_seconds: Vec<f64>,
+    /// Seconds from each promotion that fell due in the window to the promotion that served it, or to the window's end while it is still owed.
+    pub due_to_live_seconds: Vec<f64>,
+    /// How long the oldest landing still waiting for a promotion had waited at the window's end: 0 when none waits.
+    pub runtime_age_hours: Option<f64>,
 }
 
 /// Each bar as its value and the sample it was read over, for the scoreboard.
@@ -206,6 +219,10 @@ impl Bars {
     pub fn rollback(&self) -> Option<(f64, usize)> {
         self.rollback_seconds.map(|seconds| (seconds, self.rollbacks))
     }
+
+    pub fn age(&self) -> Option<(f64, usize)> {
+        self.runtime_age_hours.map(|hours| (hours, 1))
+    }
 }
 
 pub fn bars(events: &[Event], start: i64, end: i64) -> Bars {
@@ -214,28 +231,30 @@ pub fn bars(events: &[Event], start: i64, end: i64) -> Bars {
         Event::RolledBack { at, seconds, .. } if inside(*at) => Some(*seconds as f64),
         _ => None,
     }).collect();
-    let recorded = events.iter().any(|event| event.at() < end);
+    let before: Vec<Event> = events.iter().filter(|event| event.at() < end).cloned().collect();
     let breaks = events.iter().filter(|event| matches!(event, Event::RolledBack { at, walker: false, .. } if inside(*at))).count();
+    let age = waiting_since(&before).map_or(0.0, |since| (end - since) as f64 / 3600.0);
     Bars {
-        breaks_reaching_second_host: recorded.then_some(breaks),
+        breaks_reaching_second_host: (!before.is_empty()).then_some(breaks),
         rollback_seconds: rollbacks.iter().copied().reduce(f64::max),
         rollbacks: rollbacks.len(),
-        landing_to_live_seconds: landing_to_live(events, end).into_iter().filter(|(landed, _)| inside(*landed)).map(|(landed, live)| (live - landed) as f64).collect(),
+        due_to_live_seconds: due_to_live(&before, end).into_iter().filter(|(due, _)| inside(*due)).map(|(due, live)| (live - due) as f64).collect(),
+        runtime_age_hours: (!before.is_empty()).then_some(age),
     }
 }
 
-/// Each journaled landing with when it went live: the first promotion journaled after it, else `end` while it still waits.
-fn landing_to_live(events: &[Event], end: i64) -> Vec<(i64, i64)> {
-    let mut waiting = Vec::new();
+/// Each promotion that fell due with when it went live: the first promotion journaled after it, else `end` while it is still owed.
+fn due_to_live(events: &[Event], end: i64) -> Vec<(i64, i64)> {
+    let mut owed = Vec::new();
     let mut timed = Vec::new();
-    for event in events.iter().filter(|event| event.at() < end) {
+    for event in events {
         match event {
-            Event::Landed { at, .. } => waiting.push(*at),
-            Event::Promoted { at, .. } => timed.extend(waiting.drain(..).map(|landed| (landed, (*at).max(landed)))),
+            Event::Due { at, .. } => owed.push(*at),
+            Event::Promoted { at, .. } => timed.extend(owed.drain(..).map(|due| (due, (*at).max(due)))),
             _ => {}
         }
     }
-    timed.extend(waiting.into_iter().map(|landed| (landed, end)));
+    timed.extend(owed.into_iter().map(|due| (due, end)));
     timed
 }
 

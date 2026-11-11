@@ -46,3 +46,9 @@ const NOT_RUN_TIME_FILES: [&str; 6] = ["LICENSE", "LICENSE-APACHE", "LICENSE-MIT
 pub fn runtime_input(path: &str) -> bool {
     rust_build_input(path) || run_time_data(path) || !(NOT_RUN_TIME_FILES.contains(&path) || NOT_RUN_TIME_DIRS.iter().any(|dir| path.starts_with(dir)))
 }
+
+pub const LIVE_FIX: &str = "Live-fix";
+
+pub fn live_fix(message: &str) -> Option<&str> {
+    message.lines().find_map(|line| line.strip_prefix(LIVE_FIX)?.strip_prefix(':')).map(str::trim).filter(|reason| !reason.is_empty())
+}

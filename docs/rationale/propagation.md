@@ -170,6 +170,18 @@ cadence keeps that: each promotion still goes live everywhere within the 2-minut
   second host (0) and rollback (≤ 2 min) stay. `north runtime status` prints `promotions in 24 h: N of at most 6`
   again.
 
+### As built (n1022-slots, 2026-11-11)
+
+- The schedule is `crates/north-runtime/src/runtime/cadence.rs`. The spacing and the build lead are
+  `runtime_promotion_slot_sec` and `runtime_slot_build_lead_sec` in harness/defaults.toml.
+- A slot is due only for a landing the settling host saw at or before it. A slot with nothing waiting passes, and a
+  landing seen after it waits for the next slot.
+- A slot the settling host was not running at is promoted on its first pass afterwards, with its `due` event at the
+  slot's time, so the lateness shows in the due-to-live bar and pages once.
+- A fast-path `due` is keyed by the fix's commit and opens once. A fix that was promoted and rolled back is not
+  promoted again; the next fix carries its own trailer. A head quarantined after a rollback opens no slot.
+- Build-ahead in the lander asks only for candidates whose commits carry `Live-fix:`.
+
 ### Cost to the boxes that wait on a live runtime
 
 | Box | Under the cadence | Change it needs |

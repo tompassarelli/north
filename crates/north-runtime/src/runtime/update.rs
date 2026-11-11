@@ -31,7 +31,6 @@ const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 const UPDATE_LOCK: &str = "runtime-update.lock";
 const PROMOTE_LOCK: &str = "runtime-promote.lock";
 const PROMOTE_QUEUE: &str = "runtime-promote-queue.lock";
-const PAGE_LOCK: &str = "runtime-page.lock";
 const CHECKOUT: &str = "code/north/main";
 const BUILD_FOR_PEER_LOCK: &str = "runtime-build.lock";
 const BUILD_FOR_PEER_WAIT: Duration = Duration::from_secs(30 * 60);
@@ -42,12 +41,13 @@ pub(super) use ahead::run as build_ahead;
 mod build;
 mod preswap;
 mod shipped;
+mod slot;
 mod sync;
 
 use build::{build, export_tree};
 use hold::Verdict;
 use shipped::{Shipped, shipped};
-use sync::{relink, republish_if_unpublished, send_alert, swap, sync};
+use sync::{relink, republish_if_unpublished, swap, sync};
 pub(super) use sync::{alert_proxy, page_proxy};
 
 enum Pass {
@@ -62,19 +62,11 @@ pub(super) enum Flight {
 }
 
 pub(super) fn update(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Flight, Failure> {
-    page_overdue(layout);
+    slot::page_overdue(layout);
     let flown = flight(layout, after_flip);
     host_facts::record_if_stale(layout);
     refresh_shared_config();
     flown
-}
-
-/// Pages the coordinator when the oldest landing that changes a runtime input has waited past five minutes for the promotion that makes it live (pin::page); only the host that settles the fleet journals landings, so only it has a wait to page about, and the caller holding the page lock is the only one that reads the journal, sends and records.
-fn page_overdue(layout: &Layout) {
-    if land_offload::settles_fleet_here() && let Ok(Some(_paging)) = named_lock(layout, PAGE_LOCK, FlockOperation::NonBlockingLockExclusive) {
-        let checkout = checkout();
-        pin::page(layout, pin::now(), &host::name(), &mut |live, landing| ancestor(&checkout, landing, live), &mut |text| send_alert(text));
-    }
 }
 
 /// A caller that waits for the running promotion still dates its landing, so landing to live counts from the landing, not from when the lock came free.
@@ -99,7 +91,7 @@ fn flight(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Flight, Failu
     };
     let mut follow = north_runtime_follow::Follow::of(layout.current(), std::env::current_exe().ok());
     let waited = named_lock_waiting_unless(layout, PROMOTE_LOCK, remote::limit(PINNED_LOCK_WAIT), "north runtime promote", &mut || {
-        page_overdue(layout);
+        slot::page_overdue(layout);
         follow.replaced()
     });
     drop(queued);
@@ -230,7 +222,7 @@ fn pass(layout: &Layout) -> Result<Pass, Failure> {
     let checkout = checkout();
     let main = main_commit(&checkout)?;
     let settles = land_offload::settles_fleet_here();
-    let target = if settles { pin::target(layout, &checkout, &main) } else { main };
+    let target = if settles { slot::target(layout, &checkout, &main) } else { main };
     let advanced = advance_to(layout, &checkout, &target);
     if settles && matches!(advanced, Ok(Pass::Promoted)) {
         pin::promoted(layout, &target);

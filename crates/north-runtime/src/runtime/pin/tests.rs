@@ -1,6 +1,6 @@
 use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Promoting, Promotion};
-use super::{Bars, Due, Event, bars, due, page, status};
+use super::{Ahead, Bars, Event, Reason, ahead, bars, page, status};
 use std::os::unix::fs::symlink;
 
 const PINNED: &str = "1111111111111111111111111111111111111111";
@@ -9,12 +9,12 @@ const HOUR: i64 = 3600;
 const NOW: i64 = 100 * 86_400;
 
 #[test]
-fn a_landing_is_promoted_at_once_unless_it_changes_no_runtime_input_since_the_pin() {
+fn main_is_ahead_of_the_pin_only_when_a_commit_since_it_changes_a_runtime_input() {
     let unreached = |_: &str| -> bool { panic!("no diff is read without a pin, or with the pin at main") };
-    assert_eq!(due(Some(PINNED), MAIN, |pinned| pinned == PINNED), Due::Promote);
-    assert_eq!(due(Some(PINNED), MAIN, |_| false), Due::Unchanged);
-    assert_eq!(due(Some(MAIN), MAIN, unreached), Due::Current);
-    assert_eq!(due(None, MAIN, unreached), Due::Promote);
+    assert_eq!(ahead(Some(PINNED), MAIN, |pinned| pinned == PINNED), Ahead::Changed);
+    assert_eq!(ahead(Some(PINNED), MAIN, |_| false), Ahead::Unchanged);
+    assert_eq!(ahead(Some(MAIN), MAIN, unreached), Ahead::Current);
+    assert_eq!(ahead(None, MAIN, unreached), Ahead::Changed);
 }
 
 #[test]
@@ -26,25 +26,15 @@ fn the_runtime_bars_count_a_break_only_when_it_reached_a_second_host() {
         rolled("whiterabbit", true, 70),
         rolled("gex45", false, 150),
     ];
-    assert_eq!(bars(&events, NOW - 24 * HOUR, NOW), Bars { breaks_reaching_second_host: Some(1), rollback_seconds: Some(150.0), rollbacks: 2, landing_to_live_seconds: vec![] });
+    assert_eq!(bars(&events, NOW - 24 * HOUR, NOW), Bars { breaks_reaching_second_host: Some(1), rollback_seconds: Some(150.0), rollbacks: 2, due_to_live_seconds: vec![], runtime_age_hours: Some(0.0) });
     assert_eq!(bars(&events[..3], NOW - 24 * HOUR, NOW).breaks_reaching_second_host, Some(0));
     assert_eq!(bars(&events, NOW + HOUR, NOW + 2 * HOUR).breaks_reaching_second_host, Some(0), "a quiet window after a promotion breaks nothing");
-    assert_eq!(bars(&[], NOW - 24 * HOUR, NOW), Bars { breaks_reaching_second_host: None, rollback_seconds: None, rollbacks: 0, landing_to_live_seconds: vec![] });
+    assert_eq!(bars(&[], NOW - 24 * HOUR, NOW), Bars { breaks_reaching_second_host: None, rollback_seconds: None, rollbacks: 0, due_to_live_seconds: vec![], runtime_age_hours: None });
 }
 
 #[test]
-fn a_landing_is_live_at_the_first_promotion_after_it_or_still_waiting_at_the_window_end() {
-    let landed = |at: i64| Event::Landed { sha: MAIN.to_owned(), at };
-    let promoted = |at: i64| Event::Promoted { sha: MAIN.to_owned(), at };
-    let events = vec![landed(NOW - 600), landed(NOW - 300), promoted(NOW - 200), landed(NOW - 100)];
-    assert_eq!(bars(&events, NOW - HOUR, NOW).landing_to_live_seconds, [400.0, 100.0, 100.0], "two landings during one build go live together, the newest still waits");
-    assert_eq!(bars(&events, NOW - HOUR, NOW - 250).landing_to_live_seconds, [350.0, 50.0], "a promotion after the window's end does not count yet");
-}
-
-#[test]
-fn a_landing_not_live_after_5_min_pages_the_coordinator() {
+fn a_due_promotion_not_live_after_5_min_pages_the_coordinator_once() {
     const THIRD: &str = "3333333333333333333333333333333333333333";
-    const FOURTH: &str = "4444444444444444444444444444444444444444";
     fn deliver(pages: &mut Vec<String>) -> impl FnMut(&str) -> bool + '_ {
         |text| {
             pages.push(text.to_owned());
@@ -54,57 +44,56 @@ fn a_landing_not_live_after_5_min_pages_the_coordinator() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_owned() };
     let landed = |sha: &str, at: i64| super::note(&layout, &Event::Landed { sha: sha.to_owned(), at });
+    let due = |sha: &str, reason: Reason, at: i64| super::note(&layout, &Event::Due { sha: sha.to_owned(), reason, at });
     let promoted = |sha: &str, at: i64| super::note(&layout, &Event::Promoted { sha: sha.to_owned(), at });
     let mut pages = Vec::<String>::new();
-    landed(MAIN, NOW - 299);
+    landed(MAIN, NOW - 3 * HOUR);
     page(&layout, NOW, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
-    assert!(pages.is_empty(), "a landing younger than five minutes waits");
-    page(&layout, NOW + 1, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
-    assert_eq!(pages.len(), 1, "a landing five minutes from live pages the coordinator");
-    assert!(pages[0].contains("landing 22222222") && pages[0].contains("5 min") && pages[0].contains("300s"), "{}", pages[0]);
-    page(&layout, NOW + 120, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
-    assert_eq!(pages.len(), 1, "a landing pages once");
-    promoted(MAIN, NOW + 130);
-    page(&layout, NOW + 1000, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
-    assert_eq!(pages.len(), 1, "a promoted landing needs no page");
-    landed(PINNED, NOW + 1000);
-    landed(THIRD, NOW + 1100);
-    promoted(PINNED, NOW + 1200);
-    page(&layout, NOW + 1500, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
-    assert_eq!(pages.len(), 2, "a landing that arrived while another built still waits when that one goes live");
-    assert!(pages[1].contains("landing 33333333") && pages[1].contains("400s"), "{}", pages[1]);
+    assert!(pages.is_empty(), "a landing waiting for its slot is on schedule");
+    due(MAIN, Reason::Slot, NOW);
+    page(&layout, NOW + 299, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
+    assert!(pages.is_empty(), "a promotion due under five minutes ago waits");
+    page(&layout, NOW + 300, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
+    assert_eq!(pages.len(), 1, "a due promotion five minutes from live pages the coordinator");
+    assert!(pages[0].contains("slot promotion of 22222222") && pages[0].contains("due at 1970-04-11T00:00:00Z") && pages[0].contains("300s"), "{}", pages[0]);
+    due(THIRD, Reason::FastPath, NOW + 400);
+    page(&layout, NOW + 900, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
+    assert_eq!(pages.len(), 1, "a promotion that falls due behind a stuck one joins its page");
+    promoted(THIRD, NOW + 1000);
+    page(&layout, NOW + 2000, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
+    assert_eq!(pages.len(), 1, "a served promotion needs no page");
     let mut refusals = 0;
-    promoted(THIRD, NOW + 1600);
-    landed(FOURTH, NOW + 2000);
+    due(PINNED, Reason::FastPath, NOW + 2000);
     page(&layout, NOW + 2400, "laptop", &mut |_, _| false, &mut |_| {
         refusals += 1;
         false
     });
     page(&layout, NOW + 2401, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
-    assert_eq!((refusals, pages.len()), (1, 3), "a page that was not delivered is sent again");
+    assert_eq!((refusals, pages.len()), (1, 2), "a page that was not delivered is sent again");
+    assert!(pages[1].contains("Live-fix promotion of 11111111"), "{}", pages[1]);
 }
 
 #[test]
-fn a_landing_the_host_already_runs_is_not_paged() {
+fn a_due_promotion_the_host_already_runs_is_not_paged() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_owned() };
     symlink(layout::link(MAIN), layout.current()).unwrap();
-    super::note(&layout, &Event::Landed { sha: MAIN.to_owned(), at: NOW - 300 });
+    super::note(&layout, &Event::Due { sha: MAIN.to_owned(), reason: Reason::Slot, at: NOW - 300 });
     let pages = std::cell::RefCell::new(Vec::<String>::new());
     let mut send = |text: &str| {
         pages.borrow_mut().push(text.to_owned());
         true
     };
-    page(&layout, NOW, "laptop", &mut |_, _| panic!("the live runtime is the landing itself"), &mut send);
-    assert!(pages.borrow().is_empty(), "a landing whose sha is the live pin is live, with no promotion journaled");
+    page(&layout, NOW, "laptop", &mut |_, _| panic!("the live runtime is the due promotion itself"), &mut send);
+    assert!(pages.borrow().is_empty(), "a due sha that is the live pin is live, with no promotion journaled");
 
-    super::note(&layout, &Event::Landed { sha: PINNED.to_owned(), at: NOW - 600 });
-    page(&layout, NOW, "laptop", &mut |live, landing| live == MAIN && landing == PINNED, &mut send);
-    assert!(pages.borrow().is_empty(), "a landing the live runtime descends from is live");
+    super::note(&layout, &Event::Due { sha: PINNED.to_owned(), reason: Reason::FastPath, at: NOW - 600 });
+    page(&layout, NOW, "laptop", &mut |live, due| live == MAIN && due == PINNED, &mut send);
+    assert!(pages.borrow().is_empty(), "a due sha the live runtime descends from is live");
 
     page(&layout, NOW, "laptop", &mut |_, _| false, &mut send);
-    assert_eq!(pages.borrow().len(), 1, "a landing the live runtime does not contain still pages");
-    assert!(pages.borrow()[0].contains("landing 11111111") && pages.borrow()[0].contains("600s") && pages.borrow()[0].contains("pinned runtime is 22222222"), "{}", pages.borrow()[0]);
+    assert_eq!(pages.borrow().len(), 1, "a due sha the live runtime does not contain still pages");
+    assert!(pages.borrow()[0].contains("promotion of 11111111") && pages.borrow()[0].contains("600s") && pages.borrow()[0].contains("pinned runtime is 22222222"), "{}", pages.borrow()[0]);
 }
 
 #[test]
