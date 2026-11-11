@@ -135,17 +135,22 @@ fn vouch(north: &Repository, branch: &str, base: &str) {
 
 const JUDGE_OUT_ONCE: &str = "#!/bin/sh\nif [ ! -e \"$0.answered\" ]; then\n  : > \"$0.answered\"\n  echo 'the private-text judge could not run (exit 75): no subscription account is available' >&2\n  exit 75\nfi\nexit 0\n";
 
-const NO_SECRETS: &str = "#!/bin/sh\nreport=\nfor arg in \"$@\"; do\n  if [ -n \"$report\" ]; then printf '[]' > \"$arg\"; report=; fi\n  case \"$arg\" in --report-path) report=1 ;; esac\ndone\nexit 0\n";
+pub(super) const NO_SECRETS: &str = "#!/bin/sh\nreport=\nfor arg in \"$@\"; do\n  if [ -n \"$report\" ]; then printf '[]' > \"$arg\"; report=; fi\n  case \"$arg\" in --report-path) report=1 ;; esac\ndone\nexit 0\n";
 
-const PUBLIC_REPO: &str = "#!/bin/sh\necho PUBLIC\n";
+pub(super) const PUBLIC_REPO: &str = "#!/bin/sh\necho PUBLIC\n";
 
 /// Queues `lane` through the same `north land enqueue` entry safe-push runs, with a judge that exits 75 once.
 fn enqueue(world: &World, lane: &Path) -> Output {
+    queueing(world, "serve::enqueue_process", "NORTH_LAND_IT_ARGUMENTS", &["--repo", lane.to_str().unwrap()]).output().unwrap()
+}
+
+/// Runs the test `process` as the program that queues a lane, given `arguments` through `variable`, with the judge, scanners and state of `world`.
+pub(super) fn queueing(world: &World, process: &str, variable: &str, arguments: &[&str]) -> Command {
     let bin = world.path().join("bin");
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
-        .args(["--exact", "serve::enqueue_process", "--nocapture", "--test-threads", "1"])
-        .env("NORTH_LAND_IT_ARGUMENTS", ["--repo", lane.to_str().unwrap()].join("\n"))
+        .args(["--exact", process, "--nocapture", "--test-threads", "1"])
+        .env(variable, arguments.join("\n"))
         .env("XDG_STATE_HOME", world.path().join("state"))
         .env("NORTH_TEST_ROOT", world.path())
         .env("HOME", world.path())
@@ -163,7 +168,7 @@ fn enqueue(world: &World, lane: &Path) -> Output {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    command.output().unwrap()
+    command
 }
 
 #[test]
