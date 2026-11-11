@@ -43,13 +43,18 @@ impl Outcome {
     }
 }
 
-fn shown(after: &str) -> Option<String> {
+fn shown(verb: &str, after: &str) -> Result<String, String> {
     let mut characters = after.chars();
-    let quoted = match characters.next()? {
-        quote @ ('`' | '"') => characters.as_str().split_once(quote).map(|(inside, _)| inside.to_owned()),
-        _ => Some(CLAUSE_END.find(after).map_or(after, |end| &after[..end.start()]).trim().to_owned()),
-    };
-    quoted.filter(|text| !text.trim().is_empty())
+    if let Some(quote @ ('`' | '"')) = characters.next() {
+        return match characters.as_str().split_once(quote) {
+            Some((inside, _)) if !inside.trim().is_empty() => Ok(inside.to_owned()),
+            _ => Err(format!("nothing named after `{verb}`")),
+        };
+    }
+    match CLAUSE_END.find(after).map_or(after, |end| &after[..end.start()]).trim() {
+        "" => Err(format!("nothing named after `{verb}`")),
+        described => Err(format!("an unquoted description after `{verb}` ({described}), which only a quoted phrase turns into text to find")),
+    }
 }
 
 pub fn expected(text: &str) -> Expected {
@@ -67,9 +72,9 @@ pub fn expected(text: &str) -> Expected {
         rest.replace_range(found.range(), " ");
     }
     for found in SHOWS.find_iter(&rest) {
-        match shown(&rest[found.end()..]) {
-            Some(shown) => all.push(Expectation::Contains(shown)),
-            None => return Expected::Judge(format!("nothing named after `{}`", found.as_str().trim())),
+        match shown(found.as_str().trim(), &rest[found.end()..]) {
+            Ok(shown) => all.push(Expectation::Contains(shown)),
+            Err(reason) => return Expected::Judge(reason),
         }
     }
     if let Some(code) = EXIT.captures(&rest).and_then(|found| found[3].parse().ok()) {

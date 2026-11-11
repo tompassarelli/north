@@ -77,7 +77,7 @@ fn a_threshold_or_comparison_the_program_cannot_read_is_a_judge_verdict_and_is_n
     }
     let body = "- [ ] Fast. Done when: `echo 3` prints a count of at most 5.\n";
     let mut issue = Fixture { read: body.into(), edits: Vec::new() };
-    settle(&mut issue, 7, body, &|command| judge(command, main.path()), &stamp(), false).unwrap();
+    settle(&mut issue, 7, &verdicts(body, &|command| judge(command, main.path())), &stamp()).unwrap();
     assert!(issue.edits.is_empty());
 }
 
@@ -96,10 +96,33 @@ fn a_command_box_is_ticked_only_when_its_expectation_holds_on_main_and_a_landed_
         ran.borrow_mut().push(command.to_owned());
         judge(command, main.path())
     };
-    settle(&mut issue, 7, &only(body, Some("Climb shares")), &run, &stamp(), false).unwrap();
+    settle(&mut issue, 7, &verdicts(&only(body, Some("Climb shares")), &run), &stamp()).unwrap();
     assert_eq!(ran.into_inner(), ["true"], "only the landed box's command runs");
     let [edited] = issue.edits.as_slice() else { panic!("{:?}", issue.edits) };
     assert!(edited.lines().next().unwrap().starts_with("- [x] Climb shares. Done when: `true` passes. Evidence: `true` passed on main "), "{edited}");
     assert!(edited.contains("- [ ] Other box."), "{edited}");
     assert!(north_providers::ledger::closed::checker_verified(edited), "{edited}");
+}
+
+#[test]
+fn a_passing_box_whose_output_doubles_a_short_body_is_ticked_with_evidence_the_growth_screen_lets_through() {
+    let open = "- [ ] Ladder scripts live under harness. Done when: `ladder --self-test` exits 0 on main";
+    let body = format!("{open}\n{}\n", "x".repeat(1_200 - open.len() - 1));
+    assert_eq!(body.trim().chars().count(), 1_200);
+    let output = format!("{}\n{}", vec!["y".repeat(383); 5].join("\n"), "y".repeat(380));
+    assert_eq!((output.chars().count(), output.lines().count()), (2_300, 6));
+    let run = |_: &str| Run { exit: 0, stdout: output.clone(), output: output.clone() };
+    let mut issue = Fixture { read: body.clone(), edits: Vec::new() };
+    settle(&mut issue, 1130, &verdicts(&body, &run), &stamp()).unwrap();
+    let [edited] = issue.edits.as_slice() else { panic!("{:?}", issue.edits) };
+    assert!(edited.starts_with("- [x] Ladder scripts"), "{edited}");
+    assert!(edited.contains("```text\n  yyy"), "{edited}");
+    assert!(edited.trim().chars().count() <= 2 * body.trim().chars().count(), "{} characters", edited.trim().chars().count());
+}
+
+#[test]
+fn an_unquoted_phrase_after_prints_is_a_judge_expectation_and_only_a_quoted_one_is_text_to_find() {
+    let Expected::Judge(reason) = expectation::expected("exits 0 and prints the guard refusal of its probe command") else { panic!("an unquoted phrase is matched literally") };
+    assert!(reason.contains("the guard refusal of its probe command"), "{reason}");
+    assert_eq!(expectation::expected("exits 0 and prints \"blind staging refused\""), Expected::All(vec![Expectation::Contains("blind staging refused".into()), Expectation::Exit(0)]));
 }

@@ -20,6 +20,8 @@ const MARKER: &str = "Done when: `";
 const OPEN: &str = "- [ ] ";
 const LIMIT: Duration = Duration::from_secs(600);
 const KEPT_LINES: usize = 20;
+const LINE_CHARS: usize = 160;
+const ATTACHED_CHARS: usize = 1_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Check {
@@ -97,28 +99,52 @@ pub fn verdicts(body: &str, run: &dyn Fn(&str) -> Run) -> Vec<Verdict> {
         .collect()
 }
 
-fn attachment(output: &str) -> Vec<String> {
-    let lines: Vec<&str> = output.trim_end().lines().collect();
-    if lines.iter().all(|line| line.trim().is_empty()) {
+fn clipped(line: &str) -> String {
+    let line = line.trim_end();
+    if line.chars().count() <= LINE_CHARS { line.to_owned() } else { format!("{}…", line.chars().take(LINE_CHARS - 1).collect::<String>()) }
+}
+
+fn attachment(output: &str, indent: &str, budget: usize) -> Vec<String> {
+    let fence = if output.contains("```") { "````" } else { "```" };
+    let open = format!("{indent}  {fence}text");
+    let close = format!("{indent}  {fence}");
+    let mut spent = open.chars().count() + close.chars().count() + 2;
+    let mut kept = Vec::new();
+    for line in output.trim_end().lines().rev().take(KEPT_LINES) {
+        let line = format!("{indent}  {}", clipped(line)).trim_end().to_owned();
+        spent += line.chars().count() + 1;
+        if spent > budget {
+            break;
+        }
+        kept.push(line);
+    }
+    if kept.iter().all(|line| line.trim().is_empty()) {
         return Vec::new();
     }
-    let kept = &lines[lines.len().saturating_sub(KEPT_LINES)..];
-    let fence = if output.contains("```") { "````" } else { "```" };
-    let mut block = vec![format!("  {fence}text")];
-    block.extend(kept.iter().map(|line| format!("  {line}").trim_end().to_owned()));
-    block.push(format!("  {fence}"));
-    block
+    kept.reverse();
+    [vec![open], kept, vec![close]].concat()
+}
+
+fn chars(text: &str) -> usize {
+    text.trim().chars().count()
 }
 
 pub fn ticked(body: &str, verdicts: &[Verdict], stamp: &Stamp) -> String {
     let mut lines: Vec<String> = body.lines().map(str::to_owned).collect();
+    let mut attached = Vec::new();
     for verdict in verdicts.iter().filter(|verdict| verdict.passed()) {
         let open = format!("{OPEN}{}", verdict.check.text);
         let Some(index) = lines.iter().position(|line| line.trim() == open) else { continue };
-        let indent: String = lines[index].chars().take_while(|character| character.is_whitespace()).collect();
         let ticked = lines[index].trim_end().replacen("- [ ]", "- [x]", 1);
         lines[index] = format!("{ticked} {}", box_oracles::evidence(&verdict.check.command, verdict.run.exit, &stamp.sha, &stamp.date));
-        let block: Vec<String> = attachment(&verdict.run.output).into_iter().map(|line| format!("{indent}{line}")).collect();
+        attached.push((index, verdict));
+    }
+    let headroom = (2 * chars(body)).saturating_sub(chars(&lines.join("\n")));
+    let budget = ATTACHED_CHARS.min(headroom / attached.len().max(1));
+    attached.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+    for (index, verdict) in attached {
+        let indent: String = lines[index].chars().take_while(|character| character.is_whitespace()).collect();
+        let block = attachment(&verdict.run.output, &indent, budget);
         lines.splice(index + 1..index + 1, block);
     }
     let mut text = lines.join("\n");
@@ -128,17 +154,16 @@ pub fn ticked(body: &str, verdicts: &[Verdict], stamp: &Stamp) -> String {
     text
 }
 
-pub fn settle(tracker: &mut dyn Tracker, number: u64, body: &str, run: &dyn Fn(&str) -> Run, stamp: &Stamp, dry_run: bool) -> Result<Vec<Verdict>, String> {
-    let verdicts = verdicts(body, run);
-    if dry_run || !verdicts.iter().any(Verdict::passed) {
-        return Ok(verdicts);
+pub fn settle(tracker: &mut dyn Tracker, number: u64, verdicts: &[Verdict], stamp: &Stamp) -> Result<(), String> {
+    if !verdicts.iter().any(Verdict::passed) {
+        return Ok(());
     }
     let fresh = tracker.body(number)?;
-    let edited = ticked(&fresh, &verdicts, stamp);
+    let edited = ticked(&fresh, verdicts, stamp);
     if edited != fresh {
         tracker.edit(number, &edited)?;
     }
-    Ok(verdicts)
+    Ok(())
 }
 
 fn record(ledger: &Ledger, task_ref: &str, verdicts: &[Verdict], main: &Path, stamp: &Stamp) -> NorthResult<()> {
@@ -323,12 +348,13 @@ pub fn run(ledger: &Ledger, arguments: &[String]) -> NorthResult<()> {
     let stamp = Stamp { sha: main.sha()?, date: Timestamp::now().iso_date() };
     let run = |command: &str| judge(command, main.dir());
     for (number, body) in issues {
-        let verdicts = settle(&mut tracker, number, &body, &run, &stamp, options.dry_run).map_err(NorthError::Refused)?;
-        if !options.dry_run {
-            record(ledger, &format!("{}#{number}", repo.rsplit('/').next().unwrap_or(&repo)), &verdicts, main.dir(), &stamp)?;
-        }
+        let verdicts = verdicts(&body, &run);
         for verdict in &verdicts {
             println!("{}", verdict.line(&format!("{repo}#{number}")));
+        }
+        if !options.dry_run {
+            record(ledger, &format!("{}#{number}", repo.rsplit('/').next().unwrap_or(&repo)), &verdicts, main.dir(), &stamp)?;
+            settle(&mut tracker, number, &verdicts, &stamp).map_err(NorthError::Refused)?;
         }
     }
     Ok(())
