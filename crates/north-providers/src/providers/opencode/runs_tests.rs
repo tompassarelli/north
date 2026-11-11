@@ -60,3 +60,19 @@ fn a_finished_deepseek_session_is_a_worker_run_that_its_reviewers_landing_joins(
     let landed: Vec<&str> = out[1..].iter().filter(|row| row["push_join"] == 1 && row["fleet_name"] == "ds-done").filter_map(|row| row["landed_sha"].as_str()).collect();
     assert_eq!(landed, ["def", "landed-head"]);
 }
+
+/// On 2026-11-10 the ledger's newest recorded run lagged finished DeepSeek workers by up to 42 min: a session host's
+/// end records its run by conversation id, and an opencode conversation id never equals the fleet name its turns carry.
+#[test]
+fn a_session_end_naming_an_opencode_conversation_records_that_sessions_run() {
+    let (known, recorded) = (HashSet::new(), HashSet::new());
+    let (main, prices) = (MainIndex::parse(""), Prices::parse(&CATALOG, &DEFAULTS));
+    let shared = Shared { session: "ses_2e3ba1aa88d8", since: "", known: &known, recorded: &recorded, main: &main, prices: &prices };
+    let turns = [turn("ds-done", AT), turn("ds-other", AT)];
+    let nodes = [json!({"name": "ds-done", "conversation": "ses_2e3ba1aa88d8", "status": "idle"}), json!({"name": "ds-other", "conversation": "ses_ffff", "status": "idle"})];
+    let (prompts, reviewed) = (HashMap::new(), HashMap::new());
+    let sources = Sources { turns: &turns, prompts: &prompts, nodes: Some(&nodes), pushes: &[], reviewed: &reviewed };
+    let out = rows(&shared, &sources, (AT / 1000) as f64);
+    let ids: Vec<&str> = out.iter().filter_map(|row| row["id"].as_str()).collect();
+    assert_eq!(ids, ["ds-done"]);
+}

@@ -33,7 +33,7 @@ pub fn rows(shared: &Shared, sources: &Sources, cutoff: f64) -> Vec<Value> {
     }
     let mut out = Vec::new();
     for (name, turns) in sessions {
-        let skipped = shared.known.contains(name) || (!shared.session.is_empty() && shared.session != name) || live(sources.nodes, name);
+        let skipped = shared.known.contains(name) || !asked(shared.session, sources.nodes, name) || live(sources.nodes, name);
         let Some((row, started_ms, ended_ms)) = (!skipped).then(|| run_row(shared, name, &turns, sources.prompts.get(name).map_or("", String::as_str))).flatten() else { continue };
         if (ended_ms as f64) / 1000.0 >= cutoff {
             out.push(row);
@@ -87,6 +87,10 @@ fn landings(name: &str, started_ms: i64, sources: &Sources) -> Vec<Value> {
         .filter(|push| !push.landed.is_empty() && push.at_ms as i64 >= started_ms && (push.session == reviewer || commits.contains(&push.oid)))
         .map(|push| json!({"push_join": 1, "fleet_name": name, "landed_sha": push.landed, "landed_at": Timestamp::from_unix_millis(push.at_ms as i64).iso()}))
         .collect()
+}
+
+fn asked(session: &str, nodes: Option<&[Value]>, name: &str) -> bool {
+    session.is_empty() || session == name || nodes.into_iter().flatten().any(|node| node["name"] == name && node["conversation"] == session)
 }
 
 fn live(nodes: Option<&[Value]>, name: &str) -> bool {
