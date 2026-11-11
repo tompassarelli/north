@@ -5,7 +5,7 @@ const NOW: f64 = 1_800_000_000.0;
 const HOUR: f64 = 3600.0;
 
 fn rules() -> Rules {
-    Rules { reserve: 5.0, floor_week: 5.0, floor_five_hour: 10.0, charge: 1.0, fleet_trip: Burst { points: 30.0, minutes: 15.0 }, session_trip: Burst { points: 10.0, minutes: 10.0 }, week_burn_h: 6.0, reading_max_h: 2.0 }
+    Rules { reserve: 5.0, floor_week: 5.0, floor_five_hour: 10.0, charge: 1.0, fleet_trip: Burst { points: 30.0, minutes: 15.0 }, session_trip: Burst { points: 10.0, minutes: 10.0 }, week_burn_h: 6.0, reading_max_h: 2.0, urgent_limit: 2 }
 }
 
 fn account(name: &str, five_hour: f64, week: f64) -> Account {
@@ -117,4 +117,17 @@ fn an_account_whose_week_resets_first_is_not_tripped_by_its_five_hour_projection
     let samples = [Sample { at: NOW - 15.0 * 60.0, used_pct: 30.0, resets_at: Some(NOW + HOUR) }, Sample { at: NOW, used_pct: 55.0, resets_at: Some(NOW + HOUR) }];
     assert!(tripwire::trip(&rules(), "claude:e", &samples, None, &[], 0.0, NOW).is_some(), "without a week reset the projection trips");
     assert_eq!(tripwire::trip(&rules(), "claude:e", &samples, Some(NOW + HOUR + 30.0 * 60.0), &[], 0.0, NOW), None);
+}
+
+/// 2026-11-11 6:00 to 6:35 AM +07: spine fixes queued urgent on an account over its week projection, behind a governor meant to pace ordinary work.
+#[test]
+fn an_urgent_launch_passes_a_holding_governor_up_to_its_limit() {
+    let view = View { at: NOW, accounts: vec![account("claude:d", 0.0, 94.0), account("claude:e", 0.0, 0.0)], ..View::default() };
+    let held = |starter| view.admit(&rules(), "claude:d", starter, Placed { workers: 1 }).map_err(|refusal| refusal.rule);
+    assert_eq!(held(Starter::Worker), Err(Rule::Burn), "the governor holds a normal launch");
+    assert_eq!(held(Starter::Urgent { running: 0 }), Ok(()), "the first urgent launch passes it");
+    assert_eq!(held(Starter::Urgent { running: 1 }), Ok(()), "the second passes it");
+    assert_eq!(held(Starter::Urgent { running: 2 }), Err(Rule::Burn), "a third queues like any other launch");
+    let floor = View { accounts: vec![account("claude:d", 0.0, 96.0), account("claude:e", 0.0, 0.0)], ..view };
+    assert_eq!(floor.admit(&rules(), "claude:d", Starter::Urgent { running: 0 }, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::Floor), "the operational floor still holds an urgent launch");
 }

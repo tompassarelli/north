@@ -3,6 +3,7 @@
 //! no room at all. Everything here is a pure function of a recorded `View`; `read` gathers one from this
 //! host's state files.
 mod read;
+mod starting;
 #[cfg(test)]
 mod tests;
 pub mod drain;
@@ -33,6 +34,8 @@ pub struct Rules {
     pub week_burn_h: f64,
     /// Hours after which an account's reading no longer counts toward the pool.
     pub reading_max_h: f64,
+    /// Urgent sessions per account that may run past the burn governor at once.
+    pub urgent_limit: usize,
 }
 
 impl Rules {
@@ -47,6 +50,7 @@ impl Rules {
             session_trip: tripwire::Burst { points: number("spend_trip_session_points"), minutes: number("spend_trip_session_min") },
             week_burn_h: number("spend_burn_week_h"),
             reading_max_h: number("spend_reading_max_h"),
+            urgent_limit: number("spend_urgent_limit") as usize,
         }
     }
 }
@@ -118,10 +122,13 @@ pub struct Placed {
 
 /// Who starts: a worker meets every rule; an Agent-tool subagent runs inside its parent's session, so
 /// it meets the reserve and the tripwire; the proxy, a scheduled routine or one of Tom's own sessions
-/// may use the reserve and meets no tripwire.
+/// may use the reserve and meets no tripwire. An urgent worker (a spine fix launched `--priority urgent`)
+/// meets every rule a worker does but the burn governor while fewer than `Rules::urgent_limit` urgent
+/// sessions already run on its account, `running` being that count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Starter {
     Worker,
+    Urgent { running: usize },
     Subagent,
     Reserved,
 }
@@ -198,9 +205,11 @@ impl View {
         if let Some(refusal) = chosen.limit(self.at) {
             return Err(refusal);
         }
-        if starter == Starter::Worker {
+        if matches!(starter, Starter::Worker | Starter::Urgent { .. }) {
             self.floor(rules, chosen)?;
-            self.governor(rules, chosen, placed)?;
+            if starter.governed(rules.urgent_limit) {
+                self.governor(rules, chosen, placed)?;
+            }
         }
         match self.trips.iter().find(|trip| trip.account == account).filter(|_| starter != Starter::Reserved) {
             Some(trip) => Err(Refusal { rule: Rule::Tripwire, line: trip.line.clone() }),

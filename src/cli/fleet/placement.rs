@@ -194,12 +194,14 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
     if placed.is_err() {
         return Ok(placed);
     }
-    let starter = if request.role == Some(Role::Proxy) || text.contains("[routine:") { Starter::Reserved } else { Starter::Worker };
+    let reserved = request.role == Some(Role::Proxy) || text.contains("[routine:");
+    let sessions = fleet.sessions()?;
+    let starter = |account: &str| Starter::launched(reserved, request.urgent, || sessions.iter().filter(|record| record.urgent && record.account == account && fleet.running(record)).count());
     let (view, rules) = match crate::dispatch::spend_now(&fleet.roster()) {
         Ok(read) => read,
         Err(why) => return Ok(Err(Refusal::Spend(format!("spend view unread: {why}")))),
     };
-    let admits = |account: &str| view.admit(&rules, &format!("claude:{account}"), starter, spend::Placed::default()).map_err(|refusal| refusal.to_string());
+    let admits = |account: &str| view.admit(&rules, &format!("claude:{account}"), starter(account), spend::Placed::default()).map_err(|refusal| refusal.to_string());
     let chosen = placed.as_ref().ok().and_then(|placed| placed.account.clone()).unwrap_or_else(|| request.account.clone());
     let others: Vec<&str> = view.accounts.iter().filter_map(|other| other.name.strip_prefix("claude:")).collect();
     let roster = fleet.roster();

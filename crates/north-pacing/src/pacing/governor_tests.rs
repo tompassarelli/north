@@ -5,7 +5,7 @@ const NOW: f64 = 1_794_300_000.0;
 const HOUR: f64 = 3600.0;
 
 fn rules() -> Rules {
-    Rules { reserve: 5.0, floor_week: 5.0, floor_five_hour: 10.0, charge: 1.0, fleet_trip: Burst { points: 30.0, minutes: 15.0 }, session_trip: Burst { points: 10.0, minutes: 10.0 }, week_burn_h: 6.0, reading_max_h: 2.0 }
+    Rules { reserve: 5.0, floor_week: 5.0, floor_five_hour: 10.0, charge: 1.0, fleet_trip: Burst { points: 30.0, minutes: 15.0 }, session_trip: Burst { points: 10.0, minutes: 10.0 }, week_burn_h: 6.0, reading_max_h: 2.0, urgent_limit: 2 }
 }
 
 fn account(name: &str, five_hour: f64, five_hour_resets: f64, week: f64, week_resets: f64) -> Account {

@@ -169,6 +169,7 @@ fn a_private_lane_opencode_launch_past_the_zero_retention_date_is_refused_and_a_
         role: None,
         resume: None,
         compact_window: None,
+        urgent: false,
     };
     let launch = |visibility: Visibility, today: time::Date| {
         Deepseek::reading(&OPENCODE, Arc::new(move |_| visibility), Arc::new(move || today)).host(&account, &request, Opening::Fresh(Some("ses_x")), "")

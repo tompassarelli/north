@@ -269,6 +269,14 @@ source = "tom, 2026-11-10: the reserve is a floor carved out of the Claude subsc
 fallback = "none: a stated amount, not a measurement"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
+[spend_urgent_limit]
+value = 2
+allowed = { min = 0, max = 8 }
+unit = "urgent sessions per account that run past the burn governor at once"
+source = "north#1076 box, 2026-11-11: a spine fix (lander, canary, dispatch or red main) queued behind a governor meant to pace ordinary work, so `--priority urgent` passes it up to this many at once per account"
+fallback = "none: a stated bound, not a measurement"
+consumers = ["crates/north-pace/src/spend/mod.rs"]
+
 [spend_reading_max_h]
 value = 2
 allowed = { min = 0, max = 168 }

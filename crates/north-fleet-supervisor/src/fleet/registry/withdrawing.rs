@@ -98,6 +98,7 @@ mod tests {
             role: None,
             resume: None,
             compact_window: None,
+            urgent: false,
         };
         QueuedLaunch::new(request, Priority::Normal, created_ms, "spend tripwire".into())
     }

@@ -225,6 +225,7 @@ fn a_hand_launched_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_la
             role: None,
             resume: None,
             compact_window: None,
+            urgent: false,
                     };
         let spec = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
         spec.env.into_iter().find(|(name, _)| name == "CLAUDE_CODE_AUTO_COMPACT_WINDOW").map(|(_, value)| value.to_string_lossy().into_owned())

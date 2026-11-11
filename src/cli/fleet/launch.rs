@@ -100,6 +100,7 @@ impl LaunchFlags {
             role: self.role,
             resume: None,
             compact_window: None,
+            urgent: false,
                     })
     }
 }
@@ -137,7 +138,9 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
     }
     let wait = lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
     let (overrides, take_over, priority) = (std::mem::take(&mut flags.overrides), flags.take_over, flags.priority);
-    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over, priority, words: words.iter().map(|word| (*word).to_owned()).collect() })
+    let mut request = flags.request(words[index..].join(" "), caller, proxy)?;
+    request.urgent = priority == Priority::Urgent;
+    Ok(LaunchParts { request, overrides, wait, take_over, priority, words: words.iter().map(|word| (*word).to_owned()).collect() })
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {
