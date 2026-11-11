@@ -10,7 +10,7 @@ nix_rust_toolchain(
     compiler = nix_tool("rustc"),
     default_edition = "2024",
     linker = "rust-lld",
-    rustc_flags = select({
+    rustc_flags = ["-Funsafe_code"] + select({
         "//mode:dev": [
             "-Zcodegen-backend=cranelift",
             "-Copt-level=0",
@@ -24,6 +24,15 @@ nix_rust_toolchain(
     rustc_target_triple = "x86_64-unknown-linux-gnu",
     rustdoc = nix_tool("rustdoc"),
     visibility = ["PUBLIC"],
+    warn_lints = [
+        "clippy::cloned_instead_of_copied",
+        "clippy::implicit_clone",
+        "clippy::rc_buffer",
+        "clippy::rc_mutex",
+        "clippy::redundant_allocation",
+        "clippy::redundant_clone",
+        "clippy::unnecessary_to_owned",
+    ],
 )
 
 system_cxx_toolchain(
