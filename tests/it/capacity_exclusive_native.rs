@@ -28,8 +28,16 @@ fn helper(host: &Host, arguments: &[&str]) -> Wrapper {
 }
 
 fn exclusive(host: &Host) -> Wrapper {
-    let script = timed(host, "exclusive");
-    let command = ["run", "--class", "exclusive", "--owner", "sc-239-laptop3:pair-1", "--timeout-seconds", "60", "--", "sh", "-c", &script];
+    exclusive_running(host, &timed(host, "exclusive"))
+}
+
+fn held(host: &Host) -> Wrapper {
+    let release = host.path("release");
+    exclusive_running(host, &format!("while [ ! -e {release} ]; do sleep 0.05; done", release = release.display()))
+}
+
+fn exclusive_running(host: &Host, script: &str) -> Wrapper {
+    let command = ["run", "--class", "exclusive", "--owner", "sc-239-laptop3:pair-1", "--timeout-seconds", "60", "--", "sh", "-c", script];
     helper(host, &command)
 }
 
@@ -59,11 +67,12 @@ fn exclusive_lease_and_native_timing_session_started_in_the_same_instant_never_r
     }
 
     let host = host();
-    let mut held = exclusive(&host);
+    let mut held = held(&host);
     host.until("the exclusive lease", |host| host.leases("exclusive") == 1);
     let refused = settle(&mut native(&host));
     assert!(!reserved(&refused), "a native session was admitted beside a live exclusive lease: {refused:?}");
     assert_eq!(refused.last().unwrap()["reason"], "DEFER_EXCLUSIVE", "{refused:?}");
+    fs::write(host.path("release"), "").unwrap();
     assert!(reserved(&settle(&mut held)));
     assert!(!fs::exists(host.path("overlap")).unwrap());
 }
