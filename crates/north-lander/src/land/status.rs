@@ -26,8 +26,8 @@ fn parse(arguments: &[String]) -> Option<Options> {
     (!options.ticket.is_empty()).then_some(options)
 }
 
-fn areas(queue: &Path) -> [PathBuf; 5] {
-    [queue.join(queue::OUTBOX), queue.to_owned(), queue.join("done"), queue.join(queue::QUARANTINE), queue.join(queue::WITHDRAWN)]
+fn areas(queue: &Path) -> [PathBuf; 6] {
+    [queue.join(queue::OUTBOX), queue.to_owned(), queue.join("done"), queue.join(queue::QUARANTINE), queue.join(queue::WITHDRAWN), queue.join(queue::OUTBOX).join(queue::DECIDED)]
 }
 
 fn find(queue: &Path, wanted: &str) -> Option<(PathBuf, Ticket)> {
@@ -70,7 +70,7 @@ pub fn report(home: &Path, origin: &str, wanted: &str) -> Result<String, String>
     Ok(match area {
         Some(queue::WITHDRAWN) => decided("withdrawn", &ticket),
         Some(queue::QUARANTINE) => decided("quarantined", &ticket),
-        Some("done") => decided("decided", &ticket),
+        Some("done" | queue::DECIDED) => decided("decided", &ticket),
         Some(queue::OUTBOX) => format!("north land: {} ({}) is waiting in this host's outbox", ticket.branch, ticket.head),
         _ => queued(&queue, &path, &ticket),
     })

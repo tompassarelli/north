@@ -9,7 +9,7 @@ use super::jobs::Chores;
 use super::queue::{self, Ticket};
 use super::setting;
 use north_base::land_ticket::Records;
-use north_base::land_ticket::Phase;
+use north_base::land_ticket::{self, Phase};
 
 pub const OFFLOAD_OWNER: &str = "north-land";
 use super::after::route::SSH_OPTIONS;
@@ -110,19 +110,76 @@ impl Lander {
         Ok(())
     }
 
-    pub fn pull_host(&self, host: &str, wait: Duration) -> Result<usize, String> {
+    fn remote_queue(&self) -> Result<String, String> {
         let key = self.queue.file_name().and_then(|name| name.to_str()).ok_or_else(|| format!("{} has no queue key", self.queue.display()))?;
-        let home = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/land-queue/{key}\"");
-        let outbox = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/land-queue/{key}/{}\"", queue::OUTBOX);
+        Ok(format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/land-queue/{key}\""))
+    }
+
+    fn remote_outbox(&self) -> Result<String, String> {
+        Ok(format!("{}/{}", self.remote_queue()?, queue::OUTBOX))
+    }
+
+    /// The outbox host a ticket was handed in on: the remote host named like the ticket's host, none for this host's own.
+    pub fn outbox_host(&self, ticket: &Ticket) -> Option<String> {
+        let named = ticket.host.split('.').next().filter(|name| !name.is_empty())?;
+        self.remote_hosts().into_iter().find(|host| host.split('.').next() == Some(named) && plain(host))
+    }
+
+    /// Writes `text` as `AREA/NAME` in `host`'s outbox for this queue, where the hand-in waiting on that ticket reads it.
+    pub fn tell(&self, host: &str, area: &str, name: &str, text: &str) -> Result<(), String> {
+        if !plain(name) || !plain(area) {
+            return Err(format!("{name:?} in {area:?} is not a ticket name"));
+        }
+        let outbox = self.remote_outbox()?;
+        ssh_with_input(host, &format!("d={outbox}/{area}; mkdir -p \"$d\" && cat >\"$d/.{name}.part\" && mv -f \"$d/.{name}.part\" \"$d/{name}\""), text.as_bytes()).map(drop)
+    }
+
+    /// Sends the decided ticket at `path` to the outbox host it was handed in on, where its waiting hand-in reads the
+    /// verdict at once, and names that host; a ticket handed in on this host needs no delivery.
+    pub fn deliver(&self, path: &Path) -> Result<Option<String>, String> {
+        let ticket = queue::read(path).map_err(|error| error.to_string())?;
+        let (Some(host), Some(name), Some(_)) = (self.outbox_host(&ticket), path.file_name().and_then(|name| name.to_str()), ticket.verdict.as_ref()) else { return Ok(None) };
+        let text = serde_json::to_string_pretty(&ticket).map_err(|error| error.to_string())?;
+        self.tell(&host, queue::DECIDED, name, &format!("{text}\n")).map(|()| Some(host))
+    }
+
+    /// Answers a waiting hand-in's ask about ticket `name`: its decided ticket when it has one, else where it stands here.
+    fn answer(&self, host: &str, name: &str) -> Result<(), String> {
+        if let Some(path) = land_ticket::directories(&self.queue).into_iter().skip(1).map(|area| area.join(name)).find(|path| path.is_file()) {
+            return self.deliver(&path).map(drop);
+        }
+        let waiting = self.queue.join(name);
+        let here = crate::platform::land_queue::local_host();
+        let text = match queue::read(&waiting) {
+            Ok(ticket) => {
+                let checking = Records::open(&self.queue).ok().and_then(|records| records.phase(&waiting)) == Some(Phase::Checking);
+                let place = if checking { "being checked".to_owned() } else { queue::queue_position(&self.queue, &waiting).ok().flatten().map_or_else(|| "waiting".to_owned(), |(place, total)| format!("{place} of {total} queued")) };
+                let deferral = ticket.deferral.as_deref().filter(|reason| !reason.trim().is_empty()).map(|reason| format!("; {reason}")).unwrap_or_default();
+                format!("the lander on {here} has {} ({}) {place}{deferral}", ticket.branch, ticket.head)
+            }
+            Err(_) => format!("the lander on {here} holds no ticket {name}"),
+        };
+        self.tell(host, queue::ANSWERS, name, &format!("{text}\n"))
+    }
+
+    pub fn pull_host(&self, host: &str, wait: Duration) -> Result<usize, String> {
+        let home = self.remote_queue()?;
+        let outbox = self.remote_outbox()?;
         let mirror = format!("q={home}; mkdir -p \"$q\" && cat >\"$q/{0}.part\" && mv -f \"$q/{0}.part\" \"$q/{0}\" || exit 1; ", queue::LANDER_LEDGER);
         let ticks = wait.as_millis() / WAIT_TICK.as_millis();
-        let listing = ssh_with_input(host, &format!("d={outbox}; n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; set -- \"$d\"/*.json; [ -e \"$1\" ] || exit 0; {mirror} for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
+        let asks = format!("for f in \"$d\"/{}/*.json; do [ -f \"$f\" ] || continue; printf '?%s\\n\\000' \"${{f##*/}}\"; rm -f -- \"$f\"; done; ", queue::ASKS);
+        let listing = ssh_with_input(host, &format!("d={outbox}; n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json \"$d\"/{0}/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; {asks}set -- \"$d\"/*.json; [ -e \"$1\" ] || exit 0; {mirror} for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", queue::ASKS, tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
         let mut records = Records::open(&self.queue).map_err(|error| format!("cannot read the records of {}: {error}", self.queue.display()))?;
         let mut taken = Vec::new();
         let mut failures = Vec::new();
         let mut withdrawn = Vec::new();
+        let mut asked = Vec::new();
         for record in listing.split('\0').filter(|record| !record.trim().is_empty()) {
             let (name, json) = record.split_once('\n').unwrap_or((record, ""));
+            if let Some(name) = name.strip_prefix('?') {
+                asked.push(name.to_owned());
+                continue;
+            }
             if !plain(name) || !name.ends_with(".json") {
                 failures.push(format!("{name:?} is not a ticket name"));
                 continue;
@@ -155,6 +212,7 @@ impl Lander {
         if !withdrawn.is_empty() {
             self.withdraw(host, &outbox, withdrawn)?;
         }
+        failures.extend(asked.iter().filter_map(|name| self.answer(host, name).err().map(|error| format!("cannot answer {host}'s ask about {name}: {error}"))));
         if failures.is_empty() { Ok(taken.len()) } else { Err(failures.join("; ")) }
     }
 

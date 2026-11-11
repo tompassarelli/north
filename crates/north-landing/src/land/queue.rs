@@ -109,6 +109,9 @@ pub use crate::platform::land_queue::{confined, directory, key, slug};
 
 pub const QUARANTINE: &str = "quarantine";
 pub const OUTBOX: &str = "outbox";
+pub const DECIDED: &str = "decided";
+pub const ASKS: &str = "asks";
+pub const ANSWERS: &str = "answers";
 pub const LANDER_LEDGER: &str = "lander-post-land.tsv";
 
 pub fn rfc3339(now: time::OffsetDateTime) -> String {

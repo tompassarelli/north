@@ -876,8 +876,16 @@ then S2b and S2c in parallel; then S3 and S4.
   `ConnectTimeout=5` waits on the host up to 10 s for a ticket, polling every 200 ms, and lists it;
   the lander then fetches each lane from
   `ssh://<host><root>` into `refs/land-remote/<host>/<branch>`, copies the ticket into its own queue
-  with its `host` field kept, and moves the remote ticket to `outbox/taken/`. Landed messages and
-  verdicts are unchanged. An unreachable host gets a waiting line and is tried again 5 s later. A pulled ticket wakes the
+  with its `host` field kept, and moves the remote ticket to `outbox/taken/`. Landed messages are
+  unchanged. A verdict goes back over the same link: an inotify watch on the lander's decided areas
+  writes each decided ticket from a build host into that host's `outbox/decided/` as it is decided, so the
+  hand-in waiting there reads a refusal within a second, not on the records mirror's next pass or never
+  while the mirror is held (north#1185, 2026-11-12: six conflict refusals at 21 concurrent workers reached
+  no worker). The build host cannot reach the laptop, so a hand-in that has heard nothing for 60 s asks
+  through `outbox/asks/`, which ends the lander's 10 s outbox wait; the lander answers with the decided
+  ticket or the ticket's place in `outbox/answers/`, and an ask with no answer in 15 s is printed as the
+  lander not reading the outbox. A hand-in reads a verdict only from a ticket with its own name, head and
+  branch, and reports landed only once origin holds the landed commit. An unreachable host gets a waiting line and is tried again 5 s later. A pulled ticket wakes the
   serve loop, so a build host's ticket enters a round within about a second of being queued
   (2026-11-08: the round-start pull left one waiting 19 s). A ticket written into the lander's own
   queue wakes it the same way, through an inotify watch on the queue directory, instead of waiting out the 2 s

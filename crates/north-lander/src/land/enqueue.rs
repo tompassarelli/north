@@ -335,10 +335,12 @@ pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
 }
 
 /// Waits for the lander's verdict on the lane just queued and prints the commit it landed as, or why it did not land.
-fn hand_in(repo: &Path, queued: &Queued, state_home: &Path) -> u8 {
+pub fn hand_in(repo: &Path, queued: &Queued, state_home: &Path) -> u8 {
     let destination = default_branch(&queued.ticket.root);
     let git_dir = git(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).map_or_else(|_| queued.ticket.root.clone(), PathBuf::from);
-    match (verdict::Hand { queued, state_home, git_dir, destination: &destination }).wait(HAND_IN_WAIT) {
+    let lander = setting::landing(&queued.ticket.root, &format!("refs/remotes/origin/{destination}"), "landing.lander-host");
+    let lander = if lander.is_empty() { queued.ticket.host.clone() } else { lander };
+    match (verdict::Hand { queued, state_home, git_dir, destination: &destination, lander: &lander }).wait(HAND_IN_WAIT) {
         Verdict::Landed(commit) => {
             println!("Done: landed {commit} on {destination}");
             0
