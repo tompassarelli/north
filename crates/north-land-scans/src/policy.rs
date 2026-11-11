@@ -100,3 +100,10 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
     );
     1
 }
+
+pub fn sweep(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
+    match scan(directory, range, out) {
+        0 => crate::rule_owners::scan(directory, range, out),
+        refused => refused,
+    }
+}

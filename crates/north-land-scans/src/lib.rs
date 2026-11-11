@@ -120,10 +120,7 @@ fn ranged_checks(directory: &Path, name: &str, range: &str) -> Option<u8> {
         },
         "incident-test" => incident_guard::scan(directory, range, &mut out),
         "test-admission" => test_admission::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
-        "policy-sweep" => match policy::scan(directory, range, &mut out) {
-            0 => rule_owners::scan(directory, range, &mut out),
-            refused => refused,
-        },
+        "policy-sweep" => policy::sweep(directory, range, &mut out),
         "strategy-replay" => strategy_replay::scan(directory, range, &mut out),
         "shell-hook" => shell_hook::scan(directory, range, &mut out),
         "generated-rewrite" => generated::scan(directory, range, &mut std::io::stderr()),
