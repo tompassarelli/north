@@ -52,6 +52,12 @@ pub struct Away<'a> {
     pub tree: &'a str,
 }
 
+impl<'a> Away<'a> {
+    pub fn on(program: &'a Path, host: &'a str, base: &'a str, tree: &'a str) -> Option<Self> {
+        (!host.is_empty() && host != "build-host" && host != north_base::platform::host::name()).then_some(Self { program, host, base, tree })
+    }
+}
+
 const AWAY_SECONDS: u64 = 900;
 
 impl Away<'_> {

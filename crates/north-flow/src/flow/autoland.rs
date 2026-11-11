@@ -1,13 +1,13 @@
 //! What GitHub and the safe-push log say about lanes: when each was pushed and landed, which have
 //! failed, and how long the trip took.
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
 use serde_json::Value;
 
-use super::host::{Host, Places, iso, median, seconds};
+use super::host::{Host, Places, iso, median, seconds, write_atomic};
 
 const DAY: f64 = 86_400.0;
 const CENSUS_REUSE_FIELD: &str = "census-reused";
@@ -161,6 +161,38 @@ fn patch_id(host: &dyn Host, checkout: &Path, sha: &str) -> Option<String> {
     host.run(&["git", "patch-id", "--stable"], Some(checkout), Some(&patch))?.split_whitespace().next().map(str::to_owned)
 }
 
+struct PatchIds<'a> {
+    host: &'a dyn Host,
+    checkout: &'a Path,
+    path: PathBuf,
+    known: BTreeMap<String, String>,
+    used: BTreeMap<String, String>,
+}
+
+impl<'a> PatchIds<'a> {
+    fn load(host: &'a dyn Host, checkout: &'a Path, places: &Places, slug: &str) -> Self {
+        let path = places.flow().join(format!("{}-patch-ids.tsv", slug.replace('/', "--")));
+        let known = std::fs::read_to_string(&path).unwrap_or_default().lines().filter_map(|line| line.split_once(' ')).map(|(sha, id)| (sha.to_owned(), id.to_owned())).collect();
+        Self { host, checkout, path, known, used: BTreeMap::new() }
+    }
+
+    fn of(&mut self, sha: &str) -> Option<String> {
+        let id = match self.known.get(sha) {
+            Some(id) => id.clone(),
+            None => patch_id(self.host, self.checkout, sha)?,
+        };
+        self.used.insert(sha.to_owned(), id.clone());
+        Some(id)
+    }
+
+    fn store(self) {
+        if self.used != self.known {
+            let rows: String = self.used.iter().map(|(sha, id)| format!("{sha} {id}\n")).collect();
+            let _ = write_atomic(&self.path, &rows);
+        }
+    }
+}
+
 fn safe_push_log(places: &Places, slug: &str) -> Result<BTreeMap<String, f64>, std::io::ErrorKind> {
     let text = std::fs::read_to_string(places.state.join("safe-push/pushes.tsv")).map_err(|error| error.kind())?;
     let project = slug.rsplit('/').next().unwrap_or(slug);
@@ -187,19 +219,19 @@ pub fn local_latency(host: &dyn Host, places: &Places, checkout: &Path, slug: &s
         Err(std::io::ErrorKind::NotFound) => return (Value::Null, Value::Null),
         Err(_) => return ("error".into(), "error".into()),
     };
+    let mut ids = PatchIds::load(host, checkout, places, slug);
     let mut patches: Option<BTreeMap<String, f64>> = None;
     let mut samples = Vec::new();
     for (sha, pushed) in pushes.iter().filter(|(sha, _)| PUSH_SHA.is_match(sha)) {
         let direct = commits.iter().find(|(head, _)| head == sha).map(|(_, at)| *at as f64);
         let landed = direct.or_else(|| {
-            let pid = patch_id(host, checkout, sha)?;
-            let by_patch = patches.get_or_insert_with(|| {
-                commits.iter().rev().filter_map(|(head, at)| Some((patch_id(host, checkout, head)?, *at as f64))).collect()
-            });
+            let pid = ids.of(sha)?;
+            let by_patch = patches.get_or_insert_with(|| commits.iter().rev().filter_map(|(head, at)| Some((ids.of(head)?, *at as f64))).collect());
             by_patch.get(&pid).copied()
         });
         samples.extend(landed.map(|landed| (landed - pushed).max(0.0) / 60.0));
     }
+    ids.store();
     let (middle, p90) = percentiles(&samples);
     (number(middle), number(p90))
 }

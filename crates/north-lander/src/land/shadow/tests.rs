@@ -58,7 +58,7 @@ fn a_verdict_the_shadow_tick_records_is_found_by_the_slot_runners_lookup_for_the
     let settings = Settings { repo: repo.clone(), state: world.path().join("state"), north: vec![north.clone()], queue: world.path().join("queue"), host: "lander".to_owned(), checker: vec![checker], chooser: Vec::new() };
 
     let command = "cargo nextest run $SAFE_PUSH_LAND_PACKAGES".to_owned();
-    let environment = verdict_key::lane_environment(&repo, &main, &merged, std::slice::from_ref(&command));
+    let environment = verdict_key::lane_environment(&repo, &main, &merged, None, std::slice::from_ref(&command));
     let key = verdict_key::key(&repo, &main, &merged, &command, &environment).expect("a key");
     let found = run::Found { head: merged.clone(), lines: vec![(command.clone(), key)] };
 

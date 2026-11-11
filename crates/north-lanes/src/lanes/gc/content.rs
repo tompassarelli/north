@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::exec::{git, real};
 use super::state::write_atomically;
@@ -11,8 +13,8 @@ const CACHE: &str = "north/lane-gc-patch-ids";
 pub(super) struct MainContent {
     patches: HashSet<String>,
     trees: HashSet<String>,
-    #[cfg_attr(not(test), allow(dead_code))]
-    diffed: usize,
+    known: Mutex<Known>,
+    diffed: AtomicUsize,
 }
 
 fn patch_ids(repo: &Path, selection: &[&str]) -> Option<Vec<(String, String)>> {
@@ -70,42 +72,62 @@ fn store(path: &Path, ids: &HashMap<String, String>) {
     let _ = write_atomically(path, &format!("{}\n", rows.join("\n")));
 }
 
-fn main_patches(repo: &Path, base: &str) -> (HashMap<String, String>, usize) {
-    let path = cache_path(repo);
-    let mut known = path.as_deref().map(cached).unwrap_or_default();
-    let listed = git(repo, &["rev-list", base]);
-    let commits: Vec<&str> = listed.out.lines().filter(|line| !line.is_empty()).collect();
-    if !listed.ok || commits.is_empty() {
-        return (HashMap::new(), 0);
+#[derive(Default)]
+struct Known {
+    path: Option<PathBuf>,
+    ids: HashMap<String, String>,
+}
+
+impl Known {
+    fn load(repo: &Path) -> Self {
+        let path = cache_path(repo);
+        let ids = path.as_deref().map(cached).unwrap_or_default();
+        Self { path, ids }
     }
-    let wanted: HashSet<&str> = commits.iter().copied().collect();
-    let on_main = |known: HashMap<String, String>| known.into_iter().filter(|(sha, _)| wanted.contains(sha.as_str())).collect::<HashMap<_, _>>();
-    let missing: Vec<&str> = commits.iter().copied().filter(|sha| !known.contains_key(*sha)).collect();
+
+    fn missing<'a>(&self, commits: &[&'a str]) -> Vec<&'a str> {
+        commits.iter().copied().filter(|sha| !self.ids.contains_key(*sha)).collect()
+    }
+
+    fn add(&mut self, fresh: Vec<(String, String)>) -> usize {
+        let diffed = fresh.len();
+        self.ids.extend(fresh);
+        if let Some(path) = self.path.as_deref() {
+            store(path, &self.ids);
+        }
+        diffed
+    }
+}
+
+fn listed(repo: &Path, selection: &[&str]) -> Option<Vec<String>> {
+    let mut arguments = vec!["rev-list"];
+    arguments.extend_from_slice(selection);
+    let listed = git(repo, &arguments);
+    listed.ok.then(|| listed.out.lines().filter(|line| !line.is_empty()).map(str::to_owned).collect())
+}
+
+fn diff_missing(repo: &Path, known: &Mutex<Known>, commits: &[&str], whole: &[&str]) -> Option<usize> {
+    let missing = known.lock().ok()?.missing(commits);
     if missing.is_empty() {
-        return (on_main(known), 0);
+        return Some(0);
     }
-    let fresh = if missing.len() == commits.len() { patch_ids(repo, &[base]) } else { patch_ids_of(repo, &missing) };
-    let Some(fresh) = fresh else {
-        return (on_main(known), 0);
-    };
-    let diffed = fresh.len();
-    for (sha, id) in fresh {
-        known.insert(sha, id);
-    }
-    if let Some(path) = path.as_deref() {
-        store(path, &known);
-    }
-    (on_main(known), diffed)
+    let fresh = if missing.len() == commits.len() { patch_ids(repo, whole) } else { patch_ids_of(repo, &missing) }?;
+    Some(known.lock().ok()?.add(fresh))
 }
 
 impl MainContent {
     pub(super) fn read(repo: &Path, base: &str) -> Self {
         let trees = git(repo, &["log", "--format=%T", base]);
-        let (patches, diffed) = main_patches(repo, base);
+        let known = Mutex::new(Known::load(repo));
+        let commits = listed(repo, &[base]).unwrap_or_default();
+        let commits: Vec<&str> = commits.iter().map(String::as_str).collect();
+        let diffed = if commits.is_empty() { 0 } else { diff_missing(repo, &known, &commits, &[base]).unwrap_or(0) };
+        let patches = known.lock().map(|known| commits.iter().filter_map(|sha| known.ids.get(*sha).cloned()).collect()).unwrap_or_default();
         Self {
-            patches: patches.into_values().collect(),
+            patches,
             trees: if trees.ok { trees.out.lines().map(str::to_owned).collect() } else { HashSet::new() },
-            diffed,
+            known,
+            diffed: AtomicUsize::new(diffed),
         }
     }
 
@@ -114,12 +136,17 @@ impl MainContent {
         if tree.ok && self.trees.contains(&tree.out) {
             return Some("tree on main");
         }
-        let lane = patch_ids(repo, &[tip, &format!("^{base}")])?;
-        (!lane.is_empty() && lane.iter().all(|(_, patch)| self.patches.contains(patch))).then_some("patches on main")
+        let outside = format!("^{base}");
+        let commits = listed(repo, &["--no-merges", tip, &outside])?;
+        let commits: Vec<&str> = commits.iter().map(String::as_str).collect();
+        self.diffed.fetch_add(diff_missing(repo, &self.known, &commits, &[tip, &outside])?, Ordering::Relaxed);
+        let known = self.known.lock().ok()?;
+        let lane: Vec<&String> = commits.iter().filter_map(|sha| known.ids.get(*sha)).collect();
+        (!lane.is_empty() && lane.iter().all(|patch| self.patches.contains(*patch))).then_some("patches on main")
     }
 
     #[cfg(test)]
     pub(super) fn diffed(&self) -> usize {
-        self.diffed
+        self.diffed.load(Ordering::Relaxed)
     }
 }

@@ -38,7 +38,7 @@ fn a_lane_on_rewritten_history_with_its_patches_on_main_is_landed() {
 }
 
 #[test]
-fn a_second_gc_run_diffs_only_main_commits_added_since_the_first() {
+fn a_second_gc_run_diffs_only_commits_no_earlier_run_diffed() {
     let root = tempfile::tempdir().unwrap();
     let main = root.path().canonicalize().unwrap().join("main");
     init_repo(&main, None);
@@ -54,7 +54,10 @@ fn a_second_gc_run_diffs_only_main_commits_added_since_the_first() {
     let first = MainContent::read(&main, "main");
     assert_eq!(first.diffed(), 4, "a run with no cache diffs every commit on main");
     assert_eq!(first.holds(&main, "main", &tip), Some("patches on main"));
-    assert_eq!(MainContent::read(&main, "main").diffed(), 0, "a run with nothing new on main diffs no commit");
+    assert_eq!(first.diffed(), 5, "judging the lane diffs its one commit");
+    let again = MainContent::read(&main, "main");
+    assert_eq!(again.holds(&main, "main", &tip), Some("patches on main"));
+    assert_eq!(again.diffed(), 0, "a run after the first diffs neither main nor a lane it already judged");
 
     commit(&main, "k.txt", "main moves on\n", "k");
     let second = MainContent::read(&main, "main");

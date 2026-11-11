@@ -77,7 +77,16 @@ pub fn tick(settings: &Settings) -> Result<Round, String> {
     let main = candidate::prepare(&settings.repo, &worktree)?;
     let logs = settings.state.join("north/land-shadow");
     let tickets = queue::pending(&settings.queue).map_err(|error| format!("{}: {error}", settings.queue.display()))?;
-    let Some(work) = pick::first_with_work(tickets, &settings.host, |path, ticket| run::missing(settings, &worktree, &main, path, ticket, &logs)) else {
+    let queued = pick::ordered(tickets, &settings.host);
+    let host = if queued.is_empty() {
+        String::new()
+    } else {
+        match place(&settings.chooser) {
+            Ok(host) => host,
+            Err(reason) => return Ok(Round::NoRoom(reason)),
+        }
+    };
+    let Some(work) = pick::first_with_work(queued, |path, ticket| run::missing(settings, &worktree, &main, &host, path, ticket, &logs)) else {
         if main_run::pending(&logs, &main) && let Some(lines) = main_run::record(settings, &worktree, &main, &logs) {
             return Ok(Round::RecordedMain { main, lines });
         }
@@ -85,10 +94,6 @@ pub fn tick(settings: &Settings) -> Result<Round, String> {
             println!("north land shadow: {}: {line}", settings.repo.display());
         }
         return Ok(Round::Idle);
-    };
-    let host = match place(&settings.chooser) {
-        Ok(host) => host,
-        Err(reason) => return Ok(Round::NoRoom(reason)),
     };
     let (recorded, unrecorded) = run::check(settings, &worktree, &main, &host, &work.found, &logs);
     Ok(Round::Ran { branch: work.ticket.branch, recorded, unrecorded })

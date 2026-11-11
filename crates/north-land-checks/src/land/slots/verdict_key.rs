@@ -59,8 +59,8 @@ pub fn lane_it(root: &Path, base: &str, head: &str, batch: &Batch, away: Option<
     })
 }
 
-pub fn lane_environment(root: &Path, base: &str, head: &str, commands: &[String]) -> Vec<(String, String)> {
-    let it = lane_it(root, base, head, &Batch::default(), None, commands, |_| {});
+pub fn lane_environment(root: &Path, base: &str, head: &str, away: Option<&Away<'_>>, commands: &[String]) -> Vec<(String, String)> {
+    let it = lane_it(root, base, head, &Batch::default(), away, commands, |_| {});
     let packages = it.as_ref().map(it_modules::Selection::packages).unwrap_or_default();
     let scope = lane_scope(root, base, head, commands, |_| {}).map(|scope| scope.including(&packages));
     let it = it.map(|selection| selection.arguments());

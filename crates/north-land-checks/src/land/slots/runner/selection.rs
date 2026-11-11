@@ -81,7 +81,7 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
         return Some((filters, BTreeSet::new()));
     }
     let program = program();
-    let away = away(arguments, runner, &program);
+    let away = Away::on(Path::new(&program), runner, &arguments.base, arguments.tree());
     let selection = verdict_key::lane_it(root, &arguments.base, &arguments.head, &arguments.batch, away.as_ref(), commands, |error| warn(&format!("safe-push: {error}; the tests/it run covers every module")))?;
     if !arguments.leased {
         say(&format!("safe-push: the tests/it run is {}", selection.summary()));
@@ -91,10 +91,6 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
     let since = if let Selection::Tests(tests) = &selection { tests.unselected_since() } else { Vec::new() };
     shadow_row(arguments, &selected, &since);
     Some((selection.arguments(), selection.packages()))
-}
-
-fn away<'a>(arguments: &'a Arguments, runner: &'a str, program: &'a str) -> Option<Away<'a>> {
-    (!runner.is_empty() && runner != "build-host" && runner != north_base::platform::host::name()).then(|| Away { program: Path::new(program), host: runner, base: &arguments.base, tree: arguments.tree() })
 }
 
 fn selected(selection: &Selection) -> Selected {

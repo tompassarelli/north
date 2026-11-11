@@ -8,6 +8,7 @@ use super::super::queue::Ticket;
 use super::super::setting;
 use super::super::slots::select::Config;
 use super::super::slots::unit_reuse;
+use super::super::slots::graph_selection::Away;
 use super::super::slots::verdict_key;
 use super::{OWNER, Settings};
 use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_STATUS, RED_MAIN_STATUS, SLOTS_BUSY_STATUS, TIMED_OUT_STATUS};
@@ -34,13 +35,14 @@ fn failed_marker(logs: &Path, key: &str) -> PathBuf {
     logs.join(format!("{key}.failed"))
 }
 
-pub fn missing(settings: &Settings, worktree: &Path, main: &str, path: &Path, ticket: &Ticket, logs: &Path) -> Option<Found> {
+pub fn missing(settings: &Settings, worktree: &Path, main: &str, host: &str, path: &Path, ticket: &Ticket, logs: &Path) -> Option<Found> {
     let built = candidate::build(worktree, main, &[(path.to_owned(), ticket.clone())], &[], 1, logs).ok()?;
     if !matches!(built.picks.as_slice(), [Pick::Included]) {
         return None;
     }
     let commands = Config::load(worktree, &built.head).commands(worktree, main, &built.head).ok()?;
-    let environment = verdict_key::lane_environment(worktree, main, &built.head, &commands);
+    let program = Path::new(settings.north.first()?);
+    let environment = verdict_key::lane_environment(worktree, main, &built.head, Away::on(program, host, main, &built.head).as_ref(), &commands);
     let keyed: Vec<(String, String)> = commands.into_iter().filter_map(|line| Some((line.clone(), verdict_key::key(worktree, main, &built.head, &line, &environment)?))).collect();
     if keyed.is_empty() {
         return None;

@@ -19,6 +19,6 @@ pub fn ordered(tickets: Vec<(PathBuf, Ticket)>, host: &str) -> Vec<(PathBuf, Tic
     kept
 }
 
-pub fn first_with_work<T>(tickets: Vec<(PathBuf, Ticket)>, host: &str, mut missing: impl FnMut(&PathBuf, &Ticket) -> Option<T>) -> Option<Work<T>> {
-    ordered(tickets, host).into_iter().find_map(|(path, ticket)| missing(&path, &ticket).map(|found| Work { ticket, found }))
+pub fn first_with_work<T>(queued: Vec<(PathBuf, Ticket)>, mut missing: impl FnMut(&PathBuf, &Ticket) -> Option<T>) -> Option<Work<T>> {
+    queued.into_iter().find_map(|(path, ticket)| missing(&path, &ticket).map(|found| Work { ticket, found }))
 }
