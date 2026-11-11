@@ -30,6 +30,7 @@ const LENGTH_BYTES: usize = 8;
 const ANSWER_WAIT: Duration = Duration::from_secs(10);
 const REQUEST_LIMIT: usize = 4 << 20;
 const STDIO: usize = 3;
+const SOCKET_CHECK: Duration = Duration::from_millis(100);
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
 const JOIN_LEASE: &str = r#"echo 0 >"$0" || echo "north worker-sandbox broker: could not join the caller's lease scope $0, so this run counts against no lease" >&2; exec "$@""#;
 const INJECTED_NAMES: [&str; 19] = [
@@ -214,7 +215,7 @@ pub fn serve() -> std::process::ExitCode {
             if idle {
                 return std::process::ExitCode::SUCCESS;
             }
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(SOCKET_CHECK);
             continue;
         }
         match listener.accept() {
@@ -235,11 +236,16 @@ pub fn serve() -> std::process::ExitCode {
                         eprintln!("north worker-sandbox broker: cannot start the promoted north as a successor, so this one serves until it is idle");
                     }
                 }
-                std::thread::sleep(Duration::from_millis(100));
+                await_request(&listener);
             }
             Err(error) => eprintln!("north worker-sandbox broker: accept: {error}"),
         }
     }
+}
+
+/// Waits until a request arrives on `listener` or [`SOCKET_CHECK`] passes, so a request is taken at once while the replaced-socket and promoted-runtime checks still run between requests: a sleep between accepts kept every worker shell call, hook and tool waiting a median 65 ms on cpx62b (north#1167).
+fn await_request(listener: &UnixListener) {
+    let _ = rustix::event::poll(&mut [rustix::event::PollFd::new(listener, rustix::event::PollFlags::IN)], i32::try_from(SOCKET_CHECK.as_millis()).unwrap_or(i32::MAX));
 }
 
 fn inode(path: &Path) -> Option<u64> {
