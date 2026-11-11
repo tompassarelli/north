@@ -14,6 +14,7 @@ use super::jobs::{JobLeases, SpooledLeases};
 use super::lane_probe;
 use super::tickets;
 use super::landings::{self, push_log};
+use super::hops;
 use super::host::Host;
 use super::model::{Account, ProviderName, Delivery, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
@@ -21,7 +22,7 @@ use super::records::{CLAIMS_RELEASED, PLACED, read_phased, read_record, write_re
 use super::model::Phases;
 use super::remote;
 use super::roster::Roster;
-use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime};
+use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, now_ms};
 use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
@@ -361,6 +362,7 @@ impl Fleet {
     }
 
     fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening) -> NorthResult<()> {
+        let since_ms = if record.host_dir.as_os_str().is_empty() { record.created_ms } else { now_ms() };
         self.refuse_on_window(record.conversation.as_deref())?;
         let runtime = self.runtime(record)?;
         let request = record.relaunch_request();
@@ -371,7 +373,8 @@ impl Fleet {
         let (instructions, sha) = self.instructions(record)?;
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);
-        let spec = remote::placed(runtime.host(account, &request, opening, &instructions)?, record)?;
+        let trace = hops::trace_in(&self.root.join(&record.name));
+        let spec = remote::placed(runtime.host(account, &request, opening, &instructions)?, record, &trace)?;
         let host_dir = if spec.shared { self.root.join(HOSTS).join(&spec.key) } else { self.root.join(&record.name) };
         let host = Host::new(host_dir.clone());
         let started = !host.running();
@@ -388,6 +391,7 @@ impl Fleet {
         write_record(&self.root.join(&record.name), record)?;
         let cause = if started { "a session host started for it" } else { "it joined its running session host" };
         let phase = self.phases()?.live_with(record.launch(), record.host_pid, cause, &Self::watchdog(record))?;
+        hops::record(&trace, &hops::Span { session: record.name.clone(), hop: hops::Hop::SessionHost, start_ms: since_ms, end_ms: now_ms() });
         record.phase = Some(phase);
         match fs::remove_file(self.root.join(&record.name).join(CLAIMS_RELEASED)) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),

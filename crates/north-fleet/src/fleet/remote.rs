@@ -31,10 +31,10 @@ const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
 const HELD: &str = ".local/state/north/held";
 
 /// The session's host spec as it runs: here, or over ssh on the machine its record names.
-pub fn placed(spec: HostSpec, record: &SessionRecord) -> NorthResult<HostSpec> {
+pub fn placed(spec: HostSpec, record: &SessionRecord, trace: &Path) -> NorthResult<HostSpec> {
     match &record.machine {
         Some(_) if spec.shared => Err(NorthError::Usage(format!("{} runs one shared host per account, so it cannot run on another machine", record.provider.label()))),
-        Some(machine) => over_ssh(spec, machine),
+        Some(machine) => over_ssh(spec, machine, &record.name, trace),
         None => Ok(spec),
     }
 }
@@ -54,12 +54,12 @@ pub fn unguarded_where_it_runs(runtime: &dyn Runtime, account: &Account, machine
     runtime.unguarded(account, &read).map(|reason| format!("{reason} on {}", machine.name))
 }
 
-pub fn over_ssh(spec: HostSpec, machine: &Machine) -> NorthResult<HostSpec> {
+pub fn over_ssh(spec: HostSpec, machine: &Machine, session: &str, trace: &Path) -> NorthResult<HostSpec> {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or_else(|| NorthError::State("HOME is not set".into()))?;
-    held_under(spec, machine, Path::new(&home))
+    held_under(spec, machine, Path::new(&home), session, trace)
 }
 
-pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path) -> NorthResult<HostSpec> {
+pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path, session: &str, trace: &Path) -> NorthResult<HostSpec> {
     let held = home.join(HELD);
     let unit = unit(&spec.key);
     let dir = held.join(&unit).to_string_lossy().into_owned();
@@ -81,7 +81,7 @@ pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path) -> Nort
         launch.push(' ');
         launch.push_str(&quote(arg));
     }
-    let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch, master: None };
+    let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch, session: session.to_owned(), trace: trace.to_path_buf(), master: None };
     let argv = [vec![std::env::current_exe()?.display().to_string(), "session-link".into()], link.arguments()].concat();
     Ok(HostSpec { argv, cwd: home.to_path_buf(), ..spec })
 }

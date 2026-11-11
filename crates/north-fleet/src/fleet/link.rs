@@ -17,11 +17,12 @@ use tokio::time::Instant;
 
 use crate::error::{NorthError, NorthResult};
 
-use super::runtime::binary;
+use super::hops::{self, Hop, Span};
+use super::runtime::{binary, now_ms};
 use north_base::foundation::exit::TRANSPORT_FAILED_STATUS;
 pub use north_fleet_store::ssh::quote;
 
-const USAGE: &str = "Usage: north session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND";
+const USAGE: &str = "Usage: north session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND --session NAME --trace FILE";
 const ATTACH_USAGE: &str = "Usage: north session-attach DIR UNIT NONCE OFFSET";
 const OPTIONS: [&str; 9] = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"];
 const MASTER_IDLE: &str = "ControlPersist=2h";
@@ -65,6 +66,8 @@ pub struct Link {
     pub dir: String,
     pub nonce: String,
     pub launch: String,
+    pub session: String,
+    pub trace: PathBuf,
     pub master: Option<PathBuf>,
 }
 
@@ -100,6 +103,9 @@ struct Header {
 struct Stream<'a, O> {
     unsent: Unsent,
     received: u64,
+    began_ms: u64,
+    unit_ms: Option<u64>,
+    client_seen: bool,
     input: mpsc::UnboundedReceiver<Vec<u8>>,
     output: &'a mut O,
 }
@@ -115,7 +121,7 @@ impl<O: AsyncWrite + Unpin> Stream<'_, O> {
 impl Link {
     pub fn parse(arguments: &[String]) -> NorthResult<Self> {
         let usage = || NorthError::Usage(USAGE.into());
-        let (mut destination, mut unit, mut dir, mut nonce, mut launch) = (None, None, None, None, None);
+        let (mut destination, mut unit, mut dir, mut nonce, mut launch, mut session, mut trace) = (None, None, None, None, None, None, None);
         for pair in arguments.chunks(2) {
             let [flag, value] = pair else { return Err(usage()) };
             let slot = match flag.as_str() {
@@ -124,27 +130,30 @@ impl Link {
                 "--dir" => &mut dir,
                 "--nonce" => &mut nonce,
                 "--launch" => &mut launch,
+                "--session" => &mut session,
+                "--trace" => &mut trace,
                 _ => return Err(usage()),
             };
             if value.is_empty() || slot.replace(value.clone()).is_some() {
                 return Err(usage());
             }
         }
-        match (destination, unit, dir, nonce, launch) {
-            (Some(destination), Some(unit), Some(dir), Some(nonce), Some(launch)) => Ok(Self { ssh: binary("ssh"), destination, unit, dir, nonce, launch, master: None }),
+        match (destination, unit, dir, nonce, launch, session, trace) {
+            (Some(destination), Some(unit), Some(dir), Some(nonce), Some(launch), Some(session), Some(trace)) => Ok(Self { ssh: binary("ssh"), destination, unit, dir, nonce, launch, session, trace: PathBuf::from(trace), master: None }),
             _ => Err(usage()),
         }
     }
 
     pub fn arguments(&self) -> Vec<String> {
-        [("--ssh", &self.destination), ("--unit", &self.unit), ("--dir", &self.dir), ("--nonce", &self.nonce), ("--launch", &self.launch)]
+        let trace = self.trace.to_string_lossy().into_owned();
+        [("--ssh", &self.destination), ("--unit", &self.unit), ("--dir", &self.dir), ("--nonce", &self.nonce), ("--launch", &self.launch), ("--session", &self.session), ("--trace", &trace)]
             .into_iter()
             .flat_map(|(flag, value)| [flag.to_owned(), value.clone()])
             .collect()
     }
 
     pub async fn relay(&self, input: mpsc::UnboundedReceiver<Vec<u8>>, output: &mut (impl AsyncWrite + Unpin), stop: impl Future<Output = ()>) -> NorthResult<u8> {
-        let mut stream = Stream { unsent: Unsent::default(), received: 0, input, output };
+        let mut stream = Stream { unsent: Unsent::default(), received: 0, began_ms: now_ms(), unit_ms: None, client_seen: false, input, output };
         tokio::pin!(stop);
         let (mut launched, mut retry) = (false, RETRY_FIRST);
         loop {
@@ -214,7 +223,9 @@ impl Link {
                         let Some((delivered, parsed)) = parse_header(&String::from_utf8_lossy(&head[..end])) else { return Ok(Connection::Gone) };
                         let _ = to_remote.send(stream.unsent.after(delivered));
                         header = Some(parsed);
+                        self.mark_unit(stream);
                     }
+                    self.mark_client(stream, &bytes);
                     if !stream.emit(&bytes).await {
                         return Ok(Connection::Closed);
                     }
@@ -243,6 +254,25 @@ impl Link {
             (Some(header), Some(code)) if header.cli == 0 && stream.received >= header.output => Connection::Ended(u8::try_from(code).unwrap_or(1)),
             (Some(_), _) => Connection::Lost { attached: true },
         })
+    }
+
+    fn mark_unit<O>(&self, stream: &mut Stream<'_, O>) {
+        if stream.unit_ms.is_none() {
+            let now = now_ms();
+            stream.unit_ms = Some(now);
+            self.span(Hop::RemoteUnit, stream.began_ms, now);
+        }
+    }
+
+    fn mark_client<O>(&self, stream: &mut Stream<'_, O>, bytes: &[u8]) {
+        if let (Some(unit_ms), false, false) = (stream.unit_ms, stream.client_seen, bytes.is_empty()) {
+            stream.client_seen = true;
+            self.span(Hop::Client, unit_ms, now_ms());
+        }
+    }
+
+    fn span(&self, hop: Hop, start_ms: u64, end_ms: u64) {
+        hops::record(&self.trace, &Span { session: self.session.clone(), hop, start_ms, end_ms });
     }
 
     fn attach(&self, offset: u64) -> String {

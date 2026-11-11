@@ -11,6 +11,7 @@ pub mod checkpoint;
 pub mod idle;
 pub mod install;
 pub mod host;
+pub mod hops;
 pub mod jobs;
 pub mod landings;
 pub mod lane_probe;

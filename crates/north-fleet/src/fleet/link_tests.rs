@@ -65,7 +65,7 @@ esac
 fn held(root: &Path, argv: &[&str], env: Vec<(String, std::ffi::OsString)>) -> Link {
     let shims = machine(root);
     let spec = HostSpec { key: "box one".into(), shared: false, argv: argv.iter().map(|word| (*word).to_owned()).collect(), env, env_remove: Vec::new(), cwd: root.to_path_buf() };
-    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "tom@far".into() }, root).unwrap();
+    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "tom@far".into() }, root, "box one", &root.join("hops.jsonl")).unwrap();
     assert_eq!(placed.argv[1], "session-link");
     Link { ssh: shims.join("ssh"), ..Link::parse(&placed.argv[2..]).unwrap() }
 }
@@ -143,7 +143,7 @@ fn a_session_held_on_another_machine_starts_its_link_here_though_its_lane_exists
     let root = tempfile::tempdir().unwrap();
     let lane = Path::new("/home/tom/code/north/worktrees/only-on-far");
     let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["opencode".into()], env: Vec::new(), env_remove: Vec::new(), cwd: lane.to_path_buf() };
-    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "tom@far".into() }, root.path()).unwrap();
+    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "tom@far".into() }, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
     assert_eq!(placed.cwd, root.path());
     assert!(Link::parse(&placed.argv[2..]).unwrap().launch.contains(&format!("cd {}", quote(&lane.to_string_lossy()))));
 }
