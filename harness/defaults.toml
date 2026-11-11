@@ -1744,7 +1744,7 @@ consumers = ["crates/north-guard/src/guard/proxy_role.rs"]
 [break_glass_minutes]
 value = 30
 allowed = { min = 1, max = 30 }
-unit = "minutes one `north fleet break-glass` lifts the proxy's look budgets, granted only while the harness measures that workers cannot start (the last two launches failed, or the launch probe exits non-zero)"
+unit = "minutes one `north fleet break-glass` lifts the proxy's look budget and its refusal of source, host, trace, journal and process-table reads, granted only while the harness measures that workers cannot start (the last two launches failed, or the launch probe exits non-zero)"
 source = "north#1106, 2026-11-11: Tom asked for a break-glass path beside the proxy-role table, bounded to 30 minutes so a lifted budget cannot outlast the stall that justified it"
 fallback = "none"
 consumers = ["crates/north-guard/src/guard/break_glass.rs"]
@@ -1760,8 +1760,8 @@ value = [
   { class = "issue-box", owner = "proxy", what = "read an issue and add, tick or close its boxes: `gh issue view|edit|close`, `north task check`" },
   { class = "status", owner = "proxy", what = "read reports and the status verbs: `north fleet tree|show|accounts`, `north land status`" },
   { class = "placement-look", owner = "proxy", what = "one bounded look to choose where work goes, inside the look budget" },
-  { class = "source-read", owner = "worker", what = "read repository source to find a cause" },
-  { class = "remote-read", owner = "worker", what = "read another host's processes or journals over ssh" },
+  { class = "source-read", owner = "worker", what = "read a file under a repository checkout to find a cause (rg, cat, sed, git show, git log -p); budget 0, refused before it runs, `git log --oneline` stays open" },
+  { class = "remote-read", owner = "worker", what = "ssh past `north fleet|threads|gate` and the status verbs, or a trace, journal or process table on any host (strace, journalctl, ps, top); budget 0, refused before it runs" },
   { class = "build", owner = "worker", what = "build a repository: cargo, bun, nix, make" },
   { class = "test", owner = "worker", what = "run a repository's tests" },
   { class = "repository-edit", owner = "worker", what = "edit any repository file; the proxy's scratch directory and issue bodies stay its own" },
@@ -1777,14 +1777,6 @@ value = 25
 allowed = { min = 5, max = 500 }
 unit = "read-only tool calls (diagnosis, status checks, landing logs) a proxy may make for one message from Tom before the PostToolUse hook stops the turn and names the brief to write; a launch, send or gate does not refill it, only Tom's next message does"
 source = "proxy: on 2026-11-11 between 4:04 and 4:35 AM +07 the proxy made about 50 read-only calls over two of Tom's messages and the streak limit stopped only the second, because an issue edit, a send and a launch each reset its count; the 2026-11-05 day's streaks ran median 5 and 90th percentile 18 (docs/rationale/proxy-role.md section 1), so 25 for a whole message lets a normal one run and stops that trace within its first message (north#1106, 2026-11-11)"
-fallback = "none"
-consumers = ["crates/north-guard/src/guard/proxy_role.rs"]
-
-[proxy_reach_budget]
-value = 8
-allowed = { min = 1, max = 500 }
-unit = "of one message's look calls, how many may read a repository's source or another host over ssh before the PostToolUse hook stops the turn and names the brief to write"
-source = "proxy: the 2026-11-11 trace read process tables on five hosts, journals and source in crates/north-lanes and crates/north-pace to trace one cause, and reading source or a host to find a cause is a worker's work; 8 is under a third of the look budget, enough to choose where work goes (north#1106, 2026-11-11)"
 fallback = "none"
 consumers = ["crates/north-guard/src/guard/proxy_role.rs"]
 

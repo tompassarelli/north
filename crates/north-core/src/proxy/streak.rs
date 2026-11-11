@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde_json::Value;
 
-use super::calls::{Kind, Reach, VerbKinds, classify, reach};
+use super::calls::{Kind, VerbKinds, classify};
 use super::shape::shape;
 
 const SUBJECT_CHARS: usize = 100;
@@ -10,8 +10,6 @@ const SUBJECT_CHARS: usize = 100;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Message {
     pub looks: usize,
-    pub source: usize,
-    pub remote: usize,
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -99,11 +97,6 @@ fn record(streaks: &mut Vec<Streak>, tool: &str, input: &Value, verbs: &VerbKind
     } else if reads_only(kind) {
         open.shapes.push(shape(tool, input));
         open.message.looks += 1;
-        match reach(tool, input) {
-            Some(Reach::Source) => open.message.source += 1,
-            Some(Reach::Remote) => open.message.remote += 1,
-            None => {}
-        }
     }
 }
 

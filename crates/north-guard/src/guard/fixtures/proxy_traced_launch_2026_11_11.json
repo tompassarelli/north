@@ -1,0 +1,21 @@
+{
+  "source": "the proxy's traced launch on nexus of 2026-11-11, reduced to the shape north#1106 records: a status look, then strace around north fleet launch over ssh to find the missing file behind the DeepSeek launch failures of north#1020; the transcript stays on whiterabbit",
+  "messages": [
+    {
+      "calls": [
+        {
+          "command": "north fleet tree 2>&1 | rg -v exited | head -40",
+          "looking": true,
+          "looks": 1,
+          "tool": "Bash"
+        },
+        {
+          "command": "ssh nexus 'cd ~/code/north/main && strace -f -e trace=file -o /tmp/launch.strace north fleet launch --provider opencode --task north#1042 brief; rg ENOENT /tmp/launch.strace | tail -20'",
+          "looking": true,
+          "looks": 2,
+          "tool": "Bash"
+        }
+      ]
+    }
+  ]
+}

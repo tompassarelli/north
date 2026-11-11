@@ -8,12 +8,11 @@ pub type PickTier = fn(&str) -> Result<Tier, String>;
 pub type RecordedDecisions = fn(&str, f64) -> Vec<String>;
 pub type AccountHome = fn(&str, &str) -> Option<PathBuf>;
 pub type ReadStreakOf = fn(&str, &Value) -> ReadStreak;
+pub type StatusVerb = fn(&[&str]) -> bool;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MessageReads {
     pub looks: usize,
-    pub source: usize,
-    pub remote: usize,
     pub looking: bool,
 }
 
@@ -32,6 +31,7 @@ pub struct Host {
     pub recorded_decisions: RecordedDecisions,
     pub account_home: AccountHome,
     pub read_streak: ReadStreakOf,
+    pub status_verb: StatusVerb,
 }
 
 static INSTALLED: OnceLock<Host> = OnceLock::new();
@@ -62,4 +62,8 @@ pub fn account_home(provider: &str, label: &str) -> Option<PathBuf> {
 
 pub fn read_streak(transcript: &str, hook: &Value) -> Option<ReadStreak> {
     installed().ok().map(|host| (host.read_streak)(transcript, hook))
+}
+
+pub fn status_verb(words: &[&str]) -> bool {
+    installed().is_ok_and(|host| (host.status_verb)(words))
 }

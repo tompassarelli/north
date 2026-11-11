@@ -35,7 +35,7 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             {
                 return ExitCode::SUCCESS;
             }
-            guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home, read_streak });
+            guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home, read_streak, status_verb });
             let started = std::time::Instant::now();
             match foundation::hook_deadline::within(started + GUARD_DEADLINE, move || hook::run(&arguments)) {
                 Some(outcome) => reported(outcome),
@@ -70,12 +70,16 @@ pub(super) fn grounded_session(conversation: &str) -> bool {
     crate::fleet::audience::grounded(&crate::fleet::audience::fleet_dir(), named.as_deref(), conversation, entrypoint.as_deref())
 }
 
+fn status_verb(words: &[&str]) -> bool {
+    super::verbs::VERB_KINDS.kind(words) == Some(crate::proxy::Kind::Status)
+}
+
 fn read_streak(transcript: &str, hook: &serde_json::Value) -> guard::host::ReadStreak {
     let text = |key: &str| hook.get(key).and_then(serde_json::Value::as_str).unwrap_or_default();
     let input = hook.get("tool_input").unwrap_or(&serde_json::Value::Null);
     let call = crate::proxy::Call { id: text("tool_use_id"), tool: text("tool_name"), input };
     let streak = crate::proxy::read_streaks(transcript, &super::verbs::VERB_KINDS, Some(call)).pop().unwrap_or_default();
-    let message = guard::host::MessageReads { looks: streak.message.looks, source: streak.message.source, remote: streak.message.remote, looking: crate::proxy::is_look(text("tool_name"), input, &super::verbs::VERB_KINDS) };
+    let message = guard::host::MessageReads { looks: streak.message.looks, looking: crate::proxy::is_look(text("tool_name"), input, &super::verbs::VERB_KINDS) };
     guard::host::ReadStreak { calls: streak.calls(), shapes: streak.top_shapes(3), subject: streak.subject, message }
 }
 

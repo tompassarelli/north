@@ -284,8 +284,11 @@ limit is replayed against a transcript.
 The streak resets on a send, so a proxy that interleaves one every few reads never trips it
 (north#1106, 2026-11-11: about 50 reads over two messages, the guard fired once). The same hook also
 counts looks per message from Tom, which a launch, send or gate does not refill: past
-`proxy_look_budget` it stops the turn, and past `proxy_reach_budget` for reads of repository source
-and of other hosts over ssh it does the same. The role guard also refuses builds and tests in any
+`proxy_look_budget` it stops the turn. Reads of repository source and of other hosts have a budget of 0
+(north#1106, 2026-11-11, after the proxy traced a launch inside the old budget of 8):
+`crates/north-guard/src/guard/proxy_reach.rs` refuses from the proxy, before the call runs, a remote command
+other than the fleet, threads, gate and status verbs, any trace, journal or process-table read on any host, and any
+read under a repository checkout but `git log --oneline`, naming the brief to write; only break-glass lifts it. The role guard also refuses builds and tests in any
 runner (cargo, bun, npm, make, go, pytest, nix build) and shell writes into a repository (redirect,
 tee, patch, git apply) from the proxy.
 

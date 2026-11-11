@@ -85,7 +85,7 @@ fn turn_tail(commands: &[&str], first: usize) -> Vec<String> {
 
 #[test]
 fn sends_between_reads_do_not_refill_one_messages_looks() {
-    let budgets = crate::guard::proxy_role::Budgets { looks: 25, reach: 8 };
+    let budgets = crate::guard::proxy_role::Budgets { looks: 25 };
     let question = "why is the laptop at load 87?";
     let mut lines = vec![prompt(question)];
     for at in 0..26 {
@@ -101,11 +101,6 @@ fn sends_between_reads_do_not_refill_one_messages_looks() {
     let mut next = lines.clone();
     next.push(prompt("and the cost table?"));
     assert_eq!(judge(&next, &hook("r26", "uptime")), Verdict::Allow, "Tom's next message refills the budget");
-
-    let ssh: Vec<String> = std::iter::once(prompt(question)).chain((0..9).flat_map(|at| [bash(&format!("s{at}"), &format!("ssh host{at} uptime")), result(&format!("s{at}"))])).collect();
-    assert!(matches!(judge(&ssh, &hook("s9", "ssh host9 uptime")), Verdict::Deny(reason) if reason.contains("ssh (10)")), "ten ssh reads exceed the reach budget of eight");
-    let source = vec![prompt(question), bash("a", "rg -n pace ~/code/north/main/crates/north-pace"), result("a")];
-    assert_eq!(judge(&source, &hook("b", "rg -n lanes ~/code/north/main/crates/north-lanes")), Verdict::Allow, "two source reads are inside the budget");
 }
 
 #[test]
@@ -116,8 +111,8 @@ fn the_recorded_load_trace_is_counted_as_its_fixture_says() {
         for (at, call) in message["calls"].as_array().unwrap().iter().enumerate() {
             let command = call["command"].as_str().unwrap();
             let reads = super::read_streak(&lines.join("\n"), &hook(&format!("c{at}"), command)).message;
-            let counted = (reads.looks as u64, reads.source as u64, reads.remote as u64, reads.looking);
-            let recorded = (call["looks"].as_u64().unwrap(), call["source"].as_u64().unwrap(), call["remote"].as_u64().unwrap(), call["looking"].as_bool().unwrap());
+            let counted = (reads.looks as u64, reads.looking);
+            let recorded = (call["looks"].as_u64().unwrap(), call["looking"].as_bool().unwrap());
             assert_eq!(counted, recorded, "{command}");
             lines.push(bash(&format!("c{at}"), command));
             lines.push(result(&format!("c{at}")));

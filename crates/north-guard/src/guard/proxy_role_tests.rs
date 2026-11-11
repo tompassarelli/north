@@ -16,6 +16,7 @@ struct Fake {
     config: Option<&'static str>,
     start: Option<(bool, bool)>,
     lane: Option<&'static [&'static str]>,
+    glass: bool,
 }
 
 impl World for Fake {
@@ -39,6 +40,12 @@ impl World for Fake {
     }
     fn claude_start(&self) -> Option<ClaudeStart> {
         self.start.map(|(nested, print)| ClaudeStart { nested, print, conversation: None })
+    }
+    fn break_glass(&self) -> bool {
+        self.glass
+    }
+    fn status_verb(&self, words: &[&str]) -> bool {
+        matches!(words, ["land", "status", ..] | ["glance", ..])
     }
 }
 
@@ -202,24 +209,20 @@ fn a_lane_behind_origin_main_lists_only_the_files_it_changed() {
     assert_eq!(lane_changes(dir), Some(vec!["docs/spend-rule.md".to_owned()]), "committed");
 }
 
-fn reads(looks: usize, source: usize, remote: usize, looking: bool) -> ReadStreak {
-    ReadStreak { calls: 3, subject: "why is the laptop at load 87?".into(), shapes: vec![("ps".into(), 3)], message: MessageReads { looks, source, remote, looking } }
+fn reads(looks: usize, looking: bool) -> ReadStreak {
+    ReadStreak { calls: 3, subject: "why is the laptop at load 87?".into(), shapes: vec![("ps".into(), 3)], message: MessageReads { looks, looking } }
 }
 
-const BUDGETS: Budgets = Budgets { looks: 25, reach: 8 };
+const BUDGETS: Budgets = Budgets { looks: 25 };
 
 #[test]
 fn a_proxy_that_interleaves_sends_still_runs_out_of_looks() {
-    let interleaved = reads(26, 0, 0, true);
+    let interleaved = reads(26, true);
     assert_eq!(streak_verdict(&interleaved, 15), Verdict::Allow, "sends keep resetting the streak, so the streak limit alone never fires");
     let Verdict::Deny(reason) = budget_verdict(&interleaved, &BUDGETS) else { panic!("the 26th look of one message went on") };
     assert!(reason.contains("26 read-only calls") && reason.contains("proxy_look_budget") && reason.contains("only Tom's next message does") && reason.contains("north work brief new") && reason.contains("north fleet launch"), "{reason}");
-    assert_eq!(budget_verdict(&reads(25, 0, 0, true), &BUDGETS), Verdict::Allow, "the budget itself still runs");
-    assert_eq!(budget_verdict(&reads(26, 0, 0, false), &BUDGETS), Verdict::Allow, "the launch that hands the work off is not a look");
-
-    let Verdict::Deny(reason) = budget_verdict(&reads(12, 6, 3, true), &BUDGETS) else { panic!("nine reads of source and other hosts went on") };
-    assert!(reason.contains("proxy_reach_budget") && reason.contains("source (6)") && reason.contains("ssh (3)"), "{reason}");
-    assert_eq!(budget_verdict(&reads(12, 5, 3, true), &BUDGETS), Verdict::Allow, "eight reads of source and hosts still run");
+    assert_eq!(budget_verdict(&reads(25, true), &BUDGETS), Verdict::Allow, "the budget itself still runs");
+    assert_eq!(budget_verdict(&reads(26, false), &BUDGETS), Verdict::Allow, "the launch that hands the work off is not a look");
 }
 
 #[test]
@@ -248,9 +251,71 @@ fn the_proxy_cannot_build_test_or_edit_a_repository() {
         assert!(denied(&proxy(), &bash(command)), "{command}");
         assert_eq!(decide(&worker(), &bash(command)), Verdict::Allow, "a worker may run {command}");
     }
-    let open = ["bun run script.ts", "npm view left-pad", "nix develop -c true", "sed -n 1,20p crates/north-guard/src/lib.rs", "echo x > /tmp/note", "echo x 2>&1 | cat", "git apply --check /tmp/fix.diff", "go version", "north fleet list"];
+    let open = ["bun run script.ts", "npm view left-pad", "nix develop -c true", "echo x > /tmp/note", "echo x 2>&1 | cat", "git apply --check /tmp/fix.diff", "go version", "north fleet list"];
     for command in open {
         let verdict = decide(&proxy(), &bash(command));
         assert_eq!(verdict, Verdict::Allow, "{command}");
     }
 }
+
+#[test]
+fn the_proxy_has_no_diagnosis_budget_without_break_glass() {
+    let diagnosis = [
+        bash("ssh nexus 'cd ~/code/north/main && strace -f -e trace=openat north fleet launch --provider opencode x 2>&1 | tail'"),
+        bash("ssh nexus journalctl --user -u north-dispatch -n 50"),
+        bash("ssh gex45 uptime"),
+        bash("ssh -o BatchMode=yes cpx62b 'north fleet tree; ps aux'"),
+        bash("ssh nexus"),
+        bash("scp nexus:/tmp/launch.log /tmp/"),
+        bash("journalctl --user -u north-lander -n 40"),
+        bash("ps -eo pid,pcpu,args --sort=-pcpu | head"),
+        bash("date '+%I:%M %p'; ps aux | head"),
+        bash("top -bn1 | head -20"),
+        bash("strace -c true"),
+        bash("systemctl --user status north-dispatch"),
+        bash("cat /proc/123/cmdline"),
+        bash("rg -n deepseek ~/code/north/main/crates/north-providers"),
+        bash("rg -n deepseek"),
+        bash("sed -n 1,20p crates/north-guard/src/lib.rs"),
+        bash("cd /tmp && cat /home/tom/code/north/main/harness/defaults.toml"),
+        bash("git show HEAD~1"),
+        bash("git -C /home/tom/code/north/main log -p -3 origin/main"),
+        bash("bash -c 'grep -r opencode ~/code/north/main/src'"),
+        bash("echo $(cat ~/code/north/main/Cargo.toml)"),
+        tool("Read", json!({"file_path": "/home/tom/code/north/main/crates/north-guard/src/guard/proxy_role.rs"})),
+        tool("Grep", json!({"pattern": "deepseek"})),
+        tool("Glob", json!({"pattern": "**/*.rs", "path": "/home/tom/code/north/main/crates"})),
+    ];
+    for input in &diagnosis {
+        let Verdict::Deny(reason) = decide(&proxy(), input) else { panic!("the proxy diagnosed outside break-glass: {:?}", input.tool_input) };
+        assert!(reason.contains("proxy-reach-guard") && reason.contains("north work brief new") && reason.contains("`Item:`") && reason.contains("`Done when:`") && reason.contains("north fleet launch"), "{reason}");
+        assert_eq!(decide(&worker(), input), Verdict::Allow, "a worker may {:?}", input.tool_input);
+        assert_eq!(decide(&Fake { glass: true, ..proxy() }, input), Verdict::Allow, "break-glass lifts {:?}", input.tool_input);
+    }
+    let open = [
+        bash("north fleet launch --provider claude --task north#1106 --box x 'brief'"),
+        bash("north fleet send n1106 'go'"),
+        bash("north gate open --session x --question q --option a --option b --recommend 1"),
+        bash("north fleet tree | rg -v exited | head -40"),
+        bash("cd /home/tom/code/north/main && north fleet tree 2>&1 | cut -c1-200 | sed -n 1,60p"),
+        bash("north land status"),
+        bash("gh issue view 1106 -R tompassarelli/north"),
+        bash("gh issue edit 1106 -R tompassarelli/north --body-file /tmp/proxy/body.md"),
+        bash("git -C /home/tom/code/north/main log --oneline -10 origin/main"),
+        bash("git -C ~/code/north/main fetch -q origin"),
+        bash("cat /tmp/proxy/brief.md"),
+        bash("cat ~/.local/state/north/fleet/n1106/report.md"),
+        bash("rg -n Done ~/.local/state/north/proxy/notes.md"),
+        bash("ssh nexus north fleet tree"),
+        bash("ssh -T nexus -- 'north land status | head -20'"),
+        bash("ssh gex45 'north glance'"),
+        bash("uptime"),
+        tool("Read", json!({"file_path": "/tmp/proxy/brief.md"})),
+        tool("Read", json!({"file_path": "/home/tom/.local/state/north/fleet/n1106/report.md"})),
+        tool("Write", json!({"file_path": "/tmp/proxy/brief.md", "content": "Item: north#1106 x"})),
+    ];
+    for input in &open {
+        assert_eq!(decide(&proxy(), input), Verdict::Allow, "{:?}", input.tool_input);
+    }
+}
+

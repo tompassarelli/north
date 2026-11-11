@@ -1,4 +1,5 @@
 use crate::guard::host::{self, ReadStreak};
+use crate::guard::proxy_reach;
 use crate::fleet::runtime::{PROXY, ROLE_ENV, SESSION_ENV};
 use crate::guard::paths::{basename, expanduser, join, normpath};
 use crate::hook_input::{HookInput, Verdict};
@@ -8,11 +9,11 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 
 const UNIT: &str = "proxy-role-guard";
+const REACH_UNIT: &str = "proxy-reach-guard";
 const STREAK_UNIT: &str = "proxy-read-streak";
 const STREAK_LIMIT: &str = "proxy_read_streak";
 const BUDGET_UNIT: &str = "proxy-look-budget";
 const LOOK_BUDGET: &str = "proxy_look_budget";
-const REACH_BUDGET: &str = "proxy_reach_budget";
 const TAIL_BYTES: u64 = 8 * 1024 * 1024;
 const SUBAGENTS: [&str; 2] = ["Explore", "Plan"];
 const CARGO_BUILDS: [&str; 11] = ["build", "b", "test", "t", "clippy", "check", "c", "nextest", "run", "bench", "doc"];
@@ -49,6 +50,8 @@ pub trait World {
     fn profile(&self, account: &str) -> Option<String>;
     fn claude_start(&self) -> Option<ClaudeStart>;
     fn lane_files(&self, cwd: &str) -> Option<Vec<String>>;
+    fn break_glass(&self) -> bool;
+    fn status_verb(&self, words: &[&str]) -> bool;
 }
 
 pub struct Live;
@@ -87,6 +90,14 @@ impl World for Live {
     fn lane_files(&self, cwd: &str) -> Option<Vec<String>> {
         lane_changes(cwd)
     }
+
+    fn break_glass(&self) -> bool {
+        crate::guard::break_glass::lifted_now()
+    }
+
+    fn status_verb(&self, words: &[&str]) -> bool {
+        host::status_verb(words)
+    }
 }
 
 pub(super) fn lane_changes(cwd: &str) -> Option<Vec<String>> {
@@ -108,7 +119,24 @@ pub fn decide(world: &impl World, input: &HookInput) -> Verdict {
     if !is_proxy(world, input) {
         return Verdict::Allow;
     }
-    refusal(world, input).map_or(Verdict::Allow, |action| Verdict::Deny(message(&action)))
+    if let Some(action) = refusal(world, input) {
+        return Verdict::Deny(message(&action));
+    }
+    match reach(world, input) {
+        Some(what) if !world.break_glass() => Verdict::Deny(reach_message(&what)),
+        _ => Verdict::Allow,
+    }
+}
+
+fn reach(world: &impl World, input: &HookInput) -> Option<String> {
+    let home = world.var("HOME")?;
+    let status_verb = |words: &[&str]| world.status_verb(words);
+    let look = proxy_reach::Look { home: &home, cwd: input.cwd().unwrap_or(&home), status_verb: &status_verb };
+    proxy_reach::diagnosis(&look, input.tool_name(), &input.tool_input)
+}
+
+fn reach_message(what: &str) -> String {
+    format!("BLOCKED ({REACH_UNIT}): the proxy diagnoses nothing outside break-glass (proxy_role in harness/defaults.toml), so it does not {what}. Hand the cause to a worker: write the brief with `north work brief new --category debugging-unknown-cause --item REPO#N`, which prints the header lines a brief needs (`Item:`, `Category:`, `Spec:`, `Scope:`, `Surface:`, `Verify:`, `Done when:`, `ETA:`, `Files:`), name in it what this call would have read, staff it with `north fleet launch --task REPO#N`, and judge the report. Launches, sends, gates, issue reads and edits, reports, the north status verbs, the proxy's scratch and `git log --oneline origin/main` stay open; only `north fleet break-glass`, while workers cannot launch, lifts this.")
 }
 
 pub fn is_proxy(world: &impl World, input: &HookInput) -> bool {
@@ -403,31 +431,24 @@ pub fn evaluate_streak(input: &HookInput) -> Verdict {
 
 pub struct Budgets {
     pub looks: usize,
-    pub reach: usize,
 }
 
 pub fn budgets() -> Budgets {
     let number = |name| north_base::platform::harness::default_number(name) as usize;
-    Budgets { looks: number(LOOK_BUDGET), reach: number(REACH_BUDGET) }
+    Budgets { looks: number(LOOK_BUDGET) }
 }
 
 pub fn budget_verdict(streak: &ReadStreak, budgets: &Budgets) -> Verdict {
     let message = streak.message;
-    if !message.looking {
+    if !message.looking || message.looks <= budgets.looks {
         return Verdict::Allow;
     }
-    let reach = message.source + message.remote;
-    let (spent, budget, name, what) = if message.looks > budgets.looks {
-        (message.looks, budgets.looks, LOOK_BUDGET, "read-only calls".to_owned())
-    } else if reach > budgets.reach {
-        (reach, budgets.reach, REACH_BUDGET, format!("reads of repository source ({}) or of other hosts over ssh ({})", message.source, message.remote))
-    } else {
-        return Verdict::Allow;
-    };
     let subject = if streak.subject.is_empty() { "this message" } else { streak.subject.as_str() };
     let read: Vec<String> = streak.shapes.iter().map(|(shape, calls)| format!("`{shape}` x{calls}")).collect();
     Verdict::Deny(format!(
-        "STOPPED ({BUDGET_UNIT}): this message from Tom has had {spent} {what} on \"{subject}\", over the budget of {budget} ({name} in harness/defaults.toml); a launch, send or gate does not refill it, only Tom's next message does. The proxy routes and judges, so finding this cause is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
+        "STOPPED ({BUDGET_UNIT}): this message from Tom has had {} read-only calls on \"{subject}\", over the budget of {} ({LOOK_BUDGET} in harness/defaults.toml); a launch, send or gate does not refill it, only Tom's next message does. The proxy routes and judges, so finding this cause is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
+        message.looks,
+        budgets.looks,
         read.join(", "),
     ))
 }
