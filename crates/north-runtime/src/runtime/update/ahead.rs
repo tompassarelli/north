@@ -106,7 +106,7 @@ pub(super) fn build(layout: &Layout, checkout: &Path, tree: &str, commit: &str) 
 /// Keeps what the freest build host built for `tree`. This host settles the fleet while people work on it, so it
 /// never builds the release itself: with no build host answering, or the chosen one failing, nothing is kept and the
 /// promotion of the landing has a build host build it.
-fn request(layout: &Layout, tree: &str, commit: &str, hosts: impl FnOnce() -> Vec<BuildHost>, build_on: impl FnOnce(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<(), Failure> {
+fn request(layout: &Layout, tree: &str, commit: &str, hosts: impl FnOnce() -> Vec<BuildHost>, build_on: impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<(), Failure> {
     if !layout::is_sha(tree) || !layout::is_sha(commit) {
         return Err(failed(64, "build-ahead needs a tree hash and a commit hash"));
     }

@@ -17,26 +17,39 @@ pub(super) struct Built {
     pub binary: String,
 }
 
-/// The build host with the most free cores among those that answered, else each host's reason.
-fn freest(hosts: Vec<BuildHost>) -> Result<BuildHost, String> {
+/// The build hosts that answered, most free cores first, else each host's reason.
+fn answered(hosts: Vec<BuildHost>) -> Result<Vec<BuildHost>, String> {
     if hosts.is_empty() {
         return Err("this host reaches no build host".to_owned());
     }
     let unanswered: Vec<String> = hosts.iter().filter(|host| host.free_cpus.is_none()).map(|host| format!("{}: unreachable or unreadable over ssh", host.name)).collect();
-    hosts
-        .into_iter()
-        .filter(|host| host.free_cpus.is_some())
-        .max_by(|one, other| one.free_cpus.partial_cmp(&other.free_cpus).unwrap_or(std::cmp::Ordering::Equal))
-        .ok_or_else(|| format!("no build host answered ({})", unanswered.join("; ")))
+    let mut answered: Vec<BuildHost> = hosts.into_iter().filter(|host| host.free_cpus.is_some()).collect();
+    if answered.is_empty() {
+        return Err(format!("no build host answered ({})", unanswered.join("; ")));
+    }
+    answered.sort_by(|one, other| other.free_cpus.partial_cmp(&one.free_cpus).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(answered)
 }
 
-/// Builds `target` on the freest build host and takes its binaries into `runtime`, marked with the host and the binary's hash and verified as built from `target`; an error names why no build host built it, and the caller builds here.
-pub(super) fn build(target: &str, runtime: &Path, hosts: Vec<BuildHost>, build_on: impl FnOnce(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<Built, String> {
-    let host = freest(hosts)?;
+/// Builds `target` on the build host with the most free cores, then on each next one that answered while one fails, and takes its binaries into `runtime`, marked with the host and the binary's hash and verified as built from `target`; an error names why each build host did not build it, and the caller builds here.
+pub(super) fn build(target: &str, runtime: &Path, hosts: Vec<BuildHost>, mut build_on: impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<Built, String> {
     let short = layout::short(target);
-    println!("north runtime: building {short} on {}, the build host with the most free cores ({:.0})", host.name, host.free_cpus.unwrap_or_default());
+    let mut refused = Vec::new();
+    for host in answered(hosts)? {
+        let which = if refused.is_empty() { "the build host with the most free cores" } else { "the next build host" };
+        println!("north runtime: building {short} on {}, {which} ({:.0})", host.name, host.free_cpus.unwrap_or_default());
+        match take(&host, target, runtime, &mut build_on) {
+            Ok(built) => return Ok(built),
+            Err(why) => refused.push(why),
+        }
+    }
+    Err(refused.join("; "))
+}
+
+fn take(host: &BuildHost, target: &str, runtime: &Path, build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<Built, String> {
+    let short = layout::short(target);
     let started = Instant::now();
-    let taken = build_on(&host, target, runtime).map_err(|failure| failure.message).and_then(|()| layout::built_from_own_commit(runtime));
+    let taken = build_on(host, target, runtime).map_err(|failure| failure.message).and_then(|()| layout::built_from_own_commit(runtime));
     if let Err(why) = taken {
         for program in PROGRAMS.iter().chain([&BUILT_FROM]) {
             let _ = fs::remove_file(runtime.join(program));
@@ -45,7 +58,7 @@ pub(super) fn build(target: &str, runtime: &Path, hosts: Vec<BuildHost>, build_o
     }
     let binary = layout::binary_hash(&runtime.join("north")).map_err(|error| error.to_string())?;
     fs::write(runtime.join(BUILT_ON), format!("{} {binary}\n", host.name)).map_err(|error| error.to_string())?;
-    let built = Built { host: host.name, seconds: started.elapsed().as_secs() as i64, binary };
+    let built = Built { host: host.name.clone(), seconds: started.elapsed().as_secs() as i64, binary };
     println!("north runtime: built {short} on {} in {}s and took its binaries", built.host, built.seconds);
     Ok(built)
 }
