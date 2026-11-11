@@ -145,7 +145,7 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
         let landed = landed_branches(scratch::queue_dir().as_deref());
         let at = now();
         for run in active.iter_mut().filter(|r| r.resolved.is_none()) {
-            step(run, status.get(&run.name), landed.get(&run.branch).copied(), at);
+            step(run, status.get(&run.name), landed.get(&run.branch).copied().filter(|end| *end >= run.launch_start), at);
         }
         let (resolved, still): (Vec<Run>, Vec<Run>) = active.into_iter().partition(|r| r.resolved.is_some());
         active = still;

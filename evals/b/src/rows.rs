@@ -50,7 +50,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
     let dir = plan.work.join(&run.name);
     let session: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap_or_default()).unwrap_or(Value::Null);
     let transcript = collect::transcript(&dir);
-    let attempts = collect::spans(scratch::queue_dir().as_deref(), &run.branch);
+    let attempts = collect::spans(scratch::queue_dir().as_deref(), &run.branch, run.launch_start);
     let (cost, total) = collect::spend(&dir);
     let (resolved_at, reason) = run.resolved.clone().unwrap_or((run.launch_end, "unresolved".to_owned()));
     let landed = reason == "landed";

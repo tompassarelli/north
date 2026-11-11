@@ -72,10 +72,10 @@ pub fn transcript(dir: &Path) -> Value {
     })
 }
 
-pub fn spans(queue: Option<&Path>, branch: &str) -> Value {
+pub fn spans(queue: Option<&Path>, branch: &str, since: f64) -> Value {
     let Some(text) = queue.and_then(|q| fs::read_to_string(q.join("logs/spans.jsonl")).ok()) else { return json!([]) };
     let all: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
-    let landings: Vec<&Value> = all.iter().filter(|s| s["category"] == "landing" && s["name"] == branch).collect();
+    let landings: Vec<&Value> = all.iter().filter(|s| s["category"] == "landing" && s["name"] == branch && s["start"].as_f64().is_some_and(|start| start >= since)).collect();
     let attempts: Vec<Value> = landings
         .iter()
         .map(|landing| {

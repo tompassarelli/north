@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -uo pipefail
+export PATH=/home/tom/.local/bin:/home/tom/.nix-profile/bin:/run/current-system/sw/bin:$PATH
+B=/tmp/north-assessment/evals/b
+A=/tmp/north-assessment/evals/a
+E=$B/bin/eval-b
+R=$B/results.jsonl
+LOG=$B/ladder.log
+usage() { echo "usage: ladder --parent SESSION [--smoke] [LEVEL:COUNT ...] [--t3]   e.g. ladder --parent w-eval-b --smoke 1:5 5:5" >&2; exit 64; }
+smoke=false t3=false levels=() parent=${EVAL_B_PARENT:-} want= account=${EVAL_ACCOUNT:-d}
+for arg in "$@"; do
+  [ -n "$want" ] && { parent=$arg want=; continue; }
+  case $arg in --parent) want=1 ;; --smoke) smoke=true ;; --t3) t3=true ;; [0-9]*:[0-9]*) levels+=("$arg") ;; *) usage ;; esac
+done
+tell() { echo "$(date '+%I:%M %p') $*" >> "$LOG"; north fleet send "$parent" "eval-b: $*" > /dev/null 2>&1; }
+cleanup() {
+  pkill -f 'north land serve --repo /tmp/eval-b/main' 2> /dev/null
+  for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -f 'north land serve --repo /tmp/eval-b/main' > /dev/null || break; sleep 1; done
+  queue=$("$E" queue --archive "$B" 2>&1)
+  for host in gex45 cpx62 cpx62b; do ssh -o BatchMode=yes "tom@$host" rm -rf /tmp/eval-b > /dev/null 2>&1; done
+  rm -rf /tmp/eval-b
+  for name in $(north fleet list --json 2> /dev/null | jq -r '.[] | select(.name | startswith("evalb-")) | .name'); do
+    north fleet stop "$name" > /dev/null 2>&1; north fleet forget "$name" > /dev/null 2>&1
+  done
+  left=$(north fleet list --json --all 2> /dev/null | jq -r '[.[] | select(.name | startswith("evalb-") and .status != "exited") | .name] | join(" ")')
+  pgrep -f 'north land serve --repo /tmp/eval-b/main' > /dev/null && left="$left scratch-lander"
+  tell "exit: ${left:-nothing left running}${left:+ was left running or registered}; $queue"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM INT
+line() {
+  jq -rs --argjson l "$1" --arg arm "${2:-north}" '[.[] | select(.level == $l and .arm == $arm)] as $r
+    | ($r | map(select(.landed)) | map(.t_land_s) | sort) as $t
+    | def p($q): if ($t | length) == 0 then "-" else "\($t[(($q * (($t | length) - 1)) | round)]) s" end;
+    "level \($l): \($r | map(select(.landed)) | length) of \($r | length) landed, p50 \(p(0.5)), p95 \(p(0.95)), \($r | map(select(.failed)) | length) failures \($r | map(select(.failed) | .failure) | unique)"' "$R"
+}
+rows() { jq -s --argjson l "$1" '[.[] | select(.level == $l and .arm == "north")] | length' "$R" 2> /dev/null || echo 0; }
+bent() { jq -se --argjson l "$1" '[.[] | select(.level == $l and .arm == "north")] | (map(select(.failed)) | length) * 4 > length' "$R" > /dev/null; }
+mkdir -p "$B/work"
+echo "---- $(date '+%I:%M %p') ladder $*" >> "$LOG"
+exec 9> /tmp/north-assessment/evals/work/.lock
+flock -n 9 || { tell "another eval run holds the eval lock; not started"; exit 75; }
+if $smoke; then
+  rm -f "$B/smoke-results.jsonl"
+  "$E" ladder --workload "$B/workload" --level 1 --count 1 --account "$account" --parent "$parent" --work "$B/smoke-work" --results "$B/smoke-results.jsonl" >> "$LOG" 2>&1
+  verdict=$(tail -1 "$B/smoke-results.jsonl" 2> /dev/null | jq -c '{landed, t_land_s, host: .conditions.host, failure, last_words: (.last_words[0:300])}')
+  tell "smoke: ${verdict:-no row written}"
+  echo "$verdict" | jq -e '.landed and .host != "whiterabbit"' > /dev/null 2>&1 || { tell "smoke did not land from a build host; stopping; launch.log: $(grep -m1 -i error "$(ls -t "$B"/smoke-work/*/*/launch.log 2> /dev/null | head -1)" 2> /dev/null || echo none)"; exit 1; }
+fi
+for spec in "${levels[@]}"; do
+  level=${spec%%:*} count=${spec##*:} before=$(rows "$level")
+  "$E" ladder --workload "$B/workload" --level "$level" --count "$count" --account "$account" --parent "$parent" --work "$B/work" --results "$R" >> "$LOG" 2>&1
+  code=$?
+  if [ "$code" -ne 0 ] || [ "$(rows "$level")" -le "$before" ]; then tell "level $level: the runner exited $code and wrote $(($(rows "$level") - before)) rows; stopping, no higher level runs"; exit 1; fi
+  summary=$(line "$level")
+  tell "$summary"; north fleet send proxy "$summary" > /dev/null 2>&1
+  if bent "$level"; then tell "level $level: more than a quarter failed; the curve bends here, no higher level runs"; exit 0; fi
+done
+if $t3; then
+  exec 9>&-
+  "$A/run" --tasks "$B/t3-tasks.json" --arms t3-vanilla --runs 1 --seed 20261111 --account "$account" --results "$B/t3-eval-a.jsonl" >> "$LOG" 2>&1 || tell "T3 arm: Eval A's runner exited non-zero; see $LOG"
+  "$E" t3-rows --workload "$B/workload" --from "$B/t3-eval-a.jsonl" --results "$R" >> "$LOG" 2>&1
+  tell "$(line 1 t3-sequential | sed 's/^level 1/T3 Code one at a time/')"
+fi
+"$E" summary --results "$R" > "$B/summary.txt" 2>&1
+tell "done: ladder $*; summary in $B/summary.txt"
+exit 0
