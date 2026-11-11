@@ -32,6 +32,7 @@ const UPDATE_LOCK: &str = "runtime-update.lock";
 const PROMOTE_LOCK: &str = "runtime-promote.lock";
 const PROMOTE_QUEUE: &str = "runtime-promote-queue.lock";
 const PAGE_LOCK: &str = "runtime-page.lock";
+const CHECKOUT: &str = "code/north/main";
 const BUILD_FOR_PEER_LOCK: &str = "runtime-build.lock";
 const BUILD_FOR_PEER_WAIT: Duration = Duration::from_secs(30 * 60);
 
@@ -137,16 +138,25 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
     Ok(())
 }
 
-/// One build for another host runs here at a time, since each borrows the one runtime-build lane and kept target; a commit not on origin/main is refused, so a build host builds only what landed.
+/// One build for another host runs here at a time, since each borrows the one runtime-build lane and kept target; a commit neither on origin/main nor sent here ahead of its landing as a lander's candidate is refused, so a build host builds only what landed or what a lander is checking.
 pub(super) fn build_for_peer(layout: &Layout, target: &str) -> Result<(), Failure> {
     let checkout = checkout();
-    fetch(&checkout)?;
-    if !ancestor(&checkout, target, "origin/main") {
-        return Err(failed(1, format!("{} is not on origin/main; a build host builds only landed commits", layout::short(target))));
+    let candidate = ahead::sent(&checkout, target);
+    let built = build_landed_or_candidate(layout, &checkout, target, candidate);
+    if candidate {
+        ahead::forget(&checkout, target);
+    }
+    built
+}
+
+fn build_landed_or_candidate(layout: &Layout, checkout: &Path, target: &str, candidate: bool) -> Result<(), Failure> {
+    fetch(checkout)?;
+    if !candidate && !ancestor(checkout, target, "origin/main") {
+        return Err(failed(1, format!("{} is neither on origin/main nor a candidate a lander sent ahead; a build host builds no other commit", layout::short(target))));
     }
     let _building = named_lock_waiting(layout, BUILD_FOR_PEER_LOCK, remote::limit(BUILD_FOR_PEER_WAIT), "north runtime build")?;
     let _writing = writing(layout, target)?;
-    build::build_for_peer(layout, &checkout, target, &layout.runtime(target))
+    build::build_for_peer(layout, checkout, target, &layout.runtime(target))
 }
 
 pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Failure> {
@@ -403,7 +413,7 @@ fn reused(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> boo
 pub(super) fn checkout() -> PathBuf {
     std::env::var_os("NORTH_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| layout::home().join("code/north/main"))
+        .unwrap_or_else(|| layout::home().join(CHECKOUT))
 }
 
 fn git<S: AsRef<OsStr>>(checkout: &Path, args: &[S]) -> Result<String, Failure> {

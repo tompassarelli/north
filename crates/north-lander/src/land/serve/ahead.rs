@@ -17,7 +17,7 @@ fn requested() -> &'static Mutex<HashSet<String>> {
     REQUESTED.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-/// Asks for the release north of the candidate the lander just built and will push, while its checks run: the landed commit carries this tree, so the promotion that follows the push finds the artifact ready and builds nothing (north#1022). The request runs as a transient unit of its own, so a lander restart neither waits on it nor kills it, and the runtime keeps one build at a time.
+/// Asks for the release north of the candidate the lander just built and will push, while its checks run: the landed commit carries this tree, so the promotion that follows the push finds the artifact ready and builds nothing (north#1022). The request runs as a transient unit of its own, so a lander restart neither waits on it nor kills it; the runtime has a build host build it, one at a time, and never builds it on this host.
 pub(super) fn candidate(lander: &Lander, base: &str, head: &str) {
     if !changes_runtime(lander, base, head) {
         return;
@@ -61,7 +61,7 @@ fn request(lander: &Lander, tree: &str, commit: &str) -> bool {
     let started = unit.status().is_ok_and(|status| status.success());
     match started {
         true => println!("north land: asked for the release north of tree {} while its checks run", &tree[..12]),
-        false => println!("north land: could not start the release build of tree {} ahead; the promotion builds it", &tree[..12]),
+        false => println!("north land: could not ask for the release north of tree {} ahead; the promotion has a build host build it", &tree[..12]),
     }
     started
 }
