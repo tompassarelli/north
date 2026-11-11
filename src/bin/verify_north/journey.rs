@@ -18,9 +18,10 @@ Spec: exact
 Scope: one-file
 Surface: shell
 Verify: local-test
-Done when: worker.txt holds the line `the worker's change`, is committed on this branch and is landed on main by `safe-push --to main --wait`.
-In the current directory write the single line `the worker's change` to worker.txt, run `git add worker.txt && git commit -m \"Add the worker's change\"`, then hand in with `safe-push --to main --wait`. Once it prints `Done: landed`, reply with one line that starts `Done:`.";
+Done when: worker.txt holds the line `the worker's change`, and the `hand-in` tool returns `Done: landed` for it, landing it on main.
+In the current directory write the single line `the worker's change` to worker.txt. Then call the `hand-in` tool once with the message `Add the worker's change` and the paths set to the absolute path of worker.txt (the current directory followed by /worker.txt). Do not run git add or git commit first. Once the tool returns `Done: landed`, reply with that line as your only reply.";
 const CHANGED_FILE: &str = "worker.txt";
+const HAND_IN_TOOL: &str = "mcp__north__hand-in";
 const CLAUDE_MODEL: &str = "haiku";
 const HAND_IN_WAIT: Duration = Duration::from_mins(9);
 const SERVE_WAIT: Duration = Duration::from_secs(30);
@@ -34,7 +35,7 @@ type Step = fn(&mut Journey) -> Result<String, String>;
 
 const STEPS: [(&str, &str, Step); 4] = [
     ("1", "`north land serve` serves a scratch repository's queue and a claude haiku worker takes the brief in its lane", take_brief),
-    ("2", "the worker hands in with `safe-push --to main --wait` and reports once its commit lands", hand_in),
+    ("2", "the worker hands in with one `hand-in` tool call, which returns `Done: landed`", hand_in),
     ("3", "the lander landed the worker's commit on origin main", land),
     ("4", "`north ledger worker` records the run done and landed at that commit", ledger_row),
 ];
@@ -94,8 +95,13 @@ fn take_brief(journey: &mut Journey) -> Result<String, String> {
 
 fn hand_in(journey: &mut Journey) -> Result<String, String> {
     let report = journey.settled_report(HAND_IN_WAIT, |_| true)?;
-    if !report.starts_with("Done:") {
-        return Err(format!("the worker reported {:?}", shorten(&report)));
+    let transcript = journey.transcript()?;
+    if !transcript.entries.iter().any(|entry| entry.kind == "tool" && entry.text.starts_with(HAND_IN_TOOL)) {
+        let calls: Vec<&str> = transcript.entries.iter().filter(|entry| entry.kind == "tool").map(|entry| entry.text.as_str()).collect();
+        return Err(format!("the worker did not call the {HAND_IN_TOOL} tool; its tool calls were {:?}", shorten(&calls.join(" | "))));
+    }
+    if !report.starts_with("Done: landed") {
+        return Err(format!("the worker's hand-in did not return `Done: landed`; it reported {:?}", shorten(&report)));
     }
     let scratch = journey.scratch()?;
     let head = scratch.lane_head()?;

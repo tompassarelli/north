@@ -62,7 +62,7 @@ fn tool(verb: &str) -> Value {
     if verb == HAND_IN {
         return json!({
             "name": verb,
-            "description": "Hands in your finished lane in one call: stages and commits exactly `paths` (absolute, all in one lane) with `message`, runs every safe-push gate, queues the lane and waits for the lander. Returns `Done: landed COMMIT on main`, or why it did not land.",
+            "description": "Hands in your finished lane in one call: commits the changed `paths` (absolute, all in one lane) with `message`, or queues the lane as it stands when they are already committed, then runs every safe-push gate, queues the lane and waits for the lander. Returns `Done: landed COMMIT on main`, or why it did not land.",
             "inputSchema": {"type": "object", "properties": {"message": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}}, "required": ["message", "paths"]},
         });
     }

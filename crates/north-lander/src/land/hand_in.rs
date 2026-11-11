@@ -66,12 +66,34 @@ fn commit(directory: &Path, request: &Request) -> Result<Lane, String> {
     if named.len() != paths.len() {
         return Err("a path is not valid UTF-8".to_owned());
     }
+    let relative: Vec<String> = paths.iter().map(|path| relative_to(&root, path).ok_or_else(|| format!("{} is outside the lane {}", path.display(), root.display()))).collect::<Result<_, _>>()?;
+    let committed = lane_changes(&root, &destination)?;
+    let unnamed: Vec<&str> = committed.iter().map(String::as_str).filter(|change| !relative.iter().any(|path| path == change)).collect();
+    if !unnamed.is_empty() {
+        return Err(format!("the lane's commits also change {}, which the hand-in did not name", unnamed.join(" ")));
+    }
     git(&root, &[&["add", "--all", "--"][..], &named].concat())?;
     if git(&root, &[&["diff", "--cached", "--name-only", "HEAD", "--"][..], &named].concat())?.is_empty() {
-        return Err(format!("no changes in {}", named.join(" ")));
+        if committed.is_empty() {
+            return Err(format!("no changes in {}", named.join(" ")));
+        }
+        return Ok(Lane { root, destination });
     }
     git(&root, &[&["commit", "--quiet", "--only", "--message", request.message, "--"][..], &named].concat())?;
     Ok(Lane { root, destination })
+}
+
+fn lane_changes(root: &Path, destination: &str) -> Result<Vec<String>, String> {
+    let range = format!("origin/{destination}...HEAD");
+    Ok(git(root, &["diff", "--name-only", &range, "--"])?.lines().map(str::to_owned).collect())
+}
+
+fn relative_to(root: &Path, path: &Path) -> Option<String> {
+    let existing = path.ancestors().find(|ancestor| ancestor.exists())?;
+    let rest = path.strip_prefix(existing).ok()?;
+    let real = existing.canonicalize().ok()?;
+    let real = if rest.as_os_str().is_empty() { real } else { real.join(rest) };
+    real.strip_prefix(root).ok()?.to_str().map(str::to_owned)
 }
 
 fn checkout(path: &Path) -> Option<PathBuf> {

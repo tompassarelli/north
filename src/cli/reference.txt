@@ -114,7 +114,7 @@ Commands:
   land actions --workflow FILE --base B --head H --timeout S -- COMMAND...
                                                  Run land checks as a GitHub Actions workflow on a scratch branch and wait for its verdict
   safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag other than v* (branches land through safe-push --to)
-  hand-in --message TEXT [--] PATH...            Stage and commit exactly PATH... in their lane with TEXT, then hand the lane in as safe-push --to main --wait does and print its verdict
+  hand-in --message TEXT [--] PATH...            Stage and commit exactly the changed PATH... in their lane with TEXT, or queue the lane as it stands when PATH... are already committed on it, then hand the lane in as safe-push --to main --wait does and print its verdict
   land release VERSION [--notes FILE]                 From a clean main at origin, create and push the annotated tag vVERSION and its GitHub release; a rerun finishes a partial release
   nix explain <nix subcommand | class>           Print a Nix footgun card, then the option sections of this host's `nix <cmd> --help` it names
   nix gc [--dry-run] [--max-freed SIZE]          Root every promoted runtime, live worktree dev shell and rustup wrapper store path, then collect the store

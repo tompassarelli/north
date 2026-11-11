@@ -98,6 +98,34 @@ fn a_hand_in_verb_call_stages_the_named_paths_commits_queues_and_returns_the_lan
     assert_eq!(git(&north.origin, &["diff-tree", "--no-commit-id", "--name-only", "-r", "main"]), "named.txt", "the verb committed more than the named path");
 }
 
+#[test]
+fn a_hand_in_verb_call_queues_a_lane_whose_named_paths_the_worker_committed_first() {
+    let (world, north) = scanned_world(JUDGE_PASSES);
+    let lane = worktree(&north, "committed");
+    fs::write(lane.join("named.txt"), "the named change\n").unwrap();
+    git(&lane, &["add", "named.txt"]);
+    git(&lane, &["commit", "-qm", "Commit the named change first"]);
+    fs::write(lane.join("other.txt"), "a change committed beside it\n").unwrap();
+    git(&lane, &["add", "other.txt"]);
+    git(&lane, &["commit", "-qm", "Commit another change"]);
+    let start = git(&lane, &["rev-parse", "HEAD"]);
+    let base = git(&north.origin, &["rev-parse", "main"]);
+
+    let refused = verb(&world, "Add the named note", &[&lane.join("named.txt")]).wait_with_output().unwrap();
+    let text = report(&refused);
+    assert_eq!(refused.status.code(), Some(1), "{text}");
+    assert!(text.contains("other.txt") && text.contains("NOT committed"), "{text}");
+    assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a refused hand-in committed: {text}");
+    assert!(queue::pending(&north.queue).unwrap().is_empty(), "a refused hand-in queued: {text}");
+
+    let (output, journal) = decided(&world, &north, verb(&world, "Add the named note (north#1158)", &[&lane.join("named.txt"), &lane.join("other.txt")]));
+    let text = report(&output);
+    let landed = git(&north.origin, &["rev-parse", "main"]);
+    assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
+    assert!(text.contains(&format!("Done: landed {landed} on main")), "the verb did not queue the committed lane: {text}\n{journal}");
+    assert_eq!(git(&north.origin, &["diff", "--name-only", &base, &landed]), "named.txt\nother.txt", "the lander did not land exactly the committed paths");
+}
+
 fn refused_by_both_roads(world: &World, north: &Repository, lane: &Path, path: &Path, refusal: &str) {
     let by_verb = verb(world, "Hand in the refused change", &[path]).wait_with_output().unwrap();
     let by_safe_push = safe_push_road(world, lane).wait_with_output().unwrap();
