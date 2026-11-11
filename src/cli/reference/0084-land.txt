@@ -1,1 +1,2 @@
   land scan denylist BASE HEAD REF              Scan an outgoing change for private deny-list values
+  land scan private-kinds BASE HEAD REF [WAIT_MS]  Read or ask the private-kind verdict on an outgoing change: exit 0 clean, 1 refused, 3 still judging, 75 no verdict

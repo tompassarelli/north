@@ -90,6 +90,7 @@ Commands:
   land scan gate-shadow BASE..HEAD              Refuse a gate in harness/gates.toml switched to enforce without a recorded shadow review
   land scan holdlist-guards-resolve BASE..HEAD  Refuse a lane that drops the guard of a live hold in harness/holdlist.toml or weakens a hold without a Holdlist: trailer
   land scan denylist BASE HEAD REF              Scan an outgoing change for private deny-list values
+  land scan private-kinds BASE HEAD REF [WAIT_MS]  Read or ask the private-kind verdict on an outgoing change: exit 0 clean, 1 refused, 3 still judging, 75 no verdict
   land scan commit-email REVISION...            Check author and committer emails
   land scan native-ref [--range REVISION]... [-- NAME...]  Refuse native item references
   land scan secrets RANGE                       Run betterleaks over a range

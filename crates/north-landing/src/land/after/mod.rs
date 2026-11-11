@@ -116,9 +116,10 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
     let mut spans = trace::landing::shared(stages, head);
     for (path, ticket, tip) in tickets {
         let name = name_of(&path);
-        let queued = crate::platform::land_queue::rfc3339_seconds(&ticket.queued_at).unwrap_or_else(|| stages.started_at());
+        let queued = ticket.queued_micros.map(seconds_of).or_else(|| crate::platform::land_queue::rfc3339_seconds(&ticket.queued_at)).unwrap_or_else(|| stages.started_at());
+        let hand_in = ticket.hand_in.map(|hand_in| trace::landing::HandIn { called: seconds_of(hand_in.called_micros), gates: seconds_of(hand_in.gates_micros), asked: seconds_of(hand_in.asked_micros), verdict: hand_in.verdict_micros.map(seconds_of) });
         let ticket_name = path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
-        spans.extend(trace::landing::spans(stages, &trace::landing::Landed { ticket: &ticket_name, branch: &ticket.branch, queued, landed: head, batch: batch_size }));
+        spans.extend(trace::landing::spans(stages, &trace::landing::Landed { ticket: &ticket_name, branch: &ticket.branch, queued, landed: head, batch: batch_size, hand_in }));
         let repository = push_ledger::repository(&ticket.origin);
         let push = push_ledger::Push { at_secs: telemetry::seconds(), repository: &repository, branch: &ticket.branch, oid: &ticket.head, landed: &tip, session: ticket.session.as_deref().unwrap_or("") };
         if let Some(log) = &log && let Err(error) = push_ledger::record(log, &push) {
@@ -176,4 +177,9 @@ pub fn recover(lander: &Lander, claim: &Path) -> Result<Option<Recovered>, Strin
 pub struct LandedLane {
     pub ticket: Ticket,
     pub tip: String,
+}
+
+#[allow(clippy::cast_precision_loss, reason = "a microsecond epoch time fits an f64 span time to well under a millisecond")]
+fn seconds_of(micros: u128) -> f64 {
+    micros as f64 / 1e6
 }
