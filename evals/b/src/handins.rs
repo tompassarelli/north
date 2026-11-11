@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 
-const HAND_IN_TOOL: &str = "mcp__north__hand-in";
+const HAND_IN_TOOLS: [&str; 2] = ["mcp__north__hand-in", "mcp__north__finish"];
 
 #[derive(Clone, Copy)]
 enum Outcome {
@@ -28,8 +28,12 @@ fn outcome(text: &str) -> Outcome {
     RULES.iter().find(|(needles, _)| needles.iter().all(|n| text.contains(n))).map_or(Outcome::Other, |&(_, o)| o)
 }
 
+fn is_tool(part: &Value) -> bool {
+    HAND_IN_TOOLS.iter().any(|tool| part["name"] == *tool)
+}
+
 fn is_handin(part: &Value) -> bool {
-    part["name"] == HAND_IN_TOOL || part["input"]["command"].as_str().is_some_and(|c| c.contains("safe-push --to main"))
+    is_tool(part) || part["input"]["command"].as_str().is_some_and(|c| c.contains("safe-push --to main"))
 }
 
 fn text_of(content: &Value) -> String {
@@ -58,7 +62,7 @@ impl Tally {
     fn call(&mut self, part: &Value) {
         let rework = self.before_queue + self.by_lander > 0;
         self.handins += 1;
-        self.by_tool += u64::from(part["name"] == HAND_IN_TOOL);
+        self.by_tool += u64::from(is_tool(part));
         self.reworks += u64::from(rework);
         self.after_refusal.insert(part["id"].as_str().unwrap_or_default().to_owned(), rework);
     }

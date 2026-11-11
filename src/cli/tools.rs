@@ -38,6 +38,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("bin-references", bin_references::run),
     ("safe-push", super::remote_land::safe_push),
     ("hand-in", super::remote_land::hand_in),
+    ("finish", super::remote_land::finish),
     ("follows-release", follows_release::run),
     ("job-run", crate::ops::job_run::run),
     ("cloud", super::cloud::run),

@@ -11,6 +11,7 @@ const PROTOCOL: &str = "2025-06-18";
 const NO_SUCH_METHOD: i64 = -32601;
 const BAD_PARAMS: i64 = -32602;
 const HAND_IN: &str = "hand-in";
+const FINISH: &str = "finish";
 
 pub fn enter(arguments: &[String], screen: super::Screen) -> Option<std::process::ExitCode> {
     match arguments.split_first() {
@@ -66,6 +67,13 @@ fn tool(verb: &str) -> Value {
             "inputSchema": {"type": "object", "properties": {"message": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}}, "required": ["message", "paths"]},
         });
     }
+    if verb == FINISH {
+        return json!({
+            "name": verb,
+            "description": "Finishes your lane in one call: runs `check`, the box's acceptance command, in the lane; only when it passes, commits the changed `paths` (absolute, all in one lane, the files you edited or created) with `message`, runs every safe-push gate and queues the lane, then returns the ticket without waiting for the lander. A failing check commits and queues nothing and returns its output. The lander's refusal, if any, starts your next turn; a landing needs nothing from you.",
+            "inputSchema": {"type": "object", "properties": {"check": {"type": "string"}, "message": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}}, "required": ["check", "message", "paths"]},
+        });
+    }
     json!({
         "name": verb,
         "description": format!("Runs `north {verb} ARGUMENTS...` in this session and returns what it printed."),
@@ -78,6 +86,10 @@ fn words(verb: &str, arguments: &Value) -> Vec<String> {
     if verb == HAND_IN {
         let message = arguments["message"].as_str().unwrap_or_default().to_owned();
         return ["--message".to_owned(), message, "--".to_owned()].into_iter().chain(strings(&arguments["paths"])).collect();
+    }
+    if verb == FINISH {
+        let text = |key: &str| arguments[key].as_str().unwrap_or_default().to_owned();
+        return ["--check".to_owned(), text("check"), "--message".to_owned(), text("message"), "--".to_owned()].into_iter().chain(strings(&arguments["paths"])).collect();
     }
     strings(&arguments["arguments"])
 }

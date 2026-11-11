@@ -324,7 +324,7 @@ pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
                 Squash::Squashed { commits, head } => println!("safe-push: queued the lane's {commits} unpublished commits as one commit {head}"),
                 Squash::Unchanged => {}
             }
-            println!("Done: queued {}{} {} {}", if queued.outbox { "(outbox) " } else { "" }, queued.ticket.root.display(), queued.ticket.branch, queued.ticket.head);
+            println!("Done: queued {}{} {} {}, ticket {}", if queued.outbox { "(outbox) " } else { "" }, queued.ticket.root.display(), queued.ticket.branch, queued.ticket.head, queued.path.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned()));
             if parsed.wait { hand_in(repo, &queued, &state_home) } else { 0 }
         }
         Err(error) => {

@@ -33,8 +33,8 @@ only when no ticket waits in it and no lander holds it.
 A task lands when the lander's landing span for its branch carries a landed commit; seconds to land run from the
 launch call to that span's end, and queue wait is the span's `queued` child.
 
-A hand-in is a Bash call running `safe-push --to main` or a call of the `mcp__north__hand-in` tool
-(`handins_by_tool` counts the latter). A row's `conflict` is a refusal for a conflict, before the queue (`cannot
+A hand-in is a Bash call running `safe-push --to main` or a call of the `mcp__north__hand-in` or `mcp__north__finish` tool
+(`handins_by_tool` counts the tool calls). A row's `conflict` is a refusal for a conflict, before the queue (`cannot
 queue the lane: it conflicts`) or by the lander; `reworks` counts hand-ins after such a refusal. Hand-ins a hook
 stopped (`hook_blocks`: blind staging, masked pipeline, other) and fetches that lost the ref lock
 (`fetch_lock_failures`) have their own fields and are not rework. `eval-b recount --results FILE` recomputes these

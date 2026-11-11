@@ -16,13 +16,21 @@ pub fn safe_push(arguments: &[String]) -> u8 {
 }
 
 pub fn hand_in(arguments: &[String]) -> u8 {
-    north_lander::land::hand_in::run(arguments, |lane| match std::env::set_current_dir(&lane.root) {
-        Ok(()) => safe_push(&["--to".to_owned(), lane.destination.clone(), "--wait".to_owned()]),
+    north_lander::land::hand_in::run(arguments, |lane| road(lane, "hand-in", &["--wait"]))
+}
+
+pub fn finish(arguments: &[String]) -> u8 {
+    north_lander::land::hand_in::finish(arguments, |lane| road(lane, "finish", &[]))
+}
+
+fn road(lane: &north_lander::land::hand_in::Lane, verb: &str, flags: &[&str]) -> u8 {
+    match std::env::set_current_dir(&lane.root) {
+        Ok(()) => safe_push(&["--to", lane.destination.as_str()].into_iter().chain(flags.iter().copied()).map(str::to_owned).collect::<Vec<_>>()),
         Err(error) => {
-            eprintln!("hand-in: {}: {error}", lane.root.display());
+            eprintln!("{verb}: {}: {error}", lane.root.display());
             1
         }
-    })
+    }
 }
 
 pub fn ledger_client(config: &DocumentMut, here: &str) -> bool {

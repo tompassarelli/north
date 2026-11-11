@@ -146,3 +146,46 @@ fn a_hand_in_verb_call_returns_the_same_refusal_as_safe_push_for_a_refused_lane(
     fs::write(lane.join("private.txt"), "the owner lives at 1 Example Road\n").unwrap();
     refused_by_both_roads(&world, &north, &lane, &lane.join("private.txt"), "PRIVATE KIND");
 }
+
+const FINISH: &str = "hand_in::a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_before_the_verdict";
+const FINISH_ARGUMENTS: &str = "NORTH_FINISH_IT_ARGUMENTS";
+
+fn finish(world: &World, check: &str, path: &Path) -> Output {
+    let arguments = ["--check", check, "--message", "Add the finished note (north#1194)", "--", path.to_str().unwrap()];
+    queueing(world, FINISH, FINISH_ARGUMENTS, &arguments).output().unwrap()
+}
+
+#[test]
+fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_before_the_verdict() {
+    if let Ok(arguments) = std::env::var(FINISH_ARGUMENTS) {
+        let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
+        let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string()]);
+        std::process::exit(i32::from(hand_in::finish(&arguments, road)));
+    }
+    let (world, north) = scanned_world(JUDGE_PASSES);
+    let lane = worktree(&north, "finish");
+    fs::write(lane.join("named.txt"), "the finished change\n").unwrap();
+    fs::write(lane.join("unnamed.txt"), "a change the worker did not name\n").unwrap();
+    let start = git(&lane, &["rev-parse", "HEAD"]);
+
+    let failed = finish(&world, "echo the box is red; exit 3", &lane.join("named.txt"));
+    let text = report(&failed);
+    assert_eq!(failed.status.code(), Some(1), "{text}");
+    assert!(text.contains("the box is red") && text.contains("exited 3") && text.contains("NOT queued"), "a failed check did not return its output: {text}");
+    assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a failed check committed: {text}");
+    assert_eq!(git(&lane, &["diff", "--cached", "--name-only"]), "", "a failed check staged: {text}");
+    assert!(queue::pending(&north.queue).unwrap().is_empty(), "a failed check queued: {text}");
+
+    let ran = world.path().join("check-ran");
+    let passed = finish(&world, &format!("test -e named.txt && touch {}", ran.display()), &lane.join("named.txt"));
+    let text = report(&passed);
+    assert_eq!(passed.status.code(), Some(0), "{text}");
+    assert!(ran.exists(), "the check did not run in the lane: {text}");
+    let pending = queue::pending(&north.queue).unwrap();
+    let [(ticket, queued)] = &pending[..] else { panic!("the passing call did not leave one undecided ticket: {pending:?}\n{text}") };
+    let name = ticket.file_name().unwrap().to_str().unwrap();
+    assert!(text.lines().any(|line| line.starts_with("Done: queued") && line.ends_with(&format!("ticket {name}"))), "the call did not return its ticket: {text}");
+    assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), "named.txt", "the call committed more than the named path");
+    assert_eq!(git(&lane, &["log", "-1", "--format=%s", &queued.head]), "Add the finished note (north#1194)");
+    assert_eq!(git(&lane, &["status", "--porcelain", "--", "unnamed.txt"]), "?? unnamed.txt", "the call swept up a path it was not given");
+}
