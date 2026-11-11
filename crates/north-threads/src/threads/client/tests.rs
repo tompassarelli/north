@@ -273,7 +273,7 @@ fn a_spooled_write_the_ledger_host_refuses_for_good_is_refused_once_naming_its_v
     assert_eq!(attempts, 2, "one unreachable send and one refused replay");
 
     let now = Timestamp::now();
-    let faults = north_base::lifecycle::Store::open(&rig.root.join(".local/state/north/ledger.db")).unwrap().faults(now).unwrap();
+    let faults = north_base::lifecycle::Store::open(&spool::records_path(&rig.client.spool)).unwrap().faults(now).unwrap();
     let refused = faults.iter().find(|fault| fault.machine == "threads-spool").expect("a refused spool write is reported");
     assert!(refused.cause.contains("`job-run`") && refused.cause.contains("not on the allowlist"), "{:?}", refused.cause);
     assert_eq!(refused.state, "refused");
@@ -297,12 +297,12 @@ fn a_refused_claim_release_row_is_resent_once_its_claim_frees() {
     fs::write(rig.root.join("refusal"), "remote-serve: refused for gex45: command release is not on the allowlist\n").unwrap();
     assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
     rig.client.spool_argv(&release("tompassarelli/smashcraft#324", "sc-324"), "the caller's bound passed before the ledger host answered").unwrap();
-    let ledger = rig.root.join(".local/state/north/ledger.db");
+    let ledger = spool::records_path(&rig.client.spool);
     let mut spool = spool::Spool::open(&rig.client.spool, &ledger, Timestamp::from_unix_seconds(start)).unwrap();
     let legacy = spool.queued(Timestamp::from_unix_seconds(start)).unwrap().remove(0);
     assert!(spool.take(&legacy, Timestamp::from_unix_seconds(start)).unwrap());
     spool.refuse(&legacy, "the ledger host exited 126", Timestamp::from_unix_seconds(start)).unwrap();
-    let alarmed = |rig: &Rig, seconds: i64| north_base::lifecycle::Store::open(&rig.root.join(".local/state/north/ledger.db")).unwrap().faults(Timestamp::from_unix_seconds(start + seconds)).unwrap().into_iter().filter(|fault| fault.machine == "threads-spool").count();
+    let alarmed = |rig: &Rig, seconds: i64| north_base::lifecycle::Store::open(&spool::records_path(&rig.client.spool)).unwrap().faults(Timestamp::from_unix_seconds(start + seconds)).unwrap().into_iter().filter(|fault| fault.machine == "threads-spool").count();
     assert_eq!(alarmed(&rig, 1), 3);
     let sends = |rig: &Rig| log(rig, "ssh.log").iter().filter(|line| line.contains("threads release")).count();
     let refused = sends(&rig);

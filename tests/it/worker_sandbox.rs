@@ -135,30 +135,34 @@ fn a_delete_whose_target_is_computed_at_run_time_cannot_remove_a_protected_direc
 
 #[test]
 fn a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_harness_state() {
-    let home = Home::new();
-    let root = home.path();
+    let worker = Worker::new();
+    let root = worker.root();
     file(&root.join(".bashrc"));
     file(&root.join("code/north-data/profiles/claude-a/settings.json"));
-    for store in ["code/north-data/fleet/spool", ".local/state/threads/spool", ".local/state/agents", ".cache"] {
+    for store in ["code/north-data/fleet/spool", ".local/state/threads/spool", ".local/state/agents", ".cache", ".cargo/registry", ".bun/install/cache", ".npm/_cacache", "code/p/worktrees/lane/target/debug", "code/p/worktrees/lane/node_modules/.cache"] {
         std::fs::create_dir_all(root.join(store)).unwrap();
     }
     let lock = root.join("code/p/main/.git/index.lock");
     file(&lock);
     assert!(Command::new("touch").args(["-d", "2 minutes ago"]).arg(&lock).status().unwrap().success());
-    let runtime = tempfile::Builder::new().prefix("worker-writes").tempdir_in("/tmp").unwrap();
-    let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
-    let socket = runtime.path().join("north-outside/broker.sock");
-    let _broker = Broker(Command::new(north).args(["--worker-sandbox", "--broker"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", root).env("XDG_RUNTIME_DIR", runtime.path()).spawn().unwrap());
-    assert!(north_core::platform::wait::until(std::time::Duration::from_secs(5), || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
-    let sandboxed = |command: &str| {
-        let output = Command::new(north).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", root).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", runtime.path()).current_dir(home.lane()).output().unwrap();
-        (String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
-    };
     let refused = [".bashrc", "new-file", ".local/state/north/profiles/claude-a/settings.json", "code/p/main/new.rs"];
-    let written = ["code/p/worktrees/lane/scratch/out.log", "code/p/worktrees/lane/new.txt", ".local/state/north/fleet/spool/m.json", ".local/state/threads/spool/s.jsonl", ".local/state/convo/index.db", ".local/state/agents/a.jsonl", ".cache/c"];
+    let written = [
+        "code/p/worktrees/lane/scratch/out.log",
+        "code/p/worktrees/lane/new.txt",
+        ".local/state/north/fleet/spool/m.json",
+        ".local/state/threads/spool/s.jsonl",
+        ".local/state/convo/index.db",
+        ".local/state/agents/a.jsonl",
+        ".cache/c",
+        ".cargo/registry/c",
+        ".bun/install/cache/c",
+        ".npm/_cacache/c",
+        "code/p/worktrees/lane/target/debug/c",
+        "code/p/worktrees/lane/node_modules/.cache/c",
+    ];
     let mut command: String = refused.iter().chain(&written).map(|relative| format!("printf x >> \"$HOME/{relative}\"; ")).collect();
     command.push_str("printf x >> \"$XDG_RUNTIME_DIR/r\" && git add new.txt && git -c user.name=t -c user.email=t@t commit -qm new && git -C \"$HOME/code/p/main\" worktree add -q \"$HOME/code/p/worktrees/fresh\" -b fresh && printf x >> \"$HOME/code/p/worktrees/fresh/src.rs\" && echo all-written");
-    let (stdout, stderr) = sandboxed(&command);
+    let (stdout, stderr) = worker.run(&command);
     assert!(!stderr.contains("north worker-sandbox:"), "{stderr}");
     for relative in refused {
         let content = std::fs::read_to_string(root.join(relative)).ok();
@@ -168,10 +172,70 @@ fn a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_h
         assert!(std::fs::read_to_string(root.join(relative)).is_ok_and(|content| content.ends_with('x')), "a worker command could not write {relative}: {stderr}");
     }
     assert!(stdout.contains("all-written"), "a worker command could not write its scratch, commit in its lane or create a lane: {stderr}");
-    let (_, unlocked) = sandboxed(&format!("{north} lane unlock {}", root.join("code/p/main").display()));
+    let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
+    let (_, unlocked) = worker.run(&format!("{north} lane unlock {}", root.join("code/p/main").display()));
     assert!(!lock.exists(), "a worker's lane unlock left a stale lock: {unlocked}");
 }
 
+#[test]
+fn a_worker_command_cannot_write_a_north_runtime_that_unconfined_sessions_execute() {
+    Worker::new().refuses(".local/state/north/runtimes/0123abc/north");
+}
+
+#[test]
+fn a_worker_command_cannot_write_another_sessions_fleet_record() {
+    Worker::new().refuses(".local/state/north/fleet/other/session.json");
+}
+
+const LEDGER_CHILD: &str = "NORTH_LEDGER_READER_CHILD";
+
+#[test]
+fn a_ledger_reader_child() {
+    let Some(ledger) = std::env::var_os(LEDGER_CHILD) else {
+        return;
+    };
+    let connection = rusqlite::Connection::open(&ledger).unwrap();
+    let rows: i64 = connection.query_row("select count(*) from moves", [], |row| row.get(0)).expect("a worker command reads the ledger");
+    assert_eq!(rows, 1);
+    assert!(connection.execute("insert into moves values (2)", []).is_err(), "a worker command wrote the ledger");
+    println!("ledger-read");
+}
+
+#[test]
+fn a_worker_command_reads_the_lifecycle_ledger_and_cannot_write_it() {
+    let worker = Worker::new();
+    let ledger = worker.root().join(".local/state/north/ledger.db");
+    let resident = rusqlite::Connection::open(&ledger).unwrap();
+    resident.query_row("pragma journal_mode=wal", [], |_| Ok(())).unwrap();
+    resident.execute_batch("create table moves (id integer); insert into moves values (1);").unwrap();
+    drop(resident);
+    let test = std::env::current_exe().unwrap();
+    let (stdout, stderr) = worker.run(&format!("{LEDGER_CHILD}={} {} --exact worker_sandbox::a_ledger_reader_child --nocapture", ledger.display(), test.display()));
+    assert!(stdout.contains("ledger-read"), "{stdout}{stderr}");
+    let (_, stderr) = worker.run(&format!("printf x >> {}; printf x >> {}-wal", ledger.display(), ledger.display()));
+    let reader = rusqlite::Connection::open(&ledger).unwrap();
+    assert_eq!(reader.query_row("select count(*) from moves", [], |row| row.get::<_, i64>(0)).unwrap(), 1, "{stderr}");
+}
+
+#[test]
+fn a_worker_command_cannot_write_a_projects_git_hooks() {
+    Worker::new().refuses("code/p/main/.git/hooks/pre-commit");
+}
+
+#[test]
+fn a_worker_command_cannot_write_a_projects_git_config_and_still_fetches_and_branches_from_origin() {
+    let worker = Worker::new();
+    let main = worker.root().join("code/p/main");
+    git(&main, &["remote", "add", "origin", main.to_str().unwrap()]);
+    git(&main, &["fetch", "-q", "origin"]);
+    std::fs::remove_file(main.join(".git/FETCH_HEAD")).unwrap();
+    let config = main.join(".git/config");
+    let before = std::fs::read_to_string(&config).unwrap();
+    let fresh = worker.root().join("code/p/worktrees/tracked");
+    let (stdout, stderr) = worker.run(&format!("printf x >> {c}; git config --file {c} core.fsmonitor evil; git -C {m} fetch -q origin && git -C {m} worktree add -q {f} -b tracked origin/main && echo branched", c = config.display(), m = main.display(), f = fresh.display()));
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), before, "a worker command wrote the git config: {stderr}");
+    assert!(stdout.contains("branched"), "a worker command could not fetch in main or branch a lane from origin/main: {stderr}");
+}
 #[test]
 fn a_worker_command_meets_a_null_device_at_every_runtime_socket_north_does_not_name_south_86() {
     let scratch = tempfile::Builder::new().prefix("s86").tempdir_in("/tmp").unwrap();
@@ -388,6 +452,42 @@ impl Drop for Broker {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
+    }
+}
+
+struct Worker {
+    home: Home,
+    runtime: tempfile::TempDir,
+    _broker: Broker,
+}
+
+impl Worker {
+    fn new() -> Self {
+        let home = Home::new();
+        let runtime = tempfile::Builder::new().prefix("worker-writes").tempdir_in("/tmp").unwrap();
+        let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
+        let socket = runtime.path().join("north-outside/broker.sock");
+        let broker = Broker(Command::new(north).args(["--worker-sandbox", "--broker"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("XDG_RUNTIME_DIR", runtime.path()).spawn().unwrap());
+        assert!(north_core::platform::wait::until(std::time::Duration::from_secs(5), || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
+        Self { home, runtime, _broker: broker }
+    }
+
+    fn root(&self) -> &Path {
+        self.home.path()
+    }
+
+    fn run(&self, command: &str) -> (String, String) {
+        let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
+        let output = Command::new(north).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", self.runtime.path()).current_dir(self.home.lane()).output().unwrap();
+        (String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
+    }
+
+    fn refuses(&self, relative: &str) {
+        file(&self.root().join(relative));
+        let new = format!("{relative}.new");
+        let (_, stderr) = self.run(&format!("printf x >> \"$HOME/{relative}\"; printf x > \"$HOME/{new}\"; mv \"$HOME/{new}\" \"$HOME/{relative}\""));
+        assert_eq!(std::fs::read_to_string(self.root().join(relative)).unwrap(), "kept", "a worker command wrote {relative}: {stderr}");
+        assert!(!self.root().join(&new).exists(), "a worker command created a file beside {relative}: {stderr}");
     }
 }
 

@@ -1,4 +1,4 @@
-//! `north --worker-sandbox COMMAND`: runs one shell command of an agent session under a Landlock domain. Every agent session's domain keeps the operator's own logins unreadable, since an agent calls GitHub as an App installation, and sets git's GitHub credential helper to that App. It also refuses to execute build output (a lane's `target/` and `node_modules/`) by its path, so the code a lane's dependencies bring runs only inside depbox, which the toolchain shims enter, or through `north lane exec` for a lane whose lock files equal main's. A worker's domain also confines removal: a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. A worker's domain also confines writing and creating files, directories and links to the trees it may remove, the device files, the agent state other than the client profiles and setup tokens, and its projects' worktrees directories, so a worker command cannot change the operator's dotfiles and configuration, the client profiles, the local bin directories or a main checkout's files; a lane-only domain confines them to the trees it may remove and the device files. Reading is open apart from the logins. When a worker command hands work to another local process, the outside broker carries the same removal roots to that process, and depbox applies them again inside the mount namespace it must build outside the domain. See docs/rationale/worker-sandbox.md.
+//! `north --worker-sandbox COMMAND`: runs one shell command of an agent session under a Landlock domain. Every agent session's domain keeps the operator's own logins unreadable, since an agent calls GitHub as an App installation, and sets git's GitHub credential helper to that App. It also refuses to execute build output (a lane's `target/` and `node_modules/`) by its path, so the code a lane's dependencies bring runs only inside depbox, which the toolchain shims enter, or through `north lane exec` for a lane whose lock files equal main's. A worker's domain also confines removal: a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. A worker's domain also confines writing and creating files, directories and links to the trees it may remove, the device files, the agent state it writes (its spools, the hooks' records and the guard's logs), a fetch's `FETCH_HEAD` and its projects' worktrees directories, so a worker command cannot change the operator's dotfiles and configuration, the client profiles, the local bin directories, the north runtimes, the fleet's session records, the lifecycle ledger, a project's git hooks and configuration or a main checkout's files; a lane-only domain confines them to the trees it may remove and the device files. Reading is open apart from the logins. When a worker command hands work to another local process, the outside broker carries the same removal roots to that process, and depbox applies them again inside the mount namespace it must build outside the domain. See docs/rationale/worker-sandbox.md.
 mod broker;
 mod brokered_reads;
 mod except;
@@ -11,6 +11,7 @@ mod readable;
 mod removable;
 mod hook_screen;
 mod sockets;
+mod state;
 mod sweep;
 mod writable;
 pub mod tool_server;
@@ -152,7 +153,7 @@ fn shell(command: &str, screen: Screen) -> std::process::ExitCode {
     let writable = roots.as_deref().map(|roots| writable(&context, roots));
     report(confine(roots.as_deref(), &readable(&context), Some(&executable(&context)), writable.as_deref()));
     let shell = std::env::var_os("SHELL").filter(|shell| !shell.is_empty()).unwrap_or_else(|| OsString::from("bash"));
-    let error = Command::new(shell).arg("-c").arg(command).envs(git_credential::session_env()).env_remove(SWEPT).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
+    let error = Command::new(shell).arg("-c").arg(command).envs(git_env(writable.is_some())).env_remove(SWEPT).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {error}");
     std::process::ExitCode::from(126)
 }
@@ -171,7 +172,7 @@ fn program(program: &[String], lift: bool, screen: Screen) -> std::process::Exit
     let readable = if fenced { lane_only::readable_in_lane(&context, &[]) } else { readable(&context) };
     let writable = roots.as_deref().map(|roots| if fenced { lane_only::writable_in_lane(roots) } else { writable(&context, roots) });
     report(confine(roots.as_deref(), &readable, executable.as_deref(), writable.as_deref()));
-    let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
+    let error = Command::new(&program[0]).args(&program[1..]).envs(git_env(writable.is_some())).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
 }
@@ -198,7 +199,7 @@ fn in_lane(program: &[String], screen: Screen) -> std::process::ExitCode {
     };
     let hidden = hide_sockets(&context);
     report(confine_to_lane(&context, &kept));
-    let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").env(LANE_ONLY, "1").env_remove(SESSION_SCOPE).envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
+    let error = Command::new(&program[0]).args(&program[1..]).envs(git_env(true)).env(MARK, "1").env(LANE_ONLY, "1").env_remove(SESSION_SCOPE).envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
 }
@@ -223,6 +224,11 @@ fn hide_sockets(context: &Context) -> bool {
             false
         }
     }
+}
+
+/// The git environment of a command: the session's GitHub credential helper, and once its writes are confined, no upstream for a branch it creates, since recording one rewrites the repository's `config`, which the domain keeps unwritable (`north lane new` already creates its branch without one).
+fn git_env(writes_confined: bool) -> Vec<(String, String)> {
+    if writes_confined { git_credential::session_env_with(&[("branch.autoSetupMerge", "false")]) } else { git_credential::session_env() }
 }
 
 fn report(confined: Result<RulesetStatus, String>) {

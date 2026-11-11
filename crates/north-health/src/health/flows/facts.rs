@@ -101,11 +101,12 @@ const LEDGER_TIMER: &str = "worker-ledger.timer";
 
 const CAPACITY_LEASES: &str = "agent-capacity-v1/lifecycle.db";
 
-/// The stores of lifecycle records on this host: the run ledger, and the capacity runtime directory's, which lives and dies with the lease files beside it.
+/// The stores of lifecycle records on this host: the run ledger, the threads spool's, which a sandboxed worker writes beside its spool, and the capacity runtime directory's, which lives and dies with the lease files beside it.
 fn stores(home: &Path) -> Vec<NorthResult<Store>> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).or_else(|| Some(format!("/run/user/{}", fs::metadata(home).ok()?.uid()).into()));
     let leases = runtime.map(|runtime| runtime.join(CAPACITY_LEASES)).filter(|path| path.exists());
-    std::iter::once(Store::host()).chain(leases.map(|path| Store::open(&path))).collect()
+    let spool = Some(north_threads::threads::client::spool::records_path(&home.join(".local/state/threads/spool"))).filter(|path| path.exists());
+    std::iter::once(Store::host()).chain(spool.into_iter().chain(leases).map(|path| Store::open(&path))).collect()
 }
 
 pub fn lifecycles(home: &Path) -> Lifecycles {

@@ -51,10 +51,7 @@ impl Context {
     }
 }
 
-/// The stores under `~/.local/state` no worker command may remove: the threads ledger every fleet decision is read from and the conversation index `north convo` searches, which hold the transcripts, the fleet's session records, and the account profiles and tokens that hold each provider's transcripts and logins. They are the history the fleet screen shows and every later decision reads, so they sit outside a worker's trees.
-const PROTECTED_STATE: [&str; 5] = ["threads", "convo", "north/profiles", "north/claude-tokens", "north/fleet"];
-
-/// The trees a worker command may remove or rename files out of: its lane, the git common directory of its project and of every project it names, whose lock files, packs and maintenance files git renames from every checkout, scratch and caches, and agent state apart from the transcript stores that hold transcripts and logins.
+/// The trees a worker command may remove or rename files out of: its lane, the git common directory of its project and of every project it names apart from its top level and hooks (git_removable), scratch and caches, and the agent state it writes apart from the stores that hold the fleet's history (state.rs).
 pub fn removable(context: &Context) -> Vec<PathBuf> {
     let home = &context.home;
     let mut roots: Vec<PathBuf> = ["/tmp", "/var/tmp", "/dev/shm"].map(PathBuf::from).into();
@@ -64,18 +61,12 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     roots.push(context.cargo_home.clone().unwrap_or_else(|| home.join(".cargo")));
     roots.extend(context.cargo_target.clone().map(|target| if target.is_absolute() { target } else { context.cwd.join(target) }));
     roots.extend([".rustup", ".bun", ".npm"].map(|name| home.join(name)));
-    let state = home.join(".local/state");
-    let protected: Vec<PathBuf> = PROTECTED_STATE.iter().map(|store| state.join(store)).collect();
-    roots.extend(beneath_except(&state, &protected, Entries::Directories));
-    for project in projects(context) {
-        roots.extend(common_git_dir(&project.join("main")));
-        roots.push(project.join("main/.git"));
-        roots.extend(check_lane(&project));
+    roots.extend(super::state::removable(&home.join(".local/state")));
+    for common in git_common_dirs(context) {
+        roots.extend(git_removable(&common));
     }
-    for lane in lanes(context) {
-        roots.extend(common_git_dir(&lane));
-        roots.push(lane);
-    }
+    roots.extend(projects(context).iter().filter_map(|project| check_lane(project)));
+    roots.extend(lanes(context));
     roots
 }
 
@@ -88,6 +79,32 @@ fn lanes(context: &Context) -> Vec<PathBuf> {
 pub(super) fn projects(context: &Context) -> Vec<PathBuf> {
     let parents = lanes(context).into_iter().filter_map(|lane| lane.parent().and_then(Path::parent).map(Path::to_path_buf));
     project(&context.home, &context.cwd).into_iter().chain(context.named_projects.iter().cloned()).chain(parents).collect()
+}
+
+/// The git common directories of the projects and lanes a command run from `context` works in, each once.
+fn git_common_dirs(context: &Context) -> Vec<PathBuf> {
+    let checkouts = projects(context).into_iter().map(|project| project.join("main")).chain(lanes(context));
+    let mut commons: Vec<PathBuf> = checkouts.filter_map(|checkout| common_git_dir(&checkout)).collect();
+    commons.sort();
+    commons.dedup();
+    commons
+}
+
+/// The directories of the git common directory `common` a worker's git writes create, rename and remove files in: objects, refs, logs, every checkout's own git directory under `worktrees` and north's records, and not `hooks`, whose files git runs for every checkout and every process, nor the top level, where `config` sits and is replaced by renaming `config.lock` over it, so a right there would reach both. `worktrees`, `logs` and `north` are made first where missing, since a Landlock rule holds an inode.
+fn git_removable(common: &Path) -> Vec<PathBuf> {
+    for directory in ["worktrees", "logs", "north"] {
+        let _ = std::fs::create_dir_all(common.join(directory));
+    }
+    beneath_except(common, &[common.join("hooks")], Entries::Directories)
+}
+
+/// The files at the top of each git common directory a command run from `context` works in that it writes in place: `FETCH_HEAD`, which `git fetch` in a main checkout truncates and rewrites and which is made empty where missing.
+pub(super) fn git_writable(context: &Context) -> Vec<PathBuf> {
+    let fetched: Vec<PathBuf> = git_common_dirs(context).into_iter().map(|common| common.join("FETCH_HEAD")).collect();
+    for fetch_head in &fetched {
+        let _ = std::fs::OpenOptions::new().write(true).create_new(true).open(fetch_head);
+    }
+    fetched
 }
 
 /// A Landlock rule holds an inode, so the done-when lane must exist before the domain is built.
@@ -167,10 +184,10 @@ fn git_dirs(checkout: &Path) -> Option<(PathBuf, PathBuf)> {
     Some((git_dir.canonicalize().ok()?, common.canonicalize().ok()?))
 }
 
-/// Whether a command in `context` may remove the lock files a git write in `checkout` creates: those in its git directory and in its common directory, where the index, `HEAD` and ref locks live (north#1172).
+/// Whether a command in `context` may remove the lock files a git write in `checkout` creates: those in its git directory, where the index and `HEAD` locks live, and in its common directory's `refs`, where the ref locks live (north#1172).
 pub fn holds_git_locks(context: &Context, checkout: &Path) -> bool {
     let roots: Vec<PathBuf> = removable(context).into_iter().map(|root| root.canonicalize().unwrap_or(root)).collect();
-    git_dirs(checkout).is_some_and(|(git_dir, common)| [git_dir, common].iter().all(|directory| roots.iter().any(|root| directory.starts_with(root))))
+    git_dirs(checkout).is_some_and(|(git_dir, common)| [git_dir, common.join("refs")].iter().all(|directory| roots.iter().any(|root| directory.starts_with(root))))
 }
 
 /// The `runtimes` directory that holds the north this process runs, wherever its host keeps north's state.

@@ -176,9 +176,24 @@ fn spool_stem() -> String {
     format!("{}-{}", Timestamp::now().unix_nanos(), std::process::id())
 }
 
+/// The records of the spool at `spool`, kept beside it rather than in the host's lifecycle ledger, which a sandboxed worker that spools a write may read but not write.
+pub fn records_path(spool: &Path) -> PathBuf {
+    spool.with_file_name("spool-records.db")
+}
+
+/// Puts the records database at `records` in WAL mode, which keeps its log between commits: a rollback journal is deleted at each commit, and a sandboxed worker may write beside its spool but not remove there.
+fn write_ahead(records: &Path) -> NorthResult<()> {
+    if let Some(parent) = records.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    rusqlite::Connection::open(records).and_then(|db| db.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))).map_err(|error| NorthError::State(format!("the spool records at {}: {error}", records.display())))
+}
+
 impl Client {
     fn spool_records(&self) -> NorthResult<Spool> {
-        Spool::open(&self.spool, &self.home.join(".local/state/north/ledger.db"), (self.clock)())
+        let records = records_path(&self.spool);
+        write_ahead(&records)?;
+        Spool::open(&self.spool, &records, (self.clock)())
     }
 
     fn queue_spooled(&self, path: &Path, contents: &[u8], mode: u32, cause: &str) -> NorthResult<()> {
