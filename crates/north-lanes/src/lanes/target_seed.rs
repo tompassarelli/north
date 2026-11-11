@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 
 use north_base::platform::shared_target;
@@ -191,7 +191,11 @@ fn checkouts(code: &Path) -> Vec<PathBuf> {
 }
 
 fn copy(from: &Path, to: &Path) -> io::Result<()> {
-    let copied = Command::new("cp").arg("-a").arg("--reflink=auto").arg(from.join(".")).arg(to).status()?;
+    let tag = Command::new("cp").arg("--reflink=always").arg(from.join("CACHEDIR.TAG")).arg(to.join("CACHEDIR.TAG")).stderr(Stdio::null()).status()?;
+    if !tag.success() {
+        return Err(io::Error::other(format!("{} shares no extents with this checkout's filesystem, and a full copy of a build target costs more disk and time than a cold build", from.display())));
+    }
+    let copied = Command::new("cp").arg("-a").arg("--reflink=always").arg(from.join(".")).arg(to).status()?;
     if copied.success() { Ok(()) } else { Err(io::Error::other(format!("could not copy {}", from.display()))) }
 }
 
