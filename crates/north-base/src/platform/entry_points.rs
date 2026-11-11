@@ -15,7 +15,7 @@ pub enum EntryPoint {
 }
 
 /// The names that select an entry point from argv[0]; the runtime installer links each one to the north binary.
-pub const ENTRY_POINTS: [(&str, EntryPoint); 2] = [("safe-push", EntryPoint::SafePush), ("worker-sandbox", EntryPoint::WorkerSandbox)];
+pub const ENTRY_POINTS: [(&str, EntryPoint); 2] = [(EntryPoint::SafePush.name(), EntryPoint::SafePush), (EntryPoint::WorkerSandbox.name(), EntryPoint::WorkerSandbox)];
 
 /// The entry point argv[0] names, by its final path component.
 pub fn named(argv0: &OsStr) -> Option<EntryPoint> {
@@ -24,6 +24,14 @@ pub fn named(argv0: &OsStr) -> Option<EntryPoint> {
 }
 
 impl EntryPoint {
+    /// The file name a link to north takes to select this entry point.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::SafePush => "safe-push",
+            Self::WorkerSandbox => "worker-sandbox",
+        }
+    }
+
     /// Variables the entry's launcher scrubbed before it ran, so a link that bypasses the launcher keeps the same environment.
     pub fn scrubbed_variables(self) -> &'static [&'static str] {
         match self {
@@ -34,8 +42,9 @@ impl EntryPoint {
 }
 
 
-/// Links each entry point in `runtime`'s tree to the runtime's north, keeping a file the tree already tracks at that path.
+/// Links each entry point in `runtime`'s tree to the runtime's north, keeping a file the tree already tracks at that path, and links worker-sandbox beside that north.
 pub fn link(runtime: &Path) -> io::Result<()> {
+    linked_beside(&runtime.join("north"), EntryPoint::WorkerSandbox)?;
     let bin = runtime.join(TREE).join("bin");
     fs::create_dir_all(&bin)?;
     for (name, _) in ENTRY_POINTS {
@@ -47,15 +56,15 @@ pub fn link(runtime: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// The link to `north` for `point` in the runtime `north` sits in, or nothing when `north` sits in no runtime. A runtime that an older north installed lacks the newer links, so they are made here.
-pub fn linked_beside(north: &Path, point: EntryPoint) -> Option<PathBuf> {
-    let runtime = north.parent()?;
-    let name = ENTRY_POINTS.iter().find(|(_, entry)| *entry == point)?.0;
-    let path = runtime.join(TREE).join("bin").join(name);
-    if !path.is_file() && runtime.join(TREE).is_dir() {
-        let _ = link(runtime);
+/// The link to `north` for `point` in north's own directory, made when absent. A candidate runtime has no tree until its install, yet its canary launches a worker first, so a launch names this link rather than one in the tree (north#1172).
+pub fn linked_beside(north: &Path, point: EntryPoint) -> io::Result<PathBuf> {
+    let target = north.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, format!("{} names no file", north.display())))?;
+    let path = north.with_file_name(point.name());
+    match symlink(target, &path) {
+        Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
+        _ => {}
     }
-    Some(path).filter(|path| path.is_file())
+    if path.is_file() { Ok(path) } else { Err(io::Error::new(io::ErrorKind::NotFound, format!("{} leads to no file", path.display()))) }
 }
 
 #[cfg(test)]

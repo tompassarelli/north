@@ -69,7 +69,8 @@ fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_
     let spec = Claude.host(&account, &request(), Opening::Fresh(None), "").unwrap();
 
     assert!(spec.argv.iter().all(|arg| !arg.contains("sk-test-value")), "{:?}", spec.argv);
-    assert!(spec.argv.windows(2).any(|pair| pair == ["--settings", r#"{"switchModelsOnFlag":true}"#]), "a fleet session lets a safety-flagged turn finish on the fallback model: {:?}", spec.argv);
+    let settings = spec.argv.windows(2).find(|pair| pair[0] == "--settings").map(|pair| serde_json::from_str::<serde_json::Value>(&pair[1]).unwrap());
+    assert!(settings.is_some_and(|settings| settings["switchModelsOnFlag"] == true), "a fleet session lets a safety-flagged turn finish on the fallback model: {:?}", spec.argv);
     let interactive = Claude.interactive(&account, &request(), "conversation", "").unwrap();
     assert!(interactive.argv.iter().all(|arg| arg != "--settings"), "Tom's interactive window keeps ~/.claude/settings.json: {:?}", interactive.argv);
     assert!(spec.env.iter().all(|(_, value)| !value.to_string_lossy().contains("sk-test-value")), "{:?}", spec.env);
@@ -101,6 +102,8 @@ fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_
 #[test]
 fn a_brief_on_a_context_arm_launches_claude_with_that_auto_compact_window_and_an_unarmed_brief_keeps_the_settings_window() {
     let scratch = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(scratch.path().join("home")).unwrap();
+    std::fs::write(scratch.path().join("home/settings.json"), HOOKED).unwrap();
     let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None, api: None };
     let window = |request: &LaunchRequest| {
         let spec = Claude.host(&account, request, Opening::Fresh(None), "").unwrap();
@@ -128,8 +131,8 @@ fn a_profile_without_the_harness_settings_is_named_unguarded_so_its_launch_is_re
     let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), ..request() };
     std::fs::write(home.join("CLAUDE.md"), "owner policy\n").unwrap();
     let argv = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap().argv;
-    let settings = home.join("settings.json").display().to_string();
-    assert!(argv.windows(2).any(|pair| pair == ["--settings", settings.as_str()]), "a worker's hooks come from the checked settings.json: {argv:?}");
+    let settings: serde_json::Value = serde_json::from_str(&argv[argv.iter().position(|arg| arg == "--settings").unwrap() + 1]).unwrap();
+    assert_eq!(settings["hooks"], serde_json::from_str::<serde_json::Value>(HOOKED).unwrap()["hooks"], "a worker's hooks come from the checked settings.json: {argv:?}");
     assert_eq!(argv.iter().filter(|arg| *arg == "--settings").count(), 1, "Claude Code keeps only the last --settings: {argv:?}");
     assert!(argv.windows(2).any(|pair| pair == ["--setting-sources", "project,local"]) && argv.windows(2).any(|pair| pair == ["--system-prompt", "orders\n\nowner policy"]), "a worker's system prompt carries the profile's policy file: {argv:?}");
     let research = LaunchRequest { prompt: "Item: north#1\nCategory: research\n".into(), ..worker };
@@ -209,9 +212,8 @@ fn a_worker_launch_writes_a_tool_server_entry_whose_command_is_an_existing_execu
     }
     let scratch = tempfile::tempdir().unwrap();
     let north = scratch.path().join("runtime/north");
-    std::fs::create_dir_all(scratch.path().join("runtime/tree/bin")).unwrap();
+    std::fs::create_dir_all(scratch.path().join("runtime")).unwrap();
     north_base::foundation::shim::write_script(&north, "exit 0\n");
-    std::os::unix::fs::symlink("../../north", scratch.path().join("runtime/tree/bin/worker-sandbox")).unwrap();
     let profile = scratch.path().join("profile");
     std::fs::create_dir_all(&profile).unwrap();
     let projected = json!({"hooks": {"PreToolUse": [{}]}, "env": {SHELL_PREFIX: format!("{} --worker-sandbox", north.display())}});

@@ -72,7 +72,10 @@ impl Runtime for Claude {
         argv.extend(session_env::model_args(request));
         argv.extend(session_env::agent_args(request));
         let north = tool_server::launch_north(request);
-        let prefix = request.machine.is_none().then(|| tool_server::shell_prefix(&north)).flatten();
+        let prefix = match request.machine {
+            Some(_) => None,
+            None => Some(tool_server::shell_prefix(&north)?),
+        };
         argv.extend(tool_server::tool_server_args(&north, &tool_server::configured_verbs()));
         argv.extend(launch_prompt::args(account, request, instructions, prefix.as_deref())?);
         Ok(HostSpec {
