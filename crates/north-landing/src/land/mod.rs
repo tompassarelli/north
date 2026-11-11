@@ -13,6 +13,7 @@ pub mod credential;
 pub mod heartbeat;
 pub mod hold;
 pub mod landed_copy;
+pub mod on_main;
 pub mod lane_gates;
 pub mod incidents;
 pub mod jobs;

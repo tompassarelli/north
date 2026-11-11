@@ -9,6 +9,7 @@ use std::time::Duration;
 use north_base::platform::process;
 
 use super::landed_copy;
+use super::on_main::{self, OnMain};
 use super::queue::{self, Ticket};
 use super::lane_gates::{self, Lane};
 use super::reservation::{self, Attempt, Judged};
@@ -156,21 +157,6 @@ struct Turn<'a> {
     earlier: &'a [&'a Ticket],
 }
 
-fn carrier(worktree: &Path, base: &str, head: &str) -> Option<String> {
-    let range = format!("{base}...{head}");
-    git(worktree, &["log", "--cherry-mark", "--left-only", "--no-merges", "--format=%m%H", &range]).ok()?.lines().find_map(|line| line.strip_prefix('=').map(str::to_owned))
-}
-
-fn landed_twice(worktree: &Path, base: &str, head: &str, unlanded: &HashSet<&str>) -> Result<Option<landed_copy::Landed>, String> {
-    if unlanded.is_empty() {
-        return Ok(None);
-    }
-    let fork = git(worktree, &["merge-base", base, head])?;
-    let main = git(worktree, &["log", "--no-merges", landed_copy::FIELDS, &format!("{fork}..{base}")])?;
-    let lane = git(worktree, &["log", "--no-merges", landed_copy::FIELDS, &format!("{base}..{head}")])?;
-    Ok(landed_copy::amended_after_landing(&main, &lane, unlanded))
-}
-
 fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case: &mut PickCase, gating: &mut Option<Gating>) -> Result<Pick, String> {
     let (ticket, earlier) = (turn.ticket, turn.earlier);
     case.readable = Some(readable(worktree, ticket));
@@ -179,15 +165,11 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     }
     let cherry = git(worktree, &["cherry", base, &ticket.head])?;
     case.unlanded = Some(cherry.lines().any(|line| line.starts_with('+')));
-    if case.unlanded == Some(false) {
-        return match carrier(worktree, base, &ticket.head) {
-            Some(commit) => Ok(Pick::Decided(format!("landed {commit}"))),
-            None => refuse(logs, name, "nothing-to-land", &format!("nothing to land: {} is already on main@{base} and adds no commit to it; commit the lane's change and run safe-push again; NOT landed.", ticket.head)),
-        };
-    }
-    let plus: HashSet<&str> = cherry.lines().filter_map(|line| line.strip_prefix("+ ")).collect();
-    if let Some(landed) = landed_twice(worktree, base, &ticket.head, &plus)? {
-        return refuse(logs, name, "landed-twice", &landed_copy::refusal(&landed, base));
+    match on_main::judge(worktree, base, &ticket.head, &cherry)? {
+        Some(OnMain::Carried(commit)) => return Ok(Pick::Decided(format!("landed {commit}"))),
+        Some(OnMain::Nothing) => return refuse(logs, name, "nothing-to-land", &on_main::nothing_to_land(&ticket.head, base)),
+        Some(OnMain::AmendedAfterLanding(landed)) => return refuse(logs, name, "landed-twice", &landed_copy::refusal(&landed, base)),
+        None => {}
     }
     let picked_onto = git(worktree, &["rev-parse", "HEAD"])?;
     let stack_cherry = git(worktree, &["cherry", &picked_onto, &ticket.head])?;
