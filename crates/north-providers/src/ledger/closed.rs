@@ -56,14 +56,14 @@ fn closed_by_default() -> bool {
 }
 
 /// A closed box with what it cost and the worker runs that cost it, in the order they started.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ClosedBox {
     pub item: String,
     pub usd: f64,
     pub runs: Vec<BoxRun>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct BoxRun {
     pub agent: String,
     pub tier: String,
@@ -73,7 +73,7 @@ pub struct BoxRun {
 }
 
 /// One box the window's worker runs spent on, closed or not, with the skills any of its runs loaded.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct SkillBox {
     pub item: String,
     pub category: String,
@@ -88,7 +88,7 @@ impl SkillBox {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Cell {
     pub tier: String,
     pub category: String,
@@ -183,7 +183,7 @@ pub struct CellBox {
     pub reworked: bool,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ClosedReport {
     pub cells: Vec<Cell>,
     pub cell_boxes: Vec<CellBox>,

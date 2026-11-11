@@ -20,6 +20,7 @@ pub mod corroborated;
 pub mod outcome;
 pub mod rises;
 mod gates;
+mod recorded;
 mod report;
 mod verdict;
 
@@ -28,6 +29,7 @@ pub use closed::{ClosedBox, ClosedReport, Figures};
 pub use closed::{SpendRun, summarize};
 pub use corroborated::{Census, census};
 pub use closed_source::{EstimatedRun, Handovers, PriorReport, RunEnd, RunTime, WindowRun, closed_report, closed_report_and_previous, estimated_runs, eta_calibration, handovers, handovers_in, inside, prior_reports, run_ends, run_ends_in, run_times, run_times_in, runs_inside, threads_database, tier_briers, window_start, window_start_ms};
+pub use recorded::{record_closed_reports, recorded_closed_report};
 pub use report::print_runs;
 pub use verdict::{check, landed};
 

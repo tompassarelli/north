@@ -210,3 +210,16 @@ The tier arms are deleted: since 2026-11-07 each category starts on one fixed ti
 The effort cell is deleted too: since north#1035 (2026-11-10) north tune tells no `effort CATEGORY` cell, its
 `harness/graph-rules/effort.json` read is gone, and the north#939 cell draw picks model and effort together from a
 category's closed boxes.
+
+## A launch reads the closed-box report `north ledger worker` recorded
+
+A launch's tier step drew its arms and wrote its brief's ETA and budget from closed-box reports it rebuilt itself: 30
+days for the arm and cell shares, 7 days for the ETA and budget. Each rebuild asked GitHub for every repository's closed
+issues, about 13 to 18 s of every launch measured on 2026-11-11, and north's 30-day listing stopped at the 1,000 issues
+one search returns, so the shares were drawn from a truncated window (north#1160). Since then the every-15-minutes
+`north ledger worker` run builds both windows from one listing per repository, splitting any window that fills a search
+until each part holds under 1,000, and records each beside the threads ledger it read
+(`closed-report-<window>.json`). A launch, and the spawn guard that asks which tier a brief routes to, read the recorded
+report and make no GitHub call for it; one older than 45 minutes, two missed runs, is refused, and the launch draws its
+arms at equal shares and briefs the uncalibrated ETA with no budget, as it did when the live report failed. Dispatch's
+own survey still builds its report live, off any launch's path.

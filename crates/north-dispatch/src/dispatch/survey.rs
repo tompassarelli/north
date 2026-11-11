@@ -371,12 +371,16 @@ fn closed(notes: &mut Vec<String>) -> Option<ClosedReport> {
 }
 
 pub(super) fn read_closed(report: NorthResult<ClosedReport>, notes: &mut Vec<String>) -> Option<ClosedReport> {
-    report.map_err(|why| notes.push(format!("{DEGRADED}: north dash --closed --since {} unread, so the arms draw at equal shares: {}", tier::ARM_WINDOW, why.user_message()))).ok()
+    report.map_err(|why| notes.push(format!("{DEGRADED}: the closed-box report of the last {} unread, so the arms draw at equal shares: {}", tier::ARM_WINDOW, why.user_message()))).ok()
 }
 
 pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
-    let closed = closed(notes);
+    let closed = read_closed(crate::ledger::recorded_closed_report(tier::ARM_WINDOW), notes);
     evidence_from(categories, closed.as_ref())
+}
+
+pub fn record_closed_reports() -> NorthResult<()> {
+    crate::ledger::record_closed_reports(&[tier::ARM_WINDOW, super::grounds::WINDOW])
 }
 
 fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>) -> BTreeMap<String, Evidence> {

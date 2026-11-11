@@ -44,7 +44,15 @@ pub struct EtaScale {
 
 impl Ledger {
     pub fn read(notes: &mut Vec<String>) -> Self {
-        let closed = ledger::closed_report(WINDOW).map_err(|error| notes.push(format!("north dash --closed --since {WINDOW} unread, so briefs keep the uncalibrated ETA and carry no budget: {error}"))).ok();
+        Self::over(ledger::closed_report(WINDOW), notes)
+    }
+
+    pub fn recorded(notes: &mut Vec<String>) -> Self {
+        Self::over(ledger::recorded_closed_report(WINDOW), notes)
+    }
+
+    fn over(closed: crate::error::NorthResult<ClosedReport>, notes: &mut Vec<String>) -> Self {
+        let closed = closed.map_err(|error| notes.push(format!("the closed-box report of the last {WINDOW} unread, so briefs keep the uncalibrated ETA and carry no budget: {error}"))).ok();
         let prior = ledger::prior_reports().map_err(|error| notes.push(format!("prior Not done reports unread, so briefs carry none: {error}"))).unwrap_or_default();
         let times = ledger::run_times().map_err(|error| notes.push(format!("run ETAs unread, so no run past twice its ETA climbs: {error}"))).unwrap_or_default();
         let ends = ledger::run_ends().map_err(|error| notes.push(format!("run ends unread, so no run climbs on a not-done end: {error}"))).unwrap_or_default();

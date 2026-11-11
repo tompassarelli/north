@@ -221,7 +221,7 @@ pub fn begin(ask: &Ask) -> Result<Start, String> {
     let category = facets::settled(facets::declared_in(ask.brief, "Category").unwrap_or_else(|| facets::default("Category")).to_lowercase(), &format!("{}\n{body}", ask.brief));
     let mut notes = Vec::new();
     let ledger = survey::evidence(&[category.as_str()], &mut notes);
-    let grounds = grounds::Ledger::read(&mut notes);
+    let grounds = grounds::Ledger::recorded(&mut notes);
     let needs = IssueRef::parse(ask.item).filter(|_| ask.places).map(|item| super::host_needs::for_launch(&item, &body, facets::declared_in(ask.brief, "Box"), placement::now(), &mut notes)).unwrap_or_default();
     notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
     start(ask, &body, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, created, &body, route)).map(|start| Start { needs, ..start })

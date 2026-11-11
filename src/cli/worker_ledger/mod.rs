@@ -171,6 +171,10 @@ fn record(options: &Options) -> u8 {
             label_runs();
         }
         recalibrate::run();
+        if let Err(error) = crate::dispatch::record_closed_reports() {
+            eprintln!("north ledger worker: closed-box reports unrecorded, so launches draw arms at equal shares and brief no budget once the last ones age out: {}", error.user_message());
+            return 1;
+        }
     }
     if missed || (ingested == 0 && unread) { 1 } else { ingested }
 }

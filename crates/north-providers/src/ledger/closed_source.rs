@@ -19,7 +19,7 @@ use super::closed::{ClosedReport, SpendRun, summarize};
 use crate::router::pricing::PriceTable;
 
 const OWNER: &str = "tompassarelli";
-const ISSUE_LIMIT: &str = "1000";
+const ISSUE_LIMIT: usize = 1000;
 
 pub fn window_start(window: &str) -> NorthResult<String> {
     window_bounds(window, Timestamp::now()).map(|(since, _)| since)
@@ -118,18 +118,38 @@ fn native_closed(database: &std::path::Path, since: &str, until: &str) -> NorthR
     Ok(sqlite::rows(database, Access::ReadOnly, Duration::from_secs(5), &query)?.iter().map(|row| (text(row, "item"), text(row, "body"))).collect())
 }
 
-fn github_closed(repo: &str, since: &str, until: &str) -> NorthResult<HashMap<String, String>> {
-    let search = format!("closed:{}..{}", &since[..10], &until[..10]);
+#[derive(Clone)]
+pub(super) struct ClosedIssue {
+    item: String,
+    at: String,
+    body: String,
+}
+
+pub(super) fn github_closed(repo: &str, since: &str, until: &str) -> NorthResult<Vec<ClosedIssue>> {
     let repository = format!("{OWNER}/{repo}");
-    let issues = github::json(&["issue", "list", "-R", &repository, "--state", "closed", "--search", &search, "--limit", ISSUE_LIMIT, "--json", "number,closedAt,body"])
+    let search = format!("closed:{since}..{until}");
+    let issues = github::json(&["issue", "list", "-R", &repository, "--state", "closed", "--search", &search, "--limit", &ISSUE_LIMIT.to_string(), "--json", "number,closedAt,body"])
         .map_err(|error| NorthError::Configuration(format!("gh issue list {repository}: {}", error.trim())))?;
-    Ok(issues
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|issue| issue["closedAt"].as_str().is_some_and(|at| at >= since && at < until))
-        .filter_map(|issue| Some((format!("{repo}#{}", issue["number"].as_i64()?), text(issue, "body"))))
-        .collect())
+    let listed = issues.as_array().map_or(&[][..], Vec::as_slice);
+    if listed.len() < ISSUE_LIMIT {
+        return Ok(listed.iter().filter_map(|issue| Some(ClosedIssue { item: format!("{repo}#{}", issue["number"].as_i64()?), at: text(issue, "closedAt"), body: text(issue, "body") })).collect());
+    }
+    let (start, end) = (Timestamp::parse(since)?.unix_seconds(), Timestamp::parse(until)?.unix_seconds());
+    if end - start < 2 {
+        return Err(NorthError::Configuration(format!("{repository} closed {ISSUE_LIMIT} or more issues between {since} and {until}, more than one search returns")));
+    }
+    let middle = Timestamp::from_unix_seconds(start + (end - start) / 2).iso();
+    let mut halves = github_closed(repo, since, &middle)?;
+    halves.extend(github_closed(repo, &middle, until)?);
+    Ok(halves)
+}
+
+pub(super) fn within(issues: &[ClosedIssue], since: &str, until: &str) -> HashMap<String, String> {
+    issues.iter().filter(|issue| issue.at.as_str() >= since && issue.at.as_str() < until).map(|issue| (issue.item.clone(), issue.body.clone())).collect()
+}
+
+fn live_closed(repo: &str, since: &str, until: &str) -> NorthResult<HashMap<String, String>> {
+    github_closed(repo, since, until).map(|issues| within(&issues, since, until))
 }
 
 pub fn closed_report(window: &str) -> NorthResult<ClosedReport> {
@@ -151,7 +171,7 @@ pub fn adjacent_windows(now: Timestamp, span: i64) -> [(String, String); 2] {
 
 fn closed_report_between(since: &str, until: &str) -> NorthResult<ClosedReport> {
     let corroborated = super::corroborated::checked_boxes(&north_graph::default_path())?;
-    report_over(&threads_database(), since, until, |_| true, corroborated)
+    report_over(&threads_database(), since, until, |_| true, corroborated, live_closed)
 }
 
 /// The same runs without the closed-box report, for a caller that needs only what each run cost.
@@ -173,7 +193,7 @@ pub fn inside(window: &str) -> NorthResult<(Vec<WindowRun>, ClosedReport)> {
     let (since, until) = window_bounds(window, Timestamp::now())?;
     let corroborated = super::corroborated::checked_boxes(&north_graph::default_path())?;
     let started = |run: &SpendRun| run.started.as_str() >= since.as_str() && run.started.as_str() < until.as_str();
-    Ok((window_runs(&database, &since, &until)?, report_over(&database, &since, &until, started, corroborated)?))
+    Ok((window_runs(&database, &since, &until)?, report_over(&database, &since, &until, started, corroborated, live_closed)?))
 }
 
 /// How often a run took over another run's work (a handover, revive or relaunch in a new conversation) and what the
@@ -219,15 +239,15 @@ pub fn handovers_in(database: &Path, window: &str, now: Timestamp) -> NorthResul
 }
 
 /// The `[since, until)` bounds of `window` ending at `now`, both in the ledger's timestamp text.
-fn window_bounds(window: &str, now: Timestamp) -> NorthResult<(String, String)> {
+pub(super) fn window_bounds(window: &str, now: Timestamp) -> NorthResult<(String, String)> {
     Ok((Timestamp::from_unix_seconds(now.unix_seconds() - span_seconds(window)?).iso(), now.iso()))
 }
 
-fn report_over(database: &Path, since: &str, until: &str, keep: impl Fn(&SpendRun) -> bool, corroborated: Option<HashSet<String>>) -> NorthResult<ClosedReport> {
+pub(super) fn report_over(database: &Path, since: &str, until: &str, keep: impl Fn(&SpendRun) -> bool, corroborated: Option<HashSet<String>>, github: impl Fn(&str, &str, &str) -> NorthResult<HashMap<String, String>> + Sync) -> NorthResult<ClosedReport> {
     let runs: Vec<SpendRun> = spend_runs(database)?.into_iter().filter(|run| run.ended.as_str() < until && keep(run)).collect();
     let native = native_namespaces(database)?;
     let closed = native_closed(database, since, until)?;
-    report_between(&Inputs { runs, native, closed, corroborated, catalog: &CATALOG }, since, until, github_closed, &PriceTable::load()?)
+    report_between(&Inputs { runs, native, closed, corroborated, catalog: &CATALOG }, since, until, github, &PriceTable::load()?)
 }
 
 struct Inputs<'a> {
