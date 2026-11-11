@@ -1,3 +1,4 @@
+use north_base::platform::session_scope::REMOVAL_ROOTS;
 use std::time::Duration;
 
 const HUB: &str = "gex45";
@@ -6,6 +7,7 @@ const MINT_LIMIT: Duration = Duration::from_secs(90);
 const LAUNCH_LIMIT: Duration = Duration::from_secs(150);
 const VERIFY_NORTH_LIMIT: Duration = Duration::from_secs(600);
 const SCRATCH_LANDING_LIMIT: Duration = Duration::from_secs(240);
+const DEPBOX_LIMIT: Duration = Duration::from_secs(60);
 const FETCH: &str = "for file in \"$HOME\"/code/*/main/.safe-push; do\n  [ -f \"$file\" ] || continue\n  git -C \"$(dirname \"$file\")\" ls-remote origin HEAD >/dev/null || { echo \"$file: fetch failed\" >&2; exit 1; }\ndone";
 pub(super) const PROVIDERS: [&str; 3] = ["claude", "opencode", "pi"];
 
@@ -77,6 +79,7 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hu
         )),
         (false, false) => {}
     }
+    probes.push(probe("a worker command's depbox run execs the judged north", depbox_run(&north), DEPBOX_LIMIT));
     let mut not_applicable = Vec::new();
     match landers {
         Some(landers) => {
@@ -109,6 +112,20 @@ fn judging(sha: &str, probes: Vec<Probe>) -> Vec<Probe> {
     let pinned = format!("link=\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/judged/{sha}\"\nmkdir -p \"${{link%/*}}\" && ln -sfn \"../runtimes/{sha}\" \"$link\"\nexport {}=\"$link\"\n", north_runtime_follow::LINK);
     probes.into_iter().map(|probe| Probe { script: format!("{pinned}{}", probe.script), ..probe }).collect()
 }
+
+fn depbox_run(north: &str) -> String {
+    DEPBOX_RUN.replace("__NORTH__", north).replace("__ROOTS__", REMOVAL_ROOTS)
+}
+
+const DEPBOX_RUN: &str = r#"set -euo pipefail
+north=__NORTH__
+root=$(mktemp -d "${TMPDIR:-/tmp}/north-canary-depbox.XXXXXX")
+trap 'rm -rf "$root"' EXIT
+git init -q -b main "$root/canary/main"
+cd "$root/canary/main"
+checkout=$(pwd -P)
+__ROOTS__="[\"$checkout\"]" "$north" depbox run -- true
+"#;
 
 /// The product verification of the judged runtime, run only when a Claude account can place its
 /// worker: no account is a probe that cannot judge the runtime, not one the runtime failed.

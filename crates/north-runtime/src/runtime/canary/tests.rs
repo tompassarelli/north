@@ -17,6 +17,7 @@ struct Fleet<'a> {
     reaches_hub: bool,
     settles: bool,
     landers: Option<probes::Landers>,
+    depbox_host: Option<std::path::PathBuf>,
     probed: Mutex<Vec<String>>,
     alarms: Mutex<Vec<String>>,
     pages: Mutex<Vec<(String, String)>>,
@@ -25,6 +26,10 @@ struct Fleet<'a> {
 impl Machine for Fleet<'_> {
     fn probe(&self, probe: &Probe) -> Ran {
         self.probed.lock().unwrap().push(probe.name.clone());
+        if let Some(home) = self.depbox_host.as_ref().filter(|_| probe.name.contains("depbox")) {
+            let output = Command::new(bash_program()).arg("-c").arg(&probe.script).env("HOME", home).env("TMPDIR", home.join("tmp")).env_remove("XDG_STATE_HOME").env_remove("NORTH_RUNTIME_LINK").env_remove(north_base::platform::session_scope::REMOVAL_ROOTS).output().unwrap();
+            return classify(output.status.code(), format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
+        }
         let failing = if probe.script.contains(PREVIOUS) { &self.replaced } else { &self.failing };
         match failing {
             Some((name, Ran::Exited { code, log })) if probe.name.contains(name) => Ran::Exited { code: *code, log: log.clone() },
@@ -90,7 +95,7 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, settles: false, landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, settles: false, landers: None, depbox_host: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
     }
 
     fn settling(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
@@ -122,7 +127,7 @@ fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming
     let host = Host::promoted();
     let fleet = host.fleet(Some(("ssh gex45 true", exited(255, "ssh: Could not resolve hostname gex45\n"))));
     assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::RolledBack);
-    assert_eq!(fleet.probed.lock().unwrap().len(), 5);
+    assert_eq!(fleet.probed.lock().unwrap().len(), 6);
     assert_eq!(host.current(), layout::link(PREVIOUS));
     assert_eq!(lifecycle::state_of::<Promoting>(&host.layout, PROMOTED).unwrap(), Some(Promotion::RolledBack));
     let alarms = fleet.alarms.lock().unwrap();
@@ -132,6 +137,29 @@ fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming
     assert!(alarms[0].contains("rolled back to 11111111"), "{}", alarms[0]);
     assert!(matches!(update::hold::verdict(&host.layout, PROMOTED, true).unwrap(), update::hold::Verdict::Held(_)));
     assert_eq!(lifecycle::state_of::<Canarying>(&host.layout, &format!("nexus/{PROMOTED}")).unwrap(), Some(Canary::RolledBack));
+}
+
+#[test]
+fn a_runtime_whose_depbox_cannot_exec_north_is_rolled_back_by_the_canary() {
+    const HIDDEN: &str = "#!/bin/sh\n[ \"$1 $2 $3 $4\" = 'depbox run -- true' ] || exit 0\ntop=$(git rev-parse --show-toplevel) || exit 2\ncase \"${NORTH_WORKER_REMOVAL_ROOTS:-}\" in\n*\"\\\"$top\\\"\"*) echo \"bwrap: execvp $0: No such file or directory\" >&2; exit 1 ;;\nesac\nexit 0\n";
+    let host = Host::promoted();
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join(".local/state")).unwrap();
+    fs::create_dir(home.path().join("tmp")).unwrap();
+    symlink(&host.layout.state, home.path().join(".local/state/north")).unwrap();
+    north_base::foundation::shim::write_executable(&host.layout.runtime(PROMOTED).join("north"), HIDDEN);
+    north_base::foundation::shim::write_executable(&host.layout.runtime(PREVIOUS).join("north"), "#!/bin/sh\nexit 0\n");
+    let fleet = Fleet { depbox_host: Some(home.path().to_path_buf()), ..host.fleet(None) };
+
+    assert_eq!(check(&host.layout, "whiterabbit", PROMOTED, &fleet), Verdict::RolledBack, "on 2026-11-10 a runtime whose depbox hid the north it execs for a worker command went live on whiterabbit and refused every landing through it for about an hour");
+
+    assert_eq!(host.current(), layout::link(PREVIOUS));
+    let alarms = fleet.alarms.lock().unwrap();
+    assert_eq!(alarms.len(), 1);
+    assert!(alarms[0].contains("probe `a worker command's depbox run execs the judged north` exited 1"), "{}", alarms[0]);
+    assert!(alarms[0].contains("/north: No such file or directory"), "{}", alarms[0]);
+    assert!(alarms[0].contains("rolled back to 11111111"), "{}", alarms[0]);
+    assert_eq!(fs::read_dir(home.path().join("tmp")).unwrap().count(), 0, "the probe leaves its scratch checkout behind");
 }
 
 #[test]
