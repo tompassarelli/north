@@ -113,6 +113,14 @@ so a `buck-out/` created after the daemon's domain was built is never executable
 not among the trees a worker command may remove from, so a second daemon start fails to clean its directory. Until
 the sandbox treats them as build output and cache, a worker creates `buck-out/` before its first `buck2` command.
 
+Reads fail the same way: the sandbox fixes what a domain may read when it builds the domain
+(`crates/north-runtime/src/worker_sandbox/readable.rs`), so a directory created later is unreadable inside it. On gex45
+on 2026-11-11, a worker's first `buck2 build` on the host created `~/.buck` inside a domain built before `~/.buck`
+existed. The daemon could not read its own `buckd.pid` and shut itself down at its 60 s self-check. The client gave
+up after 803 attempts over 89.8 s. The next start in that lane stopped at
+`remove_dir_all(~/.buck/buckd/<lane>/v2/prev): Permission denied`.
+Box 6 fixes all three in the sandbox ([Lanes](#lanes-north1115-box-6), decision 6).
+
 ## Tests (north#1115 box 5)
 
 ### What nextest runs today
@@ -315,6 +323,138 @@ servers. Each license was read from the repository's own LICENSE file on 2026-11
   (`toolchains/remote_link.bzl`). Measured on `//crates/north-strategy-types` at one tree: cpx62 ran 48 actions
   (40 cached, 8 remote, 0 local), then cpx62b answered all 48 from the cache, and
   `buck2 log what-ran --skip-cache-hits | rg -c rustc` printed nothing.
+
+## Lanes (north#1115 box 6)
+
+This section covers how a lane builds once the shared store serves every host: no seeded target directory, no
+warmed slot, and the laptop as a client that runs nothing itself. It was written for box 6 before box 6 is built.
+Every number was measured on gex45 on 2026-11-11 at 2bd22a2744 unless another source is named. The runs were
+`buck2 build //...` in fresh worktrees of origin/main, inside the dev shell and under a 6-core heavy capacity lease.
+The store was on cpx62, with Buildbarn workers on gex45 (8 slots), cpx62 and cpx62b.
+
+### What a lane costs today
+
+- Every lane, land-offload slot and lander lane has its own Cargo target. On gex45 (`du -sb`), 7 lane targets held
+  1.7 to 10.4 GiB each (56 GiB in all), and 4 land-offload slots held 16.0 to 17.8 GiB each (66 GiB).
+- Earlier readings (north#1036): on 2026-11-10, gex45's lanes held about 128 GiB of targets and its six land slots
+  199 GiB. On 2026-11-11, cpx62b's slots held 236 to 251 GiB. The `land_offload` disk budgets in south's
+  `agents/orchestration.toml` (160 GiB on gex45, 180 GiB on cpx62 and cpx62b) exist to hold those slots.
+- gex45's root is ext4, so the seed's `cp --reflink=auto` made full copies. On 2026-11-11, three seeds at once wrote
+  about 100 GiB in 15 minutes (9bebd095da). Since then a lane on ext4 is not seeded and builds cold.
+- A seed pays only at the same path with `incremental/`. A north-core rebuild on whiterabbit took 14.4 s with one and
+  109.8 s without ([build-cost.md](build-cost.md), Warm worktree builds).
+
+### Measured on Buck2
+
+- Cold build, with nothing in the store for these inputs: 47.0 to 73.5 s in four runs. Each ran 2,344 to 2,416
+  actions remotely and 0 locally, and analysed 1,105 targets. 394 of the actions are proc macros and build scripts
+  on the execution platform.
+- A second fresh lane at another path, built after the first: 9.1 s wall (6.1 s of build). Of 2,425 actions, 2,417
+  came from the action cache, 8 ran remotely and 0 locally. The 8 are the failing actions named below. The store
+  caches no failure, so they run again in every lane.
+- No-op rebuild in a running daemon: 1.6 to 2.1 s, including the retried failures.
+- Materialised with the default deferred materialiser: 572 MiB in 9,720 files, after downloading 321 to 330 MiB from
+  the store, leaving a 0.59 GiB `buck-out/`. These are the requested targets' own outputs: 247 `.rmeta` files
+  (133 MiB), unpacked crate sources and argument files. No `.rlib` and no other intermediate output was
+  materialised. With `--materializations none` (`-M none`): 0 B materialised, 11 MiB downloaded and a 21 MiB
+  `buck-out/`.
+- Daemon: a new daemon accepted its client 0.4 s after start. The first daemon on the host took 8.7 s to create its
+  materialiser state. Resident memory after `//...` was 488 to 909 MiB across five daemons.
+- The isolation dir is part of every action key. Outputs are written under `buck-out/<isolation dir>/`, and output
+  paths are part of the command. `prelude//rust/tools:rustc_cfg` had digest `abbac298…` under `--isolation-dir m1`
+  and `9547b481…` under `m2`. Four cold runs in four isolation dirs (`m1`, `m2`, `m3` and `v2`) got 0 to 13 cache
+  hits each, of about 2,400 actions.
+- The lane's path is in no key: the second lane above sat at another path and hit 2,417 of 2,425.
+- The build-host half of box 6's check already prints nothing at this commit:
+  `buck2 log what-ran --skip-cache-hits --skip-remote-executions | rg -c rustc` in the second lane. The platform's
+  limited hybrid ran 0 actions locally in all five runs.
+- A full remote `//...` fails today. `root//third-party:libsqlite3-sys-0.39` fails on the workers with
+  `could not find native static library sqlite3`, while box 2's `--local-only` build of it passes. north-lander,
+  north-runtime and every target above them do not build remotely until that is fixed. The fix belongs to box 3,
+  whose Done when needs a remote `//...` that succeeds.
+
+### Decisions
+
+1. **One daemon per lane.** Buck2 binds a daemon to one project root and isolation dir, with its state under
+   `~/.buck/buckd/<project root>/<isolation dir>`. A lane is its own worktree, so it gets its own daemon whatever north
+   does. One daemon per host would need every lane to share one checkout, which ends lane isolation.
+   - Cost: 0.5 to 0.9 GiB resident for each lane that has built `//...`. gex45 had 16 north worktrees touched in the
+     last two hours, so 8 to 15 GiB of its 62 GiB.
+   - Saved: each lane's 1.7 to 10.4 GiB target and the copy that seeded it.
+2. **Every checkout builds under the default isolation dir `v2`.** A second isolation dir shares nothing with `v2`
+   (see Measured on Buck2) and rebuilds everything once for its name: 47 to 74 s cold and about 2,400 more
+   entries in the 64 GiB store. The build seam passes no `--isolation-dir`, so `north build-time` measures with
+   `--no-remote-cache` under `v2`, not in a scratch dir (box 7a's inventory planned a scratch dir).
+   - The one exception is rust-project's `.rust-analyzer` dir (box 10), which keeps an editor's builds from waiting
+     on the lane's build. The path is in no key, so its proc-macro and build-script outputs (394 of 2,425 actions)
+     are built once per input across the fleet under that name, not once per checkout.
+3. **A lane starts with an empty `buck-out/`, and nothing is seeded.** On a host set to `build_tool = "buck2"`,
+   `north lane seed` already creates only an empty `buck-out/`, as its own subvolume on btrfs (90df989383).
+   - Cost: the lane's first build, 9.1 s and 0.59 GiB, once another lane has built the same inputs.
+   - Saved: a 30 to 50 GiB copy, or a cold Cargo build on ext4.
+   - Box 8 deletes the Cargo seed.
+4. **Intermediate outputs stay in the store; a lane holds only what it runs.** The deferred materialiser keeps every
+   intermediate output in the store and writes only the requested targets' outputs into `buck-out/`. A check needs an
+   exit status, not a file.
+   - The seam's Buck2 side passes `-M none` to every build whose result is only its exit status: the land build
+     check, the offload build and box 6's check.
+   - `buck2 test` runs tests on the workers, so no test binary is materialised.
+   - Materialised are only what a command runs or ships: a `buck2 run` target, the runtime build's `--out`, and the
+     proc-macro libraries and build-script outputs that rust-project hands the editor.
+   - Saved: 572 MiB and 321 MiB of download per `//...`, against 0 B and 11 MiB.
+5. **Every action runs remotely, on every host.** In `toolchains//platforms:exec`, `local_enabled` becomes
+   `not remote`, and `use_limited_hybrid` goes. A host whose buckconfig names a remote-execution engine then runs
+   nothing locally; a host without one, such as a GitHub runner, builds locally as before.
+   - Why: a local action runs outside the workers, so the Tests section's fix for undeclared reads does not cover it.
+     Its result is never uploaded (the prelude leaves `allow_cache_upload` off for rustc), so the next lane builds it
+     again.
+   - Cost: limited hybrid ran 0 local actions in the five runs, so the measured cost is nothing. The host's own cores
+     still build, through its Buildbarn worker.
+   - It also makes box 6's check a guarantee rather than an outcome of load.
+   - Incremental compilation stays off. The prelude makes an incremental rustc action `local_only` (`rust/build.bzl`,
+     `if incremental_enabled: local_only = True`), so it could never be shared, and under this decision it is
+     refused. A one-line edit therefore recompiles the edited crate from scratch on a worker. In the cold build,
+     the longest first-party compile actions took 3.9 s (north-base check), 5.4 s (north-pace), 6.1 s
+     (north-providers) and 8.3 s (north-ops diagnostics), all remote under full load. Box 9 records the
+     one-line-edit rebuild before and after.
+6. **The worker sandbox lets a lane's daemon live** (the three failures in [Worker sandbox](#worker-sandbox)).
+   - The sandbox creates `~/.buck` before it builds a domain.
+   - It grants `~/.buck` read, write and remove, as it does `~/.cache`.
+   - It grants Execute on `buck-out/` as it does on `target/`.
+7. **A daemon lives as long as its lane.** This Buck2 has no idle exit, but a daemon checks its `buckd.pid` every
+   60 s and shuts down when it cannot read it (measured: started 18:33:54 UTC, forced shutdown at 18:34:54 UTC).
+   - Before removing a lane, `north lane remove`, the lane-free unit and `lane gc` run `buck2 kill` in it, then
+     delete `~/.buck/buckd/<lane path>/`, so a daemon whose kill was missed stops within 60 s.
+   - `north lane gc`, which today drops a scratch Cargo target with no build in its idle window (3 h by default,
+     `crates/north-lanes/src/lanes/gc/scratch.rs`), kills the daemon of a lane idle that long instead.
+   - A killed daemon re-analyses the graph on its next command, as a fresh lane does, in about the 9.1 s measured
+     above.
+8. **Land-offload slots and lander lanes are fresh checkouts.** A slot is a checkout with an empty `buck-out/`.
+   - The warm step (`north capacity offload warm`) and the slot's target go.
+   - A slot keeps its daemon between checks (no-op 1.6 to 2.1 s), and the daemon dies with the slot.
+   - Saved: gex45's 66 GiB of slot targets today. Each slot holds about 21 MiB under decision 4, so the
+     `land_offload` budgets can go in box 8.
+9. **The laptop is a client and runs nothing itself.** Through the system configuration it gets the build hosts'
+   `/etc/buckconfig.d/remote-execution` and a place on the private mesh, both in the private host configuration.
+   - With that file, decision 5 makes every action remote, so a local compile is refused rather than run.
+   - It materialises only what its user runs and what the editor reads: `buck2 run` targets and rust-project's outputs.
+     A `-M none` `//...` downloads 11 MiB.
+   - Its daemon costs the same 0.5 to 0.9 GiB as a lane's.
+   - Box 6's second check is `buck2 log what-ran --skip-cache-hits --skip-remote-executions | rg -c rustc` printing
+     nothing on the laptop.
+
+### What box 6 builds, in order
+
+1. `toolchains//platforms:exec`: `local_enabled = not remote`, with no hybrid (decision 5).
+2. The worker sandbox's `~/.buck` and `buck-out/` grants (decision 6).
+3. Lane removal and `lane gc` kill the lane's daemon and delete its daemon dir (decision 7).
+4. The seam's Buck2 side: no `--isolation-dir` anywhere, and `-M none` on check builds (decisions 2 and 4).
+5. Land-offload slots without warm or target (decision 8).
+6. The laptop's buckconfig file and mesh membership, in the private host configuration (decision 9). Box 6's
+   laptop check runs once these are live.
+
+Box 6 needs nothing from box 5. Box 3's libsqlite3-sys fix is not needed for box 6's check, which counts only local
+rustc, but a lane does not build north remotely until that fix lands.
 
 ## Third-party crates: reindeer
 
