@@ -86,23 +86,6 @@ enabled.
 
 ## Moving a module
 
-`harness/split/move-module.sh MODULE CRATE` moves `crates/north-core/src/MODULE` into a new sibling crate
-`crates/CRATE`. It `git mv`s the module to `crates/CRATE/src/MODULE`, so every relative path stays valid
-and the files stay byte-identical; writes the crate's `Cargo.toml` with `north-core` and only the
-workspace dependencies the module names (those named only in tests become dev-dependencies) and its
-`lib.rs` with `pub mod MODULE;` and `pub use north_core::{...}` for each `crate::` root the module
-reaches; adds the crate to the workspace and the root package; rewrites the root `main.rs` import and
-the repo's path mentions, including those inside moved files other than fixtures; adds the crate's `lib.rs`
-to the moved module's `paths` in `structure.toml`, never to `crate-roots`, whose `may_use` widening closed a
-cycle; repoints a sibling crate that re-exported the module from `north-core`, as a dependency when its
-library code uses it and a dev-dependency when only its tests do; and widens to `pub` only the items
-`cargo check` reports as private. It also links `north-base` when the module names it, moves a fixture the
-module embeds from elsewhere in `north-core/src` beside it, and turns a `#[cfg(test)]` helper the moved
-tests reach into `#[doc(hidden)]`, always compiled: a `test-support` feature only tests turn on would give
-`north-core` a second build per test run. It lists each `cfg!(test)` left in `north-core`, since that is
-false under the new crate's tests; the caller in the new crate picks its own (`ops::defaults_measure`
-passes `Sources::default()` to the `_with` calibration readers). To rebase a move, reset
-to the new main and run it again rather than merging by hand.
 `north code-health split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... MODULE...`
 moves each `MODULE` (a path such as `tui` or `ops/tempo`) out of `crates/FROM/src` (default
 `north-core`) into the sibling crate `crates/CRATE/src/NAME`, all in one run. It refuses when any file
@@ -355,22 +338,8 @@ broke in 12 places. The goal is CPU-seconds per landed lane.
 
 ### Method, rerunnable
 
-`harness/split/cut-plan.sh PLAN [DAYS]` computes every number below from the checkout and `git log`. PLAN is
-one of `harness/split/plans/`:
-
-- `now.txt`: today's crates.
-- `c12.txt`: this plan.
-- `c13.txt`, `c15.txt` and `c19.txt`: the alternatives priced below.
-
-Each plan line is a crate, its declared dependencies and its module prefixes. The script prints:
-
-- each crate's lines, its non-test code lines (as the crate-size gate counts them: no blank, comment or
-  post-`#[cfg(test)]` lines), its cap, 7-day commits, transitive dependents, and the CPU cost of
-  one edit;
-- every `crate::` reference that breaks the plan's DAG, with file:line, marked test or prod by file name or
-  an enclosing inline `#[cfg(test)] mod`;
-- the per-commit rebuilt set over the window.
-
+The numbers below were computed by `cut-plan.sh`, a shell calculator last run at 387b7eb192 and since
+deleted with its plan files (north#1131).
 It does not resolve `super::` chains, `pub use` re-exports or `mod.rs` dispatch, and it counts string
 literals. C5 below was found by hand for that reason, and each crate move's `cargo check` is the final word.
 

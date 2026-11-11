@@ -37,7 +37,7 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 | harness/scripts/mutant-tests.sh | 62 | stay | 62-line CI glue that runs the mutant cargo slots |
 | harness/scripts/read-isolation-probe.sh | 51 | stay | 51-line manual probe that drives Claude Code tools under a config; no Rust caller, delete if unused for a month |
 | harness/skills/private-desktop-development/scripts/private-desktop.sh | 3 | stay | 3-line exec of `north desktop private`; named by lib/automation-chrome/cli.mjs and the desktop-action guard; delete when those name `north desktop private` |
-| harness/split/cut-plan.sh | 47 | stay | 47-line git, rg and awk planner that prices a crate split (churn, rebuilt sets, DAG breaks); manual design aid with no Rust caller, delete when the split plans are done |
+| harness/split/cut-plan.sh | 47 | deleted | deleted with its plan files 2026-11-11 (north#1131): nothing called it and its plans described 12 to 19 crates where the tree has over 60 |
 | lib/automation-chrome/actions.mjs | 79 | stay | Playwright (playwright-core 1.63.0) browser automation; no maintained Rust Playwright, and CDP-only crates lack its auto-wait and context model; Bun package |
 | lib/automation-chrome/actions.test.mjs | 54 | stay | Playwright (playwright-core 1.63.0) browser automation; no maintained Rust Playwright, and CDP-only crates lack its auto-wait and context model; Bun package |
 | lib/automation-chrome/cli.mjs | 96 | stay | Playwright (playwright-core 1.63.0) browser automation; no maintained Rust Playwright, and CDP-only crates lack its auto-wait and context model; Bun package |

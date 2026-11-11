@@ -202,8 +202,6 @@ cadence_hours = 24
 owner = "north#360"
 
 constants = [
-  "crates/north-landing/src/land/bisect.rs::PERSISTENT_AFTER",
-  "crates/north-landing/src/land/probe_slots.rs::MOST_AT_ONCE",
   "crates/north-landing/src/land/heartbeat.rs::LOOK",
   "crates/north-landing/src/land/heartbeat.rs::REPEAT",
   "crates/north-landing/src/land/heartbeat.rs::STUCK",
