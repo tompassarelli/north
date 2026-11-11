@@ -1,4 +1,5 @@
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::lander::Lander;
@@ -72,10 +73,15 @@ pub fn stuck(step: Step, held: Duration, reported: Option<Duration>) -> bool {
     !step.expected() && held >= STUCK && reported.is_none_or(|last| held >= last + REPEAT)
 }
 
-fn watch(lander: &Lander, done: &AtomicBool) {
+fn watch(lander: &Lander, done: &Mutex<bool>, wake: &Condvar) {
     let mut reported: Option<(u64, Duration)> = None;
-    while !done.load(Ordering::Relaxed) {
-        std::thread::sleep(LOOK);
+    let mut finished = done.lock().unwrap_or_else(|poison| poison.into_inner());
+    while !*finished {
+        let (next, _) = wake.wait_timeout(finished, LOOK).unwrap_or_else(|poison| poison.into_inner());
+        finished = next;
+        if *finished {
+            break;
+        }
         let (step, held) = lander.heartbeat.current();
         let since = lander.heartbeat.since.load(Ordering::Relaxed);
         let last = reported.filter(|(at, _)| *at == since).map(|(_, held)| held);
@@ -86,19 +92,23 @@ fn watch(lander: &Lander, done: &AtomicBool) {
     }
 }
 
-struct Stop<'a>(&'a AtomicBool);
+struct Stop<'a> {
+    done: &'a Mutex<bool>,
+    wake: &'a Condvar,
+}
 
 impl Drop for Stop<'_> {
     fn drop(&mut self) {
-        self.0.store(true, Ordering::Relaxed);
+        *self.done.lock().unwrap_or_else(|poison| poison.into_inner()) = true;
+        self.wake.notify_one();
     }
 }
 
 pub fn watched<T>(lander: &Lander, serve: impl FnOnce() -> T) -> T {
-    let done = AtomicBool::new(false);
+    let (done, wake) = (Mutex::new(false), Condvar::new());
     std::thread::scope(|scope| {
-        scope.spawn(|| watch(lander, &done));
-        let _stop = Stop(&done);
+        scope.spawn(|| watch(lander, &done, &wake));
+        let _stop = Stop { done: &done, wake: &wake };
         serve()
     })
 }

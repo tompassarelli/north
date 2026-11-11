@@ -9,6 +9,7 @@ use crate::land::queue::{self, Ticket};
 use crate::landing::lane_squash::Squash;
 
 const NAME: &str = "1-lane.json";
+const ASK: &str = "safe-push: no verdict on lane";
 
 fn asked_after(scratch: &Path, quiet_secs: u64, out: &mut Vec<u8>) -> bool {
     let state_home = scratch.join(format!("state-{quiet_secs}"));
@@ -30,5 +31,6 @@ fn a_wait_with_no_verdict_for_60_seconds_asks_the_lander_and_says_what_it_waits_
     let stdout = String::from_utf8(out).unwrap();
     let asking: Vec<&str> = stdout.lines().filter(|line| line.contains("asking the lander")).collect();
     assert_eq!(asking.len(), 1, "{stdout}");
-    assert!(asking[0].starts_with("safe-push: no verdict on lane (abc123) after ") && asking[0].ends_with("; asking the lander on lander-host"), "{}", asking[0]);
+    let message = asking[0].find(ASK).map_or(asking[0], |at| &asking[0][at..]);
+    assert!(message.starts_with("safe-push: no verdict on lane (abc123) after ") && message.ends_with("; asking the lander on lander-host"), "{}", asking[0]);
 }
