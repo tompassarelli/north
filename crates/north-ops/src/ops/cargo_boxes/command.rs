@@ -286,12 +286,13 @@ impl<'a> Invocation<'a> {
         let probes: Vec<&str> = self.filters.iter().filter_map(|filter| filter.split("::").find(|part| !part.is_empty())).collect();
         let mentioning: Vec<&TestTarget> = candidates.iter().copied().filter(|target| probes.iter().any(|probe| target.mentions(probe))).collect();
         let tail = self.libtest_arguments()?;
+        let run = |target: &TestTarget| if tail.is_empty() { format!("buck2 run {}", target.target) } else { format!("buck2 run {}{tail}", target.binary()) };
         let chain = if probes.is_empty() || !mentioning.is_empty() {
             let targets = if probes.is_empty() { candidates } else { mentioning };
-            targets.iter().map(|target| format!("buck2 run {}{tail}", target.target)).collect::<Vec<_>>().join(" && ")
+            targets.into_iter().map(run).collect::<Vec<_>>().join(" && ")
         } else {
             let scope = self.patterns(workspace)?.join(" + ");
-            format!("for t in $(buck2 uquery 'kind(rust_test, {scope})'); do buck2 run $t{tail} || exit 1; done")
+            format!("for t in $(buck2 uquery 'filter(\"-(unittest|test-.+)-bin$\", kind(rust_binary, {scope}))'); do buck2 run $t{tail} || exit 1; done")
         };
         Ok(match self.stress {
             Some(count) => format!("for _ in $(seq {}); do {chain} || exit 1; done", number(count, "--stress-count")?),

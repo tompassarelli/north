@@ -12,12 +12,20 @@ pub struct Package {
 
 pub struct TestTarget {
     pub target: String,
-    roots: Vec<PathBuf>,
+    root: PathBuf,
 }
 
 impl TestTarget {
+    fn new(target: String, root: PathBuf) -> TestTarget {
+        TestTarget { target, root }
+    }
+
+    pub fn binary(&self) -> String {
+        format!("{}-bin", self.target)
+    }
+
     pub fn mentions(&self, probe: &str) -> bool {
-        self.roots.iter().any(|root| mentions(root, probe))
+        mentions(&self.root, probe)
     }
 }
 
@@ -68,8 +76,16 @@ fn package(root: &Path, member: &str) -> Result<Package, String> {
         .to_owned();
     let label = format!("//{member}");
     let mut tests = Vec::new();
-    if ["src/lib.rs", "src/main.rs"].iter().any(|root| directory.join(root).is_file()) {
-        tests.push(TestTarget { target: format!("{label}:{name}-unittest"), roots: vec![directory.join("src")] });
+    if directory.join("src/lib.rs").is_file() {
+        tests.push(TestTarget::new(format!("{label}:{name}-unittest"), directory.join("src")));
+    }
+    for (binary, path) in binaries(&manifest, &name) {
+        let source = directory.join(&path);
+        if !source.is_file() {
+            continue;
+        }
+        let root = if source.file_name().is_some_and(|file| file == "main.rs") { source.parent().map_or(source.clone(), Path::to_path_buf) } else { source };
+        tests.push(TestTarget::new(format!("{label}:{binary}-bin-unittest"), root));
     }
     let mut files: Vec<(String, PathBuf)> = fs::read_dir(directory.join("tests"))
         .into_iter()
@@ -83,8 +99,19 @@ fn package(root: &Path, member: &str) -> Result<Package, String> {
         })
         .collect();
     files.sort();
-    tests.extend(files.into_iter().map(|(file, path)| TestTarget { target: format!("{label}:{name}-test-{file}"), roots: vec![path] }));
+    tests.extend(files.into_iter().map(|(file, path)| TestTarget::new(format!("{label}:{name}-test-{file}"), path)));
     Ok(Package { name, label, tests })
+}
+
+fn binaries(manifest: &DocumentMut, package: &str) -> Vec<(String, String)> {
+    let declared: Vec<(String, String)> = manifest
+        .get("bin")
+        .and_then(|bins| bins.as_array_of_tables())
+        .into_iter()
+        .flatten()
+        .filter_map(|bin| Some((bin.get("name")?.as_str()?.to_owned(), bin.get("path")?.as_str()?.to_owned())))
+        .collect();
+    if declared.is_empty() { vec![(package.to_owned(), "src/main.rs".to_owned())] } else { declared }
 }
 
 fn mentions(path: &Path, probe: &str) -> bool {
