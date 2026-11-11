@@ -45,19 +45,13 @@ pub fn output(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
 
 pub fn git(directory: &Path, arguments: &[&str]) -> Result<String, String> {
     let attempt = || stdout(arguments, output(directory, arguments)?);
-    let result = match arguments.first() {
-        Some(&"fetch") => north_git_locks::retry_after_clearing(directory, attempt),
-        _ => attempt(),
-    };
+    let result = if arguments.first() == Some(&"fetch") { north_git_locks::retry_after_clearing(directory, attempt) } else { attempt() };
     result.map_err(|error| format!("{error} ({})", repository_of(directory)))
 }
 
 fn repository_of(directory: &Path) -> String {
-    match run(directory, &["rev-parse", "--absolute-git-dir"]) {
-        Ok(found) if found.status.success() => format!("in repository {}", String::from_utf8_lossy(&found.stdout).trim()),
-        Ok(found) => format!("no repository at {}: {}", directory.display(), String::from_utf8_lossy(&found.stderr).trim()),
-        Err(error) => format!("repository of {} unknown: {error}", directory.display()),
-    }
+    let found = run(directory, &["rev-parse", "--absolute-git-dir"]).ok().filter(|found| found.status.success());
+    found.map_or_else(|| format!("no repository at {}", directory.display()), |found| format!("in repository {}", String::from_utf8_lossy(&found.stdout).trim()))
 }
 
 pub fn change_worktrees_alone(repo: &Path, arguments: &[&str]) -> Result<String, String> {
