@@ -35,6 +35,8 @@ const BUILD_OFFLOAD_DISK_SHARE: f64 = 0.15;
 const GIB: f64 = (1u64 << 30) as f64;
 const EPISODE_FILE: &str = "host-disk.episode";
 const KEEP_UNIT: &str = "north-disk-keep";
+const KEEP_BOUND: Duration = Duration::from_secs(10 * 60);
+const KEEP_STARTED: &str = "disk-keep.started";
 const COMPANION_DIRS: [&str; 1] = ["beside"];
 const COMPANION_FILES: [&str; 2] = ["bundle", "patch"];
 const ENTRY_IDLE: Duration = Duration::from_secs(20 * 60);
@@ -333,17 +335,28 @@ fn evict_here(home: &Path, budget: &DiskBudget, disk: &mut dyn FnMut() -> Option
     (evicted, disk())
 }
 
-/// The lease reaper's disk step: starts `north capacity disk keep` as its own transient user unit at the lowest CPU and I/O priority.
+/// The lease reaper's disk step: starts `north capacity disk keep` as its own transient user unit at the CPU and I/O weight a land check
+/// runs at, so the build load it relieves cannot starve it, and with `KEEP_BOUND` as its runtime bound, past which systemd ends it.
 /// A cleanup pass walks and trims hundreds of thousands of files for a minute or more, past the reaper's 25 s start timeout, and
 /// systemd ends every process left in the oneshot reaper's cgroup when it exits; the fixed unit name keeps a second pass from starting
-/// beside a running one.
+/// beside a running one, and a pass ended at its bound is reported here once before the next one starts.
 pub fn tend() {
     if fixture() {
         return;
     }
+    let marker = crate::capacity::agent_load::capacity_root().join(KEEP_STARTED);
+    let ran = fs::metadata(&marker).and_then(|metadata| metadata.modified()).ok().and_then(|started| SystemTime::now().duration_since(started).ok());
+    if ran.is_some_and(|ran| ran > KEEP_BOUND) {
+        eprintln!("north capacity: the disk pass ran past its {} s bound and was ended; starting the next one", KEEP_BOUND.as_secs());
+        let _ = fs::remove_file(&marker);
+    }
     let path = std::env::var_os("PATH").unwrap_or_default();
+    let weight = (crate::capacity::admission::default_mib("land_check_cpu_weight") as u32).to_string();
     let started = Command::new("systemd-run")
-        .args(["--user", "--quiet", "--collect", "--unit", KEEP_UNIT, "--property=Nice=19", "--property=IOSchedulingClass=idle"])
+        .args(["--user", "--quiet", "--collect", "--unit", KEEP_UNIT])
+        .arg(format!("--property=CPUWeight={weight}"))
+        .arg(format!("--property=IOWeight={weight}"))
+        .arg(format!("--property=RuntimeMaxSec={}", KEEP_BOUND.as_secs()))
         .arg(format!("--setenv=PATH={}", path.to_string_lossy()))
         .arg("--")
         .arg(north_base::platform::north_binary::north_binary())
@@ -366,6 +379,7 @@ pub fn keep() {
         return;
     }
     let Some(home) = home() else { return };
+    let _started = Started::mark(crate::capacity::agent_load::capacity_root().join(KEEP_STARTED));
     for seed in north_lanes::lanes::reclaim_dead_seeds(&home.join("code"), Path::new("/proc"), SystemTime::now(), false) {
         eprintln!("north capacity: removed dead lane target seed {} ({} MiB)", seed.path.display(), seed.bytes >> 20);
     }
@@ -393,6 +407,22 @@ pub fn keep() {
         }
     } else if open && !passed(after) {
         let _ = fs::remove_file(&marker);
+    }
+}
+
+struct Started(PathBuf);
+
+impl Started {
+    fn mark(path: PathBuf) -> Self {
+        let _ = path.parent().map(fs::create_dir_all);
+        let _ = fs::write(&path, b"");
+        Self(path)
+    }
+}
+
+impl Drop for Started {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
     }
 }
 
