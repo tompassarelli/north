@@ -491,6 +491,29 @@ claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi)
   `02-hybrid` and `03-complex-fixups` at commit 6174073c, accessed 2026-11-11.
   Informed: `third-party/` and its review in [compile-reuse.md](rationale/compile-reuse.md#third-party-crates-reindeer)
   (north#1115). Outcome: adopted at v2026.05.04.00 with a patch that includes workspace dev-dependencies.
+- <a id="relax"></a>**Relax** (makepad/relax, MIT, 5,100 commits), https://github.com/makepad/relax at commit
+  `ce52155e0aa8e1ce273ca08627b714e875f04b9d` (committed 2026-11-12), accessed 2026-11-12. Read from source in
+  [watch/2026-11-12-relax.md](rationale/watch/2026-11-12-relax.md) and run in the trial in
+  [compile-reuse.md](rationale/compile-reuse.md#relax-a-just-in-time-rust-runner-north1247-trial-of-2026-11-12) (north#1247).
+  - License: MIT (`LICENSE`). The std sources it compiles carry their own notices
+    (`libs/relax/compiler/std/CREDITS.md`): smallvec 1.15.1 and arrayvec 0.7.6 (MIT or Apache-2.0), Rust core's float
+    formatting, string pattern and portable-simd code (MIT or Apache-2.0, The Rust Project Developers), and for web
+    targets only a port of the Rust musl libm (MIT, with the musl, FreeBSD msun and Sun notices kept) and dlmalloc 0.2.13
+    (MIT or Apache-2.0). All are compatible with north's MIT OR Apache-2.0. Nothing of Relax is copied into north: it was
+    cloned into an empty directory outside every north checkout on a build host and built and run there.
+  - Pin: the commit above, the head of `main` on the day. The repository is a projection of `makepad/makepad`'s `work`
+    branch and has no CI of its own, so the pin is a snapshot, not a release.
+  - Build time: `cargo build --release -p relax-runner --bin relax` with north's pinned nightly (the README asks for a
+    stable toolchain). Its workspace lists path members only; the pin has no `Cargo.lock`, and the one cargo generated
+    holds 36 packages, none from a registry. The runner links the system OpenSSL (`-lssl -lcrypto`),
+    which the README does not list and north's dev shell does not provide. 169 s on an 8-CPU lease, 3.6 GB peak.
+  - Run time: reads the package's manifests; takes crates.io packages from `~/.cargo`'s registry or downloads them over
+    HTTPS with the OS TLS stack, checked against the index SHA-256 (`MAKEPAD_RUN_OFFLINE=1` stops it); runs every build
+    script and every proc macro in the process tree with full std and no sandbox; with `--allow-c` runs real cargo,
+    rustc, the C compiler and the linker; writes its caches under the target directory's `makepad-run` and git
+    fetches under `~/.makepad-run`; opens a local inspect socket per run. It reads its own std from the checkout it was
+    built in.
+  Outcome: tried; dropped for now as north's inner loop (17 of 1,501 library unit tests run, no faster); nothing adopted.
 - <a id="buck2-third-party-fixups"></a>**Buck2's own reindeer fixups**, https://github.com/facebook/buck2/tree/main/shim/third-party/rust/fixups
   at commit 940470de, and the prelude's `rust/cargo_buildscript.bzl`, accessed 2026-11-11.
   Informed: which build scripts need running and which read Cargo's environment
