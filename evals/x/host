@@ -63,6 +63,11 @@ case ${1:-} in
     done
     podman rm -f -t 0 "$id" > /dev/null
     ;;
+  podman)
+    containers
+    shift
+    exec podman "$@"
+    ;;
   harbor)
     fetch
     containers
@@ -70,7 +75,7 @@ case ${1:-} in
     exec "$work/harbor-venv/bin/harbor" "$@"
     ;;
   *)
-    echo "usage: evals/x/host fetch | oracle TASK | caps IMAGE | hold IMAGE | harbor ARGS..." >&2
+    echo "usage: evals/x/host fetch | oracle TASK | caps IMAGE | hold IMAGE | podman ARGS... | harbor ARGS..." >&2
     exit 2
     ;;
 esac

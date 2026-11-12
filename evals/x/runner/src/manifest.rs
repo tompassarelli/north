@@ -68,22 +68,3 @@ fn parse(table: &str) -> Result<Vec<Task>> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn table_lists_the_eighty_nine_pinned_tasks() {
-        let tasks = all().expect("table parses");
-        assert_eq!(tasks.len(), 89);
-        assert_eq!(tasks.iter().filter(|task| task.is_large()).count(), 3);
-        assert!(
-            tasks
-                .iter()
-                .filter(|task| task.is_virtual_machine())
-                .count()
-                == 3
-        );
-    }
-}

@@ -15,11 +15,11 @@ use crate::gate::{self, Headroom};
 use crate::images::{self, Images};
 use crate::manifest::{HARBOR_COMMIT, TASKS_COMMIT, Task};
 use crate::plan::{EFFORT, Harness, MODEL, Trial};
+use crate::proc::{self, EVAL_X};
 use crate::transcript::{self, Reading};
-use crate::unit::{Attempt, Attempts};
+use crate::unit::Attempt;
 use crate::wait;
 
-const EVAL_X: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 const EVAL_X_BIN: &str = "/eval-x-bin";
 const TRIAL_MOUNT: &str = "/eval-x";
 const ARM_GRACE: Duration = Duration::from_secs(120);
@@ -69,8 +69,8 @@ impl Live<'_> {
     }
 }
 
-impl Attempts for Live<'_> {
-    fn attempt(&self, trial: &Trial, pass: u32, attempt: u32) -> Result<Attempt> {
+impl Live<'_> {
+    pub fn attempt(&self, trial: &Trial, pass: u32, attempt: u32) -> Result<Attempt> {
         let image = trial.task.image_ref();
         let gates = self.gates()?;
         let digest_before = self.images.check(&image)?;
@@ -102,12 +102,7 @@ impl Attempts for Live<'_> {
             "host": self.host,
             "load_at_start": gates.load.loadavg,
             "load_wait_s": gates.load.waited_s,
-            "headroom": {
-                "five_hour_used": gates.headroom.five_hour_used,
-                "week_used": gates.headroom.week_used,
-                "reading_at": gates.headroom.reading_at,
-                "wait_s": gates.headroom_waited_s,
-            },
+            "headroom": gates.headroom_row(),
             "tasks_commit": TASKS_COMMIT,
             "harbor_commit": HARBOR_COMMIT,
             "stamps": self.stamps,
@@ -137,6 +132,17 @@ struct Gates {
     load: wait::LoadReading,
     headroom: Headroom,
     headroom_waited_s: u64,
+}
+
+impl Gates {
+    fn headroom_row(&self) -> Value {
+        json!({
+            "five_hour_used": self.headroom.five_hour_used,
+            "week_used": self.headroom.week_used,
+            "reading_at": self.headroom.reading_at,
+            "wait_s": self.headroom_waited_s,
+        })
+    }
 }
 
 struct Session {
@@ -236,32 +242,33 @@ impl Live<'_> {
         arm_dir: &Path,
         cwd: &str,
     ) -> Result<Child> {
-        let log = File::create(arm_dir.join("driver.log"))?;
+        let log = proc::create(&arm_dir.join("driver.log"))?;
         let log_err = log.try_clone()?;
-        let child = Command::new(format!("{EVAL_X}/arm"))
-            .args(["--arm", trial.harness.arm_name(), "--trial"])
-            .arg(trial_dir)
-            .arg("--state")
-            .arg(arm_dir)
-            .args([
-                "--cwd",
-                cwd,
-                "--account",
-                self.account,
-                "--model",
-                MODEL,
-                "--effort",
-                EFFORT,
-            ])
-            .arg("--limit")
-            .arg(trial.task.agent_timeout_s.to_string())
-            .env("EVAL_T_TOKEN_FILE", self.token_file)
-            .env("EVAL_T_CLAUDE", self.claude)
-            .process_group(0)
-            .stdin(Stdio::null())
-            .stdout(log)
-            .stderr(log_err)
-            .spawn()?;
+        let child = proc::spawn(
+            Command::new(format!("{EVAL_X}/arm"))
+                .args(["--arm", trial.harness.arm_name(), "--trial"])
+                .arg(trial_dir)
+                .arg("--state")
+                .arg(arm_dir)
+                .args([
+                    "--cwd",
+                    cwd,
+                    "--account",
+                    self.account,
+                    "--model",
+                    MODEL,
+                    "--effort",
+                    EFFORT,
+                ])
+                .arg("--limit")
+                .arg(trial.task.agent_timeout_s.to_string())
+                .env("EVAL_T_TOKEN_FILE", self.token_file)
+                .env("EVAL_T_CLAUDE", self.claude)
+                .process_group(0)
+                .stdin(Stdio::null())
+                .stdout(log)
+                .stderr(log_err),
+        )?;
         Ok(child)
     }
 }
@@ -274,9 +281,7 @@ struct Workspace {
 }
 
 fn seed_workspace(task: &str) -> Result<Workspace> {
-    let output = Command::new(format!("{EVAL_X}/workspace/seed"))
-        .arg(task)
-        .output()?;
+    let output = proc::output(Command::new(format!("{EVAL_X}/workspace/seed")).arg(task))?;
     if !output.status.success() {
         return Err(RunError::Failed(format!(
             "workspace seed for {task} exited {}",
@@ -306,9 +311,7 @@ fn mounts_for(workspace: &Workspace, trial_dir: &Path, bin: &Path) -> Result<Str
         .as_array()
         .cloned()
         .ok_or_else(|| RunError::Failed("workspace seed mounts are not an array".to_owned()))?;
-    mounts.push(
-        json!({"type": "bind", "source": trial_dir, "target": TRIAL_MOUNT, "read_only": false}),
-    );
+    mounts.push(json!({"type": "bind", "source": trial_dir, "target": TRIAL_MOUNT}));
     mounts.push(json!({"type": "bind", "source": bin, "target": EVAL_X_BIN, "read_only": true}));
     Ok(Value::Array(mounts).to_string())
 }
@@ -328,7 +331,7 @@ fn run_harbor(
     sentence: &str,
     arm_dir: &Path,
 ) -> Result<Value> {
-    let handoff = Command::new(format!("{EVAL_X}/handoff/args")).output()?;
+    let handoff = proc::output(&mut Command::new(format!("{EVAL_X}/handoff/args")))?;
     if !handoff.status.success() {
         return Err(RunError::Failed(format!(
             "handoff args exited {}",
@@ -339,32 +342,33 @@ fn run_harbor(
         .lines()
         .map(str::to_owned)
         .collect();
-    let log = File::create(arm_dir.join("harbor.log"))?;
+    let log = proc::create(&arm_dir.join("harbor.log"))?;
     let log_err = log.try_clone()?;
-    let status = Command::new(format!("{EVAL_X}/host"))
-        .args(["harbor", "run", "--path"])
-        .arg(live.work("tasks").join(&task.name))
-        .args([
-            "--env",
-            "podman",
-            "--n-concurrent",
-            "1",
-            "--yes",
-            "--jobs-dir",
-        ])
-        .arg(live.work("jobs"))
-        .args([
-            "--job-name",
-            job,
-            "--mounts-json",
-            mounts,
-            "--extra-instruction",
-            sentence,
-        ])
-        .args(extra)
-        .stdout(log)
-        .stderr(log_err)
-        .status()?;
+    let status = proc::status(
+        Command::new(format!("{EVAL_X}/host"))
+            .args(["harbor", "run", "--path"])
+            .arg(live.work("tasks").join(&task.name))
+            .args([
+                "--env",
+                "podman",
+                "--n-concurrent",
+                "1",
+                "--yes",
+                "--jobs-dir",
+            ])
+            .arg(live.work("jobs"))
+            .args([
+                "--job-name",
+                job,
+                "--mounts-json",
+                mounts,
+                "--extra-instruction",
+                sentence,
+            ])
+            .args(extra)
+            .stdout(log)
+            .stderr(log_err),
+    )?;
     Ok(json!(status.code()))
 }
 
@@ -373,39 +377,36 @@ fn broker_command() -> PathBuf {
 }
 
 fn start_broker(trial_dir: &Path, arm_dir: &Path) -> Result<Child> {
-    let log = File::create(arm_dir.join("broker.log"))?;
+    let log = proc::create(&arm_dir.join("broker.log"))?;
     let log_err = log.try_clone()?;
-    let child = Command::new(broker_command())
-        .arg(trial_dir)
-        .stdin(Stdio::null())
-        .stdout(log)
-        .stderr(log_err)
-        .spawn()?;
+    let child = proc::spawn(
+        Command::new(broker_command())
+            .arg(trial_dir)
+            .stdin(Stdio::null())
+            .stdout(log)
+            .stderr(log_err),
+    )?;
     Ok(child)
 }
 
 fn stop_broker(trial_dir: &Path, broker: &mut Child) -> Result<()> {
-    let stopped = Command::new(broker_command())
-        .arg("stop")
-        .arg(trial_dir)
-        .stdin(Stdio::null())
-        .status()?;
-    stop_child(broker)?;
+    let stopped = proc::status(
+        Command::new(broker_command())
+            .arg("stop")
+            .arg(trial_dir)
+            .stdin(Stdio::null()),
+    )?;
     if !stopped.success() {
-        return Err(RunError::Failed(format!(
-            "relay broker stop exited {stopped}"
-        )));
+        eprintln!("eval-x: relay broker stop exited {stopped}; ending its process");
     }
-    Ok(())
+    stop_child(broker)
 }
 
 fn stop_child(child: &mut Child) -> Result<()> {
     if child.try_wait()?.is_some() {
         return Ok(());
     }
-    Command::new("kill")
-        .args(["-TERM", &child.id().to_string()])
-        .status()?;
+    proc::status(Command::new("kill").args(["-TERM", &child.id().to_string()]))?;
     child.wait()?;
     Ok(())
 }
@@ -428,9 +429,7 @@ fn stop_group(child: &mut Child) -> Result<()> {
     if child.try_wait()?.is_some() {
         return Ok(());
     }
-    Command::new("kill")
-        .args(["-TERM", "--", &format!("-{}", child.id())])
-        .status()?;
+    proc::status(Command::new("kill").args(["-TERM", "--", &format!("-{}", child.id())]))?;
     child.wait()?;
     Ok(())
 }

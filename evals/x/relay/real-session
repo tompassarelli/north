@@ -23,7 +23,7 @@ Run these six steps with the Bash tool, one call each, in this order, and change
 3. pwd
 4. echo made-in-the-container > note.txt && cat note.txt
 5. In the background: sleep 2; echo background-done. Then read its output once it has finished.
-6. sleep 300 with a time limit of 2000 ms.
+6. i=0; while [ $i -lt 300 ]; do i=$((i+1)); sleep 1; done; echo not-reached, with a time limit of 2000 ms.
 EOF
 podman rm -f "$name" > /dev/null 2>&1 || :
 podman run -d --name "$name" --hostname relay-check-box -v "$T:/eval-x" -v "$R:$R" docker.io/alexgshaw/fix-git:20251031 sleep 900 > /dev/null

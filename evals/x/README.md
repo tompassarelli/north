@@ -18,7 +18,8 @@ container tasks run and graded by the benchmark's own harness, [Harbor](https://
   one CPU and 2 GB and prints the limits the kernel applied, `cpu.max 100000 100000` and `memory.max 2147483648`
   when the user's cgroup delegation lets a task's caps hold. `host hold IMAGE` keeps one capped container alive for
   four minutes and prints its cgroup and, at each of three minutes, `frozen 0` while north's containment sweep leaves
-  it running. `host harbor ARGS...` runs Harbor with the same pins.
+  it running. `host podman ARGS...` runs podman from the dev shell, which is how the runner reaches it. `host harbor
+  ARGS...` runs Harbor with the same pins.
   Harbor's telemetry is off in every call and nothing is uploaded.
 
 ## Where it runs

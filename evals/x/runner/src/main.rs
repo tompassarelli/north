@@ -4,6 +4,7 @@ mod gate;
 mod images;
 mod manifest;
 mod plan;
+mod proc;
 mod rng;
 mod schedule;
 mod stamp;
@@ -13,7 +14,7 @@ mod trial;
 mod unit;
 mod wait;
 
-use std::fs::{self, File};
+use std::fs;
 use std::path::Path;
 use std::process::{self, ExitCode};
 use std::sync::Mutex;
@@ -77,7 +78,7 @@ where
     fs::create_dir_all(&run_dir)?;
     fs::write(run_dir.join("plan.txt"), plan.render())?;
     fs::write(run_dir.join("runner.pid"), process::id().to_string())?;
-    let rows = File::create(run_dir.join("rows.jsonl"))?;
+    let rows = proc::create(&run_dir.join("rows.jsonl"))?;
     let live = Live {
         settings,
         account,

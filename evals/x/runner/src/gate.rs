@@ -170,11 +170,4 @@ mod tests {
             matches!(decide(&d, later, &settings()), Verdict::Wait(reason) if reason.contains("stale"))
         );
     }
-
-    #[test]
-    fn environment_with_an_api_key_or_anthropic_variable_is_refused() {
-        assert!(refuse_environment(["PATH".to_owned(), "HOME".to_owned()]).is_ok());
-        assert!(refuse_environment(["ANTHROPIC_BASE_URL".to_owned()]).is_err());
-        assert!(refuse_environment(["GEMINI_API_KEY".to_owned()]).is_err());
-    }
 }

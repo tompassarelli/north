@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::{Mutex, PoisonError};
 
 use crate::error::{Result, RunError};
+use crate::proc;
 
 pub struct Images {
     path: PathBuf,
@@ -66,7 +66,7 @@ impl Images {
 }
 
 pub fn size_bytes(image: &str) -> Option<u64> {
-    let output = Command::new("podman")
+    let output = proc::podman()
         .args(["image", "inspect", "--format", "{{.Size}}", image])
         .output()
         .ok()?;
@@ -74,9 +74,8 @@ pub fn size_bytes(image: &str) -> Option<u64> {
 }
 
 fn local_digest(image: &str) -> Result<Option<String>> {
-    let output = Command::new("podman")
-        .args(["image", "inspect", "--format", "{{.Digest}}", image])
-        .output()?;
+    let output =
+        proc::output(proc::podman().args(["image", "inspect", "--format", "{{.Digest}}", image]))?;
     if !output.status.success() {
         return Ok(None);
     }
