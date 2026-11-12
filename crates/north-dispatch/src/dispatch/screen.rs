@@ -15,7 +15,10 @@ pub(super) fn admitted(survey: &Survey, issue: &Issue, world: &issues::World) ->
 
 /// The route and brief a ready box launches with, or why none may be written.
 pub(super) fn written(survey: &Survey, issue: &Issue, launched_by: &str, box_text: Option<&str>) -> Result<(tier::Route, String), String> {
-    let route = tier::route(issue, &survey.history, &survey.ledger)?;
+    written_as(survey, issue, launched_by, box_text, tier::route(issue, &survey.history, &survey.ledger)?)
+}
+
+pub(super) fn written_as(survey: &Survey, issue: &Issue, launched_by: &str, box_text: Option<&str>, route: tier::Route) -> Result<(tier::Route, String), String> {
     let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route).carrying(issue.stop.climb.as_ref().map(|climb| climb.report.as_str()).or(issue.stop.relay.as_ref().map(|relay| relay.report.as_str())));
     let boxed = box_text.map(|text| Issue { needs: super::host_needs::of_box(issue, text, &survey.learned, survey.at), ..issue.clone() });
     let brief = brief::brief(boxed.as_ref().unwrap_or(issue), launched_by, &route, &grounds, box_text);

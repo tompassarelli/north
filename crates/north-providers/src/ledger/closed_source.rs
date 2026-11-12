@@ -476,3 +476,9 @@ fn window_runs(database: &Path, since: &str, until: &str) -> NorthResult<Vec<Win
         })
         .collect())
 }
+
+pub fn session_spend(days: u32) -> NorthResult<BTreeMap<String, (u64, f64)>> {
+    let query = format!("SELECT fleet_name, coalesce(sum(tokens), 0) AS tokens, coalesce(sum(cost_usd), 0.0) AS cost FROM runs WHERE coalesce(fleet_name, '') != '' AND ended >= strftime('%Y-%m-%dT%H:%M:%S', 'now', '-{days} days') GROUP BY fleet_name");
+    let rows = sqlite::rows(&threads_database(), Access::ReadOnly, Duration::from_secs(5), &query)?;
+    Ok(rows.iter().map(|row| (text(row, "fleet_name"), (row["tokens"].as_u64().unwrap_or(0), row["cost"].as_f64().unwrap_or(0.0)))).collect())
+}

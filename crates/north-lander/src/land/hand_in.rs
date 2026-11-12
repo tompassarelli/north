@@ -30,6 +30,8 @@ pub trait Road {
         Ok(())
     }
 
+    fn failed(&self, _root: &Path, _failure: &str) {}
+
     fn take(self, lane: &Lane) -> u8;
 }
 
@@ -138,6 +140,7 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
     };
     if let (Some(check), Err((failure, output))) = (request.check, checked) {
         eprint!("{output}");
+        road.failed(&named.lane.root, &failure);
         let written = if request.files.is_empty() { "" } else { "the files stay as written; " };
         eprintln!("{verb}: ✗ the check `{check}` {failure}; {written}NOT committed, NOT queued.");
         return 1;

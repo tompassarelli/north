@@ -23,6 +23,9 @@ pub fn hand_in(arguments: &[String]) -> u8 {
 }
 
 pub fn finish(arguments: &[String]) -> u8 {
+    if let Some(mark) = std::env::current_dir().ok().and_then(|directory| crate::lanes::draft_mark::read(&directory)) {
+        return north_lander::land::hand_in::finish(arguments, super::draft_road::Draft { mark });
+    }
     north_lander::land::hand_in::finish(arguments, SafePush { verb: "finish", flags: &[] })
 }
 

@@ -1794,3 +1794,27 @@ unit = "seconds a session launch's placement counts against the host it went to 
 source = "derived: the saturation reading is cached up to 60 s and the one-minute load average needs about another minute to show a new session; on 2026-11-12 21 launches decided inside 100 ms against one 1.5 s old reading all went to the first host in order (north#1191); docs/rationale/placement.md (north#1036) names the same 120 s for the host-side reservation that replaces this count"
 fallback = "none: a placement older than the window counts only through the host's reading"
 consumers = ["crates/north-pacing/src/pacing/placement/recent.rs"]
+
+[draft_daily_count]
+value = 40
+allowed = { min = 0, max = 400 }
+unit = "drafts north fleet dispatch starts in a rolling 24 hours, recomputes included, before it starts no more"
+source = "prior: on 2026-11-11 26 qualifying boxes landed and 14 qualifying boxes were open, so 40 drafts covers a day's qualifying boxes once (north#1240 plan)"
+fallback = "none: the pass starts no draft past it"
+consumers = ["crates/north-dispatch/src/dispatch/drafting.rs"]
+
+[draft_daily_tokens]
+value = 4000000
+allowed = { min = 0, max = 40000000 }
+unit = "ledger tokens all drafts of a rolling 24 hours may hold before the pass starts no more"
+source = "prior: 40 drafts at the small model's p90 of 93,480 ledger tokens per band run (runs ledger 2026-11-05 to 2026-11-12) is 3.74M, rounded up (north#1240 plan)"
+fallback = "none: the pass starts no draft past it"
+consumers = ["crates/north-dispatch/src/dispatch/drafting.rs"]
+
+[draft_daily_usd]
+value = 1.5
+allowed = { min = 0.0, max = 20.0 }
+unit = "API-equivalent dollars all drafts of a rolling 24 hours may hold before the pass starts no more"
+source = "prior: 40 drafts at the small model's p90 of $0.034 per band run (runs ledger 2026-11-05 to 2026-11-12) is $1.36, rounded up (north#1240 plan)"
+fallback = "none: the pass starts no draft past it"
+consumers = ["crates/north-dispatch/src/dispatch/drafting.rs"]

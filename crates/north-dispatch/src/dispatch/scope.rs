@@ -13,6 +13,13 @@ fn strings(item: Option<&Item>) -> Option<Vec<String>> {
 }
 
 impl Scope {
+    pub fn admitting(mut self, provider: &str) -> Self {
+        if let Some(listed) = self.providers.as_mut().filter(|listed| !listed.iter().any(|name| name == provider)) {
+            listed.push(provider.to_owned());
+        }
+        self
+    }
+
     pub fn parse(cfg: &DocumentMut) -> Self {
         Self { providers: strings(cfg.get("dispatch_providers")), hosts_excluded: strings(cfg.get("dispatch_hosts_excluded")).unwrap_or_default() }
     }

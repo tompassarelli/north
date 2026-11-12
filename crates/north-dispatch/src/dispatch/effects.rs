@@ -40,7 +40,10 @@ pub fn session_name(launch: &Launch, at: f64) -> String {
 /// The program and arguments that start `launch`: `north fleet launch` here or on an ssh host, or
 /// a laptop job that runs it there, queued through north itself because the dispatch unit's PATH has no `threads` shim.
 pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: &str) -> Result<(String, Vec<String>), String> {
-    let directory = format!("{home}/code/{}/main", crate::threads::catalog::checkout(&launch.item.repo));
+    command_in(launch, name, survey, north, format!("{home}/code/{}/main", crate::threads::catalog::checkout(&launch.item.repo)))
+}
+
+pub(super) fn command_in(launch: &Launch, name: &str, survey: &Survey, north: &str, directory: String) -> Result<(String, Vec<String>), String> {
     let remote = launch.host != survey.here && survey.laptop.as_deref() != Some(launch.host.as_str());
     let cwd = if remote { format!("{}:{directory}", launch.host) } else { directory };
     let (provider, label) = launch.account.split_once(':').unwrap_or((launch.account.as_str(), "pooled"));
@@ -123,7 +126,15 @@ fn predict(launch: &Launch) {
 
 fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Result<String, String> {
     let north = std::env::current_exe().map_err(|error| error.to_string())?;
-    let (program, words) = command(launch, name, survey, home, &north.to_string_lossy())?;
+    started(name, command(launch, name, survey, home, &north.to_string_lossy())?)
+}
+
+pub(super) fn fleet_launch_in(launch: &Launch, name: &str, survey: &Survey, directory: String) -> Result<String, String> {
+    let north = std::env::current_exe().map_err(|error| error.to_string())?;
+    started(name, command_in(launch, name, survey, &north.to_string_lossy(), directory)?)
+}
+
+fn started(name: &str, (program, words): (String, Vec<String>)) -> Result<String, String> {
     let mut child = std::process::Command::new(&program);
     child.args(&words).env_remove(crate::fleet::runtime::SESSION_ENV).env_remove(crate::fleet::runtime::ROLE_ENV);
     match crate::platform::process::try_run_command_within(child, None, LAUNCH_WAIT) {

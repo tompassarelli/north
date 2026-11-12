@@ -1,1 +1,1 @@
-  fleet dispatch [--dry-run]                          Launch ready makgora and wisp boxes on every free worker slot
+  fleet dispatch [--dry-run] [--draft REPO#N...]      Launch ready makgora and wisp boxes on every free worker slot; --draft computes a draft of each named issue's qualifying ready box on slots the round leaves free, launching nothing else

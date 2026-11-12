@@ -12,6 +12,10 @@ pub fn outside(issue: &Issue, category: &str, cfg: &DocumentMut) -> Option<Strin
     if !gate::public(&issue.repo, cfg) {
         return Some(format!("{} is not a public repository", issue.repo));
     }
+    facets_outside(issue, category)
+}
+
+pub fn facets_outside(issue: &Issue, category: &str) -> Option<String> {
     if facets::category(issue).is_none() {
         return Some("Category: not declared by the issue".to_owned());
     }

@@ -32,6 +32,7 @@ pub mod cells;
 pub mod deepseek;
 mod cloud;
 pub mod drafts;
+pub mod drafting;
 #[cfg(test)]
 mod drafts_tests;
 mod effects;
@@ -104,7 +105,7 @@ mod spread_tests;
 #[cfg(test)]
 mod revive_tests;
 
-const USAGE: &str = "usage: north fleet dispatch [--dry-run] | review NAME --item REPO#N --category C [--box TEXT] [--landing] | verdict --session NAME --category C --sha SHA clean|defect CLASS | pause --reason TEXT | resume | paused | queued --by HOST --item REPO#N [--box TEXT] -- WORDS | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
+const USAGE: &str = "usage: north fleet dispatch [--dry-run] [--draft REPO#N...] | review NAME --item REPO#N --category C [--box TEXT] [--landing] | verdict --session NAME --category C --sha SHA clean|defect CLASS | pause --reason TEXT | resume | paused | queued --by HOST --item REPO#N [--box TEXT] -- WORDS | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
@@ -187,6 +188,10 @@ fn box_words(text: &str) -> String {
 
 /// Every ready box placed on a free slot, or skipped with its reason.
 pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
+    decide_leaving(survey, launched_by).0
+}
+
+fn decide_leaving(survey: &Survey, launched_by: &str) -> (Outcome, Pools) {
     let scope = Scope::parse(&survey.cfg);
     let mut pools = Pools::new(&survey.hosts, &survey.accounts).with_cloud(cloud::SESSIONS - survey.cloud_running);
     let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
@@ -260,7 +265,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             staffed += 1;
         }
     }
-    outcome
+    (outcome, pools)
 }
 
 /// The open issues dispatch skipped because they have no Done-when box.
@@ -356,10 +361,26 @@ fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
     started.iter().filter_map(Started::stopped).collect()
 }
 
-fn mode(arguments: &[String]) -> Result<bool, u8> {
+fn mode(arguments: &[String]) -> Result<(bool, Vec<IssueRef>), u8> {
+    let (dry_run, rest) = match arguments {
+        [flag, rest @ ..] if flag == "--dry-run" => (true, rest),
+        rest => (false, rest),
+    };
+    match rest {
+        [] => return Ok((dry_run, Vec::new())),
+        [flag, items @ ..] if flag == "--draft" && !items.is_empty() => {
+            return items.iter().map(|item| IssueRef::parse(item).ok_or(item)).collect::<Result<Vec<_>, _>>().map(|items| (dry_run, items)).map_err(|item| {
+                eprintln!("north fleet dispatch --draft: {item} is no REPO#N");
+                2
+            });
+        }
+        _ if dry_run => {
+            eprintln!("{USAGE}");
+            return Err(2);
+        }
+        _ => {}
+    }
     match arguments {
-        [] => Ok(false),
-        [flag] if flag == "--dry-run" => Ok(true),
         [verb, rest @ ..] if verb == "route-replay" => Err(nearest::replay(rest)),
         [verb, rest @ ..] if verb == "pause" => Err(pause::pause(rest)),
         [verb] if verb == "resume" => Err(pause::resume()),
@@ -377,8 +398,8 @@ fn mode(arguments: &[String]) -> Result<bool, u8> {
 }
 
 pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
-    let dry_run = match mode(arguments) {
-        Ok(dry_run) => dry_run,
+    let (dry_run, drafted) = match mode(arguments) {
+        Ok(asked) => asked,
         Err(code) => return code,
     };
     if !dry_run && let Some(reason) = pause::standing() {
@@ -386,7 +407,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         return 0;
     }
     if let Some((host, ssh)) = placement::config().ok().and_then(|cfg| home::elsewhere(&cfg, &crate::platform::host::name())) {
-        return home::run_there(&crate::platform::host::name(), &host, &ssh, dry_run);
+        return home::run_there(&crate::platform::host::name(), &host, &ssh, dry_run, &drafted);
     }
     let survey = match roster().map_err(|error| error.to_string()).and_then(|roster| survey::survey(&roster)) {
         Ok(survey) => survey,
@@ -396,7 +417,13 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         }
     };
     report::print(&survey, dry_run);
-    let outcome = decide(&survey, &format!("north fleet dispatch on {}", survey.here));
+    let (outcome, mut pools) = decide_leaving(&survey, &format!("north fleet dispatch on {}", survey.here));
+    if !drafted.is_empty() {
+        for line in drafting::pass(&survey, &outcome, &mut pools, Some(&drafted), dry_run) {
+            println!("{line}");
+        }
+        return 0;
+    }
     for (place, item) in outcome.ready.iter().enumerate() {
         let standing = survey.backlog.as_ref().map_or_else(|| "unread graph".to_owned(), |backlog| backlog.standing(&item.to_string()));
         println!("ready {}\t{item}\t{standing}", place + 1);
@@ -410,6 +437,9 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
     let stopped = execute(&survey, &outcome, dry_run);
+    for line in drafting::pass(&survey, &outcome, &mut pools, None, dry_run) {
+        println!("{line}");
+    }
     for line in deepseek::review::queue(&survey.deepseek.review, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run) {
         println!("{line}");
     }

@@ -6,7 +6,7 @@ use rustix::fs::{FlockOperation, flock};
 use super::lane_issue;
 use super::repo::{git_checked, git_ok, git_out, is_lander_tree};
 
-const USAGE: &str = "usage: north lane new --issue REPO#N [--from REF] LANE
+const USAGE: &str = "usage: north lane new --issue REPO#N [--from REF] [--draft NAME --check CMD] LANE
 
 Creates the lane LANE, a directory named by its absolute path directly under a project's
 worktrees/ (~/code/<project>/worktrees/SLUG), on a new branch SLUG from REF (default
@@ -14,27 +14,36 @@ refs/remotes/origin/main, else refs/heads/main), and records the issue it serves
 .git/north/lane-issues/SLUG. The branch does not track REF, so concurrent lanes never write
 the repository's shared git config. REPO#N names the issue (north#995); #N names one in the
 project's own origin repository. lane gc reads that record first to decide the lane's fate
-by its issue's state and lists the lane under it while it is open.";
+by its issue's state and lists the lane under it while it is open. --draft marks the lane as the draft NAME
+of the issue's box whose check is CMD (north#1240), so a finish call in it records the draft and queues nothing.";
 
 struct Request {
     issue: String,
     from: Option<String>,
+    draft: Option<(String, String)>,
     lane: PathBuf,
 }
 
 fn parse(arguments: &[String]) -> Result<Request, String> {
-    let (mut issue, mut from, mut lane) = (None, None, None);
+    let (mut issue, mut from, mut lane, mut draft, mut check) = (None, None, None, None, None);
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
             "--issue" => issue = words.next().cloned(),
             "--from" => from = words.next().cloned(),
+            "--draft" => draft = words.next().cloned(),
+            "--check" => check = words.next().cloned(),
             other if !other.starts_with('-') && lane.is_none() => lane = Some(PathBuf::from(other)),
             _ => return Err(USAGE.to_owned()),
         }
     }
     let (Some(issue), Some(lane)) = (issue, lane) else { return Err(USAGE.to_owned()) };
-    Ok(Request { issue, from, lane })
+    let draft = match (draft, check) {
+        (Some(name), Some(check)) => Some((name, check)),
+        (None, None) => None,
+        _ => return Err(USAGE.to_owned()),
+    };
+    Ok(Request { issue, from, draft, lane })
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -49,7 +58,7 @@ pub fn run(arguments: &[String]) -> u8 {
             return 2;
         }
     };
-    match create(&request.lane, &request.issue, request.from.as_deref()) {
+    match create(&request.lane, &request.issue, request.from.as_deref()).and_then(|issue| marked(&request, issue)) {
         Ok(issue) => {
             println!("{} ({issue})", request.lane.display());
             0
@@ -103,4 +112,11 @@ fn serialized(main: &Path) -> Result<File, String> {
     let file = File::create(dir.join("lane-new.lock")).map_err(|error| format!("cannot open the lane creation lock: {error}"))?;
     flock(&file, FlockOperation::LockExclusive).map_err(|error| format!("cannot take the lane creation lock: {error}"))?;
     Ok(file)
+}
+
+fn marked(request: &Request, item: String) -> Result<String, String> {
+    let Some((name, check)) = &request.draft else { return Ok(item) };
+    let base = git_out(&request.lane, &["rev-parse", "HEAD"]).ok_or("the new lane has no HEAD")?;
+    super::draft_mark::write(&request.lane, &super::draft_mark::Mark { name: name.clone(), item: item.clone(), base, check: check.clone(), ..Default::default() })?;
+    Ok(item)
 }

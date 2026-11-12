@@ -102,6 +102,10 @@ static REPRO: LazyLock<Regex> = LazyLock::new(|| {
 /// line naming a failure or repro, or a backticked name after "failing test". An unknown-cause bug naming
 /// one starts on Sonnet, whose failed try the repro exposes in one attempt.
 pub fn repro(text: &str) -> Option<String> {
-    let named = |line: &str| REPRO.captures(line).and_then(|found| found.get(1).or_else(|| found.get(2))).map(|named| named.as_str().to_owned());
+    let named = |line: &str| test_command(line).or_else(|| REPRO.captures(line).and_then(|found| found.get(2)).map(|named| named.as_str().to_owned()));
     declared_in(text, "Repro").map(str::to_owned).or_else(|| text.lines().filter(|line| FAILS.is_match(line)).find_map(named))
+}
+
+pub fn test_command(line: &str) -> Option<String> {
+    REPRO.captures(line).and_then(|found| found.get(1)).map(|named| named.as_str().to_owned())
 }

@@ -158,7 +158,7 @@ Commands:
   cloud collect EVENTS.jsonl OUT.mbox           Decode a saved handback to an mbox
   cloud land EVENTS.jsonl [--repo DIR]          Apply a handback in a fresh lane and land it
   cloud reap                                    Land every finished handback launched in the last 7 days
-  fleet dispatch [--dry-run]                          Launch ready makgora and wisp boxes on every free worker slot
+  fleet dispatch [--dry-run] [--draft REPO#N...]      Launch ready makgora and wisp boxes on every free worker slot; --draft computes a draft of each named issue's qualifying ready box on slots the round leaves free, launching nothing else
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
   ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the proxy on DECAYED
   ops check [--dry-run | --synthetic]           Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
@@ -252,7 +252,7 @@ Commands:
   lane unlock [CHECKOUT...]                        Remove the git lock files in a checkout's git directory that no process holds and that are older than 60 s
   lane stray PATH...                               Remove an untracked file this session's own tool call created, named in its transcript before the file was born
   lane remove [--rejected VERDICT] LANE...         Remove a finished lane directory under worktrees/ that holds no unlanded or uncommitted work, from outside a worker sandbox, so no unregistered directory is left behind; --rejected bundles a review-rejected lane to ~/archive/lanes with its verdict first
-  lane new --issue REPO#N [--from REF] LANE        Create a lane under a project's worktrees/ on a new branch from origin/main and record the issue it serves in git config
+  lane new --issue REPO#N [--from REF] [--draft NAME --check CMD] LANE  Create a lane under a project's worktrees/ on a new branch from origin/main and record the issue it serves in git config; --draft marks it as a box's draft lane, whose finish call records the draft and queues nothing
   lane exec [--lane CHECKOUT] [--] PROGRAM [ARGS...]  Run a lane's own build output (target/, node_modules/) outside depbox, which an agent's worker sandbox refuses by path, when the lane's lock files equal origin/main's, else inside depbox
   usage-web-read                                Read the Claude reset counts from the automation browser into the usage cache (6 h timer)
   runtime update                                Promote origin/main as this host's north runtime with its own tree

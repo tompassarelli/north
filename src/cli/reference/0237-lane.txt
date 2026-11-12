@@ -1,1 +1,1 @@
-  lane new --issue REPO#N [--from REF] LANE        Create a lane under a project's worktrees/ on a new branch from origin/main and record the issue it serves in git config
+  lane new --issue REPO#N [--from REF] [--draft NAME --check CMD] LANE  Create a lane under a project's worktrees/ on a new branch from origin/main and record the issue it serves in git config; --draft marks it as a box's draft lane, whose finish call records the draft and queues nothing

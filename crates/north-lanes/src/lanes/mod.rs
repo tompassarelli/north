@@ -6,6 +6,7 @@ mod home_move;
 mod landed_release;
 mod landed_tickets;
 mod lane_issue;
+pub mod draft_mark;
 mod lane_rejection;
 mod layout_check;
 mod live_process;
