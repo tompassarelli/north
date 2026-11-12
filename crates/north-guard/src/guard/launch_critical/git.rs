@@ -95,7 +95,7 @@ impl Policy {
         let path = resolve(&self.substitute(paths.first()?, &call.env), &call.target)?;
         let container = format!("{}/{project}", self.root);
         let placed = ["worktrees", "pins"].iter().any(|kind| path.strip_prefix(&format!("{container}/{kind}/")).is_some_and(|leaf| !leaf.is_empty()));
-        if placed || crate::lanes::layout_exempt(Path::new(&self.root), Path::new(&self.home), Path::new(&path)) {
+        if placed || crate::platform::lane_layout::exempt(Path::new(&self.root), Path::new(&self.home), Path::new(&path)) {
             return None;
         }
         Some(format!(

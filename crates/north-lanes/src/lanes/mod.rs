@@ -35,7 +35,7 @@ pub use gc::{Inputs as LaneGcInputs, repo as repo_verb, run as lane_gc, run_in a
 pub use hardcoded_paths::run as hardcoded_paths;
 pub use landed_release::{ReleasedTarget, release_landed_targets};
 pub use home_move::run as home_move;
-pub use layout_check::{exempt as layout_exempt, run as layout_check};
+pub use layout_check::run as layout_check;
 pub use new::{create as create_lane, run as new_lane};
 pub use pin_retire::run as pin_retire;
 pub use reap::run as wt_reap;

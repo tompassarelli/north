@@ -1,5 +1,5 @@
 [[crate_dag.crate]]
 name = "north-guard"
 paths = ["crates/north-guard/src/**"]
-may_use = ["north-dispatch", "north-providers", "north-github-mirror", "north-graph-ground", "north-code-health", "north-lanes"]
+may_use = ["north-dispatch", "north-providers", "north-github-mirror", "north-graph-ground", "north-code-health"]
 

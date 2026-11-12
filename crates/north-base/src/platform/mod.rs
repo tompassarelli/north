@@ -39,6 +39,7 @@ pub mod ssh_session;
 pub mod git_credential;
 pub mod hook_commands;
 pub mod home_paths;
+pub mod lane_layout;
 pub mod host;
 pub mod north_binary;
 pub mod private_text;

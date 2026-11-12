@@ -21,7 +21,6 @@ north-threads = { path = "../north-threads", features = ["test-support"] }
 north-github-mirror = { path = "../north-github-mirror" }
 north-graph-ground = { path = "../north-graph-ground" }
 north-code-health = { path = "../north-code-health" }
-north-lanes = { path = "../north-lanes" }
 fancy-regex.workspace = true
 regex.workspace = true
 rusqlite.workspace = true

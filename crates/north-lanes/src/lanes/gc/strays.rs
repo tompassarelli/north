@@ -6,8 +6,8 @@ use super::Gc;
 use super::exec::{git, real};
 use super::liveness::{holds_git_dir, worktree_admin};
 use super::local::parse_worktrees;
-use super::super::layout_check::exempt;
 use super::super::live_process::any_inside;
+use north_base::platform::lane_layout::exempt;
 
 const HOUR_MS: f64 = 3_600_000.0;
 

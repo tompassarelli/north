@@ -216,7 +216,7 @@ may_use = ["north-providers"]
 [[crate_dag.crate]]
 name = "north-guard"
 paths = ["crates/north-guard/src/**"]
-may_use = ["north-dispatch", "north-providers", "north-github-mirror", "north-graph-ground", "north-code-health", "north-lanes"]
+may_use = ["north-dispatch", "north-providers", "north-github-mirror", "north-graph-ground", "north-code-health"]
 
 [[crate_dag.crate]]
 name = "north-check-environment"
@@ -524,7 +524,7 @@ may_use = ["strategy_types", "foundation", "platform"]
 
 [[module]]
 name = "platform.git"
-paths = ["crates/north-base/src/platform/git.rs", "crates/north-base/src/platform/store_refs.rs", "crates/north-base/src/platform/push_ledger.rs", "crates/north-base/src/platform/records_mirror*.rs", "crates/north-base/src/platform/ast_grep.rs", "crates/north-base/src/platform/betterleaks.rs"]
+paths = ["crates/north-base/src/platform/git.rs", "crates/north-base/src/platform/lane_layout.rs", "crates/north-base/src/platform/store_refs.rs", "crates/north-base/src/platform/push_ledger.rs", "crates/north-base/src/platform/records_mirror*.rs", "crates/north-base/src/platform/ast_grep.rs", "crates/north-base/src/platform/betterleaks.rs"]
 responsibility = "The git adapter and the repository tools run over a tree: refs, the push ledger, the records mirror, ast-grep and betterleaks."
 may_use = ["strategy_types", "foundation", "platform.process", "platform.host"]
 
@@ -610,7 +610,7 @@ may_use = ["fleet", "domain", "foundation", "crate-roots", "threads", "lifecycle
 name = "guard"
 paths = ["crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs", "crates/north-guard/src/hook_input.rs", "crates/north-guard/src/nix_explain.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "foundation", "crate-roots", "code_health", "lanes", "threads", "graph_ground", "lifecycle", "platform.git", "platform.records", "platform.harness", "platform.process"]
+may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "foundation", "crate-roots", "code_health", "threads", "graph_ground", "lifecycle", "platform.git", "platform.records", "platform.harness", "platform.process"]
 
 [[module]]
 name = "threads"
