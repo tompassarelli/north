@@ -6,9 +6,14 @@ use crate::land::trace::check_log::{self, Mark};
 
 static STEPS: Mutex<Vec<(&'static str, Duration)>> = Mutex::new(Vec::new());
 static RECORDING: AtomicBool = AtomicBool::new(false);
+static WINDOWS: Mutex<(f64, Vec<Window>)> = Mutex::new((0.0, Vec::new()));
+
+/// One check's run inside the checks before queueing: what it ran and when it started and ended, in seconds from the steps' beginning.
+pub type Window = (&'static str, f64, f64);
 
 pub(super) fn begin() {
     STEPS.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    *WINDOWS.lock().unwrap_or_else(PoisonError::into_inner) = (crate::land::telemetry::epoch(), Vec::new());
     RECORDING.store(true, Ordering::Relaxed);
 }
 
@@ -50,6 +55,21 @@ pub(super) fn split(started_at: f64, ended_at: f64, marks: &[Mark]) -> Vec<(&'st
     let slot = running.map(|running| ("slot and tree proof", seconds(running - started_at)));
     let leased_from = running.unwrap_or(started_at);
     slot.into_iter().chain([("lease", seconds(reserved - leased_from)), ("sandbox start", seconds(first - reserved)), ("command", seconds(last - first)), ("release", seconds(ended_at - last))]).collect()
+}
+
+pub(super) fn ran(command: &str, started_at: f64, ended_at: f64) {
+    if !RECORDING.load(Ordering::Relaxed) {
+        return;
+    }
+    let what = if command.contains("cargo clippy") { "clippy" } else if command.contains("nextest run") || command.contains("cargo test") { "tests" } else { "check" };
+    let mut windows = WINDOWS.lock().unwrap_or_else(PoisonError::into_inner);
+    let began = windows.0;
+    windows.1.push((what, started_at - began, ended_at - began));
+}
+
+/// The windows the checks before queueing ran in since the last `begin`, in the order they ended.
+pub fn windows() -> Vec<Window> {
+    std::mem::take(&mut WINDOWS.lock().unwrap_or_else(PoisonError::into_inner).1)
 }
 
 pub(super) fn add_all(steps: Vec<(&'static str, Duration)>) {

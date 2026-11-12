@@ -3,6 +3,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::land::telemetry::epoch;
+use crate::land::slots::runner::Window;
 use crate::land::trace::{Category, PHASE, Span, Spans};
 
 pub(super) const BEFORE_TICKET: &str = "enqueue";
@@ -17,6 +18,7 @@ struct Stage {
     start: f64,
     took: Duration,
     steps: Vec<(&'static str, Duration)>,
+    windows: Vec<Window>,
 }
 
 impl Timings {
@@ -25,14 +27,15 @@ impl Timings {
     }
 
     pub(super) fn stage<T>(&self, name: &'static str, run: impl FnOnce() -> T) -> T {
-        self.stage_in_steps(name, run, Vec::new)
+        self.stage_in_steps(name, run, || (Vec::new(), Vec::new()))
     }
 
-    pub(super) fn stage_in_steps<T>(&self, name: &'static str, run: impl FnOnce() -> T, steps: impl FnOnce() -> Vec<(&'static str, Duration)>) -> T {
+    pub(super) fn stage_in_steps<T>(&self, name: &'static str, run: impl FnOnce() -> T, steps: impl FnOnce() -> (Vec<(&'static str, Duration)>, Vec<Window>)) -> T {
         let (start, began) = (epoch(), Instant::now());
         let result = run();
         let took = began.elapsed();
-        self.stages.lock().unwrap_or_else(PoisonError::into_inner).push(Stage { name, start, took, steps: steps() });
+        let (steps, windows) = steps();
+        self.stages.lock().unwrap_or_else(PoisonError::into_inner).push(Stage { name, start, took, steps, windows });
         result
     }
 
@@ -59,10 +62,13 @@ fn category(stage: &str) -> Category {
 }
 
 fn described(stage: &Stage) -> String {
-    if stage.steps.is_empty() {
+    if stage.steps.is_empty() && stage.windows.is_empty() {
         return format!("{} {}", stage.name, seconds(stage.took));
     }
-    let steps: Vec<String> = stage.steps.iter().map(|(name, took)| format!("{name} {}", seconds(*took))).collect();
+    let mut windows = stage.windows.clone();
+    windows.sort_by(|left, right| left.1.total_cmp(&right.1));
+    let ran = windows.iter().map(|(what, from, to)| format!("{what} ran {from:.2}-{to:.2} s"));
+    let steps: Vec<String> = stage.steps.iter().map(|(name, took)| format!("{name} {}", seconds(*took))).chain(ran).collect();
     format!("{} {} ({})", stage.name, seconds(stage.took), steps.join(", "))
 }
 

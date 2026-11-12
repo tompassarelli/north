@@ -46,15 +46,30 @@ impl Listed {
 }
 
 impl Shared {
-    async fn run_local(self: &Arc<Self>, commands: &[String], plan: &Plan, expensive: &Arc<Self>, stop: &watch::Sender<bool>) -> i32 {
+    async fn run_local(self: &Arc<Self>, commands: &[String], plan: &Plan, expensive: &Arc<Self>, stop: &Arc<watch::Sender<bool>>) -> i32 {
         if self.environment.capacity.is_empty() || self.arguments.leased {
-            let mut failed = 0;
-            for command in commands {
-                let shared = if plan.is_expensive(command) { Arc::clone(expensive) } else { Arc::clone(self) };
-                let status = shared.run_check(command.clone(), self.arguments.leased).await;
-                if status != 0 {
-                    stop.send_replace(true);
+            let (leased, together) = (self.arguments.leased, side_by_side(commands.len()));
+            let mut running = JoinSet::new();
+            let mut statuses = Vec::new();
+            for (index, command) in commands.iter().cloned().enumerate() {
+                let (shared, stop) = (if plan.is_expensive(&command) { Arc::clone(expensive) } else { Arc::clone(self) }, Arc::clone(stop));
+                running.spawn(async move {
+                    let status = shared.run_check(command, leased).await;
+                    if status != 0 {
+                        stop.send_replace(true);
+                    }
+                    (index, status)
+                });
+                if !together {
+                    statuses.extend(running.join_next().await.map(|joined| joined.unwrap_or((index, 1))));
                 }
+            }
+            while let Some(joined) = running.join_next().await {
+                statuses.push(joined.unwrap_or((usize::MAX, 1)));
+            }
+            statuses.sort_unstable();
+            let mut failed = 0;
+            for (_, status) in statuses {
                 first_failure(&mut failed, status);
             }
             return failed;
@@ -416,4 +431,11 @@ impl Shared {
 fn head_north_jobs(commands: &[String]) -> usize {
     let joined = commands.iter().filter(|command| batch::joins(command)).count();
     commands.len() - joined + if joined >= 2 { 1 } else { joined }
+}
+
+const SIDE_BY_SIDE_CORES: usize = 8;
+
+fn side_by_side(checks: usize) -> bool {
+    let configured = std::env::var("AGENT_CAPACITY_CORES").ok().and_then(|cores| cores.parse().ok()).filter(|cores: &usize| *cores > 0);
+    checks > 1 && configured.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, usize::from)) >= SIDE_BY_SIDE_CORES
 }

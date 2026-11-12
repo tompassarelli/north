@@ -711,3 +711,15 @@ fn land_after_reuses_the_candidates_selection() {
     let seen = fs::read_to_string(fixture.path("seen")).unwrap();
     assert!(seen.lines().count() == 4 && seen.lines().last().is_some_and(|run| run.contains("test(/m1::/)") && !run.contains("m2::")), "a source landing runs the tests its change reaches: {seen}\n{}", text(&reached));
 }
+
+#[test]
+fn clippy_and_the_tests_under_one_lease_run_side_by_side_on_a_host_with_the_cores_and_either_failing_still_refuses() {
+    let waits = |own: &str, other: &str, status: u8| format!("file.txt :: touch ../{own}.started; for _ in $(seq 300); do [ -e ../{other}.started ] && exit {status}; sleep 0.1; done; echo {own} never saw {other} start >&2; exit 2");
+    let fixture = Fixture::new(&[("land.check", &waits("clippy", "tests", 0)), ("land.check", &waits("tests", "clippy", 0))]);
+    let output = fixture.command().env("AGENT_CAPACITY_CORES", "16").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "the two checks ran one after the other: {}", text(&output));
+
+    let failing = Fixture::new(&[("land.check", &waits("clippy", "tests", 0)), ("land.check", &waits("tests", "clippy", 1))]);
+    let output = failing.command().env("AGENT_CAPACITY_CORES", "16").output().unwrap();
+    assert_ne!(output.status.code(), Some(0), "a failing check beside a passing one did not refuse: {}", text(&output));
+}

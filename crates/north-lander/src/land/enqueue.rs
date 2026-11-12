@@ -250,7 +250,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
     std::thread::scope(|scope| {
         let secrets = scope.spawn(|| timings.stage("secret scan", || outgoing::enqueue_secrets(&root, (&base, &lane_head))));
         let checked_tree = check_lane(&root, &base, &branch, environment, timings)?;
-        let queue_checks = scope.spawn(|| timings.stage_in_steps("queue checks", || runner::refuse_queue_checks(&root, &base, &lane_head), runner::queue_steps));
+        let queue_checks = scope.spawn(|| timings.stage_in_steps("queue checks", || runner::refuse_queue_checks(&root, &base, &lane_head), || (runner::queue_steps(), runner::queue_windows())));
         let first_commit_secs = first_commit::seconds(&root, &branch, &base);
         let (squash, several_commits) = timings.stage("squash", || Ok::<_, String>(match shape {
             Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
