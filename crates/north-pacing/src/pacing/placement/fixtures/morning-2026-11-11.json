@@ -1,0 +1,1023 @@
+{
+  "date": "2026-11-11",
+  "window": "00:32Z to 00:45Z",
+  "decided_on": "whiterabbit",
+  "sources": [
+    "gex45 watchdog rows nearest 00:32Z and 00:45Z",
+    "cpx62 watchdog rows 00:32:07Z and 00:44:48Z from the north#1036 comment 'Morning rows cpx62 2026-11-11'",
+    "73 placement decisions between 00:32Z and 00:45Z from the decider's placement log"
+  ],
+  "notes": [
+    "live is null where the watchdog rows carry no session count",
+    "the decider's own watchdog rows and cpx62b's rows rotated before capture and are not in this fixture"
+  ],
+  "boards": [
+    {
+      "host": "gex45",
+      "threads": 20,
+      "readings": [
+        {
+          "at": "2026-11-11T00:31:51.941Z",
+          "load": [
+            25.43,
+            22.85,
+            18.26
+          ],
+          "cpu_psi": 4.6,
+          "busy_cores": 7.33,
+          "memory_total_mib": 64083.0,
+          "memory_available_mib": 55244.0,
+          "live": null,
+          "leases": [
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.56
+            },
+            {
+              "class": "heavy",
+              "cpus": 6.01,
+              "declared_cpus": 6,
+              "memory_mib": 5562,
+              "recent_cores": 3.15
+            },
+            {
+              "class": "heavy",
+              "cpus": 4,
+              "declared_cpus": 16,
+              "memory_mib": 4608,
+              "recent_cores": 1.05
+            },
+            {
+              "class": "heavy",
+              "cpus": 4,
+              "declared_cpus": 16,
+              "memory_mib": 4608,
+              "recent_cores": 1.92
+            },
+            {
+              "class": "heavy",
+              "cpus": 4,
+              "declared_cpus": 16,
+              "memory_mib": 3273,
+              "recent_cores": 1.11
+            }
+          ]
+        },
+        {
+          "at": "2026-11-11T00:45:09.534Z",
+          "load": [
+            86.85,
+            60.23,
+            37.19
+          ],
+          "cpu_psi": 0.7,
+          "busy_cores": 3.39,
+          "memory_total_mib": 64083.0,
+          "memory_available_mib": 50063.0,
+          "live": null,
+          "leases": [
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 6.01,
+              "declared_cpus": 6,
+              "memory_mib": 4954,
+              "recent_cores": 0.11
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 4,
+              "declared_cpus": 16,
+              "memory_mib": 4657,
+              "recent_cores": 0.0
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 6.01,
+              "declared_cpus": 6,
+              "memory_mib": 4819,
+              "recent_cores": 0.25
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 4,
+              "declared_cpus": 16,
+              "memory_mib": 3296,
+              "recent_cores": 1.35
+            },
+            {
+              "class": "heavy",
+              "cpus": 2,
+              "declared_cpus": 2,
+              "memory_mib": 5556,
+              "recent_cores": 0.01
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "host": "cpx62",
+      "threads": 16,
+      "readings": [
+        {
+          "at": "2026-11-11T00:32:07.259Z",
+          "load": [
+            6.93,
+            7.28,
+            5.53
+          ],
+          "cpu_psi": 0.51,
+          "busy_cores": 4.64,
+          "memory_total_mib": 31332.0,
+          "memory_available_mib": 27721.0,
+          "live": null,
+          "leases": [
+            {
+              "class": "heavy",
+              "cpus": 4,
+              "declared_cpus": 12,
+              "memory_mib": 3273,
+              "recent_cores": 0.01
+            }
+          ]
+        },
+        {
+          "at": "2026-11-11T00:44:48.250Z",
+          "load": [
+            15.76,
+            21.52,
+            14.62
+          ],
+          "cpu_psi": 40.79,
+          "busy_cores": 11.37,
+          "memory_total_mib": 31332.0,
+          "memory_available_mib": 25998.0,
+          "live": null,
+          "leases": [
+            {
+              "class": "heavy",
+              "cpus": 3,
+              "declared_cpus": 3,
+              "memory_mib": 7302,
+              "recent_cores": 0.01
+            },
+            {
+              "class": "heavy",
+              "cpus": 6.01,
+              "declared_cpus": 6,
+              "memory_mib": 8766,
+              "recent_cores": 5.36
+            },
+            {
+              "class": "heavy",
+              "cpus": 6,
+              "declared_cpus": 6,
+              "memory_mib": 3588,
+              "recent_cores": 5.41
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "launches": [
+    {
+      "at": "2026-11-11T00:32:31Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:32:54Z",
+      "machine": "gex45",
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1109-d0013-north-ops-no-test-in-crates-north-ops-passes-or",
+      "provider": "claude",
+      "model": "claude-sonnet-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:32:59Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:33:34Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:33:39Z",
+      "machine": "gex45",
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1109-d0013-north-runtime-no-test-in-crates-north-runtime-pa",
+      "provider": "claude",
+      "model": "claude-sonnet-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:33:43Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n892-reaper-budget",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:33:43Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n892-scan-budget",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:33:44Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "n872-stops-spool",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:33:44Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1036-admission",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:33:44Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "n872-load-units",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:33:44Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n872-issueboxes",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:33:55Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:34:30Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:34:48Z",
+      "machine": "cpx62",
+      "placed": true,
+      "refused": null,
+      "name": "cpx62-n1109-it",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:34:48Z",
+      "machine": "cpx62b",
+      "placed": true,
+      "refused": null,
+      "name": "cpx62b-n1109-lander",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:34:51Z",
+      "machine": "gex45",
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1109-d0013-north-lanes-no-test-in-crates-north-lanes-passes",
+      "provider": "claude",
+      "model": "claude-sonnet-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:35:28Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:35:41Z",
+      "machine": "cpx62",
+      "placed": true,
+      "refused": null,
+      "name": "cpx62-n1109-ops",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:35:41Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "n872-stops-spool",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:35:41Z",
+      "machine": "cpx62b",
+      "placed": true,
+      "refused": null,
+      "name": "cpx62b-n1109-base",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:35:41Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1036-admission",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:35:58Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:36:03Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "north-1109-d0013-north-capacity-host-no-test-in-crates-north-capa",
+      "provider": "claude",
+      "model": "claude-sonnet-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:36:50Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1022-ring0",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:36:50Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "n902-alone",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:36:50Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1081-watch-exits",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:36:50Z",
+      "machine": "cpx62b",
+      "placed": true,
+      "refused": null,
+      "name": "cpx62b-n1109-threads",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:36:50Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n892-follow-wait",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:36:50Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1081-brokers",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:36:50Z",
+      "machine": "cpx62",
+      "placed": true,
+      "refused": null,
+      "name": "cpx62-n1109-runtime",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:36:50Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1039-blame-steps",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:36:50Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1022-reject-out",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:37:42Z",
+      "machine": "gex45",
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1109-d0013-north-fleet-no-test-in-crates-north-fleet-passes",
+      "provider": "claude",
+      "model": "claude-sonnet-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:37:57Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:38:15Z",
+      "machine": "cpx62",
+      "placed": true,
+      "refused": null,
+      "name": "cpx62-n1109-capacity-host",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:38:15Z",
+      "machine": "cpx62b",
+      "placed": true,
+      "refused": null,
+      "name": "cpx62b-n1109-lanes",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:38:16Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1039-blame-steps",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:38:16Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1022-reject-out",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:38:35Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:38:56Z",
+      "machine": "gex45",
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1109-d0013-north-it-no-test-in-the-tests-under-tests-it-pas",
+      "provider": "claude",
+      "model": "claude-sonnet-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:39:04Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:39:11Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "makgora-red-gitconfig",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:39:11Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "wisp-red-timeouts",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:39:29Z",
+      "machine": "cpx62",
+      "placed": true,
+      "refused": null,
+      "name": "cpx62-n1109-code-health",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:39:29Z",
+      "machine": "cpx62b",
+      "placed": true,
+      "refused": null,
+      "name": "cpx62b-n1109-fleet-supervisor",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:39:39Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:10Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1054-claim-relay",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:10Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1054-relaunch",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:10Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1075-tune",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:10Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1054-cleanup-gate",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:10Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1054-close-guard",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:10Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "n1045-agy",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:10Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1059-judge",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:10Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1106-orgchart",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:14Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "north-1039-d0013-code-half-of-the-narrowed-selection-box-above-sp",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:38Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "wisp-red-timeouts",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:38Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "makgora-red-gitconfig",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:59Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1022-reject-out",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:40:59Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1039-blame-steps",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:41:29Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:41:29Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "lander-precheck",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:41:50Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:42:22Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "north-1109-d0013-north-code-health-no-test-in-crates-north-code-h",
+      "provider": "claude",
+      "model": "claude-sonnet-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:43:03Z",
+      "machine": null,
+      "placed": true,
+      "refused": null,
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:43:28Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:43:47Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1022-slots",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:43:46Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1022-builder",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:43:47Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1022-depbox",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:43:47Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n637-tick-budget",
+      "provider": "claude",
+      "model": "sonnet",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:43:48Z",
+      "machine": "gex45",
+      "placed": true,
+      "refused": null,
+      "name": "n1039-blame-steps",
+      "provider": "claude",
+      "model": "opus",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:44:00Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:44:31Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1047-d0405",
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "role": "worker"
+    },
+    {
+      "at": "2026-11-11T00:44:50Z",
+      "machine": null,
+      "placed": false,
+      "refused": "saturated",
+      "name": "north-1081-d0013-resident-brokers-on-every-host-follow-each-promo",
+      "provider": "claude",
+      "model": "claude-sonnet-5-5",
+      "role": "worker"
+    }
+  ]
+}
