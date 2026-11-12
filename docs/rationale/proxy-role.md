@@ -608,3 +608,7 @@ failed, or the launch probe exits non-zero. A proxy that merely wants to read mo
 is recorded with who, why and when, opens a box on the issue that tracks the cause, and is printed in
 Tom's next `north gate digest`, so the lift is never silent and never outlasts the stall.
 **Enforced by** `crates/north-guard/src/guard/break_glass.rs`.
+
+## 8. Closing confirmed reports by rule: dropped
+
+The share of coordinator turns triggered only by a `Done:` report or landing notice was 13.8% over one frozen day, under the 25% stop bar, so closing them by rule is not built. See [close-by-rule-share.md](close-by-rule-share.md) (north#1266).
