@@ -86,19 +86,21 @@ pub(super) fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthRes
     Ok(format!("{file}\n{prompt}"))
 }
 
-/// Why a launch placed on another machine may not start: its prompt names a path under the
-/// launching host's home, which only that host can read, other than one inside the directory the
-/// session starts in, which the machine has. The refusal names each path so the launch can inline
-/// the text or pass it with `--system-prompt`, which the launch reads here.
-pub(super) fn home_path_refusal(request: &LaunchRequest, machine: Option<&Machine>) -> Option<String> {
+/// Why launch `name` placed on another machine may not start: `written`, its prompt as the caller
+/// wrote it, names a path under the launching host's home, which only that host can read, other
+/// than one inside `cwd`, the directory the session starts in, which the machine has. Text the
+/// launch adds itself, such as another session's prior report naming its own lane, sends the worker
+/// to nothing and is not read. The refusal names each path so the launch can inline the text or pass
+/// it with `--system-prompt`, which the launch reads here.
+pub(super) fn home_path_refusal(name: &str, written: &str, cwd: &Path, machine: Option<&Machine>) -> Option<String> {
     let machine = machine.filter(|machine| machine.name != crate::platform::host::name())?;
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
-    let paths = crate::platform::home_paths::outside(&request.prompt, Path::new(&home), &request.cwd);
+    let paths = crate::platform::home_paths::outside(written, Path::new(&home), cwd);
     (!paths.is_empty()).then(|| {
         let named: Vec<String> = paths.iter().map(|path| path.display().to_string()).collect();
         format!(
             "{} would start on {}, but its prompt names {}, under this host's home, which {} cannot read; inline the text or pass it with --system-prompt, which the launch reads here",
-            request.name,
+            name,
             machine.name,
             named.join(", "),
             machine.name,
@@ -143,18 +145,18 @@ impl From<Refusal> for NorthError {
 
 /// Placement gates every Claude launch except `--test` sessions, before anything starts, on the brief and the `needs` the item it names carries; a
 /// harness launch (DeepSeek on opencode) is gated on its host's saturation alone. `report`
-/// prints its verdict lines. A refusal is a loss row written here, by the gate that saw it, since a launch that never
-/// starts leaves no run for the ledger to charge.
-pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
-    let settled = place(fleet, request, needs, overrides, report)?;
+/// prints its verdict lines; `written` is the prompt as the caller wrote it, before the launch added its own lines. A refusal
+/// is a loss row written here, by the gate that saw it, since a launch that never starts leaves no run for the ledger to charge.
+pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
+    let settled = place(fleet, request, written, needs, overrides, report)?;
     if let Err(refusal) = &settled {
         attribution::record(&request.name, "launch", Cause::Harness(Harness::LaunchRefusal), &refusal.to_string());
     }
     Ok(settled)
 }
 
-fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
-    if let Some(why) = home_path_refusal(request, request.machine.as_ref()) {
+fn place(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
+    if let Some(why) = home_path_refusal(&request.name, written, &request.cwd, request.machine.as_ref()) {
         return Ok(Err(Refusal::Final(why)));
     }
     if request.verification {
@@ -194,7 +196,7 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
     });
     let placed = placed?;
     if let Ok(placed) = &placed
-        && let Some(why) = home_path_refusal(request, placed.machine.as_ref())
+        && let Some(why) = home_path_refusal(&request.name, written, &request.cwd, placed.machine.as_ref())
     {
         return Ok(Err(Refusal::Final(why)));
     }

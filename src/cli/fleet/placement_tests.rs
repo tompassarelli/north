@@ -146,3 +146,19 @@ fn a_reviewer_placed_on_the_build_host_that_holds_its_lane_is_not_refused_for_na
     assert_eq!(crate::platform::home_paths::outside(&state, home, &lane), vec![home.join(".local/state/north/decisions/admission/x.json")], "a file outside the lane stays refused");
     assert_eq!(crate::platform::home_paths::outside(&state, home, home).len(), 2, "a session started in the home directory exempts nothing");
 }
+
+#[test]
+fn a_brief_naming_no_local_path_places_on_another_host_though_the_launch_carries_a_prior_report_naming_a_lane_here() {
+    let home = PathBuf::from(std::env::var_os("HOME").expect("HOME"));
+    let lane = home.join("code/north/worktrees/spare-fill-reserve");
+    let elsewhere = Machine { name: "build-host-not-this-one".into(), ssh: "build-host-not-this-one".into() };
+    let written = "Category: debugging-unknown-cause\nDone when: the case passes\n";
+    let launched = format!("{written}Prior report: Not done: Lane `{}` (HEAD `02a07fbf2e`) is kept. Stop: landing\n", lane.display());
+    let cwd = Path::new("/tmp");
+    let refusal = |prompt: &str| home_path_refusal("n1239-cut", prompt, cwd, Some(&elsewhere));
+
+    assert!(refusal(&launched).is_some(), "the prior report the launch stamps names {}", lane.display());
+    assert_eq!(refusal(written), None, "the caller's brief names no file under this host's home");
+    let own = format!("{written}Take over your lane {}\n", lane.display());
+    assert!(refusal(&own).is_some_and(|why| why.contains(&lane.display().to_string())), "a brief that itself names a lane only this host holds stays refused");
+}
