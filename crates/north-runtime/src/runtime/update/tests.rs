@@ -214,7 +214,25 @@ fn an_update_by_a_caller_who_cannot_write_the_agent_link_is_refused() {
 }
 
 #[test]
-fn a_host_naming_no_agent_link_publishes_and_follows_nothing() {
+fn a_host_names_its_agent_link_by_variable_else_by_the_first_line_of_a_file_only_its_root_owns_and_naming_none_publishes_and_follows_nothing() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("agent-runtime-link");
+    let chosen = |env: Option<&str>, owner: u32| agent_link::chosen(env.map(Into::into), &file, owner);
+    assert_eq!(chosen(None, 0), None, "no file names nothing");
+    fs::write(&file, "/run/agent/runtime\nignored\n").unwrap();
+    let owner = fs::metadata(&file).unwrap().uid();
+    assert_eq!(chosen(None, owner), Some("/run/agent/runtime".into()));
+    assert_eq!(chosen(Some("/from/env"), owner), Some("/from/env".into()), "the variable wins over the file");
+    assert_eq!(chosen(Some(""), owner), Some("/run/agent/runtime".into()), "an empty variable names nothing");
+    assert_eq!(chosen(None, owner + 1), None, "a file not owned by the host's root is ignored");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o664)).unwrap();
+    assert_eq!(chosen(None, owner), None, "a file the group can write is ignored");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+    for unnamed in ["", "\n/run/agent/runtime\n", "relative/runtime\n"] {
+        fs::write(&file, unnamed).unwrap();
+        assert_eq!(chosen(None, owner), None, "{unnamed:?} names no absolute link");
+    }
     assert!(std::env::var_os(agent_link::ENV).is_none());
     let state = tempfile::tempdir().unwrap();
     assert!(agent_link::guard().is_ok());

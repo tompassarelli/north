@@ -3,16 +3,41 @@ use super::super::layout::PROGRAMS;
 use super::super::store;
 use super::sync::relink;
 use rustix::fs::{Access, access};
+use std::ffi::OsString;
 use std::fs;
+use std::io::{BufRead, BufReader};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 pub(crate) const ENV: &str = "NORTH_AGENT_RUNTIME_LINK";
 const ROOT: &str = "agent-runtime";
 const STAGING: &str = "agent-runtime-staging";
 
+#[cfg(not(test))]
+const NAMING_FILE: &str = "/etc/north/agent-runtime-link";
+#[cfg(test)]
+const NAMING_FILE: &str = "/nonexistent/north/agent-runtime-link";
+const ROOT_UID: u32 = 0;
+
 /// The operator-owned link the agent user follows to the live runtime's store path; a host that names none keeps every runtime path as it was.
 pub(super) fn configured() -> Option<PathBuf> {
-    std::env::var_os(ENV).filter(|value| !value.is_empty()).map(PathBuf::from)
+    chosen(std::env::var_os(ENV), Path::new(NAMING_FILE), ROOT_UID)
+}
+
+pub(super) fn chosen(env: Option<OsString>, file: &Path, owner: u32) -> Option<PathBuf> {
+    env.filter(|value| !value.is_empty()).map(PathBuf::from).or_else(|| named_in(file, owner))
+}
+
+/// The first line of a naming file only the host's root can write; a file anyone else owns or can change names nothing.
+fn named_in(file: &Path, owner: u32) -> Option<PathBuf> {
+    let opened = fs::File::open(file).ok()?;
+    let meta = opened.metadata().ok()?;
+    if !meta.is_file() || meta.uid() != owner || meta.mode() & 0o022 != 0 {
+        return None;
+    }
+    let line = BufReader::new(opened).lines().next()?.ok()?;
+    let path = PathBuf::from(line.trim());
+    path.is_absolute().then_some(path)
 }
 
 /// Refuses a caller that could not move the agent's link, so an update never swaps `current` and leaves the agent on the runtime it replaced.
