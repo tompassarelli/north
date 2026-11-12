@@ -1,12 +1,11 @@
 //! Where a build host's root disk counts as too full, as free space rather than a percent so a large disk keeps the
-//! same headroom as a small one. Passing the high watermark starts one cleanup pass that trims regenerable caches least
-//! recently used first down to the low watermark, far roomier, so one pass lasts weeks rather than trimming just back over
-//! one line; under the eviction line placement refuses the host and the lease reaper also takes land-offload slots, back over the
-//! roomier eviction stop line so the disk is not left on the line placement refuses at.
+//! same headroom as a small one. A host closes to new work under its closing line, and the lease reaper holds the disk over
+//! one rule above it, the closing line plus one warm slot of margin: every pass under that line trims regenerable caches least
+//! recently used first toward the low watermark, far roomier, and takes warm stores until the disk is back over it, so a host
+//! is closed only once nothing its rules may reclaim is left.
 use super::admission::default_mib as default_number;
 
 const LOW_WATERMARK_FREE_SHARE: f64 = 0.40;
-const HIGH_WATERMARK_FREE_SHARE: f64 = 0.13;
 const EVICT_FREE_SHARE: f64 = 0.20;
 const EVICT_STOP_FREE_SHARE: f64 = 0.25;
 
@@ -26,18 +25,12 @@ impl Line {
         Self { free_share: LOW_WATERMARK_FREE_SHARE, free_gib: default_number("disk_low_watermark_free_gib") }
     }
 
-    /// `disk_high_watermark_free_gib` free, or 13% of a disk too small to spare it.
-    pub fn high_watermark() -> Self {
-        Self { free_share: HIGH_WATERMARK_FREE_SHARE, free_gib: default_number("disk_high_watermark_free_gib") }
-    }
-
     /// `offload_evict_free_gib` free, or 20% of a disk too small to spare it.
     pub fn eviction() -> Self {
         Self { free_share: EVICT_FREE_SHARE, free_gib: default_number("offload_evict_free_gib") }
     }
 
-    /// `offload_evict_stop_free_gib` free, or 25% of a disk too small to spare it: a pass that starts under the eviction line takes land slots
-    /// until the disk is back over this one, so it does not leave the disk on the line placement refuses at.
+    /// `offload_evict_stop_free_gib` free, or 25% of a disk too small to spare it: its margin over the eviction line is the margin the held line keeps over the closing line.
     pub fn eviction_stop() -> Self {
         Self { free_share: EVICT_STOP_FREE_SHARE, free_gib: default_number("offload_evict_stop_free_gib") }
     }
@@ -47,8 +40,9 @@ impl Line {
         bound_gib.filter(|bound| *bound > Self::eviction().floor_gib(size_gib)).map_or_else(Self::eviction, |bound| Self { free_share: 1.0, free_gib: bound })
     }
 
-    /// The line a pass that starts under `closed` takes warm stores back over: the closing line plus the margin the eviction stop line keeps over the eviction line.
-    pub fn reopened(bound_gib: Option<f64>, size_gib: f64) -> Self {
+    /// The line the lease reaper holds a host of `size_gib` over: the closing line plus the margin the eviction stop line keeps over the eviction line, so the
+    /// reaper reclaims while the host is still open rather than once it is closed.
+    pub fn held(bound_gib: Option<f64>, size_gib: f64) -> Self {
         let margin = Self::eviction_stop().floor_gib(size_gib) - Self::eviction().floor_gib(size_gib);
         bound_gib.filter(|bound| *bound > Self::eviction().floor_gib(size_gib)).map_or_else(Self::eviction_stop, |bound| Self { free_share: 1.0, free_gib: bound + margin })
     }

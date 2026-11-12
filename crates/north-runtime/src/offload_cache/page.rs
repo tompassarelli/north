@@ -13,14 +13,14 @@ pub(super) fn largest(account: &disk_ledger::Account) -> String {
     format!("{}; {:.0} GiB unaccounted", stores.join(", "), account.unaccounted() as f64 / GIB)
 }
 
-/// The one page of a pass that `before` started: what it took, and when `after` still reads under `closed`, that the host stays closed to
-/// dispatch with nothing more the rules may reclaim and which stores hold the space.
-pub fn alarm(host: &str, before: Disk, after: Disk, closed: Line, evicted: &[Evicted], largest: &str) -> String {
+/// The one page of a pass that `before` started under the held line: what it took, and when `after` still reads under `closed`, that the
+/// host stays closed to dispatch with nothing more the rules may reclaim and which stores hold the space.
+pub fn alarm(host: &str, before: Disk, after: Disk, (closed, held): (Line, Line), evicted: &[Evicted], largest: &str) -> String {
     let freed = evicted.iter().map(|gone| gone.bytes).sum::<u64>() as f64 / GIB;
     let size_gib = after.size_bytes as f64 / GIB;
     let target = Line::low_watermark().floor_gib(size_gib);
     let bound = closed.floor_gib(size_gib);
-    let crossed = if before.past(closed) { format!("the {bound:.0} GiB free it is closed to dispatch under") } else { "its high watermark".to_owned() };
+    let crossed = if before.past(closed) { format!("the {bound:.0} GiB free it is closed to dispatch under") } else { format!("the {:.0} GiB free its reaper holds it over", held.floor_gib(size_gib)) };
     let short = if after.past(closed) {
         format!(", so it stays closed to dispatch under its {bound:.0} GiB disk bound with nothing more its rules may reclaim; what holds the space")
     } else if after.free_gib < target {

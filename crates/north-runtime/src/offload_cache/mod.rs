@@ -1,10 +1,10 @@
 //! Keeps a build host's root disk from filling, with wide hysteresis, in the order `harness/disk-ledger.toml` lists the stores the
-//! lease reaper trims itself. Passing the high watermark starts one cleanup pass that takes regenerable caches (build-offload slots, the
-//! shared cargo targets, wisp window builds, sccache) least recently used first and past their caps, down to the far roomier low
-//! watermark, and pages the proxy once with what it took and the ledger's largest stores; the next pass waits for the next crossing.
-//! Between passes only caps are kept. Land-offload slots, the lander's reserved slot of each checkout last, are held to their cap on every
-//! pass and otherwise go only in a pass that starts under the eviction line, then until the disk is back over the roomier eviction stop
-//! line, so a pass never leaves the disk on the line placement refuses at. Within a slot store the least recently used slot whose lock no
+//! lease reaper trims itself. The reaper holds the disk over one line, the line its host closes to new work under plus one warm slot of
+//! margin: a pass that starts under it trims regenerable caches (build-offload slots, the shared cargo targets, wisp window builds,
+//! sccache) least recently used first and past their caps toward the far roomier low watermark, takes warm stores until the disk is back
+//! over it, and the first such pass of an episode pages the proxy once with what it took and the ledger's largest stores; the next page
+//! waits for the next crossing. Between passes only caps are kept. Land-offload slots, the lander's reserved slot of each checkout last,
+//! are held to their cap on every pass, so a host closes for disk only once nothing its rules may reclaim is left. Within a slot store the least recently used slot whose lock no
 //! job holds goes first. The lines are free space, not a percent, so a large disk keeps the same headroom as a small one. The lease
 //! reaper starts it every 30 s on each build host as its own unit, and a disk-floor
 //! admission defer runs it after the other reclaim sweeps before deciding again.
@@ -61,18 +61,18 @@ pub struct Lines {
 }
 
 impl Lines {
-    /// A cleanup pass trims caches to the low watermark; between passes they keep only their caps. Warm stores go only in an evicting
-    /// pass, one that started with the host closed to dispatch for disk, and then until the disk is back over `reopened`.
-    pub fn pass(cleanup: bool, reopened: Option<Line>) -> Self {
-        Self { trim: if cleanup { Line::low_watermark() } else { Line::NEVER }, evict: reopened.unwrap_or(Line::NEVER) }
+    /// A cleanup pass trims caches to the low watermark; between passes they keep only their caps. Warm stores go only in a pass that
+    /// started under the held line, and then until the disk is back over `held`.
+    pub fn pass(cleanup: bool, held: Option<Line>) -> Self {
+        Self { trim: if cleanup { Line::low_watermark() } else { Line::NEVER }, evict: held.unwrap_or(Line::NEVER) }
     }
 }
 
-/// The line `budget`'s host is closed to dispatch under on `disk`, and the one an evicting pass reclaims back over.
+/// The line `budget`'s host is closed to dispatch under on `disk`, and the line the reaper holds the disk over.
 pub fn closing(budget: &DiskBudget, disk: Option<Disk>) -> (Line, Line) {
     let size_gib = disk.map_or(0.0, |disk| disk.size_bytes as f64 / GIB);
     let bound = budget.dispatch_bound_gib();
-    (Line::closed(bound, size_gib), Line::reopened(bound, size_gib))
+    (Line::closed(bound, size_gib), Line::held(bound, size_gib))
 }
 
 /// Which slots of a root a `Store::Slots` pass may remove.
@@ -309,13 +309,13 @@ fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from)
 }
 
-/// One eviction pass over this home's stores under `budget`, a cleanup pass when `cleanup` is set or the host reads closed to dispatch
-/// for disk, which alone lets the pass take warm stores past their caps, oldest first, until the host is open again with a margin.
+/// One eviction pass over this home's stores under `budget`, a cleanup pass when `cleanup` is set or the disk reads under the held
+/// line, which alone lets the pass take warm stores past their caps, oldest first, until the disk is back over it.
 fn evict_here(home: &Path, budget: &DiskBudget, disk: &mut dyn FnMut() -> Option<Disk>, cleanup: bool) -> (Vec<Evicted>, Option<Disk>) {
     let first = disk();
-    let (closed, reopened) = closing(budget, first);
-    let evicting = first.is_some_and(|disk| disk.past(closed));
-    let evicted = evict(&stores(home, first, budget, &Ledger::shipped(), Lines::pass(cleanup || evicting, evicting.then_some(reopened))), disk);
+    let (_, held) = closing(budget, first);
+    let under = first.is_some_and(|disk| disk.past(held));
+    let evicted = evict(&stores(home, first, budget, &Ledger::shipped(), Lines::pass(cleanup || under, under.then_some(held))), disk);
     for gone in &evicted {
         eprintln!("north capacity: evicted {} {} ({} MiB), least recently used", gone.what, gone.path.display(), gone.bytes >> 20);
     }
@@ -346,10 +346,10 @@ pub fn tend() {
     }
 }
 
-/// `north capacity disk keep`, the disk pass. A disk passing its high watermark, or the line its host is closed to dispatch under, with
-/// no host-disk episode open starts one cleanup pass down to the low watermark, records the episode and pages the proxy once with what the
-/// pass took and, when the host stays closed, what holds the space; every pass that reads the host closed reclaims warm stores too. The
-/// episode closes once the disk is back over both lines, so the next pass waits for the next crossing. Between passes only caps are kept.
+/// `north capacity disk keep`, the disk pass. A disk under the held line with no host-disk episode open starts one cleanup pass toward
+/// the low watermark, records the episode and pages the proxy once with what the pass took and, when the host stays closed, what holds
+/// the space; every pass under the held line reclaims warm stores too. The episode closes once the disk is back over the held line, so
+/// the next page waits for the next crossing. Between passes only caps are kept.
 pub fn keep() {
     if fixture() {
         return;
@@ -365,8 +365,8 @@ pub fn keep() {
     let open = marker.exists();
     let Some(before) = disk_of(&home) else { return };
     let budget = DiskBudget::local();
-    let (closed, _) = closing(&budget, Some(before));
-    let passed = |disk: Disk| disk.past(Line::high_watermark()) || disk.past(closed);
+    let (closed, held) = closing(&budget, Some(before));
+    let passed = |disk: Disk| disk.past(held);
     let starts = !open && passed(before);
     let (evicted, Some(after)) = evict_here(&home, &budget, &mut || disk_of(&home), starts) else { return };
     if starts {
@@ -374,7 +374,7 @@ pub fn keep() {
         let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
         let key = format!("{INCIDENT_CLASS}:{host}@{now}");
         let largest = disk_ledger::local().map(|account| largest(&account)).unwrap_or_default();
-        let detail = alarm(&host, before, after, closed, &evicted, &largest);
+        let detail = alarm(&host, before, after, (closed, held), &evicted, &largest);
         let recorded = record(&key, &host, &detail);
         if page(&detail) || recorded {
             let _ = marker.parent().map(fs::create_dir_all);

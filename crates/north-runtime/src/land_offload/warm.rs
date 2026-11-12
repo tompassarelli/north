@@ -141,8 +141,8 @@ fn slots(root: &Path) -> Vec<Slot> {
 fn room_for_a_cold_slot(root: &Path, slots: &[Slot]) -> bool {
     let largest = slots.iter().filter(|slot| !slot.cold).filter_map(|slot| north_base::platform::shared_target::allocated_tree(&root.join(&slot.name).join("target"), &mut HashSet::new()).ok()).map(|(bytes, _)| bytes).max();
     let (Some(largest), Some(disk)) = (largest, disk_of(root)) else { return false };
-    let (closed, _) = closing(&DiskBudget::local(), Some(disk));
-    land_slots_take(root, largest) && !Disk { free_gib: disk.free_gib - largest as f64 / GIB, ..disk }.past(closed)
+    let (_, held) = closing(&DiskBudget::local(), Some(disk));
+    land_slots_take(root, largest) && !Disk { free_gib: disk.free_gib - largest as f64 / GIB, ..disk }.past(held)
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> Option<String> {

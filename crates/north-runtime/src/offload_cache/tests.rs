@@ -149,8 +149,8 @@ fn a_large_disk_evicts_at_the_same_free_headroom_as_a_small_one_so_a_roomy_host_
     assert!(!disk(936.0, 81.0).past(line), "gex45's 936 GiB disk at 81% still has 178 GiB free");
     assert!(disk(936.0, 91.0).past(line));
     assert!(disk(224.0, 81.0).past(line) && !disk(224.0, 79.0).past(line), "ccx33's 224 GiB disk keeps the 20% line");
-    let high = Line::high_watermark();
-    assert!(!disk(936.0, 86.0).past(high) && disk(936.0, 88.0).past(high) && !disk(224.0, 86.0).past(high) && disk(224.0, 88.0).past(high), "both hosts start a cleanup pass at 87% used");
+    let held = Line::held(None, 936.0);
+    assert!(!disk(936.0, 86.0).past(held) && disk(936.0, 87.0).past(held) && !disk(224.0, 74.0).past(held) && disk(224.0, 76.0).past(held), "a host with no bound of its own is held at 130 GiB free, or 25% of a disk too small to spare it");
     let home = tempfile::tempdir().unwrap();
     let land = home.path().join(".cache/land-offload");
     slot(&land, "code-north-main-3", 8, 40);
@@ -194,21 +194,27 @@ fn the_first_pass_under_the_eviction_line_takes_land_slots_back_over_the_stop_li
         lowest = lowest.min(after);
         traffic += 1.5;
     }
-    assert!(lowest >= floor, "10 minutes of land-check traffic after the pass never brings the disk back under the refusal line; lowest {lowest:.1}");
-    assert_eq!(land_passes, 1, "one pass takes land slots, not one every 30 s");
+    assert!(lowest >= stop && stop > floor, "every pass through 10 minutes of land-check traffic leaves the disk over the held line ({stop:.0} GiB), above the refusal line ({floor:.0} GiB); lowest {lowest:.1}");
+    assert_eq!(land_passes, 2, "a land slot goes only when traffic takes the disk back under the held line, once per slot of traffic, not every 30 s");
 
     let home = lay_out();
     let closed_at = DiskBudget::parse("[hosts.h]\ndisk_free_gib = 150\n", "h");
     let room = 140.0 + scaled(home.path());
     let mut reading = || Some(Disk { used_percent: 85.0, free_gib: room - scaled(home.path()), size_bytes });
-    let (closed, reopened) = closing(&closed_at, reading());
+    let (closed, held) = closing(&closed_at, reading());
     let (evicted, after) = evict_here(home.path(), &closed_at, &mut reading, false);
     let after = after.unwrap();
-    assert!(!after.past(reopened) && after.free_gib >= 186.0, "a host at 140 GiB free, closed to dispatch under its 150 GiB bound and over every other line, is reclaimed back over the bound with a slot of margin; it left {:.1}", after.free_gib);
+    assert!(!after.past(held) && after.free_gib >= 186.0, "a host at 140 GiB free, closed to dispatch under its 150 GiB bound and over every other line, is reclaimed back over the bound with a slot of margin; it left {:.1}", after.free_gib);
     assert_eq!(names(&evicted), ["lane-a", "lane-b", "code-north-main-3", "code-north-main-1"], "caches first, then the oldest idle land slots");
     let stuck = Disk { free_gib: 140.0, ..after };
-    let page = alarm("h", stuck, stuck, closed, &[], "land_offload (warm, 160 GiB, trim: land-slots)");
+    let page = alarm("h", stuck, stuck, (closed, held), &[], "land_offload (warm, 160 GiB, trim: land-slots)");
     assert!(page.contains("passed the 150 GiB free it is closed to dispatch under") && page.contains("stays closed to dispatch under its 150 GiB disk bound with nothing more its rules may reclaim; what holds the space: land_offload"), "{page}");
+
+    let home = lay_out();
+    let room = 160.0 + scaled(home.path());
+    let mut reading = || Some(Disk { used_percent: 83.0, free_gib: room - scaled(home.path()), size_bytes });
+    let (evicted, after) = evict_here(home.path(), &closed_at, &mut reading, false);
+    assert!(after.unwrap().free_gib >= 186.0 && !evicted.is_empty(), "a host at 160 GiB free, still open over its 150 GiB bound with idle slots to reclaim, is reclaimed back over the held line before it closes");
 
     let home = lay_out();
     let land = home.path().join(".cache/land-offload");
