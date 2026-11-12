@@ -192,10 +192,6 @@ fn same_issue(named: &str, task: &str) -> bool {
 
 /// The environment a granted command runs with: the broker's `own`, without the sandbox's markers, its git configuration or its `PATH`, then a `PATH` that finds the gh shim first, the session's name for the shim to call GitHub as the Agent App under, and git's credential helper with hooks and fsmonitor off. Refused when `home` holds no gh shim, since gh would then answer as the operator's own login.
 pub(super) fn environment(session: &Session, own: impl IntoIterator<Item = (String, String)>, home: &Path) -> Result<Vec<(String, String)>, String> {
-    let shims: Vec<PathBuf> = SHIM_DIRECTORIES.iter().map(|directory| home.join(directory)).filter(|directory| gh_shim::is_shim(&directory.join("gh"))).collect();
-    if shims.is_empty() {
-        return Err(format!("no north gh shim in {} or {}, so gh would answer as a personal login", home.join(SHIM_DIRECTORIES[0]).display(), home.join(SHIM_DIRECTORIES[1]).display()));
-    }
     let mut path = None;
     let mut kept: Vec<(String, String)> = Vec::new();
     for (name, value) in own {
@@ -206,11 +202,20 @@ pub(super) fn environment(session: &Session, own: impl IntoIterator<Item = (Stri
             _ => kept.push((name, value)),
         }
     }
-    let path = std::env::join_paths(shims.into_iter().chain(std::env::split_paths(path.as_deref().unwrap_or_default()).filter(|entry| entry.is_absolute()))).map_err(|error| error.to_string())?;
-    kept.push(("PATH".to_owned(), path.to_string_lossy().into_owned()));
+    kept.push(("PATH".to_owned(), shimmed_path(home, path.as_deref().unwrap_or_default())?));
     kept.push((SESSION_ENV.to_owned(), session.name.clone()));
     kept.extend(git_credential::session_env_with(&GIT_HARDENING));
     Ok(kept)
+}
+
+/// `path`'s absolute entries behind `home`'s gh shim directories; refused when `home` holds no gh shim, since gh would then answer as the operator's own login.
+pub(super) fn shimmed_path(home: &Path, path: &str) -> Result<String, String> {
+    let shims: Vec<PathBuf> = SHIM_DIRECTORIES.iter().map(|directory| home.join(directory)).filter(|directory| gh_shim::is_shim(&directory.join("gh"))).collect();
+    if shims.is_empty() {
+        return Err(format!("no north gh shim in {} or {}, so gh would answer as a personal login", home.join(SHIM_DIRECTORIES[0]).display(), home.join(SHIM_DIRECTORIES[1]).display()));
+    }
+    let joined = std::env::join_paths(shims.into_iter().chain(std::env::split_paths(path).filter(|entry| entry.is_absolute()))).map_err(|error| error.to_string())?;
+    Ok(joined.to_string_lossy().into_owned())
 }
 
 /// `text` with every token-shaped word withheld.

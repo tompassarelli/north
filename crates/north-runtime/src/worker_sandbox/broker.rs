@@ -11,22 +11,19 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use north_base::platform::session_scope::REMOVAL_ROOTS;
-use north_base::platform::{git_credential, session_scope};
-use north_base::verdict_cache;
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, recvmsg, sendmsg};
 use serde::{Deserialize, Serialize};
 
 use super::lane_grant::{self, Host};
 use super::session_join;
-use super::{Context, FLAG, LANE_ONLY, MAKER, MARK, SESSION_SCOPE, SOCKETS_HIDDEN, removable};
+use super::request_env::{environment, landing, landing_choices, own_homes, request_homes};
+use super::{Context, FLAG, MAKER, removable};
 
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
 pub const SOCKET_ENV: &str = "NORTH_OUTSIDE_BROKER";
 const UNIT: &str = "north-worker-outside";
 const SLICE: &str = "agent.slice";
-const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
-const HOMES: [(&str, &str); 4] = [("XDG_STATE_HOME", ".local/state"), ("XDG_CACHE_HOME", ".cache"), ("XDG_DATA_HOME", ".local/share"), ("XDG_CONFIG_HOME", ".config")];
 const NAMESPACE: &str = "--namespaces";
 const LENGTH_BYTES: usize = 8;
 const ANSWER_WAIT: Duration = Duration::from_secs(10);
@@ -35,11 +32,6 @@ const STDIO: usize = 3;
 const SOCKET_CHECK: Duration = Duration::from_millis(100);
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
 const JOIN_LEASE: &str = r#"echo 0 >"$0" || echo "north worker-sandbox broker: could not join the caller's lease scope $0, so this run counts against no lease" >&2; exec "$@""#;
-const INJECTED_NAMES: [&str; 19] = [
-    "GCONV_PATH", "LOCPATH", "NLSPATH", "HOSTALIASES", "RESOLV_HOST_CONF", "GLIBC_TUNABLES", "BASH_ENV", "ENV", "NODE_OPTIONS", "SSH_ASKPASS", "GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_PAGER", "GIT_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR",
-];
-const INJECTED_PREFIXES: [&str; 6] = ["LD_", "MALLOC_", "PYTHON", "PERL5", "RUBY", "GIT_CONFIG"];
-const TRUSTED_FILES: [&str; 5] = [verdict_cache::DIR_ENV, "AGENTS_ORCHESTRATION", "AGENTS_OPERATOR_DIR", "SAFE_PUSH_SOUTH", "SAFE_PUSH_DENYLIST"];
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct Request {
@@ -84,50 +76,9 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
     }
 }
 
-fn unsafe_name(name: &str) -> bool {
-    name == MARK || name == SOCKETS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name)
-}
-
 /// The trees the worker command that sent a request may remove beneath, read from the arguments, directory and environment it sent, so the process the broker starts stays inside them.
 pub(super) fn hand_off_roots(arguments: &[String], directory: &Path, environment: &[(String, String)]) -> Vec<PathBuf> {
     removable(&Context::from_request(&arguments.join(" "), directory, environment))
-}
-
-/// The XDG homes a brokered command reads and writes: this broker's own, since the command runs as the host's process and its state, cache and data belong under the host's homes. Taking the client's scratch ones would record a build's capacity admissions beside the worker instead of in the host's decision ledger (north#1030).
-pub(super) fn homes(home: Option<PathBuf>, get: impl Fn(&str) -> Option<PathBuf>) -> Vec<(String, String)> {
-    let home = home.unwrap_or_else(|| PathBuf::from("/"));
-    HOMES
-        .into_iter()
-        .map(|(name, below)| (name.to_owned(), get(name).unwrap_or_else(|| home.join(below)).to_string_lossy().into_owned()))
-        .collect()
-}
-
-fn own_homes() -> Vec<(String, String)> {
-    fn set(name: &str) -> Option<PathBuf> {
-        std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)
-    }
-    homes(set("HOME"), set).into_iter().chain(set("HOME").map(|home| ("HOME".to_owned(), home.to_string_lossy().into_owned()))).collect()
-}
-
-/// The homes a request's process gets: `own`, the broker's (`homes`), apart from a `safe-push` a caller outside every lane-only scope asked for, which keeps the XDG homes the caller set, since the state home holds the landing queue its ticket belongs in, as when it ran in place before it ran through the broker (north#1094): a verify-north worker's ticket went to the host's queue instead of its scratch one, and the walk found none (north#1022). A kept state home other than the broker's does not move the verdict store, which stays the broker's, since the checks before queueing reuse a pass they find there in place of running.
-pub(super) fn request_homes(arguments: &[String], cgroup: Option<&str>, sent: &[(String, String)], own: Vec<(String, String)>) -> Vec<(String, String)> {
-    let queues = arguments.first().is_some_and(|verb| verb == "safe-push") && !cgroup.is_none_or(session_scope::lane_only_cgroup);
-    let client = |name: &str| sent.iter().find(|(sent, value)| sent == name && !value.is_empty()).map(|(_, value)| value.clone());
-    let state = own.iter().find(|(name, _)| name == "XDG_STATE_HOME").map(|(_, value)| value.clone());
-    let moved = queues && client("XDG_STATE_HOME").is_some_and(|kept| Some(kept) != state);
-    let store = state.filter(|_| moved).map(|state| (verdict_cache::DIR_ENV.to_owned(), Path::new(&state).join("north/verdict-cache").to_string_lossy().into_owned()));
-    own.into_iter().map(|(name, value)| match (queues && name != "HOME").then(|| client(&name)).flatten() {
-        Some(kept) => (name, kept),
-        None => (name, value),
-    }).chain(store).collect()
-}
-
-/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), the variables that name a file or store a guard on the landing path trusts (the verdict store, the orchestration policy, the privacy denylist's sources), and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). The XDG homes and `HOME` are `homes`, the broker's own apart from a safe-push's state home (`request_homes`): a client's scratch homes would take the state, cache and data a brokered build writes with it (north#1030), and `north home move` takes the broker's `HOME` as the top of its moves (north#992). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
-pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>, runtime: &Path, homes: &[(String, String)]) -> Vec<(String, String)> {
-    let lane_only = cgroup.is_none_or(session_scope::lane_only_cgroup);
-    let path = |value: &str| std::env::join_paths(std::env::split_paths(value).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
-    let own_runtime = (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned());
-    sent.into_iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV && name != "HOME" && !HOMES.iter().any(|(own, _)| *own == name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).chain([own_runtime]).chain(homes.iter().cloned()).collect()
 }
 
 /// Runs `north ARGUMENTS` outside this process's Landlock domain through the broker, with this process's standard streams, working directory and environment; its exit code.
@@ -156,7 +107,6 @@ pub(super) fn send(stream: &UnixStream, request: Request, streams: [BorrowedFd; 
     (&*stream).read_exact(&mut code).map_err(|error| format!("north worker-sandbox: the outside broker closed the request without an answer ({error})"))?;
     Ok(code[0])
 }
-
 
 /// Starts the broker as a transient user service when nothing answers its socket. Called before a command's domain is applied: afterwards the command cannot start a service, only ask this one. A draining broker still holds the unit name `UNIT`, so when that name is taken the broker starts under a name of its own.
 pub fn ensure() {
@@ -312,7 +262,9 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     }
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
     let homes = request_homes(&request.arguments, cgroup, &request.environment, own_homes());
-    let mut variables = environment(request.environment, cgroup, &runtime(), &homes);
+    let own_path = host.environment.iter().find(|(name, _)| name == "PATH").map_or("", |(_, value)| value.as_str());
+    let chosen = landing_choices(&request.arguments, &host.home, own_path, north);
+    let mut variables = landing(environment(request.environment, cgroup, &runtime(), &homes), chosen);
     if let Some(roots) = roots {
         variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));
     }
@@ -397,7 +349,6 @@ fn wait(mut child: Child, stream: &UnixStream) -> Result<u8, String> {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
-
 
 /// Whether the client end of `stream` is gone: it sends nothing after its request, so an end of stream is a closed one.
 fn hung_up(stream: &UnixStream) -> bool {

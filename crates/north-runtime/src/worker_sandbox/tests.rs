@@ -217,7 +217,7 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     }
     let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("NORTH_WORKER_REMOVAL_ROOTS", "[\"/\"]"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged"), ("XDG_STATE_HOME", "/tmp/north-opencode-1/state"), ("XDG_CACHE_HOME", "/tmp/north-opencode-1/cache"), ("XDG_DATA_HOME", "/tmp/north-opencode-1/data"), ("XDG_CONFIG_HOME", "/tmp/north-opencode-1/config"), ("HOME", "/home/a/elsewhere")];
     let homes = [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config"), ("HOME", "/home/a")].map(|(name, value)| (name.to_owned(), value.to_owned()));
-    let environment = super::broker::environment(sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes);
+    let environment = super::request_env::environment(sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes);
     let get = |name: &str| environment.iter().find(|(own, _)| own == name).map(|(_, value)| value.as_str());
     assert_eq!((get("LD_PRELOAD"), get("GIT_SSH_COMMAND"), get("NORTH_WORKER_SANDBOXED"), get("GIT_SSL_CAINFO"), get("CARGO_HOME"), get("PATH")), (None, None, None, Some("/ca"), Some("/c"), Some("/usr/bin:/opt/x")));
     assert_ne!(get("GIT_CONFIG_COUNT"), Some("9"));
@@ -232,9 +232,9 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
 
 #[test]
 fn the_broker_names_the_host_s_homes_and_falls_back_to_home_s_xdg_defaults() {
-    let defaults = super::broker::homes(Some(PathBuf::from("/home/a")), |_| None);
+    let defaults = super::request_env::homes(Some(PathBuf::from("/home/a")), |_| None);
     assert_eq!(defaults, [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config")].map(|(name, value)| (name.to_owned(), value.to_owned())).to_vec());
-    let named = super::broker::homes(None, |name| (name == "XDG_STATE_HOME").then(|| PathBuf::from("/srv/state")));
+    let named = super::request_env::homes(None, |name| (name == "XDG_STATE_HOME").then(|| PathBuf::from("/srv/state")));
     assert_eq!(named.iter().find(|(name, _)| name == "XDG_STATE_HOME").map(|(_, value)| value.as_str()), Some("/srv/state"), "a home the host set was replaced by a default");
 }
 
@@ -246,11 +246,11 @@ fn a_lane_only_caller_without_its_marker_still_gets_lane_reads() {
     let sent = || vec![("PATH".to_owned(), "/usr/bin".to_owned()), ("HOME".to_owned(), "/home/a".to_owned())];
     let homes = [("XDG_STATE_HOME".to_owned(), "/home/a/.local/state".to_owned()), ("XDG_CACHE_HOME".to_owned(), "/home/a/.cache".to_owned()), ("XDG_DATA_HOME".to_owned(), "/home/a/.local/share".to_owned()), ("XDG_CONFIG_HOME".to_owned(), "/home/a/.config".to_owned())];
     let marker = |environment: &[(String, String)]| environment.iter().find(|(name, _)| name == super::LANE_ONLY).map(|(_, value)| value.clone());
-    assert_eq!(marker(&super::broker::environment(sent(), Some(LANE_SCOPE), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a lane-only scope's caller without its marker got wide reads");
-    assert_eq!(marker(&super::broker::environment(sent(), None, Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a caller whose scope cannot be read got wide reads");
-    assert_eq!(marker(&super::broker::environment(sent(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes)), None);
+    assert_eq!(marker(&super::request_env::environment(sent(), Some(LANE_SCOPE), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a lane-only scope's caller without its marker got wide reads");
+    assert_eq!(marker(&super::request_env::environment(sent(), None, Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a caller whose scope cannot be read got wide reads");
+    assert_eq!(marker(&super::request_env::environment(sent(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes)), None);
     let forged = sent().into_iter().chain([(super::LANE_ONLY.to_owned(), "1".to_owned())]).collect();
-    assert_eq!(marker(&super::broker::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a caller may narrow itself");
+    assert_eq!(marker(&super::request_env::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a caller may narrow itself");
 }
 
 #[test]
@@ -394,14 +394,18 @@ fn a_brokered_safe_push_queues_in_its_caller_s_state_home_and_every_other_reques
     let own = || [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("HOME", "/home/a")].map(|(name, value)| (name.to_owned(), value.to_owned())).to_vec();
     let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
     let state = |homes: Vec<(String, String)>| homes.into_iter().filter(|(name, _)| name == "XDG_STATE_HOME" || name == "HOME").map(|(_, value)| value).collect::<Vec<_>>();
-    assert_eq!(state(super::broker::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &sent, own())), ["/tmp/verify-north-x/state", "/home/a"], "a worker's brokered safe-push queued its ticket in the host's landing queue, so verify-north found none in its scratch state (north#1022)");
-    assert_eq!(state(super::broker::request_homes(&words("depbox run -- cargo check"), Some(OPEN_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
-    assert_eq!(state(super::broker::request_homes(&words("safe-push --to main"), Some(LANE_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
-    let forged: Vec<(String, String)> = sent.iter().cloned().chain([("NORTH_VERDICT_CACHE_DIR", "/tmp/forged-passes"), ("AGENTS_ORCHESTRATION", "/tmp/forged.toml")].map(|(name, value)| (name.to_owned(), value.to_owned()))).collect();
-    let homes = super::broker::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &forged, own());
-    let environment = super::broker::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes);
+    assert_eq!(state(super::request_env::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &sent, own())), ["/tmp/verify-north-x/state", "/home/a"], "a worker's brokered safe-push queued its ticket in the host's landing queue, so verify-north found none in its scratch state (north#1022)");
+    assert_eq!(state(super::request_env::request_homes(&words("depbox run -- cargo check"), Some(OPEN_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
+    assert_eq!(state(super::request_env::request_homes(&words("safe-push --to main"), Some(LANE_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
+    let forged: Vec<(String, String)> = sent.iter().cloned().chain([("NORTH_VERDICT_CACHE_DIR", "/tmp/forged-passes"), ("AGENTS_ORCHESTRATION", "/tmp/forged.toml"), ("PATH", "/tmp/fakes:/usr/bin"), ("NORTH_LAND_NORTH", "/tmp/fakes/north"), ("SAFE_PUSH_LAND_OFFLOAD_HOST", "elsewhere")].map(|(name, value)| (name.to_owned(), value.to_owned()))).collect();
+    let homes = super::request_env::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &forged, own());
+    let chosen = super::request_env::landing_choices(&words("safe-push --to main"), Path::new("/home/a"), "/run/current-system/sw/bin", Path::new("/opt/broker/north"));
+    let environment = super::request_env::landing(super::request_env::environment(forged.clone(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes), chosen);
     let named = |wanted: &str| environment.iter().filter(|(name, _)| name == wanted).map(|(_, value)| value.as_str()).collect::<Vec<_>>();
     assert_eq!((named("NORTH_VERDICT_CACHE_DIR"), named("AGENTS_ORCHESTRATION")), (vec!["/home/a/.local/state/north/verdict-cache"], vec![]), "a brokered safe-push reused passes from a verdict store or read a policy file its caller named");
+    assert_eq!((named("PATH"), named("NORTH_LAND_NORTH"), named("SAFE_PUSH_LAND_OFFLOAD_HOST")), (vec!["/run/current-system/sw/bin"], vec!["/opt/broker/north"], vec![]), "a brokered safe-push ran programs or placed its checks before queueing where its caller named");
+    let build = super::request_env::landing(super::request_env::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes), super::request_env::landing_choices(&words("depbox run -- cargo check"), Path::new("/home/a"), "/run/current-system/sw/bin", Path::new("/opt/broker/north")));
+    assert_eq!(build.iter().filter(|(name, _)| name == "PATH").map(|(_, value)| value.as_str()).collect::<Vec<_>>(), ["/tmp/fakes:/usr/bin"]);
 }
 
 #[test]

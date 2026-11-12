@@ -10,6 +10,7 @@ mod lane_session;
 mod packed_refs;
 pub use packed_refs::restore as restore_packed_refs;
 mod readable;
+mod request_env;
 mod removable;
 mod hook_screen;
 mod sockets;
