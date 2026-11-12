@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Output, Stdio};
 
@@ -407,12 +408,21 @@ fn a_hand_in_verb_call_takes_a_named_path_literally_so_a_glob_or_pathspec_magic_
 }
 
 #[test]
-fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_and_a_real_conflict_stays_a_refusal_naming_the_file() {
+fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_a_stopped_rebase_leaves_no_untracked_file_and_a_real_conflict_stays_a_refusal_naming_the_file() {
     let (world, north) = scanned_world(JUDGE_PASSES);
+    fs::create_dir_all(north.checkout.join("zzz")).unwrap();
+    fs::write(north.checkout.join("zzz/keep.txt"), "kept\n").unwrap();
+    git(&north.checkout, &["add", "-A"]);
+    git(&north.checkout, &["commit", "-qm", "Add a directory main keeps"]);
+    git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
     let behind = worktree(&north, "behind");
     let conflicting = worktree(&north, "conflicting");
+    let stopped = worktree(&north, "stopped");
     fs::write(north.checkout.join("moved.txt"), "main moved on\n").unwrap();
     fs::write(north.checkout.join("README"), "main's readme\n").unwrap();
+    fs::create_dir_all(north.checkout.join("added")).unwrap();
+    fs::write(north.checkout.join("added/new.txt"), "a file main added\n").unwrap();
+    fs::write(north.checkout.join("zzz/keep.txt"), "main changed it\n").unwrap();
     git(&north.checkout, &["add", "-A"]);
     git(&north.checkout, &["commit", "-qm", "Move main on"]);
     git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
@@ -435,4 +445,20 @@ fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_and_a_real_conflic
     assert!(text.contains("conflicts with origin/main") && text.contains("README"), "a real conflict was not refused naming its file: {text}");
     assert_eq!(git(&conflicting, &["rev-parse", "HEAD~1"]), start, "a conflicting lane was moved: {text}");
     assert_eq!(fs::read_to_string(conflicting.join("README")).unwrap(), "the lane's readme\n", "a conflicting lane lost its change: {text}");
+
+    fs::write(stopped.join("stopped.txt"), "a change the stopped rebase must not leave behind\n").unwrap();
+    fs::set_permissions(stopped.join("zzz"), fs::Permissions::from_mode(0o555)).unwrap();
+    let queued = || queue::pending(&north.queue).is_ok_and(|pending| !pending.is_empty());
+    let mut stopping = verb(&world, "Add the note the stopped rebase must not leave behind", &[&stopped.join("stopped.txt")]);
+    assert!(wait::until(HANG, || queued() || stopping.try_wait().unwrap().is_some()), "the stopped hand-in neither queued nor exited");
+    fs::set_permissions(stopped.join("zzz"), fs::Permissions::from_mode(0o755)).unwrap();
+    let untracked = git(&stopped, &["ls-files", "--others", "--exclude-standard"]);
+    let added = stopped.join("added").exists();
+    if queued() {
+        lander(&world, &north);
+    }
+    let text = report(&stopping.wait_with_output().unwrap());
+    assert!(!text.contains("rebased the lane's"), "a lane whose rebase stopped was reported as rebased: {text}");
+    assert_eq!(untracked, "", "a rebase that stopped left files its HEAD does not track: {text}");
+    assert!(!added, "a rebase that stopped left main's added directory in the lane: {text}");
 }

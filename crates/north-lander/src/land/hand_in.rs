@@ -10,6 +10,7 @@ use crate::land::slots::runner;
 use north_base::platform::finish_record::{FinishRecords, Finished};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen, Stand};
 
+mod lane_sync;
 mod other_lanes;
 
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -211,8 +212,7 @@ fn rebase_onto_destination(lane: &Lane, facts: Option<&Facts>) -> Option<String>
         git(root, &["merge-tree", "--write-tree", "--merge-base", "HEAD", &rebased, &uncommitted]).ok()?;
     }
     let commits = git(root, &["rev-list", "--count", &format!("{remote_ref}..HEAD")]).ok()?;
-    if git(root, &["rebase", "--quiet", "--autostash", &base]).is_err() {
-        let _ = git(root, &["rebase", "--abort"]);
+    if !lane_sync::rebase(root, &base) {
         return None;
     }
     Some(format!("rebased the lane's {commits} commit(s) and its uncommitted changes onto origin/{} at {}, which moved on without a conflict", lane.destination, &base[..base.len().min(10)]))
