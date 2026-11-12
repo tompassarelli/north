@@ -310,7 +310,7 @@ impl Shared {
         let mut failed = 0;
         if status == NO_VERDICT_STATUS {
             say(&format!("safe-push: GitHub Actions is unavailable (infrastructure, not a check failure); its {} land check(s) run on a build host", commands.len()));
-            let fallback = Arc::new(self.without_actions(resolve_runner_host("build-host").await));
+            let fallback = Arc::new(self.without_actions(resolve_runner_host(&program(), "build-host").await));
             failed = fallback.run_list(commands).await.status();
         } else if status != 0 {
             warn(&format!("safe-push: land checks on GitHub Actions exited {status}; NOT pushed."));

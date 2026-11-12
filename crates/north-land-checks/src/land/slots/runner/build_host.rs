@@ -4,7 +4,8 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::Instant;
 
-use super::{OFF_HOST_PATIENCE, OFF_HOST_RETRY, say};
+use super::arguments::Environment;
+use super::{OFF_HOST_PATIENCE, OFF_HOST_RETRY, say, warn};
 
 const NO_ROOM: &str = "north capacity offload: no host has room: ";
 const UNANSWERED: &str = "unreachable or unreadable";
@@ -94,6 +95,28 @@ pub(super) async fn placed(program: &str, value: &str, here: &str, failed: &[Str
             }
         }
     }
+}
+
+/// The host a land check set runs on, which the selection's test listing runs on too: an off-host set (a replay's) only ever on a build host, so it is `None` when none has room, whatever `.safe-push` names; any other set on the host `.safe-push` or the order names, or on this host under the land-check capacity lease when no build host has room.
+pub(super) async fn runner_host(program: &str, environment: &Environment, configured: Option<&str>) -> Option<String> {
+    if environment.off_host {
+        return match placed(program, "build-host", &north_base::platform::host::name(), &[]).await {
+            Placed::Host(host) => Some(host),
+            Placed::Here | Placed::Unanswered => None,
+        };
+    }
+    let land_runner = environment.runner.as_deref().or(configured).unwrap_or_default();
+    if land_runner.is_empty() {
+        return Some(String::new());
+    }
+    Some(resolve_runner_host(program, land_runner).await)
+}
+
+pub(super) async fn resolve_runner_host(program: &str, value: &str) -> String {
+    chosen(program, value, None).await.unwrap_or_else(|| {
+        warn("safe-push: no build host has room; the land checks run on this host under the land-check capacity lease");
+        String::new()
+    })
 }
 
 #[cfg(test)]

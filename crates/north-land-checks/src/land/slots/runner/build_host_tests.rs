@@ -1,7 +1,8 @@
 use north_base::foundation::shim::write_script;
 
 use super::super::{OFF_HOST_PATIENCE, OFF_HOST_RETRY};
-use super::{Placed, chosen, placed};
+use super::super::arguments::Environment;
+use super::{Placed, chosen, placed, runner_host};
 
 #[tokio::test]
 async fn checks_before_queueing_go_to_an_idle_build_host_when_this_laptop_has_the_most_room() {
@@ -35,4 +36,10 @@ async fn a_check_before_queueing_gives_up_only_when_no_build_host_answers_and_ru
     let hostless = directory.path().join("hostless");
     write_script(&hostless, "echo 'north capacity offload: no host has room: none has an ssh destination' >&2\nexit 1\n");
     assert_eq!(placed(hostless.to_str().unwrap(), "build-host", "whiterabbit", &[]).await, Placed::Here);
+    let answers = directory.path().join("answers");
+    write_script(&answers, "echo gex45\n");
+    let replay = Environment { off_host: true, ..Environment::local() };
+    assert_eq!(runner_host(answers.to_str().unwrap(), &replay, None).await.as_deref(), Some("gex45"), "on 2026-11-12 a promotion replay with no runner configured was placed on the lander's host, and its test listing ran cargo there before any host was chosen");
+    assert_eq!(runner_host(silent.to_str().unwrap(), &replay, Some("build-host")).await, None, "an off-host replay with no build host answering reaches no verdict rather than building on the lander's host");
+    assert_eq!(runner_host(silent.to_str().unwrap(), &Environment::local(), None).await.as_deref(), Some(""), "a set that is not off-host and names no runner runs where it is");
 }

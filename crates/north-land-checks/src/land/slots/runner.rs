@@ -12,8 +12,10 @@ use tokio::signal::unix::{SignalKind, signal};
 use super::affected::{self, Scope};
 use super::selection_record::{self, Recorded};
 use super::shared_build;
+use super::verdict_key;
 use super::select::{Config, changed, path_class};
 use arguments::{Arguments, Environment, Outcome, parse};
+use build_host::{resolve_runner_host, runner_host};
 use checkout::Trees;
 use entry::{any, portable, replay, start_stage};
 use selection::{Selections, defined_on_tree, selections, without_empty_test_selections, without_tests};
@@ -98,31 +100,6 @@ fn toplevel() -> Option<PathBuf> {
 }
 
 
-async fn resolve_runner_host(value: &str) -> String {
-    build_host::chosen(&program(), value, None).await.unwrap_or_else(|| {
-        warn("safe-push: no build host has room; the land checks run on this host under the land-check capacity lease");
-        String::new()
-    })
-}
-
-async fn off_host_runner() -> Option<String> {
-    match build_host::placed(&program(), "build-host", &north_base::platform::host::name(), &[]).await {
-        build_host::Placed::Host(host) => Some(host),
-        build_host::Placed::Here | build_host::Placed::Unanswered => None,
-    }
-}
-
-async fn runner_host(environment: &Environment, config: &Config) -> Option<String> {
-    let land_runner = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
-    if land_runner.is_empty() {
-        return Some(String::new());
-    }
-    if environment.off_host {
-        return off_host_runner().await;
-    }
-    Some(resolve_runner_host(&land_runner).await)
-}
-
 async fn forward_signals(cancel: watch::Sender<bool>) {
     let (Ok(mut terminate), Ok(mut interrupt), Ok(mut hangup)) = (signal(SignalKind::terminate()), signal(SignalKind::interrupt()), signal(SignalKind::hangup())) else { return };
     tokio::select! {
@@ -204,9 +181,24 @@ async fn covers(root: &Path, head: &str, code: &str) -> bool {
     command.status().await.is_ok_and(|status| status.success())
 }
 
-async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environment: Environment, cancel: watch::Receiver<bool>, commands: Vec<String>) -> i32 {
+fn no_build_host() -> i32 {
+    warn("safe-push: no build host had room for 10 minutes and these checks never run on this host, so they reach no verdict");
+    NO_VERDICT_STATUS
+}
+
+struct Chosen {
+    commands: Vec<String>,
+    scope: Option<Scope>,
+    it: Option<String>,
+    ahead: Option<String>,
+}
+
+async fn selected(root: &Path, arguments: &Arguments, (environment, config): (&Environment, &Config), commands: Vec<String>) -> Result<Chosen, i32> {
     let recorded = arguments.after.then(|| selection_record::load(&arguments.head)).flatten();
-    let Selections { scope, it, no_test } = selections(&root, &arguments, &commands, recorded.as_ref(), environment.runner.as_deref().unwrap_or_default());
+    let lists = !arguments.leased && verdict_key::reads_it(&commands) && recorded.as_ref().is_none_or(|recorded| recorded.it.is_none());
+    let ahead = if lists { Some(runner_host(&program(), environment, config.runner.as_deref()).await.ok_or_else(no_build_host)?) } else { None };
+    let listing = ahead.as_deref().or(environment.runner.as_deref()).unwrap_or_default();
+    let Selections { scope, it, no_test } = selections(root, arguments, &commands, recorded.as_ref(), listing);
     let commands = match &no_test {
         Some(reason) => without_tests(commands, reason),
         None => commands,
@@ -214,6 +206,14 @@ async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environmen
     if !arguments.after && !arguments.leased {
         selection_record::save(&arguments.head, Recorded { scope: scope.clone(), it: it.clone() });
     }
+    Ok(Chosen { commands, scope, it, ahead })
+}
+
+async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environment: Environment, cancel: watch::Receiver<bool>, commands: Vec<String>) -> i32 {
+    let Chosen { commands, scope, it, ahead } = match selected(&root, &arguments, (&environment, &config), commands).await {
+        Ok(chosen) => chosen,
+        Err(status) => return status,
+    };
     let trees = Trees::of(&root, &arguments.base, arguments.tree());
     let paths = path_class(&root, &arguments.base, &arguments.head);
     let selected_paths = arguments.pinned().then(|| changed(&root, &arguments.base, &arguments.head, &[]).ok().map(|files| files.join("\n"))).flatten();
@@ -243,9 +243,12 @@ async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environmen
     if commands.is_empty() {
         return 0;
     }
-    let Some(host) = runner_host(&shared.environment, &shared.config).await else {
-        warn("safe-push: no build host had room for 10 minutes and these checks never run on this host, so they reach no verdict");
-        return NO_VERDICT_STATUS;
+    let host = match ahead {
+        Some(host) => host,
+        None => match runner_host(&program(), &shared.environment, shared.config.runner.as_deref()).await {
+            Some(host) => host,
+            None => return no_build_host(),
+        },
     };
     shared.arguments.runner_host = host;
     shared.free_slots = shared.count_free_slots().await;
