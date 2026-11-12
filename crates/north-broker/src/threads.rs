@@ -30,20 +30,27 @@ const FLAGS: &[&str] = &[
 /// The flags whose value is text the ledger stores, which may name a path without the broker reading it.
 const TEXT_FLAGS: &[&str] = &["--body", "--box"];
 
+/// The verbs whose positional words are text the ledger stores, so a slash inside one is not a path.
+const TEXT_VERBS: &[&str] = &["note"];
+
 /// An item reference such as `OWNER/REPO#N`, the one word with a slash that is not a path.
 fn is_item_ref(word: &str) -> bool {
     word.split_once('#').is_some_and(|(repo, number)| repo.split_once('/').is_some_and(|(owner, name)| name_ok(owner) && name_ok(name)) && !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
-/// Each word is a declared flag or the value or positional after one: a flag with `=` or undeclared is refused, and a value is refused when it is a path, unless its flag stores text.
-fn word_shapes(words: &[String]) -> Result<(), (u16, String)> {
-    let mut after_text_flag = false;
+/// Each word is a declared flag, the value after one, or a positional; a flag with `=` or undeclared is refused, a flag value is refused when it is a path unless its flag stores text, and a positional of a verb that stores text is refused only when it starts like a path or a flag or climbs with `..`.
+fn word_shapes(verb: &str, words: &[String]) -> Result<(), (u16, String)> {
+    let mut after_flag: Option<bool> = None;
     for word in words {
-        let text = std::mem::take(&mut after_text_flag);
         if word.starts_with("--") {
-            after_text_flag = flag_shape(word)?;
-        } else if !text {
-            value_shape(word)?;
+            after_flag = Some(flag_shape(word)?);
+            continue;
+        }
+        match after_flag.take() {
+            Some(true) => {}
+            Some(false) => value_shape(word)?,
+            None if TEXT_VERBS.contains(&verb) => text_shape(word)?,
+            None => value_shape(word)?,
         }
     }
     Ok(())
@@ -58,16 +65,27 @@ fn flag_shape(word: &str) -> Result<bool, (u16, String)> {
 }
 
 fn value_shape(word: &str) -> Result<(), (u16, String)> {
-    if is_number(word) || is_item_ref(word) {
+    let path_like = word.starts_with(['/', '.', '~', '@', '-']) || word.contains(['/', '\\']) || word.contains("..");
+    if is_number(word) || is_item_ref(word) || !path_like {
         return Ok(());
     }
+    Err(refusal(word))
+}
+
+fn text_shape(word: &str) -> Result<(), (u16, String)> {
+    let path_like = word.starts_with(['/', '.', '~', '@', '-']) || word.contains("..");
+    if is_number(word) || is_item_ref(word) || !path_like {
+        return Ok(());
+    }
+    Err(refusal(word))
+}
+
+fn refusal(word: &str) -> (u16, String) {
     if word.starts_with('-') {
-        return Err((403, format!("{word:?} is not a flag a threads verb declares")));
+        (403, format!("{word:?} is not a flag a threads verb declares"))
+    } else {
+        (403, format!("{word:?} names a path; threads requests carry values, not files"))
     }
-    if word.starts_with(['/', '.', '~', '@']) || word.contains(['/', '\\']) || word.contains("..") {
-        return Err((403, format!("{word:?} names a path; threads requests carry values, not files")));
-    }
-    Ok(())
 }
 
 fn is_number(word: &str) -> bool {
@@ -90,7 +108,7 @@ impl Threads {
         if words.len() > MAX_ARGUMENTS || words.iter().any(|word| word.len() > MAX_WORD || word.contains('\0')) {
             return Err((400, "arguments are too many, too long or hold a NUL".to_owned()));
         }
-        word_shapes(&words)?;
+        word_shapes(verb, &words)?;
         let input = body["stdin"].as_str().unwrap_or_default().to_owned();
         if input.len() > MAX_INPUT {
             return Err((400, "stdin is too long".to_owned()));

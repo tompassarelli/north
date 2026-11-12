@@ -249,7 +249,7 @@ fn create_repository_is_always_private() {
     assert_eq!(seen.lock().unwrap().len(), 1, "a call other than POST /user/repos reached GitHub");
 }
 
-const THREADS_POLICY: &str = "[[caller]]\nuid = 1001\nthreads = [\"claim\"]\n";
+const THREADS_POLICY: &str = "[[caller]]\nuid = 1001\nthreads = [\"claim\", \"note\"]\n";
 
 fn forward(broker: &Broker, surface: Surface, uid: u32, body: &Value) -> (u16, Value) {
     let request = Request { method: "POST".to_owned(), target: "/threads/forward".to_owned(), headers: Vec::new(), body: body.to_string().into_bytes() };
@@ -276,11 +276,13 @@ fn the_ledger_forward_runs_only_the_verbs_a_caller_is_listed_for_with_values_nev
     assert_eq!(std::fs::read_to_string(directory.path().join("stdin")).unwrap(), "note");
 
     std::fs::remove_file(directory.path().join("arguments")).unwrap();
-    for body in [json!({ "verb": "ingest", "arguments": [] }), json!({ "verb": "claim", "arguments": ["/home/operator/.ssh/id"] }), json!({ "verb": "claim", "arguments": ["a/../b"] }), json!({ "verb": "claim; id" }), json!({ "verb": "claim", "arguments": ["--file=/home/operator/.ssh/id"] }), json!({ "verb": "claim", "arguments": ["north/relative"] }), json!({ "verb": "claim", "arguments": ["--unknown", "north#1"] })] {
+    for body in [json!({ "verb": "ingest", "arguments": [] }), json!({ "verb": "claim", "arguments": ["/home/operator/.ssh/id"] }), json!({ "verb": "claim", "arguments": ["a/../b"] }), json!({ "verb": "claim; id" }), json!({ "verb": "claim", "arguments": ["--file=/home/operator/.ssh/id"] }), json!({ "verb": "claim", "arguments": ["north/relative"] }), json!({ "verb": "claim", "arguments": ["--unknown", "north#1"] }), json!({ "verb": "note", "arguments": ["north#1", "../x"] }), json!({ "verb": "note", "arguments": ["north#1", "-x"] })] {
         assert_eq!(forward(&broker, Surface::Typed, 1001, &body).0, 403, "{body}");
     }
     assert_eq!(forward(&broker, Surface::Typed, 1002, &json!({ "verb": "claim" })).0, 403);
     assert!(!directory.path().join("arguments").exists(), "a refused request ran a command");
+    assert_eq!(forward(&broker, Surface::Typed, 1001, &json!({ "verb": "note", "arguments": ["north#1041", "see", "crates/x.rs"] })).0, 200);
+    assert_eq!(std::fs::read_to_string(directory.path().join("arguments")).unwrap(), "threads note north#1041 see crates/x.rs\n");
 
     let cloud = Request { method: "GET".to_owned(), target: "/hcloud/v1/servers".to_owned(), ..Request::default() };
     assert_eq!(broker.handle_on(Surface::Typed, Peer { uid: 1001, pid: 1, lane_only: false }, &cloud, NOW).status, 404);
