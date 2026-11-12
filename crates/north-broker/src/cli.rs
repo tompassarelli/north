@@ -101,7 +101,21 @@ fn inspect(arguments: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
+struct Serve {
+    user: bool,
+    socket: Option<PathBuf>,
+    policy: Option<PathBuf>,
+    agent: Option<(PathBuf, u32)>,
+}
+
 fn serve(arguments: &[&str]) -> u8 {
+    match serve_arguments(arguments) {
+        Ok(Serve { user, socket, policy, agent }) => finish(start(user, socket, policy, agent)),
+        Err(code) => code,
+    }
+}
+
+fn serve_arguments(arguments: &[&str]) -> Result<Serve, u8> {
     let (mut user, mut socket, mut policy, mut agent, mut gid) = (false, None, None, None, None);
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
@@ -120,28 +134,29 @@ fn serve(arguments: &[&str]) -> u8 {
                 words.next();
             }
             ("--agent-gid", Some(value)) => {
-                let Ok(parsed) = value.parse::<u32>() else {
-                    eprintln!("{USAGE}");
-                    return 2;
-                };
-                gid = Some(parsed);
+                gid = Some(value.parse::<u32>().map_err(|_| usage())?);
                 words.next();
             }
-            _ => {
-                eprintln!("{USAGE}");
-                return 2;
-            }
+            _ => return Err(usage()),
         }
     }
-    let agent = match (agent, gid, user) {
-        (None, None, _) => None,
-        (Some(path), Some(gid), false) => Some((path, gid)),
+    Ok(Serve { user, socket, policy, agent: agent_listener(agent, gid, user)? })
+}
+
+fn agent_listener(path: Option<PathBuf>, gid: Option<u32>, user: bool) -> Result<Option<(PathBuf, u32)>, u8> {
+    match (path, gid, user) {
+        (None, None, _) => Ok(None),
+        (Some(path), Some(gid), false) => Ok(Some((path, gid))),
         _ => {
             eprintln!("north broker: --agent-socket and --agent-gid go together and belong to the system broker, not --user");
-            return 2;
+            Err(2)
         }
-    };
-    finish(start(user, socket, policy, agent))
+    }
+}
+
+fn usage() -> u8 {
+    eprintln!("{USAGE}");
+    2
 }
 
 fn start(user: bool, socket: Option<PathBuf>, policy: Option<PathBuf>, agent: Option<(PathBuf, u32)>) -> Result<(), String> {
