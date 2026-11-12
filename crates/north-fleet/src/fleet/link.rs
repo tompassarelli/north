@@ -5,13 +5,15 @@
 //! background work: the link reconnects until the CLI ends, this side's input closes or the host
 //! stops it, and only the last two stop the service.
 use std::future::Future;
+use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Stdio;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::process::{ChildStdin, Command};
+use tokio::net::unix::pipe;
+use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
@@ -69,6 +71,7 @@ pub struct Link {
     pub session: String,
     pub trace: PathBuf,
     pub master: Option<PathBuf>,
+    pub spare: Option<PathBuf>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -95,6 +98,13 @@ impl Unsent {
     }
 }
 
+/// One connection's pipes: the ssh child when it runs one, what goes to the other machine and what comes back.
+struct Opened {
+    child: Option<Child>,
+    to_remote: mpsc::UnboundedSender<Vec<u8>>,
+    from_remote: mpsc::UnboundedReceiver<Vec<u8>>,
+}
+
 struct Header {
     cli: u64,
     output: u64,
@@ -106,6 +116,8 @@ struct Stream<'a, O> {
     began_ms: u64,
     unit_ms: Option<u64>,
     client_seen: bool,
+    spare_tried: bool,
+    spared: bool,
     input: mpsc::UnboundedReceiver<Vec<u8>>,
     output: &'a mut O,
 }
@@ -139,7 +151,7 @@ impl Link {
             }
         }
         match (destination, unit, dir, nonce, launch, session, trace) {
-            (Some(destination), Some(unit), Some(dir), Some(nonce), Some(launch), Some(session), Some(trace)) => Ok(Self { ssh: binary("ssh"), destination, unit, dir, nonce, launch, session, trace: PathBuf::from(trace), master: None }),
+            (Some(destination), Some(unit), Some(dir), Some(nonce), Some(launch), Some(session), Some(trace)) => Ok(Self { ssh: binary("ssh"), destination, unit, dir, nonce, launch, session, trace: PathBuf::from(trace), master: None, spare: None }),
             _ => Err(usage()),
         }
     }
@@ -153,7 +165,7 @@ impl Link {
     }
 
     pub async fn relay(&self, input: mpsc::UnboundedReceiver<Vec<u8>>, output: &mut (impl AsyncWrite + Unpin), stop: impl Future<Output = ()>) -> NorthResult<u8> {
-        let mut stream = Stream { unsent: Unsent::default(), received: 0, began_ms: now_ms(), unit_ms: None, client_seen: false, input, output };
+        let mut stream = Stream { unsent: Unsent::default(), received: 0, began_ms: now_ms(), unit_ms: None, client_seen: false, spare_tried: false, spared: false, input, output };
         tokio::pin!(stop);
         let (mut launched, mut retry) = (false, RETRY_FIRST);
         loop {
@@ -167,6 +179,9 @@ impl Link {
                 Connection::Stopped => Some(STOPPED),
                 Connection::Lost { attached } => {
                     launched |= attached;
+                    if std::mem::take(&mut stream.spared) && !attached {
+                        continue;
+                    }
                     retry = if attached { RETRY_FIRST } else { (retry * 2).min(RETRY_MOST) };
                     eprintln!("north session-link: the link to {} dropped; reconnecting", self.destination);
                     self.pause(retry, &mut stream, stop.as_mut()).await
@@ -197,11 +212,7 @@ impl Link {
     async fn connect<O: AsyncWrite + Unpin>(&self, launched: bool, stream: &mut Stream<'_, O>, mut stop: Pin<&mut impl Future<Output = ()>>) -> NorthResult<Connection> {
         let attach = self.attach(if launched { stream.received } else { 0 });
         let command = if launched { attach } else { format!("{}; {attach}", self.launch) };
-        let mut child = self.ssh(&command).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
-        let missing = || NorthError::State("ssh pipe was not captured".into());
-        let to_remote = forward(child.stdin.take().ok_or_else(missing)?);
-        let (sender, mut from_remote) = mpsc::unbounded_channel();
-        tokio::spawn(read_chunks(child.stdout.take().ok_or_else(missing)?, sender));
+        let Opened { mut child, to_remote, mut from_remote } = self.open(launched, &command, stream)?;
         let (mut head, mut header) = (Vec::new(), None::<Header>);
         let (mut status, mut drained_by) = (None, None::<Instant>);
         loop {
@@ -237,7 +248,7 @@ impl Link {
                         let _ = to_remote.send(bytes);
                     }
                 }
-                exited = child.wait(), if status.is_none() => {
+                exited = exit_of(child.as_mut()), if status.is_none() => {
                     status = Some(exited?);
                     drained_by = Some(Instant::now() + DRAIN);
                 }
@@ -246,7 +257,10 @@ impl Link {
         }
         let code = match status {
             Some(status) => status.code(),
-            None => tokio::time::timeout(DRAIN, child.wait()).await.ok().transpose()?.and_then(|status| status.code()),
+            None => match child.as_mut() {
+                Some(child) => tokio::time::timeout(DRAIN, child.wait()).await.ok().transpose()?.and_then(|status| status.code()),
+                None => None,
+            },
         };
         Ok(match (header, code) {
             (None, _) => Connection::Lost { attached: false },
@@ -254,6 +268,29 @@ impl Link {
             (Some(header), Some(code)) if header.cli == 0 && stream.received >= header.output => Connection::Ended(u8::try_from(code).unwrap_or(1)),
             (Some(_), _) => Connection::Lost { attached: true },
         })
+    }
+
+    /// The first connection's pipes through a spare channel opened ahead when one is ready, so the launch reaches the other machine in one round trip; else through a new ssh session, whose exit carries the CLI's status.
+    fn open<O>(&self, launched: bool, command: &str, stream: &mut Stream<'_, O>) -> NorthResult<Opened> {
+        let (sender, from_remote) = mpsc::unbounded_channel();
+        let taken = self.spare.as_deref().filter(|_| !launched && !std::mem::replace(&mut stream.spare_tried, true)).and_then(|socket| north_ssh_spare::take_at(socket, &self.destination));
+        if let Some(taken) = taken {
+            stream.spared = true;
+            let to_remote = forward(pipe::Sender::from_owned_fd(OwnedFd::from(taken.input))?);
+            let _ = to_remote.send(north_ssh_spare::framed(command).into_bytes());
+            tokio::spawn(read_chunks(pipe::Receiver::from_owned_fd(OwnedFd::from(taken.output))?, sender));
+            return Ok(Opened { child: None, to_remote, from_remote });
+        }
+        let mut child = self.ssh(command).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
+        let missing = || NorthError::State("ssh pipe was not captured".into());
+        let to_remote = forward(child.stdin.take().ok_or_else(missing)?);
+        tokio::spawn(read_chunks(child.stdout.take().ok_or_else(missing)?, sender));
+        Ok(Opened { child: Some(child), to_remote, from_remote })
+    }
+
+    /// Takes the first connection through this host's spare channels to the destination when its holder has one ready.
+    pub fn with_spare(self) -> Self {
+        Self { spare: north_ssh_spare::socket_for(&self.destination), ..self }
     }
 
     fn mark_unit<O>(&self, stream: &mut Stream<'_, O>) {
@@ -323,12 +360,19 @@ impl Link {
 }
 
 pub async fn run(arguments: &[String]) -> NorthResult<u8> {
-    let link = Link::parse(arguments)?.through_master();
+    let link = Link::parse(arguments)?.through_master().with_spare();
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let stop = async move {
         term.recv().await;
     };
     link.relay(stdin_chunks(), &mut tokio::io::stdout(), stop).await
+}
+
+async fn exit_of(child: Option<&mut Child>) -> std::io::Result<std::process::ExitStatus> {
+    match child {
+        Some(child) => child.wait().await,
+        None => std::future::pending().await,
+    }
 }
 
 fn parse_header(line: &str) -> Option<(u64, Header)> {
@@ -339,7 +383,7 @@ fn parse_header(line: &str) -> Option<(u64, Header)> {
     }
 }
 
-fn forward(mut stdin: ChildStdin) -> mpsc::UnboundedSender<Vec<u8>> {
+fn forward(mut stdin: impl AsyncWrite + Unpin + Send + 'static) -> mpsc::UnboundedSender<Vec<u8>> {
     let (sender, mut writes) = mpsc::unbounded_channel::<Vec<u8>>();
     tokio::spawn(async move {
         while let Some(bytes) = writes.recv().await {

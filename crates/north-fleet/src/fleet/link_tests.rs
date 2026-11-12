@@ -147,3 +147,53 @@ fn a_session_held_on_another_machine_starts_its_link_here_though_its_lane_exists
     assert_eq!(placed.cwd, root.path());
     assert!(Link::parse(&placed.argv[2..]).unwrap().launch.contains(&format!("cd {}", quote(&lane.to_string_lossy()))));
 }
+
+async fn first_lines(link: Link) -> (Vec<String>, tokio::task::JoinHandle<NorthResult<u8>>, tokio::io::DuplexStream) {
+    let (mut to_link, input) = tokio::io::duplex(4096);
+    let (mut output, from_link) = tokio::io::duplex(4096);
+    let relay = tokio::spawn(async move { link.relay(chunks(input), &mut output, std::future::pending()).await });
+    let mut lines = BufReader::new(from_link).lines();
+    to_link.write_all(b"one\n").await.unwrap();
+    (vec![next(&mut lines).await, next(&mut lines).await], relay, to_link)
+}
+
+fn end_units(shims: &Path) {
+    for unit in fs::read_dir(shims).unwrap().flatten().filter(|entry| entry.file_name().to_string_lossy().starts_with("unit-")) {
+        let pid = fs::read_to_string(unit.path()).unwrap();
+        let _ = std::process::Command::new("kill").args(["-TERM", "--", &format!("-{}", pid.trim())]).status();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_started_through_a_spare_channel_runs_the_launch_a_cold_start_runs_with_plain_ssh_unreachable() {
+    let cli = r#"echo "started in $PWD with $NORTH_PROBE as $0 $1"; while read -r line; do echo "got $line"; done"#;
+    let env = vec![("NORTH_PROBE".to_owned(), std::ffi::OsString::from("the policy text"))];
+    let cold_root = tempfile::tempdir().unwrap();
+    let (cold, cold_relay, cold_input) = first_lines(held(cold_root.path(), &["sh", "-c", cli, "worker", "--sandboxed"], env.clone())).await;
+
+    let ready_root = tempfile::tempdir().unwrap();
+    let mut ready = held(ready_root.path(), &["sh", "-c", cli, "worker", "--sandboxed"], env);
+    let shims = ready_root.path().join("shims");
+    let unreachable = ready_root.path().join("unreachable-ssh");
+    crate::foundation::shim::write_script(&unreachable, "exit 255");
+    let spares = ready_root.path().join("spares");
+    let path = format!("{}:{}", shims.display(), std::env::var("PATH").unwrap_or_default());
+    let held_at = spares.clone();
+    std::thread::spawn(move || north_ssh_spare::serve(&held_at, "tom@far", move || std::process::Command::new("sh").args(["-c", north_ssh_spare::WAITING]).env("PATH", &path).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn(), || None));
+    let socket = spares.join("tom_far.sock");
+    let mut handed = 0;
+    assert!(north_base::platform::wait::until(WAIT, || {
+        handed += usize::from(north_ssh_spare::take_at(&socket, "tom@far").is_some());
+        handed >= 3
+    }), "the holder never had its spares ready");
+    ready.ssh = unreachable;
+    ready.spare = Some(socket);
+    let (through_spare, ready_relay, ready_input) = first_lines(ready).await;
+
+    let unrooted = |lines: Vec<String>, root: &Path| lines.into_iter().map(|line| line.replace(&root.to_string_lossy().into_owned(), "ROOT")).collect::<Vec<_>>();
+    assert_eq!(unrooted(through_spare, ready_root.path()), unrooted(cold, cold_root.path()), "a start through a spare runs the CLI a cold start runs, in the same directory with the same environment and arguments");
+    drop((cold_input, ready_input));
+    let _ = tokio::time::timeout(WAIT, cold_relay).await;
+    end_units(&shims);
+    let _ = tokio::time::timeout(WAIT, ready_relay).await;
+}
