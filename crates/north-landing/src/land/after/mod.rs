@@ -130,8 +130,16 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
             println!("north land: could not record stages of {}: {error}", ticket.branch);
         }
         records::write(lander, &path, &ticket, &Candidate { head, batch_size, stages }, &Decision::Landed { sha: &tip });
-        let check = ticket.hand_in.as_ref().and_then(|hand_in| hand_in.check.as_deref());
-        for line in leaf::queue(&lander.queue, &leaf::Landed { repo: &lander.worktree, tip: &tip, main: LANDED_MAIN, check }) {
+        let landed = leaf::Landed {
+            repo: &lander.worktree,
+            repository: crate::landing::after_landing::repo_slug(&ticket.origin),
+            session: ticket.session.as_deref(),
+            head: &ticket.head,
+            tip: &tip,
+            main: LANDED_MAIN,
+            check: ticket.hand_in.as_ref().and_then(|hand_in| hand_in.check.as_deref()),
+        };
+        for line in leaf::queue(&lander.queue, &landed, &leaf::claims) {
             println!("north land: {}: {line}", ticket.branch);
         }
         notify(lander, &name, &ticket, &tip);

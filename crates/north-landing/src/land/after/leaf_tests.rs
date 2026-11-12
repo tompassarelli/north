@@ -7,8 +7,9 @@ use std::time::Duration;
 use north_base::platform::finish_record::{FinishRecords, Finished};
 
 use super::*;
-use crate::issue_body::{Ledger, Standing, directory, drain};
+use crate::issue_body::{Ledger, Standing, Tracker, WAITS, directory, drain};
 
+const NORTH: &str = "tompassarelli/north";
 const DONE_WHEN: &str = "cargo nextest run -p north-landing -E 'test(/a_leaf/)'";
 
 struct Filed {
@@ -110,9 +111,10 @@ fn a_landed_lane_closes_its_issue_and_a_failed_finish_check_leaves_it_open() {
 
     assert_eq!(passed(&records, "failed", &repo, &failed_tip), None, "a failed finish check proves nothing");
     assert_eq!(passed(&records, "passed", &repo, &failed_tip), None, "a check that passed on another tree proves nothing about this one");
+    let held = || -> Result<Vec<Claim>, String> { Ok((1..=6).flat_map(|number| ["passed", "failed", "other", "boxed", "parent", "box", "unlanded"].map(|owner| Claim { owner: owner.to_owned(), item: format!("north#{number}") })).collect()) };
     for (session, tip) in [("passed", &passed_tip), ("failed", &failed_tip), ("other", &other_tip), ("boxed", &boxed_tip), ("parent", &parent_tip), ("box", &box_tip), ("unlanded", &unlanded_tip)] {
         let check = passed(&records, session, &repo, tip);
-        super::queue(&queue, &Landed { repo: &repo, tip, main: "main", check: check.as_deref() });
+        super::queue(&queue, &Landed { repo: &repo, repository: Some(NORTH.to_owned()), session: Some(session), head: tip, tip, main: "main", check: check.as_deref() }, &held);
     }
     let drained = drain(&directory(&queue), &issues, &Unread, Duration::from_secs(5)).unwrap();
 
@@ -123,4 +125,43 @@ fn a_landed_lane_closes_its_issue_and_a_failed_finish_check_leaves_it_open() {
     waiting.sort();
     assert_eq!(waiting, [(2, WAITS.to_owned()), (3, WAITS.to_owned())], "a leaf whose command has not passed stays open as waiting, and an issue with boxes or open children is left alone");
     assert_eq!((drained.closed, drained.refused, drained.waiting, drained.failure), (1, 0, 0, None));
+}
+
+#[test]
+fn a_lane_closes_only_a_claimed_issue_of_the_landed_repository_and_only_on_the_tree_its_check_passed_on() {
+    let scratch = tempfile::tempdir().unwrap();
+    let (repo, queue) = (scratch.path().join("repo"), scratch.path().join("queue"));
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let leaf = format!("The lander closes a leaf.\n\nDone when: `{DONE_WHEN}` exits 0.\n");
+    let issues = Issues::of(vec![(1, leaf.as_str(), 0), (2, leaf.as_str(), 0), (3, leaf.as_str(), 0), (4, leaf.as_str(), 0)]);
+    let claims: Vec<Claim> = serde_json::from_str(r#"[{"box":null,"clock_min":35,"eta_min":null,"item":"north#1","owner":"worker","since":"2026-11-12T12:06:51Z","standing":"live"},{"box":"one-box","item":"north#2","owner":"another","since":"2026-11-12T12:06:51Z","standing":"live"},{"item":"north#4","owner":"worker","since":"2026-11-12T12:06:51Z","standing":"live"},{"item":"wisp#3","owner":"worker","since":"2026-11-12T12:06:51Z","standing":"live"}]"#).unwrap();
+    let held = || -> Result<Vec<Claim>, String> { Ok(claims.iter().map(|claim| Claim { owner: claim.owner.clone(), item: claim.item.clone() }).collect()) };
+    let landed = |head: &str, tip: &str| super::queue(&queue, &Landed { repo: &repo, repository: Some(NORTH.to_owned()), session: Some("worker"), head, tip, main: "main", check: Some(DONE_WHEN) }, &held);
+
+    let claimed = lane(&repo, "claimed", "Close a claimed leaf\n\nItem: north#1");
+    let unclaimed = lane(&repo, "unclaimed", "Name a leaf another session holds\n\nItem: north#2");
+    let elsewhere = lane(&repo, "elsewhere", "Name another repository's leaf\n\nItem: tompassarelli/wisp#3");
+    git(&repo, &["checkout", "-q", "-b", "behind", "main~1"]);
+    std::fs::write(repo.join("behind"), "behind").unwrap();
+    git(&repo, &["add", "behind"]);
+    git(&repo, &["commit", "-q", "-m", "Land on a main that moved\n\nItem: north#4"]);
+    let lane_head = git(&repo, &["rev-parse", "HEAD"]);
+    git(&repo, &["rebase", "-q", "main"]);
+    let rebased = git(&repo, &["rev-parse", "HEAD"]);
+    git(&repo, &["checkout", "-q", "main"]);
+    git(&repo, &["merge", "-q", "--ff-only", &rebased]);
+
+    let mut lines = landed(&claimed, &claimed);
+    lines.extend(landed(&unclaimed, &unclaimed));
+    lines.extend(landed(&elsewhere, &elsewhere));
+    lines.extend(landed(&lane_head, &rebased));
+    assert_eq!(super::queue(&queue, &Landed { repo: &repo, repository: Some(NORTH.to_owned()), session: None, head: &claimed, tip: &claimed, main: "main", check: Some(DONE_WHEN) }, &held).len(), 1);
+    let drained = drain(&directory(&queue), &issues, &Unread, Duration::from_secs(5)).unwrap();
+
+    assert_eq!(issues.closed.borrow().iter().map(|(number, _)| *number).collect::<Vec<_>>(), [1], "only the claimed issue of the landed repository, landed on the tree its check passed on, is closed: {lines:?}");
+    assert_eq!(*issues.labelled.borrow(), [(4, WAITS.to_owned())], "a check that passed on the lane's tree proves nothing about a rebased tip, and an issue the session does not hold or of another repository is not touched: {lines:?}");
+    assert!(lines[1].contains("holds no claim") && lines[2].contains("not in the issue's repository"), "{lines:?}");
+    assert_eq!((drained.closed, drained.leaves.len(), drained.failure), (1, 2, None));
 }

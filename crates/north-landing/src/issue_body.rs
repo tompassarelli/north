@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::issue_box_lint;
-use crate::land::after::leaf::{self, Settled};
 use crate::land::after::tick as landing;
 use crate::land::queue;
 use crate::platform::process;
@@ -18,7 +17,9 @@ pub const REFUSED: &str = "refused";
 pub const CALL_LIMIT: Duration = Duration::from_secs(30);
 pub const DRAIN_LIMIT: Duration = Duration::from_secs(120);
 const ATTEMPTS: usize = 4;
-const STANDING: &str = "[.state, (.subIssuesSummary.total - .subIssuesSummary.completed)] | @tsv";
+const STANDING: &str = "[(.closed | not), (.subIssuesSummary.total - .subIssuesSummary.completed)] | @tsv";
+pub const WAITS: &str = "waits:runtime";
+const DONE_WHEN: &str = "Done when: `";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Issue {
@@ -242,10 +243,10 @@ impl Tracker for Gh {
 
     fn standing(&self, issue: &Issue) -> Result<Standing, String> {
         let number = issue.number.to_string();
-        let stdout = self.run(&["issue", "view", &number, "--repo", &issue.repo, "--json", "state,subIssuesSummary", "--jq", STANDING], None)?;
+        let stdout = self.run(&["issue", "view", &number, "--repo", &issue.repo, "--json", "closed,subIssuesSummary", "--jq", STANDING], None)?;
         let text = String::from_utf8(stdout).map_err(|error| error.to_string())?;
-        let read = text.trim().split_once('\t').and_then(|(state, open)| Some(Standing { open: state == "OPEN", open_children: open.parse().ok()? }));
-        read.ok_or_else(|| format!("{issue}: gh issue view printed {:?}, not its state and open children", text.trim()))
+        let read = text.trim().split_once('\t').and_then(|(open, children)| Some(Standing { open: open.parse().ok()?, open_children: children.parse().ok()? }));
+        read.ok_or_else(|| format!("{issue}: gh issue view printed {:?}, not whether it is open and its open children", text.trim()))
     }
 
     fn label(&self, issue: &Issue, label: &str) -> Result<(), String> {
@@ -286,6 +287,61 @@ pub fn close_when_done(github: &dyn Tracker, issue: &Issue, edit: &Edit) -> Resu
     }
     github.close(issue, &format!("Closed by the landing of {sha}: every box on this issue is ticked."))?;
     Ok(true)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Settled {
+    Closed,
+    Boxes,
+    AlreadyClosed,
+    OpenChildren(u64),
+    Waits(String),
+}
+
+impl fmt::Display for Settled {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Settled::Closed => write!(formatter, "closed by its Done-when command"),
+            Settled::Boxes => write!(formatter, "left open: it has checkboxes, which their own landings tick"),
+            Settled::AlreadyClosed => write!(formatter, "already closed"),
+            Settled::OpenChildren(count) => write!(formatter, "left open: {count} of its children are open"),
+            Settled::Waits(why) => write!(formatter, "left open: {why}"),
+        }
+    }
+}
+
+pub fn done_when(body: &str) -> Option<&str> {
+    let (_, after) = body.split_once(DONE_WHEN)?;
+    let (command, _) = after.split_once('`')?;
+    Some(command.trim()).filter(|command| !command.is_empty())
+}
+
+pub fn settle(github: &dyn Tracker, issue: &Issue, sha: &str, check: Option<&str>) -> Result<Settled, String> {
+    let body = github.body(issue)?;
+    if has_checkbox(&body) {
+        return Ok(Settled::Boxes);
+    }
+    let standing = github.standing(issue)?;
+    if !standing.open {
+        return Ok(Settled::AlreadyClosed);
+    }
+    if standing.open_children > 0 {
+        return Ok(Settled::OpenChildren(standing.open_children));
+    }
+    let sha = &sha[..sha.len().min(12)];
+    let why = match (done_when(&body), check) {
+        (Some(command), Some(check)) if command.split_whitespace().eq(check.split_whitespace()) => {
+            github.close(issue, &format!("Closed by the landing of {sha}: its Done-when command `{command}` passed on that commit."))?;
+            return Ok(Settled::Closed);
+        }
+        (Some(command), Some(check)) => format!("the check that passed on {sha} was `{check}`, not its Done-when command `{command}`"),
+        (Some(command), None) => format!("its Done-when command `{command}` has not passed on {sha}"),
+        (None, _) => "its body names no Done-when command".to_owned(),
+    };
+    Ok(Settled::Waits(match github.label(issue, WAITS) {
+        Ok(()) => format!("{why}; labelled {WAITS}"),
+        Err(error) => format!("{why}; not labelled {WAITS}: {error}"),
+    }))
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -364,7 +420,7 @@ pub fn drain(directory: &Path, github: &dyn Tracker, ledger: &dyn Ledger, limit:
             break;
         }
         if let Edit::Close { sha, check } = &entry.edit {
-            match leaf::settle(github, &entry.issue, sha, check.as_deref()) {
+            match settle(github, &entry.issue, sha, check.as_deref()) {
                 Ok(settled) => {
                     drained.closed += usize::from(settled == Settled::Closed);
                     drained.leaves.push(format!("{} {settled}", entry.issue));
