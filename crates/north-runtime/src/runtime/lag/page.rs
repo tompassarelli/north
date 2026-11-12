@@ -17,7 +17,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 const KEY: &str = "runtime-lag";
-const PAGE_AFTER_S: i64 = 300;
+pub(super) const PAGE_AFTER_S: i64 = 300;
 const EPISODES: &str = "runtime-lag-episodes.json";
 const LOCK: &str = "runtime-lag.lock";
 const STARTED: &str = "runtime-lag.started";
