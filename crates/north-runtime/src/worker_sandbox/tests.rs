@@ -397,6 +397,11 @@ fn a_brokered_safe_push_queues_in_its_caller_s_state_home_and_every_other_reques
     assert_eq!(state(super::broker::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &sent, own())), ["/tmp/verify-north-x/state", "/home/a"], "a worker's brokered safe-push queued its ticket in the host's landing queue, so verify-north found none in its scratch state (north#1022)");
     assert_eq!(state(super::broker::request_homes(&words("depbox run -- cargo check"), Some(OPEN_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
     assert_eq!(state(super::broker::request_homes(&words("safe-push --to main"), Some(LANE_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
+    let forged: Vec<(String, String)> = sent.iter().cloned().chain([("NORTH_VERDICT_CACHE_DIR", "/tmp/forged-passes"), ("AGENTS_ORCHESTRATION", "/tmp/forged.toml")].map(|(name, value)| (name.to_owned(), value.to_owned()))).collect();
+    let homes = super::broker::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &forged, own());
+    let environment = super::broker::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes);
+    let named = |wanted: &str| environment.iter().filter(|(name, _)| name == wanted).map(|(_, value)| value.as_str()).collect::<Vec<_>>();
+    assert_eq!((named("NORTH_VERDICT_CACHE_DIR"), named("AGENTS_ORCHESTRATION")), (vec!["/home/a/.local/state/north/verdict-cache"], vec![]), "a brokered safe-push reused passes from a verdict store or read a policy file its caller named");
 }
 
 #[test]
