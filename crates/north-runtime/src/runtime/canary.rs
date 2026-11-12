@@ -8,6 +8,7 @@ use north_base::platform::ssh_retry::Rerun;
 use std::time::{Duration, Instant};
 
 mod baseline;
+mod kept;
 mod launch;
 mod listing;
 mod probes;
@@ -200,7 +201,7 @@ fn tallies(layout: &Layout, probes: &[Probe], ran: &[Ran]) -> Tallies {
         match ran {
             Ran::Exited { code: 0, .. } => {}
             Ran::Exited { code, log } => {
-                let kept = super::walk::keep_failure(layout, log).map_or_else(String::new, |kept| format!("; its failing step is kept in {}", kept.display()));
+                let kept = kept::failure(layout, log).map_or_else(String::new, |kept| format!("; its failing step is kept in {}", kept.display()));
                 tallies.failures.push(format!("probe `{}` exited {code}{kept}; log tail: {}", probe.name, tail(log)));
                 tallies.broken.push(baseline::Broken::of(probe, log));
             }

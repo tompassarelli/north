@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 use std::time::Duration;
 
-/// The runtime's canary keeps the step this line names with its report line (crates/north-runtime/src/runtime/walk.rs).
+/// The runtime's canary keeps the step this line names with its report line (crates/north-runtime/src/runtime/canary/kept.rs).
 const FAILED_STEP: &str = "verify-north failed step ";
 
 pub fn step(number: &str, title: &str, outcome: &Result<String, String>, elapsed: Duration) {
