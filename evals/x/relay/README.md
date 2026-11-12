@@ -37,8 +37,10 @@ Read from Claude Code 2.1.322 and seen in a live north session:
 - `real-session TOKEN-FILE [MODEL]`: one `claude -p` session on the subscription token in that file, with the relay
   as its shell, one hook and a real container. It needs a login and podman, so it is started outside a worker
   session. A pass prints `relay-check-box` for step 1, the same directory for steps 2 and 3, the note read back on
-  the host, hook calls counted on the host, a time-limit ending for step 6 (a loop, because Claude Code refuses a bare
-  long sleep itself), and nothing but `sleep 900` left in the container.
+  the host, hook calls counted on the host, and nothing but `sleep 900` left in the container. Step 6 is a twelve-second
+  loop under a 2000 ms limit (a loop, because Claude Code refuses a bare long sleep itself). Claude Code 2.1.322 does
+  not end a command that passes its limit: it moves it to the background, where the loop runs on in the container and
+  prints `loop-done`. The kill of a command whose relay dies is shown by `check`.
 
 ## Where things live
 
