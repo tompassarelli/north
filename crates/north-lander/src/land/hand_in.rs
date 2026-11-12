@@ -7,9 +7,6 @@ use std::process::{Command, Stdio};
 
 use super::enqueue::{default_branch, git};
 use crate::land::scans::outgoing::denylist::{Denylist, Stand};
-use tested::Tested;
-
-mod tested;
 
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 const ATTEMPT: &str = "north-attempt.json";
@@ -129,11 +126,9 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
             return 1;
         }
     };
-    let head = request.check.and_then(|_| would_be(&named.lane.root, &named.message, &named.paths));
-    if let Some(head) = &head {
-        ask_early(&named, head.clone());
+    if request.check.is_some() {
+        ask_early(&named);
     }
-    let tested = request.check.zip(head.as_deref()).and_then(|(check, head)| Tested::of(&named.lane.root, check, head, &named.paths));
     if let Some(check) = request.check
         && let Err((failure, output)) = passes(&named.lane.root, check)
     {
@@ -144,12 +139,7 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
         return 1;
     }
     match commit(&named) {
-        Ok(()) => {
-            if let Some(tested) = tested {
-                tested.settle(&named.lane.root);
-            }
-            road.take(&named.lane)
-        }
+        Ok(()) => road.take(&named.lane),
         Err(refusal) => {
             eprintln!("{verb}: ✗ {refusal}; NOT committed.");
             1
@@ -304,9 +294,11 @@ fn normal(path: &Path) -> PathBuf {
     normal
 }
 
-fn ask_early(named: &Named, head: String) {
+fn ask_early(named: &Named) {
+    let message = named.message.as_str();
     let root = named.lane.root.clone();
     let destination = named.lane.destination.clone();
+    let Some(head) = would_be(&root, message, &named.paths) else { return };
     std::thread::spawn(move || {
         let Ok(origin) = git(&root, &["remote", "get-url", "--push", "origin"]) else { return };
         let base = format!("refs/remotes/origin/{destination}");

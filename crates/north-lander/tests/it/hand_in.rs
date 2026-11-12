@@ -15,7 +15,6 @@ const VERB_ARGUMENTS: &str = "NORTH_HAND_IN_IT_ARGUMENTS";
 const ROAD: &str = "serve::enqueue_process";
 const ROAD_ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
 const JUDGE_PASSES: &str = "#!/bin/sh\ncat > /dev/null\nexit 0\n";
-const VERDICT_NORTH: &str = "#!/bin/sh\ncase \"$1 $2 $3 $4\" in\n  'capacity deadline '*) shift 5; exec \"$@\" ;;\n  'capacity offload verdict hit') shift 4; for key; do pass=\"$XDG_STATE_HOME/north/verdict-cache/$key\"; [ -f \"$pass\" ] && printf '%s local %s\\n' \"$key\" \"$(cat \"$pass\")\"; done; exit 0 ;;\n  'capacity offload verdict record') exit 0 ;;\nesac\nexit 1\n";
 const JUDGE_FINDS_AN_ADDRESS: &str = "#!/bin/sh\ntext=$(cat)\ncase \"$text\" in\n  *'lives at'*) printf 'address\\tthe owner lives at 1 Example Road\\n'; exit 1 ;;\nesac\nexit 0\n";
 
 fn scanned_world(judge: &str) -> (World, Repository) {
@@ -28,18 +27,6 @@ fn scanned_world(judge: &str) -> (World, Repository) {
     fs::write(world.path().join("denylist.toml"), "[[rules]]\nid = \"fixture\"\n").unwrap();
     fs::write(world.path().join("private-kinds.toml"), "[[kind]]\nid = \"address\"\n").unwrap();
     (world, north)
-}
-
-fn counted_check(world: &World, lane: &Path, needs: &str) -> PathBuf {
-    write_executable(&world.path().join("bin/north"), VERDICT_NORTH);
-    let runs = world.path().join(format!("runs-{}", lane.file_name().unwrap().to_str().unwrap()));
-    fs::write(lane.join(".safe-push"), "[landing]\n\tpush-app = lander\n[land]\n\tcheck = ** :: sh count.sh\n").unwrap();
-    fs::write(lane.join("count.sh"), format!("{needs} || exit 1\necho ran >> {}\n", runs.display())).unwrap();
-    runs
-}
-
-fn runs(file: &Path) -> usize {
-    fs::read_to_string(file).unwrap_or_default().lines().count()
 }
 
 fn worktree(north: &Repository, branch: &str) -> PathBuf {
@@ -164,8 +151,8 @@ fn a_hand_in_verb_call_returns_the_same_refusal_as_safe_push_for_a_refused_lane(
 const FINISH: &str = "hand_in::a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_before_the_verdict";
 const FINISH_ARGUMENTS: &str = "NORTH_FINISH_IT_ARGUMENTS";
 
-fn finish(world: &World, session: &str, check: &str, message: &str, paths: &[PathBuf]) -> Output {
-    let arguments: Vec<&str> = ["--check", check, "--message", message, "--"].into_iter().chain(paths.iter().map(|path| path.to_str().unwrap())).collect();
+fn finish(world: &World, session: &str, check: &str, message: &str, path: &Path) -> Output {
+    let arguments = ["--check", check, "--message", message, "--", path.to_str().unwrap()];
     queueing(world, FINISH, FINISH_ARGUMENTS, &arguments).env("NORTH_FLEET_SESSION", session).output().unwrap()
 }
 
@@ -182,7 +169,7 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     fs::write(lane.join("unnamed.txt"), "a change the worker did not name\n").unwrap();
     let start = git(&lane, &["rev-parse", "HEAD"]);
 
-    let failed = finish(&world, "proposer", "echo the box is red; exit 3", "Add the finished note (north#1194)", &[lane.join("named.txt")]);
+    let failed = finish(&world, "proposer", "echo the box is red; exit 3", "Add the finished note (north#1194)", &lane.join("named.txt"));
     let text = report(&failed);
     assert_eq!(failed.status.code(), Some(1), "{text}");
     assert!(text.contains("the box is red") && text.contains("exited 3") && text.contains("NOT queued"), "a failed check did not return its output: {text}");
@@ -199,19 +186,19 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     proposing.stdin.take().unwrap().write_all(b"Add the proposed note (north#1239)").unwrap();
     let proposed = proposing.wait_with_output().unwrap();
     assert!(String::from_utf8_lossy(&proposed.stdout).split_whitespace().any(|word| word == hand_in::PROPOSED), "the launch-time scan did not pass the proposed message on to its judge: {}", report(&proposed));
-    let stale = finish(&world, "later", "true", "", &[lane.join("named.txt")]);
+    let stale = finish(&world, "later", "true", "", &lane.join("named.txt"));
     assert_eq!(stale.status.code(), Some(1), "another session's finish call committed the proposal kept for an earlier one: {}", report(&stale));
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "another session's empty-message finish call queued: {}", report(&stale));
-    let ran = counted_check(&world, &lane, "test -e named.txt");
-    let passed = finish(&world, "proposer", "sh count.sh", "", &[lane.join("named.txt"), lane.join(".safe-push"), lane.join("count.sh")]);
+    let ran = world.path().join("check-ran");
+    let passed = finish(&world, "proposer", &format!("test -e named.txt && touch {}", ran.display()), "", &lane.join("named.txt"));
     let text = report(&passed);
     assert_eq!(passed.status.code(), Some(0), "{text}");
-    assert_eq!(runs(&ran), 2, "the check before the ticket reused a pass earned beside an unnamed file, or did not run: {text}");
+    assert!(ran.exists(), "the check did not run in the lane: {text}");
     let pending = queue::pending(&north.queue).unwrap();
     let [(ticket, queued)] = &pending[..] else { panic!("the passing call did not leave one undecided ticket: {pending:?}\n{text}") };
     let name = ticket.file_name().unwrap().to_str().unwrap();
     assert!(text.lines().any(|line| line.starts_with("Done: queued") && line.ends_with(&format!("ticket {name}"))), "the call did not return its ticket: {text}");
-    assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), ".safe-push\ncount.sh\nnamed.txt", "the call committed more than the named paths");
+    assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), "named.txt", "the call committed more than the named path");
     assert_eq!(git(&lane, &["log", "-1", "--format=%B", &queued.head]).trim_end(), "Add the proposed note (north#1239)", "a finish call that left out its message did not commit the proposed one byte for byte");
     assert_eq!(git(&lane, &["status", "--porcelain", "--", "unnamed.txt"]), "?? unnamed.txt", "the call swept up a path it was not given");
 }
@@ -281,15 +268,11 @@ fn a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_writt
     assert!(text.contains(&format!("{}: carries both whole content and replacements", inside.display())), "{text}");
     assert!(fs::read_to_string(&inside).unwrap() == "the red draft\n" && fs::read_to_string(&readme).unwrap() == first_readme, "a call with an entry carrying both forms wrote a file: {text}");
 
-    let ran = counted_check(&world, &lane, "grep -q green notes/new.txt");
-    let (safe_push, count) = (lane.join(".safe-push"), lane.join("count.sh"));
-    let (safe_push_text, count_text) = (fs::read_to_string(&safe_push).unwrap(), fs::read_to_string(&count).unwrap());
-    let passed = finish_files(&world, &lane, "sh count.sh", &[(inside, lines(&[("red draft", "green note")])), (readme, whole("the rewritten readme\n")), (safe_push, whole(&safe_push_text)), (count, whole(&count_text))]);
+    let passed = finish_files(&world, &lane, "grep -q green notes/new.txt", &[(inside, lines(&[("red draft", "green note")])), (readme, whole("the rewritten readme\n"))]);
     let text = report(&passed);
     assert_eq!(passed.status.code(), Some(0), "{text}");
     let pending = queue::pending(&north.queue).unwrap();
     let [(_, queued)] = &pending[..] else { panic!("the passing call did not leave one undecided ticket: {pending:?}\n{text}") };
-    assert_eq!(runs(&ran), 1, "the check before the ticket ran again on the tree the finish call's own check passed on: {text}");
-    assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), ".safe-push\nREADME\ncount.sh\nnotes/new.txt", "the call did not commit exactly its files");
+    assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), "README\nnotes/new.txt", "the call did not commit exactly its files");
     assert_eq!(git(&lane, &["show", &format!("{}:notes/new.txt", queued.head)]), "the green note");
 }

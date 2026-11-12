@@ -13,7 +13,6 @@ doctest = false
 north-runtime-follow = { path = "../north-runtime-follow" }
 north-git-locks = { path = "../north-git-locks" }
 north-base = { path = "../north-base" }
-north-tree-verdict = { path = "../north-tree-verdict" }
 north-check-environment = { path = "../north-check-environment" }
 north-concerns = { path = "../north-concerns" }
 north-land-scans = { path = "../north-land-scans" }
