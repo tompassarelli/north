@@ -8,7 +8,8 @@ use tokio::process::Command;
 use tokio::task::JoinSet;
 
 use super::{ACTIONS_CLASS, Shared, say};
-use crate::land::slots::{lint_gate, verdict_key};
+use crate::land::slots::affected::PACKAGES_ENV;
+use crate::land::slots::{lint_gate, listed_crates, verdict_key};
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category};
@@ -30,6 +31,12 @@ impl Inputs {
     }
 
     fn key(&self, command: &str) -> Option<String> {
+        let selected = self.environment.iter().find(|(name, _)| name == PACKAGES_ENV).map(|(_, value)| value.as_str());
+        if !self.after && listed_crates::decides(command, selected) {
+            let (name, value) = listed_crates::BEFORE_LANDING;
+            let environment: Vec<(String, String)> = self.environment.iter().cloned().chain([(name.to_owned(), value.to_owned())]).collect();
+            return verdict_key::key(&self.root, &self.base, &self.tree, command, &environment);
+        }
         if self.after && lint_gate::wraps(command) {
             let (name, value) = lint_gate::AFTER_LANDING;
             let environment: Vec<(String, String)> = self.environment.iter().cloned().chain([(name.to_owned(), value.to_owned())]).collect();

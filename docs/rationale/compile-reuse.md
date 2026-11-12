@@ -693,6 +693,29 @@ Checked on a build host (2026-11-12), on one crate through `bin/land-shell`: the
 (`clippy: 1 targets clean`, 3 commands, 0 local); with a lint finding it exits 3; with an
 endpoint the client cannot reach it exits 2, which the verb reports as no verdict.
 
+**Tests of listed crates (`buck2_test_crates`).** `[hosts.NAME] buck2_test_crates = ["NAME", ...]` moves the tests of
+the listed crates alone, in the checks before a landing, on the host that executes the check. The nextest line that
+reads its packages from the environment is handed to `north land crate-tests -- COMMAND`: each selected crate the
+host lists runs as `buck2 test --remote-only --unstable-allow-compatible-tests-on-re //crates/NAME:`, one crate at a
+time, and the declared line then runs for the rest of the selection (`-p NAME` removed, or `--workspace --exclude
+NAME`). Crates not listed, the root package with `north::it`, and every other check line stay on Cargo. No host
+sets the key, and none does before box 11 closes: the workers run the lane's own code, its tests and also its
+build scripts and procedural macros.
+
+- **The Cargo run stays the authority.** The run after a landing never takes this path. A nextest verdict before a
+  landing that Buck2 may have decided part of (some host lists a selected crate) is keyed apart, so the run after
+  the landing does not reuse it and Cargo tests the landed tree itself; every other line keeps its verdict reuse.
+- **Origin, stricter than for lint.** A forged lint pass is caught after the landing at no cost; a forged test pass
+  would land a failing change. So besides the lint gate's origin rule, the split is issued only while every file that
+  defines a target is the base's, with no untracked one: every `BUCK`, `BUCK.v2`, `TARGETS` and `PACKAGE` file and
+  any build file name the tree's `.buckconfig` sets, every `.bzl`, `.bxl` and `.star` file, `toolchains/` and
+  `prelude/`. A lane that touches one is tested by Cargo in full.
+- **Verdict.** Buck2 decides for a crate only when it says so plainly. It passed: exit 0 and its summary line counts
+  at least one passed test and no failed one, so a target with no test cannot pass a crate that then leaves the
+  Cargo line. It failed: exit 3, a build the tree failed, or exit 32 with a failed test counted in the summary. On
+  anything else (no summary, no test, a run lost to the workers) the crate stays on the declared line and Cargo
+  tests it; nothing is run again to make it pass.
+
 A check build passes `--materializations=none` (`-M none`): the lint gate, the type check and the compile before a
 test run leave their outputs in the store, since nothing after them reads one (Lanes: 4.3 s against 71 s and
 4.4 GiB for `//...`). The runtime build keeps `--out`, which copies the one binary a later step runs.

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -25,6 +25,7 @@ const ON_WORKERS: &str = "--unstable-allow-compatible-tests-on-re";
 const TEST_RULE: &str = "^_north_test$";
 const BINARY_ID: &str = "binary_id";
 const CLIPPY_GATE: &str = "//lint/clippy.bxl:clippy";
+/// The variable the declared nextest line reads its package selection from.
 const DECLARED: &str = "cargo ";
 const CARGO_SETTING: &str = "CARGO_";
 /// A check build leaves its outputs in the store: materialising `//...` took 71 s and 4.4 GiB where this took 4.3 s (gex45, 2026-11-12).
@@ -102,6 +103,88 @@ fn linked_by_the_shell(root: &Path) -> bool {
             Ok(file) => file.file_type().is_symlink() && fs::canonicalize(&link).is_ok_and(|target| target.starts_with(NIX_STORE)),
             Err(error) => error.kind() == std::io::ErrorKind::NotFound,
         }
+}
+
+/// What defines a test target besides the code under test. A lane that changes one could declare a test that passes
+/// whatever the code does, so this side runs a crate's tests only in a tree whose every such file is `base`'s.
+const TARGET_ORIGIN: [&str; 9] = [":(glob)**/BUCK", ":(glob)**/BUCK.v2", ":(glob)**/TARGETS", ":(glob)**/PACKAGE", ":(glob)**/*.bzl", ":(glob)**/*.bxl", ":(glob)**/*.star", "toolchains", "prelude"];
+
+/// The package selection of a nextest land line: `--workspace`, or `-p NAME` for each package.
+enum Selected {
+    Workspace,
+    Packages(Vec<String>),
+}
+
+/// What a host that moves listed crates' tests runs in place of the declared nextest line of `.safe-push` (north#1115).
+pub struct CrateTests {
+    /// Each crate that moves, with the Buck2 line that runs its tests alone.
+    pub moved: Vec<(String, String)>,
+    selected: Selected,
+}
+
+impl CrateTests {
+    /// The declared line's package selection for what stays on Cargo once Buck2 passed `passed`; `None` when nothing is left.
+    pub fn left(&self, passed: &BTreeSet<String>) -> Option<String> {
+        match &self.selected {
+            Selected::Workspace => Some(passed.iter().fold("--workspace".to_owned(), |flags, name| format!("{flags} --exclude {name}"))),
+            Selected::Packages(names) => {
+                let left: Vec<String> = names.iter().filter(|name| !passed.contains(*name)).map(|name| format!("-p {name}")).collect();
+                (!left.is_empty()).then(|| left.join(" "))
+            }
+        }
+    }
+}
+
+/// Whether `declared` is the nextest line of `.safe-push` that reads its package selection from the environment variable
+/// `variable`, which the caller that sets it names.
+pub(crate) fn selects_packages(declared: &str, variable: &str) -> bool {
+    declared.split_once(DECLARED).is_some_and(|(_, cargo)| declared.matches(DECLARED).count() == 1 && cargo.starts_with("nextest run ") && !cargo.contains("--no-run") && cargo.contains(variable))
+}
+
+/// The split of `declared` for a run that selected `selected` (`--workspace` or `-p NAME ...`) on a host that lists
+/// `listed`. A crate moves when it is selected, listed and has targets in the tree; the root package never does. `None`
+/// leaves the line as declared: another line, nothing to move, or a tree whose Buck2 configuration or target
+/// definitions are not `base`'s.
+pub(crate) fn crate_tests(root: &Path, base: &str, declared: &str, (variable, selected): (&str, &str), listed: &BTreeSet<String>) -> Option<CrateTests> {
+    let side = Buck2 { tests: true };
+    if !selects_packages(declared, variable) || !side.governs(root) || !unchanged_since(root, base) || !targets_unchanged_since(root, base) {
+        return None;
+    }
+    let shell = declared.split_once(DECLARED)?.0;
+    let words: Vec<&str> = selected.split_whitespace().collect();
+    let selected = match words.as_slice() {
+        ["--workspace"] => Selected::Workspace,
+        words => Selected::Packages(words.chunks(2).map(|pair| if let ["-p", name] = pair { Some((*name).to_owned()) } else { None }).collect::<Option<Vec<String>>>()?),
+    };
+    let targeted = |name: &&String| root.join("crates").join(name.as_str()).join("BUCK").is_file();
+    let names: Vec<String> = match &selected {
+        Selected::Workspace => listed.iter().filter(targeted).cloned().collect(),
+        Selected::Packages(names) => names.iter().filter(|name| listed.contains(*name)).filter(targeted).cloned().collect(),
+    };
+    let line = |name: &str| {
+        let run = Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Package(name.to_owned()), resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None };
+        shell.split_whitespace().filter(|word| !word.starts_with(CARGO_SETTING)).map(str::to_owned).chain(side.tests(&run).words).collect::<Vec<_>>().join(" ")
+    };
+    let moved: Vec<(String, String)> = names.into_iter().map(|name| {
+        let line = line(&name);
+        (name, line)
+    }).collect();
+    (!moved.is_empty()).then_some(CrateTests { moved, selected })
+}
+
+/// The build file names the tree's own `.buckconfig` sets under `[buildfile]`, as path patterns; that file is `base`'s wherever this is asked.
+fn named_buildfiles(root: &Path) -> Vec<String> {
+    let text = fs::read_to_string(root.join(".buckconfig")).unwrap_or_default();
+    let section = text.lines().map(str::trim).skip_while(|line| *line != "[buildfile]").skip(1).take_while(|line| !line.starts_with('['));
+    section.filter_map(|line| line.split_once('=')).filter(|(key, _)| key.trim().starts_with("name")).flat_map(|(_, names)| names.split(',')).map(|name| format!(":(glob)**/{}", name.trim())).collect()
+}
+
+/// Whether every file that defines a target is `base`'s, with no untracked one among them.
+fn targets_unchanged_since(root: &Path, base: &str) -> bool {
+    let named = named_buildfiles(root);
+    let git = |arguments: &[&str]| Command::new("git").arg("-C").arg(root).args(arguments).args(TARGET_ORIGIN).args(&named).stderr(Stdio::null()).output().ok();
+    let same = git(&["diff", "--quiet", base, "--"]).is_some_and(|output| output.status.success());
+    same && git(&["ls-files", "--others", "--exclude-standard", "--"]).is_some_and(|output| output.status.success() && output.stdout.is_empty())
 }
 
 /// Whether `command` runs this side's clippy gate.

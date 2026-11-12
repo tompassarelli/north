@@ -14,11 +14,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
+pub use buck2::CrateTests;
 use buck2::Buck2;
 use cargo::Cargo;
 
 const TEST_SWITCH: &str = "buck2_tests";
 const LINT_SWITCH: &str = "buck2_lint";
+const TEST_CRATES: &str = "buck2_test_crates";
 
 pub trait BuildSystem {
     /// Whether `root` is a workspace this build system builds.
@@ -80,6 +82,34 @@ pub fn lint_gate(root: &Path, base: Option<&str>, declared: &str) -> Option<Stri
     let policy = north_base::platform::orchestration::read().ok()?;
     let switched = policy.get("hosts").and_then(|hosts| hosts.get(host.as_str())?.get(LINT_SWITCH)?.as_bool()) == Some(true);
     if switched { buck2::gate(root, base?, declared) } else { None }
+}
+
+/// The split of `declared`, the nextest line of `.safe-push`, that this host runs when `[hosts.NAME] buck2_test_crates`
+/// lists crates: those crates' tests through Buck2 and the rest of the selection through the declared line. `variable` is
+/// the environment variable the line reads its selection from and `selected` its value, the workspace when unset.
+/// `None`, the line as declared, for a host without the key and wherever [`lint_gate`] would leave a lint line as
+/// declared.
+pub fn crate_tests(root: &Path, base: Option<&str>, declared: &str, variable: &str, selected: Option<&str>) -> Option<CrateTests> {
+    let host = north_base::platform::host::name();
+    let policy = north_base::platform::orchestration::read().ok()?;
+    let listed: BTreeSet<String> = policy.get("hosts").and_then(|hosts| hosts.get(host.as_str())?.get(TEST_CRATES)?.as_array())?.iter().filter_map(|name| name.as_str().map(str::to_owned)).collect();
+    buck2::crate_tests(root, base?, declared, (variable, selected.filter(|selected| !selected.trim().is_empty()).unwrap_or("--workspace")), &listed)
+}
+
+/// Whether `command` is the nextest line of `.safe-push` whose listed crates a host's `buck2_test_crates` moves: the one
+/// that reads its selection from the environment variable `variable`.
+pub fn selects_packages(command: &str, variable: &str) -> bool {
+    buck2::selects_packages(command, variable)
+}
+
+/// Whether some host's `buck2_test_crates` lists a package of `selected`, so that part of a nextest line's verdict
+/// before a landing may be Buck2's.
+pub fn buck2_may_test(selected: Option<&str>) -> bool {
+    let Ok(policy) = north_base::platform::orchestration::read() else { return false };
+    let Some(hosts) = policy.get("hosts").and_then(|hosts| hosts.as_table_like()) else { return false };
+    let words: Vec<&str> = selected.unwrap_or_default().split_whitespace().collect();
+    let selects = |name: &str| words.is_empty() || words == ["--workspace"] || words.contains(&name);
+    hosts.iter().filter_map(|(_, host)| host.get(TEST_CRATES)?.as_array()).any(|listed| listed.iter().filter_map(|name| name.as_str()).any(selects))
 }
 
 /// Whether `command` is Cargo's lint line, the one a host's `buck2_lint` replaces.

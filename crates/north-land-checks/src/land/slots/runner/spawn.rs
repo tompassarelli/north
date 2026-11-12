@@ -9,7 +9,7 @@ use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
 use crate::land::slots::select::Placement;
-use crate::land::slots::{lint_gate, unit_reuse, verdict_key};
+use crate::land::slots::{lint_gate, listed_crates, unit_reuse, verdict_key};
 use north_base::verdict_cache::reuse_log;
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use crate::platform::north_binary::land_north as program;
@@ -161,7 +161,8 @@ impl Shared {
 
     fn wrapped(&self, north: &str, command: &str) -> String {
         if self.observes(command) {
-            unit_reuse::wrapped(north, &self.arguments.head, self.environment.record_reuse, command)
+            let tested = if listed_crates::wraps(command) { listed_crates::wrapped(north, command) } else { command.to_owned() };
+            unit_reuse::wrapped(north, &self.arguments.head, self.environment.record_reuse, &tested)
         } else if self.gated(command) {
             lint_gate::wrapped(north, command)
         } else {
