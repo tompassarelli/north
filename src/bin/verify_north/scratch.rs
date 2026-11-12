@@ -86,7 +86,7 @@ pub fn keep_ledger(root: &Path, stamp: u64) -> Result<PathBuf, String> {
     let state = live_state()?;
     let kept = state.join("north/verify-north/failed").join(stamp.to_string());
     fs::create_dir_all(&kept).map_err(|error| format!("{}: {error}", kept.display()))?;
-    for name in ["threads.db", "threads.db-wal", "threads.db-shm", "pushes.tsv"] {
+    for name in ["threads.db", "threads.db-wal", "threads.db-shm", "pushes.tsv", "lander.log", "broker.log"] {
         let from = root.join(name);
         if from.exists() {
             fs::copy(&from, kept.join(name)).map_err(|error| format!("{}: {error}", from.display()))?;

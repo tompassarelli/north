@@ -120,7 +120,7 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         return Verdict::Skipped;
     }
     let (probes, ran) = run_probes(layout, host, sha, listed(host, sha, short, machine), machine);
-    let tallied = tallies(&probes, &ran);
+    let tallied = tallies(layout, &probes, &ran);
     let Tallies { failures, broken, faults, unrun } = &tallied;
     if failures.is_empty() {
         if !faults.is_empty() {
@@ -174,7 +174,7 @@ pub(super) fn preflight(layout: &Layout, host: &str, sha: &str, live: Option<&st
     let change = listing::against_live(host, sha, &plan, live, machine);
     println!("north runtime canary: {host}: {short}: {change}");
     let (probes, ran) = run_probes(layout, host, sha, plan, machine);
-    let Tallies { failures, faults, unrun, .. } = tallies(&probes, &ran);
+    let Tallies { failures, faults, unrun, .. } = tallies(layout, &probes, &ran);
     let problems: Vec<String> = failures.into_iter().chain(faults).chain(unrun).collect();
     let (state, cause) = match problems.is_empty() {
         true => (Canary::Passed, format!("all {} core-loop probes exited 0 before the runtime went live; {change}", probes.len())),
@@ -194,13 +194,14 @@ struct Tallies {
     unrun: Vec<String>,
 }
 
-fn tallies(probes: &[Probe], ran: &[Ran]) -> Tallies {
+fn tallies(layout: &Layout, probes: &[Probe], ran: &[Ran]) -> Tallies {
     let mut tallies = Tallies { failures: Vec::new(), broken: Vec::new(), faults: Vec::new(), unrun: Vec::new() };
     for (probe, ran) in probes.iter().zip(ran) {
         match ran {
             Ran::Exited { code: 0, .. } => {}
             Ran::Exited { code, log } => {
-                tallies.failures.push(format!("probe `{}` exited {code}; log tail: {}", probe.name, tail(log)));
+                let kept = super::walk::keep_failure(layout, log).map_or_else(String::new, |kept| format!("; its failing step is kept in {}", kept.display()));
+                tallies.failures.push(format!("probe `{}` exited {code}{kept}; log tail: {}", probe.name, tail(log)));
                 tallies.broken.push(baseline::Broken::of(probe, log));
             }
             Ran::Unrun(why) => tallies.unrun.push(format!("probe `{}` not run: {why}", probe.name)),

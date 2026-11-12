@@ -1,9 +1,9 @@
-use super::super::canary::Verdict;
+use super::super::canary::{self, Landers, Machine, Probe, Ran, Rollback, Verdict};
 use super::super::failure::failed;
 use super::super::layout::{self, Layout};
 use super::super::live::Swap;
 use super::super::pin::{Event, read};
-use super::{handed_to_live, judged, ship_if_walked};
+use super::{handed_to_live, judged, ship_if_walked, walk_verdict};
 use north_base::foundation::shim::write_executable;
 use std::cell::Cell;
 use std::fs;
@@ -68,4 +68,62 @@ fn a_promotion_leaves_the_walk_after_its_swap_to_the_runtime_it_promoted() {
     assert!(handed_to_live(&layout, Some(MAIN)).is_none(), "the live runtime walks itself");
     assert!(handed_to_live(&layout, None).is_none());
     assert_eq!(fs::read_to_string(promoted.join("asked")).unwrap().lines().count(), 5);
+}
+
+const STEP_TWO: &str = "the worker hands in with one `hand-in` tool call, which returns `Done: landed`";
+
+struct FailsTheWalk(String);
+
+impl Machine for FailsTheWalk {
+    fn probe(&self, probe: &Probe) -> Ran {
+        let log = if probe.name.contains("verify-north") { self.0.clone() } else { String::new() };
+        Ran::Exited { code: u8::from(!log.is_empty()), log }
+    }
+
+    fn roll_back(&self, _sha: &str) -> Rollback {
+        Rollback::To(PINNED.to_owned())
+    }
+
+    fn alarm(&self, _text: &str) {}
+
+    fn page(&self, _key: &str, _text: &str) {}
+
+    fn rollback_target(&self, _sha: &str) -> Option<String> {
+        None
+    }
+
+    fn launchable_providers(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn sessions_reach_hub(&self, _host: &str) -> bool {
+        false
+    }
+
+    fn settles_fleet(&self, _host: &str) -> bool {
+        true
+    }
+
+    fn lander_repositories(&self) -> Option<Landers> {
+        None
+    }
+}
+
+#[test]
+fn a_failed_spine_walk_keeps_the_failing_step_s_report_and_log() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_owned() };
+    let report = format!("step 2 FAIL   44912 ms  {STEP_TWO}: vn-1794354314 did not settle within 120 s; working");
+    let log = format!(
+        "step 0 ok       812 ms  use the given north build: /tmp/runtimes/{MAIN}/north\nstep 1 ok      9120 ms  `north land serve` serves a scratch repository's queue: vn-1794354314 on claude/b\n{report}\nverify-north failed step 2: {STEP_TWO}\nstep 3 skip       0 ms  the lander landed the worker's commit on origin main\nverify-north kept the scratch ledger in /home/someone/.local/state/north/verify-north/failed/1794354314\nverify-north FAILED at step 2  total 44913 ms\n"
+    );
+    let verdict = canary::check(&layout, "whiterabbit", MAIN, &FailsTheWalk(log));
+    assert_eq!(verdict, Verdict::RolledBack);
+    let kept = state.path().join("verify-north/failed/1794354314");
+    let read = |name: &str| fs::read_to_string(kept.join(name)).unwrap_or_else(|error| panic!("on 2026-11-11 the kept directory of a walk rejected at step 2 was empty: {name}: {error}"));
+    assert_eq!(read("step"), format!("step 2: {STEP_TWO}\n"));
+    assert_eq!(read("report"), format!("{report}\n"));
+    assert!(read("log").contains("did not settle within 120 s") && read("log").ends_with("verify-north FAILED at step 2  total 44913 ms\n"), "{}", read("log"));
+    let why = walk_verdict(&layout, "whiterabbit", MAIN, &verdict).unwrap_err();
+    assert!(why.contains(&kept.display().to_string()) && why.contains("did not settle"), "the line runtime-follow.log gets names neither the kept directory nor the step: {why}");
 }
