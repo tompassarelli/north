@@ -118,6 +118,8 @@ impl Client {
     }
 
     pub(super) fn ssh_argv(&self, arguments: &[&str]) -> Vec<OsString> {
-        crate::platform::ssh::argv(&self.ssh, &self.env, arguments)
+        let mut options = vec!["-o", crate::platform::ssh::OWN_CONNECTION];
+        options.extend_from_slice(arguments);
+        crate::platform::ssh::argv(&self.ssh, &self.env, &options)
     }
 }
