@@ -358,6 +358,9 @@ pub fn keep() {
     for seed in north_lanes::lanes::reclaim_dead_seeds(&home.join("code"), Path::new("/proc"), SystemTime::now(), false) {
         eprintln!("north capacity: removed dead lane target seed {} ({} MiB)", seed.path.display(), seed.bytes >> 20);
     }
+    for target in north_lanes::lanes::release_landed_targets(&home.join("code"), &home.join(".local/state"), Path::new("/proc"), false) {
+        eprintln!("north capacity: released the build directory {} of a landed lane ({} MiB)", target.path.display(), target.bytes >> 20);
+    }
     let marker = crate::capacity::agent_load::capacity_root().join(EPISODE_FILE);
     let open = marker.exists();
     let Some(before) = disk_of(&home) else { return };

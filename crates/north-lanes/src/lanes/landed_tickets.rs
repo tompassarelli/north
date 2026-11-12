@@ -20,6 +20,10 @@ impl LandedTickets {
         Self { lanes: land_queue::landed_lanes(&queues, &host) }
     }
 
+    pub(super) fn roots(&self) -> impl Iterator<Item = &Path> {
+        self.lanes.iter().map(|ticket| ticket.root.as_path())
+    }
+
     /// The commit the lander made on `base` for the worktree at `lane` whose head is `head`, when a landed ticket
     /// names this lane with that same head and that commit is on `base`; the caller has checked the worktree is clean.
     pub(super) fn landed(&self, main: &Path, base: &str, lane: &Path, head: &str) -> Option<&str> {

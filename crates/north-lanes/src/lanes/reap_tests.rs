@@ -124,6 +124,7 @@ fn a_landed_lane_leaves_no_cargo_target() {
     assert!(lane.is_dir() && branch_exists(&container, "landed-live"), "a process inside keeps the lane: {lines:#?}");
     assert!(!lane.join("target").exists(), "a landed lane leaves no cargo target: {lines:#?}");
     assert_eq!(counts.kept_protected, 1, "{lines:#?}");
+    a_landed_lane_named_by_its_ticket_loses_its_target_once_no_process_holds_it();
 }
 
 #[test]
@@ -203,3 +204,49 @@ fn a_sweep_reaps_only_spent_lanes_and_keeps_every_other_shape() {
     assert!(!ignored.exists() && !branch_exists(&container, "equiv-ignored"));
 }
 
+
+fn a_landed_lane_named_by_its_ticket_loses_its_target_once_no_process_holds_it() {
+    let container = Container::new();
+    let origin = "https://github.com/example/north.git";
+    git_in(&container.main(), &["remote", "add", "origin", origin]);
+    fs::write(container.main().join(".git/info/exclude"), "target/\n").unwrap();
+    let state = container.path().join("state");
+    let done = north_base::platform::land_queue::directory(&state, origin).join("done");
+    fs::create_dir_all(&done).unwrap();
+    let ticket = |lane: &Path, commit: &str| {
+        let head = git_in(lane, &["rev-parse", "HEAD"]);
+        let record = serde_json::json!({"verdict": format!("landed {commit}"), "host": north_base::platform::land_queue::local_host(), "root": lane, "head": head});
+        fs::write(done.join(format!("{}.json", lane.file_name().unwrap().to_string_lossy())), record.to_string()).unwrap();
+    };
+    let built = |lane: &Path| {
+        fs::create_dir_all(lane.join("target/debug")).unwrap();
+        fs::write(lane.join("target/debug/out"), vec![7u8; 64 * 1024]).unwrap();
+    };
+    let landed = container.add("landed-squash", false);
+    container.commit_in(&landed, "landed.txt");
+    container.squash_land("landed-squash", "land landed-squash");
+    ticket(&landed, &git_in(&container.main(), &["rev-parse", "HEAD"]));
+    built(&landed);
+    let unlanded = container.add("unlanded", false);
+    container.commit_in(&unlanded, "unlanded.txt");
+    ticket(&unlanded, &git_in(&unlanded, &["rev-parse", "HEAD"]));
+    built(&unlanded);
+    let moved = container.add("moved-on", false);
+    container.commit_in(&moved, "moved.txt");
+    container.squash_land("moved-on", "land moved-on");
+    ticket(&moved, &git_in(&container.main(), &["rev-parse", "HEAD"]));
+    container.commit_in(&moved, "more.txt");
+    built(&moved);
+    let code = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(container.path(), code.path().join("north")).unwrap();
+    let proc_root = code.path().join("proc");
+    let release = || super::release_landed_targets(code.path(), &state, &proc_root, false).into_iter().map(|gone| gone.path).collect::<Vec<_>>();
+
+    fs::create_dir_all(proc_root.join("4242")).unwrap();
+    std::os::unix::fs::symlink(&landed, proc_root.join("4242/cwd")).unwrap();
+    assert!(release().is_empty(), "a process working in the landed lane owns it, so its target stays");
+    fs::remove_file(proc_root.join("4242/cwd")).unwrap();
+
+    assert_eq!(release(), vec![landed.join("target")], "once its session is gone the landed lane's target goes, and only its");
+    assert!(landed.join(".git").exists() && unlanded.join("target/debug/out").exists() && moved.join("target/debug/out").exists(), "the worktree stays; a lane whose commit is not on main or that moved past its ticket's head keeps its target");
+}

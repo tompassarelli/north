@@ -339,7 +339,7 @@ impl Sweep {
     }
 }
 
-fn parse_listing(listing: &str) -> (Vec<PathBuf>, Vec<PathBuf>) {
+pub(super) fn parse_listing(listing: &str) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let (mut trees, mut locked) = (Vec::new(), Vec::new());
     for line in listing.lines() {
         if let Some(path) = line.strip_prefix("worktree ") {
