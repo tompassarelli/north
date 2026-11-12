@@ -48,6 +48,7 @@ mod tests {
     fn successor(follows: &str, role: Role) -> (LaunchRequest, SessionRecord) {
         let request = LaunchRequest {
             verification: false,
+            gates_aside: false,
             name: "lead2".into(),
             provider: ProviderName::new("claude"),
             account: "a".into(),

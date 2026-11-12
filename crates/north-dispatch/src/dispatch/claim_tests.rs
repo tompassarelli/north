@@ -33,6 +33,7 @@ fn a_hand_launch_whose_brief_opens_with_its_issue_holds_it_so_dispatch_refuses_n
     let prompt = "\nCategory: feature\nTier: sonnet-high\nArm: context-300k\nSpec: exact\nScope: module\nSurface: ts\nVerify: local-test\n\nnorth#855: run the frontier scoreboard's headline. Read docs/rationale/frontier.md and north#730's first comment first.\nRepository: north\n";
     let request = LaunchRequest {
         verification: false,
+        gates_aside: false,
         name: "frontier-run".into(),
         provider: Claude.provider(),
         account: "b".into(),

@@ -105,6 +105,7 @@ mod tests {
     fn queued(name: &str, task: &str, claim_box: Option<&str>, created_ms: u64) -> QueuedLaunch {
         let request = LaunchRequest {
             verification: false,
+            gates_aside: false,
             name: name.into(),
             provider: ProviderName::new("claude"),
             account: "a".into(),

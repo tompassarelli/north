@@ -47,6 +47,11 @@ north refuses a worker launched from outside a session without one. The scratch 
 `land-queue` directory; `eval-b queue --archive DIR` copies it into DIR and removes it, and the same queue on each host,
 only when no ticket waits in it and no lander holds it.
 
+Every worker launches with `--gates-aside`: a decision gate it opens (the privacy-refusal task opens one on purpose)
+stays out of the owner's queue, digest and `north gate list`, and the runner writes the session's gates beside its
+record as `gates.json` (from `north gate list --aside --json`) before it forgets the session. Launch, placement,
+hand-in and landing are unchanged; the parent still gets the gate's notice.
+
 A task lands when the lander's landing span for its branch carries a landed commit; seconds to land run from the
 launch call to that span's end, and queue wait is the span's `queued` child.
 

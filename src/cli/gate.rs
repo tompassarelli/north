@@ -14,7 +14,7 @@ use crate::github_mirror::store::{Mirror, OPEN_ISSUES, key};
 use crate::platform::attribution::{self, Cause};
 use north_guard::guard::break_glass;
 
-const USAGE: &str = "Usage: north gate open [--session NAME (default $NORTH_FLEET_SESSION)] --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate digest [--peek]";
+const USAGE: &str = "Usage: north gate open [--session NAME (default $NORTH_FLEET_SESSION)] --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate list --aside [--json] | north gate digest [--peek]";
 const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; an issue with more than one open box needs --box, and one with a single open box is held whole.";
 const DEFAULT_HELP: &str = "--default and --default-after are required, except for a question about cost, accounts, credentials or access, making something public, deleting valuable data, sending in Tom's name, outside code of unclear license, or core direction and dependencies (the ask-once table in harness/defaults.toml): such a gate takes neither and is for Tom: only the work it holds waits for his answer. Every other gate applies its recommended default at its deadline (8h unless the brief names one).";
 const FIRST_LOOK_MS: u64 = 24 * 3_600_000;
@@ -24,6 +24,8 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     match words {
         ["open", flags @ ..] => open(fleet, flags),
         ["answer", id, number, flags @ ..] => answer(fleet, id, number, flags),
+        ["list", "--aside"] => list_aside(fleet, false),
+        ["list", "--aside", "--json"] => list_aside(fleet, true),
         ["list"] => list(fleet, false),
         ["list", "--json"] => list(fleet, true),
         ["digest"] => digest(fleet, true),
@@ -170,6 +172,19 @@ fn list(fleet: &Fleet, json: bool) -> NorthResult<()> {
     }
     for gate in &elsewhere {
         println!("{}\t{}\t{}\topen", gate.label(), gate.request.session, gate.request.question);
+    }
+    for gate in &gates {
+        let state = gate.closure.as_ref().map_or_else(|| "open".to_owned(), |closure| format!("closed by {}: {}", closure.by.label(), closure.answer));
+        println!("{}\t{}\t{}\t{state}", gate.id, gate.request.session, gate.request.question);
+    }
+    Ok(())
+}
+
+fn list_aside(fleet: &Fleet, json: bool) -> NorthResult<()> {
+    let gates = fleet.aside_gates()?;
+    if json {
+        println!("{}", Value::Array(gates.iter().map(|gate| gate_json(gate, fleet.host())).collect()));
+        return Ok(());
     }
     for gate in &gates {
         let state = gate.closure.as_ref().map_or_else(|| "open".to_owned(), |closure| format!("closed by {}: {}", closure.by.label(), closure.answer));

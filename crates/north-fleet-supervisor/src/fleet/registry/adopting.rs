@@ -53,6 +53,7 @@ impl Fleet {
         let role = if name == PROXY { Role::Proxy } else { Role::Lead };
         let request = LaunchRequest {
             verification: false,
+            gates_aside: false,
             name: name.to_owned(),
             provider: runtime.provider(),
             account: inbox.account,

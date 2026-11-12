@@ -149,6 +149,7 @@ fn a_private_lane_opencode_launch_past_the_zero_retention_date_is_refused_and_a_
     let account = Account { provider: Deepseek::opencode().provider(), label: "go".into(), home: home.path().into(), token_file: Some(home.path().join("go.key")), api: None };
     let request = LaunchRequest {
         verification: false,
+        gates_aside: false,
         name: "worker".into(),
         provider: Deepseek::opencode().provider(),
         account: "go".into(),

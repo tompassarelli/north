@@ -32,6 +32,7 @@ printf '%s\n' '{"type":"step_finish","sessionID":"ses_x","part":{"reason":"stop"
 fn request(cwd: &Path) -> LaunchRequest {
     LaunchRequest {
         verification: false,
+        gates_aside: false,
         name: "worker".into(),
         provider: Deepseek::opencode().provider(),
         account: "go".into(),

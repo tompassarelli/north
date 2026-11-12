@@ -70,7 +70,7 @@ fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wa
     let tier_reason = format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort);
     let args = [
         "fleet", "launch", "--provider", "claude", "--account", account, "--model", &plan.model, "--effort", &plan.effort, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
-        "--tier-reason", &tier_reason, "--cwd", &cwd, "--no-wait", &text,
+        "--tier-reason", &tier_reason, "--cwd", &cwd, "--gates-aside", "--no-wait", &text,
     ];
     let launch_start = now();
     let ran = run("north", &args, None);

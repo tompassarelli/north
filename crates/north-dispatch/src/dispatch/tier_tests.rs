@@ -207,6 +207,7 @@ fn a_hand_launched_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_la
     let window = |prompt: &str| {
         let request = LaunchRequest {
             verification: false,
+            gates_aside: false,
             name: "n636-arm".into(),
             provider: Claude.provider(),
             account: "a".into(),

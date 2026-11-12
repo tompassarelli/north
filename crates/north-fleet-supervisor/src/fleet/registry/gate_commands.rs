@@ -18,13 +18,18 @@ impl Fleet {
 
     pub(super) fn record_gate(&self, request: &GateRequest) -> NorthResult<i64> {
         let asker = self.record(&request.session)?;
-        let request = GateRequest { verification: asker.verification, ..request.clone() };
+        let request = GateRequest { verification: asker.verification || asker.gates_aside, ..request.clone() };
         let abroad = asker.parent.as_deref().is_some_and(|parent| self.record(parent).is_err()).then(|| self.host.clone());
         gates::open(self.ledger.as_ref(), &request, asker.parent.as_deref(), abroad.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))
     }
 
     pub fn gate(&self, id: i64) -> NorthResult<Option<Gate>> {
         self.ledger.gate(id)
+    }
+
+    /// Each gate a test launch or a `--gates-aside` launch opened, which no decision queue, digest or gate list shows.
+    pub fn aside_gates(&self) -> NorthResult<Vec<Gate>> {
+        Ok(self.ledger.gates(0)?.into_iter().filter(|gate| gate.request.verification).collect())
     }
 
     pub fn decide(&self, id: i64, decision: Decision) -> NorthResult<Closure> {

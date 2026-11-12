@@ -12,6 +12,7 @@ const HOOKED: &str = r#"{"hooks": {"PreToolUse": [{}]}}"#;
 fn request() -> LaunchRequest {
     LaunchRequest {
         verification: false,
+        gates_aside: false,
         name: "worker".into(),
         provider: Claude.provider(),
         account: "a".into(),

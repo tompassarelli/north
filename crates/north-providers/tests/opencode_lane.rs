@@ -32,6 +32,7 @@ fn lane_only_launcher() {
 fn request(cwd: &Path, prompt: &str) -> LaunchRequest {
     LaunchRequest {
         verification: false,
+        gates_aside: false,
         name: "worker".into(),
         provider: Deepseek::opencode().provider(),
         account: "go".into(),

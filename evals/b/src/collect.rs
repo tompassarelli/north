@@ -19,9 +19,16 @@ pub fn session(work: &Path, name: &str) {
         let text = if machine == here() { crate::proc::sh(&find).out } else { ssh(&machine, &find).out };
         let _ = fs::write(dir.join("transcript.jsonl"), text);
     }
+    let _ = fs::write(dir.join("gates.json"), aside_gates(name));
     let stopped = run("north", &["fleet", "stop", name], None);
     let forgot = run("north", &["fleet", "forget", name], None);
     let _ = fs::write(dir.join("teardown.log"), format!("{}{}{}{}", stopped.out, stopped.err, forgot.out, forgot.err));
+}
+
+fn aside_gates(name: &str) -> String {
+    let listed: Value = serde_json::from_str(&run("north", &["gate", "list", "--aside", "--json"], None).out).unwrap_or(Value::Null);
+    let own: Vec<&Value> = listed.as_array().into_iter().flatten().filter(|gate| gate["session"] == name).collect();
+    json!(own).to_string()
 }
 
 pub fn machine(session: &Value) -> String {

@@ -64,6 +64,9 @@ pub struct Machine {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LaunchRequest {
     pub verification: bool,
+    /// Keeps the decision gates this session opens out of the owner's queue, digest and gate list; `north gate list --aside` shows them (an eval's sessions open gates on purpose).
+    #[serde(default)]
+    pub gates_aside: bool,
     pub name: String,
     pub provider: ProviderName,
     pub account: String,
@@ -306,6 +309,8 @@ impl Predicted {
 pub struct SessionRecord {
     #[serde(default)]
     pub verification: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub gates_aside: bool,
     pub name: String,
     pub provider: ProviderName,
     pub account: String,
@@ -405,6 +410,7 @@ impl SessionRecord {
         let tasks = request.tasks();
         Self {
             verification,
+            gates_aside: request.gates_aside,
             name: request.name.clone(),
             provider: request.provider.clone(),
             account: request.account.clone(),
@@ -523,6 +529,7 @@ impl SessionRecord {
     pub fn relaunch_request(&self) -> LaunchRequest {
         LaunchRequest {
             verification: self.verification,
+            gates_aside: self.gates_aside,
             name: self.name.clone(),
             provider: self.provider.clone(),
             account: self.account.clone(),

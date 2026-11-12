@@ -212,6 +212,7 @@ mod launch_tests {
     fn request(cwd: &std::path::Path) -> LaunchRequest {
         LaunchRequest {
             verification: false,
+            gates_aside: false,
             name: "north-1042-d0525".into(),
             provider: ProviderName::new("claude"),
             account: "a".into(),
@@ -268,6 +269,7 @@ mod ghost_tests {
     fn request(cwd: &std::path::Path) -> LaunchRequest {
         LaunchRequest {
             verification: false,
+            gates_aside: false,
             name: "safety-lead".into(),
             provider: ProviderName::new("claude"),
             account: "a".into(),
@@ -368,6 +370,7 @@ mod queued_claim_tests {
     fn request(name: &str, cwd: &std::path::Path) -> LaunchRequest {
         LaunchRequest {
             verification: false,
+            gates_aside: false,
             name: name.into(),
             provider: ProviderName::new("claude"),
             account: "a".into(),

@@ -14,6 +14,7 @@ use super::placement::{self, Overrides};
 #[derive(Default)]
 struct LaunchFlags {
     verification: bool,
+    gates_aside: bool,
     provider: Option<ProviderName>,
     account: Option<String>,
     cwd: Option<PathBuf>,
@@ -89,6 +90,7 @@ impl LaunchFlags {
         let parent = lineage::parent(self.parent, caller, proxy, &name, self.role);
         Ok(LaunchRequest {
             verification: self.verification,
+            gates_aside: self.gates_aside,
             name,
             provider,
             account,
@@ -134,6 +136,7 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
     while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
         match *flag {
             "--test" => flags.verification = true,
+            "--gates-aside" => flags.gates_aside = true,
             "--take-over" => flags.take_over = true,
             "--wait" | "--no-wait" => flags.wait = Some(*flag == "--wait"),
             _ => {

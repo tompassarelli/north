@@ -38,6 +38,7 @@ printf '%s\n' '{"type":"agent_settled","aborted":false}'
 fn request(cwd: &Path) -> LaunchRequest {
     LaunchRequest {
         verification: false,
+        gates_aside: false,
         name: "worker".into(),
         provider: Deepseek::live(&PI).provider(),
         account: "go".into(),
