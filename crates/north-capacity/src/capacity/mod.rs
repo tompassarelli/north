@@ -24,6 +24,7 @@ mod gpu_admission;
 pub mod deadline;
 mod process_tree;
 pub mod dev_shell;
+mod store_client;
 pub mod subject_start;
 pub mod sandbox;
 pub mod carry;

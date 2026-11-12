@@ -70,10 +70,11 @@ measurements.
   fingerprints. Checked on cpx62b: after the change, `cargo check -p north-strategy-types` into the same target
   directory re-checked nothing.
 - What runs when the file is generated: `rust-project` builds the code the editor needs ("building generated code"):
-  proc-macro dylibs and build-script `OUT_DIR`s. Check-on-save builds clippy. All of these are Buck2 actions, so on
-  the laptop they run through box 6's remote execution and only their outputs download. The laptop generates its
-  file only once box 6 is live there. A file copied from a build host does not work, because its paths point into
-  that host's `buck-out`.
+  proc-macro dylibs and build-script `OUT_DIR`s. Check-on-save builds clippy. All of these are Buck2 actions. On a
+  build host they run on the workers and only their outputs download. On the laptop they run on the laptop: it is
+  no client of the store (Lanes, decision 9), its buckconfig names no engine, and the execution platform then runs
+  every action locally. The editor's check is the one Buck2 work the laptop keeps. A file copied from a build host
+  does not work, because its paths point into that host's `buck-out`.
 - Measured on cpx62b, 2026-11-11, with north-strategy-types (the one first-party target on main): generation took 6 s
   and covered 8 crates. `rust-analyzer analysis-stats` on the file reports 237 expressions, 0 with unknown types and
   0 failed bodies.
@@ -419,7 +420,7 @@ servers. Each license was read from the repository's own LICENSE file on 2026-11
 ## Lanes (north#1115 box 6)
 
 This section covers how a lane builds once the shared store serves every host: no seeded target directory, no
-warmed slot, and the laptop as a client that runs nothing itself. It was written for box 6 before box 6 was built;
+warmed slot, and a laptop that sends its builds whole to a build host. It was written for box 6 before box 6 was built;
 what has been built since is marked in the decisions and in the list that ends the section. Every number was
 measured on gex45 on 2026-11-11 at 2bd22a2744 unless another source is named. The runs were `buck2 build //...` in
 fresh worktrees of origin/main, inside the dev shell and under a 6-core heavy capacity lease.
@@ -513,8 +514,8 @@ The store was on cpx62, with Buildbarn workers on gex45 (8 slots), cpx62 and cpx
    - It also makes box 6's check a guarantee rather than an outcome of load.
    - On such a host `--local-only` is refused, not run: on gex45 on 2026-11-12 `buck2 build --local-only` of one
      crate exited 3 with `The desired execution strategy (LocalOnly) is incompatible with the executor config that
-     was selected`, and `--prefer-local` built it remotely. The clippy gate's check in box 10c names `--local-only`
-     and has to drop it. A target that must run on the invoking host names its own executor.
+     was selected`, and `--prefer-local` built it remotely. Box 10c's clippy check therefore names no execution
+     flag. A target that must run on the invoking host names its own executor.
    - Incremental compilation stays off. The prelude makes an incremental rustc action `local_only` (`rust/build.bzl`,
      `if incremental_enabled: local_only = True`), so it could never be shared, and under this decision it is
      refused. A one-line edit therefore recompiles the edited crate from scratch on a worker. In the cold build,
@@ -539,18 +540,28 @@ The store was on cpx62, with Buildbarn workers on gex45 (8 slots), cpx62 and cpx
    - A slot keeps its daemon between checks (no-op 1.6 to 2.1 s), and the daemon dies with the slot.
    - Saved: gex45's 66 GiB of slot targets today. Each slot holds about 21 MiB under decision 4, so the
      `land_offload` budgets can go in box 8.
-9. **The laptop is a client and runs nothing itself.** Through the system configuration it gets the build hosts'
-   `/etc/buckconfig.d/remote-execution` and a place on the private mesh, both in the private host configuration.
-   - Not built (2026-11-12): the laptop has no `/etc/buckconfig.d` and is no member of the build hosts' private
-     network, so a build started there finds no engine and would run locally. Making it a client of the store
-     changes who the hosts trust, which is decided in the private host configuration's records, not here; the
-     client file itself is one option of the same module the build hosts use.
-   - With that file, decision 5 makes every action remote, so a local compile is refused rather than run.
-   - It materialises only what its user runs and what the editor reads: `buck2 run` targets and rust-project's outputs.
-     A `-M none` `//...` downloads 11 MiB.
-   - Its daemon costs the same 0.5 to 0.9 GiB as a lane's.
-   - Box 6's second check is `buck2 log what-ran --skip-cache-hits --skip-remote-executions | rg -c rustc` printing
-     nothing on the laptop.
+9. **The laptop is no client of the store; a build started there runs whole on a build host.** Decided 2026-11-12
+   (north#1115 box 6a).
+   - What runs where: `north capacity offload run` sends the lane's commits to a build host as a git bundle, checks
+     them out in a land-offload slot there and runs the command in that slot's dev shell. That host's buckconfig
+     names the engine, so decision 5 holds: every action runs on the workers, and box 6's check
+     (`buck2 log what-ran --skip-cache-hits --skip-remote-executions | rg -c rustc`) prints nothing on the host that
+     ran the build. The laptop gets the command's output and its exit status, and no build output.
+   - What the laptop keeps: the editor's check, through the generated `rust-project.json`
+     ([Editor and lint](#editor-and-lint-north1115-box-10)). `rust-project` and check-on-save run Buck2 on the
+     laptop under the `.rust-analyzer` isolation dir. No buckconfig there names an engine, so
+     `toolchains//platforms:exec` runs each action locally, and nothing is read from or written to the store. The
+     laptop compiles the proc macros and build scripts of what the editor loads once (394 of 2,425 actions for the
+     whole graph), then clippy for the saved file's targets on each save. Not measured on the laptop.
+   - What north refuses: its own path to `buck2` on the laptop does not become a client of the store.
+     `north capacity dev-shell run`, which `bin/land-shell --dev` and so the build seam go through, exits 78 with
+     one line when a command that runs `buck2` on the laptop finds a `[buck2_re_client]` address in a buckconfig
+     Buck2 reads or on its own command line (`crates/north-capacity/src/capacity/store_client.rs`).
+   - Cost: the shipping, and the wait for a slot when the host is busy. Measured on one run from a laptop lane to
+     cpx62b on 2026-11-12 (below): 6.9 s of the 90.5 s the laptop waited were not the build.
+   - Not taken: two ways of making the laptop a client of the store. Either would have saved the shipping and let
+     the editor download its proc macros instead of compiling them. What they are and why neither was taken is
+     recorded with the host configuration, outside this repository.
 
 ### Measured with every action remote, 2026-11-12
 
@@ -574,17 +585,34 @@ dev shell's entry, the daemon's start, the analysis and the build.
 - So a fresh lane's check build costs 4.3 s once any lane has built its inputs, against 71 s with the default
   materialiser, and the 9.1 s of 2026-11-11 no longer describes a full `//...`.
 
+From a laptop lane, the same day: `north capacity offload run --host cpx62b` with `buck2 build //...`, at this
+section's change on origin/main 0fcaeae345, timed on the laptop around the whole call and on the build host around
+the build.
+
+- The laptop waited 90.5 s and the call exited 0. The build took 83.5 s of it on cpx62b:
+  `Commands: 2801 (cached: 2273, remote: 528, local: 0)`, 1.1 GiB downloaded, `BUILD SUCCEEDED`.
+  `buck2 log what-ran --skip-cache-hits --skip-remote-executions | rg -c rustc` printed nothing there (rg exit 1).
+- Shipping is the other 6.9 s. By the two machines' clocks, 5.7 s passed before the build started: the bundle
+  sent, the commit checked out in a free slot, the lease (0.02 s queued) and the dev shell entered. 1.2 s passed
+  after it: the check above, a `buck2 clean` and the answer coming back.
+- The 83.5 s are the default materialiser's download again, on the build host, where nothing reads it. A laptop
+  check passes `-M none` as a lane's does.
+- The wait for a slot is not in those 6.9 s, and it was the larger cost that hour: the same call to gex45 was
+  still in line after 180 s, behind 13 to 16 queued jobs with all 6 slots held, and was stopped there.
+
 ### What box 6 builds, in order
 
 1. `toolchains//platforms:exec`: `local_enabled = not remote`, with no hybrid (decision 5). Built.
 2. The worker sandbox's `~/.buck` and `buck-out/` grants (decision 6). Built (north#1116).
 3. The daemon state of a lane that is gone is reclaimed, which stops its daemon (decision 7). Built.
-4. The seam's Buck2 side: no `--isolation-dir` anywhere, and `-M none` on check builds (decisions 2 and 4). The
-   seam passes no `--isolation-dir`; `-M none` goes in with box 7b, which writes the seam's Buck2 side.
+4. The seam's Buck2 side: no `--isolation-dir` anywhere, and `-M none` on check builds (decisions 2 and 4). Built
+   with box 7b: the seam passes no `--isolation-dir`, and its check builds pass `--materializations=none`
+   ([Cut-over](#cut-over-the-seams-buck2-side-north1115-box-7b)).
 5. Land-offload slots without warm or target (decision 8). With box 7b, which is when a slot first builds through
    Buck2.
-6. The laptop's buckconfig file and mesh membership, in the private host configuration (decision 9). Box 6's
-   laptop check runs once these are live. Not built: it waits on the access decision named there.
+6. The laptop sends its builds whole to a build host and is refused as a client of the store (decision 9). Built:
+   the offload already carried a laptop lane's build, and the refusal is
+   `crates/north-capacity/src/capacity/store_client.rs`.
 
 Box 6 needs nothing from box 5.
 

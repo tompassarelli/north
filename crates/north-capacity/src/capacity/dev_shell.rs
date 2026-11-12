@@ -13,6 +13,7 @@ const TRACE: &str = "NORTH_DEV_SHELL_TRACE";
 pub(crate) const NOT_FOUND: u8 = 127;
 pub(crate) const NOT_EXECUTABLE: u8 = 126;
 const SEED_FAILED: u8 = 125;
+const NOT_A_STORE_CLIENT: u8 = 78;
 const SYSTEM_NIX: [&str; 2] = ["/run/current-system/sw/bin/nix", "/nix/var/nix/profiles/default/bin/nix"];
 const PREPARE_TIMEOUT_SECONDS: &str = "1800";
 const WORKTREES: &str = ".worktrees";
@@ -386,6 +387,10 @@ pub fn command(arguments: &[String], gated: &dyn Fn(&[String]) -> bool) -> u8 {
         eprintln!("{RUN_USAGE}");
         return 2;
     };
+    if let Some(refusal) = super::store_client::refusal_here(&invocation.command, &flake_root(&invocation.directory).unwrap_or_else(|| invocation.directory.clone())) {
+        eprintln!("{refusal}");
+        return NOT_A_STORE_CLIENT;
+    }
     let north = north_base::platform::north_binary::north_binary().to_string_lossy().into_owned();
     let shell_of = |directory: &Path| std::fs::canonicalize(directory).ok().and_then(|directory| flake_root(&directory));
     let own_shell = std::env::current_dir().ok().and_then(|directory| shell_of(&directory)) == shell_of(&invocation.directory);
