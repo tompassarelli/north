@@ -112,11 +112,20 @@ pub enum Ended {
 pub fn try_run_group_until(mut command: Command, limit: Duration, stop: &mut dyn FnMut() -> bool) -> std::io::Result<Ended> {
     use std::os::unix::process::CommandExt;
     command.process_group(0);
-    run_until(command, None, limit, true, true, false, stop)
+    run_until(command, None, limit, (true, true, false), STOP_POLL, stop)
+}
+
+pub fn run_command_or_leave_once(mut command: Command, input: &[u8], limit: Duration, settled: &mut dyn FnMut() -> bool) -> std::io::Result<Option<Output>> {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+    run_until(command, Some(input), limit, (true, false, true), SETTLE_POLL, settled).map(|ended| match ended {
+        Ended::Finished(output) => Some(output),
+        Ended::Stalled(_) | Ended::Stopped => None,
+    })
 }
 
 fn run_prepared(command: Command, input: Option<&[u8]>, limit: Duration, group: bool, traced: bool, leave: bool) -> std::io::Result<Result<Output, String>> {
-    run_until(command, input, limit, group, traced, leave, &mut || false).map(|ended| match ended {
+    run_until(command, input, limit, (group, traced, leave), STOP_POLL, &mut || false).map(|ended| match ended {
         Ended::Finished(output) => Ok(output),
         Ended::Stalled(stalled) => Err(stalled),
         Ended::Stopped => Err(String::new()),
@@ -124,8 +133,9 @@ fn run_prepared(command: Command, input: Option<&[u8]>, limit: Duration, group: 
 }
 
 const STOP_POLL: Duration = Duration::from_millis(500);
+const SETTLE_POLL: Duration = Duration::from_millis(20);
 
-fn run_until(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool, traced: bool, leave: bool, stop: &mut dyn FnMut() -> bool) -> std::io::Result<Ended> {
+fn run_until(mut command: Command, input: Option<&[u8]>, limit: Duration, (group, traced, leave): (bool, bool, bool), poll: Duration, stop: &mut dyn FnMut() -> bool) -> std::io::Result<Ended> {
     let stdin = match input {
         Some(input) => {
             let mut file = tempfile::tempfile()?;
@@ -148,23 +158,16 @@ fn run_until(mut command: Command, input: Option<&[u8]>, limit: Duration, group:
             break status;
         }
         if started.elapsed() >= limit {
-            if leave {
-                return Ok(Ended::Stalled(String::new()));
-            }
             let stalled = if traced { tree(child.id()) } else { String::new() };
-            kill(&mut child, group);
-            let _ = child.wait();
-            return Ok(Ended::Stalled(stalled));
+            return Ok(left_or_reaped(&mut child, group, leave, Ended::Stalled(stalled)));
         }
-        if asked.elapsed() >= STOP_POLL {
+        if asked.elapsed() >= poll {
             asked = Instant::now();
             if stop() {
-                kill(&mut child, group);
-                let _ = child.wait();
-                return Ok(Ended::Stopped);
+                return Ok(left_or_reaped(&mut child, group, leave, Ended::Stopped));
             }
         }
-        await_exit(&child, STOP_POLL.saturating_sub(asked.elapsed()).min(limit.saturating_sub(started.elapsed())));
+        await_exit(&child, poll.saturating_sub(asked.elapsed()).min(limit.saturating_sub(started.elapsed())));
     };
     let mut output = output;
     output.rewind()?;
@@ -175,6 +178,14 @@ fn run_until(mut command: Command, input: Option<&[u8]>, limit: Duration, group:
     let mut stderr = Vec::new();
     errors.read_to_end(&mut stderr)?;
     Ok(Ended::Finished(Output { status, stdout, stderr }))
+}
+
+fn left_or_reaped(child: &mut Child, group: bool, leave: bool, ended: Ended) -> Ended {
+    if !leave {
+        kill(child, group);
+        let _ = child.wait();
+    }
+    ended
 }
 
 /// Sleeps until `child` exits or `within` passes, whichever comes first, woken by the child's pidfd rather than by polling; a kernel without pidfds falls back to a 10 ms nap.

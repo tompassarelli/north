@@ -77,14 +77,14 @@ impl Denylist {
     }
 
     /// Scans and returns the stand: a pass or a no verdict is `Ok`, while a hard refusal is `Err`. An enqueue queues a
-    /// lane that reached no verdict, without an alone pass, so the lander judges it again before it lands. `stand_at_once`
+    /// lane that reached no verdict, without an alone pass, so the lander judges it again before it lands. `stand_while`
     /// also returns `Judging` when the private-kind judge is still asking a model, which it leaves running.
     pub fn scan_stand(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<(Stand, Option<String>)> {
         self.stand(root, origin_url, (base, head, tag), &|text| private_text::judge(text).map(Some))
     }
 
-    pub fn stand_at_once(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<(Stand, Option<String>)> {
-        self.stand(root, origin_url, (base, head, tag), &private_text::judge_at_once)
+    pub fn stand_while(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), running: &dyn Fn() -> bool) -> Step<(Stand, Option<String>)> {
+        self.stand(root, origin_url, range, &|text| private_text::judge_while(text, running))
     }
 
     pub fn verdict_within(&self, root: &Path, origin_url: &str, (base, head, tag): (&str, &str, &str), wait: Option<Duration>) -> DenylistVerdict {

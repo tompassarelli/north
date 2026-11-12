@@ -25,6 +25,7 @@ esac
 exit 1
 "#;
 const JUDGE_FINDS_AN_ADDRESS: &str = "#!/bin/sh\ntext=$(cat)\ncase \"$text\" in\n  *'lives at'*) printf 'address\\tthe owner lives at 1 Example Road\\n'; exit 1 ;;\nesac\nexit 0\n";
+const JUDGE_ASKS_A_MODEL: &str = "#!/bin/sh\ncat > /dev/null\nsleep 1\nexit 0\n";
 
 fn scanned_world(judge: &str) -> (World, Repository) {
     let world = World::new();
@@ -172,7 +173,12 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
         let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string()]);
         std::process::exit(i32::from(hand_in::finish(&arguments, road)));
     }
-    let (world, north) = scanned_world(JUDGE_PASSES);
+    let (world, north) = scanned_world(JUDGE_ASKS_A_MODEL);
+    write_executable(&world.path().join("bin/north"), VERDICT_NORTH);
+    fs::write(north.checkout.join(".safe-push"), "[landing]\n\tpush-app = lander\n[land]\n\tcheck = ** :: sleep 3\n").unwrap();
+    git(&north.checkout, &["commit", "-qam", "Run a land check before queueing"]);
+    git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    git(&north.checkout, &["fetch", "-q", "origin"]);
     let lane = worktree(&north, "finish");
     fs::write(lane.join("named.txt"), "the finished change\n").unwrap();
     fs::write(lane.join("unnamed.txt"), "a change the worker did not name\n").unwrap();
@@ -205,6 +211,7 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), "named.txt", "the call committed more than the named path");
     assert_eq!(git(&lane, &["log", "-1", "--format=%B", &queued.head]).trim_end(), "Add the proposed note (north#1239)", "a finish call that left out its message did not commit the proposed one byte for byte");
     assert_eq!(git(&lane, &["status", "--porcelain", "--", "unnamed.txt"]), "?? unnamed.txt", "the call swept up a path it was not given");
+    assert_eq!((queued.alone_green.as_deref(), queued.unjudged_on.as_deref()), (Some(queued.head.as_str()), None), "the judge answered while the checks before queueing ran, yet the ticket waits for the lander to ask again (north#1239): {text}");
 }
 
 const FILES: &str = "hand_in::a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_written_when_its_check_fails";

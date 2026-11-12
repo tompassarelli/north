@@ -70,13 +70,13 @@ pub fn enqueue_secrets(root: &Path, (base, head): (&str, &str)) -> Result<(), St
     Ok(())
 }
 
-pub fn enqueue_gate(root: &Path, (base, head): (&str, &str), denylist: &Denylist, origin: &str, destination: &str) -> Result<(Gate, Option<String>), String> {
-    let (stand, ran) = denylist.stand_at_once(root, origin, base, head, destination).map_err(|_| "deny-list scan refused the landing".to_owned())?;
+pub fn enqueue_gate(root: &Path, (base, head): (&str, &str), denylist: &Denylist, origin: &str, destination: &str, running: &dyn Fn() -> bool) -> Result<(Gate, Option<String>), String> {
+    let (stand, ran) = denylist.stand_while(root, origin, (base, head, destination), running).map_err(|_| "deny-list scan refused the landing".to_owned())?;
     match stand {
         Stand::Pass => Ok((Gate::Judged, ran)),
         Stand::NoVerdict => Ok((Gate::NoVerdict, None)),
         Stand::Judging => Ok((Gate::Judging, None)),
-        Stand::Refuse => unreachable!("stand_at_once returns a refusal as Err"),
+        Stand::Refuse => unreachable!("stand_while returns a refusal as Err"),
     }
 }
 

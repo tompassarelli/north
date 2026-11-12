@@ -2,6 +2,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
@@ -259,17 +260,24 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         lane_squash::refuse_unfinished_subject(&root, &branch)?;
         let queue = queue::directory(environment.state_home, &origin);
         let asked_micros = micros();
+        let settled = AtomicBool::new(false);
         let ((gate, ran, answered), gated_from, (red_fix, lander_fix, urgent)) = std::thread::scope(|inner| {
-            let judge = inner.spawn(|| timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination).map(|(gate, ran)| (gate, ran, micros()))));
-            timings.stage("requeue", || super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session))?;
-            let gated_from = timings.stage("lane gates", || judge_lane_gates(environment, &root, &branch, &base, &head, lander_ledger_at(&lander_host, &queue, environment)))?;
-            judged(environment, &root, &branch, &head, "revert guard", timings.stage("revert guard", || refuse_stale_revert(&root, &base, &head)))?;
-            let marks = timings.stage("marks", || marks(&root, &base, &head, &destination))?;
-            let (gate, ran, answered) = judge.join().map_err(|_| "the private-kind ask panicked".to_owned())??;
+            let judge = inner.spawn(|| timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination, &|| !settled.load(Ordering::Acquire)).map(|(gate, ran)| (gate, ran, micros()))));
+            let rest = (|| {
+                timings.stage("requeue", || super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session))?;
+                let gated_from = timings.stage("lane gates", || judge_lane_gates(environment, &root, &branch, &base, &head, lander_ledger_at(&lander_host, &queue, environment)))?;
+                judged(environment, &root, &branch, &head, "revert guard", timings.stage("revert guard", || refuse_stale_revert(&root, &base, &head)))?;
+                let marks = timings.stage("marks", || marks(&root, &base, &head, &destination))?;
+                queue_checks.join().map_err(|_| "the checks before queueing panicked".to_owned())??;
+                secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
+                Ok::<_, String>((gated_from, marks))
+            })();
+            settled.store(true, Ordering::Release);
+            let asked = judge.join().map_err(|_| "the private-kind ask panicked".to_owned());
+            let (gated_from, marks) = rest?;
+            let (gate, ran, answered) = asked??;
             Ok::<_, String>(((gate, ran, answered), gated_from, marks))
         })?;
-        queue_checks.join().map_err(|_| "the checks before queueing panicked".to_owned())??;
-        secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
         let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits, judge: ran };
         let queued_micros = micros();
         let ticket = Ticket {

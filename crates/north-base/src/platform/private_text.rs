@@ -54,9 +54,22 @@ pub fn judge(text: &str) -> Result<Vec<Finding>, String> {
 }
 
 pub fn judge_at_once(text: &str) -> Result<Option<Vec<Finding>>, String> {
+    answered(process::run_command_or_leave(at_once(), text.as_bytes(), AT_ONCE_LIMIT))
+}
+
+pub fn judge_while(text: &str, running: &dyn Fn() -> bool) -> Result<Option<Vec<Finding>>, String> {
+    let started = std::time::Instant::now();
+    answered(process::run_command_or_leave_once(command(), text.as_bytes(), JUDGE_LIMIT, &mut || started.elapsed() >= AT_ONCE_LIMIT && !running()))
+}
+
+fn at_once() -> Command {
     let mut command = command();
     command.env(AT_ONCE_ENV, "1");
-    match process::run_command_or_leave(command, text.as_bytes(), AT_ONCE_LIMIT) {
+    command
+}
+
+fn answered(ran: std::io::Result<Option<Output>>) -> Result<Option<Vec<Finding>>, String> {
+    match ran {
         Ok(Some(output)) if output.status.code() == Some(ASKING_STATUS) => Ok(None),
         Ok(Some(output)) => verdict(&output).map(Some),
         Ok(None) => Ok(None),
