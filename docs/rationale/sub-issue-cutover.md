@@ -126,7 +126,9 @@ Nothing is converted that should have been closed, so conversion comes last.
 
 1. **Sorting** (running, no build): each box is ticked only when its own check passes on main, proposed for
    retirement under a named rule, or left live. At the sampled rates (1.5% ticked, 2.4% proposed) it removes
-   about 26 boxes, between 12 and 60. About 653 remain.
+   about 26 boxes, between 12 and 60. About 653 remain. The judged pass of 2026-11-12 on north#1022 and
+   north#1249 took 62 open boxes to 58 by removing four (two superseded on each issue, each recorded word for
+   word in the issue's comment headed "Judged pass 2026-11-12") and queued five ticks, so 53 remain.
 2. **Verification of built boxes on the live runtime.** The sample puts built-and-unchecked boxes at 11% of
    the two issues that list them, 18% on one and 3% on the other, so about 70 across the tracker, between 25
    and 120. Five kinds of check, each with its runner:
