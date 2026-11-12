@@ -17,6 +17,7 @@ const COPY: Duration = Duration::from_secs(10 * 60);
 const PROBE: Duration = Duration::from_secs(20);
 const INSTALL_LOCK_WAIT: u64 = 15;
 const PROMOTE: Duration = Duration::from_secs(15 * 60);
+const UNKNOWN_FLAG: u8 = 64;
 
 pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
     let (target, runtime) = {
@@ -150,7 +151,15 @@ pub(super) fn promote_staged(host: &str, target: &str, runtime: &Path) -> Result
 
 pub(super) fn move_back_to_ordered(host: &str, target: &str) -> Result<(), Failure> {
     println!("north runtime deploy: {host}: moving back to the ordered {}", layout::short(target));
-    run_reporting(host, &format!("north runtime update --sha {} --ordered", layout::short(target)), ssh(host).args([".local/state/north/current/north", "runtime", "update", "--sha", target, "--ordered"]), PROMOTE)
+    run_reporting(host, &format!("north runtime update --sha {} --ordered", layout::short(target)), ssh(host).args([".local/state/north/current/north", "runtime", "update", "--sha", target, "--ordered"]), PROMOTE).map_err(|failure| not_moved_back(host, target, failure))
+}
+
+/// A runtime from before an order could move a host back answers `--ordered` with its usage, exit 64, and stays live: only an order of a commit newer than it, which a ship takes forward, puts a runtime that knows the flag there.
+fn not_moved_back(host: &str, target: &str, failure: Failure) -> Failure {
+    match failure.code == UNKNOWN_FLAG {
+        true => failed(failure.code, format!("{host} cannot be moved back to the ordered {}: the runtime live on {host} is from before an order could move a host back and does not take `north runtime update --sha SHA --ordered`, so {host} keeps it until an order of a newer commit ships it a runtime that does", layout::short(target))),
+        false => failure,
+    }
 }
 
 fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {

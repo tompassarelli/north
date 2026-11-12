@@ -29,8 +29,6 @@ const WRITE_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 const PASSES: usize = 5;
 const UPDATE_LOCK: &str = "runtime-update.lock";
 const PROMOTE_LOCK: &str = "runtime-promote.lock";
-const ORDER_LOCK: &str = "runtime-order.lock";
-const ORDER_HANDOVER: Duration = Duration::from_secs(10);
 const PROMOTE_QUEUE: &str = "runtime-promote-queue.lock";
 const CHECKOUT: &str = "code/north/main";
 const BUILD_FOR_PEER_LOCK: &str = "runtime-build.lock";
@@ -41,6 +39,7 @@ mod ahead;
 pub(super) use ahead::run as build_ahead;
 mod build;
 mod collect;
+mod ordered;
 mod preswap;
 mod shipped;
 mod slot;
@@ -49,6 +48,8 @@ mod sync;
 use build::{build, export_tree};
 pub(crate) use collect::collect;
 use hold::Verdict;
+use ordered::unordered;
+pub(super) use ordered::{build_ordered, go_live_ordered, order_handed_over, order_marked, order_waiting, update_ordered_to};
 use shipped::{Shipped, shipped};
 use sync::{relink, republish_if_unpublished, swap, sync};
 pub(super) use sync::{alert_proxy, page_proxy};
@@ -106,15 +107,6 @@ pub(super) fn flight(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Fl
     }
 }
 
-/// An order stops the unit that holds runtime-promote.lock before it can take that lock itself, so a promotion that took it in between leaves it to the order runtime-order.lock names (north#1171).
-fn unordered(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Flight, Failure> {
-    if named_lock(layout, ORDER_LOCK, FlockOperation::NonBlockingLockShared)?.is_none() {
-        println!("north runtime: an order is promoting its commit here, so this promotion leaves it the promotion lock; the next tick takes origin/main's newest head");
-        return Ok(Flight::Joined);
-    }
-    follow_main(layout, after_flip).map(|()| Flight::Flew)
-}
-
 fn follow_main(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<(), Failure> {
     for _ in 0..PASSES {
         match pass(layout) {
@@ -139,18 +131,6 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
         Shipped::Promote => return advance(layout, &checkout, target, previous.as_deref()).map(|_| ()),
     }
     Ok(())
-}
-
-/// An order's go-live on a host that takes shipped runtimes, run by the runtime live there: a ship never moves a host back, since a late one must not undo a newer promotion, but an order moves the host to its commit whichever runtime is live.
-pub(super) fn update_ordered_to(layout: &Layout, target: &str) -> Result<(), Failure> {
-    if !land_offload::accepts_peer_runtimes_here() {
-        return Err(failed(1, format!("this host settles the fleet and takes an order only as `north runtime order`, not {} shipped from another host", layout::short(target))));
-    }
-    let _promoting = promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime update --sha --ordered")?;
-    if !usable(&layout.runtime(target)) {
-        return Err(failed(1, format!("{} was not shipped to this host; runtime unchanged", layout::short(target))));
-    }
-    move_to_ordered(layout, target)
 }
 
 /// One build for another host runs here at a time, since each borrows the one runtime-build lane and kept target; a commit neither on origin/main nor sent here ahead of its landing as a lander's candidate is refused, so a build host builds only what landed or what a lander is checking.
@@ -196,45 +176,6 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     lifecycle::move_to::<Promoting>(layout, &previous, Promotion::Live, &format!("rolled back to after {} failed", layout::short(failed_sha)))?;
     println!("north runtime rolled back to {previous}");
     Ok(previous)
-}
-
-/// An ordered promotion's go-live on this host: the runtime was built and passed its canary before this, so only the swap is left, and a pass that left `current` elsewhere (held back, rolled back, or moved) is a failure, not a quiet success.
-pub(super) fn go_live_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
-    move_to_ordered(layout, target)?;
-    pin::promoted(layout, target);
-    Ok(())
-}
-
-fn move_to_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
-    let checkout = checkout();
-    let previous = fs::read_link(layout.current()).ok();
-    if previous.as_deref() != Some(layout::link(target).as_path()) {
-        advance(layout, &checkout, target, previous.as_deref())?;
-        if layout.live_sha().as_deref() != Some(target) {
-            return Err(failed(1, format!("{} did not go live here: current is {}", layout::short(target), layout.live_sha().as_deref().map_or("missing", layout::short))));
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn build_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
-    built(layout, &checkout(), target).map(|_| ())
-}
-
-pub(super) fn order_marked(layout: &Layout) -> Result<File, Failure> {
-    named_lock_waiting(layout, ORDER_LOCK, remote::limit(PINNED_LOCK_WAIT), "north runtime order")
-}
-
-/// The hold unit blocks on runtime-promote.lock and takes it once the order lets go; the order keeps its mark until it sees the lock held again, since a promotion polling for the lock can reach it first.
-pub(super) fn order_handed_over(layout: &Layout) {
-    let started = Instant::now();
-    while started.elapsed() < ORDER_HANDOVER && !matches!(named_lock(layout, PROMOTE_LOCK, FlockOperation::NonBlockingLockExclusive), Ok(None)) {
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-pub(super) fn order_waiting(layout: &Layout) -> Result<File, Failure> {
-    promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime order")
 }
 
 pub(super) fn promotion_waiting(layout: &Layout, limit: Duration, waiter: &str) -> Result<File, Failure> {

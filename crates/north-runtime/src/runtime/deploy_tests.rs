@@ -1,4 +1,6 @@
-use super::{BUILT_FROM, TREE, install_script};
+use super::super::failure::failed;
+use super::super::layout;
+use super::{BUILT_FROM, TREE, install_script, not_moved_back};
 use crate::foundation::shim::write_executable;
 use std::fs;
 use std::path::Path;
@@ -111,4 +113,13 @@ fn a_runtime_replaced_while_it_waited_its_turn_is_not_shipped() {
     let references = std::collections::BTreeSet::new();
     let skipped = super::shipped(&layout, "no-such-host.invalid", TARGET, state.path(), &references, &|| true);
     assert!(skipped.is_ok());
+}
+
+#[test]
+fn an_order_that_cannot_move_a_host_back_names_the_host_and_its_runtime_from_before_the_move_back() {
+    let unknown = not_moved_back("builder", TARGET, failed(64, "north runtime update --sha --ordered on builder failed: exit status: 64"));
+    let said = format!("builder cannot be moved back to the ordered {}: the runtime live on builder is from before an order could move a host back", layout::short(TARGET));
+    assert!(unknown.code == 64 && unknown.message.starts_with(&said), "{}", unknown.message);
+    let held = not_moved_back("builder", TARGET, failed(1, "did not go live here"));
+    assert_eq!((held.code, held.message.as_str()), (1, "did not go live here"), "a host whose runtime takes the flag keeps its own reason");
 }

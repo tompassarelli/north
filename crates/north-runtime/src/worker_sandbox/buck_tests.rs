@@ -47,4 +47,8 @@ fn a_worker_may_reset_its_buck2_daemon_state_and_nothing_else_in_home() {
     let refused = "! mkdir -p \"$HOME/.buck/buckd/${PWD#/}/../other/v2\" && ! touch \"$HOME/.buck/anything-else\" && ! mkdir \"$HOME/.buck/tmp\" && ! touch \"$HOME/.buckconfig\"";
     let output = confined_in(&home, &lane, &format!("{own} && {refused}"), true);
     assert!(output.status.success(), "a worker could not restart its own lane's Buck2 daemon, or wrote beside its daemon state: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    std::fs::create_dir_all(home.join(".local/state/north/runtimes")).unwrap();
+    let runtime = "s=\"$HOME/.local/state/north\" && ! ln -sfn runtimes/older \"$s/current\" && ! touch \"$s/runtime-promote.lock\" && ! mkdir \"$s/runtimes/older\"";
+    let output = confined_in(&home, &lane, runtime, true);
+    assert!(output.status.success(), "a worker wrote the host's runtime link, its promotion lock or a runtime beside its own state: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
 }
