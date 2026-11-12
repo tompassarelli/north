@@ -90,6 +90,17 @@ cadence_hours = 24
 owner = "north#1279 North improves itself from its own records"
 
 [[loop]]
+name = "grounding-arm"
+decision = "whether a fresh worker launch's first prompt carries grounding: the grounded or plain arm it draws, and on the grounded arm the files predicted for its box"
+sites = ["crates/north-fleet-supervisor/src/fleet/registry/grounding.rs", "crates/north-fleet-supervisor/src/fleet/registry/launching.rs"]
+updated_by = "north fleet launch draws the arms in equal seeded shares until 2026-11-26, and experiment grounding-g2 in docs/rationale/experiments.toml keeps or deletes the grounded arm"
+cadence_hours = 24
+owner = "north#1147 A fleet worker's brief carries graph grounding as of its base commit"
+constants = [
+  "crates/north-fleet-supervisor/src/fleet/registry/grounding.rs::UNTIL_MS",
+]
+
+[[loop]]
 name = "capacity-estimate"
 decision = "the cores and memory a capacity lease charges for a command, which admission weighs"
 sites = [
