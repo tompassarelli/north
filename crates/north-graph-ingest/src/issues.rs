@@ -13,7 +13,7 @@ use crate::waits::{self, Wait};
 
 const WRITER: &str = "mirror";
 const RUNS: &str = "ledger";
-const REPLACED: [&str; 12] = ["title", "state", "label", "blocked-by", "follows", "has-box", "text", "ticked", "owner", "claims", "waits-on", "unparsed-wait"];
+const REPLACED: [&str; 15] = ["title", "state", "label", "blocked-by", "follows", "has-box", "text", "ticked", "owner", "claims", "waits-on", "unparsed-wait", "parent", "leaf", "done-when"];
 
 fn open_issues(places: &Places, repo: &str) -> Option<Vec<Value>> {
     places.mirror.read(&key(repo, OPEN_ISSUES)).and_then(|copy| copy.body.as_array().cloned())
@@ -72,9 +72,20 @@ fn tell_issue(facts: &mut Facts, shas: &Shas, repo: &str, issue: &Value) {
     for line in unparsed {
         tell_unparsed(facts, &name, &name, &line);
     }
+    let parent = issue["parent"]["number"].as_u64().zip(issue["parent"]["repository"]["name"].as_str());
+    if let Some((other, parent_repo)) = parent {
+        facts.tell(WRITER, text(&name), "parent", text(format!("{parent_repo}#{other}")));
+    }
     let items = boxes::parse(body);
     for item in &items {
         tell_box(facts, shas, &name, item, &items);
+    }
+    let open_children = issue["subIssuesSummary"]["total"].as_u64().unwrap_or(0).saturating_sub(issue["subIssuesSummary"]["completed"].as_u64().unwrap_or(0));
+    if parent.is_some() && items.is_empty() && open_children == 0 {
+        facts.tell(WRITER, text(&name), "leaf", Term::boolean(true));
+        if let Some(command) = boxes::done_when(body) {
+            facts.tell(WRITER, text(&name), "done-when", text(command));
+        }
     }
 }
 

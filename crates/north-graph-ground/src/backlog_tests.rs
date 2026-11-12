@@ -71,3 +71,21 @@ fn the_reader_lists_ready_boxes_most_measured_loss_per_dollar_first_then_by_labe
     assert_eq!(why, "box \"Over 3 h no run is attributed host-caused (not before 2026-1…\" waits on its dated check \"2026-11-08T00:00Z\"");
     assert_eq!(crate::backlog::read_from_at(&graph, 1_794_096_000).unwrap().leaders()[0], "north#706", "it leads again once its date comes");
 }
+
+#[test]
+fn an_open_leaf_is_ready_unless_a_blocker_is_open_and_the_box_path_is_unchanged() {
+    let mut graph = graph();
+    for (name, blocked) in [("north#10", None), ("north#11", Some("north#2")), ("north#12", Some("north#6"))] {
+        tell(&mut graph, name, "state", Term::keyword("open"));
+        tell(&mut graph, name, "title", Term::string(format!("leaf {name}")));
+        tell(&mut graph, name, "leaf", Term::boolean(true));
+        if let Some(blocker) = blocked {
+            tell(&mut graph, name, "blocked-by", Term::string(blocker));
+        }
+    }
+    let backlog = read_from(&graph).unwrap();
+    let ready: Vec<&str> = backlog.ready.iter().map(|entry| entry.issue.as_str()).collect();
+    assert!(ready.contains(&"north#10") && ready.contains(&"north#12") && !ready.contains(&"north#11"), "{ready:?}");
+    assert!(backlog.held.iter().any(|held| held.entry.issue == "north#11" && held.edge == "north#2"));
+    assert!(ready.contains(&"north#1"), "box issues keep their verdicts");
+}

@@ -8,6 +8,7 @@ fn arg(text: &str) -> Value {
         (Some(b':'), _) => json!(["keyword", &text[1..]]),
         (Some(b'#'), _) => text[1..].parse::<i64>().map_or_else(|_| json!(text), |number| json!(number)),
         (_, "false") => json!(false),
+        (_, "true") => json!(true),
         _ => json!(text),
     }
 }
@@ -31,6 +32,7 @@ fn rule(head: (&str, &[&str]), body: Vec<Value>) -> Value {
 fn first_stratum() -> Vec<Value> {
     let mut rules = vec![
         rule(("live", &["?issue", "?box", "?text"]), vec![fact("?issue", "state", ":open"), fact("?issue", "has-box", "?box"), fact("?box", "ticked", "false"), fact("?box", "text", "?text")]),
+        rule(("live", &["?issue", "?issue", "?text"]), vec![fact("?issue", "state", ":open"), fact("?issue", "leaf", "true"), fact("?issue", "title", "?text")]),
         rule(("pending", &["?target", "?text"]), vec![fact("?target", "ticked", "false"), fact("?target", "text", "?text")]),
         rule(("pending", &["?target", "?text"]), vec![fact("?target", "state", ":open"), fact("?target", "title", "?text")]),
         rule(("ranked", &["?issue"]), vec![fact("?issue", "rank", "?rank")]),
@@ -38,6 +40,7 @@ fn first_stratum() -> Vec<Value> {
     for predicate in ["waits-on", "doc-waits-on"] {
         rules.push(rule(("edge", &["?box", "?target"]), vec![fact("?box", predicate, "?target")]));
     }
+    rules.push(rule(("edge", &["?leaf", "?target"]), vec![fact("?leaf", "leaf", "true"), fact("?leaf", "blocked-by", "?target")]));
     for predicate in ["blocked-by", "follows", "doc-waits-on"] {
         rules.push(rule(("edge", &["?box", "?target"]), vec![fact("?other", "has-box", "?box"), fact("?other", predicate, "?target")]));
     }

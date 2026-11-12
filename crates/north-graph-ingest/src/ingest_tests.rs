@@ -299,3 +299,24 @@ fn reads_takes_each_tests_newest_shadow_unit_line_naming_a_set_and_tells_its_pat
     let again = ingest(&mut graph, &places, &[Source::Reads]);
     assert_eq!(again.lines, ["reads: 0 asserted, 0 retracted, 8 unchanged"]);
 }
+
+#[test]
+fn a_leaf_is_a_node_with_its_parent_and_done_when() {
+    let directory = tempfile::tempdir().unwrap();
+    let places = places(directory.path());
+    let leaf = json!({"number": 900, "title": "Read a leaf", "body": "Read a leaf.\n\nDone when: `cargo test -p x` exits 0\n", "labels": {"nodes": []}, "blockedBy": {"nodes": [{"number": 901, "state": "OPEN", "repository": {"name": "north"}}]}, "parent": {"number": 899, "repository": {"name": "north"}}, "subIssuesSummary": {"total": 0, "completed": 0}});
+    let parent = json!({"number": 899, "title": "An outcome", "body": "", "labels": {"nodes": []}, "blockedBy": {"nodes": []}, "parent": null, "subIssuesSummary": {"total": 1, "completed": 0}});
+    let boxed = json!({"number": 902, "title": "Boxes", "body": "- [ ] A box\n", "labels": {"nodes": []}, "blockedBy": {"nodes": []}, "parent": {"number": 899, "repository": {"name": "north"}}, "subIssuesSummary": {"total": 0, "completed": 0}});
+    places.mirror.write("north/issues/open", &json!([leaf, parent, boxed]), None, 1.0).unwrap();
+    let mut graph = Graph::open_in_memory().unwrap();
+    let report = ingest(&mut graph, &places, &[Source::Mirror]);
+    assert!(!report.failed, "{:?}", report.lines);
+    let told = graph.told().unwrap();
+    let has = |subject: &str, predicate: &str, object: Term| told.contains(&north_graph::Told::new("mirror", subject, Term::keyword(predicate), object));
+    assert!(has("north#900", "leaf", Term::boolean(true)));
+    assert!(has("north#900", "parent", Term::string("north#899")));
+    assert!(has("north#900", "done-when", Term::string("cargo test -p x")));
+    assert!(has("north#900", "blocked-by", Term::string("north#901")));
+    assert!(!has("north#899", "leaf", Term::boolean(true)), "a parent with an open child is not a leaf");
+    assert!(!has("north#902", "leaf", Term::boolean(true)), "an issue with checkboxes is on the box path");
+}
