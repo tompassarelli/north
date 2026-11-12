@@ -28,6 +28,7 @@ const RESIDENTS: &[(&[&str], &str)] = &[
     (&["gh-broker", "serve"], "gh-broker"),
     (&["broker", "serve"], "broker"),
     (&["--worker-sandbox", "--broker"], "worker-sandbox broker"),
+    (&["--tool-server"], "tool-server"),
 ];
 const USER_HZ: u64 = 100;
 
@@ -68,7 +69,7 @@ fn report(proc_root: &Path, state: &Path) -> String {
 }
 
 fn processes(proc_root: &Path, state: &Path) -> Vec<Process> {
-    residents(proc_root, state).into_iter().map(|resident| Process { pid: resident.pid, process: format!("{}{}", resident.kind, resident.subject), runtime: resident.runtime }).collect()
+    residents(proc_root, state).into_iter().map(|resident| Process { pid: resident.pid, kind: resident.kind.to_owned(), process: format!("{}{}", resident.kind, resident.subject), runtime: resident.runtime }).collect()
 }
 
 fn residents(proc_root: &Path, state: &Path) -> Vec<Resident> {

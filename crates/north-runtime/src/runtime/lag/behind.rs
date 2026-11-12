@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub(super) struct Process {
     pub(super) pid: u32,
+    #[serde(default)]
+    pub(super) kind: String,
     pub(super) process: String,
     pub(super) runtime: Option<String>,
 }
@@ -28,7 +30,7 @@ pub(super) fn objects(seen: &[Seen], landings: &[Landing], now: i64, holds: impl
     let mut lag = |runtime: Option<&str>| *known.entry(runtime.map(str::to_owned)).or_insert_with(|| seconds(landings, runtime, now, &holds));
     seen.iter()
         .flat_map(|seen| match &seen.processes {
-            Ok(processes) => processes.iter().map(|process| json!({"host": seen.host, "process": process.process, "runtime": process.runtime, "seconds": lag(process.runtime.as_deref())})).collect(),
+            Ok(processes) => processes.iter().map(|process| json!({"host": seen.host, "kind": process.kind, "process": process.process, "runtime": process.runtime, "seconds": lag(process.runtime.as_deref())})).collect(),
             Err(why) => vec![json!({"host": seen.host, "process": null, "runtime": null, "seconds": null, "unread": why})],
         })
         .collect()

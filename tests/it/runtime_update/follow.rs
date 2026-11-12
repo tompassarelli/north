@@ -108,3 +108,48 @@ fn a_session_host_moves_onto_each_promoted_runtime_in_place_and_keeps_its_provid
     session_host.kill().unwrap();
     session_host.wait().unwrap();
 }
+
+#[test]
+fn a_tool_server_answers_each_call_from_the_runtime_current_names_and_answers_none_twice() {
+    use std::io::{BufRead, BufReader, Write};
+    let host = Host::new();
+    for sha in RUNTIMES {
+        host.built(sha);
+        shim::copy_executable(crate::support::bin_exe!("CARGO_BIN_EXE_north"), host.runtime(sha).join("north"));
+    }
+    promote(&host, RUNTIMES[0]);
+    let north = |sha: &str, args: &[&str]| {
+        let mut command = Command::new(host.runtime(sha).join("north"));
+        command.args(args).env("HOME", host.path("home")).env("XDG_STATE_HOME", host.path("state")).env("THREADS_DB", host.path("threads.db")).env_remove("NORTH_RUNTIME_LINK").env_remove("NORTH_FLEET_SESSION");
+        command
+    };
+    let mut server = spawn(north(RUNTIMES[0], &["--tool-server", "runtime"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()));
+    let pid = server.id();
+    let mut requests = server.stdin.take().unwrap();
+    let mut answers = BufReader::new(server.stdout.take().unwrap());
+    let mut call = |id: u32| {
+        let request = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "runtime", "arguments": {"arguments": ["lag", "--processes"]}}});
+        writeln!(requests, "{request}").unwrap();
+        let mut line = String::new();
+        answers.read_line(&mut line).unwrap();
+        let answer: serde_json::Value = serde_json::from_str(&line).unwrap_or_else(|error| panic!("call {id} got {line:?}: {error}"));
+        assert_eq!(answer["id"], id);
+        let text = answer["result"]["content"][0]["text"].as_str().unwrap_or_default().to_owned();
+        text.lines().find(|line| line.starts_with(&format!("{pid} "))).unwrap_or_default().to_owned()
+    };
+    assert_eq!(call(1), format!("{pid} tool-server runtime runs {}: current", &RUNTIMES[0][..10]));
+    promote(&host, RUNTIMES[1]);
+    assert_eq!(call(2), format!("{pid} tool-server runtime runs {}: current", &RUNTIMES[1][..10]), "a call sent after current moved was answered from the old runtime");
+    promote(&host, RUNTIMES[2]);
+    let lag = || {
+        let text = String::from_utf8_lossy(&north(RUNTIMES[2], &["runtime", "lag", "--processes"]).output().unwrap().stdout).into_owned();
+        text.lines().find(|line| line.starts_with(&format!("{pid} "))).unwrap_or_default().to_owned()
+    };
+    assert!(north_core::platform::wait::until(Duration::from_secs(10), || lag().ends_with(&format!("runs {}: current", &RUNTIMES[2][..10]))), "10 s after current moved, the idle tool server reads {:?}", lag());
+    assert_eq!(call(3), format!("{pid} tool-server runtime runs {}: current", &RUNTIMES[2][..10]));
+    drop(requests);
+    let mut rest = String::new();
+    answers.read_line(&mut rest).unwrap();
+    assert_eq!(rest, "", "a call was answered twice");
+    assert!(server.wait().unwrap().success());
+}

@@ -8,8 +8,8 @@ const OLD: &str = "aaaaaaaa1111111111111111111111111111aaaa";
 const MIDDLE: &str = "bbbbbbbb2222222222222222222222222222bbbb";
 const NEWEST: &str = "cccccccc3333333333333333333333333333cccc";
 
-fn process(pid: u32, name: &str, runtime: Option<&str>) -> Process {
-    Process { pid, process: name.to_owned(), runtime: runtime.map(str::to_owned) }
+fn process(pid: u32, kind: &str, name: &str, runtime: Option<&str>) -> Process {
+    Process { pid, kind: kind.to_owned(), process: name.to_owned(), runtime: runtime.map(str::to_owned) }
 }
 
 fn rank(sha: &str) -> u8 {
@@ -20,8 +20,8 @@ fn rank(sha: &str) -> u8 {
 fn runtime_lag_json_reports_seconds_behind_for_every_process_and_pages_once() {
     let landings = vec![Landing { at: 1_000, sha: MIDDLE.to_owned() }, Landing { at: 2_000, sha: NEWEST.to_owned() }];
     let seen = vec![
-        Seen { host: "laptop".to_owned(), processes: Ok(vec![process(1, "land serve all repositories", Some(NEWEST)), process(2, "session-host worker-1", Some(MIDDLE)), process(3, "fleet watchdog worker-1", None)]) },
-        Seen { host: "nexus".to_owned(), processes: Ok(vec![process(4, "offload taker", Some(OLD))]) },
+        Seen { host: "laptop".to_owned(), processes: Ok(vec![process(1, "land serve", "land serve all repositories", Some(NEWEST)), process(2, "session-host", "session-host worker-1", Some(MIDDLE)), process(3, "fleet watchdog", "fleet watchdog worker-1", None)]) },
+        Seen { host: "nexus".to_owned(), processes: Ok(vec![process(4, "offload taker", "offload taker", Some(OLD))]) },
         Seen { host: "gone".to_owned(), processes: Err("no answer within 60s".to_owned()) },
     ];
     let holds = |landed: &str, runtime: &str| rank(runtime) >= rank(landed);
@@ -29,10 +29,10 @@ fn runtime_lag_json_reports_seconds_behind_for_every_process_and_pages_once() {
     assert_eq!(
         found,
         vec![
-            json!({"host": "laptop", "process": "land serve all repositories", "runtime": NEWEST, "seconds": 0}),
-            json!({"host": "laptop", "process": "session-host worker-1", "runtime": MIDDLE, "seconds": 500}),
-            json!({"host": "laptop", "process": "fleet watchdog worker-1", "runtime": null, "seconds": 500}),
-            json!({"host": "nexus", "process": "offload taker", "runtime": OLD, "seconds": 1_500}),
+            json!({"host": "laptop", "kind": "land serve", "process": "land serve all repositories", "runtime": NEWEST, "seconds": 0}),
+            json!({"host": "laptop", "kind": "session-host", "process": "session-host worker-1", "runtime": MIDDLE, "seconds": 500}),
+            json!({"host": "laptop", "kind": "fleet watchdog", "process": "fleet watchdog worker-1", "runtime": null, "seconds": 500}),
+            json!({"host": "nexus", "kind": "offload taker", "process": "offload taker", "runtime": OLD, "seconds": 1_500}),
             json!({"host": "gone", "process": null, "runtime": null, "seconds": null, "unread": "no answer within 60s"}),
         ]
     );

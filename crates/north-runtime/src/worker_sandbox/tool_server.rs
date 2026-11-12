@@ -1,15 +1,20 @@
 //! The stdio tool server a session's Claude Code starts beside it (`--mcp-config`), offering the north verbs that `harness/worker-tools.toml` names as tools. Each call runs `north VERB ARGUMENTS...` and returns what it printed, so a blocking verb comes back inline as one tool call (north#1151).
 
-use std::io::{self, BufRead, Write};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Write};
+use std::os::fd::AsFd;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
+use north_runtime_follow::Follow;
 use serde_json::{Value, json};
 
 pub const FLAG: &str = "--tool-server";
 const PROTOCOL: &str = "2025-06-18";
 const NO_SUCH_METHOD: i64 = -32601;
 const BAD_PARAMS: i64 = -32602;
+const FOLLOW_CHECK: Duration = Duration::from_secs(2);
 const HAND_IN: &str = "hand-in";
 const FINISH: &str = "finish";
 const RESULT_CHARS: usize = 4_000;
@@ -27,7 +32,7 @@ pub fn enter(arguments: &[String], screen: super::Screen) -> Option<std::process
 
 pub fn run(verbs: &[String]) -> std::process::ExitCode {
     let north = north_base::platform::north_binary::own_binary();
-    match serve(verbs, &north, io::stdin().lock(), io::stdout().lock()) {
+    match follow(verbs, &north, io::stdout().lock()) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("north tool-server: {error}");
@@ -38,11 +43,41 @@ pub fn run(verbs: &[String]) -> std::process::ExitCode {
 
 pub fn serve(verbs: &[String], north: &Path, input: impl BufRead, mut output: impl Write) -> io::Result<()> {
     for line in input.lines() {
-        let Ok(request) = serde_json::from_str::<Value>(&line?) else { continue };
-        if let Some(response) = answer(verbs, north, &request) {
-            writeln!(output, "{response}")?;
-            output.flush()?;
+        respond(verbs, north, &line?, &mut output)?;
+    }
+    Ok(())
+}
+
+/// Serves standard input until it closes, and moves onto the promoted runtime between calls (docs/rationale/runtime-follow.md): with no request read, it re-execs in place, so the pid and the pipes stay, and the request the client sends next waits in the pipe for the new image, which answers it once.
+fn follow(verbs: &[String], north: &Path, mut output: impl Write) -> io::Result<()> {
+    let mut runtime = Follow::current();
+    let mut input = BufReader::new(File::from(io::stdin().as_fd().try_clone_to_owned()?));
+    let mut stuck = false;
+    loop {
+        if input.buffer().is_empty() {
+            let mut waiting = [rustix::event::PollFd::new(input.get_ref(), rustix::event::PollFlags::IN)];
+            let quiet = matches!(rustix::event::poll(&mut waiting, i32::try_from(FOLLOW_CHECK.as_millis()).unwrap_or(i32::MAX)), Ok(0));
+            if !stuck && runtime.replaced().is_some() {
+                stuck = true;
+                eprintln!("north tool-server: cannot move onto the promoted runtime, so this one serves on: {}", runtime.reexec());
+            }
+            if quiet {
+                continue;
+            }
         }
+        let mut line = String::new();
+        if input.read_line(&mut line)? == 0 {
+            return Ok(());
+        }
+        respond(verbs, north, &line, &mut output)?;
+    }
+}
+
+fn respond(verbs: &[String], north: &Path, line: &str, output: &mut impl Write) -> io::Result<()> {
+    let Ok(request) = serde_json::from_str::<Value>(line) else { return Ok(()) };
+    if let Some(response) = answer(verbs, north, &request) {
+        writeln!(output, "{response}")?;
+        output.flush()?;
     }
     Ok(())
 }
