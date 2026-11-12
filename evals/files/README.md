@@ -34,3 +34,30 @@ The summary (table, classifier time and tokens, per-task counts, every miss with
 Columns: found is edited files among those kept under the caps; files named is what the picker ranked before the caps (text search
 names every file that holds any word, so its figure is the repository's size); ceiling is edited files the picker's input
 contained that are also under the 8 KB file cap, so no variant can pass it.
+
+## Experiment G1 of north#1147: grounding a brief from its base commit
+
+`eval-files boxes` replays the registered G1 line on north's own closed boxes. Set: the newest closed north issues whose
+only mention in main's first-parent history is one commit with `(north#N)` in its subject. Base: that commit's parent.
+Input: the issue's title and body as of the base commit's time, read from GitHub's edit history (the fleet's stored briefs
+live in the ledger of the host that launched them). Truth: every file the commit changed. A picker scores a box when a
+changed file is in its top 5 (and, separately, top 10).
+
+Pickers, from the box text and the base commit only:
+
+- (a) the full grounding query, `NORTH_GROUNDING_AS_OF=<base time> north graph ground query --query <text>`;
+- (b) text search, as above;
+- (c) the graph step: files the text names that exist at the base, then files that define a code-shaped name the text
+  uses (a Rust item definition at the base), then files that changed with those in the base's history, then the files of
+  the tests that the graph's coverage map says reach them;
+- (d) the classifier on the brief and the repository map, as above; and, beside it, the classifier on the top text-search
+  and step candidates;
+- the pack as dispatch attaches it today: the paths of a `Files:` line.
+
+```
+cp ~/.local/state/north/graph.db /tmp/g1/graph.db
+NORTH_GRAPH_DB=/tmp/g1/graph.db target/debug/eval-files boxes --repo NORTH_CHECKOUT --graph /tmp/g1/graph.db --work /tmp/g1/run --count 120
+```
+
+The box set, text-search ranks and classifier replies are kept under `--work` and reused on a rerun. The copy is needed
+inside a worker sandbox, which opens the live graph read-only and gets no rows back.

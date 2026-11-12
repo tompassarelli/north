@@ -1,9 +1,12 @@
+mod boxes;
 mod cap;
 mod classify;
 mod map;
 mod pickers;
 mod proc;
+mod replay;
 mod report;
+mod step;
 mod task;
 mod variants;
 
@@ -21,7 +24,10 @@ use variants::Ranked;
 const USAGE: &str = "usage: eval-files --tasks TASKS.json --work DIR [--wisp DIR] [--model M] [--north PROGRAM]
   Scores five file pickers on the recorded tasks: the graph, text search, a fast-model classifier on the brief and a repository map,
   the classifier on the brief and the top search and graph candidates, and unions of them. Raw classifier replies are kept in DIR/raw
-  and reused on a rerun; delete DIR/raw to ask again. The summary goes to DIR/summary.md and to stdout.";
+  and reused on a rerun; delete DIR/raw to ask again. The summary goes to DIR/summary.md and to stdout.
+       eval-files boxes --repo NORTH_CHECKOUT --graph GRAPH.db --work DIR [--count N] [--classifier off] [--north PROGRAM]
+  Experiment G1 of north#1147: the newest closed north boxes with one landed commit, each scored on whether a file the commit
+  changed is in the top 5 and top 10 of the full grounding query, text search, the graph step, the map classifier and the pack.";
 const WORKERS: usize = 1;
 const CANDIDATE_GREP: usize = 30;
 const CANDIDATE_GRAPH: usize = 15;
@@ -76,7 +82,9 @@ fn run_jobs(jobs: Vec<Job>, north: &str, model: &str, raw: &Path, ids: &[String]
         for _ in 0..WORKERS {
             let (queue, failures) = (&queue, &failures);
             scope.spawn(move || {
-                while let Some((_, job)) = queue.lock().unwrap().pop() {
+                loop {
+                    let next = queue.lock().unwrap().pop();
+                    let Some((_, job)) = next else { break };
                     let file = raw.join(format!("{}.{}.json", ids[job.task], job.kind));
                     if file.exists() {
                         continue;
@@ -152,7 +160,11 @@ fn run(flags: &BTreeMap<String, String>) -> Result<(), String> {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match run(&flags(&args)) {
+    let outcome = match args.first().map(String::as_str) {
+        Some("boxes") => replay::run_boxes(&flags(&args[1..])),
+        _ => run(&flags(&args)),
+    };
+    match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(why) => {
             eprintln!("eval-files: {why}");
