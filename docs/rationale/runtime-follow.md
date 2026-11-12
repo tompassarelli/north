@@ -69,6 +69,13 @@ a watchdog, the offload taker) on a runtime this host ran before the one the pro
 the probe names it as a host fault and the runtime is neither passed nor rolled back. One on the replaced runtime is on
 its way, and a session host, session link or tool server behind is counted and left to its session (north#1022).
 
+A unit restarts the service it keeps, but nothing restarts one a client started: the user broker and a GitHub broker
+started on demand exit by themselves only if the runtime they run already knew to. So a promotion retires them: before
+the probe judges, and again once the runtime is live, each such service on a runtime that is neither live nor judged
+loses its socket path, which sends its next client to start one on the live runtime, and gets a TERM once no client is
+connected and its log has been quiet for 5 s. One still serving a client after 15 s keeps running without new clients
+and is asked again by the next promotion; a request is never cut.
+
 `north runtime lag --json` answers the fleet-wide question (north#1081): a JSON array with one object per long-lived
 process on every declared host, `host`, `process`, `runtime` and `seconds`. The settling host asks each other host for
 its own list with `north runtime lag --processes --json` over ssh, and times each process from the first landing in

@@ -288,6 +288,7 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     live::note_swap(layout, &layout::link(target));
     println!("{synced}north runtime promoted: {short} (was {})", was.unwrap_or("none"));
     host_facts::record_after_promotion(layout, target);
+    canary::retire_services(layout, target);
     collect(layout, target, previous).map_err(|error| failed(1, format!("collecting old runtimes: {error}")))?;
     Ok(Pass::Promoted)
 }

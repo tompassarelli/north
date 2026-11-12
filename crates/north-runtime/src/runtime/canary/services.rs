@@ -2,11 +2,12 @@
 //! a runtime older than the one the judged runtime replaces. Each follows its link within a minute of a swap
 //! (docs/rationale/runtime-follow.md), so one on the replaced runtime is on its way and one older than that follows no
 //! promotion. A session's own processes, the sandbox broker its commands go through among them, move when their session
-//! lets them, so one behind is counted and not a fault.
+//! lets them, so one behind is counted and not a fault. A service a client started and no unit restarts is first asked
+//! to exit while idle (retirement.rs), so the probe fails only on what a promotion cannot move.
 use super::super::failure::{Failure, failed};
 use super::super::layout::{self, Layout};
 use super::super::live::Swap;
-use super::HOST_FAULT;
+use super::{HOST_FAULT, retirement};
 use north_base::foundation::exit::NO_VERDICT;
 use north_runtime_follow::{named, runtime_of};
 use serde::Deserialize;
@@ -30,9 +31,24 @@ struct Process {
 pub(in crate::runtime) fn probe(layout: &Layout) -> Result<(), Failure> {
     let north = std::env::current_exe()?;
     let judged = runtime_of(&north).map(|(sha, _)| sha).or_else(|| layout.live_sha()).ok_or_else(|| failed(NO_VERDICT, "this north runs from no runtime and the host has none live, so no host service is judged"))?;
-    let listed = Command::new(&north).args(LISTING).output()?;
-    println!("north runtime probe services: {}", judge(layout, &judged, &String::from_utf8_lossy(&listed.stdout))?);
+    retire(layout, &judged);
+    println!("north runtime probe services: {}", judge(layout, &judged, &listed(&north)?)?);
     Ok(())
+}
+
+/// A promotion of `judged` asks each on-demand host service here on a runtime older than the live one to exit once idle, before its canary judges what is left and again once `judged` is live.
+pub(in crate::runtime) fn retire(layout: &Layout, judged: &str) {
+    let Some(north) = std::env::current_exe().ok().filter(|north| runtime_of(north).is_some()) else {
+        return;
+    };
+    match listed(&north).map(|listing| retirement::retire_here(layout.live_sha().as_deref(), judged, &listing)) {
+        Ok(said) => said.iter().for_each(|line| println!("north runtime: {line}")),
+        Err(error) => println!("north runtime: no on-demand host service was asked to exit, since the processes here could not be listed: {error}"),
+    }
+}
+
+fn listed(north: &Path) -> std::io::Result<String> {
+    Command::new(north).args(LISTING).output().map(|listed| String::from_utf8_lossy(&listed.stdout).into_owned())
 }
 
 /// Judges the processes `north runtime lag --processes --json` listed against the promotion of `judged` on this host: the
