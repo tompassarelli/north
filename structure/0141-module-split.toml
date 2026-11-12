@@ -1,6 +1,6 @@
 [[module]]
 name = "split"
-paths = ["crates/north-core/src/split/**"]
+paths = ["crates/north-code-health/src/split/**"]
 responsibility = "north code-health split move-module: moves modules out of one workspace crate into a sibling crate, byte-identical, with its manifest, re-exports and structure entry."
 may_use = ["crate-roots", "foundation", "lifecycle", "registries", "build_system"]
 

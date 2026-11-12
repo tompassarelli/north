@@ -218,7 +218,7 @@ this order where one names another's flag:
 5. **The readers**: `crates/north-graph-ingest/src/issues.rs` and `ledger.rs`,
    `crates/north-graph-ground/src/issue.rs`, `docs/graph.md`; `src/cli/box_path/`;
    `crates/north-providers/src/ledger/closed.rs`; `crates/north-calibration/src/threads/calibration/boxes.rs`;
-   the budget notice in `crates/north-core/src/build_time/issue.rs`.
+   the budget notice in `crates/north-code-health/src/build_time/issue.rs`.
 6. **The rules**: `harness/skills/github/references/issues.md` and `SKILL.md`; `harness/skills/workers/SKILL.md`
    with `references/brief.md`, `run-and-land.md` and `cloud.md`; `harness/claude/agents/planner.md` and
    `worker.md`; `harness/gates.toml`; north's `AGENTS.md`; makgora's `AGENTS.md` (the line that sends a

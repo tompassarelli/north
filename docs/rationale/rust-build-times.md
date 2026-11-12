@@ -34,7 +34,7 @@ command line):
    202 s at load 25 on 20 threads against 43.8 s quiet.
 5. The verdict compares the leaf-edit `cargo test --no-run` median with the workspace's limit: `over`
    when above it (exit 1), `near` from 75% of it, `within` below. The limit is the 10 s cap
-   (`LEAF_TEST_NO_RUN_SECONDS_MAX` in `crates/north-core/src/build_time/threshold.rs`) unless
+   (`LEAF_TEST_NO_RUN_SECONDS_MAX` in `crates/north-code-health/src/build_time/threshold.rs`) unless
    `test_no_run_seconds` is lower. A larger `test_no_run_seconds` is ignored with a printed warning and
    10 s is used, so the number can only be lowered; a workspace without one gets 10 s.
 

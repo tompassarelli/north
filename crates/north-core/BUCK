@@ -24,7 +24,6 @@ rust_library(
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
-        "//crates/north-build-system:north-build-system",
         "//crates/north-claude-stream:north-claude-stream",
         "//crates/north-fleet-supervisor:north-fleet-supervisor",
         "//crates/north-git-locks:north-git-locks",
@@ -32,7 +31,6 @@ rust_library(
         "//crates/north-graph-loops:north-graph-loops",
         "//crates/north-graph:north-graph",
         "//crates/north-pace:north-pace",
-        "//crates/north-registries:north-registries",
         "//crates/north-threads:north-threads",
         "//third-party:fancy-regex",
         "//third-party:regex",
@@ -58,7 +56,6 @@ north_rust_test(
     rustc_flags = RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
-        "//crates/north-build-system:north-build-system",
         "//crates/north-claude-stream:north-claude-stream",
         "//crates/north-fleet-supervisor:north-fleet-supervisor",
         "//crates/north-git-locks:north-git-locks",
@@ -66,7 +63,6 @@ north_rust_test(
         "//crates/north-graph-loops:north-graph-loops",
         "//crates/north-graph:north-graph",
         "//crates/north-pace:north-pace",
-        "//crates/north-registries:north-registries",
         "//crates/north-threads:north-threads",
         "//third-party:fancy-regex",
         "//third-party:regex",

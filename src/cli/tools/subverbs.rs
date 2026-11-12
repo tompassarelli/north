@@ -9,8 +9,8 @@ pub(super) fn runner(table: &[(&str, Run)], name: &str) -> Option<Run> {
 
 pub(super) fn code_health(arguments: &[String]) -> u8 {
     match arguments.first().map(String::as_str) {
-        Some("build-time") => crate::build_time::run(&arguments[1..]),
-        Some("split") => crate::split::run(&arguments[1..]),
+        Some("build-time") => north_code_health::build_time::run(&arguments[1..]),
+        Some("split") => north_code_health::split::run(&arguments[1..]),
         _ => crate::code_health::run(arguments),
     }
 }

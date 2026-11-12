@@ -236,7 +236,7 @@ may_use = ["north-base"]
 [[crate_dag.crate]]
 name = "north-code-health"
 paths = ["crates/north-code-health/src/**"]
-may_use = ["north-base", "north-graph-loops", "north-implicit-state", "north-registries"]
+may_use = ["north-base", "north-build-system", "north-graph-loops", "north-implicit-state", "north-registries"]
 
 [[crate_dag.crate]]
 name = "north-lanes"
@@ -801,19 +801,19 @@ may_use = ["domain", "foundation", "crate-roots", "lifecycle", "platform.harness
 
 [[module]]
 name = "code_health"
-paths = ["crates/north-code-health/src/**"]
+paths = ["crates/north-code-health/src/code_health/**"]
 responsibility = "The code-health report, gate, edit check and review signal over structure.toml, their import resolution and function metrics; the Rust habit checks; the hourly review tick."
 may_use = ["foundation", "crate-roots", "implicit_state", "lifecycle", "platform.git", "platform.records", "platform.harness", "graph_loops", "registries"]
 
 [[module]]
 name = "split"
-paths = ["crates/north-core/src/split/**"]
+paths = ["crates/north-code-health/src/split/**"]
 responsibility = "north code-health split move-module: moves modules out of one workspace crate into a sibling crate, byte-identical, with its manifest, re-exports and structure entry."
 may_use = ["crate-roots", "foundation", "lifecycle", "registries", "build_system"]
 
 [[module]]
 name = "build_time"
-paths = ["crates/north-core/src/build_time/**"]
+paths = ["crates/north-code-health/src/build_time/**"]
 responsibility = "Measured Rust edit-to-result times per workspace, their ledger and the 10 s leaf-edit cap."
 may_use = ["foundation", "crate-roots", "lifecycle", "build_system"]
 

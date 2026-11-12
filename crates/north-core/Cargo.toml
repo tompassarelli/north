@@ -7,10 +7,8 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
-north-registries = { path = "../north-registries" }
 north-claude-stream = { path = "../north-claude-stream" }
 north-base = { path = "../north-base" }
-north-build-system = { path = "../north-build-system" }
 north-pace = { path = "../north-pace" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
