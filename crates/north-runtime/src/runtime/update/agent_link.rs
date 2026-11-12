@@ -14,7 +14,7 @@ const ROOT: &str = "agent-runtime";
 const STAGING: &str = "agent-runtime-staging";
 
 #[cfg(not(test))]
-const NAMING_FILE: &str = "/etc/north/agent-runtime-link";
+const NAMING_FILE: &str = north_base::platform::agent_runtime::NAMING_FILE;
 #[cfg(test)]
 const NAMING_FILE: &str = "/nonexistent/north/agent-runtime-link";
 const ROOT_UID: u32 = 0;

@@ -67,6 +67,16 @@ impl Machine {
     pub fn session_login(&self) -> &str {
         self.agent_ssh.as_deref().unwrap_or(&self.ssh)
     }
+
+    pub fn session_home(&self, operator_home: &Path) -> Option<PathBuf> {
+        Self::login_home(self.session_login(), operator_home)
+    }
+
+    pub fn login_home(login: &str, operator_home: &Path) -> Option<PathBuf> {
+        let user = login.split_once('@').map(|(user, _)| user).filter(|user| !user.is_empty())?;
+        let home = PathBuf::from(format!("/home/{user}"));
+        (home != operator_home).then_some(home)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use toml_edit::{DocumentMut, Item};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Account, ApiKey, ProviderName};
+use crate::fleet::model::{Account, ApiKey, Machine, ProviderName};
 use crate::fleet::refusals;
 use crate::fleet::roster::{Declared, Refused, Roster, Spent};
 use crate::fleet::runtime::labelled_homes;
@@ -126,8 +126,14 @@ pub fn on_machine(provider: &ProviderName, path: &Path, home: &Path, label: &str
         [] => NorthError::Usage(format!("no {} account named {label} is declared for {machine}", provider.label())),
         owners => NorthError::Refused(format!("{}:{label} is declared for {}, not {machine}; launch on {} or another --account", provider.label(), owners.join(" and "), owners.join(" or "))),
     })?;
-    let path = |key: &str| entry.get(key).and_then(Item::as_str).map(|path| expand(home, path));
-    Ok(Account { provider: provider.clone(), label: label.to_owned(), home: path("path").unwrap_or_else(|| default_home(home)), token_file: path("token_file"), api: None })
+    let root = session_root(&policy, machine, home).unwrap_or_else(|| home.to_path_buf());
+    let path = |key: &str| entry.get(key).and_then(Item::as_str).map(|path| expand(&root, path));
+    Ok(Account { provider: provider.clone(), label: label.to_owned(), home: path("path").unwrap_or_else(|| default_home(&root)), token_file: path("token_file"), api: None })
+}
+
+fn session_root(policy: &DocumentMut, machine: &str, home: &Path) -> Option<PathBuf> {
+    let login = policy.get("hosts")?.get(machine)?.get("agent_ssh")?.as_str()?;
+    Machine::login_home(login, home)
 }
 
 pub(super) fn default_home(home: &Path) -> PathBuf {

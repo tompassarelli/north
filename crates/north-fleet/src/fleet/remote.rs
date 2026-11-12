@@ -76,7 +76,7 @@ pub fn over_ssh(spec: HostSpec, machine: &Machine, session: &str, trace: &Path) 
 }
 
 pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path, session: &str, trace: &Path) -> NorthResult<HostSpec> {
-    let held = home.join(HELD);
+    let held = machine.session_home(home).unwrap_or_else(|| home.to_path_buf()).join(HELD);
     let unit = unit(&spec.key);
     let dir = held.join(&unit).to_string_lossy().into_owned();
     let nonce = new_uuid()?;

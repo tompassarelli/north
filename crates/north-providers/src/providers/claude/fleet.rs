@@ -1,10 +1,11 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use north_base::platform::agent_runtime;
 use north_claude_stream::{encode_interrupt, encode_user_blocks, encode_user_message};
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript, UsageLimit};
+use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, Machine, ProviderName, Quota, Status, Transcript, UsageLimit};
 use crate::fleet::attachments;
 use crate::fleet::roster::Roster;
 use crate::fleet::tickets::FINISH_TOOL;
@@ -22,6 +23,13 @@ const TOOL_RESULT_CHARS: usize = 400;
 const MODELS: &[&str] = &["fable", "opus", "sonnet", "haiku", "claude-fable-5-1", "claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
 
 pub struct Claude;
+
+fn claude_program(machine: Option<&Machine>, operator_home: &Path) -> Vec<String> {
+    match machine.and_then(|machine| machine.session_home(operator_home)) {
+        Some(_) => vec!["sh".into(), "-c".into(), agent_runtime::claude_script(), "claude".into()],
+        None => vec![install::runtime("claude").display().to_string()],
+    }
+}
 
 impl Runtime for Claude {
     fn provider(&self) -> ProviderName {
@@ -49,7 +57,8 @@ impl Runtime for Claude {
     }
 
     fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec> {
-        let mut argv = vec![install::runtime("claude").display().to_string()];
+        let operator_home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let mut argv = claude_program(request.machine.as_ref(), &operator_home);
         argv.extend(
             [
                 "-p",

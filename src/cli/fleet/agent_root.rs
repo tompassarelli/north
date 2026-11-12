@@ -4,9 +4,7 @@ use crate::fleet::model::Machine;
 
 /// The home directory of the Unix user a session login logs in as, None when the login names no user or the user is the operator, whose own home the brief already names.
 pub(super) fn login_home(login: &str, operator_home: &Path) -> Option<String> {
-    let user = login.split_once('@').map(|(user, _)| user).filter(|user| !user.is_empty())?;
-    let home = format!("/home/{user}");
-    (Path::new(&home) != operator_home).then_some(home)
+    Machine::login_home(login, operator_home).map(|home| home.display().to_string())
 }
 
 /// `brief` with the operator's code directory, `<operator_home>/code`, replaced by `<login_home>/code` wherever the path starts at a word boundary, so the paths it names are the repositories the agent user owns.

@@ -55,6 +55,12 @@ pub struct Place<'a> {
     pub home: &'a Path,
 }
 
+impl Place<'_> {
+    pub fn far_home(&self) -> PathBuf {
+        self.machine.session_home(self.home).unwrap_or_else(|| self.home.to_path_buf())
+    }
+}
+
 /// The fingerprint a spare and a launch must share: `spec` without its conversation id, its key and the variables a binding sets, with the runtime it starts from.
 pub fn fingerprint(spec: &HostSpec, runtime: Option<&Path>) -> String {
     let mut argv = spec.argv.clone();
@@ -116,12 +122,12 @@ for e in "$pool"/*-"$fp"-*; do
   systemctl --user stop --no-block "$unit" 2>/dev/null
 done
 exit 1"#,
-        quote(&pool(place.home)),
-        quote(&spools(place.home)),
+        quote(&pool(&place.far_home())),
+        quote(&spools(&place.far_home())),
         quote(fingerprint),
         quote(name),
         quote(binding),
-        quote(&place.home.join(".local/state/north/held").to_string_lossy()),
+        quote(&place.far_home().join(".local/state/north/held").to_string_lossy()),
         TAKEN_DETACHED.as_secs()
     );
     let (code, out) = run(place, &script)?;
@@ -151,8 +157,8 @@ for e in "$pool"/*; do
   [ -n "$cwd" ] && [ "$(stat -c {identity} "$cwd" 2>/dev/null)" = "$ident" ] || {{ drop "$e" "$unit" "$spare" "its directory $cwd is gone or is not the one it started in"; continue; }}
   echo "${{e##*/}}"
 done"#,
-        quote(&pool(place.home)),
-        drop = drop_function(place.home),
+        quote(&pool(&place.far_home())),
+        drop = drop_function(&place.far_home()),
         identity = IDENTITY
     );
     let (0, out) = run(place, &script)? else { return None };
@@ -178,7 +184,7 @@ pub fn retire(place: &Place, entries: &[String]) {
     if entries.is_empty() {
         return;
     }
-    let pool = pool(place.home);
+    let pool = pool(&place.far_home());
     let names: Vec<String> = entries.iter().map(|entry| quote(&format!("{pool}/{entry}"))).collect();
     let _ = run(place, &format!("for e in {}; do read -r unit _ < \"$e\" && systemctl --user stop --no-block \"$unit\"; done", names.join(" ")));
 }
@@ -207,9 +213,9 @@ for e in "$pool"/*; do
   read -r unit _ _ _ spare _ cwd < "$e"
   case "$cwd" in "$tree"/*|"$tree") drop "$e" "$unit" "$spare" "its directory tree $tree was retired";; esac
 done"#,
-        quote(&pool(place.home)),
+        quote(&pool(&place.far_home())),
         quote(tree),
-        drop = drop_function(place.home)
+        drop = drop_function(&place.far_home())
     );
     let (0, out) = run(place, &script)? else { return None };
     Some(out.lines().map(str::to_owned).collect())
@@ -217,12 +223,12 @@ done"#,
 
 /// Starts the spare `spare` of `kind` and `fingerprint` from `spec` (see [`spare_spec`]) with `conversation`, and enters it in the pool once its unit runs.
 pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spare: &str, conversation: &str) -> NorthResult<()> {
-    let held = place.home.join(".local/state/north/held");
+    let held = place.far_home().join(".local/state/north/held");
     let unit = unit(spare);
-    let dir = remote::held_dir(place.home, &unit).to_string_lossy().into_owned();
-    let pool = pool(place.home);
+    let dir = remote::held_dir(&place.far_home(), &unit).to_string_lossy().into_owned();
+    let pool = pool(&place.far_home());
     let entry = format!("{pool}/{kind}-{fingerprint}-{spare}");
-    let spool = format!("{}/{spare}", spools(place.home));
+    let spool = format!("{}/{spare}", spools(&place.far_home()));
     let retire = format!(
         "[ -e {d}/bound ] && exit 0\nrm -f {entry}\nif [ -d {spool} ]; then find {spool} -mindepth 1 -delete; rmdir {spool}; fi\ncd {d} && rm -f in out err status attach feed nonce limit conversation retire && cd / && rmdir {d}\nexit 0\n",
         d = quote(&dir),
@@ -237,7 +243,7 @@ pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spar
         quote(&retire),
         quote(conversation),
         quote(&format!("{unit} {dir} {nonce} {conversation} {spare}")),
-        drop = drop_function(place.home),
+        drop = drop_function(&place.far_home()),
         entry_q = quote(&entry),
         unit_q = quote(&unit),
         q_dir = quote(&dir),

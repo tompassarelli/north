@@ -9,6 +9,27 @@ use super::*;
 
 const HOOKED: &str = r#"{"hooks": {"PreToolUse": [{}]}}"#;
 
+#[test]
+fn a_session_on_an_agent_login_runs_the_published_agent_claude_and_never_a_copy_under_its_home() {
+    let machine = Machine { name: "cpx62".into(), ssh: "tom@cpx62".into(), agent_ssh: Some("agent@cpx62".into()) };
+    let argv = claude_program(Some(&machine), Path::new("/home/tom"));
+    assert_eq!(argv[..2], ["sh", "-c"], "{argv:?}");
+    assert!(argv[2].contains("/agent-claude/bin/claude"), "{argv:?}");
+    assert!(!argv.iter().any(|word| word.contains(".local/lib") || word.contains("/home/agent")), "{argv:?}");
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("agent-claude/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let claude = bin.join("claude");
+    std::fs::write(&claude, "#!/bin/sh\necho ran\n").unwrap();
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let missing = dir.path().join("no-such-naming-file");
+    let script = agent_runtime::claude_script_naming(&missing.to_string_lossy());
+    let output = std::process::Command::new("sh").current_dir(dir.path()).args(["-c", &script, "claude"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(127), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+}
+
 fn request() -> LaunchRequest {
     LaunchRequest {
         verification: false,
