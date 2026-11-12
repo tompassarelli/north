@@ -42,6 +42,7 @@ its own directory and README:
 - `workspace/`: copies a task's working directory out of its image to the host and prints the mounts for it.
 - `relay/`: the shell both arms give Claude Code, and the broker that runs its commands in the container.
 - `arm`: runs one turn of one arm on the host for one trial and writes the trial's result.
+- `runner/`, `run`: plan and run the trials, one row per attempt; `run` builds the runner and starts it.
 - `slice/podman`: stands in front of podman on the path of `host` and `relay/real-session` and gives every container
   they or Harbor start the cgroup parent `agent-capacity-evalx.slice`. north's containment sweep
   (`north agent-contain sweep`, each minute) freezes a container scope anywhere else under the user manager, which

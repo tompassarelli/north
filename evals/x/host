@@ -61,7 +61,7 @@ case ${1:-} in
       sleep 60
       echo "minute $minute $(grep frozen "/sys/fs/cgroup$cgroup/cgroup.events")"
     done
-    podman rm -f "$id" > /dev/null
+    podman rm -f -t 0 "$id" > /dev/null
     ;;
   harbor)
     fetch

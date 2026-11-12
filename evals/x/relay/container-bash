@@ -22,7 +22,7 @@ file=${last##* && pwd -P >| }
 file=${file#\'}
 file=${file%\'}
 mkdir "$d/env" || exit 126
-printf '%s' "$PWD" > "$d/cwd"
+pwd -P | tr -d '\n' > "$d/cwd"
 printf '%s && pwd -P >| /eval-x/exec/cwd.%s' "${last% && pwd -P >| *}" "$id" > "$d/cmd"
 for n in $(env | sed -n 's/^\(__CLAUDE_CC_[A-Za-z0-9_]*\|GIT_EDITOR\|CLAUDECODE\)=.*/\1/p'); do
   eval "printf %s \"\$$n\"" > "$d/env/$n"

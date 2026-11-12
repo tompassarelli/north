@@ -7,6 +7,8 @@ EVAL_X_PODMAN=${EVAL_X_PODMAN:-$(command -v podman)}
 export EVAL_X_PODMAN PATH=${here%/relay}/slice:/run/wrappers/bin:$PATH
 token=${1:?usage: evals/x/relay/real-session TOKEN-FILE [MODEL]}
 model=${2:-claude-opus-5-5}
+# claude on a north host's path is a launcher that finds the client through the caller's home, which the session replaces.
+claude=$(readlink -f "${EVAL_T_CLAUDE:-${CLAUDE_RUNTIME:-$HOME/.local/lib/claude/current/bin/claude}}")
 name=eval-x-relay-check
 T=/tmp/eval-x/trials/relay-check
 R=/tmp/eval-x/ws/relay-check/app
@@ -27,8 +29,8 @@ podman rm -f "$name" > /dev/null 2>&1 || :
 podman run -d --name "$name" --hostname relay-check-box -v "$T:/eval-x" -v "$R:$R" docker.io/alexgshaw/fix-git:20251031 sleep 900 > /dev/null
 "$here/broker" "$T" &
 status=0
-(cd "$R" && env -i HOME="$S/home" PATH="$PATH" LANG=C.UTF-8 SHELL="$here/container-bash" EVAL_X_TRIAL="$T" EVAL_X_SHELL_LOG="$S/calls.log" CLAUDE_CONFIG_DIR="$S/cfg" CLAUDE_CODE_OAUTH_TOKEN="$(cat "$token")" timeout 300 claude -p --model "$model" --allowedTools Bash < "$S/prompt.txt" > "$S/reply.txt" 2> "$S/turn.err") || status=$?
-echo "== session exit $status, $(claude --version)"
+(cd "$R" && env -i HOME="$S/home" PATH="$PATH" LANG=C.UTF-8 SHELL="$here/container-bash" EVAL_X_TRIAL="$T" EVAL_X_SHELL_LOG="$S/calls.log" CLAUDE_CONFIG_DIR="$S/cfg" CLAUDE_CODE_OAUTH_TOKEN="$(cat "$token")" timeout 300 "$claude" -p --model "$model" --allowedTools Bash < "$S/prompt.txt" > "$S/reply.txt" 2> "$S/turn.err") || status=$?
+echo "== session exit $status, $("$claude" --version)"
 cat "$S/reply.txt"
 echo "== the file step 4 made, read on the host: $(cat "$R/sub/note.txt" 2>&1)"
 echo "== calls: $(grep -c '^CALL container' "$S/calls.log") in the container, $(grep -c '^CALL host' "$S/calls.log") on the host"
@@ -37,5 +39,6 @@ podman top "$name" args
 echo "== stderr:"
 head -n 20 "$S/turn.err"
 "$here/broker" stop "$T"
-podman rm -f "$name" > /dev/null
+podman rm -f -t 0 "$name" > /dev/null
 wait
+exit "$status"

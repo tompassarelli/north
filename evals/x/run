@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+here=$(dirname "$(readlink -f "$0")")
+north capacity dev-shell run --dir "$here/../.." -- \
+  sh -c 'cd "$1" && exec cargo build -q --locked --target-dir target' sh "$here/runner" >&2
+# Rootless podman maps the subordinate ids with the setuid newuidmap wrapper, which must come before the store's copy.
+PATH=/run/wrappers/bin:$PATH exec "$here/runner/target/debug/eval-x-runner" "$@"
