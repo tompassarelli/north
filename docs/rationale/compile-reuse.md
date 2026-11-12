@@ -368,10 +368,10 @@ The store was on cpx62, with Buildbarn workers on gex45 (8 slots), cpx62 and cpx
 - The build-host half of box 6's check already prints nothing at this commit:
   `buck2 log what-ran --skip-cache-hits --skip-remote-executions | rg -c rustc` in the second lane. The platform's
   limited hybrid ran 0 actions locally in all five runs.
-- A full remote `//...` fails today. `root//third-party:libsqlite3-sys-0.39` fails on the workers with
-  `could not find native static library sqlite3`, while box 2's `--local-only` build of it passes. north-lander,
-  north-runtime and every target above them do not build remotely until that is fixed. The fix belongs to box 3,
-  whose Done when needs a remote `//...` that succeeds.
+- A full remote `//...` failed at this commit: `root//third-party:libsqlite3-sys-0.39` failed on the workers with
+  `could not find native static library sqlite3`, while box 2's `--local-only` build of it passed, so north-lander,
+  north-runtime and every target above them did not build remotely. Box 3 fixed it in the fixups
+  ([Third-party crates](#third-party-crates-reindeer), native libraries).
 
 ### Decisions
 
@@ -453,8 +453,7 @@ The store was on cpx62, with Buildbarn workers on gex45 (8 slots), cpx62 and cpx
 6. The laptop's buckconfig file and mesh membership, in the private host configuration (decision 9). Box 6's
    laptop check runs once these are live.
 
-Box 6 needs nothing from box 5. Box 3's libsqlite3-sys fix is not needed for box 6's check, which counts only local
-rustc, but a lane does not build north remotely until that fix lands.
+Box 6 needs nothing from box 5.
 
 ## Third-party crates: reindeer
 
@@ -499,9 +498,12 @@ north capacity dev-shell run -- nix run .#reindeer -- -c third-party/reindeer.to
   the same `--cfg` flags and generated sources Cargo's would. Skipping a script would be faster to build but
   each skip is a guess about what that script decides.
 - Native libraries are built by their own build scripts. `ring` (C and assembly) and `libsqlite3-sys` (bundled
-  SQLite) compile through the cc crate with `toolchains//:cxx`, and their fixups set
-  `rustc_link_lib` and `rustc_link_search`, so the static archive the script writes is linked the way Cargo
-  links it. Rewriting either as `cxx_library` rules would split the C compile into cached per-file actions at
+  SQLite) compile through the cc crate with `toolchains//:cxx`. Their fixups set `rustc_link_lib`, so the
+  script's `-l` flags reach rustc, and name the archive's directory with `$(location :NAME-build-script-run[out_dir])`
+  in `rustc_flags` instead of `rustc_link_search`. The prelude declares `OUT_DIR` with a content-hashed path, so the
+  `-L` it writes from the script's output names the pre-hash placeholder `output_artifacts/OUT_DIR`, which exists only
+  on the host that ran the script: every remote compile of the two crates failed with `could not find native static
+  library` (2026-11-12). Rewriting either as `cxx_library` rules would split the C compile into cached per-file actions at
   the cost of keeping a hand-written source list in step with each upstream release.
 
 ### Packages in `Cargo.lock` with no target

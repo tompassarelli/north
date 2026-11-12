@@ -45,6 +45,7 @@ north_rust_test(
         "//crates/north-coverage:north-coverage",
         "//crates/north-graph:north-graph",
         "//third-party:serde_json",
+        "//third-party:tempfile",
         "//third-party:toml_edit",
     ],
     visibility = ["PUBLIC"],

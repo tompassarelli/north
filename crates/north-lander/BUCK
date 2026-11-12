@@ -32,6 +32,7 @@ rust_library(
         "//crates/north-landing:north-landing",
         "//crates/north-runtime-follow:north-runtime-follow",
         "//crates/north-strategy-types:north-strategy-types",
+        "//third-party:rustix",
         "//third-party:serde",
         "//third-party:serde_json",
         "//third-party:sha2",

@@ -34,6 +34,7 @@ rust_library(
         "//crates/north-fleet-supervisor:north-fleet-supervisor",
         "//crates/north-pace:north-pace",
         "//crates/north-providers:north-providers",
+        "//crates/north-ssh-spare:north-ssh-spare",
         "//crates/north-strategy-types:north-strategy-types",
         "//third-party:regex",
         "//third-party:rusqlite",
@@ -63,6 +64,7 @@ north_rust_test(
         "//crates/north-fleet-supervisor:north-fleet-supervisor",
         "//crates/north-pace:north-pace",
         "//crates/north-providers:north-providers",
+        "//crates/north-ssh-spare:north-ssh-spare",
         "//crates/north-strategy-types:north-strategy-types",
         "//crates/north-threads:north-threads",
         "//third-party:proptest",
@@ -81,5 +83,10 @@ north_rust_test(
 north_files(
     name = "files",
     srcs = glob(["**"]),
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "src/pacing/placement/fixtures/burst-2026-11-12.json",
     visibility = ["PUBLIC"],
 )

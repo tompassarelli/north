@@ -1,3 +1,4 @@
+rustc_flags = ["-Lnative=$(location :ring-0.17-build-script-run[out_dir])"]
+
 [buildscript.run]
 rustc_link_lib = true
-rustc_link_search = true

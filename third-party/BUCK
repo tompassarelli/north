@@ -3099,7 +3099,10 @@ cargo.rust_library(
         "pkg-config",
         "vcpkg",
     ],
-    rustc_flags = ["@$(location :libsqlite3-sys-0.39-build-script-run[rustc_flags])"],
+    rustc_flags = [
+        "-Lnative=$(location :libsqlite3-sys-0.39-build-script-run[out_dir])",
+        "@$(location :libsqlite3-sys-0.39-build-script-run[rustc_flags])",
+    ],
     visibility = [],
 )
 
@@ -3170,7 +3173,6 @@ buildscript_run(
         "vcpkg",
     ],
     rustc_link_lib = True,
-    rustc_link_search = True,
     version = "0.39.1",
 )
 
@@ -5311,7 +5313,10 @@ cargo.rust_library(
         "default",
         "dev_urandom_fallback",
     ],
-    rustc_flags = ["@$(location :ring-0.17-build-script-run[rustc_flags])"],
+    rustc_flags = [
+        "-Lnative=$(location :ring-0.17-build-script-run[out_dir])",
+        "@$(location :ring-0.17-build-script-run[rustc_flags])",
+    ],
     visibility = [],
     deps = [
         ":cfg-if-1",
@@ -5375,7 +5380,6 @@ buildscript_run(
         "dev_urandom_fallback",
     ],
     rustc_link_lib = True,
-    rustc_link_search = True,
     version = "0.17.14",
 )
 
@@ -5574,8 +5578,10 @@ cargo.rust_library(
         "ffi-sqlite-wasm-rs",
         "functions",
         "hashlink",
+        "hooks",
         "modern_sqlite",
         "serialize",
+        "wal",
     ],
     visibility = [],
     deps = [
@@ -5664,6 +5670,7 @@ cargo.rust_library(
     features = [
         "alloc",
         "default",
+        "event",
         "fs",
         "itoa",
         "libc-extra-traits",
@@ -5713,6 +5720,7 @@ cargo.rust_binary(
     features = [
         "alloc",
         "default",
+        "event",
         "fs",
         "itoa",
         "libc-extra-traits",
@@ -5749,6 +5757,7 @@ buildscript_run(
     features = [
         "alloc",
         "default",
+        "event",
         "fs",
         "itoa",
         "libc-extra-traits",
