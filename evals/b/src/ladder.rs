@@ -9,7 +9,7 @@ use crate::collect;
 use crate::proc::{now, run};
 use crate::scratch;
 
-pub const MODEL: &str = "claude-opus-5-5";
+pub const PINNED_MODEL: &str = "claude-opus-5-5";
 pub const EFFORT: &str = "medium";
 pub const NUDGE: &str = "Continue with your best judgment; the task text is complete.";
 const LIMIT_S: f64 = 2700.0;
@@ -25,6 +25,7 @@ pub struct Plan {
     pub work: PathBuf,
     pub burst: Option<(usize, f64)>,
     pub one_message: bool,
+    pub model: String,
 }
 
 pub struct Run {
@@ -42,8 +43,8 @@ pub struct Run {
     pub wave: &'static str,
 }
 
-fn header() -> String {
-    "Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: cpx62\nModel: claude-opus-5-5 at medium effort, pinned so Eval B holds the model fixed as Eval A does.\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n".to_owned()
+fn header(model: &str) -> String {
+    format!("Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: cpx62\nModel: {model} at medium effort, pinned so Eval B holds the model fixed as Eval A does.\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n")
 }
 
 pub fn prompt(task: &Value) -> String {
@@ -65,10 +66,11 @@ fn one_message(task: &Value, cwd: &str) -> String {
 
 fn launch(plan: &Plan, task: &Value, branch: &str, name: &str, wave: &'static str) -> Run {
     let cwd = scratch::worktree(branch);
-    let text = header() + &prompt(task) + &if plan.one_message { format!("\n{}", one_message(task, &cwd)) } else { String::new() };
+    let text = header(&plan.model) + &prompt(task) + &if plan.one_message { format!("\n{}", one_message(task, &cwd)) } else { String::new() };
+    let tier_reason = format!("Eval B pins {} at medium for the whole ladder", plan.model);
     let args = [
-        "fleet", "launch", "--provider", "claude", "--account", &plan.account, "--model", MODEL, "--effort", EFFORT, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
-        "--tier-reason", "Eval B pins claude-opus-5-5 at medium to match Eval A", "--cwd", &cwd, "--no-wait", &text,
+        "fleet", "launch", "--provider", "claude", "--account", &plan.account, "--model", &plan.model, "--effort", EFFORT, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
+        "--tier-reason", &tier_reason, "--cwd", &cwd, "--no-wait", &text,
     ];
     let launch_start = now();
     let ran = run("north", &args, None);

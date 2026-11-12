@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 const USAGE: &str = "usage:
   eval-b workload --seed S --count N --lander-host HOST --out DIR
-  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A] [--parent SESSION] [--hosts H,H] [--burst INITIAL:AFTER_S] [--kill-lander QUEUED:DOWN_S] [--one-message] --work DIR --results FILE
+  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A] [--parent SESSION] [--hosts H,H] [--burst INITIAL:AFTER_S] [--kill-lander QUEUED:DOWN_S] [--one-message] [--model M] --work DIR --results FILE
   eval-b t3-tasks --workload DIR --count N --out FILE
   eval-b t3-rows --workload DIR --from EVAL_A_ROWS --results FILE
   eval-b summary --results FILE
@@ -81,7 +81,7 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     let work = PathBuf::from(need(flags, "work")?).join(format!("l{level}-{stamp}"));
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let tasks: Vec<Value> = manifest["tasks"].as_array().into_iter().flatten().skip(first - 1).take(count).cloned().collect();
-    let plan = ladder::Plan { level, tasks, account: flags.get("account").cloned().unwrap_or_else(|| "d".to_owned()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), one_message: flags.contains_key("one-message") };
+    let plan = ladder::Plan { level, tasks, account: flags.get("account").cloned().unwrap_or_else(|| "d".to_owned()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), one_message: flags.contains_key("one-message"), model: flags.get("model").cloned().unwrap_or_else(|| ladder::PINNED_MODEL.to_owned()) };
     let kill = pair(flags, "kill-lander")?;
     let branches: Vec<String> = plan.tasks.iter().map(|t| format!("{}-l{level}", t["id"].as_str().unwrap_or_default())).collect();
     scratch::prepare_laptop(&dir.join("repo"), &plan.hosts, &branches)?;

@@ -29,7 +29,9 @@ Every brief carries `Needs: cpx62`, so placement prefers the build host reserved
 appends the current contents of the task's files (its source, its test and the registry when it touches it) and asks
 the worker to write them with one shell command and call the finish tool in the same message, reading and running
 nothing first; a row's `conditions.brief` names the brief and `model_requests` counts the session's distinct model
-requests.
+requests. `--model M` launches every worker of the ladder on M instead of claude-opus-5-5, at the same effort and
+with the same brief, and each row names it in `conditions.model`; its rows answer which model the harness may choose
+behind the same check, a different comparison from the pinned-model rows, and go in their own results file.
 
 `--parent SESSION` (default `$NORTH_FLEET_SESSION`) names the live fleet session that reads the workers' reports;
 north refuses a worker launched from outside a session without one. The scratch lander's queue lives under the live
