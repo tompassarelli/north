@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -9,7 +10,8 @@ const USAGE: &str = "usage: north ops github push-token --host HOST...
 
 Mint the North Fleet App installation token the broker holds with at least 45 minutes left, list the repositories the app covers,
 and copy both over ssh to ~/.local/state/north/gh-write-token and gh-write-token.repos on each HOST (mode 0600), where git and gh
-read them for 55 minutes. A host whose copy fails is tried again every 10 seconds, with a freshly asked token, until it succeeds or
+read them for 55 minutes. It also writes ~/.local/state/north/github-installation-token.yaml (token, expires_at, the repositories and
+the permissions the broker grants it) beside them, for the broker to read as its scoped token. A host whose copy fails is tried again every 10 seconds, with a freshly asked token, until it succeeds or
 27 minutes have passed since the start (the next scheduled run follows at 30); hosts already copied are not copied again. One line
 on stderr per failed attempt names the host and the reason. Exits 1 when a host still has no fresh token.";
 
@@ -18,15 +20,34 @@ const WINDOW: Duration = Duration::from_secs(27 * 60);
 const VALID_FOR: u64 = 2700;
 const CONNECT_TIMEOUT: &str = "ConnectTimeout=10";
 
+const AGENT_PERMISSIONS: [(&str, &str); 5] = [("actions", "read"), ("contents", "read"), ("issues", "write"), ("metadata", "read"), ("pull_requests", "write")];
+
 const INSTALL: &str = "set -eu
 umask 077
 dir=$HOME/.local/state/north
 mkdir -p \"$dir\"
 IFS= read -r token
+IFS= read -r installation
+IFS= read -r expires
+IFS= read -r permissions
+IFS= read -r scope
 printf %s \"$token\" > \"$dir/gh-write-token.tmp\"
 cat > \"$dir/gh-write-token.repos.tmp\"
+if [ -n \"$installation\" ]; then
+{
+printf 'token: %s\\n' \"$installation\"
+printf 'expires_at: %s\\n' \"$expires\"
+printf 'repositories: %s\\n' \"$scope\"
+printf 'permissions: %s\\n' \"$permissions\"
+} > \"$dir/github-installation-token.yaml.tmp\"
+mv \"$dir/github-installation-token.yaml.tmp\" \"$dir/github-installation-token.yaml\"
+fi
 mv \"$dir/gh-write-token.repos.tmp\" \"$dir/gh-write-token.repos\"
 mv \"$dir/gh-write-token.tmp\" \"$dir/gh-write-token\"";
+
+fn agent_permissions() -> BTreeMap<String, String> {
+    AGENT_PERMISSIONS.iter().map(|(name, level)| ((*name).to_owned(), (*level).to_owned())).collect()
+}
 
 pub trait Hosts {
     fn copy(&mut self, host: &str) -> Result<(), String>;
@@ -70,10 +91,24 @@ struct Control {
     started: Instant,
 }
 
+impl Control {
+    fn scoped(&self) -> Result<[String; 4], String> {
+        let names: Vec<String> = self.repositories.lines().filter_map(|full| full.rsplit('/').next()).map(str::to_owned).collect();
+        let granted = Client::discover().github_token(AGENT_APP, &names, &agent_permissions(), VALID_FOR).map_err(|why| format!("no agent-set token from the broker: {why}"))?;
+        let repositories = granted.repositories.ok_or("the broker granted no repository list")?;
+        let levels = granted.permissions.iter().map(|(name, level)| format!("{name}:{level}")).collect::<Vec<_>>().join(",");
+        Ok([granted.token, granted.expires_at, repositories.join(","), levels])
+    }
+}
+
 impl Hosts for Control {
     fn copy(&mut self, host: &str) -> Result<(), String> {
-        let token = Client::discover().github_token(AGENT_APP, &[], &Default::default(), VALID_FOR).map_err(|why| format!("no token from the broker: {why}"))?.token;
-        let payload = format!("{token}\n{}\n", self.repositories);
+        let raw = Client::discover().github_token(AGENT_APP, &[], &Default::default(), VALID_FOR).map_err(|why| format!("no token from the broker: {why}"))?.token;
+        let [token, expires, scope, levels] = self.scoped().unwrap_or_else(|why| {
+            eprintln!("host-gh-token: {host} keeps its previous scoped token this round: {why}");
+            Default::default()
+        });
+        let payload = format!("{raw}\n{token}\n{expires}\n{levels}\n{scope}\n{}\n", self.repositories);
         retried(host, Rerun::Anywhere, |link| install(host, &payload, link))
     }
 
