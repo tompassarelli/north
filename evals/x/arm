@@ -1,0 +1,48 @@
+#!/bin/sh
+# One trial of one harness on one Eval X task, on the host. The arms are north's evals/t/arm, run with the task's
+# working directory as their repository; the hand-off stub writes TRIAL/prompt.json, and this writes arm.json then done.json.
+set -eu
+here=$(dirname "$(readlink -f "$0")")
+usage="usage: evals/x/arm --arm north|t3 --trial DIR --cwd CWD --account A --model M --effort E"
+arm= trial= cwd= account= model= effort=
+while [ $# -gt 1 ]; do
+  case $1 in
+    --arm) arm=$2 ;;
+    --trial) trial=$2 ;;
+    --cwd) cwd=$2 ;;
+    --account) account=$2 ;;
+    --model) model=$2 ;;
+    --effort) effort=$2 ;;
+    *) echo "$usage" >&2; exit 2 ;;
+  esac
+  shift 2
+done
+[ $# -eq 0 ] && [ -n "$arm$trial$cwd$account$model$effort" ] || { echo "$usage" >&2; exit 2; }
+case $arm in north | t3) ;; *) echo "$usage" >&2; exit 2 ;; esac
+trial=$(readlink -f "$trial") cwd=$(readlink -f "$cwd")
+mkdir -p "$trial"
+for _ in $(seq "${EVAL_X_HANDOFF_S:-900}"); do
+  jq -e '.instruction' "$trial/prompt.json" > /dev/null 2>&1 && break
+  sleep 1
+done
+jq -e '.instruction' "$trial/prompt.json" > /dev/null 2>&1 || { echo "eval-x arm $arm: no hand-off in $trial/prompt.json" >&2; exit 1; }
+instruction=$(jq -r '.instruction' "$trial/prompt.json")
+sentence="Your task's working directory is $cwd."
+if [ "$arm" = north ]; then
+  printf 'Category: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test\nModel: %s at %s effort, pinned so Eval X holds the model fixed for both arms.\nDone when: %s\n\n%s\n' \
+    "$model" "$effort" "$instruction" "$sentence" > "$trial/prompt.txt"
+else
+  printf '%s\n\n%s\n' "$instruction" "$sentence" > "$trial/prompt.txt"
+fi
+ln -sfn "$cwd" "$trial/repo"
+start=$(date +%s) rc=0
+EVAL_T_ACCOUNT=$account EVAL_T_MODEL=$model EVAL_T_EFFORT=$effort "$here/../t/arm" "$arm" "$trial" > "$trial/arm.log" 2>&1 || rc=$?
+end=$(date +%s)
+jq -n --arg arm "$arm" --arg cwd "$cwd" --arg account "$account" --arg model "$model" --arg effort "$effort" \
+  --arg transcript "$trial/transcript.jsonl" --argjson start "$start" --argjson end "$end" --argjson rc "$rc" \
+  '{arm: $arm, cwd: $cwd, account: $account, model: $model, effort_requested: $effort, wall_s: ($end - $start),
+    exit: $rc, transcript: $transcript}' > "$trial/arm.json.tmp"
+mv "$trial/arm.json.tmp" "$trial/arm.json"
+jq -n --argjson rc "$rc" '{done: true, exit: $rc}' > "$trial/done.json.tmp"
+mv "$trial/done.json.tmp" "$trial/done.json"
+exit "$rc"
