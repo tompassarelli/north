@@ -623,3 +623,15 @@ fn session_processes_behind_the_replaced_runtime_pass_the_canary() {
     assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::Passed, "a session moves its own processes when it can, and a lander of a build this host never promoted is another checkout's");
     assert!(fleet.alarms.lock().unwrap().is_empty());
 }
+
+#[test]
+fn a_candidate_that_keeps_a_probes_name_and_weakens_its_script_is_printed_as_changed_against_the_live_list() {
+    let host = Host::promoted();
+    let fleet = host.fleet(None);
+    let mut plan = compiled("nexus", PROMOTED, &fleet);
+    let same = listing::against_live("nexus", PROMOTED, &plan, Some(PREVIOUS), &fleet);
+    assert!(same.starts_with(&format!("judged by the same {} probes as 11111111", plan.probes.len())), "two runtimes whose scripts differ only by their own commit read as changed: {same}");
+    plan.probes[0].script = "true".to_owned();
+    let weakened = listing::against_live("nexus", PROMOTED, &plan, Some(PREVIOUS), &fleet);
+    assert!(weakened.contains(&format!("probes added: none; probes removed: none; probes changed: `{}`", plan.probes[0].name)), "a probe emptied under its old name read as the same probe: {weakened}");
+}

@@ -82,9 +82,11 @@ The code that judges a runtime is that runtime's too. A promotion is run by the 
 its probe list and its walk were one runtime behind what they judged: a probe retired on purpose kept failing the
 commit that retired it, and a fix to the walk first ran one promotion late. So the promoting runtime asks the judged
 one for its probes (`north runtime probe list HOST`), and after its swap it runs `north runtime walk` from the runtime
-now live and waits for it. A runtime that knows neither verb is judged and walked as before, by the one promoting it.
+now live and waits for it. A runtime that knows neither verb is judged and walked as before, by the one promoting it,
+and so is one that dies in its own walk (a signal or a panic), since nobody else would walk it or roll it back.
 What a candidate drops from the list is the reviewer's to read: an order prints the probes added and removed against
-the live runtime's list before any probe runs (north#1022).
+the live runtime's list before any probe runs, and the probes it keeps by name with another script, each script read
+with its own commit left out, so a probe emptied under its old name shows as changed (north#1022).
 
 `north runtime lag --json` answers the fleet-wide question (north#1081): a JSON array with one object per long-lived
 process on every declared host, `host`, `process`, `runtime` and `seconds`. The settling host asks each other host for

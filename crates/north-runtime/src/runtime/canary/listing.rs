@@ -75,7 +75,7 @@ pub(super) fn listed_by_live(live: &Live<'_>, on: &str, sha: &str) -> Result<Cor
     }
 }
 
-/// What a reviewer reads before a promotion: the probes `judged` adds to and drops from the list of the runtime live on the host.
+/// What a reviewer reads before a promotion: the probes `judged` adds to and drops from the list of the runtime live on the host, and the ones it keeps by name with another script, each read with its own commit left out.
 pub(super) fn against_live(on: &str, sha: &str, judged: &CoreLoop, live: Option<&str>, machine: &impl Machine) -> String {
     let Some(live) = live.filter(|live| *live != sha) else {
         return "no other runtime is live there to compare its probe list with".to_owned();
@@ -87,9 +87,10 @@ pub(super) fn against_live(on: &str, sha: &str, judged: &CoreLoop, live: Option<
     };
     let only = |from: &CoreLoop, other: &CoreLoop| -> Vec<String> { from.probes.iter().filter(|probe| !other.probes.iter().any(|held| held.name == probe.name)).map(|probe| format!("`{}`", probe.name)).collect() };
     let (added, removed) = (only(judged, &list), only(&list, judged));
-    if added.is_empty() && removed.is_empty() {
+    let changed: Vec<String> = judged.probes.iter().filter(|probe| list.probes.iter().any(|held| held.name == probe.name && held.script.replace(live, "SHA") != probe.script.replace(sha, "SHA"))).map(|probe| format!("`{}`", probe.name)).collect();
+    if added.is_empty() && removed.is_empty() && changed.is_empty() {
         return format!("judged by the same {} probes as {kept}, the runtime live there", judged.probes.len());
     }
     let named = |names: Vec<String>| if names.is_empty() { "none".to_owned() } else { names.join(", ") };
-    format!("against {kept}, the runtime live there: probes added: {}; probes removed: {}", named(added), named(removed))
+    format!("against {kept}, the runtime live there: probes added: {}; probes removed: {}; probes changed: {}", named(added), named(removed), named(changed))
 }

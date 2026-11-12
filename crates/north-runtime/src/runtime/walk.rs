@@ -10,6 +10,7 @@ use std::fs;
 use std::process::Command;
 
 const UNKNOWN_VERB: i32 = 64;
+const PANICKED: i32 = 101;
 
 pub(super) fn judged(layout: &Layout, host: &str, sha: &str, verdict: &Verdict, swaps: &[Swap]) {
     let at = now();
@@ -26,7 +27,7 @@ fn live_since(swaps: &[Swap], sha: &str) -> Option<i64> {
     swaps.iter().rev().find(|swap| swap.runtime == sha).map(|swap| swap.at)
 }
 
-/// A promotion run by runtime `own` leaves the walk of the runtime now live to that runtime (`north runtime walk`), so each runtime is judged, shipped and followed by its own code; none when `own` is live itself, is no runtime, or the live one is too old to walk itself, and the caller walks.
+/// A promotion run by runtime `own` leaves the walk of the runtime now live to that runtime (`north runtime walk`), so each runtime is judged, shipped and followed by its own code; none when `own` is live itself, is no runtime, or the live one is too old to walk itself or died walking, and the caller walks.
 pub(super) fn handed_to_live(layout: &Layout, own: Option<&str>) -> Option<Result<(), Failure>> {
     let own = own?;
     let live = layout.live_sha().filter(|live| live.as_str() != own && layout::has_programs(&layout.runtime(live)))?;
@@ -35,6 +36,10 @@ pub(super) fn handed_to_live(layout: &Layout, own: Option<&str>) -> Option<Resul
         Ok(status) if status.success() => Some(Ok(())),
         Ok(status) if status.code() == Some(UNKNOWN_VERB) => {
             println!("north runtime: {short} is older than `north runtime walk`, so the runtime that promoted it walks it");
+            None
+        }
+        Ok(status) if status.code().is_none_or(|code| code == PANICKED) => {
+            println!("north runtime: {short} died in its own walk ({status}), so the runtime that promoted it walks it and rolls it back if it fails");
             None
         }
         Ok(status) => Some(Err(failed(status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(1), format!("the walk of {short}, run by that runtime, failed; its message is above")))),

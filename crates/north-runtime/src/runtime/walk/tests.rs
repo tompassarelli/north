@@ -49,7 +49,7 @@ fn a_promotion_leaves_the_walk_after_its_swap_to_the_runtime_it_promoted() {
     let promoted = layout.runtime(MAIN);
     fs::create_dir_all(&promoted).unwrap();
     for program in layout::PROGRAMS {
-        write_executable(&promoted.join(program), "#!/bin/sh\nhere=$(dirname \"$0\")\necho \"$*\" >> \"$here/asked\"\nexit \"$(cat \"$here/exit\")\"\n");
+        write_executable(&promoted.join(program), "#!/bin/sh\nhere=$(dirname \"$0\")\necho \"$*\" >> \"$here/asked\"\ncode=$(cat \"$here/exit\")\n[ \"$code\" = killed ] && kill -KILL $$\nexit \"$code\"\n");
     }
     std::os::unix::fs::symlink(layout::link(MAIN), layout.current()).unwrap();
     let exits = |code: &str| fs::write(promoted.join("exit"), code).unwrap();
@@ -61,7 +61,11 @@ fn a_promotion_leaves_the_walk_after_its_swap_to_the_runtime_it_promoted() {
     assert_eq!(handed_to_live(&layout, Some(PINNED)).unwrap().unwrap_err().code, 3);
     exits("64");
     assert!(handed_to_live(&layout, Some(PINNED)).is_none(), "a runtime older than the verb is walked by the one that promoted it");
+    for died in ["killed", "101"] {
+        exits(died);
+        assert!(handed_to_live(&layout, Some(PINNED)).is_none(), "a runtime that died walking itself ({died}) stayed live with nobody to walk it or roll it back");
+    }
     assert!(handed_to_live(&layout, Some(MAIN)).is_none(), "the live runtime walks itself");
     assert!(handed_to_live(&layout, None).is_none());
-    assert_eq!(fs::read_to_string(promoted.join("asked")).unwrap().lines().count(), 3);
+    assert_eq!(fs::read_to_string(promoted.join("asked")).unwrap().lines().count(), 5);
 }
