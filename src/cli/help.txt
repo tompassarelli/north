@@ -28,6 +28,7 @@ Engineering and landing:
   test                  Coverage map and mutation sweeps
   docs                  Regenerate or check the docs indexes
   nix                   Explain a Nix footgun, or root and collect the store
+  operator              Paths north reads from the operator repository, each with its class
 
 System and telemetry:
   accounts              Each account's state, 5h and week room, and each api grant's dollars

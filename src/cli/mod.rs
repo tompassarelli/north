@@ -31,6 +31,7 @@ mod ledger_show;
 mod machines;
 mod moved;
 mod nix;
+mod operator;
 mod orders;
 mod probe_account;
 pub(crate) mod remote_land;
@@ -91,6 +92,7 @@ enum Command {
     Health(Vec<String>),
     Glance(Vec<String>),
     Holds(Vec<String>),
+    Operator(Vec<String>),
     BoxPath(Vec<String>),
     GuardLanguage,
     ContractProbe(Vec<String>),
@@ -164,6 +166,7 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("health", |_, rest| Command::Health(rest)),
     ("glance", |_, rest| Command::Glance(rest)),
     ("holds", |_, rest| Command::Holds(rest)),
+    ("operator", |_, rest| Command::Operator(rest)),
     ("box", |_, rest| Command::BoxPath(rest)),
     ("contract-probe", |_, rest| Command::ContractProbe(rest)),
     ("remote-serve", |_, rest| Command::RemoteServe(rest)),
@@ -254,6 +257,10 @@ fn dispatch(command: Command) -> ExitCode {
             Err(error) => failure(error),
         },
         Command::Holds(arguments) => match holds::run(&arguments) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => failure(error),
+        },
+        Command::Operator(arguments) => match operator::run(&arguments) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => failure(error),
         },

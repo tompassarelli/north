@@ -30,8 +30,8 @@ The name stays: "south" is the role's name in north's vocabulary ([docs/harness.
 Classes:
 
 - **schema**: north parses the file. A newcomer needs its shape and a synthetic instance. Every value in the owner's copy stays private.
-- **method**: content that reads the same for any operator and holds nothing private.
-- **private**: free-form facts about the owner. North reads it as text, searches it, or only names it. Nothing of it ships.
+- **generic method**: content that reads the same for any operator and holds nothing private.
+- **private value**: free-form facts about the owner. North reads it as text, searches it, or only names it. Nothing of it ships.
 - **secret**: encrypted credentials. North reads them through sops or the broker. Nothing of it ships.
 
 A file that holds two classes has two rows. Line numbers are at commit `c013d6124c`.
@@ -48,25 +48,25 @@ A file that holds two classes has two rows. Line numbers are at commit `c013d612
 | 8 | `agents/rules.toml` | `crates/north-core/src/agent_config_check/rules.rs:178`, `crates/north-core/src/grounding/sources/policy.rs:419` | schema |
 | 9 | `agents/incidents.jsonl` | `crates/north-core/src/agent_config_check/rules.rs:184` | schema |
 | 10 | `agents/catalog-config.json`: activation, baselines, provider support, registrations of units the operator owns | `crates/north-core/src/catalog/paths.rs:16`, `crates/north-core/src/agent_policy_contract.rs:109`, `crates/north-core/src/agent_config_check/gate.rs:285`, `crates/north-core/src/catalog/registration_checks.rs:206`, `crates/north-runtime/src/timers/skill_prune.rs:116` | schema |
-| 11 | `agents/catalog-config.json`: registrations of units north owns | the readers of row 10, resolved against north's structure registry in `crates/north-core/src/catalog/owner_modules.rs:17` | method |
+| 11 | `agents/catalog-config.json`: registrations of units north owns | the readers of row 10, resolved against north's structure registry in `crates/north-core/src/catalog/owner_modules.rs:17` | generic method |
 | 12 | `agents/routines/*.md` (frontmatter) | `crates/north-flow/src/agents/routines/mod.rs:42`, `crates/north-runtime/src/job_watch/mod.rs:28`, `crates/north-core/src/agent_config_check/mod.rs:305` | schema |
 | 13 | `agents/replay/` (cases and sweeps) | `crates/north-core/src/agent_config_check/gate.rs:164`, `:193` | schema |
 | 14 | `privacy/public-denylist.toml` | `crates/north-landing-gates/src/landing/denylist_mirror.rs:12`, `crates/north-guard/src/guard/public_text.rs:10`, `crates/north-land-scans/src/outgoing/denylist.rs:113` | schema |
 | 15 | `privacy/private-kinds.toml` | `crates/north-runtime/src/privacy/kinds.rs:8` | schema |
 | 16 | `infra/manifest.toml` | `src/cli/infra/manifest.rs:11` | schema |
-| 17 | `agents/AGENTS.md` (the operator's global rules) | `crates/north-core/src/agent_config_check/gate.rs:265`, `crates/north-core/src/agent_config_check/rules.rs:177`, `crates/north-core/src/agent_policy_contract.rs:113`, `crates/north-convo/src/policy_replay/sweep.rs:141`, `harness/mayday/tier0.list:5` | private |
-| 18 | `agents/skills/` (skills the operator owns) | each registration's owner path, `crates/north-core/src/catalog/paths.rs:58` | private |
-| 19 | `agents/decisions/` | named as the place a durable record goes, `crates/north-guard/src/guard/handoff_record.rs:7`; read only through row 20 | private |
-| 20 | every tracked file under `agents/`, as text | the prompt-grounding corpus, `crates/north-core/src/grounding/sources/policy.rs:472` | private |
-| 21 | the whole checkout, as text | the vocabulary check, `crates/north-core/src/agent_config_check/mod.rs:258` | private |
-| 22 | `hosts/` | searched for uses of north's commands, `crates/north-landing-gates/src/landing/bin_references.rs:154` | private |
-| 23 | `modules/` | the same search | private |
-| 24 | `bin/` | the same search | private |
-| 25 | the checkout's Git facts: origin URL, main's revision, a fetch of origin's main | `crates/north-land-scans/src/outgoing/denylist.rs:172`, `crates/north-landing-gates/src/landing/denylist_mirror.rs:63`, `crates/north-landing-gates/src/landing/base_relative.rs:42`, `crates/north-shared-config/src/lib.rs:92`, `crates/north-runtime/src/runtime/checkouts.rs:26` | private |
+| 17 | `agents/AGENTS.md` (the operator's global rules) | `crates/north-core/src/agent_config_check/gate.rs:265`, `crates/north-core/src/agent_config_check/rules.rs:177`, `crates/north-core/src/agent_policy_contract.rs:113`, `crates/north-convo/src/policy_replay/sweep.rs:141`, `harness/mayday/tier0.list:5` | private value |
+| 18 | `agents/skills/` (skills the operator owns) | each registration's owner path, `crates/north-core/src/catalog/paths.rs:58` | private value |
+| 19 | `agents/decisions/` | named as the place a durable record goes, `crates/north-guard/src/guard/handoff_record.rs:7`; read only through row 20 | private value |
+| 20 | every tracked file under `agents/`, as text | the prompt-grounding corpus, `crates/north-core/src/grounding/sources/policy.rs:472` | private value |
+| 21 | the whole checkout, as text | the vocabulary check, `crates/north-core/src/agent_config_check/mod.rs:258` | private value |
+| 22 | `hosts/` | searched for uses of north's commands, `crates/north-landing-gates/src/landing/bin_references.rs:154` | private value |
+| 23 | `modules/` | the same search | private value |
+| 24 | `bin/` | the same search | private value |
+| 25 | the checkout's Git facts: origin URL, main's revision, a fetch of origin's main | `crates/north-land-scans/src/outgoing/denylist.rs:172`, `crates/north-landing-gates/src/landing/denylist_mirror.rs:63`, `crates/north-landing-gates/src/landing/base_relative.rs:42`, `crates/north-shared-config/src/lib.rs:92`, `crates/north-runtime/src/runtime/checkouts.rs:26` | private value |
 | 26 to 31 | six encrypted files, one per service the broker calls, each named by a constant in north | `crates/north-broker/src/credentials.rs:11` to `:16` | secret |
 | 32 | every encrypted file under the secrets directory, listed and fingerprinted, never decrypted | `crates/north-ops/src/ops/credentials/declared.rs:102` | secret |
 
-Counts per class: **schema 15, method 1, private 9, secret 7; 32 rows.**
+Counts per class: **schema 15, generic method 1, private value 9, secret 7; 32 rows.**
 
 North also writes into the operator repository on five paths, each through a session or a verb of its own: incident rows and rule candidates (`crates/north-runtime/src/timers/incident_retro/mod.rs:58`), the watch list (`crates/north-runtime/src/timers/watch_review/mod.rs:67`), replay sweeps (`crates/north-convo/src/policy_replay/sweep.rs:157`), host facts (`crates/north-runtime/src/runtime/host_facts.rs:13`) and the landing verb for a host whose ledger lives elsewhere (`crates/north-ops/src/ops/remote_serve/south_land.rs`).
 
