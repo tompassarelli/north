@@ -93,6 +93,10 @@ reason = "the outcome is the text column the ledger's runs table stores, read he
 shape = "status-string"
 path = "evals/files/src/boxes.rs"
 reason = "the issue state is a field of GitHub's GraphQL reply, an external format read once to pick the closed boxes an offline replay scores, never held as state (north#1147)"
+[[implicit_state.allow]]
+shape = "status-string"
+path = "evals/x/runner/src/session_end.rs"
+reason = "the status is a field of `north fleet show --json`, read from outside as a user would by a crate that depends on no north crate, once per poll to tell a stopped session host, never held as state (south#107)"
 [crate_lines]
 default = 25000
 hub = 10000

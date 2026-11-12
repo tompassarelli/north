@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 use serde_json::Value;
 
@@ -61,16 +61,9 @@ fn on_path(program: &str) -> PathBuf {
         .unwrap()
 }
 
-/// Terminal-Bench task crack-7z-hash, 2026-11-12: north's session put the crack in the background and ended its turn on
-/// "Waiting for the background john crack to complete."; the arm ended the trial there, so the session was stopped
-/// before the command's end could invoke it again, and no solution file was written.
-#[test]
-fn a_session_waiting_on_its_own_background_command_runs_on_to_its_report() {
-    let root =
-        Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("north-arm-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    let [bin, trial, state, cwd] = ["bin", "trial", "state", "cwd"].map(|name| root.join(name));
-    for directory in [&bin, &trial, &cwd, &root.join("home")] {
+fn north_arm(root: &Path) -> Output {
+    let [bin, trial, home] = ["bin", "trial", "home"].map(|name| root.join(name));
+    for directory in [&bin, &trial, &home, &root.join("cwd")] {
         fs::create_dir_all(directory).unwrap();
     }
     executable(
@@ -85,31 +78,32 @@ fn a_session_waiting_on_its_own_background_command_runs_on_to_its_report() {
     .unwrap();
     let mut path = vec![bin];
     path.extend(env::split_paths(&env::var_os("PATH").unwrap()));
-
-    let arm = Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("../arm"))
-        .args([
-            "--arm",
-            "north",
-            "--account",
-            "c",
-            "--model",
-            "m",
-            "--effort",
-            "medium",
-            "--limit",
-            "60",
-        ])
-        .arg("--trial")
+    Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("../arm"))
+        .args(["--arm", "north", "--account", "c", "--model", "m"])
+        .args(["--effort", "medium", "--limit", "60", "--trial"])
         .arg(&trial)
         .arg("--state")
-        .arg(&state)
+        .arg(root.join("state"))
         .arg("--cwd")
-        .arg(&cwd)
+        .arg(root.join("cwd"))
         .env("PATH", env::join_paths(path).unwrap())
-        .env("HOME", root.join("home"))
+        .env("HOME", home)
         .env("EVAL_X_RUNNER", env!("CARGO_BIN_EXE_eval-x-runner"))
         .output()
-        .unwrap();
+        .unwrap()
+}
+
+/// Terminal-Bench task crack-7z-hash, 2026-11-12: north's session put the crack in the background and ended its turn on
+/// "Waiting for the background john crack to complete."; the arm ended the trial there, so the session was stopped
+/// before the command's end could invoke it again, and no solution file was written.
+#[test]
+fn a_session_waiting_on_its_own_background_command_runs_on_to_its_report() {
+    let root =
+        Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("north-arm-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let [trial, state, cwd] = ["trial", "state", "cwd"].map(|name| root.join(name));
+
+    let arm = north_arm(&root);
 
     let log = fs::read_to_string(state.join("arm.log")).unwrap_or_default();
     assert!(

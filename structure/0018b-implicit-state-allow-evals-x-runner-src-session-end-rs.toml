@@ -1,0 +1,4 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "evals/x/runner/src/session_end.rs"
+reason = "the status is a field of `north fleet show --json`, read from outside as a user would by a crate that depends on no north crate, once per poll to tell a stopped session host, never held as state (south#107)"
