@@ -31,6 +31,12 @@ pub fn canonical(arguments: &[String]) -> Option<String> {
     Some(format!("clippy\0{}\0{selection}\0{}", flags.others.join("\x1f"), lints.join("\x1f")))
 }
 
+/// The verdict-bearing form of a command of plain words, which `sh -c` and a land check's `bash -euo pipefail -c` run alike, or None for one with shell syntax or more than one line.
+pub fn plain(command: &str) -> Option<String> {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    (!words.is_empty() && !command.contains(|c: char| c == '\n' || c == '\r' || SHELL_SYNTAX.contains(c))).then(|| format!("plain\0{}", words.join(" ")))
+}
+
 #[derive(Default)]
 struct Flags {
     packages: BTreeSet<String>,

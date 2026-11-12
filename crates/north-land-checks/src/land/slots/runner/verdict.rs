@@ -34,7 +34,7 @@ impl Inputs {
     }
 
     fn own_run_key(&self, command: &str) -> Option<String> {
-        let canonical = north_tree_verdict::canonical(&north_tree_verdict::land_arguments(command, &self.environment)?)?;
+        let canonical = north_tree_verdict::land_arguments(command, &self.environment).and_then(|arguments| north_tree_verdict::canonical(&arguments)).or_else(|| north_tree_verdict::plain(command))?;
         Some(north_tree_verdict::key(&north_tree_verdict::tree(&self.root, &self.tree)?, &canonical))
     }
 }
