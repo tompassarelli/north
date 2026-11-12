@@ -189,10 +189,10 @@ lanes" entries in [features/04-landing-and-lanes/](features/04-landing-and-lanes
 
 4. it refuses a lane for a failing check, a conflict or dropped commits, a secret (betterleaks) or a
    privacy leak (deny-list, commit email, native item references); every other gate, among them the
-   dependency gate, the revert guard (`north stale-revert`), the bin-reference gate and test
-   admission, follows `landing_refusals` in `harness/defaults.toml` and in `shadow` logs its
-   would-be refusal and lets the lane land ([landing-refusals-shadow](rationale/landing-refusals-shadow.md)); it never
-   force-pushes;
+   dependency gate, the revert guard (`north stale-revert`) and the bin-reference gate,
+   follows `landing_refusals` in `harness/defaults.toml` and in `shadow` logs its
+   would-be refusal and lets the lane land ([landing-refusals-shadow](rationale/landing-refusals-shadow.md)); test admission refuses on every landing path;
+   it never force-pushes;
 
 5. it pushes the largest green candidate to main, the exact tree that was checked, tells each lane's session it landed, and runs the
    after-landing checks (`land.after`) and `follows-release`; a red after-landing run reverts only
