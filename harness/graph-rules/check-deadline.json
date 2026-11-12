@@ -1,3 +1,0 @@
-{"find": "check_deadline", "rules": [
-  {"head": {"rel": "check_deadline", "args": [{"var": "subject"}, {"var": "predicate"}, {"var": "value"}]},
-   "body": [{"rel": "assertion", "args": ["land", {"var": "subject"}, {"var": "predicate"}, {"var": "value"}]}]}]}

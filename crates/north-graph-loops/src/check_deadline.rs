@@ -6,10 +6,9 @@ use std::time::Duration;
 use north_graph::{Atom, Graph, Term};
 
 use crate::cells;
-use crate::facts::{Fact, facts_from, tell_facts_to};
+use crate::facts::{Fact, tell_facts_to};
 
 pub const WRITER: &str = "land";
-const RULE: &str = "harness/graph-rules/check-deadline.json";
 const SUBJECT: &str = "check:";
 const PREDICATE: &str = "check/";
 const READ_PATIENCE: Duration = Duration::from_millis(400);
@@ -80,8 +79,7 @@ pub fn check_deadline(db: &Path, key: &str) -> Result<Option<CheckDeadline>, Str
 
 /// Tells one check's deadline as one transaction: its values that moved or went, and the lander's tick at `at`.
 pub fn tell_check_deadline_to(graph: &mut Graph, key: &str, learned: &CheckDeadline, at: i64) -> Result<(), String> {
-    let own = format!("{SUBJECT}{key}");
-    let prior: Vec<Fact> = facts_from(graph, RULE)?.into_iter().filter(|(subject, ..)| *subject == own).collect();
+    let prior = own_facts(graph, key)?;
     tell_facts_to(graph, WRITER, &prior, &facts(key, learned), at)
 }
 
