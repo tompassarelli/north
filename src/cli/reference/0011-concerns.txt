@@ -1,1 +1,0 @@
-  concerns check [--root DIR] [PROJECT...]      Check each project's declared concerns

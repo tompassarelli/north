@@ -28,7 +28,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("denylist", denylist::run),
     ("autoland-status", autoland_status::run),
     ("check", check),
-    ("concerns", concerns),
     ("land", land),
     ("cause", |arguments| ledger_verb("cause", arguments)),
     ("landed-tree", landed_tree::run),
@@ -206,6 +205,7 @@ fn citation_check(arguments: &[String]) -> u8 {
 const CHECK: &[(&str, Run)] = &[
     ("calls", call_check),
     ("citations", citation_check),
+    ("concerns", concerns),
     ("harness", agent_config_check::run),
     ("privacy", |arguments| crate::privacy::run(arguments, &super::agents::claude_access())),
     ("oneshot", |arguments| crate::timers::ask::run(arguments, &super::agents::claude_access())),
@@ -217,13 +217,7 @@ const CHECK: &[(&str, Run)] = &[
 ];
 
 fn concerns(arguments: &[String]) -> u8 {
-    match arguments.split_first() {
-        Some((verb, rest)) if verb == "check" => north_concerns::run(rest, &super::concern_history::LedgerHistory),
-        _ => {
-            eprintln!("usage: north concerns check [--root DIR] [--trend] [PROJECT...]");
-            2
-        }
-    }
+    north_concerns::run(arguments, &super::concern_history::LedgerHistory)
 }
 
 fn check(arguments: &[String]) -> u8 {

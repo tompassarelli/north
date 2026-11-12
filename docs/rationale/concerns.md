@@ -88,7 +88,7 @@ Alternatives that lost:
 - Ordinary least squares: one bad reading (an oracle that timed out into a fallback, a landing stuck behind a host reboot) swings the slope and fires drifting.
 - A fixed percentage change threshold: the right threshold differs between a load average and a landing p90; the series' own noise sets it.
 
-`north concerns check --trend` prints, per concern: state, current value against its line and warn band, and for 12 h, 24 h and 7 d the median and the slope per day.
+`north check concerns --trend` prints, per concern: state, current value against its line and warn band, and for 12 h, 24 h and 7 d the median and the slope per day.
 
 ## One registry, one judge
 

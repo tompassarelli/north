@@ -136,7 +136,7 @@ fn record(rows: &[Row], history: &dyn Store, now: i64) {
     let file = state_file("north/concerns/judged.json");
     let mut kept: BTreeMap<String, Kept> = std::fs::read_to_string(&file).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
     let recorded = history.read(&host, Timestamp::from_unix_seconds(now - trend::LONGEST)).unwrap_or_else(|why| {
-        eprintln!("north concerns: concern history not read: {why}");
+        eprintln!("north check concerns: concern history not read: {why}");
         Vec::new()
     });
     let samples: Vec<_> = rows
@@ -159,6 +159,6 @@ fn record(rows: &[Row], history: &dyn Store, now: i64) {
         let _ = std::fs::create_dir_all(parent).and_then(|()| std::fs::write(&file, text));
     }
     if let Err(why) = history.record(&samples) {
-        eprintln!("north concerns: concern history not recorded: {why}");
+        eprintln!("north check concerns: concern history not recorded: {why}");
     }
 }

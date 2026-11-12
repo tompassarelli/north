@@ -1,4 +1,4 @@
-//! `north concerns check`: each project's concerns, written as named checks with a measured oracle, a
+//! `north check concerns`: each project's concerns, written as named checks with a measured oracle, a
 //! bound and a class. A contract is never red, and a landing that turns it red is reverted. A
 //! debt-allowed concern may be red up to its ceiling while a `Target-debt:` record names its owner and
 //! revisit trigger (docs/rationale/targets.md). A red concern reaches the proxy through the fleet tick.
@@ -23,7 +23,7 @@ use north_base::foundation::clock::Timestamp;
 use registry::Concern;
 use verdict::{Verdict, judge};
 
-const USAGE: &str = "usage: north concerns check [--root DIR] [--trend] [PROJECT...]";
+const USAGE: &str = "usage: north check concerns [--root DIR] [--trend] [PROJECT...]";
 pub const PROJECTS: [&str; 3] = ["north", "makgora", "wisp"];
 
 pub struct Row {
@@ -84,7 +84,7 @@ pub fn line(row: &Row) -> String {
 
 pub fn render(rows: &[Row], problems: &[String], seconds: f64) -> String {
     let red = rows.iter().filter(|row| !row.verdict.green()).count();
-    let mut out = format!("north concerns check: {} concerns, {} green, {red} red, in {seconds:.1} s\n", rows.len(), rows.len() - red);
+    let mut out = format!("north check concerns: {} concerns, {} green, {red} red, in {seconds:.1} s\n", rows.len(), rows.len() - red);
     let mut project = "";
     for row in rows {
         if row.project != project {
@@ -148,7 +148,7 @@ fn render_trend(rows: &[Row], problems: &[String], history: &dyn Store) -> Strin
         let _ = writeln!(out, "history not read: {why}");
         Vec::new()
     });
-    let _ = writeln!(out, "north concerns check --trend: {} concerns, history of {host}", rows.len());
+    let _ = writeln!(out, "north check concerns --trend: {} concerns, history of {host}", rows.len());
     let mut project = "";
     for row in rows {
         if row.project != project {

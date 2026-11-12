@@ -69,7 +69,7 @@ and their subverbs stay.
 ### Health
 
 - `north health` (338 uses): harness invariants. `north runtime health` (410 uses): the installed runtimes.
-- `north dash --bars`: readiness bars against their goals; `north concerns check`: every goal's oracle.
+- `north dash --bars`: readiness bars against their goals; `north check concerns`: every goal's oracle.
 - `north ledger flow --stall-alarm` and the lander alarms.
 
 ## Where they disagree

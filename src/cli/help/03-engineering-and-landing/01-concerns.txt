@@ -1,2 +1,0 @@
-concerns
-Check each project's concerns against their bounds

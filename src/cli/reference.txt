@@ -15,7 +15,7 @@ Commands:
   check experiments [--root DIR]                Check that every review rule and footgun card has an experiment registry entry
   check experiments judge [--root DIR] [--today YYYY-MM-DD] [--file]  Judge the declared experiments due for review
   check experiments defer ISSUE BOX --check CMD --by DATE  Defer a box to a dated check in the experiment registry
-  concerns check [--root DIR] [PROJECT...]      Check each project's declared concerns
+  check concerns [--root DIR] [PROJECT...]      Check each project's declared concerns
   check issue-boxes [REPO#N...] [--repo REPO]   Check issue acceptance boxes
   check machines [--write | --registry | --fixes [--days N] | --replay [--days N]] [--root DIR]  Check every modelled lifecycle machine over every ordering of its scope, its chart and that the landing selects it; --registry checks only that every machine is named; --fixes reports machines whose code a landed incident fix changed; --replay scores that trigger over history beside calendar and churn sweeps
   check nix [--lock FILE [--allow FILE]]        Report each dev shell as rooted and enterable offline, missing rustup wrapper store paths and a second nixpkgs in flake.lock
