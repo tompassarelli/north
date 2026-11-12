@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde_json::{Map, Value, json};
 
@@ -73,14 +73,14 @@ impl Turn {
     }
 }
 
-fn turn(transcript: &str) -> Turn {
+fn turn(transcript: &str, planted: &HashSet<String>) -> Turn {
     let mut turn = Turn::default();
-    transcript.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(main_thread).for_each(|frame| turn.read(&frame));
+    transcript.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(main_thread).filter(|frame| !planted.contains(frame["uuid"].as_str().unwrap_or_default())).for_each(|frame| turn.read(&frame));
     turn
 }
 
-pub fn row(case: &Value, transcript: &str, cwd: &str) -> Value {
-    let turn = turn(transcript);
+pub fn row(case: &Value, transcript: &str, cwd: &str, planted: &HashSet<String>) -> Value {
+    let turn = turn(transcript, planted);
     let ended = turn.responses > 0 && !turn.last_called;
     json!({
         "id": case["id"], "kind": case["kind"], "pattern": case["pattern"], "role": case["setup"]["role"],

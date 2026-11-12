@@ -5698,6 +5698,9 @@
       "file-links-ambiguous-basename",
       "file-links-no-files-control",
       "file-links-package-relative"
+    ],
+    "replayed_control": [
+      "control-link-means-url"
     ]
   },
   "pin": "24e77473ecf41bc1f7142529c7911c1c1aae1d76",

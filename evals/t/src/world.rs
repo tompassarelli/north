@@ -1,9 +1,10 @@
 use std::fs;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 use serde_json::{Value, json};
 
 use super::pin;
+use super::plant;
 use super::proc::{git, must};
 
 pub fn case(checkout: &Path, id: &str) -> Result<Value, String> {
@@ -25,9 +26,9 @@ fn inside(path: &str) -> bool {
 
 pub fn beyond_files(case: &Value) -> Vec<String> {
     let setup = &case["setup"];
-    let mut needs: Vec<String> = ["mocks", "shellMocks", "priorTurns", "context", "sideChat", "delegateRole"].iter().filter(|key| !setup[**key].is_null()).map(|key| (*key).to_owned()).collect();
-    if setup["world"]["files"].as_object().is_some_and(|files| files.keys().any(|path| !inside(path))) {
-        needs.push("files outside the repository".to_owned());
+    let mut needs: Vec<String> = ["shellMocks", "context", "sideChat", "delegateRole"].iter().filter(|key| !setup[**key].is_null()).map(|key| (*key).to_owned()).collect();
+    if setup["mocks"].as_object().is_some_and(|mocks| mocks.keys().any(|tool| tool != "Skill")) {
+        needs.push("mocks other than Skill".to_owned());
     }
     needs
 }
@@ -71,10 +72,21 @@ pub fn build(checkout: &Path, id: &str, into: &Path, seen_at: Option<&str>) -> R
     let world = &case["setup"]["world"];
     let files = world["files"].as_object().cloned().unwrap_or_default();
     for (path, content) in &files {
-        let target = repo.join(path);
+        let target = if inside(path) { repo.join(path) } else { into.join("root").join(path.trim_start_matches('/')) };
         fs::create_dir_all(target.parent().unwrap_or(&repo)).map_err(|e| format!("{path}: {e}"))?;
         fs::write(&target, content.as_str().unwrap_or_default()).map_err(|e| format!("{path}: {e}"))?;
     }
+    if let Some(mock) = case["setup"]["mocks"]["Skill"].as_str() {
+        let (path, content) = plant::skill(mock)?;
+        let target = repo.join(&path);
+        fs::create_dir_all(target.parent().unwrap_or(&repo)).map_err(|e| format!("{path}: {e}"))?;
+        fs::write(&target, content).map_err(|e| format!("{path}: {e}"))?;
+    }
+    let turns = case["setup"]["priorTurns"].as_array().map(|turns| -> Result<PathBuf, String> {
+        let file = into.join("turns.json");
+        fs::write(&file, format!("{}\n", Value::Array(turns.clone()))).map_err(|e| format!("{}: {e}", file.display()))?;
+        Ok(file)
+    }).transpose()?;
     let branch = world["branch"].as_str().unwrap_or("main");
     must(git(&repo, &["init", "-q", "-b", branch]), "git init of the world")?;
     must(git(&repo, &["add", "--all"]), "git add of the world")?;
@@ -85,7 +97,7 @@ pub fn build(checkout: &Path, id: &str, into: &Path, seen_at: Option<&str>) -> R
     let told = case["setup"]["context"].as_str().filter(|_| given.is_some()).map(|context| context.replace(RUNNER_DIRECTORY, &place));
     let prompt = told.map_or_else(|| prompt.to_owned(), |context| format!("{context}\n\n{prompt}"));
     fs::write(into.join("prompt.txt"), prompt).map_err(|e| e.to_string())?;
-    let manifest = json!({"case": id, "kind": case["kind"], "repo": repo, "prompt": into.join("prompt.txt"), "branch": branch, "files": files.len(), "tree": tree, "given": given});
+    let manifest = json!({"case": id, "kind": case["kind"], "repo": repo, "prompt": into.join("prompt.txt"), "branch": branch, "files": files.len(), "tree": tree, "given": given, "turns": turns, "root": into.join("root")});
     fs::write(into.join("world.json"), format!("{manifest:#}\n")).map_err(|e| e.to_string())?;
     Ok(manifest)
 }

@@ -2,7 +2,11 @@
 set -uo pipefail
 arm=$1 W=$(readlink -f "$2")
 MODEL=${EVAL_T_MODEL:-claude-opus-5-5} EFFORT=${EVAL_T_EFFORT:-medium} LIMIT=${EVAL_T_LIMIT_S:-600} ROOT=${EVAL_T_ROOT:-$W/repo}
+SEED='Reply with OK only.'
 fail() { echo "eval-t arm $arm: $1" >&2; exit 1; }
+tool() { cargo run -q --locked --offline -- "$@"; }
+assistants() { jq -s '[.[] | select(.type == "assistant")] | length' "$1" 2> /dev/null; }
+: > "$W/planted.jsonl"
 for variable in $(compgen -e | grep -E '^(ANTHROPIC_|CLAUDE_CODE_USE_)'); do unset "$variable"; done
 case $arm in
   north)
@@ -12,20 +16,35 @@ case $arm in
     mkdir -p "$XDG_STATE_HOME"
     north threads list > /dev/null 2>&1
     name=evalT-$$
+    trap 'north fleet stop "$name" >> "$W/launch.log" 2>&1; north fleet forget "$name" >> "$W/launch.log" 2>&1' EXIT
+    opening=$(cat "$W/prompt.txt")
+    [ -f "$W/turns.json" ] && opening=$SEED
     north fleet launch --provider claude --account "$EVAL_T_ACCOUNT" --model "$MODEL" --effort "$EFFORT" --name "$name" --parent none \
-      --role worker --prompt north --test --cwd "$ROOT" --no-wait "$(cat "$W/prompt.txt")" > "$W/launch.log" 2>&1 || fail "launch refused; see $W/launch.log"
+      --role worker --prompt north --test --cwd "$ROOT" --no-wait "$opening" > "$W/launch.log" 2>&1 || fail "launch refused; see $W/launch.log"
     settled() { north fleet show "$name" --json 2> /dev/null | jq -e '.status != "working"
       and ([.entries[] | select(.kind == "user" or .kind == "assistant")] | last | .kind) == "assistant"' > /dev/null; }
+    conversation() { north fleet show "$name" --json 2> /dev/null | jq -r '.conversation // empty'; }
+    transcript() { find "$XDG_STATE_HOME" "$HOME/.local/state/north/profiles" -name "$(conversation).jsonl" 2> /dev/null | head -1; }
     deadline=$((SECONDS + LIMIT))
     until settled || [ "$SECONDS" -ge "$deadline" ]; do sleep 3; done
     settled || echo "eval-t arm north: not settled after $LIMIT s" >&2
-    conversation=$(north fleet show "$name" --json 2> /dev/null | jq -r '.conversation // empty')
-    kept=$(find "$XDG_STATE_HOME" "$HOME/.local/state/north/profiles" -name "$conversation.jsonl" 2> /dev/null | head -1)
-    cat "${kept:-$XDG_STATE_HOME/north/fleet/$name/g1/stream.jsonl}" > "$W/transcript.jsonl"
-    north fleet stop "$name" >> "$W/launch.log" 2>&1
-    north fleet forget "$name" >> "$W/launch.log" 2>&1 ;;
+    kept=$(transcript)
+    if [ -f "$W/turns.json" ]; then
+      [ -n "$kept" ] || fail "no transcript for $name; see $W/launch.log"
+      north fleet stop "$name" >> "$W/launch.log" 2>&1
+      tool plant --turns "$W/turns.json" --session "$(conversation)" --cwd "$ROOT" --out /dev/stdout > "$W/planted.jsonl" || fail "planting failed"
+      cat "$W/planted.jsonl" > "$kept"
+      north fleet revive "$name" >> "$W/launch.log" 2>&1 || fail "revive refused; see $W/launch.log"
+      before=$(assistants "$kept")
+      north fleet send --from "service:${EVAL_T_UNIT:-eval-t}" "$name" "$(cat "$W/prompt.txt")" >> "$W/launch.log" 2>&1 || fail "send refused; see $W/launch.log"
+      deadline=$((SECONDS + LIMIT))
+      until { [ "$(assistants "$kept")" -gt "$before" ] 2> /dev/null && settled; } || [ "$SECONDS" -ge "$deadline" ]; do sleep 3; done
+      settled || echo "eval-t arm north: not settled after $LIMIT s" >&2
+    fi
+    cat "${kept:-$XDG_STATE_HOME/north/fleet/$name/g1/stream.jsonl}" > "$W/transcript.jsonl" ;;
   t3 | bare)
     : "${EVAL_T_TOKEN_FILE:?names a file holding the subscription OAuth token}"
+    [ "$arm" = bare ] && [ -f "$W/turns.json" ] && fail "bare has no seeded resume; the prior turns need the t3 or north arm"
     if [ "$ROOT" != "$W/repo" ]; then
       [ ! -e "$ROOT" ] || fail "$ROOT is already there; a plain session starts in a fresh copy of its world"
       mkdir -p "$(dirname "$ROOT")" && cp -a "$W/repo" "$ROOT" || fail "could not place the repository at $ROOT"
@@ -37,7 +56,7 @@ case $arm in
         [ ! -e "$above/$file" ] || fail "Claude Code would load $above/$file into a plain session; start it outside that directory (EVAL_T_ROOT)"
       done
     done
-    T3=${T3_RUNTIME:-$HOME/.local/lib/t3/current/t3}
+    T3=${T3_RUNTIME:-$HOME/.local/lib/t3/versions/0.1.9/t3}
     claude=$(readlink -f "${EVAL_T_CLAUDE:-$(command -v claude)}")
     cfg=$W/cfg state=$W/t3-base port=$(shuf -i 38800-38999 -n 1) tools=$(dirname "$claude"):$(dirname "$(command -v git)"):$(dirname "$(command -v bash)")
     mkdir -p "$cfg" "$state" "$W/home"
@@ -50,17 +69,34 @@ case $arm in
       exit 0
     fi
     cli=(env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 "$T3")
-    setsid env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 CLAUDE_CONFIG_DIR="$cfg" T3CODE_TELEMETRY_ENABLED=false OTEL_SDK_DISABLED=true \
-      ${EVAL_X_TRIAL:+SHELL=$SHELL EVAL_X_TRIAL=$EVAL_X_TRIAL} \
-      CLAUDE_CODE_OAUTH_TOKEN="$(cat "$EVAL_T_TOKEN_FILE")" \
-      "$T3" serve --base-dir "$state" --host 127.0.0.1 --port "$port" --no-browser "$ROOT" > "$W/server.log" 2>&1 &
-    server=$!
+    serve() {
+      setsid env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 CLAUDE_CONFIG_DIR="$cfg" T3CODE_TELEMETRY_ENABLED=false OTEL_SDK_DISABLED=true \
+        ${EVAL_X_TRIAL:+SHELL=$SHELL EVAL_X_TRIAL=$EVAL_X_TRIAL} \
+        CLAUDE_CODE_OAUTH_TOKEN="$(cat "$EVAL_T_TOKEN_FILE")" \
+        "$T3" serve --base-dir "$state" --host 127.0.0.1 --port "$port" --no-browser "$ROOT" > "$W/server.log" 2>&1 &
+      server=$!
+      for _ in $(seq 90); do grep -q 'Connection string' "$W/server.log" && return 0; sleep 1; done
+      fail "the server never came up; see $W/server.log"
+    }
+    serve
     trap 'kill -- "-$server" 2> /dev/null || kill "$server" 2> /dev/null' EXIT
-    for _ in $(seq 90); do grep -q 'Connection string' "$W/server.log" && break; sleep 1; done
-    grep -q 'Connection string' "$W/server.log" || fail "the server never came up; see $W/server.log"
     "${cli[@]}" project add "$ROOT" --base-dir "$state" > "$W/project.log" 2>&1 || fail "project add failed; see $W/project.log"
-    timeout "$LIMIT" "${cli[@]}" thread start "$ROOT" - --provider claudeAgent --model "$MODEL" --wait --json --base-dir "$state" \
-      < "$W/prompt.txt" > "$W/turn.json" 2> "$W/turn.err" || echo "eval-t arm t3: thread start exited $?; see $W/turn.err" >&2
+    opening=$(cat "$W/prompt.txt")
+    [ -f "$W/turns.json" ] && opening=$SEED
+    printf '%s' "$opening" | timeout "$LIMIT" "${cli[@]}" thread start "$ROOT" - --provider claudeAgent --model "$MODEL" --wait --json --base-dir "$state" \
+      > "$W/turn.json" 2> "$W/turn.err" || echo "eval-t arm t3: thread start exited $?; see $W/turn.err" >&2
+    if [ -f "$W/turns.json" ]; then
+      thread=$(jq -r '.threadId // empty' "$W/turn.json" 2> /dev/null)
+      [ -n "$thread" ] || fail "thread start gave no thread; see $W/turn.err"
+      file=$(ls "$cfg"/projects/*/*.jsonl 2> /dev/null | head -1)
+      [ -n "$file" ] || fail "the seed left no transcript"
+      kill -- "-$server" 2> /dev/null; wait "$server" 2> /dev/null
+      tool plant --turns "$W/turns.json" --session "$(basename "$file" .jsonl)" --cwd "$ROOT" --out /dev/stdout > "$W/planted.jsonl" || fail "planting failed"
+      cat "$W/planted.jsonl" > "$file"
+      serve
+      timeout "$LIMIT" "${cli[@]}" thread send "$thread" "$(cat "$W/prompt.txt")" --wait --json --base-dir "$state" \
+        > "$W/turn.json" 2> "$W/turn.err" || echo "eval-t arm t3: thread send exited $?; see $W/turn.err" >&2
+    fi
     cat "$cfg"/projects/*/*.jsonl > "$W/transcript.jsonl" 2> /dev/null ;;
   *) fail "the arms are north, t3 and bare" ;;
 esac

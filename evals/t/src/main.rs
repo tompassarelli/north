@@ -7,7 +7,7 @@ mod row;
 mod transfer;
 mod world;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -22,7 +22,7 @@ const USAGE: &str = "usage:
   eval-t transfer-fixture --state DIR
   eval-t world --checkout DIR --case ID --into DIR [--seen-at DIR]
   eval-t plant --turns FILE --session ID --cwd DIR --out FILE
-  eval-t grade --checkout DIR --grader DIR --node PROGRAM --case ID --arm NAME --transcript FILE --cwd DIR --out DIR [--stamp JSON]";
+  eval-t grade --checkout DIR --grader DIR --node PROGRAM --case ID --arm NAME --transcript FILE --cwd DIR --out DIR [--planted FILE] [--stamp JSON]";
 
 fn flags(args: &[String]) -> BTreeMap<String, String> {
     args.chunks(2).filter_map(|pair| Some((pair[0].strip_prefix("--")?.to_owned(), pair.get(1)?.clone()))).collect()
@@ -82,6 +82,14 @@ fn context(flags: &BTreeMap<String, String>) -> Result<(), String> {
     Ok(())
 }
 
+fn planted_uuids(path: Option<&String>) -> Result<HashSet<String>, String> {
+    let Some(path) = path else {
+        return Ok(HashSet::new());
+    };
+    let text = fs::read_to_string(path).map_err(|e| format!("--planted {path}: {e}"))?;
+    Ok(text.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter_map(|frame| frame["uuid"].as_str().map(str::to_owned)).collect())
+}
+
 fn grade(flags: &BTreeMap<String, String>) -> Result<(), String> {
     let grader = Path::new(need(flags, "grader")?);
     pin::graders_at(grader, pin::PIN)?;
@@ -94,7 +102,7 @@ fn grade(flags: &BTreeMap<String, String>) -> Result<(), String> {
         Err(why) if plain => return Err(format!("{arm}: {why}")),
         first => first.unwrap_or(Value::Null),
     };
-    let row = row::row(&case, &text, cwd);
+    let row = row::row(&case, &text, cwd, &planted_uuids(flags.get("planted"))?);
     let out = fs::canonicalize(need(flags, "out")?).map_err(|e| format!("--out: {e}"))?;
     let rows = out.join("row.jsonl");
     fs::write(&rows, format!("{row}\n")).map_err(|e| format!("{}: {e}", rows.display()))?;

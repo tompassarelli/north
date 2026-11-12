@@ -98,3 +98,11 @@ fn assistant(session: &str, content: Vec<Value>, stop: &str) -> Value {
         "usage": {"input_tokens": 0, "output_tokens": 0},
     })
 }
+
+pub fn skill(mock: &str) -> Result<(String, String), String> {
+    let (first, body) = mock.split_once('\n').unwrap_or((mock, ""));
+    let name = first.strip_prefix("Launching skill:").map(str::trim).filter(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')).ok_or_else(|| format!("the Skill mock names no skill: {first}"))?;
+    let body = body.trim();
+    let description = body.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default();
+    Ok((format!(".claude/skills/{name}/SKILL.md"), format!("---\nname: {name}\ndescription: {}\n---\n\n{body}\n", json!(description))))
+}
