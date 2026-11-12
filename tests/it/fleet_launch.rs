@@ -288,7 +288,6 @@ fn a_first_turn_at_the_weekly_limit_marks_the_account_refused_and_north_accounts
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "weekly-limit");
-    // On 2026-11-10 north read claude:c at 99% of its week and kept it for canaries; the provider then refused its first turn.
     usage_gate(root, 99.0);
 
     let refused = launch_test(root);

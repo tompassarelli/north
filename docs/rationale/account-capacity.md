@@ -329,7 +329,7 @@ Source: five-hour windows in `pace-control.jsonl` on gex45, 2026-10-24 5:58 PM t
 readings), the threads `usage` table, and session transcripts under each profile.
 
 - 16 five-hour windows reached 95%; 13 went on to 100%, usually 0 to 14 minutes after crossing 95, and sat full for 11
-  to 176 minutes until their reset. All but two were on claude:c on Oct 26 and 27, while its week read 5% to 91%.
+  to 176 minutes until their reset. All but two were on one account on Oct 26 and 27, while that account's week read 5% to 91%.
 - Sessions on accounts c and d end turns with "You've hit your limit · resets 3pm" (Oct 27 11:33 AM to 1:15 PM UTC,
   five times; Oct 27 10:02 PM; Oct 28 3:26 PM; Oct 29 1:47 PM). north#259 measured runs ended by a usage limit at
   the end of a window, cut off mid-turn.

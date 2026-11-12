@@ -21,11 +21,10 @@ short, memorable list of the specific justifications that do not count.
 
 ## Observed incidents behind it
 
-- 2026-08-24/25 — operator, verbatim: "i just don't understand the
-  provenance and attestation paranoia that seems to highjack productivity
-  constantly, can you figure out a saner solution to this pattern."
-- 2026-09-03 — operator, verbatim: "JESUS MOTHER FUCKING CHRIST WHY IS THERE
-  SO MUCH FUCKING CEREMONY IN DOING THIS."
+- 2026-08-24/25 — operator said provenance and attestation work kept
+  hijacking productivity and asked for a saner solution to the pattern.
+- 2026-09-03 — operator objected strongly to how much ceremony a routine
+  change carried.
 - 2026-09-07 — operator named the recurring set directly: immutability /
   reproducibility / attestation / provenance work that is "extraordinarily
   difficult" for no gain; security paranoia that fits neither the research
