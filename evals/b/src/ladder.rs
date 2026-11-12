@@ -19,7 +19,7 @@ const POLL_S: u64 = 5;
 pub struct Plan {
     pub level: usize,
     pub tasks: Vec<Value>,
-    pub account: String,
+    pub accounts: Vec<String>,
     pub parent: String,
     pub hosts: Vec<String>,
     pub work: PathBuf,
@@ -29,6 +29,7 @@ pub struct Plan {
 
 pub struct Run {
     pub task: Value,
+    pub account: String,
     pub branch: String,
     pub name: String,
     pub launch_start: f64,
@@ -59,18 +60,19 @@ pub fn unseen(task: &Value, nonce: &str) -> Value {
     marked
 }
 
-fn launch(plan: &Plan, task: &Value, branch: &str, name: &str, wave: &'static str) -> Run {
+fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wave: &'static str) -> Run {
     let cwd = scratch::worktree(branch);
     let text = header(&plan.model) + &prompt(task);
     let tier_reason = format!("Eval B pins {} at medium for the whole ladder", plan.model);
     let args = [
-        "fleet", "launch", "--provider", "claude", "--account", &plan.account, "--model", &plan.model, "--effort", EFFORT, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
+        "fleet", "launch", "--provider", "claude", "--account", account, "--model", &plan.model, "--effort", EFFORT, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
         "--tier-reason", &tier_reason, "--cwd", &cwd, "--no-wait", &text,
     ];
     let launch_start = now();
     let ran = run("north", &args, None);
     Run {
         task: task.clone(),
+        account: account.to_owned(),
         branch: branch.to_owned(),
         name: name.to_owned(),
         launch_start,
@@ -148,7 +150,9 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
                     let id = task["id"].as_str().unwrap_or_default();
                     let branch = format!("{id}-l{}", plan.level);
                     let name = format!("evalb-l{}-{id}-{stamp}", plan.level);
-                    scope.spawn(move || launch(plan, task, &branch, &name, wave))
+                    let index = plan.tasks.iter().position(|t| t["id"] == task["id"]).unwrap_or_default();
+                    let account = &plan.accounts[index % plan.accounts.len()];
+                    scope.spawn(move || launch(plan, task, account, &branch, &name, wave))
                 })
                 .collect();
             handles.into_iter().filter_map(|h| h.join().ok()).collect()

@@ -34,6 +34,8 @@ which a row's `verdict_s` (0.2 to 0.4 s from the cache, 3 s or more judged) show
 model requests. `--model M` launches every worker of the ladder on M instead of claude-opus-5-5, at the same effort and
 with the same brief, and each row names it in `conditions.model`; its rows answer which model the harness may choose
 behind the same check, a different comparison from the pinned-model rows, and go in their own results file.
+`--account d,e,a` launches the ladder's tasks on those accounts in turn, task i on the account at i modulo the list,
+and each row names its account in `conditions.account`; one account, the default d, is the pinned case.
 
 `--parent SESSION` (default `$NORTH_FLEET_SESSION`) names the live fleet session that reads the workers' reports;
 north refuses a worker launched from outside a session without one. The scratch lander's queue lives under the live
