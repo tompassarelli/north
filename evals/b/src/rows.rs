@@ -20,23 +20,37 @@ pub fn conditions(plan: &Plan, base: &str, seed: u64) -> Value {
         "repo": format!("eval-b synthetic workload, seed {seed}"), "base": base,
         "caches": "cold lanes: fresh worktrees on every host; the workload has no dependencies to warm",
         "local_time_at_start": local_time(crate::proc::now()),
+        "landed_checks_on": plan.checks_on.as_deref().map_or_else(|| "laptop".to_owned(), |host| format!("{host}, in depbox run")),
     })
 }
 
-pub fn verify(work: &Path) -> Result<(), String> {
+pub fn verify(work: &Path, checks_on: Option<&str>) -> Result<(), String> {
     let verify = work.join("verify");
     let _ = sh(&format!("rm -rf '{}'", verify.display()));
     crate::proc::must(git(work, &["clone", "-q", &scratch::origin().to_string_lossy(), "verify"]), "clone landed main")?;
-    let green = sh(&format!("cd '{}' && PATH={}:$PATH bun test >/dev/null 2>&1", verify.display(), crate::proc::TOOLPATH)).ok();
+    if let Some(host) = checks_on {
+        let remote = scratch::host_verify();
+        crate::proc::must(ssh(host, &format!("rm -rf {remote} {remote}.git && git init -q --bare {remote}.git")), &format!("make {host}'s verify origin"))?;
+        crate::proc::must(git(&verify, &["push", "-q", &format!("ssh://tom@{host}{remote}.git"), "HEAD:refs/heads/main"]), &format!("push landed main to {host}"))?;
+        crate::proc::must(ssh(host, &format!("git clone -q {remote}.git {remote}")), &format!("clone landed main on {host}"))?;
+    }
+    let green = landed_check(work, checks_on, "bun test");
     let _ = std::fs::write(work.join("main-green"), if green { "pass" } else { "fail" });
     Ok(())
 }
 
-fn accepted(work: &Path, expect: &Path, task: &Value) -> (bool, &'static str) {
+fn landed_check(work: &Path, checks_on: Option<&str>, command: &str) -> bool {
+    let toolpath = crate::proc::TOOLPATH;
+    match checks_on {
+        None => sh(&format!("cd '{}' && PATH={toolpath}:$PATH {command} >/dev/null 2>&1", work.join("verify").display())).ok(),
+        Some(host) => ssh(host, &format!("cd {} && PATH={toolpath}:$PATH depbox run -- bash -c '{}' >/dev/null 2>&1", scratch::host_verify(), command.replace('\'', "'\\''"))).ok(),
+    }
+}
+
+fn accepted(work: &Path, checks_on: Option<&str>, expect: &Path, task: &Value) -> (bool, &'static str) {
     let verify = work.join("verify");
     let id = task["id"].as_str().unwrap_or_default();
-    let check = task["check"].as_str().unwrap_or_default();
-    let acceptance = sh(&format!("cd '{}' && PATH={}:$PATH {check} >/dev/null 2>&1", verify.display(), crate::proc::TOOLPATH)).ok();
+    let acceptance = landed_check(work, checks_on, task["check"].as_str().unwrap_or_default());
     let hidden = sh(&format!("cmp -s '{}/test/{id}.test.ts' '{}/{id}.test.ts'", verify.display(), expect.display())).ok();
     (acceptance, if hidden { "pass" } else { "fail" })
 }
@@ -58,7 +72,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
     let (cost, total) = collect::spend(&dir);
     let (resolved_at, reason) = run.resolved.clone().unwrap_or((run.launch_end, "unresolved".to_owned()));
     let landed = reason == "landed";
-    let (acceptance, hidden) = if landed { accepted(&plan.work, expect, &run.task) } else { (false, "not-run") };
+    let (acceptance, hidden) = if landed { accepted(&plan.work, plan.checks_on.as_deref(), expect, &run.task) } else { (false, "not-run") };
     let landed_attempt = attempts.as_array().and_then(|a| a.iter().find(|x| x["attributes"]["landed"].is_string())).cloned();
     let first_queued = attempts.as_array().and_then(|a| a.iter().filter_map(|x| x["queued_at"].as_f64()).reduce(f64::min));
     let lander_refusals = attempts.as_array().map_or(0, |a| a.iter().filter(|x| !x["attributes"]["landed"].is_string()).count());

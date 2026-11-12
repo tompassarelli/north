@@ -26,6 +26,7 @@ pub struct Plan {
     pub burst: Option<(usize, f64)>,
     pub model: String,
     pub effort: String,
+    pub checks_on: Option<String>,
 }
 
 pub struct Run {

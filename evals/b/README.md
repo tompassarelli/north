@@ -39,6 +39,8 @@ and each row names its account in `conditions.account`; one account, the default
 `--effort E` launches every worker at effort E instead of medium, names E in the brief's Model line, and each row
 records it in `conditions.effort_requested`; like `--model`, its rows are their own arm.
 
+`--checks-on HOST` runs the landed main's `bun test` and every landed task's acceptance command on HOST inside `depbox run` (no network, home masked) instead of on the laptop, after pushing landed main to a scratch origin there; `conditions.landed_checks_on` names where they ran.
+
 `--parent SESSION` (default `$NORTH_FLEET_SESSION`) names the live fleet session that reads the workers' reports;
 north refuses a worker launched from outside a session without one. The scratch lander's queue lives under the live
 `land-queue` directory; `eval-b queue --archive DIR` copies it into DIR and removes it, and the same queue on each host,

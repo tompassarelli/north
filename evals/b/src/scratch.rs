@@ -13,6 +13,10 @@ pub fn checkout() -> PathBuf {
     Path::new(ROOT).join("main")
 }
 
+pub fn host_verify() -> String {
+    format!("{ROOT}/verify")
+}
+
 pub fn worktree(branch: &str) -> String {
     format!("{ROOT}/worktrees/{branch}")
 }
