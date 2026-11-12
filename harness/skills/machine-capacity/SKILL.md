@@ -2,8 +2,8 @@
 name: machine-capacity
 description: >-
   Run builds, full suites, renders, Warcraft clients or other multi-core or >1 GiB work under capacity admission; DEFER or resource pressure. Skip small checks.
-grounded: 2026-11-10
-written: 2026-11-10
+grounded: 2026-11-12
+written: 2026-11-12
 metadata:
   kind: playbook
 ---

@@ -2,9 +2,9 @@
 name: github
 description: >-
   GitHub via `gh`: issues, labels, Done-when boxes; Actions workflows and runs; many agents within job and API limits.
-grounded: 2026-11-10
+grounded: 2026-11-12
 gh-version: 2.103.3
-written: 2026-11-10
+written: 2026-11-12
 metadata:
   kind: playbook
 ---

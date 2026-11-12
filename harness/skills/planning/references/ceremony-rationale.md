@@ -26,12 +26,11 @@ short, memorable list of the specific justifications that do not count.
 - 2026-09-03 — operator objected strongly to how much ceremony a routine
   change carried.
 - 2026-09-07 — operator named the recurring set directly: immutability /
-  reproducibility / attestation / provenance work that is "extraordinarily
-  difficult" for no gain; security paranoia that fits neither the research
-  project nor, often, the production one; speculative fixing of self-noticed
-  "gaps" off the critical path; and test discipline that is "pedantic and
-  overly ceremonially, academically correct, but not really necessary"
-  instead of batching aggressively. Same turn asked for the polish level to
+  reproducibility / attestation / provenance work that is very difficult for
+  no gain; security paranoia that fits neither the research project nor,
+  often, the production one; speculative fixing of self-noticed gaps off the
+  critical path; and test discipline that is pedantic and academically
+  correct but not needed, instead of batching aggressively. Same turn asked for the polish level to
   become an explicit, operator-visible setting rather than an inference.
 
 The recurrence is the point. A single instance would be a deferred note.

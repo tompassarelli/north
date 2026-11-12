@@ -2,8 +2,8 @@
 name: agent-policy
 description: >-
   Author or change agent instructions, skills, hooks, guards or modules; turn lasting corrections into policy; import skills; audit the harness; review a followed source.
-grounded: 2026-11-10
-written: 2026-11-10
+grounded: 2026-11-12
+written: 2026-11-12
 metadata:
   kind: playbook
 ---

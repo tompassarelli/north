@@ -2,8 +2,8 @@
 name: workers
 description: >-
   Lead-side staffing: spawn, restaff, review, park or land workers or leads; tiers, ETAs, briefs, reports; cloud workers; auto-wake; fleet take-over.
-grounded: 2026-11-10
-written: 2026-11-10
+grounded: 2026-11-12
+written: 2026-11-12
 ---
 # Workers
 

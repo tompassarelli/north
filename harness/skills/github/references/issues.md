@@ -25,4 +25,4 @@ Read this to create or edit issues, labels or Done-when boxes.
 - Keep a shared target (such as a 45-55% balance band or a frame budget) in the one issue that owns it; other issues' boxes require only no regression against main, because one owner decides the target.
 - File native, Tom-decision and time-gated proofs as their own issue when the code they verify can land first, because they otherwise block landing.
 - Rewrite an issue's Status and route in the same edit that changes a box's verification class, because the route follows the class.
-- Write no clean-up boxes (tests turned down, scaffolding removed, nothing left for later), because the landing enforces them on every lane through the test-admission, mutant-kill and leftovers land checks, and a landing that ticks an issue's last box closes it.
+- Write no clean-up boxes (tests turned down, scaffolding removed, nothing left for later), because the landing enforces them on every lane through the test-admission and mutant-kill land checks and `north land scan leftovers`, and a landing that ticks an issue's last box closes it.
