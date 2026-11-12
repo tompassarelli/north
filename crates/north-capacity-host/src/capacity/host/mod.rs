@@ -30,6 +30,8 @@ mod terminations;
 #[cfg(test)]
 mod handover_tests;
 #[cfg(test)]
+mod lease_wait_tests;
+#[cfg(test)]
 mod offering_tests;
 #[cfg(test)]
 mod gpu_tests;
@@ -103,6 +105,14 @@ pub fn job_refusal() -> Option<String> {
     let signals = machine::read_signals();
     let load = crate::capacity::job_admission::HostLoad { cpu_some_percent: signals.host_cpu_some / 100.0, memory_total_mib: signals.memory_total_mib, memory_available_mib: signals.memory_available_mib };
     crate::capacity::job_admission::refusal(&load, job_peak_mib())
+}
+
+pub fn lease_waiting(except: Option<u64>) -> bool {
+    lease_waiting_under(&runtime_root(), except)
+}
+
+fn lease_waiting_under(root: &Path, except: Option<u64>) -> bool {
+    root.join("queue").is_dir() && state::read_queue(root).iter().any(|ticket| ticket.get("wrapperPid").and_then(Value::as_u64) != except)
 }
 
 /// `admit-job`: exits 0 when this host starts another offloaded job now, else prints why and exits 75, the answer the slot script and the slot warmer act on.

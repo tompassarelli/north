@@ -1,13 +1,14 @@
 //! Keeps a host's land-check slots warm between landings: a build host's, and the lander host's own, which its after-landing runs use when no
-//! build host has room. While the host's job admission (`north capacity host admit-job`) starts another job and no land check waits in the slot queue, the lease reaper (the laptop-auto tick on the laptop) starts
+//! build host has room. While the host's job admission (`north capacity host admit-job`) starts another job and no land check waits in the slot queue or a lease in the capacity queue, the lease reaper (the laptop-auto tick on the laptop) starts
 //! one warm job: it takes the unlocked slot whose last warm build is furthest behind its repository's origin/main (a land check that left a
 //! slot at the head may not have built what the next one needs), a slot that has never built while the disk keeps its eviction line and the slots their
 //! land_offload budget with one more of the largest target here, never the lander's reserved one, checks it out at
 //! that head and runs the repository's `landing.warm` command there under a heavy lease at the lowest CPU priority, so the next check on any
-//! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since. A land check that queues for a slot stops the warm job, which holds a slot the check could take.
+//! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since. A land check that queues for a slot, or a lease that queues in the capacity queue, stops the warm job, which holds a slot or cores the check could take.
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
+use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -49,8 +50,18 @@ fn take(lock: &Path) -> Option<File> {
     flock(&file, FlockOperation::NonBlockingLockExclusive).ok().map(|()| file)
 }
 
-fn too_busy(root: &Path) -> bool {
-    checks_waiting(root) || crate::capacity::host::job_refusal().is_some()
+fn refusal(root: &Path) -> Option<String> {
+    if checks_waiting(root) {
+        Some("a land check waits for a slot".to_owned())
+    } else if crate::capacity::host::lease_waiting(None) {
+        Some("a lease waits in the capacity queue".to_owned())
+    } else {
+        crate::capacity::host::job_refusal()
+    }
+}
+
+fn skip(root: &Path, why: &str) {
+    let _ = OpenOptions::new().create(true).append(true).open(root.join(LOG)).and_then(|mut log| log.write_all(format!("warm: skipped, {why}\n").as_bytes()));
 }
 
 fn checks_waiting(root: &Path) -> bool {
@@ -65,7 +76,11 @@ pub fn tend() {
         return;
     }
     let Some(root) = offload::root().filter(|root| root.is_dir()) else { return };
-    if held(&root.join(LOCK)) || too_busy(&root) {
+    if held(&root.join(LOCK)) {
+        return;
+    }
+    if let Some(why) = refusal(&root) {
+        skip(&root, &why);
         return;
     }
     let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
@@ -94,7 +109,8 @@ pub fn run() -> u8 {
     }
     let Some(root) = offload::root() else { return 0 };
     let Some(_warming) = take(&root.join(LOCK)) else { return 0 };
-    if too_busy(&root) {
+    if let Some(why) = refusal(&root) {
+        skip(&root, &why);
         return 0;
     }
     let slots = slots(&root);
@@ -195,6 +211,8 @@ fn warm(root: &Path, slot: &Slot, head: &str) -> u8 {
                 Some(format!("killed after {} s", DEADLINE.as_secs()))
             } else if checks_waiting(root) {
                 Some("stopped for a queued land check".to_owned())
+            } else if crate::capacity::host::lease_waiting(Some(u64::from(running.id()))) {
+                Some("stopped for a lease waiting in the capacity queue".to_owned())
             } else {
                 None
             };
