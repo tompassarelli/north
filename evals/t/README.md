@@ -91,7 +91,7 @@ N samples each, the arm order per sample drawn from the seed. For each sample an
    pin or has a changed file under `evals`, `apps` or `packages`, and stamps the row with the SHA-256 of `run.ts`.
 
 A row: case, kind, arm, pass, the checks T3 Code's grader failed, calls, stop reason, sample, seed, model, effort,
-the T3 Code version and binary hash, the Claude Code and north versions, and the grader's pin and hash. Rows are
+the T3 Code version and binary hash, the Claude Code version, the north runtime commit, the host, the start time and one-minute load of the sample, the label `REAL-HARNESS`, and the grader's pin and hash. The script fetches the pinned commit with plain git, because a cargo routed through a build gate has no network. Rows are
 appended to `runs/LABEL/results.jsonl` under `EVAL_T_WORK` (default `evals/t/work`, which git ignores; a lane's `target` is reclaimed by lane gc, so nothing is kept there), where each
 sample's world, transcript, row and grader output stay. The run exits non-zero when a sample gave no row or when
 the T3 Code binary is not `v0.1.9`. T3 Code's own runner replays cases against the model API with a simulated

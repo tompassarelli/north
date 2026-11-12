@@ -19,7 +19,10 @@ work=${EVAL_T_WORK:-work} node=${EVAL_T_NODE:-node} T3=${T3_RUNTIME:-$HOME/.loca
 run=$work/runs/$label
 tool() { cargo run -q --locked --offline -- "$@"; }
 mkdir -p "$run"
-tool fetch --into "$work/t3code" && tool classify --checkout "$work/t3code" --check cases.json || exit 1
+pin=$(jq -r .pin cases.json) source=$(jq -r .source cases.json)
+[ -d "$work/t3code/.git" ] || { git init -q "$work/t3code" && git -C "$work/t3code" fetch -q --depth 1 "$source" "$pin" \
+  && git -C "$work/t3code" checkout -q --detach FETCH_HEAD; } || { echo "eval-t: could not fetch $source at $pin" >&2; exit 1; }
+tool classify --checkout "$work/t3code" --check cases.json || exit 1
 if [ ! -d "$work/grader/node_modules" ]; then
   [ -d "$work/grader" ] || git -C "$work/t3code" worktree add -q --detach ../grader HEAD || exit 1
   (cd "$work/grader" && bun install --ignore-scripts) > "$run/grader-install.log" 2>&1
@@ -30,18 +33,21 @@ version=$("$T3" --version)
 stamp() {
   jq -cn --arg label "$label" --argjson sample "$1" --argjson seed "$seed" --arg model "${EVAL_T_MODEL:-claude-opus-5-5}" \
     --arg effort "${EVAL_T_EFFORT:-medium}" --arg t3 "$version" --arg t3_sha256 "$(sha256sum "$T3" | cut -d' ' -f1)" \
-    --arg claude "$(claude --version 2> /dev/null)" --arg north "$(north --version 2> /dev/null)" '$ARGS.named'
+    --arg claude "$("${EVAL_T_CLAUDE:-claude}" --version 2> /dev/null)" --arg north "$north" --arg row REAL-HARNESS \
+    --arg host "$(hostname)" --arg started "$2" --arg load_1m "$3" '$ARGS.named'
 }
+north=$(readlink -f "$(command -v north)" | sed -n 's|.*/runtimes/\([0-9a-f]\{40\}\)/.*|\1|p')
+[ -n "$north" ] || { echo "eval-t: north on PATH is not a promoted runtime, so its commit cannot be stamped on the rows" >&2; exit 1; }
 failed=0
 for case in $cases; do
   for sample in $(seq "$samples"); do
     arms="t3 north"
     [ $(($(printf '%s' "$seed-$case-$sample" | cksum | cut -d' ' -f1) % 2)) = 0 ] || arms="north t3"
     for arm in $arms; do
-      w=$run/$case-$sample-$arm
+      w=$run/$case-$sample-$arm started=$(date -u +%FT%TZ) load=$(cut -d' ' -f1 /proc/loadavg)
       tool world --checkout "$work/t3code" --case "$case" --into "$w" > /dev/null && ./arm "$arm" "$w" \
         && tool grade --checkout "$work/t3code" --grader "$work/grader" --node "$node" --case "$case" --arm "$arm" \
-          --transcript "$w/transcript.jsonl" --cwd "$(readlink -f "$w/repo")" --out "$w" --stamp "$(stamp "$sample")" | tee -a "$run/results.jsonl"
+          --transcript "$w/transcript.jsonl" --cwd "$(readlink -f "$w/repo")" --out "$w" --stamp "$(stamp "$sample" "$started" "$load")" | tee -a "$run/results.jsonl"
       [ "${PIPESTATUS[0]}" = 0 ] || { failed=1; echo "eval-t: $case sample $sample in $arm gave no graded row; see $w" >&2; }
     done
   done
