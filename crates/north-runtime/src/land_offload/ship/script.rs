@@ -3,6 +3,9 @@ use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, RUNTIME_MISSING, OFFLOAD_ROOT, PO
 /// Minutes a run whose client lost its connection keeps going with no client reattached, so a caller killed on purpose does not leave the run holding its slot to its deadline; the runner reattaches within `REATTACH_WINDOW`, which is shorter.
 const REATTACH_MINUTES: u32 = 3;
 const DRAIN_POLL: &str = "0.1";
+/// Polls of `DRAIN_POLL` a nested job whose check ended waits for its group to obey TERM before it sends KILL, and before it reports that the group survives KILL; it never frees the slot while a member is left.
+const TERM_POLLS: u32 = 1200;
+const KILL_POLLS: u32 = 1500;
 const BACKGROUND_WAIT_SECONDS: u32 = 3600;
 const BACKGROUND_SUFFIX: &str = ".background";
 
@@ -79,12 +82,13 @@ fi
 git -C "$repo" fetch -q --no-auto-maintenance "$bundle" "+$ref:$ref"
 "#;
 
-const NESTED: &str = r#"caller_slot=${@SLOT_ENV@:-} nested=
-[ -n "@BACKGROUND@" ] || [ "${caller_slot%/*}" != "$root" ] || nested=1
+const NESTED: &str = r#"caller_slot=${@SLOT_ENV@:-} holder=${@SLOT_HOLDER_ENV@:-} nested=
+[ -n "@BACKGROUND@" ] || [ "${caller_slot%/*}" != "$root" ] || [ -z "$holder" ] || ! kill -0 "$holder" 2>/dev/null || nested=1
 if [ -n "$nested" ] && case ${caller_slot##*/} in "$name" | "$name"-[1-9]) true ;; *) false ;; esac && [ "$(git -C "$caller_slot" rev-parse HEAD 2>/dev/null)" = "$head" ]; then
   s=${caller_slot##*/} slot=$caller_slot
   exec 5>>"$slot.nested"
   flock -s 5
+  kill -0 "$holder" 2>/dev/null || { echo "offload: refusing to run: the check that held $s ended before this nested job took its place there" >&2; exit @WRONG_TREE@; }
   echo "offload: running in $s, the slot this job's caller holds on this host" >&2
 else
 "#;
@@ -249,13 +253,16 @@ if [ -n "${runtime:-}" ]; then
   [ -x "$runtime_dir/north" ] && [ -f "$runtime_dir/@TREE_MARKER@" ] || { echo "offload: the lander runtime $runtime on this host lacks north or @TREE_MARKER@" >&2; exit @TRANSPORT_FAILED@; }
   PATH="$runtime_dir:$PATH"; export PATH
 fi
-@SLOT_ENV@=$slot; export @SLOT_ENV@
+@SLOT_ENV@=$slot @SLOT_HOLDER_ENV@=$$; export @SLOT_ENV@ @SLOT_HOLDER_ENV@
 if [ -n "${carried:-}" ]; then eval "export $carried"; fi
 lease_owner=land-offload
 [ -z "${SAFE_PUSH_LAND_HEAD:-}" ] || lease_owner=land-check
 leased() {
   if command -v north >/dev/null 2>&1; then north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
+if [ -n "${nested:-}" ]; then
+  sh -c @WATCH@ offload-watch "$holder" "$$" "$s" "$root" </dev/null >/dev/null 2>&1 4>&- 6>&- 8>&- 9>&- &
+fi
 rc=0
 if [ -z "${ran:-}" ]; then
   leased bash -euo pipefail "$script" 4>&- 5>&- 6>&- 9>&- || rc=$?
@@ -280,21 +287,6 @@ while :; do
   ended=; [ ! -f "$exited" ] || ended=1
   if [ -z "$detached" ]; then drain || { detached=1; echo >"$lost"; }; fi
   [ -z "$ended" ] || break
-  if [ -n "${nested:-}" ] && (exec 7>>"$slot.lock"; flock -n 7) 2>/dev/null; then
-    echo "offload: the check that started this nested job has ended, so the job ends with it and reaches no verdict" >&2
-    trap '' TERM
-    kill -TERM "-$$" 2>/dev/null || true
-    waits=0
-    while [ "$waits" -lt 600 ]; do
-      pgrep -g "$$" >"$results/$id.group" 2>/dev/null || true
-      grep -vxq "$$" "$results/$id.group" || break
-      waits=$((waits + 1))
-      sleep @DRAIN_POLL@
-    done
-    rm -f "$results/$id.group"
-    echo @WRONG_TREE@ >"$exited"
-    continue
-  fi
   if [ -n "$detached" ] && [ -n "$(find "$lost" -mmin +@REATTACH_MINUTES@ 2>/dev/null)" ] && [ -z "$(find "$attached" -mmin -1 2>/dev/null)" ]; then
     kill -TERM "-$$" 2>/dev/null || true
   fi
@@ -304,6 +296,40 @@ read -r rc <"$exited"
 proved no || { echo "offload: the run's verdict is void, its tree changed under it: $why" >&2; rc=@WRONG_TREE@; }
 printf "%s %s\n" "$ran" "$rc" || true
 exit "$rc"
+"#;
+
+/// A nested job's watcher, apart from the job's own loop so a blocked write never delays it: it keeps the job's shared lock on the slot's `.nested` file, waits while the check that holds the slot lives, then ends the job's process group, TERM first and then KILL, and frees the slot only once no member of the group is left; a member that survives KILL keeps the slot taken and is reported once.
+const WATCH: &str = r#"holder=$1 lead=$2 s=$3 root=$4
+members() {
+  for proc in /proc/[0-9]*; do
+    read -r stat <"$proc/stat" 2>/dev/null || continue
+    set -- ${stat##*) }
+    [ "${3:-}" = "$lead" ] && [ "$1" != Z ] && [ "${proc#/proc/}" != "$$" ] && echo "${proc#/proc/}"
+  done
+  return 0
+}
+while kill -0 "$holder" 2>/dev/null; do sleep @DRAIN_POLL@; done
+log=$root/nested.log
+printf "%s offload: the check that started the nested job %s in %s has ended, so the job ends with it and reaches no verdict\n" "$(date +%FT%T)" "$lead" "$s" >>"$log"
+trap '' TERM
+kill -TERM "-$lead" 2>/dev/null || true
+group=$root/watch.$$
+waits=0 told=
+while :; do
+  members >"$group.left"
+  [ -s "$group.left" ] || break
+  waits=$((waits + 1))
+  if [ "$waits" -ge @TERM_POLLS@ ]; then
+    for left in $(cat "$group.left"); do kill -KILL "$left" 2>/dev/null || true; done
+  fi
+  if [ "$waits" -ge @KILL_POLLS@ ] && [ -z "$told" ]; then
+    told=1 left=$(tr -s ' \n' ' ' <"$group.left")
+    printf "%s offload: %s stays taken: processes %s of the nested job %s survive KILL\n" "$(date +%FT%T)" "$s" "$left" "$lead" >>"$log"
+    north fleet send proxy "offload: slot $s on $(uname -n) stays taken: processes $left of a nested job whose check ended survive KILL" >/dev/null 2>&1 || true
+  fi
+  sleep @DRAIN_POLL@
+done
+rm -f "$group.left"
 "#;
 
 const DRAIN: &str = r#"drain() {
@@ -366,9 +392,13 @@ pub(super) fn reattach_script() -> String {
 }
 
 pub(super) fn run_part() -> String {
-    RUN.replace("@DRAIN@", DRAIN)
+    RUN.replace("@WATCH@", &super::quote(WATCH))
+        .replace("@DRAIN@", DRAIN)
         .replace("@REATTACH_MINUTES@", &REATTACH_MINUTES.to_string())
         .replace("@DRAIN_POLL@", DRAIN_POLL)
+        .replace("@TERM_POLLS@", &TERM_POLLS.to_string())
+        .replace("@KILL_POLLS@", &KILL_POLLS.to_string())
+        .replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV)
         .replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV)
         .replace("@LEASE@", crate::runtime::layout::LEASE)
         .replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker())
@@ -381,7 +411,7 @@ pub(crate) fn jobs_part() -> String {
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
 }
 
 pub(super) fn beside_part() -> String {

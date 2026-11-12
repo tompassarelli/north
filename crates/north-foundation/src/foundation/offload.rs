@@ -7,6 +7,8 @@ pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
 pub const SLOT_ENV: &str = "NORTH_OFFLOAD_SLOT";
+/// The pid of the shell that holds the slot `SLOT_ENV` names, whose life is the life of its hold, so a job nested in that slot ends when it ends.
+pub const SLOT_HOLDER_ENV: &str = "NORTH_OFFLOAD_SLOT_HOLDER";
 /// The line an offload run prints once it proved its slot holds exactly the shipped commit's tree, followed by that tree and `of COMMIT`, which an after-landing verdict reads to name the tree it was computed on.
 pub const PROVED_TREE: &str = "offload: proved tree ";
 pub const LANES_ENV: &str = "NORTH_LAND_LANES";

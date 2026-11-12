@@ -621,7 +621,8 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     let free = || fs::File::open(home.path().join(".cache/land-offload/code-p-main.nested")).is_ok_and(|busy| rustix::fs::flock(&busy, rustix::fs::FlockOperation::NonBlockingLockExclusive).is_ok());
     assert!(north_base::platform::wait::until(std::time::Duration::from_secs(10), free), "a nested job still holds its slot 10 s after the check that started it ended");
     assert!(!ended.exists(), "the nested job ran to its own end instead of ending with its check");
-    assert!(fs::read_to_string(&said).unwrap_or_default().contains("the check that started this nested job has ended"), "{}", fs::read_to_string(&said).unwrap_or_default());
+    let logged = fs::read_to_string(home.path().join(".cache/land-offload/nested.log")).unwrap_or_default();
+    assert!(logged.contains("the check that started the nested job") && logged.contains("has ended, so the job ends with it"), "the watcher records why it ended the nested job: {logged}");
     let taker = home.path().join("taker-ran");
     let (passed, err) = job(&format!("printf %s \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, taker.display()), "", "taker");
     assert!(passed, "the next job did not run: {err}");
