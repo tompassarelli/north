@@ -225,8 +225,8 @@ fn inferred_checks(repo: &Path, head: &str) -> Vec<String> {
 }
 
 fn reason<'a>(entries: &'a [String], command: &str) -> Option<&'a str> {
-    let suffix = format!("{SEPARATOR}{command}");
-    entries.iter().find(|entry| entry.ends_with(&suffix)).map(|entry| entry.split(SEPARATOR).next().unwrap_or_default())
+    let looked_up = super::shared_build::built(command);
+    entries.iter().find_map(|entry| entry.split_once(SEPARATOR).filter(|(_, declared)| super::shared_build::built(declared) == looked_up).map(|(reason, _)| reason))
 }
 
 pub fn path_class(repo: &Path, base: &str, head: &str) -> String {
