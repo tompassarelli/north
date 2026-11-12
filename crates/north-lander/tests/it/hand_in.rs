@@ -194,12 +194,20 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
 const FILES: &str = "hand_in::a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_written_when_its_check_fails";
 const FILES_ARGUMENTS: &str = "NORTH_FINISH_FILES_IT_ARGUMENTS";
 
-fn finish_files(world: &World, lane: &Path, check: &str, files: &[(PathBuf, &str)]) -> Output {
+fn finish_files(world: &World, lane: &Path, check: &str, files: &[(PathBuf, serde_json::Value)]) -> Output {
     let arguments = ["--check", check, "--message", "Write the finished files (north#1218)", "--files", "-"];
     let mut call = queueing(world, FILES, FILES_ARGUMENTS, &arguments).current_dir(lane).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    let files: Vec<serde_json::Value> = files.iter().map(|(path, content)| serde_json::json!({"path": path, "content": content})).collect();
+    let files: Vec<serde_json::Value> = files.iter().map(|(path, change)| serde_json::json!({"path": path}).as_object().unwrap().clone().into_iter().chain(change.as_object().unwrap().clone()).collect()).collect();
     call.stdin.take().unwrap().write_all(serde_json::Value::from(files).to_string().as_bytes()).unwrap();
     call.wait_with_output().unwrap()
+}
+
+fn whole(content: &str) -> serde_json::Value {
+    serde_json::json!({"content": content})
+}
+
+fn lines(replacements: &[(&str, &str)]) -> serde_json::Value {
+    serde_json::json!({"replacements": replacements.iter().map(|(old, new)| serde_json::json!({"old": old, "new": new})).collect::<Vec<_>>()})
 }
 
 #[test]
@@ -213,14 +221,21 @@ fn a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_writt
     let lane = worktree(&north, "files");
     let start = git(&lane, &["rev-parse", "HEAD"]);
     let (inside, outside, readme) = (lane.join("notes/new.txt"), north.checkout.join("outside.txt"), lane.join("README"));
+    let first_readme = fs::read_to_string(&readme).unwrap();
 
-    let refused = finish_files(&world, &lane, "true", &[(inside.clone(), "inside\n"), (outside.clone(), "outside\n")]);
+    let refused = finish_files(&world, &lane, "true", &[(inside.clone(), whole("inside\n")), (outside.clone(), whole("outside\n"))]);
     let text = report(&refused);
     assert_eq!(refused.status.code(), Some(1), "{text}");
     assert!(text.contains(&format!("{} is outside the lane", outside.display())), "{text}");
     assert!(!inside.exists() && !outside.exists(), "a refused call wrote a file: {text}");
 
-    let failed = finish_files(&world, &lane, "cat notes/new.txt; exit 3", &[(inside.clone(), "the red draft\n")]);
+    let absent = finish_files(&world, &lane, "true", &[(inside.clone(), whole("inside\n")), (readme.clone(), lines(&[(first_readme.as_str(), "kept\n"), ("text the readme lacks", "")]))]);
+    let text = report(&absent);
+    assert_eq!(absent.status.code(), Some(1), "{text}");
+    assert!(text.contains(&format!("{}: the old text of replacement 2 is absent", readme.display())), "{text}");
+    assert!(!inside.exists() && fs::read_to_string(&readme).unwrap() == first_readme, "a call with an absent old text wrote a file: {text}");
+
+    let failed = finish_files(&world, &lane, "cat notes/new.txt; exit 3", &[(inside.clone(), whole("the red draft\n"))]);
     let text = report(&failed);
     assert_eq!(failed.status.code(), Some(1), "{text}");
     assert!(text.contains("the red draft") && text.contains("exited 3") && text.contains("NOT queued"), "the check did not run on the written file: {text}");
@@ -228,7 +243,13 @@ fn a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_writt
     assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a failed check committed: {text}");
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "a failed check queued: {text}");
 
-    let passed = finish_files(&world, &lane, "grep -q green notes/new.txt", &[(inside, "the green note\n"), (readme, "the rewritten readme\n")]);
+    let ambiguous = finish_files(&world, &lane, "true", &[(readme.clone(), whole("the rewritten readme\n")), (inside.clone(), lines(&[("d", "")]))]);
+    let text = report(&ambiguous);
+    assert_eq!(ambiguous.status.code(), Some(1), "{text}");
+    assert!(text.contains(&format!("{}: the old text of replacement 1 occurs 2 times", inside.display())), "{text}");
+    assert!(fs::read_to_string(&inside).unwrap() == "the red draft\n" && fs::read_to_string(&readme).unwrap() == first_readme, "a call with an ambiguous old text wrote a file: {text}");
+
+    let passed = finish_files(&world, &lane, "grep -q green notes/new.txt", &[(inside, lines(&[("red draft", "green note")])), (readme, whole("the rewritten readme\n"))]);
     let text = report(&passed);
     assert_eq!(passed.status.code(), Some(0), "{text}");
     let pending = queue::pending(&north.queue).unwrap();

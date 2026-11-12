@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194); given `--files`, it first writes their whole contents into the session's own lane, the checkout holding its directory, refusing a path outside it before anything is written (north#1218).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane or an absent or repeated old text before anything is written (north#1218).
 
 use std::fs;
 use std::io;
@@ -36,7 +36,21 @@ impl<F: FnOnce(&Lane) -> u8> Road for F {
 #[derive(serde::Deserialize)]
 struct File {
     path: PathBuf,
-    content: String,
+    #[serde(flatten)]
+    change: Change,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum Change {
+    Whole { content: String },
+    Lines { replacements: Vec<Replacement> },
+}
+
+#[derive(serde::Deserialize)]
+struct Replacement {
+    old: String,
+    new: String,
 }
 
 struct Request<'a> {
@@ -82,7 +96,7 @@ pub fn finish(arguments: &[String], road: impl Road) -> u8 {
 fn files(source: &str) -> Result<Vec<File>, String> {
     let text = if source == "-" { io::read_to_string(io::stdin()) } else { fs::read_to_string(source) };
     let text = text.map_err(|error| format!("the files in {source}: {error}"))?;
-    serde_json::from_str(&text).map_err(|error| format!("the files in {source} are not a JSON list of {{\"path\", \"content\"}}: {error}"))
+    serde_json::from_str(&text).map_err(|error| format!("the files in {source} are not a JSON list of {{\"path\", \"content\" or \"replacements\": [{{\"old\", \"new\"}}]}}: {error}"))
 }
 
 fn usage(arguments: &[String], usage: &str) -> u8 {
@@ -167,17 +181,43 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
 }
 
 fn apply(named: Named, files: &[File]) -> Result<Named, String> {
+    let mut written: Vec<(&PathBuf, String)> = Vec::new();
     for (target, file) in named.targets.iter().zip(files) {
+        let earlier = written.iter().rev().find(|(path, _)| *path == target).map(|(_, text)| text.as_str());
+        let content = changed(target, &file.change, earlier)?;
+        written.push((target, content));
+    }
+    for (target, content) in &written {
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
         }
-        fs::write(target, &file.content).map_err(|error| format!("{}: {error}", target.display()))?;
+        fs::write(target, content).map_err(|error| format!("{}: {error}", target.display()))?;
     }
     let paths: Vec<&str> = named.paths.iter().map(String::as_str).collect();
     if !named.committed && git(&named.lane.root, &[&["status", "--porcelain", "--untracked-files=all", "--"][..], &paths].concat())?.is_empty() {
         return Err(format!("no changes in {}", paths.join(" ")));
     }
     Ok(named)
+}
+
+fn changed(target: &Path, change: &Change, earlier: Option<&str>) -> Result<String, String> {
+    let replacements = match change {
+        Change::Whole { content } => return Ok(content.to_owned()),
+        Change::Lines { replacements } => replacements,
+    };
+    let mut text = match earlier {
+        Some(text) => text.to_owned(),
+        None => fs::read_to_string(target).map_err(|error| format!("{}: {error}; send a new file's whole content", target.display()))?,
+    };
+    for (number, replacement) in replacements.iter().enumerate().map(|(index, replacement)| (index + 1, replacement)) {
+        let found = if replacement.old.is_empty() { 0 } else { text.matches(replacement.old.as_str()).count() };
+        match found {
+            1 => text = text.replacen(replacement.old.as_str(), &replacement.new, 1),
+            0 => return Err(format!("{}: the old text of replacement {number} is absent; NOT written", target.display())),
+            many => return Err(format!("{}: the old text of replacement {number} occurs {many} times; NOT written", target.display())),
+        }
+    }
+    Ok(text)
 }
 
 fn commit(named: &Named, message: &str) -> Result<(), String> {
