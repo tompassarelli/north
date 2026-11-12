@@ -43,7 +43,7 @@ impl Fixture {
         std::fs::write(fleet.join(NAME).join("session.json"), serde_json::json!({ "name": NAME, "cwd": main, "task_ref": TASK }).to_string()).unwrap();
         let north = root.path().join("north");
         let log = root.path().join("ran");
-        write_executable(&north, format!("#!/bin/sh\n[ -z \"$NORTH_WORKER_SESSION_SCOPE\" ] || printf '%s' \"$NORTH_WORKER_SESSION_SCOPE\" > {}\nprintf '%s|%s|%s\\n' \"$PWD\" \"$*\" \"$NORTH_FLEET_SESSION\" >> {}\nprintf 'out %s\\n' \"$GH_TOKEN\"\nprintf 'err %s\\n' \"$GH_TOKEN\" >&2\n", root.path().join("scope").display(), log.display()));
+        write_executable(&north, format!("#!/bin/sh\n[ -z \"$NORTH_WORKER_SESSION_SCOPE\" ] || printf '%s' \"$NORTH_WORKER_SESSION_SCOPE\" > {}\nprintf '%s|%s|%s\\n' \"$PWD\" \"$*\" \"$NORTH_FLEET_SESSION\" >> {}\n[ \"$1\" != safe-push ] || {{ sleep 8 </dev/null >/dev/null 2>&1 & }}\nprintf 'out %s\\n' \"$GH_TOKEN\"\nprintf 'err %s\\n' \"$GH_TOKEN\" >&2\n", root.path().join("scope").display(), log.display()));
         let environment = vec![("HOME".to_owned(), home.display().to_string()), ("PATH".to_owned(), "/run/current-system/sw/bin:/usr/bin:/bin".to_owned()), ("GH_TOKEN".to_owned(), HELD.to_owned())];
         let cgroups = root.path().join("cgroup");
         Self { host: Host { fleet, home, environment, cgroups }, root, north, lane, other }
@@ -104,7 +104,12 @@ const OUTSIDE_CGROUP: &str = "0::/user.slice/user-1000.slice/user@1000.service/a
 #[test]
 fn a_lane_only_session_lands_its_own_lane_on_main_and_nothing_else() {
     let fixture = Fixture::new();
-    let landed = fixture.ask(&["safe-push", "--to", "main"], &fixture.lane);
+    let finished = std::sync::OnceLock::new();
+    std::thread::scope(|scope| {
+        scope.spawn(|| finished.set(fixture.ask(&["safe-push", "--to", "main"], &fixture.lane)).is_ok());
+        assert!(north_base::platform::wait::until(std::time::Duration::from_secs(4), || finished.get().is_some()), "the landing's output stayed open while a helper it left running lived, so the caller never read its end");
+    });
+    let landed = finished.into_inner().unwrap();
     assert_eq!(landed.code, 0, "{}", landed.stderr);
     assert_eq!(landed.stdout, "out [token withheld]\n");
     assert_eq!(fixture.ran(), [format!("{}|safe-push --to main|{NAME}", fixture.lane.display())]);

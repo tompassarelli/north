@@ -213,7 +213,7 @@ fn receive(stream: &UnixStream) -> Result<Option<(Request, Vec<OwnedFd>)>, Strin
     let mut length = [0u8; LENGTH_BYTES];
     let mut space = [0u8; 64];
     let mut control = RecvAncillaryBuffer::new(&mut space);
-    let received = recvmsg(stream, &mut [IoSliceMut::new(&mut length)], &mut control, RecvFlags::empty()).map_err(|error| error.to_string())?;
+    let received = recvmsg(stream, &mut [IoSliceMut::new(&mut length)], &mut control, RecvFlags::CMSG_CLOEXEC).map_err(|error| error.to_string())?;
     if received.bytes == 0 {
         return Ok(None);
     }
@@ -390,7 +390,7 @@ pub fn join_namespaces() -> Result<(), String> {
     let mut answer = [0u8; 1];
     let mut space = [0u8; 64];
     let mut control = RecvAncillaryBuffer::new(&mut space);
-    let received = recvmsg(&stream, &mut [IoSliceMut::new(&mut answer)], &mut control, RecvFlags::empty()).map_err(|error| error.to_string())?;
+    let received = recvmsg(&stream, &mut [IoSliceMut::new(&mut answer)], &mut control, RecvFlags::CMSG_CLOEXEC).map_err(|error| error.to_string())?;
     let fds: Vec<OwnedFd> = control.drain().filter_map(|message| if let RecvAncillaryMessage::ScmRights(fds) = message { Some(fds.collect::<Vec<_>>()) } else { None }).flatten().collect();
     let [user, mount]: [OwnedFd; 2] = fds.try_into().map_err(|_| format!("the outside broker made no namespaces ({})", if received.bytes == 0 { "it closed the request" } else { "it refused" }))?;
     super::sockets::join(user.as_fd(), mount.as_fd())

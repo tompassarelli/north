@@ -2,7 +2,6 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -60,7 +59,7 @@ pub fn start(south: &Path) {
     if program.file_name().is_none_or(|name| name != "north") {
         return;
     }
-    let _ = Command::new(program).arg("denylist").arg("hold").arg(south).process_group(0).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    let _ = Command::new("setsid").arg(program).arg("denylist").arg("hold").arg(south).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
 }
 
 pub fn hold(arguments: &[String], url_of: impl Fn(&Path) -> Result<String, String>) -> u8 {
