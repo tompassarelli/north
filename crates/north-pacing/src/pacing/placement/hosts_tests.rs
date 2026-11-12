@@ -64,24 +64,17 @@ fn five_launches_started_together_share_one_answer_from_a_host_that_answers_one_
     }
 }
 
-static BEHIND: Memo = Mutex::new(None);
+static GUARDED: Memo = Mutex::new(None);
 
-/// On 2026-11-12 a launch to a build host spent about 1 s before it registered asking the host everything placement reads, because the last answer was over 30 s old.
+/// On 2026-11-12 a launch placed work from a host's answer two minutes old, so a host whose disk or memory ran short since then still took it.
 #[test]
-fn a_launch_after_an_answer_minutes_old_is_placed_from_it_and_the_host_is_asked_again_behind_it() {
+fn a_launch_after_an_answer_minutes_old_asks_the_host_again_before_it_places_work_there() {
     let records = tempfile::tempdir().unwrap();
     let reading = Saturation { memory_total_mib: 64.0, memory_available_mib: 32.0, disk_free_gib: 500.0, disk_total_gib: 900.0, backlog: None, token_age_s: None, disk_bound_gib: None };
     let old = Facts { live: Some(2), saturation: Some(reading), saturation_age_s: Some(0.0), ..Facts::default() };
     std::fs::write(records.path().join("gex45.json"), json!({"at": storage::now() - 120.0, "facts": old}).to_string()).unwrap();
-    note_there(records.path(), "gex45", "/work");
-    let (asked, everything) = mpsc::channel();
-    let ask: Ask = Arc::new(move |_, _, _, question| {
-        let _ = asked.send(question);
-        Facts { live: Some(3), ..Facts::default() }
-    });
+    let ask: Ask = Arc::new(move |_, _, _, _| Facts { live: Some(3), saturation: Some(Saturation { disk_free_gib: 1.0, ..reading }), saturation_age_s: Some(0.0), ..Facts::default() });
     let silent = |_: &Machine| Facts::default();
-    let facts = survey_via(&BEHIND, records.path(), &[machine("gex45")], Some("/work"), Duration::from_secs(5), ask, &silent);
-    assert_eq!((facts[0].live, facts[0].has_cwd), (Some(2), Some(true)));
-    assert_eq!(everything.recv_timeout(Duration::from_secs(5)).unwrap(), Asked::Everything);
-    assert!(everything.recv_timeout(Duration::from_millis(200)).is_err(), "the launch asked the host only behind itself");
+    let facts = survey_via(&GUARDED, records.path(), &[machine("gex45")], Some("/work"), Duration::from_secs(5), ask, &silent);
+    assert_eq!((facts[0].live, facts[0].saturation.map(|now| now.disk_free_gib)), (Some(3), Some(1.0)));
 }

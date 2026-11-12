@@ -159,9 +159,7 @@ const ACCOUNTS_CACHE_SECONDS: f64 = 600.0;
 
 const SHARED_SECONDS: f64 = 30.0;
 
-const ANSWERED_BEHIND_SECONDS: f64 = 300.0;
-
-const DIRECTORY_SECONDS: f64 = 600.0;
+const DIRECTORY_SECONDS: f64 = 60.0;
 
 type Memo = Mutex<Option<HashMap<String, Facts>>>;
 
@@ -207,11 +205,12 @@ pub(in crate::pacing) fn surveyed(machines: &[Machine], cwd: Option<&str>) -> Ve
     survey_via(&PASS, &records(), machines, cwd, SURVEY_DEADLINE, Arc::new(fetch), &silent_host)
 }
 
-/// What a launch asks a host: everything placement reads, or only whether its directory is there when it reads another launch's answer.
+/// What a launch asks a host: everything placement reads, or only whether its directory is there when it reads another launch's answer; the survey keeper asks everything with a saturation reading taken now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Asked {
     Everything,
     Directory,
+    Refresh,
 }
 
 type Asker = dyn Fn(&str, &str, Option<&str>, Asked) -> Facts + Send + Sync;
@@ -242,8 +241,7 @@ fn survey_via(memo: &'static Memo, records: &Path, machines: &[Machine], cwd: Op
 }
 
 /// The host's facts from an answer another launch recorded under `SHARED_SECONDS` ago, asking the host only for this launch's
-/// directory unless it was seen there under `DIRECTORY_SECONDS` ago; else from an answer under `ANSWERED_BEHIND_SECONDS` old, asking
-/// the host again behind the launch, since a full answer cost a launch to a build host about 1 s before it registered (2026-11-12);
+/// directory unless it was seen there under `DIRECTORY_SECONDS` ago, which the survey keeper keeps true while launches place work;
 /// else from the one launch that holds the host's survey turn, which launches starting meanwhile wait for and then read.
 /// A launch that waits asks its directory while it waits and gives the turn back as soon as it has read the answer, so a burst's
 /// directory questions run side by side instead of one per turn (five launches on 2026-11-12 waited up to 2.2 s before registering).
@@ -253,7 +251,7 @@ fn answered(records: &Path, machine: &Machine, cwd: Option<&str>, ask: &Ask) -> 
         Some(dir) => {
             let found = ask(&machine.name, &machine.ssh, cwd, Asked::Directory).has_cwd;
             if found == Some(true) {
-                note_there(records, &machine.name, dir);
+                mark_there(records, &machine.name, dir, true);
             }
             found
         }
@@ -261,12 +259,7 @@ fn answered(records: &Path, machine: &Machine, cwd: Option<&str>, ask: &Ask) -> 
     };
     let reused = |facts: Facts, has_cwd: Option<bool>| if cwd.is_some() { Facts { has_cwd, ..facts } } else { facts };
     let everything = || ask(&machine.name, &machine.ssh, cwd, Asked::Everything);
-    let now = storage::now();
-    if let Some(facts) = shared(records, &machine.name, now) {
-        return reused(facts, directory());
-    }
-    if let Some(facts) = recent(records, &machine.name, now, ANSWERED_BEHIND_SECONDS) {
-        refresh_behind(records, machine, ask);
+    if let Some(facts) = shared(records, &machine.name, storage::now()) {
         return reused(facts, directory());
     }
     let Some(turn) = turn_file(records, &machine.name) else { return everything() };
@@ -294,34 +287,37 @@ fn answered(records: &Path, machine: &Machine, cwd: Option<&str>, ask: &Ask) -> 
 /// The answer recorded under `SHARED_SECONDS` ago, its saturation reading still under `SATURATION_CACHE_SECONDS` old; an answer
 /// that held no live count or no saturation reading is asked again.
 fn shared(records: &Path, name: &str, now: f64) -> Option<Facts> {
-    recent(records, name, now, SHARED_SECONDS).filter(|facts| facts.saturation_age_s.is_some_and(|aged| aged < SATURATION_CACHE_SECONDS))
-}
-
-/// The answer recorded under `within` seconds ago with a live count and a saturation reading, its reading aged by the answer's age.
-fn recent(records: &Path, name: &str, now: f64, within: f64) -> Option<Facts> {
     let recorded = load(&records.join(format!("{name}.json")));
-    let age = recorded["at"].as_f64().map(|at| now - at).filter(|age| (0.0..within).contains(age))?;
+    let age = recorded["at"].as_f64().map(|at| now - at).filter(|age| (0.0..SHARED_SECONDS).contains(age))?;
     let mut facts = serde_json::from_value::<Facts>(recorded["facts"].clone()).ok()?;
     facts.saturation_age_s = Some(facts.saturation_age_s? + age);
-    (facts.live.is_some() && facts.saturation.is_some()).then_some(facts)
+    (facts.live.is_some() && facts.saturation.is_some() && facts.saturation_age_s.is_some_and(|aged| aged < SATURATION_CACHE_SECONDS)).then_some(facts)
 }
 
-/// Asks the host for a new answer on a thread of its own, so the launch that read the older one goes on; a launch already asking it, or an answer recorded meanwhile, leaves it be.
-fn refresh_behind(records: &Path, machine: &Machine, ask: &Ask) {
-    let (records, machine, ask) = (records.to_path_buf(), machine.clone(), Arc::clone(ask));
-    std::thread::spawn(move || {
-        let Some(turn) = turn_file(&records, &machine.name) else { return };
-        if turn.try_lock().is_ok() && shared(&records, &machine.name, storage::now()).is_none() {
-            ask(&machine.name, &machine.ssh, None, Asked::Everything);
+/// Asks `machine` everything placement reads and whether each launch directory it was seen to hold is still there, recording
+/// both, so launches placing work read an answer under `SHARED_SECONDS` old instead of asking it themselves.
+pub(super) fn refresh(machine: &Machine) {
+    let records = records();
+    fetch(&machine.name, &machine.ssh, None, Asked::Refresh);
+    let here = machine.name == local();
+    let seen = load(&records.join(format!("{}.dirs.json", machine.name)));
+    for directory in seen.as_object().into_iter().flat_map(|entries| entries.keys()) {
+        if let Some(present) = directory_there(here, &machine.ssh, directory) {
+            mark_there(&records, &machine.name, directory, present);
         }
-    });
+    }
 }
 
 fn seen_there(records: &Path, name: &str, directory: &str, now: f64) -> bool {
     load(&records.join(format!("{name}.dirs.json")))[directory].as_f64().is_some_and(|at| (0.0..DIRECTORY_SECONDS).contains(&(now - at)))
 }
 
-fn note_there(records: &Path, name: &str, directory: &str) {
+/// Records whether `directory` is on the host, under the record's own lock so two launches noting at once lose neither entry.
+fn mark_there(records: &Path, name: &str, directory: &str, present: bool) {
+    let Some(lock) = std::fs::create_dir_all(records).and_then(|()| std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(records.join(format!("{name}.dirs.lock")))).ok() else { return };
+    if lock.lock().is_err() {
+        return;
+    }
     let path = records.join(format!("{name}.dirs.json"));
     let mut entries = match load(&path) {
         Value::Object(entries) => entries,
@@ -329,7 +325,11 @@ fn note_there(records: &Path, name: &str, directory: &str) {
     };
     let now = storage::now();
     entries.retain(|_, at| at.as_f64().is_some_and(|at| (0.0..DIRECTORY_SECONDS).contains(&(now - at))));
-    entries.insert(directory.to_owned(), json!(now));
+    if present {
+        entries.insert(directory.to_owned(), json!(now));
+    } else {
+        entries.remove(directory);
+    }
     let _ = std::fs::write(&path, Value::Object(entries).to_string());
 }
 
@@ -404,7 +404,7 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>, asked: Asked) -> Fact
     let cache = storage::directory().join("saturation").join(format!("{name}.json"));
     let now = storage::now();
     let cached = load(&cache);
-    let fresh = cached["at"].as_f64().is_some_and(|at| (0.0..SATURATION_CACHE_SECONDS).contains(&(now - at)));
+    let fresh = asked != Asked::Refresh && cached["at"].as_f64().is_some_and(|at| (0.0..SATURATION_CACHE_SECONDS).contains(&(now - at)));
     let mut facts = Facts { saturation: fresh.then(|| serde_json::from_value(cached["reading"].clone()).ok()).flatten(), ..Facts::default() };
     facts.saturation_age_s = facts.saturation.and(cached["at"].as_f64()).map(|at| now - at);
     let want_saturation = !fresh && !here;

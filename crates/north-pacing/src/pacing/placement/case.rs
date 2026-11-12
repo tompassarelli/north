@@ -38,6 +38,7 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
     let at = std::env::var("PLACEMENT_NOW").ok().and_then(|s| storage::seconds(&s)).unwrap_or_else(storage::now);
     let (gate, usage) = usage(at);
     let unprobed = gate::machines(&cfg);
+    super::keeper::wanted();
     let surveyed = hosts::surveyed(&unprobed, ask.launch.cwd.as_deref());
     let machines = unprobed.iter().zip(surveyed).map(|(machine, facts)| recorded(machine, facts, ask.fleet_load)).collect();
     let credit_name = credit::credit_name(&cfg);

@@ -1,0 +1,1 @@
+  placement-survey keep                         Keep every build host's placement survey under 30 s old while launches place work, stopping 5 min after the last one
