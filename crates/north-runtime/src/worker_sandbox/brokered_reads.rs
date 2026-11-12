@@ -46,16 +46,15 @@ pub(super) fn named_file_readable(arguments: &[String], directory: &Path, enviro
 }
 
 /// Refuses a depbox run that asks for its checkout's pinned store entries when one lies outside what the client's own domain reads, since depbox runs outside that domain and would otherwise hand a lane-only client the store.
-pub(super) fn pinned_entries_readable(arguments: &[String], directory: &Path, environment: &[(String, String)], cgroup: Option<&str>, home: &Path) -> Result<Option<String>, String> {
+pub(super) fn pinned_entries_readable(arguments: &[String], top: &Path, directory: &Path, environment: &[(String, String)], cgroup: Option<&str>, home: &Path) -> Result<Option<String>, String> {
     let Some((_, view)) = environment.iter().find(|(name, value)| name == carry::LAND_STORE_VIEW && !value.is_empty()) else { return Ok(None) };
     if arguments.first().is_none_or(|word| word != "depbox") {
         return Ok(None);
     }
     let context = Context::from_request(&arguments.join(" "), directory, environment);
     let roots = if cgroup.is_none_or(session_scope::lane_only_cgroup) { readable_in_lane(&context, &[]) } else { readable(&context, Reader::Worker) };
-    let top = std::process::Command::new("git").arg("-C").arg(directory).args(["rev-parse", "--show-toplevel"]).output().ok().filter(|output| output.status.success()).map(|output| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())).ok_or_else(|| format!("{} is not inside a git checkout", directory.display()))?;
-    let head = store_pins::viewed_commit(&top, view)?;
-    for entry in store_pins::pinned_store_entries(&top, &head, home) {
+    let head = store_pins::viewed_commit(top, view)?;
+    for entry in store_pins::pinned_store_entries(top, &head, home) {
         if !entry.canonicalize().is_ok_and(|real| roots.iter().any(|root| real.starts_with(root))) {
             return Err(format!("store entry {} is outside the files the caller can read", entry.display()));
         }
@@ -95,7 +94,7 @@ mod tests {
         }
         let declared = vec![("HOME".to_owned(), home.display().to_string()), (carry::LAND_STORE_VIEW.to_owned(), "pinned".to_owned())];
         let depbox = ["depbox".to_owned(), "run".to_owned(), "--".to_owned(), "bun".to_owned()];
-        assert!(pinned_entries_readable(&depbox, &lane, &declared, None, &home).is_err(), "a lane-only client's depbox run binds no store entry its own domain cannot read");
-        assert!(pinned_entries_readable(&depbox, &lane, &declared, Some("0::/user.slice/north-worker-n1.scope"), &home).is_ok(), "a client whose domain reads the store binds the entry its head pins");
+        assert!(pinned_entries_readable(&depbox, &lane, &lane, &declared, None, &home).is_err(), "a lane-only client's depbox run binds no store entry its own domain cannot read");
+        assert!(pinned_entries_readable(&depbox, &lane, &lane, &declared, Some("0::/user.slice/north-worker-n1.scope"), &home).is_ok(), "a client whose domain reads the store binds the entry its head pins");
     }
 }

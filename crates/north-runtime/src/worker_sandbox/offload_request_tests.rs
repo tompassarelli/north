@@ -11,6 +11,7 @@ use north_base::foundation::offload::{LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 
 use super::super::broker::{self, Request};
 use super::super::lane_grant::Host;
+use super::super::{Context, removable};
 use super::{OPEN_SCOPE, git};
 use crate::foundation::shim::write_script;
 
@@ -25,6 +26,7 @@ const LAND_CHECK_CEILING: &str = "2100";
 const GIT_PLACES: [&str; 3] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE"];
 const FOREIGN: &str = "names another repository";
 const REWRITE: &str = "rewrite";
+const OWN_PATH: [&str; 3] = ["lane sync", "home move", "threads list"];
 const SERVED: [&str; 15] = [
     "safe-push --to main",
     "task check x",
@@ -141,7 +143,39 @@ fn serve(root: &Path) {
     a_request_is_served_only_from_the_checkout_north_made(root, &north, &host, &worker, &mut failures);
     git_reads_the_registered_repository_when_the_lane_s_gitfile_is_rewritten_after_the_check(root, &north, &host, &worker, &mut failures);
     a_request_from_a_directory_north_cannot_place_is_refused_for_every_verb(root, &north, &host, &worker, &mut failures);
+    a_verb_that_starts_no_command_of_the_caller_s_finds_its_programs_on_the_broker_s_path(root, &north, &host, &worker, &mut failures);
+    a_new_domain_s_git_grants_are_the_main_checkout_s_whatever_the_lane_s_gitfile_names(root, &mut failures);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The case of a verb that starts no command of the caller's, asked with the caller's `PATH` holding a fake ssh before the real one: the `north` started for it finds ssh on the broker's `PATH`.
+fn a_verb_that_starts_no_command_of_the_caller_s_finds_its_programs_on_the_broker_s_path(root: &Path, north: &Path, host: &Host, worker: &[(String, String)], failures: &mut Vec<String>) {
+    let lane = root.join("home/code/alpha/worktrees/lane");
+    let ran = || std::fs::read_to_string(root.join("ran")).unwrap_or_default();
+    for verb in OWN_PATH {
+        let before = ran().lines().count();
+        let (code, told) = ask(north, host, verb, &lane, worker);
+        let found: Vec<String> = ran().lines().skip(before).map(str::to_owned).collect();
+        if code != 0 || found != ["trusted ssh"] {
+            failures.push(format!("a_verb_that_starts_no_command_of_the_caller_s_finds_its_programs_on_the_broker_s_path: `{verb}` ran {found:?} as ssh, with the caller's PATH holding a fake one first: exit {code}: {told}"));
+        }
+    }
+}
+
+/// The case of a lane whose `.git` names another repository when a domain is made for a command run from it: the trees that domain writes and removes beneath lie in the repository the project's main checkout keeps, and none in the one the lane names.
+fn a_new_domain_s_git_grants_are_the_main_checkout_s_whatever_the_lane_s_gitfile_names(root: &Path, failures: &mut Vec<String>) {
+    let home = root.join("home");
+    let lane = home.join("code/alpha/worktrees/lane");
+    let (own, other) = (home.join("code/alpha/main/.git"), root.join("elsewhere"));
+    let pointer = lane.join(".git");
+    let made = std::fs::read_to_string(&pointer).unwrap();
+    std::fs::write(&pointer, format!("gitdir: {}\n", other.join(".git").display())).unwrap();
+    let trees = removable(&Context::from_request("true", &lane, &[("HOME".to_owned(), home.display().to_string())]));
+    std::fs::write(&pointer, made).unwrap();
+    let named: Vec<&PathBuf> = trees.iter().filter(|tree| tree.starts_with(&other)).collect();
+    if !named.is_empty() || !trees.iter().any(|tree| tree.starts_with(&own)) {
+        failures.push(format!("a_new_domain_s_git_grants_are_the_main_checkout_s_whatever_the_lane_s_gitfile_names: a command run from a lane whose .git names {} may write and remove beneath {named:?}, with {} of its trees in {}", other.display(), trees.iter().filter(|tree| tree.starts_with(&own)).count(), own.display()));
+    }
 }
 
 /// The case of a lane whose `.git` is rewritten to name another repository after the broker's check, before the git of the process it started reads a repository: the started process rewrites it itself and then runs git.
@@ -230,6 +264,9 @@ fn offload(root: &Path) {
     let claims: Vec<&str> = CLAIMS.into_iter().filter(|name| std::env::var_os(name).is_some()).chain(GIT_PLACES.into_iter().filter(elsewhere)).collect();
     let started = format!("{}|{}|{}\n", std::env::current_dir().unwrap().display(), claims.join(","), words.join(" "));
     std::fs::OpenOptions::new().append(true).create(true).open(root.join("seen")).unwrap().write_all(started.as_bytes()).unwrap();
+    if OWN_PATH.contains(&words.join(" ").as_str()) {
+        let _ = Command::new("ssh").output();
+    }
     if let Ok(pointer) = std::fs::read_to_string(root.join(REWRITE)) {
         std::fs::write(".git", pointer).unwrap();
         let read = Command::new("git").args(["rev-parse", "--path-format=absolute", "--git-common-dir", "--absolute-git-dir"]).output().unwrap();

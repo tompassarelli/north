@@ -66,7 +66,7 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     roots.extend(context.cargo_target.clone().map(|target| if target.is_absolute() { target } else { context.cwd.join(target) }));
     roots.extend([".rustup", ".bun", ".npm"].map(|name| home.join(name)));
     roots.extend(super::state::removable(&home.join(".local/state")));
-    for common in git_common_dirs(context) {
+    for common in project_git_common_dirs(context) {
         roots.extend(git_removable(&common));
     }
     roots.extend(projects(context).iter().filter_map(|project| check_lane(project)));
@@ -86,16 +86,7 @@ pub(super) fn projects(context: &Context) -> Vec<PathBuf> {
     project(&context.home, &context.cwd).into_iter().chain(context.named_projects.iter().cloned()).chain(parents).collect()
 }
 
-/// The git common directories of the projects and lanes a command run from `context` works in, each once.
-fn git_common_dirs(context: &Context) -> Vec<PathBuf> {
-    let checkouts = projects(context).into_iter().map(|project| project.join("main")).chain(lanes(context));
-    let mut commons: Vec<PathBuf> = checkouts.filter_map(|checkout| common_git_dir(&checkout)).collect();
-    commons.sort();
-    commons.dedup();
-    commons
-}
-
-/// The git common directories of the projects a command run from `context` works in, each once, read only from their main checkouts, whose `.git` a worker may not write: a lane's gitfile and a worktree's `commondir` lie where a worker writes, so a common directory read through them is whichever one the worker names.
+/// The git common directories of the projects a command run from `context` works in, those of its lanes among them, each once, read only from their main checkouts, whose `.git` a worker may not write: a lane's gitfile and a worktree's `commondir` lie where a worker writes, so a common directory read through them is whichever one the worker names, and a domain made from it could write and remove beneath that one (south#118).
 pub(super) fn project_git_common_dirs(context: &Context) -> Vec<PathBuf> {
     let mut commons: Vec<PathBuf> = projects(context).iter().filter_map(|project| main_common_dir(&project.join("main"))).collect();
     commons.sort();
@@ -129,7 +120,7 @@ fn git_removable(common: &Path) -> Vec<PathBuf> {
 
 /// The files at the top of each git common directory a command run from `context` works in that it writes in place: `FETCH_HEAD`, which `git fetch` in a main checkout truncates and rewrites and which is made empty where missing.
 pub(super) fn git_writable(context: &Context) -> Vec<PathBuf> {
-    let fetched: Vec<PathBuf> = git_common_dirs(context).into_iter().map(|common| common.join("FETCH_HEAD")).collect();
+    let fetched: Vec<PathBuf> = project_git_common_dirs(context).into_iter().map(|common| common.join("FETCH_HEAD")).collect();
     for fetch_head in &fetched {
         let _ = std::fs::OpenOptions::new().write(true).create_new(true).open(fetch_head);
     }
