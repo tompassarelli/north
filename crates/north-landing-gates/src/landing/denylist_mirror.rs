@@ -3,7 +3,7 @@ use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::platform::git as platform_git;
 use crate::platform::process;
@@ -12,8 +12,9 @@ const SOUTH_REF: &str = "refs/south/main";
 const SOUTH_DENYLIST_PATH: &str = "privacy/public-denylist.toml";
 const FETCH_LIMIT: Duration = Duration::from_secs(90);
 const STALE_LOCK: Duration = Duration::from_secs(180);
+const WAIT_STEP: Duration = Duration::from_millis(20);
 const LOCK: &str = "north-fetch.lock";
-const STAMP: &str = "north-last-fetch";
+const FETCHED: &str = "north-last-fetch";
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Fault {
@@ -44,16 +45,14 @@ pub fn mirror_path() -> Result<PathBuf, Fault> {
 }
 
 pub fn south_denylist_in(south: &Path, mirror: &Path) -> Result<tempfile::NamedTempFile, Fault> {
+    let began = SystemTime::now();
     let main = south.join("main");
-    if let Err(reason) = origin_url(&main).and_then(|url| fetch(mirror, &url)) {
-        if !holds_copy(mirror) {
-            return Err(Fault::Unavailable(format!("cannot fetch the deny-list into {} and it holds no earlier copy: {reason}", mirror.display())));
-        }
-        eprintln!("denylist: ⚠ cannot refresh the deny-list ({reason}); scanning with the copy fetched {} ago", age(mirror));
-    }
-    let spec = format!("{SOUTH_REF}:{SOUTH_DENYLIST_PATH}");
+    let commit = origin_url(&main)
+        .and_then(|url| fetched_after(mirror, &url, began))
+        .map_err(|reason| Fault::Unavailable(format!("cannot fetch the deny-list into {} after this scan began, and no older copy is used: {reason}", mirror.display())))?;
+    let spec = format!("{commit}:{SOUTH_DENYLIST_PATH}");
     let rules = platform_git::stdout(mirror, &["--no-replace-objects", "--git-dir", ".", "show", &spec], |output| String::from_utf8_lossy(&output.stderr).trim().to_owned())
-        .map_err(|e| Fault::Failed(format!("the deny-list is missing from {} {spec}: {e}", mirror.display())))?;
+        .map_err(|e| Fault::Failed(format!("the deny-list is missing from {} {SOUTH_REF}:{SOUTH_DENYLIST_PATH}: {e}", mirror.display())))?;
     let mut file = tempfile::NamedTempFile::new().map_err(|e| Fault::Failed(format!("cannot create the deny-list copy: {e}")))?;
     file.write_all(&rules).map_err(|e| Fault::Failed(format!("cannot write the deny-list copy: {e}")))?;
     Ok(file)
@@ -65,39 +64,52 @@ fn origin_url(main: &Path) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&url).trim().to_owned())
 }
 
-fn holds_copy(mirror: &Path) -> bool {
-    platform_git::run(mirror, &["--git-dir", ".", "rev-parse", "--verify", "-q", SOUTH_REF]).is_ok_and(|output| output.status.success())
+fn fetched_after(mirror: &Path, url: &str, began: SystemTime) -> Result<String, String> {
+    std::fs::create_dir_all(mirror).map_err(|e| format!("cannot create {}: {e}", mirror.display()))?;
+    let lock = mirror.join(LOCK);
+    let deadline = Instant::now() + STALE_LOCK + FETCH_LIMIT;
+    loop {
+        if let Some(commit) = shared_since(mirror, began) {
+            return Ok(commit);
+        }
+        if let Some(held) = Lock::take(&lock)? {
+            return match shared_since(mirror, began) {
+                Some(commit) => Ok(commit),
+                None => init(mirror).and_then(|()| fetch(mirror, url, &held)),
+            };
+        }
+        if Instant::now() >= deadline {
+            return Err(format!("another scan held {} for over {} s", lock.display(), (STALE_LOCK + FETCH_LIMIT).as_secs()));
+        }
+        std::thread::sleep(WAIT_STEP);
+    }
 }
 
-fn age(mirror: &Path) -> String {
-    let seconds = std::fs::metadata(mirror.join(STAMP)).and_then(|stamp| stamp.modified()).ok().and_then(|at| SystemTime::now().duration_since(at).ok()).map(|elapsed| elapsed.as_secs());
-    match seconds {
-        None => "an unknown time".to_owned(),
-        Some(seconds) if seconds < 120 => format!("{seconds} s"),
-        Some(seconds) if seconds < 7200 => format!("{} min", seconds / 60),
-        Some(seconds) if seconds < 172_800 => format!("{} h", seconds / 3600),
-        Some(seconds) => format!("{} days", seconds / 86_400),
-    }
+fn shared_since(mirror: &Path, began: SystemTime) -> Option<String> {
+    let record = std::fs::read_to_string(mirror.join(FETCHED)).ok()?;
+    let (started, commit) = record.trim().split_once(' ')?;
+    let started = UNIX_EPOCH + Duration::from_nanos(started.parse().ok()?);
+    (started >= began && !commit.is_empty()).then(|| commit.to_owned())
 }
 
 struct Lock(PathBuf);
 
 impl Lock {
-    fn take(path: &Path) -> Result<Self, String> {
+    fn take(path: &Path) -> Result<Option<Self>, String> {
         for _ in 0..2 {
             match OpenOptions::new().write(true).create_new(true).open(path) {
-                Ok(_) => return Ok(Self(path.to_owned())),
+                Ok(_) => return Ok(Some(Self(path.to_owned()))),
                 Err(e) if e.kind() == ErrorKind::AlreadyExists => {
                     let held = std::fs::metadata(path).and_then(|lock| lock.modified()).ok().and_then(|at| SystemTime::now().duration_since(at).ok());
                     if held.is_some_and(|held| held < STALE_LOCK) {
-                        return Err(format!("another scan holds {}", path.display()));
+                        return Ok(None);
                     }
                     let _ = std::fs::remove_file(path);
                 }
                 Err(e) => return Err(format!("cannot take {}: {e}", path.display())),
             }
         }
-        Err(format!("cannot take {}", path.display()))
+        Ok(None)
     }
 }
 
@@ -107,15 +119,19 @@ impl Drop for Lock {
     }
 }
 
-fn fetch(mirror: &Path, url: &str) -> Result<(), String> {
+fn init(mirror: &Path) -> Result<(), String> {
     let init = platform_git::run(Path::new("."), &["init", "--bare", "-q", &mirror.to_string_lossy()]).map_err(|e| e.to_string())?;
     if !init.status.success() {
         return Err(format!("git init failed in {}: {}", mirror.display(), String::from_utf8_lossy(&init.stderr).trim()));
     }
-    let _lock = Lock::take(&mirror.join(LOCK))?;
+    Ok(())
+}
+
+fn fetch(mirror: &Path, url: &str, _held: &Lock) -> Result<String, String> {
     for left_by_a_killed_fetch in [format!("{SOUTH_REF}.lock"), "packed-refs.lock".to_owned()] {
         let _ = std::fs::remove_file(mirror.join(left_by_a_killed_fetch));
     }
+    let started = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
     let mut command = Command::new("git");
     command.arg("--git-dir").arg(mirror).args(["fetch", "-q", "--no-tags", "--", url, &format!("+refs/heads/main:{SOUTH_REF}")]).env("GIT_TERMINAL_PROMPT", "0");
     let output = match process::try_run_group_traced_within(command, FETCH_LIMIT).map_err(|e| e.to_string())? {
@@ -125,5 +141,12 @@ fn fetch(mirror: &Path, url: &str) -> Result<(), String> {
     if !output.status.success() {
         return Err(format!("git fetch failed (exit {}): {}", output.status.code().unwrap_or(-1), String::from_utf8_lossy(&output.stderr).trim()));
     }
-    std::fs::write(mirror.join(STAMP), b"").map_err(|e| format!("cannot record the fetch time: {e}"))
+    let commit = platform_git::stdout(mirror, &["--git-dir", ".", "rev-parse", "--verify", &format!("{SOUTH_REF}^{{commit}}")], |output| String::from_utf8_lossy(&output.stderr).trim().to_owned())
+        .map_err(|e| format!("cannot read the fetched {SOUTH_REF}: {e}"))?;
+    let commit = String::from_utf8_lossy(&commit).trim().to_owned();
+    let pending = mirror.join(format!("{FETCHED}.{}", std::process::id()));
+    std::fs::write(&pending, format!("{started} {commit}\n"))
+        .and_then(|()| std::fs::rename(&pending, mirror.join(FETCHED)))
+        .map_err(|e| format!("cannot record the fetch: {e}"))?;
+    Ok(commit)
 }

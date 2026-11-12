@@ -149,7 +149,7 @@ fn denylist_a_stale_lock_in_the_south_checkout_neither_blocks_nor_is_touched_by_
 }
 
 #[test]
-fn denylist_a_failed_fetch_scans_the_last_copy_and_with_no_copy_reports_no_verdict() {
+fn denylist_a_failed_fetch_reports_no_verdict_even_when_the_mirror_holds_an_earlier_copy() {
     let scratch = fixture();
     let origin = scratch.path();
     write(origin, "privacy/public-denylist.toml", PLANTED_RULES);
@@ -160,9 +160,7 @@ fn denylist_a_failed_fetch_scans_the_last_copy_and_with_no_copy_reports_no_verdi
     let (cold, warm) = (mirrors.path().join("cold.git"), mirrors.path().join("warm.git"));
     assert!(south_denylist_in(south.path(), &warm).is_ok());
     git(&south.path().join("main"), &["remote", "set-url", "origin", &south.path().join("gone").to_string_lossy()]).unwrap();
-    let copy = south_denylist_in(south.path(), &warm).unwrap();
-    assert_eq!(std::fs::read_to_string(copy.path()).unwrap(), PLANTED_RULES);
-    assert!(!plant(copy.path()).is_empty(), "a private value still refuses on the last copy");
+    assert!(matches!(south_denylist_in(south.path(), &warm), Err(Fault::Unavailable(_))), "an earlier copy is never scanned in place of a fresh fetch");
     assert!(matches!(south_denylist_in(south.path(), &cold), Err(Fault::Unavailable(_))), "no copy means no verdict, not a refusal");
 }
 
@@ -185,6 +183,36 @@ fn denylist_a_stale_lock_in_the_mirror_is_recovered_and_the_rules_refresh() {
     commit_all(origin, "new rules");
     let rules = south_denylist_in(south.path(), &mirror).unwrap();
     assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n");
+}
+
+#[test]
+fn denylist_a_scan_started_while_another_fetches_scans_a_list_fetched_after_it_began() {
+    let scratch = fixture();
+    let origin = scratch.path();
+    write(origin, "privacy/public-denylist.toml", "stale = true\n");
+    commit_all(origin, "old rules");
+    let south = tempfile::tempdir().unwrap();
+    south_clone(origin, south.path());
+    let holder = tempfile::tempdir().unwrap();
+    let mirror = holder.path().join("south-denylist.git");
+    assert!(south_denylist_in(south.path(), &mirror).is_ok());
+    let earlier_scan = mirror.join("north-fetch.lock");
+    write(&mirror, "north-fetch.lock", "");
+    write(origin, "privacy/public-denylist.toml", "fresh = true\n");
+    commit_all(origin, "new rules");
+    let record = mirror.join("north-last-fetch");
+    let (earlier, replaced) = (std::fs::read_to_string(&record).unwrap(), mirror.join("earlier-record"));
+    std::fs::write(&replaced, &earlier).unwrap();
+    std::fs::remove_file(&record).unwrap();
+    assert!(std::process::Command::new("mkfifo").arg(&record).status().unwrap().success());
+    let finished = std::thread::spawn(move || {
+        std::fs::write(&record, &earlier).unwrap();
+        std::fs::rename(&replaced, &record).unwrap();
+        std::fs::remove_file(earlier_scan).unwrap();
+    });
+    let rules = south_denylist_in(south.path(), &mirror).unwrap();
+    assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n", "the second scan used the copy from before it began");
+    finished.join().unwrap();
 }
 
 #[test]
