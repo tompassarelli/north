@@ -6,6 +6,10 @@ const DRAIN_POLL: &str = "0.1";
 /// Polls of `DRAIN_POLL` a nested job whose check ended waits for its group to obey TERM before it sends KILL, and before it reports that the group survives KILL; it never frees the slot while a member is left.
 const TERM_POLLS: u32 = 1200;
 const KILL_POLLS: u32 = 1500;
+/// Seconds past a nested job's own deadline its watcher waits for the check that holds the slot before it ends the job anyway, so a holder that never exits leaves no watcher behind.
+const WATCH_MARGIN_SECONDS: u32 = 120;
+/// Polls of `DRAIN_POLL` a nested job waits for its watcher to say it started before it refuses to run.
+const WATCH_START_POLLS: u32 = 100;
 const BACKGROUND_WAIT_SECONDS: u32 = 3600;
 const BACKGROUND_SUFFIX: &str = ".background";
 
@@ -262,7 +266,19 @@ leased() {
   if command -v north >/dev/null 2>&1; then north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
 if [ -n "${nested:-}" ]; then
-  setsid sh -c @WATCH@ offload-watch "$holder" "$$" "$s" "$root" </dev/null >/dev/null 2>&1 4>&- 6>&- 8>&- 9>&- &
+  watching=$root/watch.$$.up
+  rm -f "$watching"
+  setsid sh -c @WATCH@ offload-watch "$holder" "$$" "$s" "$root" "$limit" </dev/null >/dev/null 2>&1 4>&- 6>&- 8>&- 9>&- &
+  watcher=$! polls=0
+  until [ -e "$watching" ]; do
+    polls=$((polls + 1))
+    if [ "$polls" -gt @WATCH_START_POLLS@ ]; then
+      kill -KILL "$watcher" 2>/dev/null || true
+      echo "offload: refusing to run: the watcher that ends this nested job with its check did not start in $s, so nothing would end the job if its check ended first" >&2
+      exit @WRONG_TREE@
+    fi
+    sleep @DRAIN_POLL@
+  done
 fi
 vouch() {
   if proved no; then
@@ -308,7 +324,10 @@ exit "$rc"
 "#;
 
 /// A nested job's watcher, in a session of its own so neither a blocked write in the job's loop nor a TERM to the job's group stops it: it keeps the job's shared lock on the slot's `.nested` file, waits while the check that holds the slot lives, then ends the job's process group, TERM first and then KILL, and frees the slot only once no member of the group is left; a member that survives KILL keeps the slot taken and is reported once.
-const WATCH: &str = r#"holder=$1 lead=$2 s=$3 root=$4
+const WATCH: &str = r#"holder=$1 lead=$2 s=$3 root=$4 limit=$5
+up=$root/watch.$lead.up
+: >"$up"
+deadline=$(($(date +%s) + limit + @WATCH_MARGIN@))
 members() {
   for proc in /proc/[0-9]*; do
     read -r stat <"$proc/stat" 2>/dev/null || continue
@@ -317,9 +336,13 @@ members() {
   done
   return 0
 }
-while kill -0 "$holder" 2>/dev/null; do sleep @DRAIN_POLL@; done
+why="has ended, so the job ends with it"
+while kill -0 "$holder" 2>/dev/null; do
+  [ "$(date +%s)" -lt "$deadline" ] || { why="still runs $((limit + @WATCH_MARGIN@)) s after the job started, past its deadline, so the job ends"; break; }
+  sleep @DRAIN_POLL@
+done
 log=$root/nested.log
-printf "%s offload: the check that started the nested job %s in %s has ended, so the job ends with it and reaches no verdict\n" "$(date +%FT%T)" "$lead" "$s" >>"$log"
+printf "%s offload: the check that started the nested job %s in %s %s and reaches no verdict\n" "$(date +%FT%T)" "$lead" "$s" "$why" >>"$log"
 trap '' TERM
 kill -TERM "-$lead" 2>/dev/null || true
 group=$root/watch.$$
@@ -338,7 +361,7 @@ while :; do
   fi
   sleep @DRAIN_POLL@
 done
-rm -f "$group.left"
+rm -f "$group.left" "$up"
 "#;
 
 const DRAIN: &str = r#"drain() {
@@ -407,6 +430,8 @@ pub(super) fn run_part() -> String {
         .replace("@DRAIN_POLL@", DRAIN_POLL)
         .replace("@TERM_POLLS@", &TERM_POLLS.to_string())
         .replace("@KILL_POLLS@", &KILL_POLLS.to_string())
+        .replace("@WATCH_MARGIN@", &WATCH_MARGIN_SECONDS.to_string())
+        .replace("@WATCH_START_POLLS@", &WATCH_START_POLLS.to_string())
         .replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV)
         .replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV)
         .replace("@LEASE@", crate::runtime::layout::LEASE)
