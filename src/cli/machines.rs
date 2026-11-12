@@ -157,6 +157,18 @@ const MACHINES: &[Machine] = &[
         }),
     },
     Machine {
+        name: "dispatch-pause",
+        kind: "DispatchPause",
+        source: "crates/north-base/src/dispatch_pause_lifecycle.rs",
+        guard: &[],
+        code: &["crates/north-dispatch/src/dispatch/pause.rs"],
+        sweep: None,
+        explore: Some(|| {
+            use north_base::dispatch_pause_lifecycle::{DispatchPause, Phase};
+            explore_together::<DispatchPause>(&Promises { ends: &[Phase::Lifted], repeats: &[Phase::Held, Phase::Checked, Phase::Expiring] }, &pause_together())
+        }),
+    },
+    Machine {
         name: "check-environment",
         kind: "CheckEnvironment",
         source: "crates/north-check-environment/src/lib.rs",
@@ -273,6 +285,10 @@ fn withdrawn_head_admitted() -> bool {
         return false;
     }
     north_landing::land::scans::withdrawal::refuse_requeue(&queue, root.path(), "lane", "abc", Some("session")).is_ok()
+}
+
+fn pause_together() -> Together<north_base::dispatch_pause_lifecycle::Phase> {
+    Together { alone: &[], admits: |_| true, race: || 2 }
 }
 
 enum Mode {

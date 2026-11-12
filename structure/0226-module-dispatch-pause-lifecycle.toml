@@ -1,0 +1,5 @@
+[[module]]
+name = "dispatch_pause_lifecycle"
+paths = ["crates/north-base/src/dispatch_pause_lifecycle.rs"]
+responsibility = "The dispatch pause's phase as one lifecycle machine: held by hand, held by a cause check, held until an expiry, or lifted, the states the pause record in dispatch_pause.rs is written and removed through."
+may_use = ["foundation", "lifecycle"]

@@ -851,7 +851,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "buck", "build_system", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model"]
+may_use = ["strategy_types", "buck", "build_system", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model", "dispatch_pause_lifecycle"]
 
 [[module]]
 name = "verify"
@@ -1212,3 +1212,8 @@ name = "evals"
 paths = ["evals/**"]
 responsibility = "Measurement runners that drive north and other harnesses from outside, as a user would: the Eval B load ladder against plain T3 Code, the Eval T case list, two-harness case runner, first-request reader and thread-transfer fixture for T3 Code's own measures, the file-prediction scorer for first prompts, with the replay of experiment G1 over closed north boxes, and the host glue that runs Terminal-Bench 2 through its own harness for Eval X."
 may_use = []
+[[module]]
+name = "dispatch_pause_lifecycle"
+paths = ["crates/north-base/src/dispatch_pause_lifecycle.rs"]
+responsibility = "The dispatch pause's phase as one lifecycle machine: held by hand, held by a cause check, held until an expiry, or lifted, the states the pause record in dispatch_pause.rs is written and removed through."
+may_use = ["foundation", "lifecycle"]
