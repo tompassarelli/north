@@ -225,7 +225,8 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let queued = timed_enqueue(repo, shape, keep_lane, environment, &timings);
     println!("{}", timings.line());
     if let Ok(queued) = &queued {
-        timings.record(&queue::directory(environment.state_home, &queued.ticket.origin).join("logs"), &queued.ticket.head, environment.host);
+        let ticket = queued.path.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        timings.record(&queue::directory(environment.state_home, &queued.ticket.origin).join("logs"), &queued.ticket.head, &queued.ticket.branch, &ticket, environment.host);
     }
     queued
 }

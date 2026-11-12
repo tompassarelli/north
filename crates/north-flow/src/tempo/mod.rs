@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 use north_base::land_ticket::{self, Phase};
 use serde::{Deserialize, Serialize};
@@ -17,8 +17,9 @@ use crate::flow::Places;
 use landing::percentiles;
 
 pub mod landing;
+pub mod split;
 
-const USAGE: &str = "usage: north ledger tempo [--repo NAME] [--window MINUTES] [--json] [--record]";
+const USAGE: &str = "usage: north ledger tempo [--repo NAME] [--window MINUTES] [--split] [--json] [--record]";
 const HOUR: u64 = 60;
 const DAY: u64 = 1440;
 
@@ -29,6 +30,17 @@ struct Decided {
     first_commit_secs: Option<i64>,
     #[serde(default)]
     verdict: Option<String>,
+    #[serde(default)]
+    head: String,
+    #[serde(default)]
+    queued_micros: Option<u64>,
+    #[serde(default)]
+    hand_in: Option<HandInStart>,
+}
+
+#[derive(Deserialize)]
+struct HandInStart {
+    called_micros: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -68,6 +80,17 @@ fn decided(queue: &Path, since: f64) -> Vec<(f64, Phase, Decided)> {
 
 fn minutes(from: f64, to: f64) -> f64 {
     (to - from).max(0.0) / 60.0
+}
+
+fn calls(queue: &Path, since: f64) -> Vec<split::Call> {
+    decided(queue, since)
+        .iter()
+        .filter(|(_, phase, _)| *phase == Phase::Landed)
+        .filter_map(|(_, _, ticket)| {
+            let (queued, called) = (ticket.queued_micros?, ticket.hand_in.as_ref()?.called_micros);
+            Some(split::Call { head: ticket.head.clone(), seconds: Duration::from_micros(queued.saturating_sub(called)).as_secs_f64() })
+        })
+        .collect()
 }
 
 pub fn read(repo: &str, queue: &Path, now: f64, window_minutes: u64) -> Reading {
@@ -133,10 +156,11 @@ struct Options {
     window_minutes: u64,
     json: bool,
     record: bool,
+    split: bool,
 }
 
 fn parse(arguments: &[String]) -> Option<Options> {
-    let mut options = Options { repo: "north".into(), window_minutes: HOUR, json: false, record: false };
+    let mut options = Options { repo: "north".into(), window_minutes: HOUR, json: false, record: false, split: false };
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
@@ -144,6 +168,7 @@ fn parse(arguments: &[String]) -> Option<Options> {
             "--window" => options.window_minutes = words.next()?.parse().ok().filter(|minutes| *minutes > 0)?,
             "--json" => options.json = true,
             "--record" => options.record = true,
+            "--split" => options.split = true,
             _ => return None,
         }
     }
@@ -179,19 +204,36 @@ pub fn run(arguments: &[String]) -> u8 {
     let now = Timestamp::now().unix_seconds_f64();
     let windows = if options.record { vec![HOUR, DAY] } else { vec![options.window_minutes] };
     let readings: Vec<Reading> = windows.into_iter().map(|window| read(&options.repo, &queue, now, window)).collect();
+    let split = (options.split && !options.record).then(|| split::read(&queue, &calls(&queue, now - options.window_minutes as f64 * 60.0)));
     for reading in &readings {
-        if options.json {
-            println!("{}", serde_json::to_string(reading).unwrap_or_default());
-        } else {
-            println!("{}", line(reading));
-        }
-        if options.record {
-            let code = crate::threads::client::run(&record_arguments(reading, now), Arc::new(crate::threads::outside::Unread), &[]);
-            if code != 0 {
-                eprintln!("north ledger tempo: recording the {}-minute reading into the ledger exited {code}", reading.window_minutes);
-                return code;
-            }
+        print(reading, split.as_ref(), options.json);
+        if options.record
+            && let Err(code) = record(reading, now)
+        {
+            return code;
         }
     }
     0
+}
+
+fn print(reading: &Reading, split: Option<&split::Split>, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string(reading).unwrap_or_default());
+    } else {
+        println!("{}", line(reading));
+    }
+    match (split, json) {
+        (Some(split), true) => println!("{}", serde_json::to_string(split).unwrap_or_default()),
+        (Some(split), false) => split::lines(split).iter().for_each(|row| println!("{row}")),
+        (None, _) => {}
+    }
+}
+
+fn record(reading: &Reading, now: f64) -> Result<(), u8> {
+    let code = crate::threads::client::run(&record_arguments(reading, now), Arc::new(crate::threads::outside::Unread), &[]);
+    if code == 0 {
+        return Ok(());
+    }
+    eprintln!("north ledger tempo: recording the {}-minute reading into the ledger exited {code}", reading.window_minutes);
+    Err(code)
 }
