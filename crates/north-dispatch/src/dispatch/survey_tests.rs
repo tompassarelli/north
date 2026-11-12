@@ -66,14 +66,14 @@ fn open_issues_and_their_parents_are_read_in_one_call_per_hundred() {
     let root = tempfile::tempdir().unwrap();
     let mirror = Mirror::at(root.path().join("github-mirror.db"));
     let nodes = json!([
-        {"number": 1, "title": "parent", "body": "", "issueType": {"name": "Feature"}, "subIssuesSummary": {"total": 2, "completed": 1}},
+        {"number": 1, "title": "parent", "body": "", "issueType": {"name": "Feature"}, "subIssuesSummary": {"total": 2, "completed": 1}, "subIssues": {"nodes": [{"body": "no box"}, {"body": "- [ ] a box"}]}},
         {"number": 2, "title": "leaf", "body": "", "parent": {"number": 1, "repository": {"name": "north", "owner": {"login": "tompassarelli"}}}, "issueType": {"name": "Task"}, "assignees": {"nodes": [{"login": "bot"}]}},
         {"number": 3, "title": "same-named parent under another owner", "body": "", "parent": {"number": 1, "repository": {"name": "north", "owner": {"login": "someone"}}}}
     ]);
     mirror.write(&key("north", OPEN_ISSUES), &nodes, None, 1000.0).unwrap();
     let mut notes = Vec::new();
     let (issues, _) = read_open_issues(&["north".to_owned()], &mirror, 1000.0, &Unreachable, &mut notes);
-    assert_eq!(issues[0].children, super::super::issues::Children { total: 2, completed: 1 });
+    assert_eq!(issues[0].children, super::super::issues::Children { total: 2, completed: 1, converted: 1 });
     assert_eq!(issues[0].parent, None);
     assert_eq!(issues[1].parent, Some(super::super::issues::ParentRef::new("tompassarelli", "north", 1)));
     assert_ne!(issues[2].parent, issues[1].parent, "a same-named repository under another owner is another parent");

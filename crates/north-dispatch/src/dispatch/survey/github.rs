@@ -1,4 +1,4 @@
-use super::issues::{Children, ParentRef};
+use super::issues::{Children, ParentRef, holds_box};
 use super::*;
 use north_github_mirror::store::{self, Mirror, OPEN_ISSUES, key};
 
@@ -13,6 +13,11 @@ fn touched(node: &Value) -> f64 {
 fn parent(node: &Value) -> Option<ParentRef> {
     let repository = &node["parent"]["repository"];
     Some(ParentRef::new(repository["owner"]["login"].as_str()?, repository["name"].as_str()?, node["parent"]["number"].as_u64()?))
+}
+
+/// The sub-issues a flat read names that hold no checkbox: their work is their own, so the parent staffs none of its boxes.
+fn converted(node: &Value) -> u64 {
+    node["subIssues"]["nodes"].as_array().into_iter().flatten().filter(|child| !holds_box(child["body"].as_str().unwrap_or_default())).count() as u64
 }
 
 pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
@@ -40,7 +45,7 @@ pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
         parent: parent(node),
         kind: node["issueType"]["name"].as_str().map(str::to_owned),
         assignees: node["assignees"]["nodes"].as_array().into_iter().flatten().filter_map(|who| who["login"].as_str().map(str::to_owned)).collect(),
-        children: Children { total: node["subIssuesSummary"]["total"].as_u64().unwrap_or(0), completed: node["subIssuesSummary"]["completed"].as_u64().unwrap_or(0) },
+        children: Children { total: node["subIssuesSummary"]["total"].as_u64().unwrap_or(0), completed: node["subIssuesSummary"]["completed"].as_u64().unwrap_or(0), converted: converted(node) },
     })
 }
 

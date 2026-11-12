@@ -16,8 +16,8 @@ const ROOT_LABELS: [&str; 1] = ["roadmap"];
 const RUNNING_LABELS: [&str; 1] = ["native:running"];
 /// Why dispatch skips an open issue with no Done-when box at all, which the triage lead gives one.
 pub const NEEDS_BOX: &str = "needs a box: no Done-when box";
-/// Why dispatch skips an issue with sub-issues: its work is its leaves, so none of its own boxes is staffed.
-pub const HAS_SUB_ISSUES: &str = "has sub-issues: its work is its leaves, so none of its boxes is staffed";
+/// Why dispatch skips an issue with a sub-issue that holds no checkbox: that sub-issue is its own unit of work, so none of its boxes is staffed.
+pub const HAS_SUB_ISSUES: &str = "has a sub-issue that holds no checkbox: its work is that sub-issue, so none of its boxes is staffed";
 
 static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));
 static ANY_BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[[ xX]\]").expect("any box pattern"));
@@ -76,7 +76,7 @@ pub struct Issue {
     /// GitHub's issue type (Task, Bug, Feature), when set.
     pub kind: Option<String>,
     pub assignees: Vec<String>,
-    /// How many sub-issues it has and how many of them are closed.
+    /// How many sub-issues it has, how many of them are closed and how many hold no checkbox.
     pub children: Children,
 }
 
@@ -84,6 +84,7 @@ pub struct Issue {
 pub struct Children {
     pub total: u64,
     pub completed: u64,
+    pub converted: u64,
 }
 
 /// A parent issue's key: its owner as well as its repository and number, so a same-named repository under another owner is another parent.
@@ -113,7 +114,7 @@ impl Issue {
 
     /// An open issue under a parent with no checkbox and no sub-issue: a leaf, which dispatch staffs whole at any depth.
     pub fn is_leaf(&self) -> bool {
-        self.parent.is_some() && self.children.total == 0 && !self.body.lines().any(|line| ANY_BOX.is_match(line))
+        self.parent.is_some() && self.children.total == 0 && !holds_box(&self.body)
     }
 
     pub fn unticked(&self) -> usize {
@@ -286,6 +287,11 @@ pub fn box_ticked(body: &str, text: &str) -> bool {
     lines.peek().is_some() && lines.all(|line| !UNTICKED.is_match(line))
 }
 
+/// Whether `body` holds any checkbox, ticked or not.
+pub fn holds_box(body: &str) -> bool {
+    body.lines().any(|line| ANY_BOX.is_match(line))
+}
+
 /// The unticked Done-when boxes in `body`, the clean-up group included.
 pub fn unticked_boxes(body: &str) -> usize {
     UNTICKED.find_iter(body).count()
@@ -406,7 +412,7 @@ pub struct World<'a> {
 /// Ok when the issue is ready to staff, else why not.
 pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     let reference = issue.reference();
-    if issue.children.total > 0 {
+    if issue.children.converted > 0 {
         return Err(HAS_SUB_ISSUES.into());
     }
     if issue.is_leaf() {
