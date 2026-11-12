@@ -135,8 +135,8 @@ pub fn landing_minutes(repo: &str) -> f64 {
         return 0.0;
     }
     let (places, machine) = (Places::from_env(), Machine::default());
-    let env = Env::new(&places, &machine, project_targets(&crate::platform::orchestration::path()));
-    get(&env, repo, Timestamp::now().unix_seconds_f64(), &["push_to_land_minutes"])["push_to_land_minutes"].as_f64().unwrap_or(0.0)
+    let mut env = Env::new(&places, &machine, project_targets(&crate::platform::orchestration::path()));
+    get(&mut env, repo, Timestamp::now().unix_seconds_f64(), &["push_to_land_minutes"])["push_to_land_minutes"].as_f64().unwrap_or(0.0)
 }
 
 fn row(arguments: &[String]) -> u8 {
@@ -149,9 +149,9 @@ fn row(arguments: &[String]) -> u8 {
         return 2;
     }
     let (places, machine) = (Places::from_env(), Machine::default());
-    let env = Env::new(&places, &machine, project_targets(&crate::platform::orchestration::path()));
+    let mut env = Env::new(&places, &machine, project_targets(&crate::platform::orchestration::path()));
     let fields: Vec<&str> = fields.iter().map(String::as_str).collect();
-    let row = get(&env, repo, Timestamp::now().unix_seconds_f64(), &fields);
+    let row = get(&mut env, repo, Timestamp::now().unix_seconds_f64(), &fields);
     println!("{}", json!({ "row": row, "line": format_row(&row, None) }));
     0
 }
@@ -225,8 +225,8 @@ pub fn work_rows() -> Vec<Value> {
         }
     }
     let now = Timestamp::now().unix_seconds_f64();
-    let env = Env::new(&places, &machine, targets);
-    let mut rows: Vec<Value> = repos.iter().map(|repo| get(&env, repo, now, &FIELDS)).collect();
+    let mut env = Env::new(&places, &machine, targets);
+    let mut rows: Vec<Value> = repos.iter().map(|repo| get(&mut env, repo, now, &FIELDS)).collect();
     for row in &mut rows {
         row["landing"] = landing::tempo(&places.ledger, row["repo"].as_str().unwrap_or_default(), now).unwrap_or(Value::Null);
     }
@@ -285,8 +285,8 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
     let now = Timestamp::now().unix_seconds_f64();
-    let env = Env::new(&places, &machine, targets);
-    let mut rows: Vec<Value> = seen.iter().map(|repo| get(&env, repo, now, &FIELDS)).collect();
+    let mut env = Env::new(&places, &machine, targets);
+    let mut rows: Vec<Value> = seen.iter().map(|repo| get(&mut env, repo, now, &FIELDS)).collect();
     for row in &mut rows {
         row["landing"] = landing::tempo(&places.ledger, row["repo"].as_str().unwrap_or_default(), now).unwrap_or(Value::Null);
     }

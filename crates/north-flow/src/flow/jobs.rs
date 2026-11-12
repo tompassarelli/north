@@ -1,6 +1,5 @@
 //! The jobs running on GitHub Actions: this account's busy-slot samples, and the landing workflows'
 //! in-progress jobs with each workflow's and job's median duration.
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -17,22 +16,22 @@ const DAY: f64 = 86_400.0;
 pub struct RunJobs<'a> {
     host: &'a dyn Host,
     slug: String,
-    seen: RefCell<BTreeMap<u64, Vec<Value>>>,
+    seen: BTreeMap<u64, Vec<Value>>,
 }
 
 impl<'a> RunJobs<'a> {
     pub fn new(host: &'a dyn Host, slug: &str) -> Self {
-        Self { host, slug: slug.into(), seen: RefCell::default() }
+        Self { host, slug: slug.into(), seen: BTreeMap::new() }
     }
 
-    pub fn of(&self, run_id: u64) -> Option<Vec<Value>> {
-        if let Some(jobs) = self.seen.borrow().get(&run_id) {
+    pub fn of(&mut self, run_id: u64) -> Option<Vec<Value>> {
+        if let Some(jobs) = self.seen.get(&run_id) {
             return Some(jobs.clone());
         }
         let path = format!("repos/{}/actions/runs/{run_id}/jobs?per_page=100", self.slug);
         let pages = self.host.json(&["gh", "api", "--paginate", "--slurp", &path])?;
         let jobs: Vec<Value> = pages.as_array()?.iter().flat_map(|page| page["jobs"].as_array().cloned().unwrap_or_default()).collect();
-        self.seen.borrow_mut().insert(run_id, jobs.clone());
+        self.seen.insert(run_id, jobs.clone());
         Some(jobs)
     }
 }
@@ -41,7 +40,7 @@ fn busy_now(host: &dyn Host, repos: &[String]) -> Option<u64> {
     let mut busy = 0;
     for slug in repos {
         let active = host.json(&["gh", "run", "list", "--repo", slug, "--status", "in_progress", "--limit", "1000", "--json", "databaseId"])?;
-        let jobs = RunJobs::new(host, slug);
+        let mut jobs = RunJobs::new(host, slug);
         for item in active.as_array()? {
             busy += jobs.of(item["databaseId"].as_u64()?)?.iter().filter(|job| job["status"] == "in_progress" && job["runner_name"].as_str().is_some_and(|name| !name.is_empty())).count() as u64;
         }
@@ -101,7 +100,7 @@ fn workflows_of(host: &dyn Host, checkout: &Path) -> Option<Vec<String>> {
 
 const DAILY_SAMPLE: &str = "100";
 
-fn history_medians(host: &dyn Host, slug: &str, workflow: &str, now: f64, runs: &RunJobs) -> Option<WorkflowMedians> {
+fn history_medians(host: &dyn Host, slug: &str, workflow: &str, now: f64, runs: &mut RunJobs) -> Option<WorkflowMedians> {
     let mut history: BTreeMap<u64, Value> = BTreeMap::new();
     for day in 0..7 {
         let bounds = format!("{}..{}", iso(now - f64::from(day + 1) * DAY), iso(now - f64::from(day) * DAY));
@@ -116,7 +115,7 @@ fn history_medians(host: &dyn Host, slug: &str, workflow: &str, now: f64, runs: 
     Some(WorkflowMedians { run: workflow_median(history.values(), now), jobs: job_medians(&listed), pools: pool_medians(&listed) })
 }
 
-fn running_jobs(host: &dyn Host, slug: &str, workflow: &str, runs: &RunJobs) -> Option<Vec<Job>> {
+fn running_jobs(host: &dyn Host, slug: &str, workflow: &str, runs: &mut RunJobs) -> Option<Vec<Job>> {
     let active = host.json(&["gh", "run", "list", "--repo", slug, "--workflow", workflow, "--status", "in_progress", "--limit", "1000", "--json", "databaseId,workflowName,displayTitle"])?;
     let mut jobs = Vec::new();
     for item in active.as_array()?.iter().filter(|item| landing_run(item)) {
@@ -143,16 +142,16 @@ pub fn landing_jobs(places: &Places, host: &dyn Host, checkout: &Path, slug: &st
     let workflows = workflows_of(host, checkout)?;
     let path = places.flow().join(format!("{}-medians.json", slug.replace('/', "--")));
     let saved = saved_medians(&path, now);
-    let runs = RunJobs::new(host, slug);
+    let mut runs = RunJobs::new(host, slug);
     let mut jobs = Vec::new();
     let mut medians = Medians::new();
     for workflow in &workflows {
         let known = match saved.get(workflow) {
             Some(known) => known.clone(),
-            None => history_medians(host, slug, workflow, now, &runs)?,
+            None => history_medians(host, slug, workflow, now, &mut runs)?,
         };
         medians.insert(workflow.clone(), known);
-        jobs.extend(running_jobs(host, slug, workflow, &runs)?);
+        jobs.extend(running_jobs(host, slug, workflow, &mut runs)?);
     }
     if medians != saved {
         let _ = write_atomic(&path, &format!("{}\n", json!({ "epoch": now, "medians": medians })));

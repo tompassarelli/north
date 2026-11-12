@@ -1,5 +1,0 @@
-[[rust_habits.allow]]
-rule = "shared-mutability"
-path = "crates/north-flow/src/flow/jobs.rs"
-reason = "Memo of fetched run jobs behind a &self read API; candidate for &mut self."
-

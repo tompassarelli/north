@@ -1,7 +1,6 @@
 //! One repository's flow row: what is queued, how fast lanes land, whether landing has stalled.
 //! A source that cannot be read leaves its fields at `"error"` and later fields unread.
 use super::lander;
-use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -36,23 +35,23 @@ pub struct Env<'a> {
     pub places: &'a Places,
     pub host: &'a dyn Host,
     pub targets: BTreeMap<String, f64>,
-    claims: RefCell<Option<BTreeMap<String, BTreeMap<u64, f64>>>>,
-    stranded: RefCell<Option<Vec<Stranded>>>,
+    claims: Option<BTreeMap<String, BTreeMap<u64, f64>>>,
+    stranded: Option<Vec<Stranded>>,
 }
 
 impl<'a> Env<'a> {
     pub fn new(places: &'a Places, host: &'a dyn Host, targets: BTreeMap<String, f64>) -> Self {
-        Self { places, host, targets, claims: RefCell::default(), stranded: RefCell::default() }
+        Self { places, host, targets, claims: None, stranded: None }
     }
 
     /// Claim start times by repository and issue, from `threads list`, read once per run.
-    fn claims(&self, repo: &str, now: f64) -> BTreeMap<u64, f64> {
-        self.claims.borrow_mut().get_or_insert_with(|| claim_times(self.host, now)).get(repo).cloned().unwrap_or_default()
+    fn claims(&mut self, repo: &str, now: f64) -> BTreeMap<u64, f64> {
+        self.claims.get_or_insert_with(|| claim_times(self.host, now)).get(repo).cloned().unwrap_or_default()
     }
 
     /// The repository's stranded lanes, from `north fleet stranded`, read once per run.
-    fn stranded(&self, repo: &str, now: f64) -> Value {
-        stranded::rows(self.stranded.borrow_mut().get_or_insert_with(|| stranded::read(self.host)), repo, now)
+    fn stranded(&mut self, repo: &str, now: f64) -> Value {
+        stranded::rows(self.stranded.get_or_insert_with(|| stranded::read(self.host)), repo, now)
     }
 }
 
@@ -87,8 +86,8 @@ pub fn project_targets(path: &Path) -> BTreeMap<String, f64> {
         .collect()
 }
 
-struct Source<'a> {
-    env: &'a Env<'a>,
+struct Source<'a, 'e> {
+    env: &'a mut Env<'e>,
     repo: &'a str,
     path: PathBuf,
     slug: String,
@@ -96,7 +95,7 @@ struct Source<'a> {
     autoland: bool,
 }
 
-impl Source<'_> {
+impl Source<'_, '_> {
     fn git(&self, args: &[&str]) -> Option<String> {
         let mut command = vec!["git"];
         command.extend(args);
@@ -136,21 +135,22 @@ fn initial(env: &Env, repo: &str, now: f64) -> Row {
     row
 }
 
-pub fn measure(env: &Env, repo: &str, now: f64) -> Row {
+pub fn measure(env: &mut Env, repo: &str, now: f64) -> Row {
     let mut row = initial(env, repo, now);
     row.insert("stranded".into(), env.stranded(repo, now));
     let _ = fill(env, repo, now, &mut row);
     row
 }
 
-fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
-    let path = env.places.checkout(repo);
-    let slug = github_repo(&env.host.run(&["git", "remote", "get-url", "origin"], Some(&path), None)?)?;
+fn fill(env: &mut Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
+    let (places, host) = (env.places, env.host);
+    let path = places.checkout(repo);
+    let slug = github_repo(&host.run(&["git", "remote", "get-url", "origin"], Some(&path), None)?)?;
     if repo == WISP_REPO {
-        row.insert("wisp".into(), json!(wisp_row(env.host, &env.places.home, &slug, now)));
+        row.insert("wisp".into(), json!(wisp_row(host, &places.home, &slug, now)));
     }
-    let origin = env.host.run(&["git", "remote", "get-url", "--push", "origin"], Some(&path), None);
-    let records = crate::platform::records_mirror::Records::of(&env.places.state, &crate::platform::host::name());
+    let origin = host.run(&["git", "remote", "get-url", "--push", "origin"], Some(&path), None);
+    let records = crate::platform::records_mirror::Records::of(&places.state, &crate::platform::host::name());
     let queue = origin.map(|origin| crate::platform::land_queue::directory(records.home(), origin.trim()));
     row.insert("slug".into(), json!(slug));
     let mut source = Source { env, repo, path, slug, now, autoland: false };
@@ -161,19 +161,19 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
     fetched?;
     let queue = source.git(&["config", "--blob", "origin/main:.safe-push", "--get", "landing.queue"]);
     source.autoland = queue.is_some_and(|queue| queue.trim() == "autoland");
-    row.insert("pins".into(), json!(pins_verdict(pin_builds(env.host, &source.path).as_deref())));
+    row.insert("pins".into(), json!(pins_verdict(pin_builds(host, &source.path).as_deref())));
     let landing = source.landing(row);
     let tips = source.lane_tips()?;
     let (unlanded, cleanup) = source.live_lanes(&tips, source.unlanded(&tips));
     row.insert("cleanup".into(), json!(cleanup));
-    let states = autoland::autoland_states(env.host, &source.slug, &unlanded);
+    let states = autoland::autoland_states(host, &source.slug, &unlanded);
     let (lanes, dead_count, dead_oldest) = autoland::lane_counts(&unlanded, &states, now);
     let mut pending = lanes as u64 + lander.depth as u64;
     let mut actions_pending = if source.autoland { lanes as u64 } else { 0 };
     row.insert("dead".into(), json!(dead_count));
     row.insert("dead_oldest_minutes".into(), json!(dead_oldest));
     let dead: BTreeSet<&String> = unlanded.iter().filter(|sha| autoland::failed_since(&states, sha).is_some()).collect();
-    row.insert("refused".into(), refused::rows(&tips, &states, &dead, &refused::pushers(env.places, repo), now));
+    row.insert("refused".into(), refused::rows(&tips, &states, &dead, &refused::pushers(places, repo), now));
     let mut pending_since: Vec<f64> = unlanded.iter().filter(|sha| !dead.contains(sha)).map(|sha| tips[sha].0).collect();
     source.add_throughput(row, landing.as_ref(), &tips, &states, &dead, &pending_since);
     if source.autoland {
@@ -193,7 +193,7 @@ struct Landing {
     landed: Option<Vec<f64>>,
 }
 
-impl Source<'_> {
+impl Source<'_, '_> {
     fn landing(&self, row: &mut Row) -> Option<Landing> {
         let log = self.git(&["log", "--first-parent", &format!("--since-as-filter={}", (self.now - DAY) as i64), "--format=%H %ct", "origin/main"])?;
         let commits: Vec<(String, i64)> = log.lines().filter_map(|line| line.split_once(' ')).filter_map(|(sha, at)| Some((sha.to_owned(), at.parse().ok()?))).collect();
@@ -269,7 +269,7 @@ impl Source<'_> {
     }
 }
 
-impl Source<'_> {
+impl Source<'_, '_> {
     fn main_log(&self) -> Option<Vec<Commit>> {
         let history = self.git(&["log", "--first-parent", &format!("--since-as-filter={}", (self.now - 7.0 * DAY) as i64), "--format=%H%x1f%ct%x1f%B%x1e", "origin/main"])?;
         Some(
@@ -295,11 +295,13 @@ impl Source<'_> {
             .collect()
     }
 
-    fn add_throughput(&self, row: &mut Row, landing: Option<&Landing>, tips: &BTreeMap<String, (f64, String)>, states: &BTreeMap<String, Value>, dead: &BTreeSet<&String>, pending_since: &[f64]) {
+    fn add_throughput(&mut self, row: &mut Row, landing: Option<&Landing>, tips: &BTreeMap<String, (f64, String)>, states: &BTreeMap<String, Value>, dead: &BTreeSet<&String>, pending_since: &[f64]) {
         let (open_count, boxes, closed) = issue_activity(self.env.host, &self.slug, self.now);
         let (Some(landing), Some(closed), Some(main_log)) = (landing, closed, self.main_log()) else { return };
         let Some(pushes) = &landing.pushes else { return };
         let landings = landing.landed.clone().unwrap_or_else(|| landing.commits.iter().map(|(_, at)| *at as f64).collect());
+        let claims = self.env.claims(self.repo, self.now);
+        let dead_lanes = self.dead_lanes(tips, states, dead);
         let inputs = Inputs {
             repo: self.repo,
             now: self.now,
@@ -310,8 +312,8 @@ impl Source<'_> {
             landings: &landings,
             pushes,
             target: self.env.targets.get(self.repo).copied(),
-            dead_lanes: &self.dead_lanes(tips, states, dead),
-            claims: &self.env.claims(self.repo, self.now),
+            dead_lanes: &dead_lanes,
+            claims: &claims,
             pending_since,
         };
         if let Ok(Value::Object(fields)) = serde_json::to_value(throughput::throughput(&inputs)) {
@@ -420,7 +422,7 @@ fn main_moved(env: &Env, repo: &str, row: &Value) -> bool {
 
 /// The cached row while it is under five minutes old, main has not moved and the goal target is
 /// unchanged; otherwise a fresh measurement, cached.
-pub fn get(env: &Env, repo: &str, now: f64, fields: &[&str]) -> Value {
+pub fn get(env: &mut Env, repo: &str, now: f64, fields: &[&str]) -> Value {
     let target = env.targets.get(repo).copied();
     if let Some(row) = cached(env.places, repo, now, fields)
         && row["target"].as_f64() == target
