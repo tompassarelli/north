@@ -261,7 +261,7 @@ leased() {
   if command -v north >/dev/null 2>&1; then north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
 if [ -n "${nested:-}" ]; then
-  sh -c @WATCH@ offload-watch "$holder" "$$" "$s" "$root" </dev/null >/dev/null 2>&1 4>&- 6>&- 8>&- 9>&- &
+  setsid sh -c @WATCH@ offload-watch "$holder" "$$" "$s" "$root" </dev/null >/dev/null 2>&1 4>&- 6>&- 8>&- 9>&- &
 fi
 rc=0
 if [ -z "${ran:-}" ]; then
@@ -298,7 +298,7 @@ printf "%s %s\n" "$ran" "$rc" || true
 exit "$rc"
 "#;
 
-/// A nested job's watcher, apart from the job's own loop so a blocked write never delays it: it keeps the job's shared lock on the slot's `.nested` file, waits while the check that holds the slot lives, then ends the job's process group, TERM first and then KILL, and frees the slot only once no member of the group is left; a member that survives KILL keeps the slot taken and is reported once.
+/// A nested job's watcher, in a session of its own so neither a blocked write in the job's loop nor a TERM to the job's group stops it: it keeps the job's shared lock on the slot's `.nested` file, waits while the check that holds the slot lives, then ends the job's process group, TERM first and then KILL, and frees the slot only once no member of the group is left; a member that survives KILL keeps the slot taken and is reported once.
 const WATCH: &str = r#"holder=$1 lead=$2 s=$3 root=$4
 members() {
   for proc in /proc/[0-9]*; do
