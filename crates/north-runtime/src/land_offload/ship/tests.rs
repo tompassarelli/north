@@ -45,7 +45,7 @@ fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home:
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let fresh_home = tempfile::tempdir().unwrap();
     let output = Command::new("sh")
-        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h carried={}\n{}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)), run_part())])
+        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h carried={}\nproved() {{ :; }}\n{}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)), run_part())])
         .env("PATH", path)
         .env_remove("SAFE_PUSH_LAND_BASE")
         .env_remove("SAFE_PUSH_LAND_HEAD")
@@ -141,6 +141,25 @@ fn a_remote_job_runs_only_on_the_shipped_commit_and_reads_each_checkout_beside_i
     super::relay(ran.stdout.as_slice(), &mut Vec::new(), "north-offload-ran:job", || slot_waits_ended += 1);
     assert_eq!(slot_waits_ended, 1, "the line the remote prints once it holds its slot ends the slot wait a deadline above the offload excuses");
     assert_eq!(String::from_utf8(ran.stdout).unwrap().lines().next(), Some(format!("offload: running {second} in {}", dir.path().display()).as_str()));
+    fs::write(dir.path().join("tracked.rs"), "fn shipped() {}\n").unwrap();
+    git(dir.path(), &["add", "tracked.rs"]);
+    git(dir.path(), &["commit", "-q", "-m", "third"]);
+    let third = git(dir.path(), &["rev-parse", "HEAD"]);
+    let plant = || {
+        fs::write(dir.path().join("tracked.rs"), "fn another_lanes() {}\n").unwrap();
+        fs::write(dir.path().join("foreign.rs"), "mod planted;\n").unwrap();
+    };
+    plant();
+    let nested = Command::new("sh").args(["-c", &format!("set -eu\nslot={} head={} nested=1\n{}", shell(dir.path()), super::quote(&third), VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string()))]).output().unwrap();
+    assert_eq!(nested.status.code(), Some(i32::from(WRONG_TREE)), "a nested job in a slot holding a changed tracked file and a foreign file refuses, since the slot is its caller's to reset");
+    assert!(nested.stdout.is_empty(), "the refusal comes before the run starts");
+    let why = String::from_utf8_lossy(&nested.stderr);
+    assert!(why.contains(&format!("does not hold exactly the tree of {third}")) && why.contains("M tracked.rs") && why.contains("?? foreign.rs"), "{why}");
+    let repaired = verify(dir.path(), &third);
+    assert!(repaired.status.success(), "a job that owns the slot resets it to the commit and proves it again: {}", String::from_utf8_lossy(&repaired.stderr));
+    assert_eq!(fs::read_to_string(dir.path().join("tracked.rs")).unwrap(), "fn shipped() {}\n", "the reset restores the commit's tracked file");
+    assert!(!dir.path().join("foreign.rs").exists(), "the reset removes the foreign file");
+    git(dir.path(), &["checkout", "-q", "--detach", &second]);
     let command = "check-owners --north-root $HOME/code/north/main --south-root $HOME/code/south/main --nixos-root ~/code/nixos-config/main/agents $HOME/code/gone/main $HOME/code/south/mainline";
     let head_of = |path: &Path| path.ends_with("code/south/main").then(|| CommitId(first.clone())).or_else(|| path.ends_with("code/nixos-config/main").then(|| CommitId("b".repeat(40))));
     let pinned = super::beside::pin(command, "code/north/main", Path::new("/h"), head_of);
@@ -503,7 +522,7 @@ fn a_lander_job_takes_its_reserved_slot_with_no_waited_line_while_another_job_te
 
 fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, String) {
     let slot = tempfile::tempdir().unwrap();
-    let script = format!("set -eu\nslot={} command={} limit=10 ran={}\n{}", shell(slot.path()), super::quote(command), super::quote(marker), run_part());
+    let script = format!("set -eu\nslot={} command={} limit=10 ran={}\nproved() {{ :; }}\n{}", shell(slot.path()), super::quote(command), super::quote(marker), run_part());
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());

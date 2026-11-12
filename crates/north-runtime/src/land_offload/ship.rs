@@ -157,9 +157,22 @@ pub(super) fn run(land: &Land) -> u8 {
         }
         (first, _) => first,
     };
-    match reported {
-        Ok((exited, ran)) => verdict(exited, ran).unwrap_or_else(|why| unreached(&why)),
-        Err(code) => code,
+    let reported = match reported {
+        Ok((exited, ran)) if ran.or(exited) == Some(WRONG_TREE) => {
+            eprintln!("north capacity offload: the slot did not hold exactly the tree of {}, so the run is shipped once more", land.head.as_str());
+            attempt(land, &relative, &name, own.as_ref().map(|(sha, _)| sha.as_str()))
+        }
+        other => other,
+    };
+    reported.map_or_else(|code| code, |(exited, ran)| reached(land, exited, ran))
+}
+
+/// The run's exit code, where a run no slot proved to hold exactly the shipped commit's tree for its whole length reached no verdict.
+fn reached(land: &Land, exited: Option<u8>, ran: Option<u8>) -> u8 {
+    match verdict(exited, ran) {
+        Ok(WRONG_TREE) => unreached(&format!("no slot held exactly the tree of {} for the whole run, so it reached no verdict", land.head.as_str())),
+        Ok(code) => code,
+        Err(why) => unreached(&why),
     }
 }
 

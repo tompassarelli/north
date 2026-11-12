@@ -208,7 +208,20 @@ git -C "$slot" clean -ffdxq -e /target
 
 pub(super) const VERIFY: &str = r#"landed=$(git -C "$slot" rev-parse HEAD)
 [ "$landed" = "$head" ] || { echo "offload: refusing to run: $slot is on $landed, not the shipped $head" >&2; exit @WRONG_TREE@; }
+proved() {
+  strays=$(git -C "$slot" status --porcelain "--untracked-files=$1" -- . ":(exclude,top)target" 2>&1) || strays="git status failed: $strays"
+  at=$(git -C "$slot" rev-parse HEAD 2>/dev/null) || at=
+  [ "$at" = "$head" ] || strays="HEAD is ${at:-unreadable}, not $head; $strays"
+  why="$slot does not hold exactly the tree of $head: $(printf '%s\n' "$strays" | head -n 8 | tr '\n' ' ')"
+  [ -z "$strays" ]
+}
+if ! proved all && [ -z "${nested:-}" ]; then
+  echo "offload: $why; resetting it to $head" >&2
+  git -C "$slot" reset -q --hard "$head" && git -C "$slot" clean -ffdxq -e /target || true
+fi
+proved all || { echo "offload: refusing to run: $why" >&2; exit @WRONG_TREE@; }
 echo "offload: running $head in $slot"
+echo "@PROVED_TREE@$(git -C "$slot" rev-parse "HEAD^{tree}") of $head" >&2
 "#;
 
 const BESIDE: &str = r#"beside=$root/$s.beside
@@ -246,6 +259,7 @@ leased() {
 rc=0
 if [ -z "${ran:-}" ]; then
   leased bash -euo pipefail "$script" 4>&- 5>&- 6>&- 9>&- || rc=$?
+  proved no || { echo "offload: the run's verdict is void, its tree changed under it: $why" >&2; rc=@WRONG_TREE@; }
   exit "$rc"
 fi
 id=${ran#*:}
@@ -287,6 +301,7 @@ while :; do
   sleep @DRAIN_POLL@
 done
 read -r rc <"$exited"
+proved no || { echo "offload: the run's verdict is void, its tree changed under it: $why" >&2; rc=@WRONG_TREE@; }
 printf "%s %s\n" "$ran" "$rc" || true
 exit "$rc"
 "#;
@@ -416,5 +431,6 @@ pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
         .replace("@SLOTS_BUSY@", &SLOTS_BUSY.to_string())
         .replace("@WAITED@", WAITED)
         .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
+        .replace("@PROVED_TREE@", north_base::foundation::offload::PROVED_TREE)
         .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
 }

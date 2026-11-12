@@ -7,6 +7,8 @@ pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
 pub const SLOT_ENV: &str = "NORTH_OFFLOAD_SLOT";
+/// The line an offload run prints once it proved its slot holds exactly the shipped commit's tree, followed by that tree and `of COMMIT`, which an after-landing verdict reads to name the tree it was computed on.
+pub const PROVED_TREE: &str = "offload: proved tree ";
 pub const LANES_ENV: &str = "NORTH_LAND_LANES";
 pub const TIPS_ENV: &str = "SAFE_PUSH_LAND_TIPS";
 pub const LOCAL_ENV: &str = "NORTH_LAND_CHECKS_LOCAL";
