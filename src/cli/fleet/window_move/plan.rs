@@ -68,7 +68,7 @@ impl Step {
             Step::Open => format!("open a new window resuming conversation {conversation} on account {to} and confirm it runs there"),
             Step::Rebind => format!("change the fleet record's account from {from} to {to} and bind the coordinator's name to the new window"),
             Step::Deliver => "deliver the coordinator's undelivered messages to the new window".to_owned(),
-            Step::EndOld => format!("end the old window (process {}) on account {from} at the end of its turn", window.client),
+            Step::EndOld => format!("end the old window (process {}) on account {from} once its turn ends, within {} seconds", window.client, super::on_desktop::END_WAIT.as_secs()),
         }
     }
 }

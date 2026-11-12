@@ -161,10 +161,6 @@ fn copy_tree(from: &Path, to: &Path) -> NorthResult<usize> {
     Ok(1)
 }
 
-pub(super) fn activity(window: &Window) -> u64 {
-    fs::metadata(activity_path(window)).map_or(0, |meta| meta.len())
-}
-
 pub(super) fn activity_path(window: &Window) -> PathBuf {
     match &window.session.job {
         Some(job) => window.profile.join("jobs").join(job).join("timeline.jsonl"),

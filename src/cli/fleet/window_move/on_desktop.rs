@@ -14,12 +14,12 @@ use super::steps::Mover;
 use super::{ancestor_named, replacement};
 
 const SETTLE: Duration = Duration::from_secs(90);
+pub(super) const END_WAIT: Duration = Duration::from_secs(30);
 
 pub(super) struct OnDesktop<'a> {
     pub fleet: &'a Fleet,
     pub to: String,
     pub target: PathBuf,
-    pub mark: u64,
 }
 
 pub(super) struct Opened {
@@ -40,6 +40,7 @@ impl Mover for OnDesktop<'_> {
     }
 
     fn open(&self, window: &Window) -> NorthResult<Opened> {
+        tell_terminal(window, &format!("north proxy move: opening a new window on account {} for this conversation; type into neither window until this one ends", self.to));
         let old_shell = parent_of(window.client).filter(|pid| name_of(*pid).ends_with("sh"));
         let terminal = ancestor_named(window.client, "ghostty").ok_or_else(|| NorthError::State("the window's terminal process is not ghostty".into()))?;
         let old = desktop::window_of_terminal(terminal)?;
@@ -57,10 +58,6 @@ impl Mover for OnDesktop<'_> {
         }
     }
 
-    fn untouched(&self, window: &Window) -> bool {
-        session::turn_ended(window) && session::activity(window) == self.mark
-    }
-
     fn rebind(&self, window: &Window, opened: &Opened) -> NorthResult<()> {
         let record = self.fleet.adopt_moved(PROXY, &window.session.id, window.cwd.clone())?;
         let placement = format!("adopted window, process {}", opened.client);
@@ -76,6 +73,11 @@ impl Mover for OnDesktop<'_> {
     }
 
     fn end_old(&self, window: &Window, opened: &Opened) -> NorthResult<()> {
+        tell_terminal(window, &format!("north proxy move: the coordinator now runs in the new window on account {}; this window ends once its turn ends, within {} seconds", self.to, END_WAIT.as_secs()));
+        let deadline = Instant::now() + END_WAIT;
+        while !session::turn_ended(window) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(500));
+        }
         stop_background_session(window);
         desktop::hang_up(opened.old_shell.unwrap_or(window.client));
         wait_gone(window.client);
@@ -132,5 +134,12 @@ fn wait_gone(pid: u32) {
     }
     if Path::new(&format!("/proc/{pid}")).exists() {
         let _ = Command::new("kill").arg(pid.to_string()).status();
+    }
+}
+
+fn tell_terminal(window: &Window, line: &str) {
+    let written = std::fs::read_link(format!("/proc/{}/fd/0", window.client)).and_then(|tty| std::fs::OpenOptions::new().append(true).open(tty)).and_then(|mut tty| std::io::Write::write_all(&mut tty, format!("\r\n{line}\r\n").as_bytes()));
+    if let Err(error) = written {
+        eprintln!("north proxy move: could not write to the old window's terminal: {error}");
     }
 }

@@ -9,7 +9,7 @@ mod steps;
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;
@@ -23,10 +23,9 @@ use plan::{STEPS, Verdict};
 use session::{Window, arguments_of, environment_of, name_of, parent_of};
 
 const COOLDOWN: Duration = Duration::from_secs(20 * 60);
-const TURN_WAIT: Duration = Duration::from_secs(15 * 60);
 const STAGE: &str = "NORTH_WINDOW_MOVE";
 const PLAN_UNIT: (&str, Duration) = ("north-window-move", Duration::from_secs(120));
-const SWAP_UNIT: (&str, Duration) = ("north-window-move-swap", Duration::from_secs(25 * 60));
+const SWAP_UNIT: (&str, Duration) = ("north-window-move-swap", Duration::from_secs(10 * 60));
 const KEPT_ENVIRONMENT: [&str; 17] = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LOCALE_ARCHIVE", "LOCALE_ARCHIVE_2_27", "TERMINFO_DIRS", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "DBUS_SESSION_BUS_ADDRESS", "SSH_AUTH_SOCK", "NIX_LD", "NIX_LD_LIBRARY_PATH", "NORTH_DELIVERY_LIVENESS_REQUIRED"];
 pub(super) const USAGE: &str = "usage: north proxy move [--to ACCOUNT] [--auto] [--dry-run]";
 
@@ -104,7 +103,7 @@ fn start((unit, limit): (&str, Duration), stage: &str, words: &[&str], wait: boo
     match (status.success(), wait) {
         (true, true) => Ok(()),
         (true, false) => {
-            println!("north proxy move: started the move in unit {unit}; the old window ends at the end of its turn");
+            println!("north proxy move: started the move in unit {unit}; the new window opens now and the old one ends once its turn ends, within {} seconds", on_desktop::END_WAIT.as_secs());
             Ok(())
         }
         (false, true) => Err(NorthError::State(format!("the window move unit {unit} exited {status}"))),
@@ -137,8 +136,7 @@ fn swap(request: &Request) -> NorthResult<()> {
     let Some(to) = destination(&window, request.to.as_deref())? else { return Ok(()) };
     let target = target_home(&to)?;
     session::ready_for(&window, &target)?;
-    await_turn_end(&window)?;
-    let mover = OnDesktop { fleet: &fleet, to: to.clone(), target, mark: session::activity(&window) };
+    let mover = OnDesktop { fleet: &fleet, to: to.clone(), target };
     steps::perform(&mover, &window, &to)?;
     println!("north proxy move: moved the window to account {to}");
     Ok(())
@@ -165,17 +163,6 @@ fn destination(window: &Window, requested: Option<&str>) -> NorthResult<Option<S
 
 fn target_home(to: &str) -> NorthResult<PathBuf> {
     router::account_home("claude", to).ok_or_else(|| NorthError::State(format!("no claude profile for account {to}")))
-}
-
-fn await_turn_end(window: &Window) -> NorthResult<()> {
-    let deadline = Instant::now() + TURN_WAIT;
-    while !session::turn_ended(window) {
-        if Instant::now() > deadline {
-            return Err(NorthError::Refused(format!("the window's turn was still running after {} minutes; nothing moved", TURN_WAIT.as_secs() / 60)));
-        }
-        std::thread::sleep(Duration::from_secs(1));
-    }
-    Ok(())
 }
 
 fn outlooks() -> NorthResult<Vec<AccountOutlook>> {
