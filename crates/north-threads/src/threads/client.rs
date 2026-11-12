@@ -309,9 +309,7 @@ impl Client {
         if first == Some(SPOOL_FLUSH) {
             return self.spool_flush_verb(argv, err);
         }
-        let database = self.var("THREADS_DB").is_some();
-        if !database && self.remote.exists() {
-            let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
+        if let Some(dest) = self.ledger_remote()? {
             if snapshot_answers(argv) && self.snapshot.exists() {
                 self.refresh_snapshot_later(&dest, snapshot::SNAPSHOT_AGE);
                 return self.local(argv, Some(&self.snapshot), replay);

@@ -10,8 +10,26 @@ use crate::foundation::exit::TIMED_OUT_STATUS;
 use crate::platform::ssh_retry::{Link, Reply, Rerun, retried};
 
 const LEDGER_IDENTITY_ENV: &str = "NORTH_LEDGER_IDENTITY";
+const LEDGER_DESTINATION_ENV: &str = "NORTH_LEDGER_DESTINATION";
 
 impl Client {
+    pub(super) fn ledger_remote(&self) -> NorthResult<Option<String>> {
+        if self.var("THREADS_DB").is_some() {
+            return Ok(None);
+        }
+        if self.var(LEDGER_IDENTITY_ENV).is_some() {
+            let dest = self.var(LEDGER_DESTINATION_ENV).ok_or_else(|| NorthError::Refused(format!("{LEDGER_DESTINATION_ENV} is unset; a ledger identity needs the destination as user@host")))?;
+            return match dest.split_once('@') {
+                Some((user, host)) if !user.is_empty() && !host.is_empty() && !dest.contains(char::is_whitespace) => Ok(Some(dest.to_owned())),
+                _ => Err(NorthError::Refused(format!("{LEDGER_DESTINATION_ENV} must be user@host, not an alias"))),
+            };
+        }
+        if !self.remote.exists() {
+            return Ok(None);
+        }
+        Ok(Some(fs::read_to_string(&self.remote)?.trim().to_owned()))
+    }
+
     pub(super) fn no_native_reason(&self) -> Option<&'static str> {
         if self.var("THREADS_NO_NATIVE").is_some() {
             return Some("THREADS_NO_NATIVE is set (agy)");
@@ -73,10 +91,7 @@ impl Client {
     }
 
     pub(super) fn forward(&self, words: &[&str], input: &[u8], err: &mut dyn Write) -> NorthResult<Option<i32>> {
-        if self.var("THREADS_DB").is_some() || !self.remote.exists() {
-            return Ok(None);
-        }
-        let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
+        let Some(dest) = self.ledger_remote()? else { return Ok(None) };
         let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
         let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
         match execute(&argv, Input::Bytes(input.to_vec()), Stdio::inherit(), SSH_TIMEOUT)? {
@@ -89,10 +104,7 @@ impl Client {
     }
 
     pub(super) fn ask(&self, words: &[&str], input: &[u8]) -> NorthResult<Option<Vec<u8>>> {
-        if self.var("THREADS_DB").is_some() || !self.remote.exists() {
-            return Ok(None);
-        }
-        let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
+        let Some(dest) = self.ledger_remote()? else { return Ok(None) };
         let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
         retried(&dest, Rerun::Anywhere, |link| self.ask_once(&dest, &command, input, link))
     }
