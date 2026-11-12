@@ -1875,7 +1875,6 @@ dependencies = [
  "north-landing",
  "proptest",
  "rustix 0.38.44",
- "serde_json",
  "tempfile",
  "tokio",
 ]
