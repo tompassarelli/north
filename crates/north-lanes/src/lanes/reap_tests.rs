@@ -4,7 +4,7 @@ use std::process::{Child, Command};
 use std::time::{Duration, SystemTime};
 
 use north_base::platform::git;
-use super::reap::{Counts, Sweep};
+use super::reap::{Counts, Sweep, disposable};
 use super::test_git::{git_in, init_repo};
 
 const AGED: Duration = Duration::from_secs(3 * 3600);
@@ -106,6 +106,38 @@ fn evil_merge_lane(container: &Container) -> PathBuf {
 
 fn branch_exists(container: &Container, name: &str) -> bool {
     Command::new("git").current_dir(container.main()).args(["rev-parse", "--verify", "-q", &format!("refs/heads/{name}")]).output().unwrap().status.success()
+}
+
+#[test]
+fn a_lane_whose_only_ignored_files_are_regenerable_caches_is_bundled() {
+    let regenerable = [
+        ("target/debug/north", "cargo build output"),
+        ("crates/app/target/release/app", "nested cargo build output"),
+        (".direnv/flake/profile", "direnv cache"),
+        (".firn-cache/index", "firn cache"),
+        ("buck-out/v2/gen/app", "buck build output"),
+        (".buckconfig.flake", "buck flake config"),
+        ("result", "nix build result link"),
+        ("result-dev", "nix build result link"),
+        ("tools/__pycache__/gen.cpython-312.pyc", "python bytecode cache"),
+        ("web/node_modules/left-pad/index.js", "npm dependencies"),
+        ("build/app.tsbuildinfo", "typescript incremental build info"),
+        ("build/number-rules.json", "generated number rules"),
+        (".safe-push-deps", "safe-push dependency cache"),
+        (".safe-push-deps/lock.json", "safe-push dependency cache"),
+    ];
+    let kept = [
+        ("secrets.env", "a credentials file"),
+        ("build/nested/app.tsbuildinfo", "build output outside build/ itself"),
+        ("build/number-rules.json.bak", "a backup of generated rules"),
+        ("result-notes/todo.md", "a directory named like a result link"),
+    ];
+    for (path, kind) in regenerable {
+        assert!(disposable(path), "{kind} is disposable: {path}");
+    }
+    for (path, kind) in kept {
+        assert!(!disposable(path), "{kind} is kept: {path}");
+    }
 }
 
 #[test]
