@@ -1086,24 +1086,28 @@ the runtime build; this section measures only the edit-run loop. Nothing is adop
 
 ### Blockers, in the order they stop north
 
-1. Feature sets. `relax test` and `relax check` with `--allow-c` refuse any package whose graph has a native build
-   script (`rustix` 1.1.4 has one), with: `--allow-c: cargo and Relax resolve rustix 1.1.4 with different features
-   (cargo [alloc, default, fs, std, stdio, termios], relax [alloc, default, fs, std])`. It is raised at
-   `libs/relax/front/src/native.rs:581` (`run_cargo_with`), which runs `cargo check --release --message-format=json -p
-   PACKAGE --target TRIPLE` in the workspace directory (`native.rs:488-494`; a test selection becomes `--tests` so
-   dev-dependencies resolve, `native.rs:601-625`), reads each `compiler-artifact`'s `features`, and refuses when none
-   equals Relax's own resolution of the same package. Cargo here resolves for the one package (`-p`), not the
-   workspace; no flag or environment variable moves either side except `--features` and `--no-default-features`, which
-   are passed to both (`native.rs:908-912`). The test page takes `<package> [--lib|--bins|--tests] [-- test
-   arguments]` and the check page `--workspace` and `--also=<pkg,..>` (`tools/run/runner/src/help.rs:307, 334-343`);
-   `-p` appears only on `clean` (`help.rs:396`). I tried once the workspace cut to one member (`members` and
-   `default-members`): the same refusal, because the root package `north` stays a member. The only package in
-   `north-graph`'s dependency closure that asks for `rustix` 1.x is `tempfile`, whose features are `fs` and `std`; the
-   `stdio` and `termios` that cargo reports are asked by `crossterm` and `termina` elsewhere in the lock, so cargo's
-   resolve of `-p north-graph` is wider than Relax's. What Relax would have to do: make its feature resolution equal
-   cargo's for the selected package, or take cargo's set as the authority for native packages instead of refusing.
-   Worth, once lifted: 54 crates (1,484 tests) would reach the next stop; the speed for a crate that runs is not
-   changed by it.
+1. Feature sets, a setting of north's own. `relax test` and `relax check` with `--allow-c` refuse any package whose
+   graph has a native build script (`rustix` 1.1.4 has one), with: `--allow-c: cargo and Relax resolve rustix 1.1.4
+   with different features (cargo [alloc, default, fs, std, stdio, termios], relax [alloc, default, fs, std])`. It is
+   raised at `libs/relax/front/src/native.rs:581` (`run_cargo_with`), which runs `cargo check --release
+   --message-format=json -p PACKAGE --target TRIPLE` in the workspace directory (`native.rs:488-494`; a test selection
+   becomes `--tests` so dev-dependencies resolve, `native.rs:601-625`), reads each `compiler-artifact`'s `features`,
+   and refuses when none equals Relax's own resolution of the same package. North's `.cargo/config.toml` sets
+   `[resolver] feature-unification = "workspace"` (with `[unstable] feature-unification = true`), so the cargo Relax
+   starts resolves a `-p` package's features as `--workspace` does: the `stdio` and `termios` on `rustix` come from
+   `crossterm` and `termina` elsewhere in the lock, while the only package in `north-graph`'s closure asking for
+   `rustix` 1.x is `tempfile` (`fs`, `std`), which is Relax's set. That reading is from the config and the source, not
+   from a run: the run that settles it is the same `relax test north-graph` with
+   `MAKEPAD_RUN_ALLOW_C=1 CARGO_RESOLVER_FEATURE_UNIFICATION=selected` in the environment, which was not completed
+   (the build hosts' queue refused the job after ten minutes). It also fits what was measured: `north-tui`, whose own
+   graph has `crossterm`, ran 6 of 6, and cutting `members` to one crate (my one try) failed the same way because the
+   root package `north` stays a member. Relax's own options do not move either side except `--features` and
+   `--no-default-features`, which go to both (`native.rs:908-912`); the test page takes `<package>
+   [--lib|--bins|--tests] [-- test arguments]` and the check page `--workspace` and `--also=<pkg,..>`
+   (`tools/run/runner/src/help.rs:307, 334-343`); `-p` appears only on `clean` (`help.rs:396`). If the settling run
+   passes the refusal, blocker 1 is north's setting and not a Relax gap; if not, Relax would have to resolve the
+   selected package's features as cargo does or take cargo's set as the authority for native packages. Worth, once
+   lifted: 54 crates (1,484 tests) would reach the next stop; the speed for a crate that runs is not changed by it.
 2. C libraries. Without `--allow-c`, `relax test` refuses `libsqlite3-sys` 0.39.1 and `ring` 0.17.14 at once
    (`registry package libsqlite3-sys 0.39.1 compiles C or C++ (build-dependency cc): it is built only with
    --allow-c`). With it, the first error is blocker 1 for `north-graph`, `north-base`, `north-tune` and every other
@@ -1158,8 +1162,8 @@ the runtime build; this section measures only the edit-run loop. Nothing is adop
 By the box's rule (at least 80% of the crates' unit tests run with equal verdicts, and an edit to verdict at least
 five times shorter): of the 119 unit tests in the three crates, 8 ran (7%), with equal verdicts, in the one crate with
 no C library; the best edit-to-verdict ratio was 1.2 times (0.9 times on cpx62b). Both conditions fail, so the answer
-is drop. What would reopen it is an upstream change to blocker 1 and a speed figure on a crate whose test binary is slow
-to link; neither exists today.
+is drop. What would reopen it is the one run that settles blocker 1, then the measured cost of the C builds behind it and a
+speed figure on a crate whose test binary is slow to link; none exists today.
 
 [reindeer]: https://github.com/facebookincubator/reindeer
 [prelude-cargo-package]: https://github.com/facebook/buck2-prelude/blob/main/rust/cargo_package.bzl
