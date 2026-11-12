@@ -383,24 +383,3 @@ fn a_done_session_whose_lane_landed_gives_up_every_claim_and_leaves_the_fleet_in
     assert!(fleet.session(name).is_err(), "a retired session no longer stands parked beside the issue's next box");
     assert_eq!(claims.holders(Rows::Owners(&BTreeSet::from([name.to_owned()]))).unwrap(), Vec::<(String, String)>::new());
 }
-
-#[test]
-fn a_session_record_that_is_exited_and_quiet_past_the_stale_window_is_retired_and_its_report_stays_readable_through_follow_retired() {
-    let home = tempfile::tempdir().unwrap();
-    let (fleet, _paper) = fleet(home.path());
-    reported(&fleet, "exited", None, "Done: nothing to land.");
-    let dir = fleet.root.join("exited");
-    let mut record: Value = serde_json::from_slice(&std::fs::read(dir.join("session.json")).unwrap()).unwrap();
-    record["stopped"] = json!(true);
-    std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
-    assert_eq!(fleet.status(&fleet.session("exited").unwrap()), Status::Exited);
-
-    let inside = reap_after(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true);
-    assert!(retired(&inside).is_empty() && fleet.session("exited").is_ok(), "an exited record inside the stale window stays: {inside:?}");
-    let past = reap_after(&fleet, &Sight::default(), Duration::ZERO, now_ms(), true);
-
-    assert_eq!(retired(&past), ["exited"], "{past:?}");
-    assert!(fleet.session("exited").is_err());
-    let report = fleet.follow_retired("exited").unwrap().transcript().entries.iter().any(|entry| entry.text == "Done: nothing to land.");
-    assert!(report, "the retired session's report stays readable");
-}

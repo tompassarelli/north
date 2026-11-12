@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -43,36 +44,44 @@ fn queued_line(fleet: &Fleet, name: &str) -> Option<String> {
 }
 
 pub(super) fn show(fleet: &Fleet, name: &str, follow: bool) -> NorthResult<()> {
+    show_to(fleet, name, follow, &mut std::io::stdout().lock())
+}
+
+fn show_to(fleet: &Fleet, name: &str, follow: bool, out: &mut dyn Write) -> NorthResult<()> {
     let mut follower = match fleet.follow(name) {
-        Err(error @ NorthError::Usage(_)) => match queued_line(fleet, name) {
-            Some(line) => {
-                println!("{line}");
-                return Ok(());
-            }
-            None => return Err(error),
+        Err(error @ NorthError::Usage(_)) => match fleet.follow_retired(name) {
+            Ok(retired) => retired,
+            Err(NorthError::Usage(_)) => match queued_line(fleet, name) {
+                Some(line) => {
+                    writeln!(out, "{line}")?;
+                    return Ok(());
+                }
+                None => return Err(error),
+            },
+            Err(other) => return Err(other),
         },
         followed => followed?,
     };
-    let mut printed = print_entries(follower.transcript(), 0);
-    println!("[{}]", follower.transcript().status.label());
+    let mut printed = print_entries(out, follower.transcript(), 0)?;
+    writeln!(out, "[{}]", follower.transcript().status.label())?;
     while follow && follower.transcript().status != Status::Exited {
         std::thread::sleep(FOLLOW_POLL);
         let before = follower.transcript().status;
         if follower.poll()? {
-            printed = print_entries(follower.transcript(), printed);
+            printed = print_entries(out, follower.transcript(), printed)?;
             if follower.transcript().status != before {
-                println!("[{}]", follower.transcript().status.label());
+                writeln!(out, "[{}]", follower.transcript().status.label())?;
             }
         }
     }
     Ok(())
 }
 
-fn print_entries(transcript: &Transcript, from: usize) -> usize {
+fn print_entries(out: &mut dyn Write, transcript: &Transcript, from: usize) -> NorthResult<usize> {
     for entry in &transcript.entries[from..] {
-        println!("{}", entry_line(entry));
+        writeln!(out, "{}", entry_line(entry))?;
     }
-    transcript.entries.len()
+    Ok(transcript.entries.len())
 }
 
 pub(super) fn entry_line(entry: &Entry) -> String {
@@ -82,3 +91,7 @@ pub(super) fn entry_line(entry: &Entry) -> String {
     };
     format!("{label}: {}", text.trim_end().replace('\n', "\n  "))
 }
+
+#[cfg(test)]
+#[path = "show_tests.rs"]
+mod tests;
