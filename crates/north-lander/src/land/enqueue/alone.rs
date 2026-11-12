@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::refuse::{refuse_static_gates, refuse_unfetchable};
+use super::refuse::{refuse_static_gates, refuse_unfetchable, refuse_unlocked};
 use super::timings::Timings;
 use super::{Environment, git, judged};
 use crate::land::queue::Ticket;
@@ -28,5 +28,6 @@ pub(super) fn check_lane(root: &Path, base: &str, branch: &str, environment: &En
     judged(environment, root, branch, &lane_head, "commit trailers", crate::land::divergence::refuse_malformed(&bodies))?;
     timings.stage("fails first", || runner::fails_first(root, base, &lane_head))?;
     timings.stage("crate fetch", || refuse_unfetchable(root, base, &lane_head))?;
+    timings.stage("lock", || refuse_unlocked(root, base, &lane_head))?;
     git(root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])
 }
