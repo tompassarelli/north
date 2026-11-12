@@ -155,3 +155,13 @@ guard_kind = "test"
 guard = "a_done_session_whose_lane_landed_gives_up_every_claim_and_leaves_the_fleet_in_one_reaper_tick"
 state = "live"
 incidents = "north#1054"
+
+[[hold]]
+id = "H13"
+what = "The mechanism-discovery loop never edits what scores it"
+metric = "turn lanes that change a bar, window, review day, check or recorded turn"
+budget = "0"
+guard_kind = "land-check"
+guard = "turn-scope"
+state = "live"
+incidents = "north#1279"

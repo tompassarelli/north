@@ -195,16 +195,16 @@ pub fn check(directory: &Path, base: &str, head: &str) -> Result<(), String> {
     }
 }
 
-fn enforcing(directory: &Path, revisions: [&str; 2]) -> bool {
-    revisions.iter().any(|revision| file_at(directory, revision, REGISTRY).is_some_and(|text| gate_shadow::gates(&text).get(SELF).is_some_and(|gate| gate.enforcing)))
+pub(crate) fn enforcing(directory: &Path, gate: &str, revisions: [&str; 2]) -> bool {
+    revisions.iter().any(|revision| file_at(directory, revision, REGISTRY).is_some_and(|text| gate_shadow::gates(&text).get(gate).is_some_and(|gate| gate.enforcing)))
 }
 
-fn record(state: &Path, head: &str, refusal: Option<&str>) {
+pub(crate) fn record(state: &Path, gate: &str, head: &str, refusal: Option<&str>) {
     let directory = state.join("north/gates");
     let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-    let line = serde_json::json!({"gate": SELF, "at": at, "head": head, "would_refuse": refusal.is_some(), "holds": refusal.map(|text| text.lines().collect::<Vec<_>>()).unwrap_or_default()});
+    let line = serde_json::json!({"gate": gate, "at": at, "head": head, "would_refuse": refusal.is_some(), "holds": refusal.map(|text| text.lines().collect::<Vec<_>>()).unwrap_or_default()});
     let _ = std::fs::create_dir_all(&directory);
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(directory.join(format!("{SELF}.jsonl"))) {
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(directory.join(format!("{gate}.jsonl"))) {
         let _ = writeln!(file, "{line}");
     }
 }
@@ -215,9 +215,9 @@ pub fn scan(directory: &Path, range: &str, state: &Path, out: &mut impl Write) -
         return 2;
     };
     let outcome = check(directory, base, head);
-    let enforce = enforcing(directory, [&git::merge_base(directory, base, head), head]);
+    let enforce = enforcing(directory, SELF, [&git::merge_base(directory, base, head), head]);
     if !enforce {
-        record(state, head, outcome.as_ref().err().map(String::as_str));
+        record(state, SELF, head, outcome.as_ref().err().map(String::as_str));
     }
     let Err(refusal) = outcome else {
         return 0;
