@@ -12,7 +12,7 @@ use super::super::{Range, git};
 use super::limits;
 use north_base::platform::records_mirror::state_home;
 use north_base::foundation::exit::NO_VERDICT;
-use north_base::foundation::offload::{SLOT_ENV, TIPS_ENV};
+use north_base::foundation::offload::{ONE_LANE_ENV, SLOT_ENV, TIPS_ENV};
 use north_base::foundation::carry::CHECK_ENDS;
 use north_base::platform::orchestration;
 
@@ -61,14 +61,18 @@ pub fn run(directory: &Path, arguments: &[String], out: &mut impl Write) -> u8 {
         return 0;
     }
     let judge = |lane: &Lane, out: &mut _| if here { on_this_host(directory, lane, out) } else { offloaded(directory, lane, host.clone(), &remote, out) };
-    let Some(code) = range.as_deref().filter(|_| !bad && !remote.is_empty()).and_then(|range| judge_each(directory, range, &tips, here, judge, out)) else {
+    let Some(code) = range.as_deref().filter(|_| !bad && !remote.is_empty()).and_then(|range| judge_each(directory, range, &tips, here || one_lane(std::env::var(ONE_LANE_ENV).ok().as_deref()), judge, out)) else {
         eprintln!("{USAGE}");
         return 64;
     };
     code
 }
 
-/// Judges each lane of `range` against its own diff with `judge` and returns the worst verdict, stopping at the first refusal, so one lane's added tests are never paired with the mutants of another lane's diff. `--here` is one lane; any other range splits at the probe's `tips` when they end at its head, else at each commit, since a lane lands as one commit.
+fn one_lane(flag: Option<&str>) -> bool {
+    flag == Some("1")
+}
+
+/// Judges each lane of `range` against its own diff with `judge` and returns the worst verdict, stopping at the first refusal, so one lane's added tests are never paired with the mutants of another lane's diff. `--here` and a range the checks before queueing flag as one lane are one lane; any other range splits at the probe's `tips` when they end at its head, else at each commit, since a lane lands as one commit.
 fn judge_each<O: Write>(directory: &Path, range: &str, tips: &str, whole: bool, mut judge: impl FnMut(&Lane, &mut O) -> u8, out: &mut O) -> Option<u8> {
     let mut worst = 0;
     let mut judged = false;

@@ -11,6 +11,7 @@ use crate::land::slots::unit_reuse::RECORD_ENV;
 pub(super) struct Arguments {
     pub(super) base: String,
     pub(super) head: String,
+    pub(super) one_lane: bool,
     pub(super) tree: String,
     pub(super) dry: bool,
     pub(super) safe_push: String,

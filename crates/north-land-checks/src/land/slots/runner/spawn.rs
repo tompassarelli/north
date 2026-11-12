@@ -4,6 +4,7 @@ use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 use north_base::foundation::carry;
+use north_base::foundation::offload::ONE_LANE_ENV;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
@@ -214,6 +215,7 @@ impl Shared {
             .env("SAFE_PUSH_LANDING", "1")
             .env(carry::LAND_STORE_VIEW, if self.config.host_inputs(command).is_empty() { "" } else { north_base::store_pins::AT_HEAD })
             .env(carry::CHECK_ENDS, check_ends(timeout))
+            .env(ONE_LANE_ENV, if self.arguments.one_lane { "1" } else { "" })
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

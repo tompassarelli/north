@@ -42,7 +42,7 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), St
         return Ok(());
     }
     say(&format!("safe-push: running {} check(s) before queueing the lane: {}", commands.len(), commands.join("; ")));
-    let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), ..Arguments::default() };
+    let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), one_lane: true, ..Arguments::default() };
     let mut failed: Vec<String> = Vec::new();
     let mut status = NO_VERDICT_STATUS;
     let mut attempt = 1;

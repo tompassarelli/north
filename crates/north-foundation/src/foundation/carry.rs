@@ -38,6 +38,7 @@ const CARRY: &[(&str, Reach)] = &[
     ("SAFE_PUSH_LAND_IT", Reach::Landing),
     ("SAFE_PUSH_LAND_SELECT_PATHS", Reach::Landing),
     (super::offload::TIPS_ENV, Reach::Landing),
+    (super::offload::ONE_LANE_ENV, Reach::Landing),
     (CHECK_ENDS, Reach::Landing),
     ("PATH", Reach::Host),
     ("HOME", Reach::Host),

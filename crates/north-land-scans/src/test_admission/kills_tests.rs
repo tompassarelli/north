@@ -7,7 +7,7 @@ use std::process::ExitStatus;
 
 use super::own_tree::OwnTree;
 use super::sweep::checkout_of;
-use super::{End, Tally, fallbacks, judge, judge_each, judged_alone};
+use super::{End, Tally, fallbacks, judge, judge_each, judged_alone, one_lane};
 
 const HOSTS: &str = "[hosts.gex45]\nssh = \"tom@gex45\"\n\n[hosts.cpx62]\nssh = \"tom@cpx62\"\n\n[hosts.whiterabbit]\nreaches = [\"gex45\", \"cpx62\"]\n";
 
@@ -92,6 +92,13 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     let mut by_tips = 0;
     judge_each(repo, &range, &format!("{first} {second}"), false, |_, _| { by_tips += 1; 0 }, &mut out);
     assert_eq!(by_tips, 1, "lane tips split the range the same way");
+
+    let mut whole = Vec::new();
+    judge_each(repo, &range, "", one_lane(Some("1")), |lane, _| {
+        whole.push(lane.head.clone());
+        0
+    }, &mut out);
+    assert_eq!(whole, std::slice::from_ref(&second), "on 2026-11-12 a hand-in of two commits, checked before its squash, was judged at its first commit, whose stored verdict refused the lane; the checks before queueing judge the range as one lane (north#1254): {whole:?}");
 
     let work = root.path().join("work");
     std::fs::create_dir_all(work.join("mutants.out")).unwrap();

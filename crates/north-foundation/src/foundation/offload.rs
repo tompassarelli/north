@@ -16,6 +16,7 @@ pub const TREES_ENV: &str = "NORTH_OFFLOAD_TREES";
 pub const UNPROVED: &str = "unproved";
 pub const LANES_ENV: &str = "NORTH_LAND_LANES";
 pub const TIPS_ENV: &str = "SAFE_PUSH_LAND_TIPS";
+pub const ONE_LANE_ENV: &str = "SAFE_PUSH_LAND_ONE_LANE";
 pub const LOCAL_ENV: &str = "NORTH_LAND_CHECKS_LOCAL";
 pub const OFF_HOST_ENV: &str = "NORTH_LAND_CHECKS_OFF_HOST";
 
