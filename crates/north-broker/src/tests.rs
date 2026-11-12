@@ -276,7 +276,7 @@ fn the_ledger_forward_runs_only_the_verbs_a_caller_is_listed_for_with_values_nev
     assert_eq!(std::fs::read_to_string(directory.path().join("stdin")).unwrap(), "note");
 
     std::fs::remove_file(directory.path().join("arguments")).unwrap();
-    for body in [json!({ "verb": "ingest", "arguments": [] }), json!({ "verb": "claim", "arguments": ["/home/operator/.ssh/id"] }), json!({ "verb": "claim", "arguments": ["a/../b"] }), json!({ "verb": "claim; id" })] {
+    for body in [json!({ "verb": "ingest", "arguments": [] }), json!({ "verb": "claim", "arguments": ["/home/operator/.ssh/id"] }), json!({ "verb": "claim", "arguments": ["a/../b"] }), json!({ "verb": "claim; id" }), json!({ "verb": "claim", "arguments": ["--file=/home/operator/.ssh/id"] }), json!({ "verb": "claim", "arguments": ["north/relative"] }), json!({ "verb": "claim", "arguments": ["--unknown", "north#1"] })] {
         assert_eq!(forward(&broker, Surface::Typed, 1001, &body).0, 403, "{body}");
     }
     assert_eq!(forward(&broker, Surface::Typed, 1002, &json!({ "verb": "claim" })).0, 403);

@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -21,6 +22,58 @@ pub struct Threads {
 
 type Typed = (String, Vec<String>, String);
 
+/// Every flag a `north threads` verb declares in north-threads' argument parsers, valued or switch; the broker checks each word against this list, because the parsers are not exported.
+const FLAGS: &[&str] = &[
+    "--by", "--since", "--launched", "--session", "--source", "--cause", "--reason", "--settled", "--ended", "--capacity", "--repo", "--candidate", "--tree", "--base", "--batch-size", "--bisect-depth", "--started-at", "--finished-at", "--outcome", "--command", "--deadline", "--sha", "--red-at", "--green-at", "--cases", "--revert-sha", "--lane", "--branch", "--tip", "--queued-at", "--attempts", "--landed-at", "--landed-sha", "--verdict", "--detail", "--first-commit-at", "--check-started-at", "--check-finished-at", "--at", "--window-minutes", "--landed", "--first-commit-samples", "--refused-alone", "--conflicts", "--queued-now", "--queued-p50", "--queued-p90", "--first-commit-p50", "--first-commit-p90", "--tier", "--parent", "--host", "--started", "--finished", "--rc", "--json", "--to", "--held-by", "--box", "--due", "--body", "--clear", "--key", "--class", "--noticed-by", "--subject", "--detected-at", "--guard", "--issue", "--days", "--until",
+];
+
+/// The flags whose value is text the ledger stores, which may name a path without the broker reading it.
+const TEXT_FLAGS: &[&str] = &["--body", "--box"];
+
+/// An item reference such as `OWNER/REPO#N`, the one word with a slash that is not a path.
+fn is_item_ref(word: &str) -> bool {
+    word.split_once('#').is_some_and(|(repo, number)| repo.split_once('/').is_some_and(|(owner, name)| name_ok(owner) && name_ok(name)) && !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// Each word is a declared flag or the value or positional after one: a flag with `=` or undeclared is refused, and a value is refused when it is a path, unless its flag stores text.
+fn word_shapes(words: &[String]) -> Result<(), (u16, String)> {
+    let mut after_text_flag = false;
+    for word in words {
+        let text = std::mem::take(&mut after_text_flag);
+        if word.starts_with("--") {
+            after_text_flag = flag_shape(word)?;
+        } else if !text {
+            value_shape(word)?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether the flag stores text, its value then exempt from the path rule.
+fn flag_shape(word: &str) -> Result<bool, (u16, String)> {
+    if word.contains('=') || !FLAGS.contains(&word) {
+        return Err((403, format!("{word:?} is not a flag a threads verb declares")));
+    }
+    Ok(TEXT_FLAGS.contains(&word))
+}
+
+fn value_shape(word: &str) -> Result<(), (u16, String)> {
+    if is_number(word) || is_item_ref(word) {
+        return Ok(());
+    }
+    if word.starts_with('-') {
+        return Err((403, format!("{word:?} is not a flag a threads verb declares")));
+    }
+    if word.starts_with(['/', '.', '~', '@']) || word.contains(['/', '\\']) || word.contains("..") {
+        return Err((403, format!("{word:?} names a path; threads requests carry values, not files")));
+    }
+    Ok(())
+}
+
+fn is_number(word: &str) -> bool {
+    word.strip_prefix('-').unwrap_or(word).bytes().all(|byte| byte.is_ascii_digit()) && !word.is_empty() && word != "-"
+}
+
 impl Threads {
     pub fn new(program: PathBuf) -> Self {
         Self { program }
@@ -37,9 +90,7 @@ impl Threads {
         if words.len() > MAX_ARGUMENTS || words.iter().any(|word| word.len() > MAX_WORD || word.contains('\0')) {
             return Err((400, "arguments are too many, too long or hold a NUL".to_owned()));
         }
-        if let Some(word) = words.iter().find(|word| word.starts_with('/') || word.starts_with('~') || word.contains("..")) {
-            return Err((403, format!("{word:?} names a path; threads requests carry values, not files")));
-        }
+        word_shapes(&words)?;
         let input = body["stdin"].as_str().unwrap_or_default().to_owned();
         if input.len() > MAX_INPUT {
             return Err((400, "stdin is too long".to_owned()));
@@ -53,6 +104,7 @@ impl Threads {
             .args(["threads", &verb])
             .args(&words)
             .current_dir("/")
+            .process_group(0)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -83,8 +135,8 @@ impl Threads {
         match waited.recv_timeout(DEADLINE) {
             Ok((code, out, err)) => Ok(json!({ "code": code.unwrap_or(1), "stdout": String::from_utf8_lossy(&out), "stderr": String::from_utf8_lossy(&err) })),
             Err(_) => {
-                if let Some(pid) = i32::try_from(pid).ok().and_then(rustix::process::Pid::from_raw) {
-                    let _ = rustix::process::kill_process(pid, rustix::process::Signal::Kill);
+                if let Some(group) = i32::try_from(pid).ok().and_then(rustix::process::Pid::from_raw) {
+                    let _ = rustix::process::kill_process_group(group, rustix::process::Signal::Kill);
                 }
                 Err((504, "the ledger forward did not finish in time".to_owned()))
             }

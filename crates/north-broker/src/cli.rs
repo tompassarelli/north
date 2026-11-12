@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -211,6 +211,9 @@ fn bind(socket: &Path, mode: Mode, group: Option<u32>) -> Result<Option<UnixList
         return Ok(None);
     }
     let parent = socket.parent().ok_or_else(|| format!("{} has no directory", socket.display()))?;
+    if group.is_some() {
+        own_directory(parent, mode)?;
+    }
     std::fs::DirBuilder::new().recursive(true).mode(mode.directory()).create(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     let _ = std::fs::remove_file(socket);
     let listener = UnixListener::bind(socket).map_err(|error| format!("cannot listen on {}: {error}", socket.display()))?;
@@ -219,4 +222,15 @@ fn bind(socket: &Path, mode: Mode, group: Option<u32>) -> Result<Option<UnixList
         std::os::unix::fs::chown(socket, None, Some(gid)).and_then(|()| std::os::unix::fs::chown(parent, None, Some(gid))).map_err(|error| format!("cannot give {} to group {gid}: {error}", socket.display()))?;
     }
     Ok(Some(listener))
+}
+
+/// A directory the agent socket may use is one the broker made: absent, or still owned by this uid in the mode the broker gives its own.
+fn own_directory(parent: &Path, mode: Mode) -> Result<(), String> {
+    let Ok(meta) = std::fs::metadata(parent) else { return Ok(()) };
+    let ours = meta.uid() == rustix::process::geteuid().as_raw() && meta.mode() & 0o777 == mode.directory();
+    if ours {
+        Ok(())
+    } else {
+        Err(format!("{} exists and is not the broker's own directory; the agent socket needs a directory the broker creates", parent.display()))
+    }
 }
