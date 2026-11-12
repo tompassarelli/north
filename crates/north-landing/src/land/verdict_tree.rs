@@ -19,6 +19,13 @@ pub fn header(commit: &str, offloaded: bool) -> String {
     format!("{RUN}{commit} {}\n", if offloaded { OFFLOADED } else { HERE })
 }
 
+/// Starts the record of the run of `commit` whose log is `log`, before any of its offload clients appends to it, and returns its path.
+pub fn start(log: &Path, commit: &str, offloaded: bool) -> std::io::Result<PathBuf> {
+    let record = record(log);
+    fs::write(&record, header(commit, offloaded)).map_err(|error| std::io::Error::other(format!("{}: {error}", record.display())))?;
+    Ok(record)
+}
+
 fn proved(line: &str) -> Option<&str> {
     let (tree, _) = line.split_once(' ')?;
     (matches!(tree.len(), 40 | 64) && tree.bytes().all(|byte| byte.is_ascii_hexdigit())).then_some(tree)

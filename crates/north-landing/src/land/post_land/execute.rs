@@ -65,14 +65,10 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
         return Verdict::Transient(format!("{}: {error}", parent.display())).into();
     }
     let _ = fs::remove_file(&run.outcome);
-    let (stdout, stderr) = match File::create(&run.log).and_then(|file| Ok((file.try_clone()?, file))) {
+    let (stdout, stderr, record) = match File::create(&run.log).and_then(|file| Ok((file.try_clone()?, file, crate::land::verdict_tree::start(&run.log, tree, run.host.is_some())?))) {
         Ok(files) => files,
         Err(error) => return Verdict::Transient(format!("{}: {error}", run.log.display())).into(),
     };
-    let record = crate::land::verdict_tree::record(&run.log);
-    if let Err(error) = fs::write(&record, crate::land::verdict_tree::header(tree, run.host.is_some())) {
-        return Verdict::Transient(format!("{}: {error}", record.display())).into();
-    }
     let here = run.host.as_deref() == Some(north_base::platform::host::name().as_str()) && !run.capacity.is_empty();
     let mut argv: Vec<OsString> = Vec::new();
     if here {
