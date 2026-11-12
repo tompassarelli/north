@@ -10,6 +10,11 @@ adds the staffing, the routing and the landing path, plus hooks that guard each 
 skills and the policy checks that keep them honest. It also ships `north`, a terminal fleet screen
 for directing sessions and decisions.
 
+North is also meant to improve itself from its own records, and that is part of its purpose, not an
+extra. Today its loops tune numbers from outcomes a machine graded; the plan for turning judgments its
+models repeat into machinery it proves is in
+[docs/rationale/self-improvement-loop.md](docs/rationale/self-improvement-loop.md).
+
 It is built for Tom and the agents in his fleet. Anyone who directs coding agents can read it, try
 the `north` app, or borrow a command, hook or skill. The full factory expects Tom's machines and his
 private policy repository, South, so it does not install elsewhere as is.

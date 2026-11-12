@@ -672,3 +672,74 @@ web search. A figure marked (secondary) comes from a summary, not the paper.
 - <a id="landlock-crate"></a>**`landlock` crate 0.4.7** (https://github.com/landlock-lsm/rust-landlock, MIT OR Apache-2.0), accessed 2026-11-08.
   Informed: the safe Rust binding the land sandbox uses to restrict a child's file reads under `--enforce`, with no `unsafe` and no `pre_exec`.
   Outcome: adopted as a dependency of north-land-sandbox; nothing copied.
+
+### Machinery that takes over a model's judgment
+
+Sources for the self-improvement plan ([docs/rationale/self-improvement-loop.md](rationale/self-improvement-loop.md), north#1279),
+found 2026-11-12 by web search. Figures come from abstracts and search summaries, not full texts.
+
+- <a id="soar-chunking"></a>**Soar chunking and the utility problem** (Soar reference, https://soar.eecs.umich.edu/reference/cli/cmd_chunk;
+  Kennedy, ICCM 2006, https://users.cs.northwestern.edu/~mek802/papers/not-mine/cog-arch/Kennedy-ICCM2006.pdf; Minton's 1988 term, secondary),
+  accessed 2026-11-12.
+  Informed: a judgment worked out once is compiled into a rule, and a learned rule can cost more to match than it saves, so each
+  compiled mechanism carries its saving against its repair.
+  Outcome: adopted in the design.
+
+- <a id="llm-tool-makers"></a>**Large Language Models as Tool Makers** (arXiv 2305.17126), https://arxiv.org/abs/2305.17126, accessed 2026-11-12.
+  Informed: a strong model writes a reusable function once and a cheaper model applies it at the strong model's accuracy.
+  Outcome: prior only.
+
+- <a id="skill-induction"></a>**Inducing Programmatic Skills for Agentic Tasks** (arXiv 2504.06821, https://arxiv.org/abs/2504.06821) and
+  **Agent Workflow Memory** (arXiv 2409.07429, https://arxiv.org/abs/2409.07429), accessed 2026-11-12.
+  Informed: skills kept as verified programs beat the same lessons kept as text, so a compiled judgment is a rule with replay
+  cases and never prose in a skill.
+  Outcome: adopted in the design.
+
+- <a id="code-world-models"></a>**WorldCoder** (arXiv 2402.12275, https://arxiv.org/abs/2402.12275) and **PoE-World** (arXiv 2505.10819,
+  https://arxiv.org/abs/2505.10819), accessed 2026-11-12.
+  Informed: a world model written as code needs no model call per step and scales as many small programs, not one large one.
+  Outcome: prior only; supports the 2026-11-07 decision against a separate solver.
+
+- <a id="llm-modulo"></a>**Position: LLMs Can't Plan, But Can Help Planning in LLM-Modulo Frameworks** (arXiv 2402.01817),
+  https://arxiv.org/abs/2402.01817, accessed 2026-11-12.
+  Informed: the model proposes and sound external critics decide.
+  Outcome: prior only.
+
+- <a id="self-improvement-survey"></a>**Self-Improvements in Modern Agentic Systems: A Survey** (arXiv 2607.13104),
+  https://arxiv.org/abs/2607.13104, accessed 2026-11-12.
+  Informed: the proposer of an update is separate from its acceptor, a critic changes only by additions under audit, held-out
+  cases judge a gain, and improvements stay in the scaffold until stable before any is distilled into weights.
+  Outcome: adopted in the design.
+
+- <a id="aide2"></a>**Recursive self-improvement of AI research agents** (arXiv 2609.26457, https://arxiv.org/abs/2609.26457) and
+  **Reward Hacking in Self-Improving Code Agents** (ICLR 2026, https://iclr.cc/virtual/2026/10018648), accessed 2026-11-12.
+  Informed: 7 of 99 self-rewrites were kept under held-out acceptance, and most optimizations on one benchmark were proxy gains, so
+  candidates and their scoring must be cheap and acceptance held out.
+  Outcome: prior only.
+
+- <a id="self-rewriting-harnesses"></a>**Huxley-Gödel Machine** (arXiv 2510.21614, https://arxiv.org/abs/2510.21614), **Group-Evolving
+  Agents** (arXiv 2602.04837, https://arxiv.org/abs/2602.04837), **Self Improvement via Fast Tree-search** (arXiv 2609.19526,
+  https://arxiv.org/abs/2609.19526) and **Hierarchical Self-Improvement** (arXiv 2608.08466, https://arxiv.org/abs/2608.08466),
+  accessed 2026-11-12, beside the [Darwin Gödel Machine](#darwin-godel-machine).
+  Informed: later systems mostly cut the cost of scoring a candidate (a cheap comparison gates the costly run), and one reports no gain
+  on tasks beyond its backbone model.
+  Outcome: prior only.
+
+- <a id="trajectory-distillation"></a>**SWE-smith** (arXiv 2504.21798, https://arxiv.org/abs/2504.21798), **SERA** (arXiv 2601.20789,
+  https://arxiv.org/abs/2601.20789) and **Performance-Guided LLM Knowledge Distillation** (EMNLP 2024,
+  https://aclanthology.org/2024.emnlp-main.215), accessed 2026-11-12.
+  Informed: an open model trained on agent trajectories, or specialized to one repository, and a classifier distilled from a large
+  model's labels are each far cheaper than the model on a narrow task.
+  Outcome: prior only; north#1279's last box measures it before anything is built.
+
+- <a id="outputs-for-training"></a>**Can I use my Outputs to train an AI model?** (Claude Help Center, updated 2026-03-16),
+  https://support.claude.com/en/articles/12326764-can-i-use-my, accessed 2026-11-12.
+  Informed: models that do not compete with the provider's own (classification, categorization, extraction, anomaly detection) may be
+  trained on outputs; competing models and outputs as targets for general generation may not.
+  Outcome: adopted as the boundary of the specialist-model box.
+
+- <a id="am-eurisko"></a>**Why AM and Eurisko Appear to Work** (Lenat and Brown, AAAI 1983),
+  https://aaai.org/papers/00236-aaai83-059-why-am-and-eurisko-appear-to-work/, accessed 2026-11-12.
+  Informed: discovery by small edits found concepts and not new heuristics, and representation decided which; a rule language in which a
+  small change is a different, checkable decision comes before a loop that edits rules.
+  Outcome: prior only.
