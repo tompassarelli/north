@@ -112,7 +112,11 @@ impl North {
     }
 
     pub fn transcript(&self, name: &str) -> Result<Transcript, String> {
-        Ok(Transcript::parse(&self.json(&["fleet", "show", name, "--json"])?))
+        self.transcript_within(name, QUERY_WAIT)
+    }
+
+    pub fn transcript_within(&self, name: &str, limit: Duration) -> Result<Transcript, String> {
+        Ok(Transcript::parse(&self.json_within(&["fleet", "show", name, "--json"], limit)?))
     }
 
     pub fn create_ledger(&self) -> Result<(), String> {
@@ -124,7 +128,11 @@ impl North {
     }
 
     fn json(&self, arguments: &[&str]) -> Result<Value, String> {
-        let text = self.run(arguments, QUERY_WAIT)?;
+        self.json_within(arguments, QUERY_WAIT)
+    }
+
+    fn json_within(&self, arguments: &[&str], limit: Duration) -> Result<Value, String> {
+        let text = self.run(arguments, limit)?;
         serde_json::from_str(&text).map_err(|error| format!("`north {}` printed invalid JSON: {error}", arguments.join(" ")))
     }
 }

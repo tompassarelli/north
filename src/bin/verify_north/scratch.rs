@@ -69,12 +69,12 @@ impl Scratch {
         Ok(Self { root, origin, main, lane, broker, base })
     }
 
-    pub fn origin_main(&self) -> Result<String, String> {
-        git(&self.origin, &["rev-parse", "refs/heads/main"])
+    pub fn origin_main(&self, limit: Duration) -> Result<String, String> {
+        git_within(&self.origin, &["rev-parse", "refs/heads/main"], limit)
     }
 
-    pub fn lane_head(&self) -> Result<String, String> {
-        git(&self.lane, &["rev-parse", "HEAD"])
+    pub fn lane_head(&self, limit: Duration) -> Result<String, String> {
+        git_within(&self.lane, &["rev-parse", "HEAD"], limit)
     }
 
     pub fn origin(&self, arguments: &[&str]) -> Result<String, String> {
@@ -114,9 +114,13 @@ fn path(path: &Path) -> String {
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> Result<String, String> {
+    git_within(directory, arguments, QUERY_WAIT)
+}
+
+fn git_within(directory: &Path, arguments: &[&str], limit: Duration) -> Result<String, String> {
     let mut command = Command::new("git");
     command.arg("-C").arg(directory).args(arguments);
-    Ok(exec::stdout(command, QUERY_WAIT, None)?.trim().to_owned())
+    Ok(exec::stdout(command, limit, None)?.trim().to_owned())
 }
 
 #[cfg(test)]

@@ -65,16 +65,34 @@ pub fn poll_until(limit: Duration, interval: Duration, mut done: impl FnMut() ->
     }
 }
 
-pub fn wait_for<T>(limit: Duration, interval: Duration, mut probe: impl FnMut() -> Result<Option<T>, String>) -> Result<Option<T>, String> {
-    let deadline = Instant::now() + limit;
+pub trait Clock {
+    fn now(&self) -> Instant;
+    fn pause(&self, span: Duration);
+}
+
+pub struct Wall;
+
+impl Clock for Wall {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+
+    fn pause(&self, span: Duration) {
+        thread::sleep(span);
+    }
+}
+
+pub fn wait_for<T>(clock: &dyn Clock, limit: Duration, interval: Duration, mut probe: impl FnMut() -> Result<Option<T>, String>) -> Result<Option<T>, String> {
+    let deadline = clock.now() + limit;
     loop {
         if let Some(found) = probe()? {
             return Ok(Some(found));
         }
-        if Instant::now() >= deadline {
+        let left = deadline.saturating_duration_since(clock.now());
+        if left.is_zero() {
             return Ok(None);
         }
-        thread::sleep(interval);
+        clock.pause(interval.min(left));
     }
 }
 

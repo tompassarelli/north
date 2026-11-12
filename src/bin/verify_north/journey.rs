@@ -2,12 +2,13 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use rustix::fs::{FlockOperation, flock};
 
 use super::client::North;
-use super::exec;
+use super::exec::{self, Clock};
 use super::notes::{Note, Notes};
 use super::processes::{self, Process};
 use super::report;
@@ -24,7 +25,7 @@ In the current directory write the single line `the worker's change` to worker.t
 const CHANGED_FILE: &str = "worker.txt";
 const HAND_IN_TOOL: &str = "mcp__north__hand-in";
 const CLAUDE_MODEL: &str = "haiku";
-const HAND_IN_WAIT: Duration = Duration::from_mins(2);
+const HAND_IN_DEADLINE: Duration = Duration::from_secs(110);
 const SERVE_WAIT: Duration = Duration::from_secs(30);
 const SETTLE_WAIT: Duration = Duration::from_mins(2);
 const LEDGER_WAIT: Duration = Duration::from_mins(3);
@@ -59,11 +60,12 @@ struct Journey {
     lander: Option<Process>,
     broker: Option<Process>,
     landed: Option<String>,
+    clock: Rc<dyn Clock>,
 }
 
 pub fn walk(north: North, notes: Notes, plan: Plan) -> Option<&'static str> {
     let session = format!("vn-{}", plan.stamp);
-    let mut journey = Journey { north, notes, plan, session, scratch: None, lander: None, broker: None, landed: None };
+    let mut journey = Journey { north, notes, plan, session, scratch: None, lander: None, broker: None, landed: None, clock: Rc::new(exec::Wall) };
     for (index, (number, title, step)) in STEPS.iter().enumerate() {
         let started = Instant::now();
         let outcome = step(&mut journey);
@@ -106,7 +108,7 @@ fn take_brief(journey: &mut Journey) -> Result<String, String> {
 fn land(journey: &mut Journey) -> Result<String, String> {
     let served = journey.stop_lander();
     let scratch = journey.scratch()?;
-    let landed = scratch.origin_main()?;
+    let landed = scratch.origin_main(QUERY_WAIT)?;
     let parent = scratch.origin(&["rev-parse", &format!("{landed}^")])?;
     let changed = scratch.origin(&["show", "--format=", "--name-only", &landed])?;
     if parent != scratch.base || changed != CHANGED_FILE || !served.contains(&format!("landed {landed}")) {
@@ -196,8 +198,13 @@ impl Journey {
 
     fn settled_report(&self, limit: Duration, ready: impl Fn(&Transcript) -> bool) -> Result<String, String> {
         let mut last = format!("{} has no transcript yet", self.session);
-        let report = exec::wait_for(limit, POLL, || {
-            let transcript = match self.north.transcript(&self.session) {
+        let deadline = self.clock.now() + limit;
+        let report = exec::wait_for(self.clock.as_ref(), limit, POLL, || {
+            let left = deadline.saturating_duration_since(self.clock.now()).min(QUERY_WAIT);
+            if left.is_zero() {
+                return Ok(None);
+            }
+            let transcript = match self.north.transcript_within(&self.session, left) {
                 Ok(transcript) => transcript,
                 Err(error) if error.contains("no session named") => return Ok(None),
                 Err(error) => return Err(error),

@@ -17,7 +17,7 @@ fn a_follow_started_by_the_walk_is_gone_before_cleanup_counts_processes() {
         .spawn()
         .unwrap();
     let shell = Process::of(follow.id()).unwrap();
-    let gates = super::super::exec::wait_for(std::time::Duration::from_secs(5), std::time::Duration::from_millis(20), || Ok::<_, String>(processes::descendants(&[shell]).first().copied())).unwrap().unwrap();
+    let gates = super::super::exec::wait_for(&super::super::exec::Wall, std::time::Duration::from_secs(5), std::time::Duration::from_millis(20), || Ok::<_, String>(processes::descendants(&[shell]).first().copied())).unwrap().unwrap();
     let manifest = Manifest { scratch: Some(root.clone()), ..Manifest::default() };
     let outcome = sweep(&manifest);
     let _ = follow.wait();

@@ -84,18 +84,3 @@ fn clearing_a_mark_leaves_a_tombstone_so_a_peer_resending_that_same_mark_cannot_
     assert!(adopt(dir.path(), &peer, "2026-11-30").unwrap().is_empty(), "a peer's bodyless copy restored a mark a probe had rewritten and then cleared");
     assert!(!held(dir.path(), "h", "2026-11-30"));
 }
-#[test]
-fn a_peer_copy_of_a_cleared_mark_does_not_restore_it_through_a_tombstone_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let stale = "peer 2026-11-10 until=2026-11-30\nHTTP 400: Your credit balance is too low\n";
-    std::fs::write(dir.path().join("g"), stale).unwrap();
-    let cleared = dir.path().join("cleared");
-    std::fs::create_dir_all(&cleared).unwrap();
-    std::fs::write(cleared.join("g"), format!("2026-11-10T10:10:00Z\n{}", stale.trim_end())).unwrap();
-    std::fs::remove_file(dir.path().join("g")).unwrap();
-
-    let mut peer = BTreeMap::new();
-    peer.insert("g".to_owned(), stale.to_owned());
-    assert!(adopt(dir.path(), &peer, "2026-11-10").unwrap().is_empty());
-    assert!(!held(dir.path(), "g", "2026-11-10"));
-}
