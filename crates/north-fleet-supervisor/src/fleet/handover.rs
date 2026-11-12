@@ -12,7 +12,8 @@ use north_base::land_ticket::Lane;
 use north_base::platform::attribution::{self, Cause, Harness};
 
 use super::limit::{UsageWait, park, recent, unknown_reset_ms};
-use super::model::{LaunchRequest, Phase, Role, SessionRecord};
+use super::model::{Delivery, LaunchRequest, Phase, Role, SessionRecord};
+use crate::fleet::sender::Sender;
 use super::registry::Fleet;
 use super::waits::Run;
 use crate::error::NorthResult;
@@ -133,7 +134,16 @@ pub fn hand_over(
                 let _ = waits.clear_usage(&record.name);
                 done.lines.push(format!("{}: handed over from account {} to {} {}", record.name, record.account, to.0, lane.map_or_else(|| "with no lane".to_owned(), |lane| format!("with its lane {}", lane.branch))));
             }
-            Err(error) => done.lines.push(format!("{}: not handed over from account {} to {}: {}", record.name, record.account, to.0, error.user_message())),
+            Err(error) => {
+                let left = if fleet.session(&record.name).is_ok() { format!("it stays on account {}, and `north fleet revive {} --account {}` restarts it there", record.account, record.name, to.0) } else { "no session is left under the name".to_owned() };
+                let line = format!("{}: not handed over from account {} to {}: {}; {left}", record.name, record.account, to.0, error.user_message());
+                if let Some(parent) = &record.parent
+                    && let Err(unsent) = fleet.send_signed(&Sender::fleet(), parent, &line, Delivery::Queued)
+                {
+                    done.lines.push(format!("{}: its parent {parent} was not told: {}", record.name, unsent.user_message()));
+                }
+                done.lines.push(line);
+            }
         }
     }
     for record in records.iter().filter(|record| record.role() == Role::Proxy && !moving.contains(record.name.as_str())) {

@@ -159,7 +159,7 @@ pub(super) fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult
         "interrupt" => controlled(fleet, ControlVerb::Interrupt, name),
         "stop" => controlled(fleet, ControlVerb::Stop, name),
         "forget" => forget(fleet, name, None, None),
-        "revive" if fleet.session(name).is_err() => controlled(fleet, ControlVerb::Revive, name),
+        "revive" if fleet.revivable(name).is_err() => controlled(fleet, ControlVerb::Revive, name),
         "revive" => revive::revive(fleet, name, None, None, Overrides::default()),
         "show" => show::show(fleet, name, false),
         "watchdog" => fleet.guard(name),

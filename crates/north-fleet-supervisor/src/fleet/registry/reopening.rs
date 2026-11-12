@@ -9,6 +9,10 @@ use crate::fleet::runtime::now_ms;
 use super::Fleet;
 
 impl Fleet {
+    pub fn revivable(&self, name: &str) -> NorthResult<SessionRecord> {
+        self.record(name).or_else(|missing| if self.session_dir(name)?.exists() { Err(missing) } else { self.retired_session(name).map(|(_, record)| record).ok_or(missing) })
+    }
+
     /// The record of `name` as a revive finds it. A session whose launch is retired, archived by a take-over whose new launch never came up or by a forget, resumes in its own conversation when its last report is not a Done: it becomes a new launch of the same record, since a retired launch moves nowhere.
     pub(crate) fn reopened(&self, name: &str) -> NorthResult<SessionRecord> {
         let dir = self.session_dir(name)?;

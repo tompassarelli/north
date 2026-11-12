@@ -9,7 +9,8 @@ use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
 use crate::fleet::remote::{self, HooksCheck};
-use crate::fleet::model::{Account, Effort, LaunchRequest, Predicted, Role, SessionRecord, Status};
+use crate::fleet::model::{Account, Delivery, Effort, LaunchRequest, Predicted, Role, SessionRecord, Status};
+use crate::fleet::sender::Sender;
 use crate::fleet::runtime::{Opening, new_uuid, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
@@ -33,6 +34,9 @@ impl Fleet {
         let session_dir = self.session_dir(&request.name)?;
         if claim == Claim::TakeOver {
             let _ = self.remove_queued(&request.name);
+            if let Some(moved) = self.move_in_place(request) {
+                return moved;
+            }
             return self.launch_into(request, claim, &session_dir);
         }
         let Some(_launching) = self.try_start_lock(&request.name)? else {
@@ -116,6 +120,19 @@ impl Fleet {
         })
     }
 
+    fn move_in_place(&self, request: &LaunchRequest) -> Option<NorthResult<SessionRecord>> {
+        let held = self.record(&request.name).ok()?;
+        let same = request.resume.is_some() && held.conversation == request.resume && held.provider == request.provider && held.model == request.model && held.effort == request.effort && !held.adopted();
+        if !same {
+            return None;
+        }
+        let moved = self.revive_told(&request.name, None, request.placement.clone(), None, Some(&request.account), Some(&request.prompt));
+        Some(moved.and_then(|record| {
+            let tasks = super::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
+            self.claim_before_start(request, &tasks, record.verification).map(|()| record)
+        }))
+    }
+
     /// Refuses a launch its test root, parent or role does not allow, and says whether it is a verification launch.
     fn admitted(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<bool> {
         let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
@@ -195,6 +212,10 @@ impl Fleet {
 
     /// Revive with a fresh placement override note and effort, which the restarted record keeps. With `account` naming another account, a running host ends first and its conversation is carried there and resumes on it; a restart that fails leaves the session stopped on its old account.
     pub fn revive_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>, account: Option<&str>) -> NorthResult<SessionRecord> {
+        self.revive_told(name, system_prompt, placement, effort, account, None)
+    }
+
+    fn revive_told(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>, account: Option<&str>, note: Option<&str>) -> NorthResult<SessionRecord> {
         let record = self.reopened(name)?;
         let on_limit = self.recent(self.runtime(&record)?.as_ref(), &record).is_ok_and(|transcript| stopped_on_limit(&transcript, !session_running(&record) && !record.ended()));
         let onto = account.map(|to| self.account(&LaunchRequest { account: to.to_owned(), ..record.relaunch_request() })).transpose()?.filter(|onto| onto.recorded_label() != record.account);
@@ -204,7 +225,9 @@ impl Fleet {
                 return Err(NorthError::Refused(format!("{name} is recorded on {}, which it may not continue on: {}; revive it with --account naming a plan account", record.account, reserve.why(&record.account))));
             }
             let revived = self.wake_placed(name, system_prompt, placement, effort)?;
-            if on_limit {
+            if let Some(note) = note {
+                self.send_signed(&Sender::fleet(), name, note, Delivery::Queued)?;
+            } else if on_limit {
                 self.carry_on(name, "this session was revived after its usage limit ended its turn")?;
             }
             return Ok(revived);
@@ -220,7 +243,9 @@ impl Fleet {
             self.revive_held(name, system_prompt, placement, effort).or_else(|error| self.set_account(name, &record.account).and(Err(error)))?
         };
         let _ = self.waits().clear_usage(name);
-        if cut_short {
+        if let Some(note) = note {
+            self.send_signed(&Sender::fleet(), name, note, Delivery::Queued)?;
+        } else if cut_short {
             self.carry_on(name, &format!("this session was moved onto account {} in the middle of a turn", onto.label))?;
         } else if on_limit {
             self.carry_on(name, &format!("this session was moved onto account {} after its usage limit ended its turn", onto.label))?;

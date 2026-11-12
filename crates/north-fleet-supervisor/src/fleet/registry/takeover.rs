@@ -115,9 +115,96 @@ mod tests {
     use super::super::HandedIn;
     use super::super::fixtures::{fleet, live};
     use super::*;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use serde_json::Value;
+
+    use crate::error::NorthError;
+    use crate::fleet::fakes::{Paper, Stream};
+    use crate::fleet::model::{Account, LaunchRequest, ProviderName, Quota, Transcript};
+    use crate::fleet::roster::Roster;
+    use crate::fleet::runtime::{HostSpec, Instructions, Opening, Runtime};
+    use crate::fleet::runtimes::Runtimes;
+    use crate::fleet::turns::TurnSignal;
     use crate::fleet::records::{read_record, write_record};
     use crate::fleet::sender::Sender;
     use crate::fleet::store::RowKind;
+
+    struct NeverUp;
+
+    impl Runtime for NeverUp {
+        fn provider(&self) -> ProviderName {
+            Stream.provider()
+        }
+
+        fn models(&self) -> &'static [&'static str] {
+            Stream.models()
+        }
+
+        fn roster(&self, _state_root: &Path, home: &Path, _policy: &Path) -> Roster {
+            let account = |label: &str| Account { provider: Stream.provider(), label: label.into(), home: home.join(label), token_file: None, api: None };
+            Roster { accounts: vec![account("a"), account("b")], ..Roster::default() }
+        }
+
+        fn assign_conversation(&self) -> NorthResult<Option<String>> {
+            Stream.assign_conversation()
+        }
+
+        fn host(&self, _account: &Account, _request: &LaunchRequest, _opening: Opening, _instructions: &str) -> NorthResult<HostSpec> {
+            Err(NorthError::State("the client did not come up within its deadline".into()))
+        }
+
+        fn handshake(&self) -> Vec<String> {
+            Stream.handshake()
+        }
+
+        fn open(&self, name: &str, request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>> {
+            Stream.open(name, request, opening, instructions)
+        }
+
+        fn message(&self, transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>> {
+            Stream.message(transcript, id, text)
+        }
+
+        fn interrupt(&self, transcript: &Transcript) -> NorthResult<Vec<String>> {
+            Stream.interrupt(transcript)
+        }
+
+        fn close(&self, transcript: &Transcript) -> Vec<String> {
+            Stream.close(transcript)
+        }
+
+        fn observe(&self, frame: &Value, transcript: &mut Transcript) {
+            Stream.observe(frame, transcript);
+        }
+
+        fn signals(&self, frame: &Value) -> Vec<TurnSignal> {
+            Stream.signals(frame)
+        }
+
+        fn quota(&self, frame: &Value) -> Option<Quota> {
+            Stream.quota(frame)
+        }
+    }
+
+    #[test]
+    fn a_hand_over_whose_client_never_comes_up_leaves_the_session_revivable_on_its_own_account() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(NeverUp)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
+        let dir = fleet.root.join("worker");
+        std::fs::create_dir_all(&dir).unwrap();
+        let held = serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "kept", "task_ref": "north#1115", "host_dir": dir, "stream_offset": 0});
+        std::fs::write(dir.join("session.json"), held.to_string()).unwrap();
+        let record = fleet.session("worker").unwrap();
+        let request = LaunchRequest { account: "b".into(), prompt: "carry on".into(), placement: Some("handed over from account a".into()), resume: record.conversation.clone(), ..record.relaunch_request() };
+
+        let refused = fleet.take_over(&request);
+
+        assert!(refused.is_err(), "{refused:?}");
+        let kept = fleet.session("worker").unwrap_or_else(|error| panic!("no session is left under the name: {}", error.user_message()));
+        assert_eq!((kept.account.as_str(), kept.conversation.as_deref(), kept.task_ref.as_deref()), ("a", Some("kept"), Some("north#1115")));
+    }
 
     #[test]
     fn a_take_over_racing_a_revive_leaves_one_running_session_in_its_own_conversation() {
