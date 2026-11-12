@@ -1,4 +1,4 @@
-//! The capacity-estimate loop's graph side: a finished lease tells the estimate its signature learned, and sizing reads it back through harness/graph-rules/capacity-estimate.json.
+//! The capacity-estimate loop's graph side: a finished lease tells the estimate its signature learned, and sizing reads back its own signature's.
 use serde_json::Value;
 
 use super::database::{capacity_database, capacity_history};
@@ -17,6 +17,6 @@ pub(super) fn tell(signature: &TaskSignature) -> Result<(), String> {
 /// The estimate the graph holds for `signature`, shaped as sizing reads an estimate.
 pub(super) fn read(signature: &TaskSignature) -> Option<Value> {
     let graph = north_graph_loops::graph_path();
-    let estimates = graph.exists().then(|| north_graph_loops::estimates(&graph).ok()).flatten()?;
-    estimates.get(&signature_key(signature)).filter(|estimate| estimate.contains_key("runs")).map(|estimate| learned_json(signature, estimate))
+    let estimate = graph.exists().then(|| north_graph_loops::estimate(&graph, &signature_key(signature)).ok()).flatten()?;
+    estimate.contains_key("runs").then(|| learned_json(signature, &estimate))
 }

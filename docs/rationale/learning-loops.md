@@ -44,7 +44,7 @@ A loop that learns tells its learned values to north's graph (`~/.local/state/no
 
 ### Loops on every host
 
-- **capacity-estimate.** Writer `capacity`, told by `crates/north-capacity-host/src/capacity/host/learned.rs::tell` once per finished lease: `(signature:HASH :capacity/MEASURE value)` for the runs behind the estimate, the p90 and p50 of cores, memory, I/O and disk-busy share, and the p75 wall seconds over the signature's newest runs on this host. Rule `capacity-estimate.json`, read by sizing through `learned.rs::read`. The per-lease samples stay in `agents/machine-capacity/capacity.db` as the raw observations the estimate is computed from.
+- **capacity-estimate.** Writer `capacity`, told by `crates/north-capacity-host/src/capacity/host/learned.rs::tell` once per finished lease: `(signature:HASH :capacity/MEASURE value)` for the runs behind the estimate, the p90 and p50 of cores, memory, I/O and disk-busy share, and the p75 wall seconds over the signature's newest runs on this host. Read by sizing through `learned.rs::read`, which asks for the one signature by its subject: the writer-wide rule it replaced scanned every live assertion in the graph, about 700 ms of each grant on a build host on 2026-11-12. The per-lease samples stay in `agents/machine-capacity/capacity.db` as the raw observations the estimate is computed from.
 
 ### Loops on the laptop
 

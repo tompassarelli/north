@@ -31,9 +31,9 @@ fn a_finished_lease_leaves_admission_its_signature_s_newest_estimate_and_the_cap
     second.insert("cores".into(), 7.0);
     second.remove("wall-s");
     crate::tell_estimate_to(&mut graph, "a1", &second, 2_000).unwrap();
-    let told = crate::estimates_from(&graph).unwrap();
-    assert_eq!(told.get("a1"), Some(&second));
-    assert_eq!(told.get("b2"), Some(&first));
+    assert_eq!(crate::estimate_from(&graph, "a1").unwrap(), second);
+    assert_eq!(crate::estimate_from(&graph, "b2").unwrap(), first);
+    assert_eq!(crate::estimate_from(&graph, "c3").unwrap(), crate::Estimate::new());
     assert_eq!(ticks_from(&graph).unwrap().get("capacity"), Some(&2_000));
     assert!(crate::tell_estimate_to(&mut graph, "a1", &[("flavour".to_owned(), 1.0)].into(), 3_000).is_err());
 }
