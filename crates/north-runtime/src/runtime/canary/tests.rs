@@ -474,6 +474,20 @@ fn a_launching_host_whose_sessions_reach_no_other_host_is_not_probed_for_a_worke
 }
 
 #[test]
+fn a_launch_probe_on_a_host_that_reaches_no_laptop_tries_the_accounts_its_own_plan_lists() {
+    let unserved = "  claude:a available: 5h unread, week 40% (60% headroom)\n  claude:b unavailable: refused by its client\n  claude:c available: 5h 7%, week 1% (93% headroom)\n  claude:api:x available: $1\n  cpx62b skipped: needs laptop\n/tmp/brief.md: target unserved: no host serves laptop for north\n";
+    assert_eq!(launch::candidates(unserved), ["a", "c"], "on 2026-11-12 an order stayed off three hosts whose plan placed nothing on the laptop and so named no account, though each listed accounts with headroom");
+
+    let none = launch::unread("  claude:b unavailable: refused by its client\n  claude:api:x available: $1\n/tmp/brief.md: target held: every Claude account is at its provider's limit\n");
+    assert!(launch::candidates("  claude:b unavailable: refused by its client\n").is_empty());
+    assert!(none.contains("no claude account has headroom here") && none.contains("claude:b unavailable: refused by its client") && !none.contains("api"), "a host that cannot judge names the reading it lacked: {none}");
+
+    let config: toml_edit::DocumentMut = "[hosts.cpx62b]\nlaunches = true\npushes = []\n[hosts.nexus]\nresident_cap = 200\n[hosts.gex45]\nlaunches = true\n[hosts.whiterabbit]\nsettles_fleet = true\n".parse().unwrap();
+    assert!(!probes::takes_sessions(&config, "cpx62b") && !probes::takes_sessions(&config, "nexus"), "a host placement starts no session on has no launch to judge");
+    assert!(probes::takes_sessions(&config, "gex45") && probes::takes_sessions(&config, "whiterabbit") && probes::takes_sessions(&config, "unnamed"));
+}
+
+#[test]
 fn a_rollback_lands_only_on_a_runtime_whose_canary_passed() {
     const UNJUDGED: &str = "2222222222222222222222222222222222222222";
     const FAILING: &str = "3333333333333333333333333333333333333333";

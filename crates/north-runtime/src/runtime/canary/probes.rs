@@ -66,6 +66,14 @@ pub(super) fn sessions_reach_hub(config: &toml_edit::DocumentMut, name: &str) ->
     launches && reaches
 }
 
+/// Whether placement can start a fleet session on `name`, as its gate reads `[hosts.NAME]`: the host that settles the fleet, or one marked `launches = true` that can push some repository. A host the configuration does not name is taken to.
+pub(super) fn takes_sessions(config: &toml_edit::DocumentMut, name: &str) -> bool {
+    let Some(table) = config.get("hosts").and_then(|hosts| hosts.get(name)) else { return true };
+    let set = |key: &str| table.get(key).and_then(|value| value.as_bool()) == Some(true);
+    let pushes_nothing = table.get("pushes").and_then(|pushes| pushes.as_array()).is_some_and(|pushes| pushes.is_empty());
+    set("settles_fleet") || (set("launches") && !pushes_nothing)
+}
+
 pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hub: bool, settles: bool, landers: Option<&Landers>) -> CoreLoop {
     let runtime = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"");
     let north = format!("{runtime}/north");

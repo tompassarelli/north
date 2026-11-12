@@ -258,6 +258,10 @@ impl Machine for Live<'_> {
     }
 
     fn launchable_providers(&self) -> Vec<String> {
+        let name = self.host.name().rsplit_once('@').map_or(self.host.name(), |(_, name)| name);
+        if crate::platform::orchestration::read().is_ok_and(|config| !probes::takes_sessions(&config, name)) {
+            return Vec::new();
+        }
         match self.host.run(&probes::launchable_script()) {
             Ok(listing) => probes::PROVIDERS.iter().filter(|provider| listing.lines().any(|line| line.trim() == **provider)).map(|provider| (*provider).to_owned()).collect(),
             Err(_) => probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(),

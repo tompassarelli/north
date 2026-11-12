@@ -246,15 +246,23 @@ fn claude_accounts(north: &Path) -> Result<Vec<Option<String>>, Failure> {
     let mut command = Command::new(north);
     command.args(["config", "agents", "plan", "--place"]).arg(brief.path());
     let output = process::try_run_command_within(command, None, ASK).map_err(|error| unrun(error.into()))?.ok_or_else(|| unrun(failed(1, "placing a Claude account gave no answer")))?;
-    Ok(candidates(&String::from_utf8_lossy(&output.stdout)).into_iter().map(Some).collect())
+    let listing = String::from_utf8_lossy(&output.stdout);
+    match candidates(&listing) {
+        accounts if accounts.is_empty() => Err(failed(DEFERRED, unread(&listing))),
+        accounts => Ok(accounts.into_iter().map(Some).collect()),
+    }
 }
 
-/// The account placement chose, then every other account the plan lists as available, in the plan's order.
+/// The reading the probe lacked on a host whose plan lists no Claude account as available: each account line as the plan printed it.
+pub(super) fn unread(listing: &str) -> String {
+    let read: Vec<&str> = listing.lines().map(str::trim).filter(|line| line.strip_prefix("claude:").is_some_and(|rest| !rest.split(' ').next().unwrap_or_default().contains(':'))).collect();
+    let read = if read.is_empty() { "no Claude account".to_owned() } else { read.join("; ") };
+    format!("no claude account has headroom here, so the launch is not judged: `north config agents plan --place` on this host listed {read}")
+}
+
+/// The account placement chose, when it placed the brief on a host, then every other account the plan lists as available, in the plan's order: a host that reaches no host serving the brief gets no target, and its own readings still say which accounts launch here.
 pub(super) fn candidates(listing: &str) -> Vec<String> {
     let mut accounts: Vec<String> = placed_account(listing).into_iter().collect();
-    if accounts.is_empty() {
-        return accounts;
-    }
     for label in listing.lines().filter_map(|line| line.trim().strip_prefix("claude:")?.split_once(" available")).map(|(label, _)| label) {
         if !label.contains(':') && !accounts.iter().any(|known| known == label) {
             accounts.push(label.to_owned());
