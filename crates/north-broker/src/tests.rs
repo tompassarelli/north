@@ -11,7 +11,7 @@ use north_base::platform::broker_client::Client;
 use north_base::platform::broker_wire::Request;
 use serde_json::{Value, json};
 
-use crate::credentials::{GITHUB_USER_FILE, Source};
+use crate::credentials::{GITHUB_USER_FILE, INSTALLATION_TOKEN_FILE, Source};
 use crate::github::Minter;
 use crate::policy::Policy;
 use crate::proxy::providers;
@@ -98,7 +98,7 @@ fn broker(github: &str, digitalocean: &str, uid: u32) -> (tempfile::TempDir, Bro
     minter.api = github.to_owned();
     let mut cloud = providers();
     cloud.iter_mut().for_each(|provider| digitalocean.clone_into(&mut provider.upstream));
-    (directory, Broker::with(Policy::parse(&POLICY.replace("1001", &uid.to_string())).unwrap(), minter, cloud, Threads::new(PathBuf::new())))
+    (directory, Broker::with(Policy::parse(&POLICY.replace("1001", &uid.to_string())).unwrap(), minter, cloud, Threads::new(PathBuf::new(), None)))
 }
 
 fn call(broker: &Broker, uid: u32, method: &str, target: &str, headers: &[(&str, &str)], body: &Value) -> (u16, Value) {
@@ -146,6 +146,10 @@ fn a_scoped_token_is_minted_with_its_scope_and_inspected_back_through_the_socket
     assert_eq!(inspected["repositories"], json!(["north"]));
     assert_eq!(inspected["permissions"], json!({ "contents": "read", "metadata": "read" }));
     assert!(client.inspect("ghs_never_granted").is_err());
+    std::fs::write(keep.path().join(INSTALLATION_TOKEN_FILE), "token: ghs_preminted\nexpires_at: 2099-01-01T00:00:00Z\n").unwrap();
+    let south = BTreeMap::from([("contents".to_owned(), "read".to_owned())]);
+    assert_eq!(client.github_token("agent", &["south".to_owned()], &south, 0).unwrap().token, "ghs_preminted");
+    assert_eq!(seen.lock().unwrap().len(), 1, "a present installation token still reached the app exchange");
 }
 
 #[test]
@@ -260,7 +264,7 @@ fn forward(broker: &Broker, surface: Surface, uid: u32, body: &Value) -> (u16, V
 fn recording_north(directory: &std::path::Path) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let program = directory.join("north");
-    std::fs::write(&program, format!("#!/bin/sh\necho \"$@\" >{dir}/arguments\ncat >{dir}/stdin\necho ledger answered\n", dir = directory.display())).unwrap();
+    std::fs::write(&program, format!("#!/bin/sh\necho \"$@\" >{dir}/arguments\ncat >{dir}/stdin\necho \"$NORTH_LEDGER_IDENTITY\" >{dir}/identity\necho ledger answered\n", dir = directory.display())).unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
     program
 }
@@ -268,12 +272,13 @@ fn recording_north(directory: &std::path::Path) -> std::path::PathBuf {
 #[test]
 fn the_ledger_forward_runs_only_the_verbs_a_caller_is_listed_for_with_values_never_paths() {
     let directory = tempfile::tempdir().unwrap();
-    let broker = Broker::with(Policy::parse(THREADS_POLICY).unwrap(), Minter::new(Source::Directory(directory.path().to_path_buf())), Vec::new(), Threads::new(recording_north(directory.path())));
+    let broker = Broker::with(Policy::parse(THREADS_POLICY).unwrap(), Minter::new(Source::Directory(directory.path().to_path_buf())), Vec::new(), Threads::new(recording_north(directory.path()), Some(PathBuf::from("/keys/threads-ledger.key"))));
 
     let (status, answer) = forward(&broker, Surface::Typed, 1001, &json!({ "verb": "claim", "arguments": ["north#1041", "--by", "w6"], "stdin": "note" }));
     assert_eq!((status, answer["code"].as_i64(), answer["stdout"].as_str()), (200, Some(0), Some("ledger answered\n")), "{answer}");
     assert_eq!(std::fs::read_to_string(directory.path().join("arguments")).unwrap(), "threads claim north#1041 --by w6\n");
     assert_eq!(std::fs::read_to_string(directory.path().join("stdin")).unwrap(), "note");
+    assert_eq!(std::fs::read_to_string(directory.path().join("identity")).unwrap(), "/keys/threads-ledger.key\n");
 
     std::fs::remove_file(directory.path().join("arguments")).unwrap();
     for body in [json!({ "verb": "ingest", "arguments": [] }), json!({ "verb": "claim", "arguments": ["/home/operator/.ssh/id"] }), json!({ "verb": "claim", "arguments": ["a/../b"] }), json!({ "verb": "claim; id" }), json!({ "verb": "claim", "arguments": ["--file=/home/operator/.ssh/id"] }), json!({ "verb": "claim", "arguments": ["north/relative"] }), json!({ "verb": "claim", "arguments": ["--unknown", "north#1"] }), json!({ "verb": "note", "arguments": ["north#1", "../x"] }), json!({ "verb": "note", "arguments": ["north#1", "-x"] })] {
@@ -293,7 +298,7 @@ fn a_host_with_no_agent_login_configured_forwards_nothing_to_the_ledger() {
     let directory = tempfile::tempdir().unwrap();
     let program = recording_north(directory.path());
     for policy in [Policy::for_user(1001), Policy::parse(POLICY).unwrap()] {
-        let broker = Broker::with(policy, Minter::new(Source::Directory(directory.path().to_path_buf())), Vec::new(), Threads::new(program.clone()));
+        let broker = Broker::with(policy, Minter::new(Source::Directory(directory.path().to_path_buf())), Vec::new(), Threads::new(program.clone(), None));
         assert_eq!(forward(&broker, Surface::Open, 1001, &json!({ "verb": "claim", "arguments": ["north#1"] })).0, 403);
     }
     assert!(!directory.path().join("arguments").exists(), "a caller with no threads list ran a command");

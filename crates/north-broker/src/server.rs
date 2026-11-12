@@ -11,7 +11,7 @@ use north_base::platform::broker_wire::{Request, Response, read_request, write_r
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::credentials::Source;
+use crate::credentials::{LEDGER_KEY_FILE, Source};
 use crate::github::{Minted, Minter, app};
 use crate::policy::{Caller, Permissions, Policy, Rules};
 use crate::proxy::{Provider, providers, split};
@@ -63,7 +63,8 @@ pub struct Broker {
 
 impl Broker {
     pub fn new(policy: Policy, source: Source) -> Self {
-        Self::with(policy, Minter::new(source), providers(), Threads::new(std::env::current_exe().unwrap_or_default()))
+        let identity = source.path(LEDGER_KEY_FILE);
+        Self::with(policy, Minter::new(source), providers(), Threads::new(std::env::current_exe().unwrap_or_default(), identity))
     }
 
     pub fn with(policy: Policy, minter: Minter, providers: Vec<Provider>, threads: Threads) -> Self {

@@ -9,7 +9,7 @@ use ring::signature::{RSA_PKCS1_SHA256, RsaKeyPair};
 use serde_json::{Value, json};
 
 use crate::curl;
-use crate::credentials::{AGENT_APP_FILE, LANDER_APP_FILE, Source};
+use crate::credentials::{AGENT_APP_FILE, INSTALLATION_TOKEN_FILE, LANDER_APP_FILE, Source};
 use crate::policy::{Permissions, Scope};
 
 const EXCHANGE_LIMIT: Duration = Duration::from_secs(30);
@@ -47,6 +47,9 @@ impl Minter {
     }
 
     pub fn mint(&self, app: App, scope: &Scope, now: i64) -> Result<Minted, String> {
+        if app.file == AGENT_APP_FILE && let Some(minted) = self.installation_token(scope, now)? {
+            return Ok(minted);
+        }
         let creds = self.source.fields(app.file)?;
         let (app_id, installation_id) = (creds.get("app_id").cloned().unwrap_or_default(), creds.get("installation_id").cloned().unwrap_or_default());
         let private_key = creds.get(app.pem).map(String::as_str).unwrap_or_default();
@@ -61,6 +64,21 @@ impl Minter {
         let repositories = (!scope.repositories.is_empty()).then(|| data["repositories"].as_array().map_or_else(|| scope.repositories.clone(), |list| list.iter().filter_map(|repository| repository["name"].as_str().map(str::to_owned)).collect()));
         let permissions = data["permissions"].as_object().map_or_else(|| scope.permissions.clone(), |map| map.iter().filter_map(|(name, level)| Some((name.clone(), level.as_str()?.to_owned()))).collect::<BTreeMap<_, _>>());
         Ok(Minted { token: token.to_owned(), expires_at: expires_at.to_owned(), repositories, permissions })
+    }
+
+    fn installation_token(&self, scope: &Scope, now: i64) -> Result<Option<Minted>, String> {
+        if self.source.path(INSTALLATION_TOKEN_FILE).is_none() {
+            return Ok(None);
+        }
+        let fields = self.source.fields(INSTALLATION_TOKEN_FILE)?;
+        let token = fields.get("token").filter(|token| !token.is_empty()).ok_or_else(|| format!("{INSTALLATION_TOKEN_FILE} holds no token"))?;
+        let expires_at = fields.get("expires_at").ok_or_else(|| format!("{INSTALLATION_TOKEN_FILE} holds no expires_at"))?;
+        let expiry = Timestamp::parse_rfc3339(expires_at).ok_or_else(|| format!("{INSTALLATION_TOKEN_FILE} expires_at is not RFC 3339"))?;
+        if expiry.unix_seconds() <= now {
+            return Err(format!("{INSTALLATION_TOKEN_FILE} expired at {expires_at}"));
+        }
+        let repositories = (!scope.repositories.is_empty()).then(|| scope.repositories.clone());
+        Ok(Some(Minted { token: token.clone(), expires_at: expires_at.clone(), repositories, permissions: scope.permissions.clone() }))
     }
 
     fn exchange(&self, installation_id: &str, jwt: &str, scope: &Scope) -> Result<Value, String> {

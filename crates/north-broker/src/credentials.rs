@@ -14,6 +14,8 @@ pub const DIGITALOCEAN_FILE: &str = "digitalocean.yaml";
 pub const HETZNER_FILE: &str = "hetzner-cloud.yaml";
 pub const CLOUDFLARE_FILE: &str = "cloudflare.yaml";
 pub const GITHUB_USER_FILE: &str = "github-user.yaml";
+pub const INSTALLATION_TOKEN_FILE: &str = "github-installation-token.yaml";
+pub const LEDGER_KEY_FILE: &str = "threads-ledger.key";
 
 pub enum Source {
     Directory(PathBuf),
@@ -31,8 +33,15 @@ impl Source {
         Self::Sops(secrets)
     }
 
+    pub fn path(&self, name: &str) -> Option<PathBuf> {
+        match self {
+            Self::Directory(directory) => Some(directory.join(name)).filter(|path| path.is_file()),
+            Self::Sops(_) => None,
+        }
+    }
+
     pub fn secret_values(&self, known: &str) -> Vec<String> {
-        let files = [AGENT_APP_FILE, LANDER_APP_FILE, DIGITALOCEAN_FILE, HETZNER_FILE, CLOUDFLARE_FILE, GITHUB_USER_FILE];
+        let files = [AGENT_APP_FILE, LANDER_APP_FILE, DIGITALOCEAN_FILE, HETZNER_FILE, CLOUDFLARE_FILE, GITHUB_USER_FILE, INSTALLATION_TOKEN_FILE];
         let mut values: Vec<String> = files.iter().filter_map(|name| self.fields(name).ok()).flat_map(|fields| fields.into_values()).collect();
         values.push(known.to_owned());
         values

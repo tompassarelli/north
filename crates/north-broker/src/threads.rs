@@ -14,10 +14,12 @@ const MAX_WORD: usize = 8 * 1024;
 const MAX_INPUT: usize = 1 << 20;
 const MAX_OUTPUT: u64 = 1 << 20;
 const DEADLINE: Duration = Duration::from_secs(60);
+pub const LEDGER_IDENTITY_ENV: &str = "NORTH_LEDGER_IDENTITY";
 
 /// The ledger forward: runs `north threads VERB WORDS` as the broker's own user for a caller whose policy names the verb, so the ledger host's ssh login stays the operator's.
 pub struct Threads {
     program: PathBuf,
+    identity: Option<PathBuf>,
 }
 
 type Typed = (String, Vec<String>, String);
@@ -93,8 +95,8 @@ fn is_number(word: &str) -> bool {
 }
 
 impl Threads {
-    pub fn new(program: PathBuf) -> Self {
-        Self { program }
+    pub fn new(program: PathBuf, identity: Option<PathBuf>) -> Self {
+        Self { program, identity }
     }
 
     /// The typed request `{verb, arguments, stdin}` as the command a caller's policy allows, or why it is refused: the verb must be one the policy lists, and a word that names a path is refused because the operator would read it.
@@ -118,11 +120,12 @@ impl Threads {
 
     pub fn forward(&self, caller: &Caller, body: &Value) -> Result<Value, (u16, String)> {
         let (verb, words, input) = Self::typed(caller, body)?;
-        let mut child = Command::new(&self.program)
-            .args(["threads", &verb])
-            .args(&words)
-            .current_dir("/")
-            .process_group(0)
+        let mut command = Command::new(&self.program);
+        command.args(["threads", &verb]).args(&words).current_dir("/").process_group(0);
+        if let Some(identity) = &self.identity {
+            command.env(LEDGER_IDENTITY_ENV, identity);
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
