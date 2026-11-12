@@ -75,8 +75,17 @@ pub fn checks(body: &str) -> Vec<Check> {
 }
 
 pub fn judge(command: &str, main: &Path) -> Run {
+    judge_under(plain(command), main)
+}
+
+fn plain(command: &str) -> Command {
     let mut shell = Command::new("sh");
-    shell.args(["-c", command]).current_dir(main);
+    shell.args(["-c", command]);
+    shell
+}
+
+fn judge_under(mut shell: Command, main: &Path) -> Run {
+    shell.current_dir(main);
     match process::run_group_within(shell, LIMIT) {
         Some(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -202,9 +211,31 @@ struct Options {
     repo: Option<String>,
     main: Option<PathBuf>,
     only: Option<String>,
+    confined: bool,
 }
 
-const USAGE: &str = "north task check --done-when [--dry-run] [--main DIR] [--box TEXT] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
+const USAGE: &str = "north task check --done-when [--dry-run] [--confined] [--main DIR] [--box TEXT] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
+const BROKERED: &str = "inside a worker sandbox the outside broker runs the check that writes a verdict, for one box of one issue: north task check --done-when --box TEXT REPO#N; add --dry-run to read the verdicts and write nothing";
+
+/// What a `task check --done-when` asked inside a worker sandbox, whose domain keeps the ledger and the checker's lock unwritable, becomes.
+#[derive(Debug, Eq, PartialEq)]
+pub enum Sandboxed {
+    InPlace,
+    Brokered(Vec<String>),
+    Refused(String),
+}
+
+/// A run that writes no verdict (`--dry-run`, `--body-file`) stays in place; one box of one issue is the outside broker's to check, asked in the words returned; any other run would end at its first write and is refused before it starts.
+pub fn sandboxed(arguments: &[String]) -> Sandboxed {
+    let Ok(options) = options(arguments) else { return Sandboxed::InPlace };
+    if options.dry_run || options.body_file.is_some() {
+        return Sandboxed::InPlace;
+    }
+    match (&options.only, options.issue.as_deref().map(issue_reference), &options.main, options.confined) {
+        (Some(only), Some(Ok((repo, number))), None, false) => Sandboxed::Brokered(["task", "check", "--done-when", "--box", only, &format!("{repo}#{number}")].map(str::to_owned).to_vec()),
+        _ => Sandboxed::Refused(BROKERED.into()),
+    }
+}
 
 fn options(arguments: &[String]) -> NorthResult<Options> {
     let usage = || NorthError::Usage(USAGE.into());
@@ -214,6 +245,7 @@ fn options(arguments: &[String]) -> NorthResult<Options> {
         match word.as_str() {
             "--done-when" => {}
             "--dry-run" => found.dry_run = true,
+            "--confined" => found.confined = true,
             "--body-file" => found.body_file = Some(words.next().ok_or_else(usage)?.clone()),
             "--repo" => found.repo = Some(words.next().ok_or_else(usage)?.clone()),
             "--main" => found.main = Some(PathBuf::from(words.next().ok_or_else(usage)?)),
@@ -265,12 +297,14 @@ fn main_for(options: &Options) -> NorthResult<Main> {
     }
 }
 
-pub fn run(ledger: &Ledger, arguments: &[String]) -> NorthResult<()> {
+/// `domain` makes the command that runs a box's shell command in a new worker domain, which `--confined` asks for: the broker's check for a session (north#1137) runs a command whose text a session may have written into the issue.
+pub fn run(ledger: &Ledger, arguments: &[String], domain: &dyn Fn(&str) -> Command) -> NorthResult<()> {
     let options = options(arguments)?;
+    let shell = |command: &str| if options.confined { domain(command) } else { plain(command) };
     if let Some(path) = &options.body_file {
         let main = main_for(&options)?;
         let stamp = Stamp { sha: main.sha()?, date: Timestamp::now().iso_date() };
-        let run = |command: &str| judge(command, main.dir());
+        let run = |command: &str| judge_under(shell(command), main.dir());
         let body = std::fs::read_to_string(path)?;
         let verdicts = verdicts(&body, &run);
         for verdict in &verdicts {
@@ -290,7 +324,7 @@ pub fn run(ledger: &Ledger, arguments: &[String]) -> NorthResult<()> {
     }
     let main = main_for(&options)?;
     let stamp = Stamp { sha: main.sha()?, date: Timestamp::now().iso_date() };
-    let run = |command: &str| judge(command, main.dir());
+    let run = |command: &str| judge_under(shell(command), main.dir());
     for (number, body) in issues {
         let verdicts = verdicts(&body, &run);
         for verdict in &verdicts {

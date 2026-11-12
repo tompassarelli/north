@@ -10,6 +10,7 @@ const USAGE: &str = "Usage: north ledger (flow|incident|opencode|tempo|worker) .
 pub fn run(arguments: &[String]) -> ExitCode {
     let outcome = match arguments {
         [task, verb, ..] if task == "task" && (verb == "comment" || verb == "check" && arguments.iter().any(|word| word == "--done-when")) && let Some(code) = north_runtime::worker_sandbox::reenter_lane_only(arguments) => return ExitCode::from(code),
+        [task, verb, rest @ ..] if task == "task" && verb == "check" && rest.iter().any(|word| word == "--done-when") && let Some(code) = sandboxed_check(rest) => return code,
         [task, verb, reference, flag, body] if task == "task" && verb == "comment" && flag == "--body" => comment(reference, body),
         [ledger, verb, rest @ ..] if ledger == "ledger" && let Some(run) = super::tools::ledger_runner(verb) => return ExitCode::from(run(rest)),
         [ledger, verb, rest @ ..] if ledger == "ledger" && verb == "claude-runs" => {
@@ -28,6 +29,22 @@ pub fn run(arguments: &[String]) -> ExitCode {
     }
 }
 
+/// A Done-when check asked inside a worker sandbox: the outside broker runs the one that writes a verdict, since the domain keeps the ledger unwritable (north#1137); `None` outside a sandbox and for a run that writes nothing.
+fn sandboxed_check(rest: &[String]) -> Option<ExitCode> {
+    use crate::ops::done_when_boxes::{Sandboxed, sandboxed};
+    if !north_runtime::worker_sandbox::confined() {
+        return None;
+    }
+    match sandboxed(rest) {
+        Sandboxed::InPlace => None,
+        Sandboxed::Brokered(words) => Some(ExitCode::from(north_runtime::worker_sandbox::ask_check(&words))),
+        Sandboxed::Refused(why) => {
+            eprintln!("error: {why}");
+            Some(ExitCode::from(2))
+        }
+    }
+}
+
 fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
@@ -40,7 +57,7 @@ fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
         }
         ["task", "check", rest @ ..] if rest.contains(&"--done-when") => {
             let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();
-            crate::ops::done_when_boxes::run(store, &rest).map(|()| ExitCode::SUCCESS)
+            crate::ops::done_when_boxes::run(store, &rest, &north_runtime::worker_sandbox::checked_shell).map(|()| ExitCode::SUCCESS)
         }
         ["task", "check", rest @ ..] if rest.first().is_some_and(|word| ["--observations", "--dry-run", "--body-file", "--repo"].contains(word)) => {
             let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();

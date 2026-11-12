@@ -27,9 +27,8 @@ const GIT_PLACES: [&str; 3] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE"];
 const FOREIGN: &str = "names another repository";
 const REWRITE: &str = "rewrite";
 const OWN_PATH: [&str; 3] = ["lane sync", "home move", "threads list"];
-const SERVED: [&str; 15] = [
+const SERVED: [&str; 14] = [
     "safe-push --to main",
-    "task check x",
     "task comment x",
     "lane sync /c/main",
     "lane unlock x",

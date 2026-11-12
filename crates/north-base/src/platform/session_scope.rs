@@ -66,7 +66,8 @@ fn joined_path(login: &OsStr, caller: &OsStr) -> Option<OsString> {
 
 /// The unit-name prefix of a fleet session whose harness runs only inside the lane-only sandbox (DeepSeek's OpenCode and Pi). The launcher fixes the name when it starts the session's scope, so the outside broker and the credential broker read the confinement of a caller from its cgroup, a fact the caller cannot change, never from its environment or arguments (south#104).
 pub const LANE_ONLY_UNIT_PREFIX: &str = "north-session-lane-";
-const SESSION_UNIT_PREFIX: &str = "north-session-";
+/// The unit-name prefix of every fleet session's scope, which a lane-only one extends.
+pub const SESSION_UNIT_PREFIX: &str = "north-session-";
 const LANE_ONLY_PROVIDERS: [&str; 2] = ["opencode", "pi"];
 
 /// The scope unit a fleet session of `provider` starts in, named by `id`.

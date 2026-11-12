@@ -13,7 +13,7 @@ use serde_json::Value;
 use super::{LANE_ONLY, MARK, SOCKETS_HIDDEN};
 
 const DESTINATION: &str = "main";
-const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
+pub(super) const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 const SHIM_DIRECTORIES: [&str; 2] = [".local/bin", ".local/share/north/bin"];
 pub(super) const GIT_HARDENING: [(&str, &str); 3] = [("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"), ("core.sshCommand", "false")];
 const COMMAND_KEYS: &str = r"^(filter\..+\.(clean|smudge|process)|core\.sshcommand)$";
@@ -66,14 +66,7 @@ pub(super) fn session(cgroup: &str, fleet: &Path) -> Result<Session, String> {
         .filter_map(|line| line.rsplit('/').next())
         .find(|leaf| leaf.starts_with(LANE_ONLY_UNIT_PREFIX) && leaf.ends_with(".scope"))
         .ok_or("only a lane-only session asks the broker to land or write its issue; any other session holds its own token")?;
-    let directory = std::fs::read_dir(fleet)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|directory| session_host_files::scope(directory).as_deref() == Some(unit))
-        .ok_or_else(|| format!("no fleet session in {} runs in {unit}", fleet.display()))?;
-    let record: Value = std::fs::read(directory.join("session.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).ok_or_else(|| format!("{} has no readable session.json", directory.display()))?;
+    let (directory, record) = recorded(unit, fleet)?;
     let field = |key: &str| record[key].as_str().filter(|value| !value.is_empty()).map(str::to_owned);
     let name = field("name").ok_or_else(|| format!("{} names no session", directory.display()))?;
     let task = field("task_ref").ok_or_else(|| format!("{name} was launched with no --task, so it has no issue of its own"))?;
@@ -84,6 +77,19 @@ pub(super) fn session(cgroup: &str, fleet: &Path) -> Result<Session, String> {
         cwd.parent().ok_or_else(|| format!("{} is not a checkout of a project", cwd.display()))?.join("worktrees").join(&name)
     };
     Ok(Session { name, task, lane })
+}
+
+/// The directory under `fleet` of the session that runs in the scope `unit`, and its record.
+pub(super) fn recorded(unit: &str, fleet: &Path) -> Result<(PathBuf, Value), String> {
+    let directory = std::fs::read_dir(fleet)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|directory| session_host_files::scope(directory).as_deref() == Some(unit))
+        .ok_or_else(|| format!("no fleet session in {} runs in {unit}", fleet.display()))?;
+    let record = std::fs::read(directory.join("session.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).ok_or_else(|| format!("{} has no readable session.json", directory.display()))?;
+    Ok((directory, record))
 }
 
 /// The `north` arguments that serve `arguments`, asked from `directory` by `session`, or why they are refused.

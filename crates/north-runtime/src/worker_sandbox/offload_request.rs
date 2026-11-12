@@ -65,7 +65,7 @@ pub(super) fn granted(arguments: &[String], checkout: &Checkout, own: &[(String,
     }
     let (arguments, asked) = capped(arguments);
     let note = asked.map(|asked| format!("a worker command's run on a build host ends after {RUN_SECONDS_CEILING} s, the longest a land check runs, so --timeout {asked} is taken as {RUN_SECONDS_CEILING}"));
-    Ok(Some(Offload { arguments, directory: checkout.top.clone(), environment: environment(own, runtime, homes, checkout)?, note }))
+    Ok(Some(Offload { arguments, directory: checkout.top.clone(), environment: environment(own, runtime, homes, Some(checkout))?, note }))
 }
 
 /// `arguments` with a `run`'s `--timeout` no longer than the ceiling, and the seconds asked when they were more.
@@ -78,13 +78,13 @@ fn capped(arguments: &[String]) -> (Vec<String>, Option<u64>) {
     (capped, asked.map(|(_, seconds)| seconds))
 }
 
-/// The environment of the offload process: `own`, the broker's, without the sandbox's markers, its git configuration and any owner or slot-class claim, then the absolute entries of the broker's `PATH`, `runtime`, `homes`, the ssh and git that `PATH` finds, the mark of a worker command's request, under which a `choose` claims no host, git's hooks, fsmonitor and ssh command off, and the repository of `checkout` as the one every git it runs reads (the offload runs git in that checkout alone). Refused when the broker's `PATH` finds no ssh or no git.
-fn environment(own: &[(String, String)], runtime: &Path, homes: &[(String, String)], checkout: &Checkout) -> Result<Vec<(String, String)>, String> {
+/// The environment of the offload process: `own`, the broker's, without the sandbox's markers, its git configuration and any owner or slot-class claim, then the absolute entries of the broker's `PATH`, `runtime`, `homes`, the ssh and git that `PATH` finds, the mark of a worker command's request, under which a `choose` claims no host, git's hooks, fsmonitor and ssh command off, and the repository of `checkout` as the one every git it runs reads (the offload runs git in that checkout alone); a process whose git runs in more than one checkout names none. Refused when the broker's `PATH` finds no ssh or no git.
+pub(super) fn environment(own: &[(String, String)], runtime: &Path, homes: &[(String, String)], checkout: Option<&Checkout>) -> Result<Vec<(String, String)>, String> {
     let named = |name: &str| name == RUNTIME_ENV || WITHHELD.contains(&name) || PLACES.contains(&name) || name.starts_with("GIT_CONFIG") || homes.iter().any(|(home, _)| home == name);
     let path: Vec<PathBuf> = own.iter().find(|(name, _)| name == "PATH").map(|(_, value)| std::env::split_paths(value).filter(|entry| entry.is_absolute()).collect()).unwrap_or_default();
     let resolved = |program: &str| path.iter().map(|entry| entry.join(program)).find(|found| found.metadata().is_ok_and(|file| file.is_file() && file.permissions().mode() & 0o111 != 0)).map(|found| found.to_string_lossy().into_owned()).ok_or_else(|| format!("the broker's own PATH finds no {program}, so no offload starts"));
     let programs = [(SSH_ENV.to_owned(), resolved("ssh")?), (GIT_ENV.to_owned(), resolved("git")?), (crate::land_offload::WORKER_REQUEST_ENV.to_owned(), "1".to_owned())];
     let path = std::env::join_paths(path.iter()).map_err(|error| error.to_string())?.to_string_lossy().into_owned();
     let kept = own.iter().filter(|(name, _)| !named(name)).cloned();
-    Ok(kept.chain([("PATH".to_owned(), path), (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned())]).chain(homes.iter().cloned()).chain(programs).chain(checkout.pinned()).chain(git_credential::session_env_with(&GIT_HARDENING)).collect())
+    Ok(kept.chain([("PATH".to_owned(), path), (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned())]).chain(homes.iter().cloned()).chain(programs).chain(checkout.into_iter().flat_map(Checkout::pinned)).chain(git_credential::session_env_with(&GIT_HARDENING)).collect())
 }

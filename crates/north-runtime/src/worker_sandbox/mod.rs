@@ -2,6 +2,7 @@
 mod broker;
 mod brokered_reads;
 mod buck;
+mod check_request;
 mod except;
 mod executable;
 mod file_tools;
@@ -50,6 +51,7 @@ const BUILT: &str = "--built";
 const SWEPT: &str = "NORTH_WORKER_SWEEP_PARENT";
 const LANE: &str = "--lane";
 const PROGRAM: &str = "--program";
+const CHECKED: &str = "--checked";
 const HAND_OFF: &str = "--hand-off";
 const SOCKETS_HIDDEN: &str = north_base::platform::session_scope::SOCKETS_HIDDEN;
 const MARK: &str = north_base::platform::gh_session::SANDBOX_MARK;
@@ -57,7 +59,7 @@ const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 const LANE_ONLY: &str = north_base::platform::session_scope::LANE_ONLY;
 const HOSTS_HIDDEN: &str = north_base::platform::session_scope::HOSTS_HIDDEN;
 const SESSION_SCOPE: &str = "NORTH_WORKER_SESSION_SCOPE";
-const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --hand-off -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker";
+const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --checked -- COMMAND | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --hand-off -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker";
 
 /// Restricts this process, and everything it starts, to removing and renaming away only beneath `roots`: the rule a process the outside broker handed work to keeps inside the namespace it builds, where Landlock could not be applied before the mount calls and the namespace alone does not know the worker's trees.
 fn confine_removal(roots: &[PathBuf]) -> Result<RulesetStatus, String> {
@@ -110,6 +112,7 @@ pub fn run(arguments: &[String], screen: Screen) -> std::process::ExitCode {
         [lane, separator, program @ ..] if lane == LANE && separator == "--" && !program.is_empty() => self::in_lane(program, screen),
         [hand, separator, program @ ..] if hand == HAND_OFF && separator == "--" && !program.is_empty() => self::hand_off(program),
         [flag, separator, program @ ..] if flag == PROGRAM && separator == "--" && !program.is_empty() => self::program(program, false, screen),
+        [flag, separator, command] if flag == CHECKED && separator == "--" => in_domain(&["sh".to_owned(), "-c".to_owned(), command.clone()], false, true),
         [command] => shell(command, screen),
         _ => {
             eprintln!("{USAGE}");
@@ -189,9 +192,14 @@ fn program(program: &[String], lift: bool, screen: Screen) -> std::process::Exit
     if let Some(refused) = hook_screen::program_refusal(program, screen) {
         return refused;
     }
+    in_domain(program, lift, confines_worker())
+}
+
+/// Runs `program` under the domain of a lane-only command when this one is, else of a worker when `worker` says so, else of an agent session.
+fn in_domain(program: &[String], lift: bool, worker: bool) -> std::process::ExitCode {
     let context = Context::from_env(&program.join(" "));
     let fenced = std::env::var_os(LANE_ONLY).is_some();
-    let confined = fenced || confines_worker();
+    let confined = fenced || worker;
     let hidden = confined && hide_sockets(&context);
     let roots = confined.then(|| removable(&context));
     let executable = (!lift).then(|| executable(&context));
@@ -314,6 +322,21 @@ pub fn stranded_git_locks(checkout: &Path) -> Option<String> {
     std::env::var_os(MARK)?;
     let context = Context::from_env("");
     (!removable::holds_git_locks(&context, checkout)).then(|| format!("{} is not this session's lane, and inside the worker sandbox git could create its lock files there but not remove them; hand that lane in with `safe-push --to main --wait` run from it", checkout.display()))
+}
+
+/// Asks the outside broker for the Done-when check of one box of one issue, in the words `task check --done-when --box TEXT OWNER/REPO#N`, which it runs outside this process's domain and whose verdict it alone writes (check_request.rs); the check's exit code.
+pub fn ask_check(arguments: &[String]) -> u8 {
+    broker::request_check(arguments).unwrap_or_else(|error| {
+        eprintln!("{error}");
+        126
+    })
+}
+
+/// The command that runs the shell command `command` in a new worker domain whatever role starts it, judged by no hook: what the checker the broker starts for a session runs a box's Done-when command as, since the command's text comes from an issue a session may have written.
+pub fn checked_shell(command: &str) -> Command {
+    let mut shell = Command::new(std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary()));
+    shell.args([FLAG, CHECKED, "--", command]);
+    shell
 }
 
 /// Whether this process runs inside a worker sandbox's Landlock domain.
