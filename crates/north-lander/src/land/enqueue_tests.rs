@@ -357,16 +357,12 @@ fn lane_locking(crate_name: &str, version: &str, advisories: &[(&str, &str)]) ->
 }
 
 #[test]
-fn a_lane_locking_a_crate_published_this_week_is_refused_at_enqueue() {
+fn a_lane_locking_a_crate_published_this_week_or_a_version_with_an_open_advisory_is_refused_at_enqueue() {
     let (dir, main) = lane_locking("aes", "0.8.5", &[]);
     let refused = super::refuse::refuse_lane_gates(&dir.path().join("repo"), &main, "HEAD", &dir.path().join("state"), None, &Published { versions: &["0.8.5"], days_ago: 1 }).unwrap();
     let (gates, detail) = refused.unwrap_err();
     assert!(gates.contains("dependency age"), "{gates}: {detail}");
     assert!(detail.contains("Cargo.lock: aes@0.8.5: published less than 7 days ago"), "{detail}");
-}
-
-#[test]
-fn a_lane_locking_a_version_with_an_open_advisory_is_refused() {
     let (dir, main) = lane_locking("itoa", "1.0.18", &[("RUSTSEC-2026-9999", ">= 1.0.19")]);
     let refused = super::refuse::refuse_lane_gates(&dir.path().join("repo"), &main, "HEAD", &dir.path().join("state"), None, &Published { versions: &["1.0.18"], days_ago: 30 }).unwrap();
     let (gates, detail) = refused.unwrap_err();

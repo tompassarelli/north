@@ -47,6 +47,13 @@ struct Waiting<'a> {
     ask: Option<Ask>,
 }
 
+impl<'a> Waiting<'a> {
+    fn new(name: &'a str, here: PathBuf, areas: Vec<PathBuf>) -> Self {
+        let started = Instant::now();
+        Self { name, here, areas, started, quiet: started, claimed: None, fetched: None, unreadable: false, ask: None }
+    }
+}
+
 impl Hand<'_> {
     pub(super) fn wait(&self, bound: Duration) -> Verdict {
         let Some(name) = self.queued.path.file_name().and_then(|name| name.to_str()) else { return Verdict::Undecided };
@@ -54,8 +61,8 @@ impl Hand<'_> {
         let here = queue::directory(self.state_home, origin);
         let mut areas: Vec<PathBuf> = [here.clone(), queue::directory(records_mirror::Records::here().home(), origin)].iter().flat_map(|queue| land_ticket::directories(queue).into_iter().skip(1)).collect();
         areas.push(here.join(queue::OUTBOX).join(queue::DECIDED));
-        let started = Instant::now();
-        let mut waiting = Waiting { name, here, areas, started, quiet: started, claimed: None, fetched: None, unreadable: false, ask: None };
+        let mut waiting = Waiting::new(name, here, areas);
+        let started = waiting.started;
         loop {
             if let Some(verdict) = self.decided(&mut waiting).or_else(|| self.confirmed(&mut waiting)) {
                 return verdict;
@@ -122,7 +129,11 @@ impl Hand<'_> {
             println!("safe-push: {answer}");
             waiting.quiet = Instant::now();
         }
-        if waiting.quiet.elapsed() >= ASK_AFTER {
+        self.ask_when_quiet(waiting, waiting.quiet.elapsed());
+    }
+
+    fn ask_when_quiet(&self, waiting: &mut Waiting, quiet: Duration) {
+        if quiet >= ASK_AFTER {
             waiting.quiet = Instant::now();
             waiting.ask = self.ask(waiting);
         }
@@ -163,3 +174,7 @@ impl Hand<'_> {
         Some(format!("the lander on {} has not answered in {} s, so it is not reading this host's outbox; still waiting for the verdict here, in the records mirror and on origin/{}", self.lander, ANSWER_WAIT.as_secs(), self.destination))
     }
 }
+
+#[cfg(test)]
+#[path = "verdict_tests.rs"]
+mod tests;
