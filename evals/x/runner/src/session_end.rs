@@ -94,29 +94,34 @@ impl Seen {
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         {
-            let own = frame["parent_tool_use_id"].is_null();
-            let task = frame["task_id"].as_str();
-            match (frame["type"].as_str(), frame["subtype"].as_str()) {
-                (Some("result"), _) => {
-                    seen.turns += 1;
-                    seen.in_flight = false;
-                    let reply = frame["result"].as_str().unwrap_or_default();
-                    seen.reported = is_report(reply);
-                    if seen.first_done.is_none() && opens(reply, "Done") {
-                        seen.first_done = Some(seen.turns);
-                    }
-                }
-                (Some("system"), Some("init")) => seen.in_flight = true,
-                (Some("assistant" | "user"), _) if own => seen.in_flight = true,
-                (Some("system"), Some("task_started")) => tasks.extend(task.map(str::to_owned)),
-                (Some("system"), Some("task_notification")) => {
-                    tasks.retain(|open| Some(open.as_str()) != task);
-                }
-                _ => {}
-            }
+            seen.observe(&frame, &mut tasks);
         }
         seen.open_tasks = tasks.len();
         seen
+    }
+
+    fn observe(&mut self, frame: &Value, tasks: &mut Vec<String>) {
+        let own = frame["parent_tool_use_id"].is_null();
+        let task = frame["task_id"].as_str();
+        match (frame["type"].as_str(), frame["subtype"].as_str()) {
+            (Some("result"), _) => self.ended(frame["result"].as_str().unwrap_or_default()),
+            (Some("system"), Some("init")) => self.in_flight = true,
+            (Some("assistant" | "user"), _) if own => self.in_flight = true,
+            (Some("system"), Some("task_started")) => tasks.extend(task.map(str::to_owned)),
+            (Some("system"), Some("task_notification")) => {
+                tasks.retain(|open| Some(open.as_str()) != task);
+            }
+            _ => {}
+        }
+    }
+
+    fn ended(&mut self, reply: &str) {
+        self.turns += 1;
+        self.in_flight = false;
+        self.reported = is_report(reply);
+        if self.first_done.is_none() && opens(reply, "Done") {
+            self.first_done = Some(self.turns);
+        }
     }
 }
 

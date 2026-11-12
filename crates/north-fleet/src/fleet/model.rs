@@ -218,6 +218,11 @@ impl LaunchRequest {
     pub fn named_brief(&self) -> Option<String> {
         std::fs::read_to_string(self.brief_path()?).ok()
     }
+
+    pub fn bare_task(&self) -> bool {
+        let checked = |text: &str| text.lines().any(|line| line.trim_start().starts_with("Done when:"));
+        self.role() == Role::Worker && self.resume.is_none() && !checked(&self.prompt) && !self.named_brief().is_some_and(|brief| checked(&brief))
+    }
 }
 
 const ITEM_STOPS: [&str; 8] = ["follows", "after", "blocked", "depends", "needs", "see", "refs", "from"];
@@ -477,7 +482,7 @@ impl SessionRecord {
             reserve_caller: None,
             route: request.route.clone(),
             first_attempt: super::route::first(request.route.as_deref()).then(|| request.prompt.clone()),
-            bare_task: super::done_hold::bare(request),
+            bare_task: request.bare_task(),
             phase: None,
         }
     }

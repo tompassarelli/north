@@ -2,17 +2,11 @@ use std::fs::OpenOptions;
 use std::io::ErrorKind;
 use std::path::Path;
 
-use super::model::{LaunchRequest, Role, SessionRecord};
+use super::model::{Role, SessionRecord};
 use super::upward::opens;
 
-pub const HELD: &str = "done.held";
+pub const HELD: &str = "done-hold";
 pub const MESSAGE: &str = "[north: your Done is held once, because this task came with no Done-when check] Before it stands, check each thing the task's own text says it expects of your result, the way that text says the result will be used: its command line, argument names, file paths and output format as written there, not a call of your own choosing. Fix what that shows, then end on your report with what the check printed.";
-const CHECK_LINE: &str = "Done when:";
-
-pub fn bare(request: &LaunchRequest) -> bool {
-    let checked = |text: &str| text.lines().any(|line| line.trim_start().starts_with(CHECK_LINE));
-    request.role() == Role::Worker && request.resume.is_none() && !checked(&request.prompt) && !request.named_brief().is_some_and(|brief| checked(&brief))
-}
 
 pub fn holds(record: &SessionRecord, reply: &str) -> bool {
     record.bare_task && record.role() == Role::Worker && opens(reply.trim(), "Done")

@@ -214,6 +214,13 @@ fn a_finished_session_retires_at_close_or_at_its_idle_limit_though_its_cli_still
     let written = LaunchRequest { prompt: "Route: small-first\nItem: north#1".into(), ..record.relaunch_request() };
     assert_eq!(SessionRecord::launched(&written, None, None, false, 1).first_attempt, None, "a Route: line in the brief's text routed the launch without the flag");
     assert!(SessionRecord::launched(&LaunchRequest { route: Some("small-first".into()), ..written }, None, None, false, 1).first_attempt.is_some(), "the --route flag did not route the launch");
+
+    let bare = told_over("Write /app/seg.py taking weights_path, output_path, rgb_path and csv_path.", &["Done: saved 48 masks.", "Done: the grader's call with named flags printed 48 masks."]);
+    let [held, stood] = &bare[..] else { panic!("the bare task's two Done reports were not one hold and one report: {bare:?}") };
+    assert_eq!(held, &format!("resume worker {}", done_hold::MESSAGE), "{bare:?}");
+    assert!(stood.starts_with("lead [from worker") && stood.contains("the grader's call"), "the report after the hold did not go up: {bare:?}");
+    let briefed = told_over("Item: north#1\nDone when: `cargo test` exits 0", &["Done: landed abc123."]);
+    assert!(briefed.len() == 1 && briefed[0].starts_with("lead [from worker") && briefed[0].contains("landed abc123"), "a worker with a Done-when line had its Done held: {briefed:?}");
 }
 
 struct Working(usize);
@@ -391,15 +398,4 @@ fn told_over(prompt: &str, replies: &[&str]) -> Vec<String> {
         }
     }
     courier.0.lock().unwrap().clone()
-}
-
-/// Terminal-Bench task sam-cell-seg, 2026-11-12 and 2026-11-13: the task named its four arguments, the session's script took them positionally, the grader's named flags made it exit 2, and its closing Done stood on a call the session chose itself.
-#[test]
-fn a_worker_given_no_done_when_check_has_its_first_done_held_once_and_its_next_report_stands() {
-    let bare = told_over("Write /app/seg.py taking weights_path, output_path, rgb_path and csv_path.", &["Done: saved 48 masks.", "Done: the grader's call with named flags printed 48 masks."]);
-    let [held, stood] = &bare[..] else { panic!("the bare task's two Done reports were not one hold and one report: {bare:?}") };
-    assert_eq!(held, &format!("resume worker {}", done_hold::MESSAGE), "{bare:?}");
-    assert!(stood.starts_with("lead [from worker") && stood.contains("the grader's call"), "the report after the hold did not go up: {bare:?}");
-    let briefed = told_over("Item: north#1\nDone when: `cargo test` exits 0", &["Done: landed abc123."]);
-    assert!(briefed.len() == 1 && briefed[0].starts_with("lead [from worker") && briefed[0].contains("landed abc123"), "a worker with a Done-when line had its Done held: {briefed:?}");
 }
