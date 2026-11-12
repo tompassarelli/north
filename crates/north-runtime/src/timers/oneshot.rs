@@ -10,6 +10,8 @@ use crate::runtime_access::RuntimeAccess;
 
 /// Environment that routes `claude` to billing outside the subscription; a one-shot ask unsets all of it.
 pub(crate) const EXTERNAL_BILLING: [&str; 6] = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"];
+pub(crate) const QUIET: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC";
+const QUIET_WORD: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1";
 
 
 pub(crate) struct Reply {
@@ -85,7 +87,7 @@ pub(crate) fn lean_flags<'a>(ask: &Ask<'a>) -> [&'a str; 14] {
 }
 
 fn claude_once(words: &[String], ask: &Ask, limit: Duration) -> Reply {
-    let mut args: Vec<&str> = EXTERNAL_BILLING.iter().flat_map(|name| ["-u", *name]).chain(words.iter().map(String::as_str)).collect();
+    let mut args: Vec<&str> = EXTERNAL_BILLING.iter().flat_map(|name| ["-u", *name]).chain([QUIET_WORD]).chain(words.iter().map(String::as_str)).collect();
     args.push("claude");
     args.extend(lean_flags(ask));
     match process::run_with_input_within("env", &args, Some(ask.input.as_bytes()), limit) {

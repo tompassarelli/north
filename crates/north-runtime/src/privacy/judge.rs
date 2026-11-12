@@ -204,7 +204,7 @@ fn ask_api_pool(tier: &Tier, prompt: &str) -> Result<String, String> {
         for name in oneshot::EXTERNAL_BILLING {
             command.env_remove(name);
         }
-        command.env("ANTHROPIC_API_KEY", secret).env("CLAUDE_CONFIG_DIR", &profile).env("CLAUDE_CODE_DISABLE_FAST_MODE", "1");
+        command.env("ANTHROPIC_API_KEY", secret).env("CLAUDE_CONFIG_DIR", &profile).env("CLAUDE_CODE_DISABLE_FAST_MODE", "1").env(oneshot::QUIET, "1");
         command.args(oneshot::lean_flags(&oneshot::Ask { model: tier.model, effort: tier.effort, system: SYSTEM, input: prompt }));
         match crate::platform::process::run_command_within(command, Some(prompt.as_bytes()), ATTEMPT_LIMIT) {
             Some(output) if output.status.success() && !output.stdout.is_empty() => return Ok(String::from_utf8_lossy(&output.stdout).into_owned()),

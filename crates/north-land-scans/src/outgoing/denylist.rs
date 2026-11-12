@@ -15,7 +15,7 @@ use crate::slug::slug_of;
 const SOUTH_ENV: &str = "SAFE_PUSH_SOUTH";
 const DENYLIST_ENV: &str = "SAFE_PUSH_DENYLIST";
 
-type Judge<'a> = &'a dyn Fn(&str) -> Result<Option<Vec<Finding>>, String>;
+type Judge<'a> = &'a (dyn Fn(&str) -> Result<Option<Vec<Finding>>, String> + Sync);
 
 pub struct Denylist {
     pub south: PathBuf,
@@ -124,7 +124,7 @@ impl Denylist {
         &self,
         visibility: impl FnOnce() -> String,
         findings: impl FnOnce() -> Result<BTreeSet<String>, Fault>,
-        judged: impl FnOnce() -> Result<Option<Vec<Finding>>, String>,
+        judged: impl FnOnce() -> Result<Option<Vec<Finding>>, String> + Send,
     ) -> DenylistVerdict {
         let named = self.south_named || self.config.is_some() || self.kinds.is_some();
         if !named && !self.south.is_dir() {
@@ -143,17 +143,21 @@ impl Denylist {
                 source.display()
             )]);
         }
-        let values = self.report(findings(), &visibility);
+        let (values, kinds) = std::thread::scope(|scope| {
+            let kinds = self.can_judge().then(|| scope.spawn(judged));
+            let values = self.report(findings(), &visibility);
+            (values, kinds.map(|kinds| kinds.join().unwrap_or_else(|_| Err("the private-text judge panicked".to_owned()))))
+        });
         if values.refused() {
             return values;
         }
-        if !self.can_judge() {
+        let Some(kinds) = kinds else {
             return DenylistVerdict::pass(vec![format!(
                 "safe-push: ⚠ no private-kinds list and no south checkout under {}, so private kinds of text were not judged.",
                 self.south.display()
             )]);
-        }
-        Self::report_kinds(judged(), &visibility)
+        };
+        Self::report_kinds(kinds, &visibility)
     }
 
     fn absent_source(&self) -> Option<(&'static str, &Path)> {
