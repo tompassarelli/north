@@ -17,7 +17,7 @@ use super::landings::{self, push_log};
 use super::hops;
 use super::host::Host;
 use super::model::{Account, ProviderName, Delivery, LaunchRequest, SessionRecord, Status, Transcript};
-use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
+use super::prompt::{PromptInputs, StandingOrders, prompt_sha, render};
 use super::records::{CLAIMS_RELEASED, PLACED, read_phased, read_record, write_record};
 use super::model::Phases;
 use super::remote::{self, HooksCheck};
@@ -438,14 +438,15 @@ impl Fleet {
         let orders = self.orders().read()?;
         let extra = record.system_prompt.as_deref().map(fs::read_to_string).transpose()?;
         let inputs = PromptInputs {
-            session: &record.name,
             role: record.role(),
             mode: record.prompt_mode,
             orders: &orders,
             foreground_cap_secs: record.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS),
             extra: extra.as_deref(),
         };
-        Ok((render(&inputs), variant_sha(&inputs)))
+        let text = render(&inputs);
+        let sha = prompt_sha(&text);
+        Ok((text, sha))
     }
 
     fn send_text(&self, record: &SessionRecord, transcript: &Transcript, id: &str, text: &str) -> NorthResult<()> {

@@ -14,7 +14,7 @@ use crate::github_mirror::store::{Mirror, OPEN_ISSUES, key};
 use crate::platform::attribution::{self, Cause};
 use north_guard::guard::break_glass;
 
-const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate digest [--peek]";
+const USAGE: &str = "Usage: north gate open [--session NAME (default $NORTH_FLEET_SESSION)] --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate digest [--peek]";
 const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; an issue with more than one open box needs --box, and one with a single open box is held whole.";
 const DEFAULT_HELP: &str = "--default and --default-after are required, except for a question about cost, accounts, credentials or access, making something public, deleting valuable data, sending in Tom's name, outside code of unclear license, or core direction and dependencies (the ask-once table in harness/defaults.toml): such a gate takes neither and is for Tom: only the work it holds waits for his answer. Every other gate applies its recommended default at its deadline (8h unless the brief names one).";
 const FIRST_LOOK_MS: u64 = 24 * 3_600_000;
@@ -104,6 +104,9 @@ fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
             "--box" => request.box_text = Some((*value).to_owned()),
             _ => return Err(usage()),
         }
+    }
+    if request.session.is_empty() {
+        request.session = std::env::var(crate::fleet::runtime::SESSION_ENV).unwrap_or_default();
     }
     if request.session.is_empty() {
         return Err(usage());

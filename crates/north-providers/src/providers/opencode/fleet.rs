@@ -131,7 +131,7 @@ impl Runtime for Deepseek {
             None => lane::prepared(&request.cwd, &request.name, &request.tasks(), &*self.lanes)?,
         };
         let delivered = match route {
-            Route::Free => render(&PromptInputs { session: &request.name, role: request.role(), mode: request.prompt_mode, orders: seed_orders(), foreground_cap_secs: request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS), extra: Some(&system).filter(|text| !text.is_empty()).map(String::as_str) }),
+            Route::Free => render(&PromptInputs { role: request.role(), mode: request.prompt_mode, orders: seed_orders(), foreground_cap_secs: request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS), extra: Some(&system).filter(|text| !text.is_empty()).map(String::as_str) }),
             Route::Go => instructions.to_owned(),
         };
         let delivered = shared::deliver(self.shared.as_ref(), route, delivered, &scratch(self.harness, &request.name).join(self.harness.skills()))?;

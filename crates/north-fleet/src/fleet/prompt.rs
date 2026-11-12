@@ -18,7 +18,6 @@ const DEEPEN: &str = include_str!("deepen.md");
 const ORDERS_SLOT: &str = "{standing_orders}";
 const CAP_SLOT: &str = "{foreground_cap_secs}";
 const HAND_IN_SLOT: &str = "{hand_in_timeout_ms}";
-const SESSION_SLOT: &str = "{session}";
 const REACH_SLOT: &str = "{reach}";
 const REPORT_SLOT: &str = "{report_lead}";
 const MEMBER_REPORT_LEAD: &str = " Begin it `Done:`, `Not done:`, `Split:` or `Blocked:`, since the ledger scores your run by that word, and end a Not done or Blocked report with one `Stop:` line: `Stop: decision`, `Stop: wait until YYYY-MM-DDTHH:MMZ` when it cannot go on before that UTC time, else `Stop: landing`, `capacity`, `client`, `leash` or `reasoning`. When only another host or need (laptop, native) can finish the box, run `north fleet need NAME REASON` first, which records it for dispatch to place the next try; write no `Stop: host` line.";
@@ -78,7 +77,6 @@ impl StandingOrders {
 
 #[derive(Clone, Copy)]
 pub struct PromptInputs<'a> {
-    pub session: &'a str,
     pub role: Role,
     pub mode: PromptMode,
     pub orders: &'a str,
@@ -105,7 +103,6 @@ pub fn render_from(template: &str, inputs: &PromptInputs) -> String {
             template
                 .replace(CAP_SLOT, &inputs.foreground_cap_secs.to_string())
                 .replace(HAND_IN_SLOT, &(HAND_IN_CAP_SECS * 1000).to_string())
-                .replace(SESSION_SLOT, inputs.session)
                 .replace(REACH_SLOT, reach(inputs.role))
                 .replace(REPORT_SLOT, report_lead(inputs.role))
                 .replace(ORDERS_SLOT, inputs.orders.trim_end()),
@@ -137,10 +134,6 @@ fn report_lead(role: Role) -> &'static str {
 
 pub fn prompt_sha(text: &str) -> String {
     Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-pub fn variant_sha(inputs: &PromptInputs) -> String {
-    prompt_sha(&render(&PromptInputs { session: SESSION_SLOT, ..*inputs }))
 }
 
 pub fn deepened(draft: &str) -> String {

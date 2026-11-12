@@ -11,7 +11,6 @@ use crate::foundation::clock::Timestamp;
 use crate::fleet::runtime::DEFAULT_FOREGROUND_CAP_SECS;
 
 pub struct Launch {
-    name: String,
     role: Role,
     mode: PromptMode,
     foreground_cap_secs: u64,
@@ -54,13 +53,12 @@ pub fn launch(case: &Case, fleet_session: Option<&str>) -> Option<Launch> {
             }
             brief
         }),
-        name: record.name,
     })
 }
 
 impl Launch {
     pub fn appended(&self, template: &str) -> String {
-        let inputs = PromptInputs { session: &self.name, role: self.role, mode: self.mode, orders: &self.orders, foreground_cap_secs: self.foreground_cap_secs, extra: self.brief.as_deref() };
+        let inputs = PromptInputs { role: self.role, mode: self.mode, orders: &self.orders, foreground_cap_secs: self.foreground_cap_secs, extra: self.brief.as_deref() };
         render_from(template, &inputs)
     }
 }
