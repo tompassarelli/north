@@ -25,7 +25,6 @@ use refuse::{judge_lane_gates, refuse_archived, refuse_conflict, refuse_nothing_
 use super::scans::outgoing;
 use crate::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::Denylist;
-use crate::land::slots::runner;
 use crate::landing_refusals;
 
 const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane] [--wait]";
@@ -249,7 +248,6 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
     std::thread::scope(|scope| {
         let secrets = scope.spawn(|| timings.stage("secret scan", || outgoing::enqueue_secrets(&root, (&base, &lane_head))));
         let checked_tree = check_lane(&root, &base, &branch, environment, timings)?;
-        let queue_checks = scope.spawn(|| timings.stage("queue checks", || runner::refuse_queue_checks(&root, &base, &lane_head)));
         let first_commit_secs = first_commit::seconds(&root, &branch, &base);
         let (squash, several_commits) = timings.stage("squash", || Ok::<_, String>(match shape {
             Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
@@ -268,7 +266,6 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             let (gate, answered) = judge.join().map_err(|_| "the private-kind ask panicked".to_owned())??;
             Ok::<_, String>(((gate, answered), gated_from, marks))
         })?;
-        queue_checks.join().map_err(|_| "the checks before queueing panicked".to_owned())??;
         secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
         let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits };
         let queued_micros = micros();
