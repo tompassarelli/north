@@ -12,6 +12,7 @@ use crate::fleet::model::{Account, Effort, LaunchRequest, Role, SessionRecord, S
 use crate::fleet::runtime::{Opening, new_uuid, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
+use super::grounding;
 use super::reserve;
 use super::stopping::Halt;
 use super::takeover::Predecessor;
@@ -272,9 +273,13 @@ fn first_prompt(request: &LaunchRequest, verification: bool) -> String {
     if request.role() != Role::Worker || request.resume.is_some() {
         return request.prompt.clone();
     }
+    let prompt = match grounding::drawn(&request.name, now_ms()) {
+        Some(arm) if !verification => grounding::stamped(&request.prompt, arm),
+        _ => request.prompt.clone(),
+    };
     std::thread::scope(|scope| {
         let verdict = scope.spawn(|| launch_verdict(request, verification));
-        let shown = brief_files::shown(&request.prompt, &request.cwd, request.machine.as_ref());
+        let shown = brief_files::shown(&prompt, &request.cwd, request.machine.as_ref());
         proposal::told(&shown, &verdict.join().unwrap_or(proposal::Verdict::Unasked))
     })
 }
