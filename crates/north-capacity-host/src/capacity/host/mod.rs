@@ -48,6 +48,7 @@ mod model;
 mod calibration;
 pub use calibration::{calibration_command, model_command};
 pub(super) mod policy;
+pub use policy::maximum_seconds;
 #[cfg(test)]
 mod policy_tests;
 mod priority;

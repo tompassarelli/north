@@ -2,7 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use north_dispatch::capacity::host::maximum_seconds;
+
 use super::home;
+
+const CLASS: &str = "moderate";
 
 pub(super) fn repositories(code: &Path) -> Vec<(String, PathBuf)> {
     let mut found: Vec<(String, PathBuf)> = fs::read_dir(code)
@@ -21,8 +25,9 @@ pub(super) fn repositories(code: &Path) -> Vec<(String, PathBuf)> {
 
 pub(super) fn maintenance_argv(name: &str, repo: &Path) -> Vec<String> {
     let repo = repo.to_string_lossy();
+    let timeout = maximum_seconds(CLASS).to_string();
     [
-        "capacity", "host", "run", "--class", "moderate", "--owner", &format!("git-maintenance:{name}"), "--timeout-seconds", "10800",
+        "capacity", "host", "run", "--class", CLASS, "--owner", &format!("git-maintenance:{name}"), "--timeout-seconds", &timeout,
         "--", "git", "-C", repo.as_ref(), "-c", "pack.threads=2", "-c", "core.filesRefLockTimeout=10000", "maintenance", "run",
     ]
     .map(str::to_owned)
