@@ -10,11 +10,11 @@ use crate::fleet::runtime::PROXY;
 
 use super::super::desktop::niri as desktop;
 use super::session::{self, Window, arguments_of, environment_of, name_of, parent_of};
+use super::plan::END_WAIT;
 use super::steps::Mover;
 use super::{ancestor_named, replacement};
 
 const SETTLE: Duration = Duration::from_secs(90);
-pub(super) const END_WAIT: Duration = Duration::from_secs(30);
 
 pub(super) struct OnDesktop<'a> {
     pub fleet: &'a Fleet,
