@@ -230,7 +230,7 @@ pub fn spend_now(roster: &Roster) -> Result<View, String> {
 /// NorthThreads claim listings from this host's ledger, every ssh host's, and the laptop's copy, since a host whose
 /// ledger is local records its workers' claims there.
 fn claim_listings(cfg: &DocumentMut, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<(String, Value)> {
-    let remote = gate::machines(cfg).into_iter().filter(|machine| machine.name != here).map(|machine| (machine.name.clone(), Some(machine.session_login().to_owned())));
+    let remote = gate::machines(cfg).into_iter().filter(|machine| machine.name != here).map(|machine| (machine.name.clone(), Some(machine.ssh)));
     let mut found = Vec::new();
     for (host, ssh) in std::iter::once((here.to_owned(), None)).chain(remote) {
         match remote_json(ssh.as_deref(), &["threads", "list", "--json"]) {

@@ -84,7 +84,7 @@ pub fn saturation_refusal(name: &str) -> Result<Option<String>, String> {
 }
 /// The host's memory, root disk and admission backlog, read here or over its ssh destination.
 pub fn saturation_reading(name: &str) -> Result<crate::capacity::saturation::Saturation, String> {
-    let destination = if name == local() { String::new() } else { machine(name).map(|machine| machine.session_login().to_owned()).ok_or_else(|| format!("no [hosts.{name}] ssh destination to read its saturation"))? };
+    let destination = if name == local() { String::new() } else { machine(name).map(|machine| machine.ssh).ok_or_else(|| format!("no [hosts.{name}] ssh destination to read its saturation"))? };
     saturation(name, &destination).ok_or_else(|| format!("{name} saturation unreadable"))
 }
 fn local() -> String {

@@ -295,9 +295,9 @@ fn turn(records: &Path, key: &str) -> Option<std::fs::File> {
     Some(file)
 }
 
-/// The session login of `host`: its agent login when set, else its configured ssh destination, else its name.
+/// The ssh destination of `host`, else its name.
 pub fn destination(cfg: &DocumentMut, host: &str) -> String {
-    gate::machines(cfg).into_iter().find(|machine| machine.name == host).map_or_else(|| host.to_owned(), |machine| machine.session_login().to_owned())
+    gate::machines(cfg).into_iter().find(|machine| machine.name == host).map_or_else(|| host.to_owned(), |machine| machine.ssh)
 }
 
 fn reached_via(cfg: &DocumentMut, here: &str, command: &[&str], notes: &mut Vec<String>, read: &(dyn Fn(&str, &str) -> Result<Value, String> + Sync)) -> Vec<(String, Value)> {

@@ -55,7 +55,7 @@ pub fn pushes_of(record: &SessionRecord, push_log: &Path) -> Vec<Push> {
 }
 
 pub fn remote_pushes(ssh: &Path, machine: &Machine) -> Vec<Push> {
-    let argv = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", REMOTE_LOG];
+    let argv = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.ssh.as_str(), "--", REMOTE_LOG];
     match run_within(&ssh.to_string_lossy(), &argv, REMOTE_WAIT) {
         Some(output) if output.status.success() => parse(&String::from_utf8_lossy(&output.stdout)),
         Some(output) => {

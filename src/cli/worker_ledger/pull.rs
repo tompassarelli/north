@@ -19,7 +19,7 @@ pub(super) fn hosts(options: &Options, ids: &Ids, rows: &mut Vec<u8>) {
 
 fn pull_among(machines: Vec<gate::Machine>, here: &str, ssh: &str, options: &Options, input: &[u8], rows: &mut Vec<u8>) {
     for machine in machines.into_iter().filter(|machine| machine.name != here) {
-        match pulled(ssh, machine.session_login(), options, input) {
+        match pulled(ssh, &machine.ssh, options, input) {
             Ok(batch) => {
                 rows.extend_from_slice(&batch);
                 if !batch.is_empty() && !batch.ends_with(b"\n") {
