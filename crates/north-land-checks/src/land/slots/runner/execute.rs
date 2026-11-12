@@ -72,7 +72,7 @@ impl Shared {
         }
         let argv = under_capacity(&self.environment.capacity, argv);
         let lease = self.span("local checks under a capacity lease", Category::HostWait, epoch());
-        let mut child = match Command::new(&argv[0]).args(&argv[1..]).current_dir(&self.root).envs(self.scope_environment()).env(trace::PARENT_ENV, &lease.id).stdin(Stdio::null()).kill_on_drop(true).spawn() {
+        let mut child = match Command::new(&argv[0]).args(&argv[1..]).current_dir(&self.root).envs(self.scope_environment()).env_remove(north_base::foundation::offload::TREES_ENV).env(trace::PARENT_ENV, &lease.id).stdin(Stdio::null()).kill_on_drop(true).spawn() {
             Ok(child) => child,
             Err(error) => {
                 warn(&format!("safe-push: land check capacity: {error}; NOT pushed."));

@@ -419,10 +419,11 @@ fn a_check_that_reaches_no_verdict_names_no_failed_step_for_the_sheriff_and_is_n
 
 #[test]
 fn check_a_lane_adds_is_not_judged_against_base() {
-    let fixture = Fixture::new(&[("land.check", "file.txt :: printf x >>../runs; exit 127")]);
-    let output = fixture.command().env("NORTH_LAND_ROUND", "r1").output().unwrap();
+    let fixture = Fixture::new(&[("land.check", "file.txt :: printf x >>../runs; printf %s \"${NORTH_OFFLOAD_TREES:-}\" >>../trees; exit 127")]);
+    let output = fixture.command().env("NORTH_LAND_ROUND", "r1").env("NORTH_OFFLOAD_TREES", fixture.path("post-land.trees")).output().unwrap();
     assert_eq!(output.status.code(), Some(127), "{}", text(&output));
     assert_eq!(fs::read_to_string(fixture.path("runs")).unwrap(), "x", "a check the base tree does not list ran on it");
+    assert_eq!(fs::read_to_string(fixture.path("trees")).unwrap(), "", "a check run here inherits no path to the after-landing run's tree record, so no offload client it starts appends to it (north#1252)");
 }
 
 impl Fixture {

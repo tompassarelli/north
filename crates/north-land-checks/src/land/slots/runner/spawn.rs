@@ -183,7 +183,7 @@ impl Shared {
             under_capacity(capacity, shell_deadline(timeout + OFFLOAD_GRACE, &offload))
         } else {
             let observed = if observing { unit_reuse::wrapped(&unit_reuse::quote(&program()), &self.arguments.head, environment.record_reuse, command) } else { command.to_owned() };
-            let local = ["bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed];
+            let local = ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed];
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(timeout, &local))
         };
