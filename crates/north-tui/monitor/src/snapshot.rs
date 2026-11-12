@@ -120,6 +120,7 @@ pub struct Host {
 pub struct HostState {
     pub runtime: Option<String>,
     pub follow: Option<String>,
+    pub stable: Option<String>,
     pub load1: Option<f64>,
     pub cores: Option<u32>,
 }

@@ -10,7 +10,8 @@ use crate::snapshot::HostState;
 
 const PROBE: &str = "echo \"runtime $(readlink \"${XDG_STATE_HOME:-$HOME/.local/state}/north/current\")\"; \
 echo \"load $(cut -d' ' -f1 /proc/loadavg)\"; echo \"cores $(nproc)\"; \
-echo \"follow $(systemctl --user is-active north-runtime-follow.timer 2>/dev/null)\"";
+echo \"follow $(systemctl --user is-active north-runtime-follow.timer 2>/dev/null)\"; \
+echo \"stable $(cut -c1-10 \"${XDG_STATE_HOME:-$HOME/.local/state}/north/channel/stable\" 2>/dev/null)\"";
 
 pub fn short(sha: &str) -> String {
     sha.rsplit('/').next().unwrap_or(sha).chars().take(7).collect()
@@ -30,6 +31,7 @@ fn parse(text: &str) -> HostState {
             "load" => state.load1 = value.parse().ok(),
             "cores" => state.cores = value.parse().ok(),
             "follow" if !value.is_empty() => state.follow = Some(value.to_owned()),
+            "stable" if !value.is_empty() => state.stable = Some(value.to_owned()),
             _ => {}
         }
     }

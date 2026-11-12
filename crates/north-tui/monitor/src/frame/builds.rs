@@ -65,6 +65,12 @@ fn host_line(painter: &mut Painter, host: &Host, common: Option<&str>, old: u32)
     (Line::from(spans), fresh)
 }
 
+fn channel_line(hosts: &[Host]) -> Line<'static> {
+    let pins: Vec<String> = hosts.iter().filter_map(|host| Some(format!("{} {}", host.name, host.state.value.as_ref()?.stable.as_deref()?))).collect();
+    let text = if pins.is_empty() { "channels: stable pin unknown".to_owned() } else { format!("channels: stable {}", pins.join(", ")) };
+    Line::from(Span::styled(text, dim()))
+}
+
 fn old_processes(snapshot: &Snapshot) -> BTreeMap<String, u32> {
     let lag = snapshot.lag.value.clone().unwrap_or_default();
     let current: BTreeMap<&str, &str> = snapshot.hosts.iter().filter_map(|host| Some((host.name.as_str(), runtime(host)?))).collect();
@@ -120,7 +126,7 @@ pub fn render(painter: &mut Painter, snapshot: &Snapshot) -> Boxed {
             worst = fresh;
         }
     }
-    lines.push(Line::from(Span::styled("channels: none yet; showing runtime link and follow timer", dim())));
+    lines.push(channel_line(&snapshot.hosts));
     lines.push(lag_line(painter, snapshot, &old));
     let rollout_fresh = painter.fresh("rollout", &snapshot.rollout, ROLLOUT_BOUND);
     if let Some(rollout) = &snapshot.rollout.value {
