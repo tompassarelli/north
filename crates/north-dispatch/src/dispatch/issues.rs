@@ -16,6 +16,8 @@ const ROOT_LABELS: [&str; 1] = ["roadmap"];
 const RUNNING_LABELS: [&str; 1] = ["native:running"];
 /// Why dispatch skips an open issue with no Done-when box at all, which the triage lead gives one.
 pub const NEEDS_BOX: &str = "needs a box: no Done-when box";
+/// Why dispatch skips an issue with sub-issues: its work is its leaves, so none of its own boxes is staffed.
+pub const HAS_SUB_ISSUES: &str = "has sub-issues: its work is its leaves, so none of its boxes is staffed";
 
 static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));
 static ANY_BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[[ xX]\]").expect("any box pattern"));
@@ -70,7 +72,7 @@ pub struct Issue {
     /// The landings on origin/main citing it since its last report, read by the survey for an issue with a box due after landings.
     pub landings: usize,
     /// The issue it is a sub-issue of, when GitHub holds one.
-    pub parent: Option<IssueRef>,
+    pub parent: Option<ParentRef>,
     /// GitHub's issue type (Task, Bug, Feature), when set.
     pub kind: Option<String>,
     pub assignees: Vec<String>,
@@ -84,9 +86,34 @@ pub struct Children {
     pub completed: u64,
 }
 
+/// A parent issue's key: its owner as well as its repository and number, so a same-named repository under another owner is another parent.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ParentRef {
+    pub owner: String,
+    pub repo: String,
+    pub number: u64,
+}
+
+impl ParentRef {
+    pub fn new(owner: &str, repo: &str, number: u64) -> Self {
+        Self { owner: owner.to_lowercase(), repo: repo.to_lowercase(), number }
+    }
+}
+
+impl fmt::Display for ParentRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}#{}", self.owner, self.repo, self.number)
+    }
+}
+
 impl Issue {
     pub fn reference(&self) -> IssueRef {
         IssueRef::new(&self.repo, self.number)
+    }
+
+    /// An open issue under a parent with no checkbox and no sub-issue: a leaf, which dispatch staffs whole at any depth.
+    pub fn is_leaf(&self) -> bool {
+        self.parent.is_some() && self.children.total == 0 && !self.body.lines().any(|line| ANY_BOX.is_match(line))
     }
 
     pub fn unticked(&self) -> usize {
@@ -245,6 +272,13 @@ fn live_reading(line: &str) -> Option<&'static str> {
     None
 }
 
+/// What holds a leaf whole: a check that reads a live journal or ledger, or a `Needs: Tom` line in its body.
+fn leaf_hold(issue: &Issue) -> Option<String> {
+    let live = live_reading(&issue.body).map(Hold::Live);
+    let tom = issue.body.lines().any(|line| crate::pacing::placement::needs::declared(line).is_some_and(|needs| needs.iter().any(|need| need == "tom"))).then_some(Hold::Tom);
+    live.or(tom).map(|hold| hold.to_string())
+}
+
 /// Whether `body` holds the box `text` names, as the `Box:` line of a brief does, and every line holding it is ticked.
 pub fn box_ticked(body: &str, text: &str) -> bool {
     let wanted = text.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim();
@@ -372,7 +406,14 @@ pub struct World<'a> {
 /// Ok when the issue is ready to staff, else why not.
 pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     let reference = issue.reference();
-    if issue.unticked() == 0 {
+    if issue.children.total > 0 {
+        return Err(HAS_SUB_ISSUES.into());
+    }
+    if issue.is_leaf() {
+        if let Some(why) = leaf_hold(issue) {
+            return Err(why);
+        }
+    } else if issue.unticked() == 0 {
         return Err(if issue.needs_box() { NEEDS_BOX } else { "no unticked Done-when box" }.into());
     }
     if super::facets::category(issue).is_none() {

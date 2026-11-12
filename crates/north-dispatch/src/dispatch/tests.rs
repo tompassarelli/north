@@ -444,3 +444,25 @@ fn a_box_held_by_an_open_gate_with_no_default_is_skipped_with_a_line_naming_the_
     assert_eq!(boxes, ["the first box is built"], "{:?}", outcome.skipped);
     assert!(outcome.skipped.iter().any(|(_, why)| why.contains("the second box is built") && why.contains("open north gate gex45:7")), "{:?}", outcome.skipped);
 }
+
+#[test]
+fn dispatch_staffs_open_leaf_issues_under_their_parent() {
+    use super::issues::{Children, ParentRef};
+    let (_, accounts) = fleet();
+    let hosts = vec![host("gex45", 24, Ok(0))];
+    let check = "Done when: `cargo nextest run -p north-dispatch` exits 0";
+    let under = |number: u64, parent: u64| Issue { parent: Some(ParentRef::new("tompassarelli", "north", parent)), ..issue("north", number, check, &[]) };
+    let with_children = |mut issue: Issue, total: u64| {
+        issue.children = Children { total, completed: 0 };
+        issue
+    };
+    let issues = vec![
+        with_children(issue("north", 1, "The outcome the leaves below make true.", &[]), 1),
+        with_children(under(2, 1), 1),
+        under(3, 2),
+        with_children(Issue { parent: Some(ParentRef::new("tompassarelli", "north", 1)), ..issue("north", 4, "- [ ] a box of an issue that has sub-issues", &[]) }, 2),
+    ];
+    let outcome = decide(&survey(issues, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
+    let launched: Vec<String> = outcome.launches.iter().map(|launch| launch.item.to_string()).collect();
+    assert_eq!(launched, ["north#3"], "only the open leaf is staffed, at any depth: {:?}", outcome.skipped);
+}

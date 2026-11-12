@@ -1,4 +1,4 @@
-use super::issues::Children;
+use super::issues::{Children, ParentRef};
 use super::*;
 use north_github_mirror::store::{self, Mirror, OPEN_ISSUES, key};
 
@@ -7,6 +7,12 @@ pub type OpenIssues = (Vec<Issue>, BTreeSet<IssueRef>);
 fn touched(node: &Value) -> f64 {
     let comment = node["comments"]["nodes"].as_array().and_then(|nodes| nodes.last()).unwrap_or(&Value::Null);
     [&node["lastEditedAt"], &comment["createdAt"], &comment["updatedAt"]].into_iter().filter_map(|time| crate::foundation::clock::rfc3339_seconds(time.as_str()?)).fold(0.0, f64::max)
+}
+
+/// The parent a flat read names, keyed by its owner, repository and number.
+fn parent(node: &Value) -> Option<ParentRef> {
+    let repository = &node["parent"]["repository"];
+    Some(ParentRef::new(repository["owner"]["login"].as_str()?, repository["name"].as_str()?, node["parent"]["number"].as_u64()?))
 }
 
 pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
@@ -31,7 +37,7 @@ pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
         stop: Default::default(),
         needs: Vec::new(),
         landings: 0,
-        parent: node["parent"]["number"].as_u64().zip(node["parent"]["repository"]["name"].as_str()).map(|(number, name)| IssueRef::new(name, number)),
+        parent: parent(node),
         kind: node["issueType"]["name"].as_str().map(str::to_owned),
         assignees: node["assignees"]["nodes"].as_array().into_iter().flatten().filter_map(|who| who["login"].as_str().map(str::to_owned)).collect(),
         children: Children { total: node["subIssuesSummary"]["total"].as_u64().unwrap_or(0), completed: node["subIssuesSummary"]["completed"].as_u64().unwrap_or(0) },
