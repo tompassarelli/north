@@ -22,12 +22,24 @@ static LONG_TOKEN: LazyLock<Regex> = LazyLock::new(|| pattern(r"[A-Za-z0-9+/_-]{
 static VARIABLE: LazyLock<Regex> = LazyLock::new(|| pattern(r"^[A-Za-z_][A-Za-z0-9_]*="));
 static DURATION: LazyLock<Regex> = LazyLock::new(|| pattern(r"^[0-9.]+[smhd]?$"));
 static SUBCOMMAND: LazyLock<Regex> = LazyLock::new(|| pattern(r"^[a-z][a-z0-9:_-]*$"));
+static CODE_PATHS: LazyLock<Regex> = LazyLock::new(|| pattern(r"--code[ =]\S+"));
 
 fn redact_word(word: &str) -> String {
     let word = USERINFO.replace_all(word, "${1}<redacted>@");
     let word = ASSIGNMENT.replace_all(&word, "${1}=<redacted>");
     let word = FLAG_VALUE.replace_all(&word, "${1} <redacted>");
     LONG_TOKEN.replace_all(&word, "<redacted>").into_owned()
+}
+
+/// The kind of check a recorded command runs: the command with each `--code` path list dropped, since that list names one lane's own changed paths and the same check in another lane is the same kind.
+pub fn check_kind(recorded: &[String]) -> Vec<String> {
+    let mut kind: Vec<String> = Vec::with_capacity(recorded.len());
+    for word in recorded {
+        if kind.last().is_none_or(|last| last != "--code") {
+            kind.push(CODE_PATHS.replace_all(word, "--code").into_owned());
+        }
+    }
+    kind
 }
 
 /// The command as the usage log records it: secrets after secret-named flags and in assignments, URLs and long tokens removed.

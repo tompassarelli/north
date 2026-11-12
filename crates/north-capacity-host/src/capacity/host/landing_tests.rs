@@ -38,6 +38,10 @@ fn a_land_check_is_charged_and_recorded_as_the_check_it_runs_and_keeps_the_heavy
     let row = |at: &str, host: &str, command: &str| format!(r#"{{"at":"{at}","owner":"land-check","host":"{host}","command":["bash","-c","{command}"],"wallSeconds":40,"cpuSeconds":12,"chargedCpus":8,"exitCode":0}}"#);
     let rows = [row("2026-11-12T10:00:00.000Z", "build-1", &check[2]), row("2026-11-12T10:00:00.000Z", "build-1", "true"), row("2026-11-10T10:00:00.000Z", "build-1", &check[2]), row("2026-11-12T10:00:00.000Z", "build-2", &check[2])].join("\n");
     assert_eq!(super::sizing::charged_runs(&rows, &check, "2026-11-11T10:00:00.000Z", "build-1").len(), 1, "only the day's runs of this command on this host set its charge");
+    let scan = |paths: &str, scan: &str| format!("./bin/head-north --code {paths} land scan {scan}");
+    let lanes = [row("2026-11-12T10:00:00.000Z", "build-1", &scan("crates/a/,src/cli/", "leftovers")), row("2026-11-12T10:00:00.000Z", "build-1", &scan("crates/b/", "leftovers")), row("2026-11-12T10:00:00.000Z", "build-1", &scan("crates/b/", "turn-scope"))].join("\n");
+    let leftovers = ["bash".to_owned(), "-c".to_owned(), scan("crates/c/", "leftovers")];
+    assert_eq!(super::sizing::charged_runs(&lanes, &leftovers, "2026-11-11T10:00:00.000Z", "build-1").len(), 2, "on 2026-11-12 gex45's 124 land-check runs were 49 commands told apart by each lane's --code paths, so 4 reached the runs that lower a charge");
     let sized = |cap: Option<f64>, runs: &[super::policy::ChargedRun]| {
         let mut request = Request { name: "heavy".to_owned(), resources: super::policy::resource_class("heavy", 16.0), landing: landing_run("run", "land-check", "heavy", None, None), ..Request::default() };
         super::size_landing(&mut request, 16.0, cap, 8.0, |heavy| super::policy::landing_charge(runs, heavy, 300.0));

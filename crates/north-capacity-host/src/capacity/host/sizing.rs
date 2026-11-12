@@ -114,14 +114,13 @@ pub fn record_landing_run(entry: &str) -> std::io::Result<()> {
     record_lander_run(entry, &days_ago(0), &days_ago(2))
 }
 
-/// The runs of exactly `command` among `rows`, the lines of the lander's record, since the ISO time `since` on `host`: a row of another command never lowers this one's charge.
+/// The runs of `command`'s kind (`shape::check_kind`) among `rows`, the lines of the lander's record, since the ISO time `since` on `host`: a row of another kind never lowers this one's charge.
 pub(super) fn charged_runs(rows: &str, command: &[String], since: &str, host: &str) -> Vec<ChargedRun> {
-    let recorded = Value::from(recorded_command(command));
-    let needle = format!("\"command\":{recorded}");
+    let kind = super::shape::check_kind(&recorded_command(command));
+    let kind_of = |row: &Value| row.get("command").and_then(Value::as_array).map(|words| super::shape::check_kind(&words.iter().filter_map(|word| word.as_str().map(str::to_owned)).collect::<Vec<_>>()));
     rows.lines()
-        .filter(|line| line.contains(&needle))
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|row| row.get("command") == Some(&recorded) && text(row, "at").is_some_and(|at| at >= since) && text(row, "host").is_none_or(|ran_on| ran_on == host))
+        .filter(|row| kind_of(row).as_ref() == Some(&kind) && text(row, "at").is_some_and(|at| at >= since) && text(row, "host").is_none_or(|ran_on| ran_on == host))
         .map(|row| ChargedRun {
             wall_seconds: field(&row, "wallSeconds").unwrap_or(f64::NAN),
             cpu_seconds: field(&row, "cpuSeconds").unwrap_or(f64::NAN),
