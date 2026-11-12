@@ -24,6 +24,7 @@ const STALE_KEY: &str = "fleet_stale_hours";
 const LAST_CHARS: usize = 4_000;
 const LEASE_BATCH: usize = 16;
 pub const BUDGET: Duration = Duration::from_secs(5);
+const PROBE_SECS: u64 = 15;
 
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\W*Stop:").expect("stop line pattern"));
@@ -38,7 +39,7 @@ pub trait Evidence: Sync {
     fn landed(&self, cwd: &Path, sha: &str) -> bool;
     fn running(&self, records: &[&SessionRecord]) -> BTreeMap<String, Work>;
     fn lanes(&self) -> BTreeMap<String, Vec<Lane>>;
-    fn ahead(&self, record: &SessionRecord) -> Option<Ahead>;
+    fn lane(&self, record: &SessionRecord) -> Option<Unlanded>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,6 +47,14 @@ pub struct Ahead {
     pub path: PathBuf,
     pub tip: String,
     pub commits: usize,
+}
+
+type Digests = BTreeMap<String, Vec<(String, Unlanded)>>;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Unlanded {
+    Ahead(Ahead),
+    Unread(PathBuf),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -208,6 +217,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
     let gated = fleet.open_gate_sessions();
     let mut verdicts: BTreeMap<String, String> = BTreeMap::new();
     let lanes = evidence.lanes();
+    let mut unlanded: Digests = BTreeMap::new();
     for (done, batch) in candidates.chunks(LEASE_BATCH).enumerate() {
         if spent() >= budget {
             reaped.deferred = candidates.len() - done * LEASE_BATCH;
@@ -219,25 +229,45 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             let live = if ended { fleet.live_hold(record, &records, &gated) } else { fleet.live_wait(record, &records, &gated, work == Some(Work::Detached)) };
             let entries = if live.is_some() { Vec::new() } else { fleet.follow_recent(&record.name).map(|follower| follower.transcript().entries.clone()).unwrap_or_default() };
             let report = final_report(&entries).map(|text| Report { text: text.to_owned(), taken: fleet.report_taken(record), unlanded: named_shas(text).into_iter().filter(|sha| !evidence.landed(&record.cwd, sha)).collect() });
-            let ahead = if live.is_some() { None } else { evidence.ahead(record) };
             let lane_holds = lanes.get(&record.name).is_some_and(|held| owes_landing(held, ended_ms(record).unwrap_or(u64::MAX)));
-            let seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended, lane_holds, lane_ahead: ahead.is_some() };
-            let verdict = verdict(&seen, stale);
-            if let Some(label) = told(&verdict, status) {
+            let mut seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended, lane_holds, lane_ahead: false };
+            let mut judged = verdict(&seen, stale);
+            let probed = if judged == Verdict::Keep { None } else { evidence.lane(record) };
+            if let Some(Unlanded::Unread(path)) = &probed {
+                reaped.kept.push(Retired { name: record.name.clone(), why: format!("its lane {} did not answer within {PROBE_SECS} s", path.display()) });
+                if let Some(parent) = record.parent.as_deref() {
+                    unlanded.entry(parent.to_owned()).or_default().push((record.name.clone(), Unlanded::Unread(path.clone())));
+                }
+                continue;
+            }
+            let ahead = match probed {
+                Some(Unlanded::Ahead(ahead)) => Some(ahead),
+                _ => None,
+            };
+            if judged == Verdict::Finished && ahead.is_some() {
+                seen.lane_ahead = true;
+                judged = verdict(&seen, stale);
+            }
+            if let Some(label) = told(&judged, status) {
                 verdicts.insert(record.name.clone(), label.to_owned());
             }
-            if verdict == Verdict::Keep {
+            if judged == Verdict::Keep {
                 let background = seen.background.then(|| "its CLI still runs a background task".to_owned());
                 let why = seen.live.or_else(|| seen.report.as_ref().filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).or_else(|| (seen.lane_holds && quiet < stale).then(|| "its queued lane waits on the lander, or the lander's verdict has not woken it yet".to_owned())).or(background).unwrap_or_else(|| "active within the stale window".into());
                 reaped.kept.push(Retired { name: record.name.clone(), why });
                 continue;
             }
             let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant && is_final(&entry.text)).or_else(|| entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant)).map(|entry| entry.text.chars().take(LAST_CHARS).collect::<String>());
-            due.push((record, verdict.why(stale), last, ahead));
+            due.push((record, judged.why(stale), last, ahead));
         }
         let leases = fleet.job_leases(&due.iter().map(|(record, _, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(spent()));
         for ((record, why, last, ahead), lease) in due.into_iter().zip(leases) {
-            retire_unleased(fleet, &mut reaped, apply, (record, why, last, ahead), lease);
+            retire_unleased(fleet, (&mut reaped, &mut unlanded), apply, (record, why, last, ahead), lease);
+        }
+    }
+    if apply {
+        for (parent, lanes) in &unlanded {
+            tell_unlanded(fleet, parent, lanes);
         }
     }
     if apply && let Err(why) = fleet.tell_retirement(verdicts, now_ms) {
@@ -255,7 +285,7 @@ fn told(verdict: &Verdict, status: Status) -> Option<&'static str> {
     }
 }
 
-fn retire_unleased(fleet: &Fleet, reaped: &mut Reaped, apply: bool, (record, why, last, ahead): (&SessionRecord, String, Option<String>, Option<Ahead>), lease: Lease) {
+fn retire_unleased(fleet: &Fleet, (reaped, unlanded): (&mut Reaped, &mut Digests), apply: bool, (record, why, last, ahead): (&SessionRecord, String, Option<String>, Option<Ahead>), lease: Lease) {
     let name = record.name.clone();
     match lease {
         Lease::Held => reaped.kept.push(Retired { name, why: "a job-run job still holds a lease on it".into() }),
@@ -268,7 +298,7 @@ fn retire_unleased(fleet: &Fleet, reaped: &mut Reaped, apply: bool, (record, why
             match retired {
                 Ok(()) => {
                     if apply && let (Some(ahead), Some(parent)) = (ahead, record.parent.as_deref()) {
-                        tell_unlanded(fleet, parent, &name, &ahead);
+                        unlanded.entry(parent.to_owned()).or_default().push((name.clone(), Unlanded::Ahead(ahead)));
                     }
                     reaped.retired.push(Retired { name, why });
                 }
@@ -278,10 +308,17 @@ fn retire_unleased(fleet: &Fleet, reaped: &mut Reaped, apply: bool, (record, why
     }
 }
 
-fn tell_unlanded(fleet: &Fleet, parent: &str, name: &str, ahead: &Ahead) {
-    let text = format!("[north: {name} is retired, and its lane {} at {} holds {} commits not on origin/main; land it or restaff it]", ahead.path.display(), ahead.tip, ahead.commits);
+fn tell_unlanded(fleet: &Fleet, parent: &str, lanes: &[(String, Unlanded)]) {
+    let lines: String = lanes
+        .iter()
+        .map(|(name, lane)| match lane {
+            Unlanded::Ahead(ahead) => format!("\n- {name}: retired; {} at {}, {} commits ahead of origin/main", ahead.path.display(), ahead.tip, ahead.commits),
+            Unlanded::Unread(path) => format!("\n- {name}: kept; its lane {} did not answer within {PROBE_SECS} s", path.display()),
+        })
+        .collect();
+    let text = format!("[north: {} sessions' lanes hold commits not on origin/main or could not be read; land or restaff each]{lines}", lanes.len());
     if let Err(error) = fleet.send_signed(&Sender::fleet(), parent, &text, Delivery::Queued) {
-        eprintln!("fleet reaper: {name}'s parent {parent} was not told of its unlanded lane: {}", error.user_message());
+        eprintln!("fleet reaper: {parent} was not told of {} unlanded lanes: {}", lanes.len(), error.user_message());
     }
 }
 
@@ -304,18 +341,25 @@ impl Evidence for Here {
         lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default()
     }
 
-    fn ahead(&self, record: &SessionRecord) -> Option<Ahead> {
+    fn lane(&self, record: &SessionRecord) -> Option<Unlanded> {
         let parent = record.cwd.parent()?;
         let path = if parent.file_name().is_some_and(|name| name == "worktrees") { record.cwd.clone() } else { worktree_of(record, &parent.join("worktrees"))? };
-        let probe = format!("git -C '{}' rev-list --count origin/main..HEAD && git -C '{}' rev-parse --short=10 HEAD", path.display(), path.display());
+        let common = path.parent()?.parent()?.join("main/.git");
+        let git_dir = common.join("worktrees").join(path.file_name()?);
+        let git = format!("cd / && GIT_DIR='{}' GIT_COMMON_DIR='{}' git", git_dir.display(), common.display());
+        let probe = format!("{git} rev-list --count origin/main..HEAD && {git} rev-parse --short=10 HEAD");
+        let bound = PROBE_SECS.to_string();
         let output = match &record.machine {
-            Some(machine) => Command::new(binary("ssh")).args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, &probe]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?,
-            None => Command::new(binary("sh")).args(["-c", &probe]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?,
+            Some(machine) => Command::new(binary("timeout")).args([bound.as_str(), "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, &probe]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?,
+            None => Command::new(binary("timeout")).args([bound.as_str(), "sh", "-c", &probe]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?,
         };
+        if output.status.code() == Some(124) {
+            return Some(Unlanded::Unread(path));
+        }
         let text = String::from_utf8(output.stdout).ok().filter(|_| output.status.success())?;
         let mut lines = text.lines();
         let commits = lines.next()?.trim().parse::<usize>().ok().filter(|commits| *commits > 0)?;
-        Some(Ahead { path, tip: lines.next()?.trim().to_owned(), commits })
+        Some(Unlanded::Ahead(Ahead { path, tip: lines.next()?.trim().to_owned(), commits }))
     }
 
     fn running(&self, records: &[&SessionRecord]) -> BTreeMap<String, Work> {

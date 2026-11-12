@@ -26,7 +26,7 @@ struct Sight {
     landed: BTreeSet<String>,
     running: BTreeMap<String, Work>,
     lanes: BTreeMap<String, Vec<north_base::land_ticket::Lane>>,
-    ahead: BTreeMap<String, Ahead>,
+    lanes_ahead: BTreeMap<String, Unlanded>,
 }
 
 impl Evidence for Sight {
@@ -42,8 +42,8 @@ impl Evidence for Sight {
         self.lanes.clone()
     }
 
-    fn ahead(&self, record: &SessionRecord) -> Option<Ahead> {
-        self.ahead.get(&record.name).cloned()
+    fn lane(&self, record: &SessionRecord) -> Option<Unlanded> {
+        self.lanes_ahead.get(&record.name).cloned()
     }
 }
 
@@ -126,22 +126,35 @@ fn a_not_done_or_split_retires_only_when_it_names_a_stop_its_parent_took_and_new
 
 /// Eight workers parked under the coordinator's hold were retired on 2026-11-12 after a taken Not done report, lanes ahead of main and their parent untold (north#1235).
 #[test]
-fn a_worker_parked_on_an_unlanded_lane_after_a_not_done_report_stays_and_a_stale_retirement_tells_its_parent_the_lane() {
+fn a_worker_parked_on_an_unlanded_lane_after_a_not_done_report_stays_and_stale_retirements_tell_their_parent_every_lane_in_one_digest() {
     let home = tempfile::tempdir().unwrap();
     let (fleet, paper) = fleet(home.path());
     let lead = live(&fleet, "lead");
     reported(&fleet, "held", Some("lead"), "Not done: the commit is on the lane but the coordinator holds hand-ins.\nStop: landing");
     paper.claim_receipt("held", "turn:1", now_ms()).unwrap();
-    let lane = Ahead { path: "/home/tom/code/north/worktrees/held-lane".into(), tip: "8ffd6add62".into(), commits: 1 };
-    let evidence = Sight { ahead: [("held".to_owned(), lane)].into(), ..Sight::default() };
+    for name in ["exited", "slow"] {
+        reported(&fleet, name, Some("lead"), "Done: nothing to land.");
+        let record = fleet.root.join(name).join("session.json");
+        let mut stopped: Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+        stopped["stopped"] = json!(true);
+        std::fs::write(&record, stopped.to_string()).unwrap();
+    }
+    let lane = |path: &str, tip: &str, commits| Unlanded::Ahead(Ahead { path: path.into(), tip: tip.into(), commits });
+    let lanes_ahead = [("held".to_owned(), lane("/home/tom/code/north/worktrees/held-lane", "8ffd6add62", 1)), ("exited".to_owned(), lane("/home/tom/code/north/worktrees/exited-lane", "6d0cecb063", 2)), ("slow".to_owned(), Unlanded::Unread("/home/tom/code/north/worktrees/slow-lane".into()))];
+    let evidence = Sight { lanes_ahead: lanes_ahead.into(), ..Sight::default() };
 
     let waiting = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
     assert!(retired(&waiting).is_empty() && fleet.root.join("held").exists(), "{waiting:?}");
     let stale = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
 
-    assert_eq!(retired(&stale), ["held"]);
+    let mut gone = retired(&stale);
+    gone.sort_unstable();
+    assert_eq!(gone, ["exited", "held"]);
+    assert!(fleet.session("slow").is_ok(), "a lane probe that timed out keeps its session");
     let frames = lead.frames.lock().unwrap();
-    assert!(frames.iter().any(|frame| frame.contains("/home/tom/code/north/worktrees/held-lane") && frame.contains("8ffd6add62") && frame.contains("1 commits")), "{frames:?}");
+    let digests: Vec<&String> = frames.iter().filter(|frame| frame.contains("lanes hold commits not on origin/main")).collect();
+    assert_eq!(digests.len(), 1, "one digest per parent and tick: {frames:?}");
+    assert!(digests[0].contains("3 sessions") && digests[0].contains("held: retired; /home/tom/code/north/worktrees/held-lane at 8ffd6add62, 1 commits") && digests[0].contains("exited: retired; /home/tom/code/north/worktrees/exited-lane at 6d0cecb063, 2 commits") && digests[0].contains("slow: kept; its lane /home/tom/code/north/worktrees/slow-lane did not answer"), "{digests:?}");
 }
 
 /// north-669-d1955 stopped on `Stop: landing` with its guards lane queued: the reaper keeps it while the lane is open and
