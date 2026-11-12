@@ -24,6 +24,7 @@ use crate::threads::calibration::rework::Sources as ReworkSources;
 mod main_green;
 mod plain;
 pub mod propagation;
+mod runtime;
 mod table;
 
 pub const REPOS: [&str; 2] = ["north", "makgora"];
@@ -50,6 +51,8 @@ enum Bar {
     RuntimeBreaks,
     RuntimeRollback,
     RuntimeLive,
+    RuntimeCanary,
+    RuntimeShip,
     RuntimeAge,
     RuntimeLag,
     FirnClosureLive,
@@ -60,7 +63,7 @@ enum Bar {
 }
 
 impl Bar {
-    const ALL: [Self; 20] = [
+    const ALL: [Self; 22] = [
         Self::LandingP90,
         Self::VerificationP50,
         Self::VerificationP90,
@@ -74,6 +77,8 @@ impl Bar {
         Self::RuntimeBreaks,
         Self::RuntimeRollback,
         Self::RuntimeLive,
+        Self::RuntimeCanary,
+        Self::RuntimeShip,
         Self::RuntimeAge,
         Self::RuntimeLag,
         Self::FirnClosureLive,
@@ -98,6 +103,8 @@ impl Bar {
             Self::RuntimeBreaks => "ready-runtime-breaks",
             Self::RuntimeRollback => "ready-runtime-rollback",
             Self::RuntimeLive => "ready-runtime-live-p90",
+            Self::RuntimeCanary => "ready-runtime-canary-p90",
+            Self::RuntimeShip => "ready-runtime-ship-p90",
             Self::RuntimeAge => "ready-runtime-age",
             Self::RuntimeLag => "ready-runtime-lag",
             Self::FirnClosureLive => "ready-firn-closure-live-p90",
@@ -123,6 +130,8 @@ impl Bar {
             Self::RuntimeBreaks => "runtime breaks reaching a 2nd host (all)",
             Self::RuntimeRollback => "runtime rollback after swap, slowest (all)",
             Self::RuntimeLive => "promotion due to live p90, 24 h (all)",
+            Self::RuntimeCanary => "runtime canary p90 (all)",
+            Self::RuntimeShip => "runtime ship p90 (all)",
             Self::RuntimeAge => "oldest landing waiting for a promotion (all)",
             Self::RuntimeLag => "runtime lag, worst process (all)",
             Self::FirnClosureLive => "firn closure landing to live p90 (all)",
@@ -133,9 +142,9 @@ impl Bar {
         }
     }
 
-    /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent, and a window with no rollback or no promotion that fell due has none to time.
+    /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent, and a window with no rollback, no promotion that fell due, or no canary or ship has none to time.
     fn quiet_passes(self) -> bool {
-        matches!(self, Self::AskToLanding | Self::Corrections | Self::RuntimeRollback | Self::RuntimeLive | Self::FirnClosureLive)
+        matches!(self, Self::AskToLanding | Self::Corrections | Self::RuntimeRollback | Self::RuntimeLive | Self::RuntimeCanary | Self::RuntimeShip | Self::FirnClosureLive)
     }
 }
 
@@ -340,26 +349,6 @@ impl Records {
         })
     }
 
-    /// The pinned runtime's bars, one fleet for every repository.
-    fn runtime(&self, bar: Bar, window: Window) -> Option<Reading> {
-        let start = if matches!(bar, Bar::RuntimeLive) { window.end - DAY_S } else { window.start };
-        let pins = north_runtime::runtime::pin::bars(&self.pins, start, window.end);
-        let reading = match bar {
-            Bar::RuntimeBreaks => pins.breaks(),
-            Bar::RuntimeRollback => pins.rollback(),
-            Bar::RuntimeAge => pins.age(),
-            _ => (!pins.due_to_live_seconds.is_empty()).then(|| (percentile(&pins.due_to_live_seconds, 0.9), pins.due_to_live_seconds.len())),
-        };
-        reading.map(Reading::from)
-    }
-
-    fn propagation_held(&self, bar: Bar, window: Window) -> Option<Reading> {
-        match bar {
-            Bar::RuntimeLag => north_runtime::runtime::lag::samples::worst_in(&self.lags, window.start, window.end).map(Reading::from),
-            _ => propagation::firn_closure_p90(&self.propagation, window.start, window.end).map(Reading::from),
-        }
-    }
-
     fn priority(&self, repo: &str, window: Window) -> Option<Reading> {
         let latest = self.priority.iter().filter(|entry| entry.repo == repo && window.holds(entry.at)).max_by_key(|entry| entry.at)?;
         Some(Reading { value: latest.count as f64, sample: 1 })
@@ -380,7 +369,7 @@ impl Records {
             Bar::LandingP90 => spread(&self.landings, 0.9),
             Bar::VerificationP50 => spread(&self.verification, 0.5),
             Bar::VerificationP90 => spread(&self.verification, 0.9),
-            Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeLive | Bar::RuntimeAge => self.runtime(bar, window),
+            Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeLive | Bar::RuntimeCanary | Bar::RuntimeShip | Bar::RuntimeAge => self.runtime(bar, window),
             Bar::FirnClosureLive | Bar::RuntimeLag => self.propagation_held(bar, window),
             Bar::Rework => {
                 let held: Vec<&landing::Judged> = self.reworked.iter().filter(|landing| window.holds(landing.at) && landing.repos.contains(repo)).collect();

@@ -93,6 +93,12 @@ fn a_runtime_already_whole_on_the_host_is_not_copied_and_a_missing_one_is_copied
     fs::create_dir_all(runtimes(home).join("c3f70f1043954eabcea7d6f4c5043b1684c64fe9.staging")).unwrap();
     assert_eq!(prepared(home), super::Prepared::Staging(Some(older.to_owned())));
     assert!(runtimes(home).join(format!("{TARGET}.staging")).is_dir());
+    fs::File::open(runtimes(home).join(older)).unwrap().set_modified(std::time::UNIX_EPOCH).unwrap();
+    let newer = "c3f70f1043954eabcea7d6f4c5043b1684c64fe9";
+    whole(home, newer);
+    assert_eq!(prepared(home), super::Prepared::Staging(Some(newer.to_owned())), "with no current link the newest whole runtime is the basis");
+    std::os::unix::fs::symlink(super::layout::link(older), home.join(".local/state/north/current")).unwrap();
+    assert_eq!(prepared(home), super::Prepared::Staging(Some(older.to_owned())), "the live runtime is the basis the binary diff is taken from");
     whole(home, TARGET);
     assert_eq!(prepared(home), super::Prepared::Whole);
 }

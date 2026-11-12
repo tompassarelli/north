@@ -1,6 +1,7 @@
 use super::failure::{Failure, failed};
 use super::host_facts;
 use super::layout::{self, BUILT_FROM, Layout, PROGRAMS, TREE};
+use super::pin::{self, Event};
 use super::remote::{OWN_RSH, limit, output, run, run_reporting, ssh};
 use super::store::references;
 use super::update::{built_main, checkout, named_lock_waiting, promotion_waiting};
@@ -9,7 +10,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const LOCK_WAIT: Duration = Duration::from_secs(30 * 60);
 const REALISE: Duration = Duration::from_secs(10 * 60);
@@ -79,7 +80,9 @@ pub(super) fn stage_runtime(host: &str, target: &str, runtime: &Path) -> Result<
 }
 
 fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
-    let _staging = named_lock_waiting(&Layout::from_env(), &stage_lock(host), limit(COPY), "north runtime deploy")?;
+    let layout = Layout::from_env();
+    let _staging = named_lock_waiting(&layout, &stage_lock(host), limit(COPY), "north runtime deploy")?;
+    let started = Instant::now();
     println!("north runtime deploy: {host}: nix-store --realise of {} store paths unless runtimes/{} is already whole there", references.len(), layout::short(target));
     let prepared = output(host, "prepare", ssh(host).args(["sh", "-c", &land_offload::ship::quote(&prepare_script(target, references))]), REALISE)?;
     let basis = match Prepared::read(&prepared) {
@@ -94,7 +97,9 @@ fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>
     let mut copy = Command::new("rsync");
     copy.args(["-a", "-z", "--timeout=120", "-e", OWN_RSH]).args(basis.map(|basis| format!("--copy-dest=../{basis}"))).args(PROGRAMS.map(|program| runtime.join(program))).arg(runtime.join(BUILT_FROM)).arg(runtime.join(TREE)).arg(destination);
     run(host, "rsync", &mut copy, COPY)?;
-    run(host, "install", ssh(host).args(["sh", "-c", &land_offload::ship::quote(&install_script(target))]), PROBE)
+    run(host, "install", ssh(host).args(["sh", "-c", &land_offload::ship::quote(&install_script(target))]), PROBE)?;
+    pin::note(&layout, &Event::Shipped { sha: target.to_owned(), host: host.to_owned(), at: pin::now(), seconds: i64::try_from(started.elapsed().as_secs()).unwrap_or(i64::MAX) });
+    Ok(())
 }
 
 /// One lock per destination, so the land checks that find a runtime missing on a host at once ship it once and the rest find it whole, instead of each sending it over the same link.
@@ -124,12 +129,12 @@ impl Prepared {
 const WHOLE: &str = "whole";
 const BASIS: &str = "basis ";
 
-/// The one connection before a copy: says `whole` when `runtimes/TARGET` already holds every program, its built-from record and its tree, else realises the store paths the runtime references, makes the staging directory and names the newest whole runtime there, whose unchanged files rsync copies on the host and whose changed ones it sends only the differences of.
+/// The one connection before a copy: says `whole` when `runtimes/TARGET` already holds every program, its built-from record and its tree, else realises the store paths the runtime references, makes the staging directory and names the runtime this host currently runs, whose unchanged files rsync copies on the host and whose changed ones it sends only the differences of; a host with no whole current names its newest whole runtime instead.
 fn prepare_script(target: &str, references: &BTreeSet<String>) -> String {
     let programs = PROGRAMS.iter().map(|program| format!("[ -x \"$1/{program}\" ]")).collect::<Vec<_>>().join(" && ");
     let realise = references.iter().map(|reference| land_offload::ship::quote(reference)).collect::<Vec<_>>().join(" ");
     format!(
-        "set -e; r=.local/state/north/runtimes; whole() {{ [ -d \"$1/{TREE}\" ] && [ -f \"$1/{BUILT_FROM}\" ] && {programs}; }}; if whole \"$r/{target}\"; then echo {WHOLE}; exit 0; fi; {}mkdir -p \"$r/{target}.staging\"; for d in $(ls -t \"$r\"); do case $d in {target} | *[!0-9a-f]*) continue ;; esac; if whole \"$r/$d\"; then echo \"{BASIS}$d\"; break; fi; done",
+        "set -e; r=.local/state/north/runtimes; whole() {{ [ -d \"$1/{TREE}\" ] && [ -f \"$1/{BUILT_FROM}\" ] && {programs}; }}; if whole \"$r/{target}\"; then echo {WHOLE}; exit 0; fi; {}mkdir -p \"$r/{target}.staging\"; live=$(readlink \"$r/../current\" 2>/dev/null || true); case $live in runtimes/*) live=${{live#runtimes/}} ;; *) live= ;; esac; if [ -n \"$live\" ] && [ \"$live\" != {target} ] && whole \"$r/$live\"; then echo \"{BASIS}$live\"; exit 0; fi; for d in $(ls -t \"$r\"); do case $d in {target} | *[!0-9a-f]*) continue ;; esac; if whole \"$r/$d\"; then echo \"{BASIS}$d\"; break; fi; done",
         if realise.is_empty() { String::new() } else { format!("nix-store --realise --quiet {realise} >/dev/null; ") }
     )
 }

@@ -17,6 +17,8 @@ impl Bar {
             Self::RuntimeBreaks => "broken runtimes that reached a second host",
             Self::RuntimeRollback => "slowest rollback of a broken runtime",
             Self::RuntimeLive => "how long a due promotion took to go live on the fleet's runtime",
+            Self::RuntimeCanary => "how long the canary took to judge a runtime on one host",
+            Self::RuntimeShip => "how long a runtime took to copy to a host",
             Self::RuntimeAge => "how long the oldest landing has waited for the fleet's runtime",
             Self::RuntimeLag => "how far the slowest process on any host ran behind the newest landing",
             Self::FirnClosureLive => "how long a landing took to reach every host's system closure",

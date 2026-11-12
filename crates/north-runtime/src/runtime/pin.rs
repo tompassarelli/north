@@ -36,12 +36,14 @@ pub enum Event {
     /// How long a landing waited for its release runtime after the lander pushed: 0 s when the lander built the tree ahead while the lane queued.
     #[serde(rename = "artifact-ready")]
     ArtifactReady { sha: String, tree: String, seconds: i64, at: i64 },
+    Canaried { sha: String, host: String, at: i64, seconds: i64 },
+    Shipped { sha: String, host: String, at: i64, seconds: i64 },
 }
 
 impl Event {
     pub fn at(&self) -> i64 {
         match self {
-            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::Ordered { at, .. } | Self::ArtifactReady { at, .. } => *at,
+            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::Ordered { at, .. } | Self::ArtifactReady { at, .. } | Self::Canaried { at, .. } | Self::Shipped { at, .. } => *at,
         }
     }
 }
@@ -210,6 +212,8 @@ pub struct Bars {
     pub due_to_live_seconds: Vec<f64>,
     /// How long the oldest landing still waiting for a promotion had waited at the window's end: 0 when none waits.
     pub runtime_age_hours: Option<f64>,
+    pub canary_seconds: Vec<f64>,
+    pub ship_seconds: Vec<f64>,
 }
 
 /// Each bar as its value and the sample it was read over, for the scoreboard.
@@ -242,6 +246,14 @@ pub fn bars(events: &[Event], start: i64, end: i64) -> Bars {
         rollbacks: rollbacks.len(),
         due_to_live_seconds: due_to_live(&before, end).into_iter().filter(|(due, _)| inside(*due)).map(|(due, live)| (live - due) as f64).collect(),
         runtime_age_hours: (!before.is_empty()).then_some(age),
+        canary_seconds: events.iter().filter_map(|event| match event {
+            Event::Canaried { at, seconds, .. } if inside(*at) => Some(*seconds as f64),
+            _ => None,
+        }).collect(),
+        ship_seconds: events.iter().filter_map(|event| match event {
+            Event::Shipped { at, seconds, .. } if inside(*at) => Some(*seconds as f64),
+            _ => None,
+        }).collect(),
     }
 }
 

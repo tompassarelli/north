@@ -198,6 +198,20 @@ max = 120
 class = "ready"
 
 [[concern]]
+name = "ready-runtime-canary-p90"
+source = "north#1022: the canary judges a runtime on one host in under 60 s, so a promotion that breaks the core loop is judged before it ships: the p90 of each host's core-loop probe run over the newest 1 h"
+unit = "s"
+max = 60
+class = "ready"
+
+[[concern]]
+name = "ready-runtime-ship-p90"
+source = "north#1022: a judged runtime is copied to each other host as a binary diff against the runtime that host runs in under 30 s: the p90 of each host's copy over the newest 1 h"
+unit = "s"
+max = 30
+class = "ready"
+
+[[concern]]
 name = "ready-runtime-age"
 source = "north#1022: the running runtime is at most a day old: the oldest landing that changes a runtime input and still waits for a promotion has waited at most 24 h (Tom's 2026-11-10 answer 2 in south agents/decisions/harness/throughput-strategy-2026-11-10.md; returned 2026-11-11 with the promotion cadence)"
 unit = "h"

@@ -1,10 +1,11 @@
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Canarying, Canary};
 use super::failure::DEFERRED;
+use super::pin::{self, Event};
 use super::update;
 use north_base::foundation::exit::NO_VERDICT;
 use north_base::platform::ssh_retry::Rerun;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod baseline;
 mod launch;
@@ -55,7 +56,8 @@ pub(super) enum Verdict {
     Stuck,
 }
 
-fn run_probes(host: &str, sha: &str, short: &str, machine: &impl Machine) -> (Vec<Probe>, Vec<Ran>) {
+fn run_probes(layout: &Layout, host: &str, sha: &str, short: &str, machine: &impl Machine) -> (Vec<Probe>, Vec<Ran>) {
+    let started = Instant::now();
     let landers = machine.lander_repositories();
     let plan = probes::core_loop(host, sha, &machine.launchable_providers(), machine.sessions_reach_hub(host), machine.settles_fleet(host), landers.as_ref());
     if !plan.not_applicable.is_empty() {
@@ -66,6 +68,7 @@ fn run_probes(host: &str, sha: &str, short: &str, machine: &impl Machine) -> (Ve
         let handles: Vec<_> = probes.iter().map(|probe| scope.spawn(|| machine.probe(probe))).collect();
         handles.into_iter().map(|handle| handle.join().unwrap_or_else(|_| Ran::Unrun("the probe panicked".to_owned()))).collect()
     });
+    pin::note(layout, &Event::Canaried { sha: sha.to_owned(), host: host.to_owned(), at: pin::now(), seconds: i64::try_from(started.elapsed().as_secs()).unwrap_or(i64::MAX) });
     (probes, ran)
 }
 
@@ -87,7 +90,7 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         println!("north runtime canary: {host}: {short} not judged here: {}", failure.message);
         return Verdict::Skipped;
     }
-    let (probes, ran) = run_probes(host, sha, short, machine);
+    let (probes, ran) = run_probes(layout, host, sha, short, machine);
     let tallied = tallies(&probes, &ran);
     let Tallies { failures, broken, faults, unrun } = &tallied;
     if failures.is_empty() {
@@ -138,7 +141,7 @@ pub(super) fn preflight(layout: &Layout, host: &str, sha: &str, machine: &impl M
         _ => {}
     }
     lifecycle::move_to::<Canarying>(layout, &instance, Canary::Judging, "running the core-loop probes before the runtime is live").map_err(|failure| failure.message)?;
-    let (probes, ran) = run_probes(host, sha, short, machine);
+    let (probes, ran) = run_probes(layout, host, sha, short, machine);
     let Tallies { failures, faults, unrun, .. } = tallies(&probes, &ran);
     let problems: Vec<String> = failures.into_iter().chain(faults).chain(unrun).collect();
     let (state, cause) = match problems.is_empty() {

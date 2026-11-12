@@ -137,6 +137,7 @@ fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming
     assert!(alarms[0].contains("rolled back to 11111111"), "{}", alarms[0]);
     assert!(matches!(update::hold::verdict(&host.layout, PROMOTED, true).unwrap(), update::hold::Verdict::Held(_)));
     assert_eq!(lifecycle::state_of::<Canarying>(&host.layout, &format!("nexus/{PROMOTED}")).unwrap(), Some(Canary::RolledBack));
+    assert!(pin::read(&host.layout.state).iter().any(|event| matches!(event, Event::Canaried { sha, host, seconds, .. } if sha == PROMOTED && host == "nexus" && *seconds < 60)), "the canary journals the stage seconds the scoreboard reads");
 }
 
 #[test]

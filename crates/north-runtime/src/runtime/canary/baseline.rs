@@ -61,7 +61,7 @@ fn walk(layout: &Layout, host: &str, failed_sha: &str, sha: String, broken: &[Br
         println!("north runtime canary: {host}: {short} not walked as the rollback target of {failed_short}: {}", failure.message);
         return Baseline { failed: broken.iter().map(|broken| (broken.probe.clone(), Outcome::Unknown)).collect(), sha };
     }
-    let (probes, ran) = run_probes(host, &sha, short, machine);
+    let (probes, ran) = run_probes(layout, host, &sha, short, machine);
     let mut failed = Vec::new();
     let (mut failures, mut unrun) = (Vec::new(), Vec::new());
     for (probe, ran) in probes.iter().zip(&ran) {

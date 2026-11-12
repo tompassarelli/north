@@ -26,10 +26,14 @@ fn the_runtime_bars_count_a_break_only_when_it_reached_a_second_host() {
         rolled("whiterabbit", true, 70),
         rolled("gex45", false, 150),
     ];
-    assert_eq!(bars(&events, NOW - 24 * HOUR, NOW), Bars { breaks_reaching_second_host: Some(1), rollback_seconds: Some(150.0), rollbacks: 2, due_to_live_seconds: vec![], runtime_age_hours: Some(0.0) });
+    assert_eq!(bars(&events, NOW - 24 * HOUR, NOW), Bars { breaks_reaching_second_host: Some(1), rollback_seconds: Some(150.0), rollbacks: 2, due_to_live_seconds: vec![], runtime_age_hours: Some(0.0), canary_seconds: vec![], ship_seconds: vec![] });
     assert_eq!(bars(&events[..3], NOW - 24 * HOUR, NOW).breaks_reaching_second_host, Some(0));
     assert_eq!(bars(&events, NOW + HOUR, NOW + 2 * HOUR).breaks_reaching_second_host, Some(0), "a quiet window after a promotion breaks nothing");
-    assert_eq!(bars(&[], NOW - 24 * HOUR, NOW), Bars { breaks_reaching_second_host: None, rollback_seconds: None, rollbacks: 0, due_to_live_seconds: vec![], runtime_age_hours: None });
+    assert_eq!(bars(&[], NOW - 24 * HOUR, NOW), Bars { breaks_reaching_second_host: None, rollback_seconds: None, rollbacks: 0, due_to_live_seconds: vec![], runtime_age_hours: None, canary_seconds: vec![], ship_seconds: vec![] });
+    let stage = |seconds: i64, at: i64| [Event::Canaried { sha: MAIN.to_owned(), host: "nexus".to_owned(), at, seconds }, Event::Shipped { sha: MAIN.to_owned(), host: "nexus".to_owned(), at, seconds: seconds / 2 }];
+    let stages: Vec<Event> = [stage(40, NOW - HOUR), stage(500, NOW - 2 * HOUR), stage(500, NOW + HOUR)].concat();
+    let read = bars(&stages, NOW - HOUR, NOW);
+    assert_eq!((read.canary_seconds, read.ship_seconds), (vec![40.0], vec![20.0]), "each stage is read from its own events inside the window");
 }
 
 #[test]
