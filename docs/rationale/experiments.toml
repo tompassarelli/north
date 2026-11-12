@@ -666,3 +666,11 @@ command = "rg -q 'north#1050 verdict' docs/rationale/watch/2026-11-10-impeccable
 review = "2026-12-10"
 owner = "tompassarelli/north#1050"
 lead = "proxy"
+
+[[check]]
+id = "mechanism-discovery-kept-or-deleted"
+box = "kept or deleted on 2026-12-17"
+command = "north loops check 2>&1 | rg -q '^mechanism-discovery: ok.*score: turns [2-9][0-9] in 28 d.*kept on held-out cases [1-9]'"
+review = "2026-12-17"
+owner = "tompassarelli/north#1279"
+lead = "f-loop-brief"
