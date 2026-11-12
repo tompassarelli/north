@@ -27,6 +27,7 @@ pub struct Request {
     pub run: String,
     pub log: String,
     pub failing: BTreeSet<Failure>,
+    pub tree: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,7 +66,7 @@ fn trailer(message: &str, key: &str) -> String {
 }
 
 pub fn parse(head: &str, message: &str) -> Request {
-    Request { head: head.to_owned(), parent: trailer(message, "Green-parent"), run: trailer(message, "Main-red-run"), log: trailer(message, "Main-red-log"), failing: red_check::failures(message) }
+    Request { head: head.to_owned(), parent: trailer(message, "Green-parent"), run: trailer(message, "Main-red-run"), log: trailer(message, "Main-red-log"), failing: red_check::failures(message), tree: trailer(message, "Main-red-tree") }
 }
 
 pub fn is_revert(message: &str) -> bool {
@@ -409,6 +410,9 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
     if request.parent.is_empty() {
         return Ok(format!("malformed: {name} names no Green-parent"));
     }
+    if let Some(why) = super::verdict_tree::misjudged(&request.tree, &git(worktree, &["rev-parse", &format!("{head}^{{tree}}")])?) {
+        return Ok(format!("no verdict: {why}; nothing is reverted"));
+    }
     if let Some(verdict) = north_check_environment::credential::incident(Path::new(&request.log)) {
         return Ok(verdict);
     }
@@ -440,9 +444,9 @@ fn requests(lander: &Lander) -> Result<Vec<(String, String)>, String> {
         .collect())
 }
 
-pub fn request_message(head: &str, parent: &str, failing: &BTreeSet<Failure>, log: &Path) -> String {
+pub fn request_message(head: &str, parent: &str, failing: &BTreeSet<Failure>, log: &Path, tree: &str) -> String {
     let lines: Vec<String> = failing.iter().map(Failure::line).collect();
-    format!("Main red at {head}\n\n{}\n\nGreen-parent: {parent}\nMain-red-run: post-land checks of {}\nMain-red-log: {}", lines.join("\n"), short(head), log.display())
+    format!("Main red at {head}\n\n{}\n\nGreen-parent: {parent}\nMain-red-run: post-land checks of {}\nMain-red-log: {}\nMain-red-tree: {tree}", lines.join("\n"), short(head), log.display())
 }
 
 pub fn green_ancestor(ledger: &str, repository: &str, history: &[&str]) -> Option<String> {
@@ -457,7 +461,9 @@ pub fn green_ancestor(ledger: &str, repository: &str, history: &[&str]) -> Optio
 }
 
 pub fn file(repo: &Path, head: &str, parent: &str, failing: &BTreeSet<Failure>, log: &Path) -> Result<(), String> {
-    let request = git(repo, &["commit-tree", &format!("{head}^{{tree}}"), "-p", head, "-m", &request_message(head, parent, failing, log)])?;
+    let commit_tree = git(repo, &["rev-parse", &format!("{head}^{{tree}}")])?;
+    let tree = super::verdict_tree::verdict_tree(&fs::read_to_string(log).unwrap_or_default(), &commit_tree);
+    let request = git(repo, &["commit-tree", &commit_tree, "-p", head, "-m", &request_message(head, parent, failing, log, &tree)])?;
     let pushed = Command::new("git").arg("-C").arg(repo).args(["push", "-q", "--no-verify", "origin", &format!("{request}:{REQUESTS}{head}")]).env("SAFE_PUSH_ACTIVE", "1").output().map_err(|error| error.to_string())?;
     if pushed.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&pushed.stderr).trim().to_owned()) }
 }

@@ -7,7 +7,7 @@ fn request() -> Request {
 }
 
 fn clippy_request() -> Request {
-    parse("red", &request_message("red", "parent", &clippy(), Path::new("/logs/post-land-red.log")))
+    parse("red", &request_message("red", "parent", &clippy(), Path::new("/logs/post-land-red.log"), "tree"))
 }
 
 fn lane(commit: &str, message: &str) -> Lane {
@@ -69,6 +69,13 @@ fn never_reverts_a_revert_or_a_lane_twice_and_a_run_without_cases_reverts_nothin
     assert_eq!(told.len(), 1, "the proxy is told once: {told:?}");
     assert!(told[0].0 == "proxy" && told[0].1.contains("main is broken, not a lane: suite::x"), "{told:?}");
     infrastructure_reaches_no_verdict();
+    let (commit, other) = ("c".repeat(40), "f".repeat(40));
+    let running = format!("offload: running {} in /slots/code-north-main\n", "a".repeat(40));
+    let named = |log: &str| parse("red", &request_message("red", "parent", &clippy(), Path::new("/logs/post-land-red.log"), &crate::land::verdict_tree::verdict_tree(log, &commit))).tree;
+    assert_eq!(crate::land::verdict_tree::misjudged(&named(&format!("{running}offload: proved tree {commit} of red\n")), &commit), None, "a red computed on the commit's own tree is judged");
+    assert!(crate::land::verdict_tree::misjudged(&named(&format!("{running}offload: proved tree {other} of red\n")), &commit).is_some_and(|why| why.contains(&other)), "a red computed on another tree reverts nothing and names that tree");
+    assert!(crate::land::verdict_tree::misjudged(&named(&running), &commit).is_some(), "a red from an offloaded run that proved no tree reverts nothing");
+    assert!(crate::land::verdict_tree::misjudged(&request().tree, &commit).is_some(), "a request naming no tree reverts nothing");
 }
 
 #[test]
@@ -177,7 +184,7 @@ const NIX_CHECK: &str = "nix flake check --offline --no-update-lock-file --no-bu
 
 #[test]
 fn a_check_that_fails_only_on_one_host_is_that_hosts_fault_and_reverts_nothing() {
-    let request = parse("9b38429b23", &request_message("9b38429b23", "parent", &BTreeSet::from([Failure::Step(NIX_CHECK.into())]), Path::new("/logs/post-land-9b38429b23b7.log")));
+    let request = parse("9b38429b23", &request_message("9b38429b23", "parent", &BTreeSet::from([Failure::Step(NIX_CHECK.into())]), Path::new("/logs/post-land-9b38429b23b7.log"), "tree"));
     let lanes = [lane("9b38429b23", "Add land.after-only reasons to .safe-push"), lane("older", "Add a")];
     let ran = std::cell::RefCell::new(Vec::<String>::new());
     let bench = |_: &Lane, on: On| {

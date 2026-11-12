@@ -27,6 +27,7 @@ mod red_episode;
 pub mod refusal;
 pub mod scans;
 pub mod sheriff;
+pub mod verdict_tree;
 pub use north_land_checks::land::{slots, telemetry};
 pub mod requeue;
 pub mod trace;
