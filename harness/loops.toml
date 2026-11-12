@@ -222,7 +222,7 @@ decision = "how many lanes the lander tries in one round"
 sites = ["crates/north-lander/src/land/serve.rs"]
 updated_by = "north land serve"
 cadence_hours = 24
-owner = "north#360"
+owner = "north#1247"
 
 constants = [
   "crates/north-landing/src/land/heartbeat.rs::LOOK",

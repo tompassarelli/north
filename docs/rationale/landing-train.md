@@ -1,6 +1,6 @@
 # Landing train: main never red, finished work never waits on someone else's break
 
-Owner: north#360
+Owner: north#1247
 
 Tom asked on 2026-11-04 for the most ambitious correct redesign of north's landing, with maximum
 robustness and the fastest landing the design allows. This file holds the baseline measured that day,

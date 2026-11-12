@@ -1693,10 +1693,10 @@ fallback = "none: the lease scope always sets the cap"
 consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 
 [harness_loss_owners]
-value = ["placement=north#706", "access=north#638", "capacity=north#259", "waits=north#706", "false revert=north#360", "duplicate=north#636", "landing refusal=north#360", "gate refusal=north#715", "compaction=north#706"]
+value = ["placement=north#706", "access=north#638", "capacity=north#259", "waits=north#706", "false revert=north#1247", "duplicate=north#636", "landing refusal=north#1247", "gate refusal=north#715", "compaction=north#706"]
 allowed = { min_len = 1 }
 unit = "the issue that owns each harness cause class of docs/rationale/attribution.md, as CLASS=ISSUE: the 24 h usage `north ledger flow` charges a class counts toward its owner's rank in `north graph ready`"
-source = "proxy: the fact graph ranks the ready list by the measured usage an issue's fix would remove per dollar of its box (north#734, 2026-11-07); each class goes to the open issue whose boxes fix it: placement, waits and compaction to north#706's placement, staffing and attribution boxes, access to the GitHub gateway (north#638), capacity to measured capacity (north#259), false revert and landing refusal to the landing flow (north#360), duplicate to one proxy and no queue override (north#636), gate refusal to measured false refusals (north#715)"
+source = "proxy: the fact graph ranks the ready list by the measured usage an issue's fix would remove per dollar of its box (north#734, 2026-11-07); each class goes to the open issue whose boxes fix it: placement, waits and compaction to north#706's placement, staffing and attribution boxes, access to the GitHub gateway (north#638), capacity to measured capacity (north#259), false revert and landing refusal to no queue waits behind work that cannot start (north#1247), duplicate to one proxy and no queue override (north#636), gate refusal to measured false refusals (north#715)"
 fallback = "a class with no owner here counts toward no issue's rank"
 consumers = ["crates/north-graph-ingest/src/losses.rs"]
 

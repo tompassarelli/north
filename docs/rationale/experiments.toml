@@ -159,7 +159,7 @@ min_n = 15
 before = ["2026-10-21", "2026-11-04"]
 after = ["2026-11-05", "2026-11-19"]
 review = "2026-11-21"
-owner = "tompassarelli/north#360"
+owner = "tompassarelli/north#1247"
 
 [[experiment]]
 id = "enqueue-gates"
@@ -172,7 +172,7 @@ min_n = 1
 before = ["2026-10-21", "2026-11-04"]
 after = ["2026-11-05", "2026-11-19"]
 review = "2026-11-21"
-owner = "tompassarelli/north#360"
+owner = "tompassarelli/north#1247"
 
 [[experiment]]
 id = "lander-default"
@@ -185,7 +185,7 @@ min_n = 1
 before = ["2026-10-21", "2026-11-04"]
 after = ["2026-11-05", "2026-11-19"]
 review = "2026-11-21"
-owner = "tompassarelli/north#360"
+owner = "tompassarelli/north#1247"
 
 [[experiment]]
 id = "rust-inner-loop-check"
@@ -529,7 +529,7 @@ box = "shows no start timeout for a day after it lands"
 command = "journalctl --user -u fleet-tick.service --since -24h | rg -c 'start operation timed out' || echo 0"
 expect = "0"
 review = "2026-11-07"
-owner = "tompassarelli/north#1275"
+owner = "tompassarelli/north#1048"
 
 [[check]]
 id = "n638-mirror-main-caller"
@@ -625,7 +625,7 @@ box = "shows no start timeout for a day after it lands"
 command = "journalctl --user -u fleet-tick.service --since '2026-11-09 17:30' --until '2026-11-10 17:30' | rg -c 'start operation timed out' || echo 0"
 expect = "0"
 review = "2026-11-11"
-owner = "tompassarelli/north#1275"
+owner = "tompassarelli/north#1048"
 
 [[experiment]]
 id = "absolute-paths-to-tom"
