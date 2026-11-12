@@ -14,6 +14,7 @@ use super::repositories;
 use super::setting;
 use north_base::land_ticket::{self, HAND_IN_WAIT};
 mod arguments;
+mod facts;
 mod refuse;
 mod verdict;
 use verdict::Verdict;
@@ -21,10 +22,11 @@ mod timings;
 use timings::Timings;
 mod alone;
 use alone::{check_lane, checked_alone};
+pub use facts::Facts;
 use refuse::{judge_lane_gates, refuse_archived, refuse_conflict, refuse_nothing_to_land, refuse_stale_revert};
 use super::scans::outgoing;
 use crate::landing::lane_squash::{self, Squash};
-use crate::land::scans::outgoing::denylist::Denylist;
+use crate::land::scans::outgoing::denylist::{Denylist, Seen};
 use crate::land::slots::runner;
 use crate::landing_refusals;
 
@@ -219,9 +221,9 @@ fn marks(root: &Path, base: &str, head: &str, destination: &str) -> Result<Marks
     Ok((red_fix, super::lander_fix::marked(root, base, head)?, urgent))
 }
 
-pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment) -> Result<Queued, String> {
+pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment, facts: Option<Facts>) -> Result<Queued, String> {
     let timings = Timings::start();
-    let queued = timed_enqueue(repo, shape, keep_lane, environment, &timings);
+    let queued = timed_enqueue(repo, shape, keep_lane, environment, &timings, facts);
     println!("{}", timings.line());
     if let Ok(queued) = &queued {
         timings.record(&queue::directory(environment.state_home, &queued.ticket.origin).join("logs"), &queued.ticket.head, environment.host);
@@ -229,13 +231,14 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     queued
 }
 
-fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment, timings: &Timings) -> Result<Queued, String> {
+fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment, timings: &Timings, facts: Option<Facts>) -> Result<Queued, String> {
     let (root, branch) = checkout(repo)?;
     let origin = git(&root, &["remote", "get-url", "--push", "origin"]).map_err(|_| "origin has no push URL".to_owned())?;
-    timings.stage("servable", || repositories::servable(&root)).map_err(|error| format!("the lander cannot serve this repository: {error}"))?;
-    timings.stage("archived", || refuse_archived(&origin))?;
     let destination = default_branch(&root);
-    let (remote_ref, base) = timings.stage("fetch", || fetch_base(&root, &destination))?;
+    let facts = facts.filter(|facts| facts.serves(&root, &origin, &destination)).unwrap_or_else(|| Facts::started(root.clone(), origin.clone(), destination.clone(), environment.denylist));
+    timings.stage("servable", || repositories::servable(&root)).map_err(|error| format!("the lander cannot serve this repository: {error}"))?;
+    let (remote_ref, base) = timings.stage("fetch", || facts.base().or_else(|_| fetch_base(&root, &destination)))?;
+    timings.stage("archived", || refuse_archived(facts.repository()))?;
     timings.stage("nothing to land", || refuse_nothing_to_land(&root, &base, &destination))?;
     timings.stage("conflict", || refuse_conflict(&root, &base, &destination))?;
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
@@ -258,9 +261,10 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
         lane_squash::refuse_unfinished_subject(&root, &branch)?;
         let queue = queue::directory(environment.state_home, &origin);
+        let seen = Seen { visibility: facts.repository().visibility.clone(), held: facts.denylist() };
         let asked_micros = micros();
         let ((gate, ran, answered), gated_from, (red_fix, lander_fix, urgent)) = std::thread::scope(|inner| {
-            let judge = inner.spawn(|| timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination).map(|(gate, ran)| (gate, ran, micros()))));
+            let judge = inner.spawn(|| timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination, seen).map(|(gate, ran)| (gate, ran, micros()))));
             timings.stage("requeue", || super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session))?;
             let gated_from = timings.stage("lane gates", || judge_lane_gates(environment, &root, &branch, &base, &head, lander_ledger_at(&lander_host, &queue, environment)))?;
             judged(environment, &root, &branch, &head, "revert guard", timings.stage("revert guard", || refuse_stale_revert(&root, &base, &head)))?;
@@ -308,9 +312,9 @@ fn checkout(repo: &Path) -> Result<(PathBuf, String), String> {
 
 /// Fetches `destination` into its remote ref and returns the ref and the commit it now names.
 pub(super) fn fetch_base(root: &Path, destination: &str) -> Result<(String, String), String> {
-    let remote_ref = format!("refs/remotes/origin/{destination}");
-    git(root, &["fetch", "-q", "origin", &format!("+refs/heads/{destination}:{remote_ref}")])
+    git(root, &["fetch", "-q", "origin", &format!("+refs/heads/{destination}:refs/remotes/origin/{destination}")])
         .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
+    let remote_ref = format!("refs/remotes/origin/{destination}");
     let base = git(root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
     Ok((remote_ref, base))
 }
@@ -340,7 +344,7 @@ pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
     let state_home = state_home();
     let sources = Denylist::from_env();
     let environment = Environment { called_micros, state_home: &state_home, host: &host, session: session.as_deref(), waits: parsed.wait, denylist: &sources };
-    match enqueue(repo, parsed.shape(), parsed.keep_lane, &environment) {
+    match enqueue(repo, parsed.shape(), parsed.keep_lane, &environment, Facts::kept()) {
         Ok(queued) => {
             match &queued.squash {
                 Squash::Kept(reason) => println!("safe-push: lane not squashed: {reason}"),

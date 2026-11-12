@@ -5,9 +5,9 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::enqueue::{default_branch, fetch_base, git};
+use super::enqueue::{Facts, default_branch, fetch_base, git};
 use crate::land::slots::runner;
-use crate::land::scans::outgoing::denylist::{Denylist, Stand};
+use crate::land::scans::outgoing::denylist::{Denylist, Seen, Stand};
 
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -127,10 +127,12 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
         }
     };
     let head = request.check.and_then(|_| would_be(&named.lane.root, &named.message, &named.paths));
-    if let Some(head) = &head {
-        ask_early(&named, head.clone());
+    let facts = Facts::start(&named.lane.root, &named.lane.destination, &Denylist::from_env());
+    facts.iter().for_each(Facts::keep);
+    if let (Some(head), Some(facts)) = (&head, &facts) {
+        ask_early(&named, head.clone(), facts.clone());
     }
-    let landed = request.check.zip(head.as_deref()).and_then(|(check, head)| as_land_check(&named.lane, check, head));
+    let landed = request.check.zip(head.as_deref()).and_then(|(check, head)| as_land_check(&named.lane, check, head, facts.as_ref()));
     let checked = match (request.check, landed) {
         (_, Some(ran)) => ran.map_err(|refusal| ("failed as a check before queueing".to_owned(), refusal)),
         (Some(check), None) => passes(&named.lane.root, check),
@@ -151,9 +153,9 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
     }
 }
 
-fn as_land_check(lane: &Lane, check: &str, head: &str) -> Option<Result<(), String>> {
+fn as_land_check(lane: &Lane, check: &str, head: &str, facts: Option<&Facts>) -> Option<Result<(), String>> {
     git(&lane.root, &["show", &format!("{head}:.safe-push")]).ok().filter(|config| config.contains(check.trim()))?;
-    let (_, base) = fetch_base(&lane.root, &lane.destination).ok()?;
+    let (_, base) = facts?.base().or_else(|_| fetch_base(&lane.root, &lane.destination)).ok()?;
     let commands = runner::queue_commands(&lane.root, &base, head).ok()?;
     commands.iter().any(|command| command.trim() == check.trim()).then(|| runner::refuse_queue_checks(&lane.root, &base, head))
 }
@@ -296,13 +298,14 @@ fn normal(path: &Path) -> PathBuf {
     normal
 }
 
-fn ask_early(named: &Named, head: String) {
+fn ask_early(named: &Named, head: String, facts: Facts) {
     let root = named.lane.root.clone();
     let destination = named.lane.destination.clone();
     std::thread::spawn(move || {
         let Ok(origin) = git(&root, &["remote", "get-url", "--push", "origin"]) else { return };
         let base = format!("refs/remotes/origin/{destination}");
-        let _ = Denylist::from_env().verdict_within(&root, &origin, (&base, &head, &destination), Some(EARLY_WAIT));
+        let seen = Seen { visibility: facts.repository().visibility.clone(), held: facts.denylist() };
+        let _ = Denylist::from_env().verdict_seen_within(&root, &origin, (&base, &head, &destination), EARLY_WAIT, seen);
     });
 }
 

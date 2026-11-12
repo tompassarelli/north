@@ -24,7 +24,7 @@ fn a_named_missing_south_is_refused_rather_than_passing_unscanned() {
     let fixture = Fixture::new();
     fixture.commit(&fixture.repo, "notes.txt", "Add notes");
     let missing = fixture.root.join("no-south");
-    let path = stub_gh(&fixture, "echo PUBLIC");
+    let path = stub_gh(&fixture, "case \"$*\" in *isArchived*) echo false PUBLIC;; *) echo PUBLIC;; esac");
     let output = north_enqueue_with(&fixture, &[("SAFE_PUSH_SOUTH", &missing), ("PATH", &path)]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -40,7 +40,7 @@ fn a_deny_listed_value_is_refused() {
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "Add identity"]);
     let list = deny_list(&fixture);
-    let path = stub_gh(&fixture, "echo PUBLIC");
+    let path = stub_gh(&fixture, "case \"$*\" in *isArchived*) echo false PUBLIC;; *) echo PUBLIC;; esac");
     let output = north_enqueue_with(&fixture, &[("SAFE_PUSH_DENYLIST", &list), ("PATH", &path)]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);

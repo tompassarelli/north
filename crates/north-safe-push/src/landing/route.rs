@@ -14,6 +14,7 @@ use crate::shell::git::default_branch;
 use north_landing::land::candidate::git;
 use north_landing::land::lander::state_home;
 use north_lander::land::enqueue;
+use north_lander::land::scans::outgoing::denylist::Denylist;
 use north_landing::land::{hold, queue, repositories, setting};
 
 const USAGE: &str = "usage: safe-push --to BRANCH [--message FILE | --several-commits REASON] [--keep-lane] [--wait]";
@@ -134,7 +135,8 @@ pub fn land(arguments: &[String], request: &Arguments, to: &str, shell: &Shell) 
     let code = match claim(shell) {
         Ok(claims) => {
             timeline.announce();
-            match fetch_destination(shell, to) {
+            let facts = enqueue::Facts::kept().filter(|kept| kept.base().is_ok()).or_else(|| enqueue::Facts::start(Path::new("."), to, &Denylist::from_env()).inspect(enqueue::Facts::keep));
+            match facts.as_ref().filter(|facts| facts.base().is_ok()).map_or_else(|| fetch_destination(shell, to), |_| Ok(Destination::Queue)) {
                 Ok(Destination::Queue) => run(arguments, u128::from(timeline.started_ms()) * 1000),
                 Ok(Destination::EmptyOrigin) => return preflight::publish_root(request, to, shell, &claims.list, &mut timeline),
                 Err(Refused(code)) => code,
