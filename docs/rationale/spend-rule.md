@@ -208,6 +208,26 @@ The provider already enforces running out. The reserve, floor and governor that 
 queued work the provider would have run. So north keeps none: it reads usage to rank accounts and to report,
 and leaves stopping to the provider.
 
+## Day and night posture (design, north#1276, 2026-11-12)
+
+This is a routing design, not a limiter: it changes which provider a ready box goes to and never holds a launch,
+so the decision above stands. It follows the owner's direction of 2026-11-11 and is built only after this page is
+accepted.
+
+- **At the desk.** The trusted top Claude models work the queue at full speed, so landings and decisions arrive
+  while the owner can steer. A box is routed by its category's staffing rule, as today.
+- **Away.** The well-specified low and medium backlog on public repositories goes to the DeepSeek harnesses
+  (`DEEPSEEK_PROVIDERS` in `crates/north-fleet/src/fleet/claude_only.rs`). Claude accounts keep the coordinator
+  and every private-repository box. A decision that needs the owner waits as a gate that carries a default.
+- **The signal.** At-desk is the laptop seat's `IdleHint` (`seat_idle` in
+  `crates/north-capacity/src/capacity/laptop_auto.rs`: `no` is at the desk, `yes` is away) or the owner's word,
+  which wins. A reading that cannot be taken counts as at the desk.
+- **What each provider may touch.** DeepSeek: public repositories only, none of the subjects matched by
+  `[dispatch] claude_only` in `harness/opencode.toml` (credentials, locks, sandbox and the like), no secret and no
+  private transcript. Claude: everything, with the top models first on the coordinator and on private work.
+- **What it does not do.** It reads no usage figure, queues nothing on one and stops no account. `north fleet
+  launch` still refuses a DeepSeek worker on a `claude_only` box however it was started.
+
 ## Tier defaults (north#702 2026-11-07, north#966 2026-11-09)
 
 Usage is the binding constraint, so a launch starts from the cell its category's staffing rule names and climbs the ladder after a failed attempt. `north fleet dispatch` and `north fleet launch` both take the model and effort from `dispatch::tier::route_for`: the staffing rule seeds the cell (Haiku high first for mechanical work, whose retry is Sonnet high; Sonnet high for art and every other category, except an unknown-cause bug that names a failing test or repro command, which starts there and climbs once to Opus medium, never a second Sonnet try; Opus for netcode-determinism, performance, review, an unknown-cause bug naming no repro, and planning at medium effort within one module or high across modules, north#966), and the cell draw then picks among the category's leader and two challengers one model or effort step away from `harness/routing-cells.toml` (north#939). A challenger leaves once the bootstrap puts it behind the leader at 90% confidence, or replaces the leader once it is ahead, and the next untried cell comes in, so every non-excluded cell is tried in turn while at most three are live. The Sonnet-against-Opus arm draw, north tune's `route CATEGORY` cells and the flow alert on alternating tier arms are deleted. Both paths refuse a `Category:` outside the brief vocabulary and name the valid list, because unknown words fell through to Opus. When a dispatched worker reports `Not done:` with `Stop: reasoning`, or the lander refused one of its lanes twice for the lane's own failing checks without fewer errors and nothing landed after, `dispatch::tier::route` relaunches the box one rung up the ladder of docs/rationale/nearest-routing.md section 5 with `Follows:` naming the session and its report as the first `Prior report:`; other stops keep the rung.
