@@ -93,6 +93,9 @@ pub struct LaunchRequest {
     /// The auto-compact window a relaunch keeps from the session it restarts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_window: Option<u64>,
+    /// The two-rung route `--route` names (north#1233); a brief's own text never sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -362,6 +365,12 @@ pub struct SessionRecord {
     /// The reserve caller service unit that launched it, read from the launcher's cgroup; only such a session draws a declared reserve.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reserve_caller: Option<String>,
+    /// The two-rung route `--route` named; only the flag sets it (north#1233).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
+    /// The brief of a two-rung route's first attempt, which a turn that stops short hands the second rung with what it tried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_attempt: Option<String>,
     /// The phase this host's lifecycle store gave the launch when the record was read; session.json never holds it.
     #[serde(skip)]
     pub phase: Option<Phase>,
@@ -415,6 +424,8 @@ impl SessionRecord {
             revived_mid_task_ms: None,
             held_unit: None,
             reserve_caller: None,
+            route: request.route.clone(),
+            first_attempt: super::route::first(request.route.as_deref()).then(|| request.prompt.clone()),
             phase: None,
         }
     }
@@ -511,6 +522,7 @@ impl SessionRecord {
             role: Some(self.role()),
             resume: None,
             compact_window: self.compact_window,
+            route: None,
         }
     }
 }

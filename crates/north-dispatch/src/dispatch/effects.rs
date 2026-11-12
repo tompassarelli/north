@@ -102,6 +102,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         effort: launch.route.effort.map(|effort| effort.name().to_owned()),
         cell,
         cell_role: launch.route.cell_role.map(str::to_owned),
+        route: None,
     };
     record::append(&record::directory(), &entry)?;
     if result.is_ok() && !super::deepseek::is(launch) {

@@ -127,6 +127,7 @@ fn launch(name: &str, tier: &str, effort: &str, signal: Option<&str>, lift: Opti
         effort: Some(effort.to_owned()),
         cell: None,
         cell_role: None,
+        route: None,
     }
 }
 

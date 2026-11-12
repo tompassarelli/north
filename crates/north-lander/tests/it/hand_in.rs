@@ -163,7 +163,7 @@ const FINISH_ARGUMENTS: &str = "NORTH_FINISH_IT_ARGUMENTS";
 
 fn finish(world: &World, session: &str, check: &str, message: &str, path: &Path) -> Output {
     let arguments = ["--check", check, "--message", message, "--", path.to_str().unwrap()];
-    queueing(world, FINISH, FINISH_ARGUMENTS, &arguments).env("NORTH_FLEET_SESSION", session).output().unwrap()
+    queueing(world, FINISH, FINISH_ARGUMENTS, &arguments).env("NORTH_FLEET_SESSION", session).env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts")).output().unwrap()
 }
 
 #[test]
@@ -191,6 +191,13 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a failed check committed: {text}");
     assert_eq!(git(&lane, &["diff", "--cached", "--name-only"]), "", "a failed check staged: {text}");
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "a failed check queued: {text}");
+    let kept = text.lines().find_map(|line| line.split("the attempt is kept in ").nth(1)).unwrap_or_else(|| panic!("a failed check named no kept attempt: {text}"));
+    let attempt: serde_json::Value = serde_json::from_str(&fs::read_to_string(kept.trim()).unwrap()).unwrap();
+    assert_eq!(attempt["output"], "the box is red\n", "the kept attempt lost the check's output: {attempt}");
+    assert!(attempt["diff"].as_str().is_some_and(|diff| diff.contains("+the finished change") && !diff.contains("unnamed")), "the kept attempt does not hold the named change as its diff: {attempt}");
+    let store = north_base::platform::finish_record::FinishRecords(world.path().join("verdicts").join("finished"));
+    let recorded = store.read("proposer").unwrap_or_else(|| panic!("a failed finish call wrote no finish record outside the lane: {text}"));
+    assert!(!recorded.passed && recorded.command == "echo the box is red; exit 3", "the finish record does not name the failed acceptance command: {recorded:?}");
 
     let mut proposing = queueing(&world, FINISH, FINISH_ARGUMENTS, &["--judge-message", "proposer"]).current_dir(&lane).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     proposing.stdin.take().unwrap().write_all(b"Add the proposed note (north#1239)").unwrap();
@@ -204,6 +211,8 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     let text = report(&passed);
     assert_eq!(passed.status.code(), Some(0), "{text}");
     assert!(ran.exists(), "the check did not run in the lane: {text}");
+    assert!(!Path::new(kept.trim()).exists(), "a passing check left the failed attempt for a second rung to read: {text}");
+    assert!(store.read("proposer").is_some_and(|recorded| recorded.passed), "a passing finish call left its session's failed finish record");
     let pending = queue::pending(&north.queue).unwrap();
     let [(ticket, queued)] = &pending[..] else { panic!("the passing call did not leave one undecided ticket: {pending:?}\n{text}") };
     let name = ticket.file_name().unwrap().to_str().unwrap();

@@ -52,4 +52,6 @@ pub use north_fleet_store::{alarm_stats, alarms, flood, fold, held, ask_once, ga
 use north_fleet_store::ssh;
 pub mod board;
 pub mod claude_only;
+pub mod rungs;
+pub mod route;
 pub mod spares;

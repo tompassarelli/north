@@ -9,6 +9,7 @@ pub mod repo_names;
 pub mod git;
 pub mod land_notice;
 pub mod land_queue;
+pub mod finish_record;
 pub mod betterleaks;
 pub mod harness;
 pub mod signin;

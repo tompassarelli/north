@@ -125,6 +125,7 @@ mod tests {
             role: None,
             resume: None,
             compact_window: None,
+            route: None,
         };
         QueuedLaunch::new(request, Priority::Normal, created_ms, "provider limit".into())
     }

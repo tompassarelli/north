@@ -10,6 +10,7 @@ use crate::fleet::records::write_record;
 use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::RunSink;
 use crate::fleet::waits::Run;
+use crate::fleet::model::LaunchRequest;
 
 use super::*;
 
@@ -25,13 +26,17 @@ impl JobLeases for Leases {
 struct Told(Mutex<Vec<String>>);
 
 impl Courier for Told {
-    fn notify(&self, parent: &str, _text: String, _delivery: Delivery) {
-        self.0.lock().unwrap().push(parent.to_owned());
+    fn notify(&self, parent: &str, text: String, _delivery: Delivery) {
+        self.0.lock().unwrap().push(format!("{parent} {text}"));
     }
 
     fn ask(&self, _request: GateRequest) {}
 
     fn answer(&self, _host_dir: &Path, _frame: String) {}
+
+    fn launch(&self, words: Vec<String>) {
+        self.0.lock().unwrap().push(format!("launch {}", words.join("\n")));
+    }
 }
 
 struct Books0;
@@ -181,6 +186,26 @@ fn a_finished_session_retires_at_close_or_at_its_idle_limit_though_its_cli_still
 
     let (_root, _host, mut monitoring) = watched("Not done: CI is still running; its monitor wakes me.");
     assert!(matches!(monitoring.rest(Duration::from_secs(3 * 600), limit), Rest::Wait), "an unfinished session's own monitor still wakes it");
+
+    let (launched, _) = escalations(Some(false), true, Some("small-first"), true);
+    let [second] = &launched[..] else { panic!("a small-first attempt whose check failed did not start one second attempt") };
+    for part in ["--name\nworker-r2", "--task\nnorth#1", "--route\nafter:worker:opus\n", "Item: north#1 (dates parse)", "Not done: the check failed.", "cargo test -p north-fleet", "test parses_dates ... FAILED", "+fn parse() {}"] {
+        assert!(second.contains(part), "the second attempt lacks {part:?}: {second}");
+    }
+    assert!(second.contains("--cwd\n") && second.contains("/main\n") && !second.contains(crate::fleet::route::NOTE), "the second attempt starts outside the main checkout or routes again: {second}");
+    let (cleared, _) = escalations(Some(false), false, Some("small-first"), true);
+    assert!(cleared.len() == 1 && cleared[0].contains("kept no output or diff"), "a lane that cleared its own record stopped the escalation: {cleared:?}");
+    let (same_model, _) = escalations(Some(false), true, Some("opus:low,opus:medium"), true);
+    assert!(same_model.len() == 1 && same_model[0].contains("--route\nafter:worker:opus:medium\n"), "the second rung lost its effort: {same_model:?}");
+    for (finished, route) in [(None, Some("small-first")), (Some(true), Some("small-first")), (Some(false), None), (Some(false), Some("after:worker:opus"))] {
+        assert_eq!(escalations(finished, true, route, true).0, Vec::<String>::new(), "a lane record forged beside finish record {finished:?} (route {route:?}) started an escalation");
+    }
+    let (launched, told) = escalations(Some(false), true, Some("small-first"), false);
+    assert!(launched.is_empty() && told.iter().any(|text| text.contains("the second rung was not started")), "a first rung outside any checkout started its second rung anyway: {launched:?} {told:?}");
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "task_ref": "north#1"})).unwrap();
+    let written = LaunchRequest { prompt: "Route: small-first\nItem: north#1".into(), ..record.relaunch_request() };
+    assert_eq!(SessionRecord::launched(&written, None, None, false, 1).first_attempt, None, "a Route: line in the brief's text routed the launch without the flag");
+    assert!(SessionRecord::launched(&LaunchRequest { route: Some("small-first".into()), ..written }, None, None, false, 1).first_attempt.is_some(), "the --route flag did not route the launch");
 }
 
 struct Working(usize);
@@ -287,4 +312,50 @@ fn a_hook_spawned_run_under_the_session_scope_wakes_no_session() {
     assert!(settled.is_empty(), "a hook child's end settles no wait: {settled:?}");
     assert!(told.into_inner().unwrap().is_empty(), "a hook child's end wakes no session");
     assert!(waits.of("proxy").is_empty(), "the unregistered pid wait is dropped without a message");
+}
+
+fn git(dir: &Path, arguments: &[&str]) -> String {
+    let output = std::process::Command::new("git").arg("-C").arg(dir).args(arguments).output().unwrap();
+    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+fn escalations(finished: Option<bool>, lane_record: bool, route: Option<&str>, checkout: bool) -> (Vec<String>, Vec<String>) {
+    let root = tempfile::tempdir().unwrap();
+    let (host, main, plain) = (root.path().join("worker"), root.path().join("main"), root.path().join("plain"));
+    for dir in [&host, &main, &plain] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"]);
+    git(&main, &["worktree", "add", "-q", "-b", "lane", root.path().join("lane").to_str().unwrap()]);
+    git(&main, &["config", "branch.lane.north-issue", "north#1"]);
+    let attempt = serde_json::json!({"check": "cargo test -p north-fleet", "output": "test parses_dates ... FAILED", "diff": "+fn parse() {}"}).to_string();
+    let forged = root.path().join("forged.json");
+    std::fs::write(&forged, &attempt).unwrap();
+    if lane_record {
+        std::fs::write(git(&root.path().join("lane"), &["rev-parse", "--path-format=absolute", "--git-path", "north-attempt.json"]), &attempt).unwrap();
+    }
+    let verdicts = root.path().join("verdicts");
+    if let Some(passed) = finished {
+        let record = north_base::platform::finish_record::Finished { session: "worker".into(), command: "cargo test -p north-fleet".into(), head: "abc".into(), passed, at: now_ms() / 1000 };
+        north_base::platform::finish_record::FinishRecords(verdicts.clone()).record(&record).unwrap();
+    }
+    let brief = format!("Item: north#1 (dates parse)\nGoal: parse dates{}", crate::fleet::route::NOTE);
+    let cwd = if checkout { &main } else { &plain };
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": cwd, "model": "claude-haiku-5-5", "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead", "task_ref": "north#1", "route": route, "first_attempt": route.map(|_| brief)})).unwrap();
+    write_record(&host, &record).unwrap();
+    let courier = Arc::new(Told::default());
+    let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), courier.clone(), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host).reading_verdicts(verdicts);
+    let mut view = View { reply: Some("Not done: the check failed.\nStop: reasoning".to_owned()), ..View::of("s") };
+    let text = format!("finish: ✗ the check `cargo test -p north-fleet` exited 101; NOT committed, NOT queued; the attempt is kept in {}", forged.display());
+    view.transcript.entries.push(Entry { kind: EntryKind::ToolResult, text });
+    watch.views.insert("s".into(), view);
+    for signal in [TurnSignal::Started { conversation: "s".into() }, TurnSignal::Ended { conversation: "s".into(), exit: TurnExit::Completed, totals: Default::default() }] {
+        if let Some(turn) = watch.turns.observe(signal, now_ms()) {
+            watch.record(turn);
+        }
+    }
+    let told = courier.0.lock().unwrap().clone();
+    (told.iter().filter_map(|told| told.strip_prefix("launch ")).map(str::to_owned).collect(), told)
 }

@@ -527,7 +527,7 @@ may_use = ["strategy_types", "foundation", "platform.host", "crate-roots"]
 
 [[module]]
 name = "platform.records"
-paths = ["crates/north-base/src/platform/land_queue.rs", "crates/north-base/src/platform/land_notice.rs", "crates/north-base/src/platform/decision_log.rs", "crates/north-base/src/platform/reader_stamp.rs", "crates/north-base/src/platform/disk_ledger.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-base/src/platform/south_land_limits.rs", "crates/north-base/src/dispatch_pause.rs"]
+paths = ["crates/north-base/src/platform/land_queue.rs", "crates/north-base/src/platform/finish_record.rs", "crates/north-base/src/platform/land_notice.rs", "crates/north-base/src/platform/decision_log.rs", "crates/north-base/src/platform/reader_stamp.rs", "crates/north-base/src/platform/disk_ledger.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-base/src/platform/south_land_limits.rs", "crates/north-base/src/dispatch_pause.rs"]
 responsibility = "The state records hosts share under ~/.local/state and south: the land queue and notices, decision logs, reader stamps, the disk ledger, admission roots and the dispatch pause."
 may_use = ["strategy_types", "foundation", "platform.harness", "platform.host"]
 

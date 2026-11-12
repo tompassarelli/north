@@ -54,6 +54,9 @@ pub struct Record {
     pub cell: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cell_role: Option<String>,
+    /// The route it ran: `small-first`, or `large-after:NAME` for the second attempt of the small-first launch NAME (north#1233).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
 }
 
 impl Record {

@@ -26,6 +26,7 @@ use super::promises::{Book, Promise, promised, resolver};
 use super::receipts::{Courier, Report, deliver_report, is_final, retires};
 use super::records::{find_session, host_sessions, parents_live};
 use super::silent::{self, Quiet, Silence, State};
+use super::rungs;
 use super::run_recording::{NoRecording, RunRecording};
 use super::runtime::{Runtime, new_uuid, now_ms};
 use super::sender::Sender;
@@ -64,6 +65,7 @@ pub struct TurnWatch {
     closing: bool,
     usage: Arc<dyn UsageSink>,
     recording: Arc<dyn RunRecording>,
+    verdicts: PathBuf,
 }
 
 struct NoLanes;
@@ -199,6 +201,7 @@ impl TurnWatch {
             closing: false,
             usage: Arc::new(NoUsage),
             recording: Arc::new(NoRecording),
+            verdicts: north_base::platform::finish_record::FinishRecords::here().0,
         }
     }
 
@@ -219,6 +222,11 @@ impl TurnWatch {
 
     pub fn writing_usage(mut self, usage: Arc<dyn UsageSink>) -> Self {
         self.usage = usage;
+        self
+    }
+
+    pub fn reading_verdicts(mut self, verdicts: PathBuf) -> Self {
+        self.verdicts = verdicts;
         self
     }
 
@@ -366,6 +374,7 @@ impl TurnWatch {
         let lines = self.views.get(&run.turn.conversation).map(|view| view.transcript.entries.clone()).unwrap_or_default();
         let Some(record) = session else { return };
         self.observe_landing(&record);
+        rungs::escalate(self.ledger.as_ref(), self.courier.as_ref(), &record, (run.turn.exit == TurnExit::Completed).then_some(reply.as_str()), &self.verdicts, now_ms());
         if let Some(number) = number {
             if matches!(run.turn.exit, TurnExit::Completed | TurnExit::Interrupted) {
                 self.quiet.insert(run.turn.conversation.clone(), Quiet::after(number, reply, run.turn.exit == TurnExit::Completed, record.eta_min, self.idle.eta_minute, lines));

@@ -7,9 +7,11 @@ use std::process::{Command, Stdio};
 
 use super::enqueue::{default_branch, fetch_base, git};
 use crate::land::slots::runner;
+use north_base::platform::finish_record::{FinishRecords, Finished};
 use crate::land::scans::outgoing::denylist::{Denylist, Stand};
 
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+const ATTEMPT: &str = "north-attempt.json";
 
 pub const USAGE: &str = "usage: north hand-in --message TEXT [--] PATH...";
 pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH... | north finish --judge-message SESSION < MESSAGE";
@@ -138,12 +140,19 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
         (Some(check), None) => passes(&named.lane.root, check),
         (None, None) => Ok(()),
     };
+    if let Some(check) = request.check {
+        record_finished(check, head.as_deref(), checked.is_ok());
+    }
     if let (Some(check), Err((failure, output))) = (request.check, checked) {
         eprint!("{output}");
         road.failed(&named.lane.root, &failure);
         let written = if request.files.is_empty() { "" } else { "the files stay as written; " };
-        eprintln!("{verb}: ✗ the check `{check}` {failure}; {written}NOT committed, NOT queued.");
+        let attempt = keep_attempt(&named, head.as_deref(), &output).map_or_else(|why| format!("the attempt was not kept: {why}"), |path| format!("the attempt is kept in {}", path.display()));
+        eprintln!("{verb}: ✗ the check `{check}` {failure}; {written}NOT committed, NOT queued; {attempt}");
         return 1;
+    }
+    if request.check.is_some() {
+        forget_attempt(&named.lane.root);
     }
     match commit(&named) {
         Ok(()) => road.take(&named.lane),
@@ -165,12 +174,44 @@ fn passes(root: &Path, check: &str) -> Result<(), (String, String)> {
     if check.trim().is_empty() {
         return Err(("is empty".to_owned(), String::new()));
     }
-    let status = Command::new("sh").arg("-c").arg(check).current_dir(root).stdin(Stdio::null()).status().map_err(|error| (format!("did not start: {error}"), String::new()))?;
+    let unstarted = |error: io::Error| (format!("did not start: {error}"), String::new());
+    let mut log = tempfile::tempfile().map_err(unstarted)?;
+    let (out, err) = (log.try_clone().map_err(unstarted)?, log.try_clone().map_err(unstarted)?);
+    let status = Command::new("sh").arg("-c").arg(check).current_dir(root).stdin(Stdio::null()).stdout(out).stderr(err).status().map_err(unstarted)?;
+    let mut output = String::new();
+    let _ = io::Seek::rewind(&mut log).and_then(|()| io::Read::read_to_string(&mut log, &mut output));
     match status.code() {
-        Some(0) => Ok(()),
-        Some(code) => Err((format!("exited {code}"), String::new())),
-        None => Err(("was killed by a signal".to_owned(), String::new())),
+        Some(0) => {
+            eprint!("{output}");
+            Ok(())
+        }
+        Some(code) => Err((format!("exited {code}"), output)),
+        None => Err(("was killed by a signal".to_owned(), output)),
     }
+}
+
+fn record_finished(check: &str, head: Option<&str>, passed: bool) {
+    let Some(session) = std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.trim().is_empty()) else { return };
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    let finished = Finished { session, command: check.trim().to_owned(), head: head.unwrap_or_default().to_owned(), passed, at };
+    if let Err(error) = FinishRecords::here().record(&finished) {
+        eprintln!("finish: the finish record was not written: {error}");
+    }
+}
+
+fn forget_attempt(root: &Path) {
+    if let Ok(path) = git(root, &["rev-parse", "--path-format=absolute", "--git-path", ATTEMPT]) {
+        let _ = fs::remove_file(path);
+    }
+}
+
+fn keep_attempt(named: &Named, head: Option<&str>, output: &str) -> Result<PathBuf, String> {
+    let root = &named.lane.root;
+    let path = PathBuf::from(git(root, &["rev-parse", "--path-format=absolute", "--git-path", ATTEMPT])?);
+    let base = format!("refs/remotes/origin/{}", named.lane.destination);
+    let diff = head.map_or_else(|| git(root, &["diff", &base]), |head| git(root, &["diff", &base, head]))?;
+    fs::write(&path, serde_json::json!({"output": output, "diff": diff}).to_string()).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(path)
 }
 
 fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, String> {

@@ -73,6 +73,7 @@ impl Fleet {
             role: Some(role),
             resume: None,
             compact_window: None,
+            route: None,
                     };
         let mut record = SessionRecord::launched(&request, None, Some(conversation.to_owned()), false, now_ms());
         record.adopted_ms = Some(record.created_ms);
