@@ -113,7 +113,7 @@ fn path(item: &str, run: &Run, db: &Connection, claims: Option<&Store>, records:
     let landed_ms = match &found {
         Some(found) => {
             let stem = found.path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
-            mark(Phase::HandingIn, found.ticket.hand_in.map(|hand_in| (micros(hand_in.called_micros), format!("hand-in called (land ticket {stem})"))).ok_or_else(|| "the ticket holds no hand-in".to_owned()));
+            mark(Phase::HandingIn, found.ticket.hand_in.as_ref().map(|hand_in| (micros(hand_in.called_micros), format!("hand-in called (land ticket {stem})"))).ok_or_else(|| "the ticket holds no hand-in".to_owned()));
             let queued = found.ticket.queued_micros.map(micros).or_else(|| ms(&found.ticket.queued_at));
             mark(Phase::Queued, queued.map(|at| (at, format!("ticket queued (land ticket {stem})"))).ok_or_else(|| "the ticket has no queued time".to_owned()));
             let (checking, landed) = landing_spans(&found.queue, &stem);

@@ -24,6 +24,9 @@ pub const KINDS_ENV: &str = "NORTH_PRIVATE_KINDS";
 pub const AT_ONCE_ENV: &str = "NORTH_PRIVACY_AT_ONCE";
 pub const ASKING_STATUS: i32 = 3;
 pub const SEGMENT_BREAK: &str = "\u{1e}\n";
+pub const CACHE_ENV: &str = "NORTH_PRIVACY_CACHE";
+pub const CACHED: &str = "cache";
+pub const RAN: &str = "private-kind judge ran: ";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Finding {
@@ -144,6 +147,40 @@ fn try_slot(directory: &Path) -> Option<Option<JudgeSlot>> {
         }
     }
     Some(None)
+}
+
+/// The directory the judge keeps its verdicts in, by chunk, and its receipts, by whole text.
+pub fn verdict_dir() -> std::path::PathBuf {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    std::env::var_os(CACHE_ENV).filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/north/private-text-verdicts"), std::path::PathBuf::from)
+}
+
+/// Keeps which tiers ran and which judge in the chain answered for `text`, as labels that name no account, once a run asked a model for it.
+pub fn write_receipt(text: &str, labels: &str) {
+    let path = receipt_path(text);
+    let line = format!("{}\t{labels}\n", seconds_now());
+    let _ = fs::create_dir_all(verdict_dir()).and_then(|()| fs::write(&path, line));
+}
+
+/// What the last run that asked a model for `text` kept, when it asked at or after `since`; `cache` when no run since then asked one.
+pub fn receipt(text: &str, since: f64) -> String {
+    let held = fs::read_to_string(receipt_path(text)).unwrap_or_default();
+    let fresh = held.trim_end().split_once('\t').filter(|(at, _)| at.parse::<f64>().is_ok_and(|at| at >= since));
+    fresh.map_or_else(|| CACHED.to_owned(), |(_, labels)| labels.to_owned())
+}
+
+/// The tiers and the answering judge a verdict's lines name, which ride on them from where the judge ran to where the verdict is read.
+pub fn ran(lines: &[String]) -> Option<String> {
+    lines.iter().find_map(|line| line.strip_prefix(RAN)).map(str::to_owned)
+}
+
+pub fn seconds_now() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64())
+}
+
+fn receipt_path(text: &str) -> std::path::PathBuf {
+    let name: String = sha2::Digest::finalize(<sha2::Sha256 as sha2::Digest>::new_with_prefix(text.as_bytes())).iter().map(|byte| format!("{byte:02x}")).collect();
+    verdict_dir().join(format!("{name}.ran"))
 }
 
 #[cfg(test)]

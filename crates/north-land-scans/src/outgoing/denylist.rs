@@ -70,7 +70,7 @@ impl Denylist {
     }
 
     pub fn scan(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step {
-        match self.scan_stand(root, origin_url, base, head, tag)? {
+        match self.scan_stand(root, origin_url, base, head, tag)?.0 {
             Stand::Pass => Ok(()),
             _ => Err(Refused(NO_VERDICT)),
         }
@@ -79,11 +79,11 @@ impl Denylist {
     /// Scans and returns the stand: a pass or a no verdict is `Ok`, while a hard refusal is `Err`. An enqueue queues a
     /// lane that reached no verdict, without an alone pass, so the lander judges it again before it lands. `stand_at_once`
     /// also returns `Judging` when the private-kind judge is still asking a model, which it leaves running.
-    pub fn scan_stand(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<Stand> {
+    pub fn scan_stand(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<(Stand, Option<String>)> {
         self.stand(root, origin_url, (base, head, tag), &|text| private_text::judge(text).map(Some))
     }
 
-    pub fn stand_at_once(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<Stand> {
+    pub fn stand_at_once(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<(Stand, Option<String>)> {
         self.stand(root, origin_url, (base, head, tag), &private_text::judge_at_once)
     }
 
@@ -102,10 +102,24 @@ impl Denylist {
     }
 
     fn judged(&self, root: &Path, origin_url: &str, (base, head, tag): (&str, &str, &str), judge: Judge) -> DenylistVerdict {
-        self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag), || Self::private_kinds(root, base, head, tag, judge))
+        let ran = std::cell::RefCell::new(None);
+        let mut verdict = self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag), || {
+            let started = private_text::seconds_now();
+            let prose = denylist::prose_range(root, base, head, Some(tag))?;
+            if prose.trim().is_empty() {
+                return Ok(Some(Vec::new()));
+            }
+            let judged = judge(&prose);
+            *ran.borrow_mut() = Some(private_text::receipt(&prose, started));
+            judged
+        });
+        if let Some(label) = ran.into_inner().filter(|_| verdict.stand == Stand::Pass) {
+            verdict.lines.push(format!("{}{label}", private_text::RAN));
+        }
+        verdict
     }
 
-    fn stand(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), judge: Judge) -> Step<Stand> {
+    fn stand(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), judge: Judge) -> Step<(Stand, Option<String>)> {
         let verdict = self.judged(root, origin_url, range, judge);
         if matches!(verdict.stand, Stand::Refuse | Stand::NoVerdict) {
             cancelled()?;
@@ -113,7 +127,7 @@ impl Denylist {
         verdict.lines.iter().for_each(|line| println!("{line}"));
         match verdict.stand {
             Stand::Refuse => Err(Refused(1)),
-            stand => Ok(stand),
+            stand => Ok((stand, private_text::ran(&verdict.lines))),
         }
     }
 
@@ -173,11 +187,6 @@ impl Denylist {
 
     fn can_judge(&self) -> bool {
         self.south.join("main").is_dir() || self.kinds.is_some()
-    }
-
-    fn private_kinds(root: &Path, base: &str, head: &str, tag: &str, judge: Judge) -> Result<Option<Vec<Finding>>, String> {
-        let prose = denylist::prose_range(root, base, head, Some(tag))?;
-        if prose.trim().is_empty() { Ok(Some(Vec::new())) } else { judge(&prose) }
     }
 
     fn report_kinds(judged: Result<Option<Vec<Finding>>, String>, visibility: &str) -> DenylistVerdict {

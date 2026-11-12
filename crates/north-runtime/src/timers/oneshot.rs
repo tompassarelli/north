@@ -137,10 +137,17 @@ fn remember_answered(dir: &Path) {
 
 /// Asks once on the subscription accounts, trying each profile in turn, the last one to answer first; an API key in the environment is unset and the api-key account is skipped, so the call can never bill by token.
 pub(crate) fn ask_claude(question: &Ask, limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Asked {
-    ask_claude_with(question, &[], limit, access, warn)
+    ask_claude_with(question, &[], limit, access, warn, &mut None)
 }
 
-fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Asked {
+/// [`ask_claude`], and which account in the order tried answered, as `reserve-N` or `shared-N` with no account name, or `ambient` for the client's own login.
+pub(crate) fn ask_claude_answered(question: &Ask, limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> (Asked, Option<String>) {
+    let mut answered = None;
+    let asked = ask_claude_with(question, &[], limit, access, warn, &mut answered);
+    (asked, answered)
+}
+
+fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String), answered_by: &mut Option<String>) -> Asked {
     let profiles = env_or("NORTH_PROFILES", || home().join(".local/state/north/profiles"));
     let accounts = crate::fleet::registry::roster(&access.runtimes).map(|roster| roster.accounts).unwrap_or_default();
     let shared: Vec<String> = claude_accounts().into_iter().filter(|label| !accounts.iter().any(|account| &account.label == label && account.api.is_some())).collect();
@@ -151,12 +158,22 @@ fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &Run
         Some(why) => Reply { code: Some(1), stdout: String::new(), stderr: why },
         None => {
             let reply = claude_once(&account_words(dir, &accounts, access.invocation), question, extra, limit);
+            if reply.code == Some(0) && !reply.stdout.is_empty() {
+                *answered_by = Some(dir.map_or_else(|| "ambient".to_owned(), |dir| place(dir, &subscription, &reserve)));
+            }
             if let Some(dir) = dir.filter(|_| reply.code == Some(0) && !reply.stdout.is_empty()) {
                 remember_answered(dir);
             }
             reply
         }
     }, warn)
+}
+
+fn place(dir: &Path, order: &[String], reserve: &[String]) -> String {
+    let label = dir.file_name().and_then(|name| name.to_str()).and_then(|name| name.strip_prefix("claude-")).unwrap_or_default();
+    let position = order.iter().position(|tried| tried == label).map_or(0, |index| index + 1);
+    let pool = if reserve.iter().any(|held| held == label) { "reserve" } else { "shared" };
+    format!("{pool}-{position}")
 }
 
 pub struct Measured {
@@ -168,7 +185,7 @@ pub struct Measured {
 }
 
 pub fn ask_claude_measured(question: &Ask, limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Result<Measured, String> {
-    let answer = match ask_claude_with(question, &["--output-format", "json"], limit, access, warn) {
+    let answer = match ask_claude_with(question, &["--output-format", "json"], limit, access, warn, &mut None) {
         Asked::Answer(answer) => answer,
         Asked::AtLimit => return Err("every claude subscription account is at its usage limit".to_owned()),
         Asked::Failed(reason) => return Err(reason),

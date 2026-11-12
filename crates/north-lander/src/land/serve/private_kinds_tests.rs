@@ -28,7 +28,7 @@ fn lander(dir: &Path) -> Lander {
 }
 
 fn handed_in(dir: &Path, branch: &str) -> Lanes {
-    let hand_in = HandIn { called_micros: QUEUED_MICROS - 900_000, gates_micros: QUEUED_MICROS - 100_000, asked_micros: QUEUED_MICROS - 400_000, verdict_micros: None, wakes_session: false };
+    let hand_in = HandIn { called_micros: QUEUED_MICROS - 900_000, gates_micros: QUEUED_MICROS - 100_000, asked_micros: QUEUED_MICROS - 400_000, verdict_micros: None, wakes_session: false, judge: None };
     let ticket = Ticket { branch: branch.into(), host: "worker-host".into(), head: format!("{branch}-head"), unjudged_on: Some(BASE.into()), queued_micros: Some(QUEUED_MICROS), hand_in: Some(hand_in), ..Ticket::default() };
     let path = dir.join(format!("queue/{branch}.json"));
     std::fs::create_dir_all(dir.join("queue")).unwrap();
@@ -71,6 +71,6 @@ fn a_lane_handed_in_on_another_host_is_vouched_for_only_by_that_hosts_passing_ve
     both.extend(handed_in(dir.path(), "other"));
     let only_lane_passes = |ticket: &Ticket, base: &str, wait: Option<Duration>| if ticket.branch == "lane" { from_host(0)(ticket, base, wait) } else { read("worker-host", answered(3, "")) };
     let landed = taken(&lander, both, SOON, &(Arc::new(only_lane_passes) as Arc<Verdict>));
-    let vouched: Vec<_> = landed.iter().map(|(_, ticket)| (ticket.branch.as_str(), ticket.passed_alone(), ticket.hand_in.and_then(|hand_in| hand_in.verdict_micros))).collect();
+    let vouched: Vec<_> = landed.iter().map(|(_, ticket)| (ticket.branch.as_str(), ticket.passed_alone(), ticket.hand_in.as_ref().and_then(|hand_in| hand_in.verdict_micros))).collect();
     assert_eq!(vouched, [("lane", true, Some(SOON.as_micros()))], "the lane with its passing verdict did not join the batch on its own, or its verdict time went unrecorded, while another lane still waited");
 }

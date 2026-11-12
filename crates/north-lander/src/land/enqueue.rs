@@ -257,17 +257,17 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         lane_squash::refuse_unfinished_subject(&root, &branch)?;
         let queue = queue::directory(environment.state_home, &origin);
         let asked_micros = micros();
-        let ((gate, answered), gated_from, (red_fix, lander_fix, urgent)) = std::thread::scope(|inner| {
-            let judge = inner.spawn(|| timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination).map(|gate| (gate, micros()))));
+        let ((gate, ran, answered), gated_from, (red_fix, lander_fix, urgent)) = std::thread::scope(|inner| {
+            let judge = inner.spawn(|| timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination).map(|(gate, ran)| (gate, ran, micros()))));
             timings.stage("requeue", || super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session))?;
             let gated_from = timings.stage("lane gates", || judge_lane_gates(environment, &root, &branch, &base, &head, lander_ledger_at(&lander_host, &queue, environment)))?;
             judged(environment, &root, &branch, &head, "revert guard", timings.stage("revert guard", || refuse_stale_revert(&root, &base, &head)))?;
             let marks = timings.stage("marks", || marks(&root, &base, &head, &destination))?;
-            let (gate, answered) = judge.join().map_err(|_| "the private-kind ask panicked".to_owned())??;
-            Ok::<_, String>(((gate, answered), gated_from, marks))
+            let (gate, ran, answered) = judge.join().map_err(|_| "the private-kind ask panicked".to_owned())??;
+            Ok::<_, String>(((gate, ran, answered), gated_from, marks))
         })?;
         secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
-        let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits };
+        let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits, judge: ran };
         let queued_micros = micros();
         let ticket = Ticket {
             origin: origin.clone(),

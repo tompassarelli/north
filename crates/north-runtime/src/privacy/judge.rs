@@ -11,19 +11,19 @@ use crate::runtime_access::RuntimeAccess;
 use crate::timers::oneshot::{self, Asked};
 
 pub struct Tier {
+    pub name: &'static str,
     model: &'static str,
     effort: &'static str,
 }
 
-const SCREEN: Tier = Tier { model: "claude-haiku-5-5", effort: "low" };
-const CONFIRM: Tier = Tier { model: "claude-sonnet-5-5", effort: "low" };
+const SCREEN: Tier = Tier { name: "screen", model: "claude-haiku-5-5", effort: "low" };
+const CONFIRM: Tier = Tier { name: "confirm", model: "claude-sonnet-5-5", effort: "low" };
 /// agy models the judge tries in turn; only Google and Anthropic models, the vendors the judge already sends to.
 const AGY_MODELS: [&str; 4] = ["gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-4-argon-medium", "claude-sonnet-5-5-low"];
 const PROMPT_VERSION: &str = "1";
 const CLEAN: &str = "NONE\n";
 const ATTEMPT_LIMIT: Duration = Duration::from_secs(90);
 const CHUNK_BYTES: usize = 48_000;
-const CACHE_ENV: &str = "NORTH_PRIVACY_CACHE";
 const CONFIRM_RUNS: usize = 3;
 const SCREENS_AT_ONCE: usize = 4;
 const SYSTEM: &str = "You judge text for private detail and answer only in the line format the request gives.";
@@ -37,9 +37,7 @@ pub struct Cache {
 
 impl Cache {
     pub fn from_env() -> Self {
-        let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-        let dir = std::env::var_os(CACHE_ENV).filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/north/private-text-verdicts"), PathBuf::from);
-        Self { dir }
+        Self { dir: north_base::platform::private_text::verdict_dir() }
     }
 
     fn read(&self, key: &str) -> Option<Vec<Finding>> {
@@ -158,26 +156,32 @@ fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, run: usize, a
 /// Asks each judge in turn until one answers: the Claude subscription accounts, then the Claude API credit pool,
 /// then agy's models. Every judge is Anthropic or Google, the two vendors the judge already used; a judge that fails
 /// only moves the ask on, and a run where none answers stays unjudged, so the push stays refused (fail closed).
-pub fn ask_subscription(tier: &Tier, prompt: &str, access: &RuntimeAccess) -> Result<String, String> {
+pub fn ask_subscription(tier: &Tier, prompt: &str, access: &RuntimeAccess) -> Result<(String, String), String> {
     let question = oneshot::Ask { model: tier.model, effort: tier.effort, system: SYSTEM, input: prompt };
-    let subscription = || match oneshot::ask_claude(&question, ATTEMPT_LIMIT, access, &mut |line| eprintln!("privacy judge: {line}")) {
-        Asked::Answer(answer) => Ok(answer),
-        Asked::AtLimit => Err("every claude subscription account is at its usage limit".to_owned()),
-        Asked::Failed(reason) => Err(reason),
+    let answered = std::cell::RefCell::new(None);
+    let subscription = || match oneshot::ask_claude_answered(&question, ATTEMPT_LIMIT, access, &mut |line| eprintln!("privacy judge: {line}")) {
+        (Asked::Answer(answer), by) => {
+            *answered.borrow_mut() = by;
+            Ok(answer)
+        }
+        (Asked::AtLimit, _) => Err("every claude subscription account is at its usage limit".to_owned()),
+        (Asked::Failed(reason), _) => Err(reason),
     };
     let api = || ask_api_pool(tier, prompt);
     let agy = || ask_agy(prompt);
-    first_answer(&[("subscription", &subscription), ("api credit", &api), ("agy", &agy)])
+    let (answer, judge) = first_answer(&[("subscription", &subscription), ("api credit", &api), ("agy", &agy)])?;
+    let by = answered.borrow().clone().filter(|_| judge == "subscription").map_or_else(|| judge.to_owned(), |place| format!("{judge}:{place}"));
+    Ok((answer, by))
 }
 
 type Judge<'a> = (&'a str, &'a dyn Fn() -> Result<String, String>);
 
 /// The first answer of `judges` in order, or every judge's refusal when none answers.
-fn first_answer(judges: &[Judge]) -> Result<String, String> {
+fn first_answer<'a>(judges: &[Judge<'a>]) -> Result<(String, &'a str), String> {
     let mut refused = Vec::new();
     for (name, ask) in judges {
         match ask() {
-            Ok(answer) => return Ok(answer),
+            Ok(answer) => return Ok((answer, name)),
             Err(why) => {
                 eprintln!("privacy judge: {name}: {why}");
                 refused.push(format!("{name}: {why}"));
@@ -420,7 +424,7 @@ mod tests {
             later.set(true);
             Ok("too late".to_owned())
         };
-        assert_eq!(first_answer(&[("subscription", &refuse), ("api credit", &answer), ("agy", &after)]), Ok("NONE".to_owned()));
+        assert_eq!(first_answer(&[("subscription", &refuse), ("api credit", &answer), ("agy", &after)]), Ok(("NONE".to_owned(), "api credit")));
         assert!(!later.get(), "a judge after the one that answered was asked");
         let none = first_answer(&[("subscription", &refuse), ("api credit", &refuse), ("agy", &refuse)]).unwrap_err();
         assert!(["subscription:", "api credit:", "agy:"].iter().all(|name| none.contains(name)), "{none}");

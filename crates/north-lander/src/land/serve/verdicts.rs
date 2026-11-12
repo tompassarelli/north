@@ -69,7 +69,7 @@ fn follow(events: &impl std::os::fd::AsFd, watched: &[(i32, PathBuf)], lander: &
 fn tell_session(path: &Path) {
     let Ok(ticket) = queue::read(path) else { return };
     let (Some(session), Some(verdict)) = (ticket.session, ticket.verdict) else { return };
-    if !ticket.hand_in.is_some_and(|hand_in| hand_in.wakes_session) || land_ticket::Phase::decided(&verdict) == land_ticket::Phase::Landed {
+    if !ticket.hand_in.as_ref().is_some_and(|hand_in| hand_in.wakes_session) || land_ticket::Phase::decided(&verdict) == land_ticket::Phase::Landed {
         return;
     }
     let message = land_ticket::refusal_message(&[(&ticket.branch, &verdict)]);

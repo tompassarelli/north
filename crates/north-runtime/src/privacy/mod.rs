@@ -4,7 +4,7 @@ mod turn;
 
 use std::io::Read;
 
-use north_base::platform::private_text::{ASKING_STATUS, AT_ONCE_ENV, Finding, render};
+use north_base::platform::private_text::{self, ASKING_STATUS, AT_ONCE_ENV, Finding, render};
 
 use crate::runtime_access::RuntimeAccess;
 
@@ -61,5 +61,17 @@ fn judged(text: &str, kinds: Option<&str>, access: &RuntimeAccess) -> Result<Opt
     let cache = judge::Cache::from_env();
     let at_once = std::env::var_os(AT_ONCE_ENV).is_some_and(|value| !value.is_empty());
     let Some(_turn) = cache.turn(&text, !at_once) else { return Ok(None) };
-    judge::judge(&list, &text, &cache, &|tier, prompt| judge::ask_subscription(tier, prompt, access)).map(Some)
+    let ran = std::sync::Mutex::new(std::collections::BTreeSet::new());
+    let judged = judge::judge(&list, &text, &cache, &|tier, prompt| {
+        let (answer, by) = judge::ask_subscription(tier, prompt, access)?;
+        ran.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert((tier.name, by));
+        Ok(answer)
+    });
+    let ran = ran.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !ran.is_empty() {
+        let tiers = if ran.iter().any(|(tier, _)| *tier == "confirm") { "screen+confirm" } else { "screen" };
+        let by: std::collections::BTreeSet<&str> = ran.iter().map(|(_, by)| by.as_str()).collect();
+        private_text::write_receipt(&text, &format!("{tiers} by {}", by.into_iter().collect::<Vec<_>>().join(", ")));
+    }
+    judged.map(Some)
 }

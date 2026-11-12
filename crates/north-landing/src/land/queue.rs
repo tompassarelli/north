@@ -82,7 +82,7 @@ pub struct Ticket {
     pub hand_in: Option<HandIn>,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HandIn {
     pub called_micros: u128,
     pub gates_micros: u128,
@@ -91,6 +91,8 @@ pub struct HandIn {
     pub verdict_micros: Option<u128>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wakes_session: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub judge: Option<String>,
 }
 
 impl Ticket {

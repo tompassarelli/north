@@ -88,7 +88,8 @@ fn judged(lander: &Lander, path: PathBuf, ticket: Ticket, base: &str, found: Den
     let judged = match found.stand {
         Stand::Pass => {
             println!("north land: the private-kind judge found nothing in {}; it joins the next batch", ticket.branch);
-            let hand_in = ticket.hand_in.map(|hand_in| HandIn { verdict_micros: hand_in.verdict_micros.or(Some(now.as_micros())), ..hand_in });
+            let judge = north_base::platform::private_text::ran(&found.lines);
+            let hand_in = ticket.hand_in.map(|hand_in| HandIn { verdict_micros: hand_in.verdict_micros.or(Some(now.as_micros())), judge: hand_in.judge.or(judge), ..hand_in });
             Ticket { alone_green: Some(ticket.head.clone()), alone_base: Some(base.to_owned()), unjudged_on: None, hand_in, ..ticket }
         }
         Stand::Refuse => {
