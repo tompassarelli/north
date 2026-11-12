@@ -1716,6 +1716,14 @@ source = "measured: src/cli/help.txt listed 70 visible commands after the help c
 fallback = "none: agent-config-check refuses a help.txt over it"
 consumers = ["crates/north-core/src/agent_config_check/help_surface.rs"]
 
+[rust_line_budget]
+value = 283336
+allowed = { min = 1, max = 1000000 }
+unit = "non-test Rust lines: the lines of every tracked *.rs file whose path the count command keeps, `git ls-files '*.rs' | rg -v '(^|/)(tests?\\.rs|[a-z_]*_tests?\\.rs|tests/)' | xargs cat | wc -l` (inline #[cfg(test)] modules and evals/ stay in the count; code-health reads the same lines through `git grep -c`, which also counts an unterminated last line)"
+source = "north#1276 sets rust_line_budget at 283336, the count at d30fdb501d (238565 at 123532ca3e and 292705 at e5e5543a95 by the same rule; 282178 at 123532ca3e is every Rust line, tests included); the 2026-11-12 line-audit review keeps it as the alarm, and north#729 means no lane is refused for size"
+fallback = "none: north code-health budget reports the excess; no lane is refused for size (north#729)"
+consumers = ["crates/north-code-health/src/code_health/budget.rs"]
+
 [capacity_task_cap]
 value = 4096
 allowed = { min = 256, max = 1000000 }

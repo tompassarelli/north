@@ -94,7 +94,17 @@ const TWO_MODULES: &str = "[review]\ncommits = 0\nhand_lines_added = 0\ntest_lin
 
 #[test]
 fn changes_since_review_fire_on_a_hidden_link_show_in_the_budget_and_record_files_per_commit_and_the_reverted_share() {
-    let repo = scratch(&[("structure.toml", TWO_MODULES.to_owned()), ("src/left/a.ts", "let _ = 0;\n".to_owned())], true);
+    let repo = scratch(
+        &[
+            ("structure.toml", TWO_MODULES.to_owned()),
+            ("src/left/a.ts", "let _ = 0;\n".to_owned()),
+            ("harness/defaults.toml", "[rust_line_budget]\nvalue = 2\n".to_owned()),
+            ("tools/lib.rs", "a\nb\nc\n".to_owned()),
+            ("tools/lib_tests.rs", "x\ny\n".to_owned()),
+            ("tools/tests/fixture.rs", "z\n".to_owned()),
+        ],
+        true,
+    );
     let mut last = String::new();
     for n in 1..5 {
         last = repo.commit(&[("src/left/a.ts", format!("let _ = {n};\n")), ("src/right/b.ts", format!("export const b = {n};\n"))]);
@@ -106,6 +116,7 @@ fn changes_since_review_fire_on_a_hidden_link_show_in_the_budget_and_record_file
     assert_eq!((code, err.as_str()), (0, ""));
     assert!(out.contains("Hidden links: 1 ") && out.contains("     3  left <-> right  e.g. src/left/a.ts <-> src/right/b.ts"), "{out}");
     assert!(out.contains("Special cases: 1 ") && out.contains("  left     1    0    0"), "{out}");
+    assert!(out.starts_with("Rust line budget: 3 non-test lines against 2 (over by 1; "), "{out}");
     let name = repo.repo.file_name().unwrap().to_string_lossy().into_owned();
     let score = std::fs::read_to_string(repo.state.join("code-health").join(name).join("loop.txt")).unwrap();
     assert!(score.starts_with("median 2 hand files per feature commit over 5 feature commits since review "), "{score}");
