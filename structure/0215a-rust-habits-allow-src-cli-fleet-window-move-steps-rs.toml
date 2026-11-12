@@ -1,0 +1,6 @@
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "src/cli/fleet/window_move/steps.rs"
+item = "Mover"
+reason = "The window move's test double for Mover lands in its own lane after the mutant-kill step's double build is fixed; that lane removes this entry (north#1238)."
+

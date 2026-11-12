@@ -103,7 +103,7 @@ fn start((unit, limit): (&str, Duration), stage: &str, words: &[&str], wait: boo
     match (status.success(), wait) {
         (true, true) => Ok(()),
         (true, false) => {
-            println!("north proxy move: started the move in unit {unit}; the new window opens now and the old one ends once its turn ends, within {} seconds", plan::END_WAIT.as_secs());
+            println!("north proxy move: started the move in unit {unit}; the new window opens now and the old one ends once its turn ends, within {} seconds", on_desktop::END_WAIT.as_secs());
             Ok(())
         }
         (false, true) => Err(NorthError::State(format!("the window move unit {unit} exited {status}"))),
@@ -236,7 +236,3 @@ fn resume_arguments(window: &Window) -> Vec<String> {
     }
     arguments
 }
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;

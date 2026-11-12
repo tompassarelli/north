@@ -2,8 +2,6 @@ use crate::usage::outlook::{AccountOutlook, Runway};
 
 use super::session::Window;
 
-pub(super) const END_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
-
 pub(super) const TRIGGER_MINUTES: f64 = 45.0;
 
 #[derive(Debug, PartialEq)]
@@ -70,7 +68,7 @@ impl Step {
             Step::Open => format!("open a new window resuming conversation {conversation} on account {to} and confirm it runs there"),
             Step::Rebind => format!("change the fleet record's account from {from} to {to} and bind the coordinator's name to the new window"),
             Step::Deliver => "deliver the coordinator's undelivered messages to the new window".to_owned(),
-            Step::EndOld => format!("end the old window (process {}) on account {from} once its turn ends, within {} seconds", window.client, END_WAIT.as_secs()),
+            Step::EndOld => format!("end the old window (process {}) on account {from} once its turn ends, within {} seconds", window.client, super::on_desktop::END_WAIT.as_secs()),
         }
     }
 }

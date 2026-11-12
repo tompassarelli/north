@@ -1156,6 +1156,12 @@ path = "crates/north-concerns/src/history.rs"
 item = "Store"
 reason = "Port for the concern history: keeps north-concerns, which the landing's after-checks also run, free of north-threads and SQLite; the root crate wires the threads ledger behind it."
 
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "src/cli/fleet/window_move/steps.rs"
+item = "Mover"
+reason = "The window move's test double for Mover lands in its own lane after the mutant-kill step's double build is fixed; that lane removes this entry (north#1238)."
+
 [[module]]
 name = "registries"
 paths = ["crates/north-registries/src/**", "build.rs"]
