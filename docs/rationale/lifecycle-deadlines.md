@@ -120,3 +120,9 @@ Read from the files each slice changes:
 ## Considered and not chosen
 
 Fixing each incident where it occurred (the review job's host naming, the held `Done:`, the revert's parent, the restart alarm) is being done under north#1227, north#1230 and north#1231 and leaves the next state of the same shape without a deadline. Adding a deadline inside each component would repeat what the page-flood note found for once-marks: several mechanisms for one guarantee drift apart, and the weakest decides.
+
+## Where a finished session's report is read (2026-11-12)
+
+One reading from origin/main, taken for the boxes moved here from north#1203.
+
+- **A retired session's report.** The report is the last turn in the session's stream on the host that runs it. The line delivered to the parent is cut at 4,000 characters (`crates/north-fleet/src/fleet/receipts.rs`). The reaper retires a session once its parent took a final report and moves its directory to that host's retired archive, which `Fleet::follow_retired` reads (`crates/north-fleet-supervisor/src/fleet/reaper.rs`). `north fleet show NAME` reads only the live registry and answers "no session named" after the retirement; only `show --json` falls back to the archive (`src/cli/fleet/show.rs`). `north fleet reports` reads this host's registry and a retired session only by name (`src/cli/fleet/reports.rs`). A build-host session's stream, record and archive are on that host. Its runs row is written by the session host as it exits, with a 45 s limit and the worker-ledger timer as the fallback (`src/cli/fleet/run_ingest.rs`).
