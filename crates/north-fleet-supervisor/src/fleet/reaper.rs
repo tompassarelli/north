@@ -92,6 +92,9 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
     if seen.ended {
         return Verdict::Ended;
     }
+    if seen.status == Status::Exited {
+        return if seen.quiet >= stale && !seen.background { Verdict::Stale } else { Verdict::Keep };
+    }
     if !matches!(seen.status, Status::Idle | Status::Parked) {
         return Verdict::Keep;
     }
@@ -181,7 +184,7 @@ pub fn reap_after(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_m
 pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_ms: u64, apply: bool, budget: Duration, spent: &dyn Fn() -> Duration) -> Reaped {
     let mut reaped = Reaped { at_ms: now_ms, stale_hours: stale.as_secs() / 3600, ..Reaped::default() };
     let records = fleet.sessions().unwrap_or_default();
-    let mut candidates: Vec<(&SessionRecord, Status, Duration)> = records.iter().filter(|record| record.role() != Role::Proxy && !record.adopted() && !record.verification).map(|record| (record, fleet.status(record), quiet(record))).filter(|(record, status, _)| ended_by_host(record) || !record.ended() && matches!(status, Status::Idle | Status::Parked)).collect();
+    let mut candidates: Vec<(&SessionRecord, Status, Duration)> = records.iter().filter(|record| record.role() != Role::Proxy && !record.adopted() && !record.verification).map(|record| (record, fleet.status(record), quiet(record))).filter(|(record, status, quiet)| ended_by_host(record) || !record.ended() && matches!(status, Status::Idle | Status::Parked) || *status == Status::Exited && *quiet >= stale).collect();
     candidates.sort_by_key(|(_, _, quiet)| std::cmp::Reverse(*quiet));
     let running = evidence.running(&candidates.iter().map(|(record, _, _)| *record).collect::<Vec<_>>());
     let gated = fleet.open_gate_sessions();
