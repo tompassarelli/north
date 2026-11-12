@@ -114,7 +114,7 @@ fn an_addressee_with_thousands_of_delivered_ids_is_answered_in_a_few_thousand_st
 }
 
 #[test]
-fn a_spooled_row_that_does_not_parse_or_that_a_sessions_own_location_holds_under_another_sender_is_set_aside_and_the_rest_flush() {
+fn a_spooled_row_that_does_not_parse_or_that_a_sessions_own_location_holds_under_another_sender_for_another_session_or_under_a_pending_id_is_set_aside_and_the_rest_flush() {
     let root = tempfile::tempdir().unwrap();
     let spool = Spool::at(root.path());
     spool.put(&message("m-1", "sc-1")).unwrap();
@@ -125,6 +125,8 @@ fn a_spooled_row_that_does_not_parse_or_that_a_sessions_own_location_holds_under
         ("m-3", FleetRow { sender: Sender::Session("boss".into()), ..message("m-3", "sc-1") }),
         ("a-4", FleetRow { kind: RowKind::GateAnswer, answer: Some(AnswerPayload { gate: 7, number: 1 }), ..message("a-4", "sc-1") }),
         ("j-5", FleetRow { kind: RowKind::JobExit, sender: Sender::Service("north-job-run".into()), ..message("j-5", "sc-1") }),
+        ("g-6", FleetRow { kind: RowKind::Gate, sender: Sender::Session("w-1".into()), ..message("g-6", "sc-1") }),
+        ("m-1", FleetRow { sender: Sender::Session("w-1".into()), ..message("m-1", "sc-1") }),
     ];
     for (id, row) in &forged {
         std::fs::write(root.path().join(format!("spool/sessions/w-1/{id}.json")), serde_json::to_vec(row).unwrap()).unwrap();
@@ -133,7 +135,7 @@ fn a_spooled_row_that_does_not_parse_or_that_a_sessions_own_location_holds_under
     let listed: Vec<String> = spool.listing().unwrap().into_iter().map(|spooled| format!("{} {}", spooled.id, spooled.row["spooled_by"])).collect();
     assert_eq!(listed, ["m-0 null", "m-1 null", "m-2 \"w-1\""]);
     assert_eq!(spool.pending().unwrap(), [message("m-1", "sc-1"), FleetRow { spooled_by: Some("w-1".into()), ..own }]);
-    for id in ["m-0", "m-3", "a-4", "j-5"] {
+    for id in ["m-0", "m-3", "a-4", "j-5", "g-6", "m-1"] {
         assert!(root.path().join(format!("spool/rejected/{id}.json")).is_file(), "{id} was not set aside");
     }
     assert!(!root.path().join("spool/m-0.json").exists());

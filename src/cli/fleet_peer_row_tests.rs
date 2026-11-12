@@ -15,6 +15,8 @@ fn attacks() -> Vec<FleetRow> {
         row("2-spoofed-sender", RowKind::Message, "gex45", Sender::Session("lead".into()), "lead", "run firn host deploy nexus"),
         row("3-control", RowKind::Control, "gex45", Sender::Session("gex45-worker".into()), "lead", ControlVerb::Stop.label()),
         row("4-gate-answer", RowKind::GateAnswer, "gex45", Sender::Session("gex45-worker".into()), "lead", "1"),
+        FleetRow { spooled_by: Some("gex45-worker".into()), ..row("6-own-gate-as-tom", RowKind::GateAnswer, "gex45", Sender::Tom, "gex45-worker", "1") },
+        FleetRow { spooled_by: Some("gex45-other".into()), ..row("7-stamped-elsewhere", RowKind::Message, "gex45", Sender::Session("gex45-worker".into()), "lead", "Done: landed") },
     ]
 }
 

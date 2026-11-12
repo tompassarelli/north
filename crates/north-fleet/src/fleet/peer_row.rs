@@ -18,6 +18,9 @@ impl Refusal {
 }
 
 pub fn admit(row: &FleetRow, peer: &str, ledger: &[SessionRow]) -> Result<FleetRow, Refusal> {
+    if let Some(why) = row.spooled_by.as_deref().and_then(|writer| row.refused_from(writer)) {
+        return Err(Refusal::Spoofed(why));
+    }
     if row.from != peer {
         return Err(Refusal::Spoofed(format!("row {} names from {} but came from {peer}", row.id, row.from)));
     }

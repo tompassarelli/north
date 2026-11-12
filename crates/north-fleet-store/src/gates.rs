@@ -211,19 +211,22 @@ pub struct TypedTurn {
 
 impl Authority<'_> {
     pub fn admit(&self) -> NorthResult<()> {
-        self.answerer(None).map(drop)
+        self.answerer(None, false).map(drop)
     }
 
     /// Who an answer to a gate opened at `opened_ms` is recorded as, with the note saying how it reached the gate:
     /// Tom from his own shell, Tom relayed by a proxy whose turn he opened by typing after the gate opened, else the
-    /// gate session's parent.
-    fn answerer(&self, opened_ms: Option<u64>) -> NorthResult<(Answerer, Option<String>)> {
+    /// gate session's parent, unless the gate is put to Tom (`for_tom`).
+    fn answerer(&self, opened_ms: Option<u64>, for_tom: bool) -> NorthResult<(Answerer, Option<String>)> {
         let Some(caller) = self.caller else { return Ok((Answerer::Tom, None)) };
         if let (Some(typed), Some(opened_ms)) = (self.typed, opened_ms)
             && typed.at_ms > opened_ms
         {
             let at = Timestamp::from_unix_millis(i64::try_from(typed.at_ms).unwrap_or(i64::MAX)).iso();
             return Ok((Answerer::Tom, Some(format!("relayed by {caller} from Tom's message in conversation {} at {at}", typed.conversation))));
+        }
+        if self.parent == Some(caller) && for_tom {
+            return Err(NorthError::Rejected(format!("the gate has no default, so it is put to Tom and only his own answer or a proxy relaying his typed turn closes it; {caller}, its asking session's parent, cannot answer it")));
         }
         if self.parent == Some(caller) {
             return Ok((Answerer::Session(caller.to_owned()), None));
@@ -234,7 +237,7 @@ impl Authority<'_> {
 
 pub fn answer_gate(book: &dyn GateBook, id: i64, number: usize, note: Option<&str>, authority: Authority<'_>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
     let gate = book.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
-    let (by, relayed) = authority.answerer(Some(gate.opened_ms))?;
+    let (by, relayed) = authority.answerer(Some(gate.opened_ms), gate.for_tom())?;
     let note = [relayed.as_deref(), note].into_iter().flatten().collect::<Vec<_>>().join("\n");
     settle_as(book, id, Decision::Option(number), by, Some(&note), now_ms, deliver)
 }

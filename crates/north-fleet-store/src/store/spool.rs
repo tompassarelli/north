@@ -139,6 +139,10 @@ impl Spool {
             found.extend(rows_in(&location)?.into_iter().map(|path| Found::new(path, Some(session.clone()))));
         }
         found.sort_by(|left, right| (&left.id, &left.path).cmp(&(&right.id, &right.path)));
+        let ids: Vec<String> = found.iter().map(|found| found.id.clone()).collect();
+        for (index, found) in found.iter_mut().enumerate() {
+            found.shared = ids.get(index.wrapping_sub(1)) == Some(&found.id) || ids.get(index + 1) == Some(&found.id);
+        }
         Ok(found)
     }
 
@@ -175,18 +179,22 @@ struct Found {
     path: PathBuf,
     id: String,
     writer: Option<String>,
+    shared: bool,
 }
 
 impl Found {
     fn new(path: PathBuf, writer: Option<String>) -> Self {
         let id = path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
-        Self { path, id, writer }
+        Self { path, id, writer, shared: false }
     }
 
     fn misfiled(&self, row: Option<&FleetRow>) -> Option<String> {
         self.writer.as_ref()?;
         if FleetRow::check_id(&self.id).is_err() {
             return Some(format!("{} is not a row id", self.id));
+        }
+        if self.shared {
+            return Some(format!("row {} is also pending in another spool location", self.id));
         }
         row.filter(|row| row.id != self.id).map(|row| format!("it is filed as {} but names row {}", self.id, row.id))
     }

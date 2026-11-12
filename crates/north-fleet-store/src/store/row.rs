@@ -167,12 +167,13 @@ impl FleetRow {
         Ok(())
     }
 
-    /// Why the spool location of `session` may not hold this row: it holds only rows `session` sends and job rows of its own.
+    /// Why the spool location of `session` may not hold this row: it holds only rows `session` sends, its gate, wait and spend rows only for itself, and job rows of its own.
     pub fn refused_from(&self, session: &str) -> Option<String> {
         let job = matches!(self.kind, RowKind::JobStart | RowKind::JobBeat | RowKind::JobExit);
+        let own = matches!(self.kind, RowKind::Gate | RowKind::Wait | RowKind::Spend);
         match &self.sender {
             Sender::Tom if self.kind == RowKind::GateAnswer => Some(format!("row {} in {session}'s spool answers a gate as Tom", self.id)),
-            _ if job && self.to != session => Some(format!("row {} in {session}'s spool is a {} for {}", self.id, self.kind.label(), self.to)),
+            _ if (job || own) && self.to != session => Some(format!("row {} in {session}'s spool is a {} for {}", self.id, self.kind.label(), self.to)),
             _ if job => None,
             sender if sender.session() != Some(session) => Some(format!("row {} in {session}'s spool names sender {sender}", self.id)),
             _ => None,

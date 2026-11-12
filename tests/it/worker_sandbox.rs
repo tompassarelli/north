@@ -139,13 +139,13 @@ fn a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_h
     let root = worker.root();
     file(&root.join(".bashrc"));
     file(&root.join("code/north-data/profiles/claude-a/settings.json"));
-    for store in ["code/north-data/fleet/spool", ".local/state/threads/spool", ".local/state/agents", ".cache", ".cargo/registry", ".bun/install/cache", ".npm/_cacache", "code/p/worktrees/lane/target/debug", "code/p/worktrees/lane/node_modules/.cache"] {
+    for store in ["code/north-data/fleet/spool", "code/north-data/fleet/spool/sessions/other", ".local/state/threads/spool", ".local/state/agents", ".cache", ".cargo/registry", ".bun/install/cache", ".npm/_cacache", "code/p/worktrees/lane/target/debug", "code/p/worktrees/lane/node_modules/.cache"] {
         std::fs::create_dir_all(root.join(store)).unwrap();
     }
     let lock = root.join("code/p/main/.git/index.lock");
     file(&lock);
     assert!(Command::new("touch").args(["-d", "2 minutes ago"]).arg(&lock).status().unwrap().success());
-    let refused = [".bashrc", "new-file", ".local/state/north/fleet/spool/m.json", ".local/state/north/profiles/claude-a/settings.json", "code/p/main/new.rs"];
+    let refused = [".bashrc", "new-file", ".local/state/north/fleet/spool/m.json", ".local/state/north/fleet/spool/sessions/other/m.json", ".local/state/north/profiles/claude-a/settings.json", "code/p/main/new.rs"];
     let written = [
         "code/p/worktrees/lane/scratch/out.log",
         "code/p/worktrees/lane/new.txt",
@@ -161,9 +161,11 @@ fn a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_h
         "code/p/worktrees/lane/node_modules/.cache/c",
     ];
     let mut command: String = refused.iter().chain(&written).map(|relative| format!("printf x >> \"$HOME/{relative}\"; ")).collect();
+    command.push_str("mkdir \"$HOME/.local/state/north/fleet/spool/sessions/new\"; ");
     command.push_str("printf x >> \"$XDG_RUNTIME_DIR/r\" && git add new.txt && git -c user.name=t -c user.email=t@t commit -qm new && git -C \"$HOME/code/p/main\" worktree add -q \"$HOME/code/p/worktrees/fresh\" -b fresh && printf x >> \"$HOME/code/p/worktrees/fresh/src.rs\" && echo all-written");
     let (stdout, stderr) = worker.run(&command);
     assert!(!stderr.contains("north worker-sandbox:"), "{stderr}");
+    assert!(!root.join(".local/state/north/fleet/spool/sessions/new").exists(), "a worker command made a spool location of its own: {stderr}");
     for relative in refused {
         let content = std::fs::read_to_string(root.join(relative)).ok();
         assert!(content.as_deref().is_none_or(|kept| kept == "kept"), "a worker command wrote {relative} outside its lane: {stderr}");

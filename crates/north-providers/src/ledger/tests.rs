@@ -40,7 +40,7 @@ fn run(session: &str, model: &str, input: u64, output: u64) -> RunRecord {
 }
 
 #[test]
-fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_and_strangers() {
+fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_strangers_and_a_gate_put_to_tom() {
     use crate::fleet::gates::{Authority, Relay, TomTurn, TypedTurn, answer_gate, default_overdue, open, orphan, relay_gate};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
@@ -60,6 +60,10 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_and_strange
         assert!(answer_gate(&book, id, 1, None, Authority { caller: Some(caller), parent: Some("parent"), typed: None }, 200, |_, _| panic!("unauthorized delivery")).is_err());
         assert!(book.gate(id).unwrap().unwrap().is_open());
     }
+    let ask_once = book.open_gate(&GateRequest { default: 0, ..request("child", 0) }, 100).unwrap();
+    let refused = answer_gate(&book, ask_once, 1, None, Authority { caller: Some("parent"), parent: Some("parent"), typed: None }, 200, |_, _| panic!("a parent answered a gate put to Tom")).unwrap_err();
+    assert!(refused.to_string().contains("put to Tom"), "{refused}");
+    assert!(book.gate(ask_once).unwrap().unwrap().is_open());
     for number in [0, 3] {
         assert!(answer_gate(&book, id, number, None, Authority { caller: Some("parent"), parent: Some("parent"), typed: None }, 200, |_, _| panic!("invalid choice delivery")).is_err());
     }
