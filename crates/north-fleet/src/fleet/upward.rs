@@ -1,7 +1,7 @@
 //! What a child's end-of-turn report tells its parent: upward messages are by exception, because the
 //! child holds more of its box than its lead. A report goes to its lead when it opens Done, Split or Blocked, or
 //! opens Not done and lands a commit, holds an open gate or ends while the child waits on nothing the
-//! fleet records, and only when those facts differ from the last report that went up; the proxy, which
+//! fleet records, and, unless it opens Done or Split, only when those facts differ from the last report that went up; the proxy, which
 //! wakes for less, gets only a Blocked report or a Not done one with news. An interim turn
 //! opening no report word, a repeat, and a Not done waiting on its own queued ticket or registered wait
 //! or saying it stops on a landing or a clock are held for the digest instead.
@@ -62,9 +62,9 @@ impl Facts {
         format!("{TOLD}{turn}:{}", self.digest())
     }
 
-    /// Whether `receipt`, the last one recorded by [`Facts::receipt`], told the parent these same facts.
+    /// Whether `receipt`, the last one recorded by [`Facts::receipt`], told the parent these same facts; a Done or Split closes a box or a stage, so a later one is a new report however alike.
     pub fn repeats(&self, receipt: Option<&str>) -> bool {
-        receipt.and_then(|key| key.strip_prefix(TOLD)).and_then(|rest| rest.split_once(':')).is_some_and(|(_, digest)| digest == self.digest())
+        !matches!(self.opening, Some("Done" | "Split")) && receipt.and_then(|key| key.strip_prefix(TOLD)).and_then(|rest| rest.split_once(':')).is_some_and(|(_, digest)| digest == self.digest())
     }
 
     fn digest(&self) -> String {

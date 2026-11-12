@@ -317,6 +317,31 @@ mod tests {
     }
 
     #[test]
+    fn a_workers_final_message_reaches_a_parent_mid_turn_exactly_once_within_60_s() {
+        let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
+        let reported_ms = 1_000_000;
+        let report = |turn, landed: Option<&str>, reply: &str| Report { child: "kid".into(), turn, exit: TurnExit::Completed, landed: landed.map(str::to_owned), reply: Some(reply.into()), waiting: false };
+        let deliver = |report: &Report, now_ms| deliver_report(&book, &book, &inbox, "boss", report, &[], now_ms).unwrap();
+
+        let finals = [
+            report(1, None, "Done: the first box.\nNext: none"),
+            report(2, Some("be5886ab3b"), "Done: the second box landed.\nNext: none"),
+            report(3, None, "Done: the third box, nothing to land.\nNext: none"),
+            report(4, None, "Done: the fourth box, nothing to land.\nNext: none"),
+            report(5, None, "Split: the rest is north#1032.\nNext: north#1032"),
+        ];
+        for (turn, last) in finals.iter().enumerate() {
+            let at = reported_ms + turn as u64 * 1_000;
+            assert!(deliver(last, at), "turn {} of a worker whose parent is mid-turn is claimed on its own turn", last.turn);
+            assert!(!deliver(last, at + 1), "a second delivery of turn {} claims nothing", last.turn);
+        }
+        let posted = inbox.sent.into_inner().unwrap();
+        assert_eq!(posted.len(), finals.len(), "each final message reached the parent exactly once: {posted:?}");
+        assert!(posted.iter().all(|(parent, _, delivery)| parent == "boss" && *delivery == Delivery::Queued));
+        assert!(inbox.held.into_inner().unwrap().is_empty(), "none was kept back for the digest");
+    }
+
+    #[test]
     fn only_the_page_now_classes_wake_the_proxy() {
         use crate::fleet::fold::{Admit, admit};
         use crate::fleet::sender::Sender;
