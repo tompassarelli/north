@@ -142,6 +142,10 @@ fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, run: usize, a
     if let Some(held) = cache.read(&key) {
         return Ok(held);
     }
+    let _turn = cache.turn(&key, true);
+    if let Some(held) = cache.read(&key) {
+        return Ok(held);
+    }
     let asked = prompt(kinds, chunk);
     let fresh = match parse_answer(&ask(tier, &asked)?) {
         Ok(fresh) => fresh,
@@ -375,6 +379,36 @@ mod tests {
         let mut asked = asked.into_inner().unwrap();
         asked.sort_unstable();
         assert_eq!(asked, [false, false, true, true, true, true]);
+
+        let streamed = Mutex::new(Vec::new());
+        let (entered, started) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let released = Mutex::new(released);
+        let ask = |_: &Tier, prompt: &str| {
+            if prompt.contains("an added prose line") {
+                let _ = release.send(());
+            }
+            let message = ["Streamed message", "Reworded message"].into_iter().find(|message| prompt.contains(message));
+            if let Some(message) = message {
+                let first = { let mut asked = streamed.lock().unwrap(); asked.push(message); asked.len() == 1 };
+                if first {
+                    let _ = entered.send(());
+                    let _ = released.lock().unwrap().recv();
+                }
+            }
+            Ok("NONE".to_owned())
+        };
+        let early = |message: &str| format!("{message}\n{SEGMENT_BREAK}main\n{SEGMENT_BREAK}");
+        let finished = |message: &str| format!("{message}\n{SEGMENT_BREAK}an added prose line\n{SEGMENT_BREAK}main\n{SEGMENT_BREAK}");
+        std::thread::scope(|scope| {
+            let early = scope.spawn(|| judge(&kinds, &early("Streamed message"), &cache, &ask));
+            started.recv().unwrap();
+            assert_eq!(judge(&kinds, &finished("Streamed message"), &cache, &ask), Ok(Vec::new()));
+            assert_eq!(early.join().unwrap(), Ok(Vec::new()));
+        });
+        assert_eq!(*streamed.lock().unwrap(), ["Streamed message"], "the finish call asked again for a message the streamed verdict was still judging");
+        assert_eq!(judge(&kinds, &finished("Reworded message"), &cache, &ask), Ok(Vec::new()));
+        assert_eq!(*streamed.lock().unwrap(), ["Streamed message", "Reworded message"], "a changed message was not judged on its own");
     }
 
     #[test]

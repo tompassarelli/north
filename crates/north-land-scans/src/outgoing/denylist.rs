@@ -94,6 +94,13 @@ impl Denylist {
         }
     }
 
+    pub fn verdict_once_scanned(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), wait: Duration, passed: &dyn Fn()) -> DenylistVerdict {
+        self.judged(root, origin_url, range, &|text| {
+            passed();
+            private_text::judge_within(text, wait)
+        })
+    }
+
     fn judged(&self, root: &Path, origin_url: &str, (base, head, tag): (&str, &str, &str), judge: Judge) -> DenylistVerdict {
         self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag), || Self::private_kinds(root, base, head, tag, judge))
     }

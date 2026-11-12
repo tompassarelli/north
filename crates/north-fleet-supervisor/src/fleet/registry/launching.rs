@@ -3,7 +3,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::{brief_files, claims};
+use crate::fleet::{brief_files, claims, proposal};
 use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
@@ -72,7 +72,7 @@ impl Fleet {
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         let unrecorded = record.clone();
         std::thread::scope(|scope| {
-            let shown = scope.spawn(|| first_prompt(request));
+            let shown = scope.spawn(|| first_prompt(request, verification));
             let mut early = (claim == Claim::Fresh).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()))));
             let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
             if let Err(error) = self.registrar.register(&row, claim) {
@@ -256,8 +256,25 @@ impl Fleet {
     }
 }
 
-fn first_prompt(request: &LaunchRequest) -> String {
-    if request.role() == Role::Worker && request.resume.is_none() { brief_files::shown(&request.prompt, &request.cwd, request.machine.as_ref()) } else { request.prompt.clone() }
+fn first_prompt(request: &LaunchRequest, verification: bool) -> String {
+    if request.role() != Role::Worker || request.resume.is_some() {
+        return request.prompt.clone();
+    }
+    std::thread::scope(|scope| {
+        let verdict = scope.spawn(|| launch_verdict(request, verification));
+        let shown = brief_files::shown(&request.prompt, &request.cwd, request.machine.as_ref());
+        proposal::told(&shown, &verdict.join().unwrap_or(proposal::Verdict::Unasked))
+    })
+}
+
+fn launch_verdict(request: &LaunchRequest, verification: bool) -> proposal::Verdict {
+    let one_call = north_base::platform::harness::document("harness/worker-tools.toml")["verbs"].as_array().is_some_and(|verbs| verbs.iter().any(|verb| verb.as_str() == Some("finish")));
+    let Some(message) = proposal::message(&request.prompt).filter(|_| !verification && one_call && proposal::in_band(&request.prompt)) else { return proposal::Verdict::Unasked };
+    let north = match request.machine {
+        Some(_) => north_base::platform::north_binary::north_binary(),
+        None => north_base::platform::north_binary::own_binary(),
+    };
+    proposal::judge(&message, &request.cwd, &north, request.machine.as_ref())
 }
 
 fn fresh_opening<'a>(request: &'a LaunchRequest, conversation: Option<&'a str>) -> Opening<'a> {

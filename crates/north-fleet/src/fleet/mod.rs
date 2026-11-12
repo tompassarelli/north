@@ -17,6 +17,7 @@ pub mod jobs;
 pub mod landings;
 pub mod lane_probe;
 pub mod prompt;
+pub mod proposal;
 pub mod rebooted;
 pub mod promises;
 pub mod receipts;

@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal (north#1239).
 
 use std::fs;
 use std::io;
@@ -6,12 +6,17 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::enqueue::{default_branch, git};
-use crate::land::scans::outgoing::denylist::Denylist;
+use crate::land::scans::outgoing::denylist::{Denylist, Stand};
 
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub const USAGE: &str = "usage: north hand-in --message TEXT [--] PATH...";
-pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...";
+pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH... | north finish --judge-message < MESSAGE";
+const JUDGE_MESSAGE: &str = "--judge-message";
+const PROPOSAL_FILE: &str = "north-proposed-message";
+const PROPOSALS: &str = "north/land/proposed-messages.jsonl";
+pub const PROPOSED: &str = "proposed";
+pub const REFUSED: &str = "refused";
 
 pub struct Lane {
     pub root: PathBuf,
@@ -55,6 +60,7 @@ struct Request<'a> {
 
 struct Named {
     lane: Lane,
+    message: String,
     paths: Vec<String>,
     targets: Vec<PathBuf>,
     committed: bool,
@@ -69,6 +75,9 @@ pub fn run(arguments: &[String], road: impl Road) -> u8 {
 }
 
 pub fn finish(arguments: &[String], road: impl Road) -> u8 {
+    if matches!(arguments, [flag] if flag == JUDGE_MESSAGE) {
+        return judge_message();
+    }
     let (check, message, rest) = match arguments {
         [check_flag, check, message_flag, message, rest @ ..] if check_flag == "--check" && message_flag == "--message" => (check, message, rest),
         _ => return usage(arguments, FINISH_USAGE),
@@ -115,7 +124,7 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
         }
     };
     if request.check.is_some() {
-        ask_early(&named, request.message);
+        ask_early(&named);
     }
     if let Some(check) = request.check
         && let Err(failure) = passes(&named.lane.root, check)
@@ -124,7 +133,7 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
         eprintln!("{verb}: ✗ the check `{check}` {failure}; {kept}NOT committed, NOT queued.");
         return 1;
     }
-    match commit(&named, request.message) {
+    match commit(&named) {
         Ok(()) => road.take(&named.lane),
         Err(refusal) => {
             eprintln!("{verb}: ✗ {refusal}; NOT committed.");
@@ -146,9 +155,6 @@ fn passes(root: &Path, check: &str) -> Result<(), String> {
 }
 
 fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, String> {
-    if request.message.trim().is_empty() {
-        return Err("the message is empty".to_owned());
-    }
     let targets: Vec<PathBuf> = request.files.iter().map(|file| normal(&directory.join(&file.path))).collect();
     let paths: Vec<PathBuf> = request.paths.iter().map(|path| normal(&directory.join(path))).chain(targets.iter().cloned()).collect();
     let Some(first) = paths.first() else { return Err("name the paths to hand in".to_owned()) };
@@ -158,6 +164,14 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
         return Err(format!("{} is outside the lane {}", outside.display(), root.display()));
     }
     road.writable(&root)?;
+    let message = match (request.message.trim().is_empty(), request.check) {
+        (false, _) => request.message.to_owned(),
+        (true, Some(_)) => proposed_message(&root).ok_or("the message is empty and the brief proposed none")?,
+        (true, None) => return Err("the message is empty".to_owned()),
+    };
+    if request.check.is_some() && proposed_message(&root).is_some_and(|proposed| proposed == message) {
+        record_proposal(&root, "used", &message);
+    }
     let destination = default_branch(&root);
     match git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
         Ok(branch) if branch != destination => {}
@@ -170,7 +184,7 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     if !unnamed.is_empty() {
         return Err(format!("the lane's commits also change {}, which the hand-in did not name", unnamed.join(" ")));
     }
-    Ok(Named { lane: Lane { root, destination }, paths: named, targets, committed: !committed.is_empty() })
+    Ok(Named { lane: Lane { root, destination }, message, paths: named, targets, committed: !committed.is_empty() })
 }
 
 fn apply(named: Named, files: &[File]) -> Result<Named, String> {
@@ -215,7 +229,8 @@ fn changed(target: &Path, file: &File, earlier: Option<&str>) -> Result<String, 
     Ok(text)
 }
 
-fn commit(named: &Named, message: &str) -> Result<(), String> {
+fn commit(named: &Named) -> Result<(), String> {
+    let message = named.message.as_str();
     let (root, paths) = (&named.lane.root, named.paths.iter().map(String::as_str).collect::<Vec<_>>());
     git(root, &[&["add", "--all", "--"][..], &paths].concat())?;
     if git(root, &[&["diff", "--cached", "--name-only", "HEAD", "--"][..], &paths].concat())?.is_empty() {
@@ -256,7 +271,8 @@ fn normal(path: &Path) -> PathBuf {
     normal
 }
 
-fn ask_early(named: &Named, message: &str) {
+fn ask_early(named: &Named) {
+    let message = named.message.as_str();
     let root = named.lane.root.clone();
     let destination = named.lane.destination.clone();
     let Some(head) = would_be(&root, message, &named.paths) else { return };
@@ -267,10 +283,60 @@ fn ask_early(named: &Named, message: &str) {
     });
 }
 
+fn judge_message() -> u8 {
+    let message = io::read_to_string(io::stdin()).unwrap_or_default();
+    let Some(root) = std::env::current_dir().ok().and_then(|directory| checkout(&directory)) else { return 1 };
+    let Some(kept) = proposal_path(&root) else { return 1 };
+    let _ = fs::remove_file(&kept);
+    let destination = default_branch(&root);
+    if message.trim().is_empty() || !git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).is_ok_and(|branch| branch != destination) {
+        return 1;
+    }
+    let (Ok(origin), Ok(base)) = (git(&root, &["remote", "get-url", "--push", "origin"]), git(&root, &["rev-parse", "HEAD"])) else { return 1 };
+    let Some(head) = message_only(&root, &base, &message) else { return 1 };
+    let passed = std::cell::Cell::new(false);
+    let on_pass = || {
+        if fs::write(&kept, &message).is_ok() {
+            println!("{PROPOSED}");
+            passed.set(true);
+            record_proposal(&root, "judged", &message);
+        }
+        let _ = io::Write::flush(&mut io::stdout());
+    };
+    let verdict = Denylist::from_env().verdict_once_scanned(&root, &origin, (&base, &head, &destination), EARLY_WAIT, &on_pass);
+    if verdict.stand == Stand::Refuse && !passed.get() {
+        println!("{REFUSED}");
+    }
+    u8::from(verdict.stand != Stand::Pass)
+}
+
+fn proposal_path(root: &Path) -> Option<PathBuf> {
+    git(root, &["rev-parse", "--path-format=absolute", "--git-path", PROPOSAL_FILE]).ok().map(PathBuf::from)
+}
+
+fn proposed_message(root: &Path) -> Option<String> {
+    fs::read_to_string(proposal_path(root)?).ok().filter(|message| !message.trim().is_empty())
+}
+
+fn record_proposal(root: &Path, event: &str, message: &str) {
+    let digest: String = sha2::Digest::finalize(<sha2::Sha256 as sha2::Digest>::new_with_prefix(message.as_bytes())).iter().map(|byte| format!("{byte:02x}")).collect();
+    let line = serde_json::json!({"at": north_base::platform::records_mirror::now(), "event": event, "lane": root, "message": digest});
+    let journal = north_base::platform::records_mirror::state_home().join(PROPOSALS);
+    let appended = journal.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::OpenOptions::new().create(true).append(true).open(&journal)).and_then(|mut file| io::Write::write_all(&mut file, format!("{line}\n").as_bytes()));
+    if let Err(error) = appended {
+        eprintln!("finish: the proposed message's {event} was not recorded in {}: {error}", journal.display());
+    }
+}
+
+fn message_only(root: &Path, base: &str, message: &str) -> Option<String> {
+    let cleaned = piped(root, None, &["stripspace"], Some(message))?;
+    piped(root, None, &["commit-tree", &format!("{base}^{{tree}}"), "-p", base, "-F", "-"], Some(&cleaned)).map(|head| head.trim().to_owned())
+}
+
 fn would_be(root: &Path, message: &str, paths: &[String]) -> Option<String> {
     let index = PathBuf::from(git(root, &["rev-parse", "--path-format=absolute", "--git-path", "index"]).ok()?);
     let scratch = index.with_file_name(format!("index.finish-{}", std::process::id()));
-    let staged = |arguments: &[&str], input: Option<&str>| apart(root, &scratch, arguments, input);
+    let staged = |arguments: &[&str], input: Option<&str>| piped(root, Some(&scratch), arguments, input);
     let made = (|| {
         staged(&["read-tree", "HEAD"], None)?;
         staged(&[&["add", "--all", "--"][..], &paths.iter().map(String::as_str).collect::<Vec<_>>()].concat(), None)?;
@@ -282,8 +348,12 @@ fn would_be(root: &Path, message: &str, paths: &[String]) -> Option<String> {
     made.map(|head| head.trim().to_owned())
 }
 
-fn apart(root: &Path, index: &Path, arguments: &[&str], input: Option<&str>) -> Option<String> {
-    let mut child = Command::new("git").arg("-C").arg(root).args(arguments).env("GIT_INDEX_FILE", index).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+fn piped(root: &Path, index: Option<&Path>, arguments: &[&str], input: Option<&str>) -> Option<String> {
+    let mut command = Command::new("git");
+    if let Some(index) = index {
+        command.env("GIT_INDEX_FILE", index);
+    }
+    let mut child = command.arg("-C").arg(root).args(arguments).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
     let mut stdin = child.stdin.take()?;
     std::io::Write::write_all(&mut stdin, input.unwrap_or_default().as_bytes()).ok()?;
     drop(stdin);

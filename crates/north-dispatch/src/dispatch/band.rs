@@ -5,9 +5,7 @@ use super::issues::Issue;
 use crate::pacing::placement::gate;
 use toml_edit::DocumentMut;
 
-pub const CATEGORIES: [&str; 5] = ["mechanical", "docs-policy", "tooling", "bug-known-cause", "feature"];
-pub const SPECS: [&str; 2] = ["exact", "named"];
-pub const SCOPES: [&str; 2] = ["one-file", "module"];
+pub use crate::fleet::proposal::{CATEGORIES, SCOPES, SPECS};
 
 /// Why `issue`'s box, routed in `category`, stays out of the band, or `None` when the outside provider may take it.
 pub fn outside(issue: &Issue, category: &str, cfg: &DocumentMut) -> Option<String> {

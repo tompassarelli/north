@@ -245,7 +245,7 @@ fn lead_issue(text: &str) -> Option<String> {
 }
 
 /// The text after `label` on the first line of `text` that starts with it, ignoring leading `#` and spaces.
-fn named_line<'a>(text: &'a str, label: &str) -> Option<&'a str> {
+pub fn named_line<'a>(text: &'a str, label: &str) -> Option<&'a str> {
     text.lines().find_map(|line| line.trim_start_matches(|c: char| c == '#' || c.is_whitespace()).strip_prefix(label).map(str::trim))
 }
 

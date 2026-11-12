@@ -49,14 +49,16 @@ fn header(model: &str, effort: &str) -> String {
 }
 
 pub fn prompt(task: &Value) -> String {
-    format!("{}\n\nThe change is done when this acceptance command passes, run from the repository root: {}\n", task["text"].as_str().unwrap_or_default(), task["check"].as_str().unwrap_or_default())
+    let message = task["message"].as_str().map_or_else(String::new, |message| format!("Commit message: {message}\n"));
+    format!("{}\n\nThe change is done when this acceptance command passes, run from the repository root: {}\n{message}", task["text"].as_str().unwrap_or_default(), task["check"].as_str().unwrap_or_default())
 }
 
 pub fn unseen(task: &Value, nonce: &str) -> Value {
     let id = task["id"].as_str().unwrap_or_default();
     let line = format!("export const RUN_ID = \"{nonce}-{id}\";");
     let mut marked = task.clone();
-    marked["text"] = json!(format!("{} Also add this line at the end of `src/{id}.ts`: `{line}`, and end the commit message with the line `Run: {nonce}-{id}`.", task["text"].as_str().unwrap_or_default()));
+    marked["text"] = json!(format!("{} Also add this line at the end of `src/{id}.ts`: `{line}`.", task["text"].as_str().unwrap_or_default()));
+    marked["message"] = json!(format!("Do ladder task {id} (Run: {nonce}-{id})"));
     marked["check"] = json!(format!("{} && grep -qF '{line}' src/{id}.ts", task["check"].as_str().unwrap_or_default()));
     marked
 }
