@@ -20,9 +20,9 @@ pub enum Gate {
 }
 
 impl Gate {
-    /// Whether the gate refuses while the others are in shadow: the land checks (build, clippy, tests), the pick itself, secrets and privacy (north#729).
+    /// Whether the gate refuses while the others are in shadow: the land checks (build, clippy, tests), the pick itself, secrets, privacy (north#729) and test admission (north#1048).
     pub fn always_refuses(self) -> bool {
-        matches!(self, Self::LandChecks | Self::DroppedCommits | Self::Secrets | Self::Denylist | Self::CommitEmail | Self::NativeRef)
+        matches!(self, Self::LandChecks | Self::DroppedCommits | Self::Secrets | Self::Denylist | Self::CommitEmail | Self::NativeRef) || north_landing::land::landing_refusals::always_refuses(self.label())
     }
 
     pub fn label(self) -> &'static str {

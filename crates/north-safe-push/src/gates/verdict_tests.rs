@@ -61,3 +61,24 @@ fn the_refusal_line_counts_and_names_the_failed_gates_for_every_subset_of_gates(
         }
     }
 }
+
+#[test]
+fn an_over_budget_added_test_is_refused_the_same_whether_finish_or_safe_push_hands_the_lane_in() {
+    use super::standing;
+    use north_landing::land::landing_refusals::Lane;
+
+    let detail = "safe-push: ✗ test admission: origin's verification takes 100000 s, over its 20 s budget, and the lane adds 1 test in src/tests.rs but deletes 0".to_owned();
+    let state = tempfile::tempdir().unwrap();
+    let lane = Lane { at: "enqueue", root: "root", branch: "lane", head: "head" };
+
+    let through_finish = lane.judged(state.path(), "test admission", Err(detail.clone()));
+    let through_finish_beside_another = lane.judged(state.path(), "policy sweep, test admission", Err(detail.clone()));
+    let through_safe_push = verdict(&standing(vec![(Gate::TestAdmission, Outcome::failed_with(detail.clone()))], false));
+
+    assert_eq!(through_finish, Err(detail.clone()));
+    assert_eq!(through_finish_beside_another, Err(detail));
+    assert_eq!(through_safe_push.expect_err("refused").reason(), "1 blocking check(s) failed: test admission safe-push: ✗ test admission: origin's verification takes 100000 s, over its 20 s budget, and the lane adds 1 test in src/tests.rs but deletes 0");
+
+    assert_eq!(lane.judged(state.path(), "policy sweep", Err("shadowed".to_owned())), Ok(()));
+    assert_eq!(verdict(&standing(vec![(Gate::PolicySweep, Outcome::failed())], false)), Ok(()));
+}

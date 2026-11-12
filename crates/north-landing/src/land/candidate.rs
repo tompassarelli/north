@@ -380,7 +380,9 @@ fn assemble(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: 
         let mut refusals = false;
         for (at, judged) in todo.into_iter().zip(gate_lanes(worktree, &jobs, logs)) {
             let judged = judged?;
-            if enforcing && let Some(gate) = &judged {
+            if let Some(gate) = &judged
+                && (enforcing || landing_refusals::always_refuses(&gate.gates))
+            {
                 refused.insert(at, gate.clone());
                 refusals = true;
             }
@@ -399,7 +401,7 @@ fn finish(built: Stack, gated: &BTreeMap<usize, Option<lane_gates::Refused>>, ti
         let Stacked { pick, mut case, decide_us, .. } = lane;
         if let Some(gate) = gated.get(&at).and_then(Option::as_ref) {
             case.lane_gate = Some(gate.verdict.clone());
-            if !enforcing && let Some((_, ticket)) = tickets.get(at) {
+            if !enforcing && !landing_refusals::always_refuses(&gate.gates) && let Some((_, ticket)) = tickets.get(at) {
                 let root = ticket.root.to_string_lossy();
                 landing_refusals::Lane { at: "pick", root: &root, branch: &ticket.branch, head: &ticket.head }.record(&state_home, &gate.gates, &fs::read_to_string(&gate.log).unwrap_or_default());
             }

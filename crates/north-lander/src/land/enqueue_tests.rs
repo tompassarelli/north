@@ -106,7 +106,7 @@ impl Lane {
 }
 
 #[test]
-fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_keeps_it_as_it_is_a_test_over_the_budget_or_a_revert_of_newer_main_queues_with_its_would_be_refusal_logged_and_a_conflict_with_main_is_refused_before_it_queues() {
+fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_keeps_it_as_it_is_a_test_over_the_budget_is_refused_a_revert_of_newer_main_queues_with_its_would_be_refusal_logged_and_a_conflict_with_main_is_refused_before_it_queues() {
     let lane = Lane::new();
     lane.commit("add the first lane line", &["Refs: #7", "Lane-note: first"]);
     lane.commit("add the second lane line", &["Refs: #7", "Lane-note: second"]);
@@ -159,9 +159,9 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     fs::create_dir_all(lane.repo.join("src")).unwrap();
     fs::write(lane.repo.join("src/tests.rs"), "#[test]\nfn added() {}\n").unwrap();
     lane.commit("add a test while verification is over its budget", &[]);
-    lane.enqueue(super::Shape::OneCommit { message: None });
-    let shadowed = lane.shadowed();
-    assert!(shadowed.contains("\"gate\":\"test admission\"") && shadowed.contains("test admission: origin's verification takes 100000 s"), "{shadowed}");
+    let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).err().unwrap_or_default();
+    assert!(refused.contains("test admission: origin's verification takes 100000 s"), "{refused}");
+    assert!(!lane.shadowed().contains("test admission"), "a refused test was logged as landing anyway");
 
     let lane = Lane::new();
     run(&lane.repo, &["config", "landing.lander-host", "lander-fixture"]);
@@ -171,9 +171,8 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     let mirror = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"])).join(super::queue::LANDER_LEDGER);
     fs::create_dir_all(mirror.parent().unwrap()).unwrap();
     fs::write(&mirror, "1\torigin\tabc\tgreen\t\tlane\t900\t\t100000\n".repeat(3)).unwrap();
-    lane.try_enqueue_from("build-fixture", super::Shape::OneCommit { message: None }).unwrap();
-    let shadowed = lane.shadowed();
-    assert!(shadowed.contains("test admission: origin's verification takes 100000 s"), "{shadowed}");
+    let refused = lane.try_enqueue_from("build-fixture", super::Shape::OneCommit { message: None }).err().unwrap_or_default();
+    assert!(refused.contains("test admission: origin's verification takes 100000 s"), "{refused}");
 
     let lane = Lane::new();
     run(&lane.repo, &["switch", "-q", "main"]);

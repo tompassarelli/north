@@ -1743,7 +1743,7 @@ consumers = ["crates/north-graph-ingest/src/losses.rs"]
 [landing_refusals]
 value = "shadow"
 allowed = { one_of = ["shadow", "enforce"] }
-unit = "what every landing gate but build, clippy, tests, secrets and privacy does with a lane it would refuse: shadow appends the would-be refusal to $XDG_STATE_HOME/north/gates/landing-shadow.jsonl and lets the lane land, enforce refuses it"
+unit = "what every landing gate but build, clippy, tests, secrets, privacy and test admission (a test the repository's test policy does not admit) does with a lane it would refuse: shadow appends the would-be refusal to $XDG_STATE_HOME/north/gates/landing-shadow.jsonl and lets the lane land, enforce refuses it"
 source = "proxy: on 2026-11-07 Tom asked the fleet to be bolder; north land gate-stats --since 7d on the lander showed test admission refusing 136 lanes (127 landed later), the language gate 46 (42), the revert guard 33 (21 unchanged after a rebase) and coverage 8, so every refusal outside build, clippy, tests, secrets and privacy goes to shadow for 24 h and earns refusal back with a would-be refusal naming a real fault (north#729, 2026-11-07)"
 fallback = "any value but enforce reads as shadow"
 consumers = ["crates/north-diff-gates/src/landing_refusals.rs"]
