@@ -1,8 +1,8 @@
-//! `north operator paths [--class CLASS]`: the paths north reads from the operator repository, one `PATH<TAB>CLASS` line each,
+//! `north config operator paths [--class CLASS]`: the paths north reads from the operator repository, one `PATH<TAB>CLASS` line each,
 //! in the order of the inventory in `docs/rationale/operator-repository.md` (north#1281).
 use crate::error::{NorthError, NorthResult};
 
-const USAGE: &str = "usage: north operator paths [--class CLASS]";
+const USAGE: &str = "usage: north config operator paths [--class CLASS]";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Class {

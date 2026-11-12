@@ -166,7 +166,6 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("health", |_, rest| Command::Health(rest)),
     ("glance", |_, rest| Command::Glance(rest)),
     ("holds", |_, rest| Command::Holds(rest)),
-    ("operator", |_, rest| Command::Operator(rest)),
     ("box", |_, rest| Command::BoxPath(rest)),
     ("contract-probe", |_, rest| Command::ContractProbe(rest)),
     ("remote-serve", |_, rest| Command::RemoteServe(rest)),
@@ -175,6 +174,9 @@ const FORWARDED: &[(&str, Forward)] = &[
 fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
     if command == "graph" && rest.first().is_some_and(|verb| verb == "ground") {
         return Some(Command::Grounding(rest[1..].to_vec()));
+    }
+    if command == "config" && rest.first().is_some_and(|verb| verb == "operator") {
+        return Some(Command::Operator(rest[1..].to_vec()));
     }
     if let Some(tool) = Tool::named(command) {
         return Some(Command::Tool(tool, rest));

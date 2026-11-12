@@ -10,7 +10,7 @@ The issue's proposal holds, with four corrections from the inventory.
 
 - Confirmed: no cleaned copy is ever published. North carries the template (the shape of every file it reads and a command that writes a working repository with synthetic values), and the private repository passes the same check a newcomer's does.
 - Corrected: moving generic method out of the private repository is not a step of this plan and the privacy gate does not authorise it. The gate (deny-list, private-kinds judge, secret scan) is the second layer behind a decision that is the owner's. The template is written new in north and depends on no move.
-- Corrected: the one piece that is provably generic needs no move. Of the catalog's 44 registrations, 38 name units north itself owns, so `north operator init` generates them from north's own structure registry.
+- Corrected: the one piece that is provably generic needs no move. Of the catalog's 44 registrations, 38 name units north itself owns, so `north config operator init` generates them from north's own structure registry.
 - Added: a template is not enough for a newcomer while north finds the operator repository by a literal name and place, needs a third repository that is not public either, and needs an origin remote. Three build boxes close those.
 - Added: nothing today refuses a file copied from the private repository into north unless it holds a listed value. Two build boxes add that refusal.
 
@@ -101,7 +101,7 @@ North carries the template, with an init and a check command (alternative a). A 
 
 Costs are counted in build boxes of at most 40 minutes each; the box lists are estimates from the reader sites counted above, not measurements.
 
-### a. The template inside north, with `north operator init` and `north operator check` (chosen)
+### a. The template inside north, with `north config operator init` and `north config operator check` (chosen)
 
 - What changes: a registry of operator paths in north (the inventory above as code), a typed schema per schema-class file, an init that writes synthetic values, a check that composes what already exists (`north check harness policy-gate --operator`, `north config agents check-owners`, `north ops credentials check`). No reader changes for a newcomer who takes the default place; the locator boxes then put every reader behind one resolver.
 - Every future edit: a reader that adds or drops a key edits the schema in the same change, and north's landing runs the check against the owner's checkout so a change that would break it is refused.
@@ -134,14 +134,14 @@ Costs are counted in build boxes of at most 40 minutes each; the box lists are e
 
 What the private repository changes to consume the template:
 
-1. A schema marker: one file at its root holding the template's version, which `north operator init` writes for a newcomer.
-2. One line in its own landing configuration that runs `north operator check .`, so a landing that breaks the shape is refused there.
+1. A schema marker: one file at its root holding the template's version, which `north config operator init` writes for a newcomer.
+2. One line in its own landing configuration that runs `north config operator check .`, so a landing that breaks the shape is refused there.
 
 The order that never leaves it broken:
 
 1. North lands the registry and the schemas. Version 1 is descriptive: before each schema box lands, its check runs against the owner's checkout on a host that holds it, and each finding is either a schema error, fixed in the box, or a real fault, fixed first in the private repository by a landing of its own.
 2. The private repository adds the marker and the check line. They pass because of step 1.
-3. North's landing gains a machine-bound check that runs `north operator check` on the owner's checkout when the registry or a schema changes, the way `check-owners` already reads that checkout ([.safe-push](../../.safe-push)).
+3. North's landing gains a machine-bound check that runs `north config operator check` on the owner's checkout when the registry or a schema changes, the way `check-owners` already reads that checkout ([.safe-push](../../.safe-push)).
 4. After that, a change of shape takes three landings, the rule [harness-skill-roots.md](harness-skill-roots.md) reached for cross-repository moves. North lands version N+1 while still accepting N. The private repository adds or drops the key and raises its marker. North then drops N, in a landing whose machine-bound check confirms the marker. North accepts two versions only between the first and the third landing of one change.
 
 A new optional key needs none of this: north lands it and the private repository takes it when it wants.
@@ -173,17 +173,17 @@ The registry carries each path's class, so layers 4 and 5 read which paths are p
 
 Written onto north#1281 under its "Operator repository, built" box. Each is at most 40 minutes. `D` is a new scratch directory.
 
-1. Registry: `north operator paths` prints one line per inventory row with its class. Done when: `north operator paths | wc -l` prints 32 and `north operator paths --class secret | wc -l` prints 7.
-2. Schemas for the account and cost files (rows 2 to 4 and 16). Done when: `north operator check --only costs,claude-accounts,credentials,infra` exits 0 on the owner's checkout and exits 1 naming file and key on a scratch copy with one key misspelled.
+1. Registry: `north config operator paths` prints one line per inventory row with its class. Done when: `north config operator paths | wc -l` prints 32 and `north config operator paths --class secret | wc -l` prints 7.
+2. Schemas for the account and cost files (rows 2 to 4 and 16). Done when: `north config operator check --only costs,claude-accounts,credentials,infra` exits 0 on the owner's checkout and exits 1 naming file and key on a scratch copy with one key misspelled.
 3. Schemas for the policy files (rows 5 to 9, 12, 13 and 15). Done when: the same two runs for `--only policy`.
 4. Schema for orchestration, the account side (the account and tier tables). Done when: the same two runs for `--only orchestration-accounts`.
-5. Schema for orchestration, the host side (hosts, projects, placement, dispatch and every remaining key). Done when: `north operator check --only orchestration` exits 0 on the owner's checkout and exits 1 on a scratch copy with an unknown table.
-6. Catalog: the schema file at the place the catalog's `$schema` names, and registrations generated from north's structure registry. Done when: `north operator init D && north config agents check-owners --north-root . --south-root D` exits 0 with no machine-configuration root named.
-7. Init, configuration: every schema-class file with synthetic values, starter privacy lists, a secrets directory holding only a note, the marker and a landing configuration. Done when: `north operator init D && north operator check D` exits 0 and a second init into another directory gives the same tree by `diff -r`.
+5. Schema for orchestration, the host side (hosts, projects, placement, dispatch and every remaining key). Done when: `north config operator check --only orchestration` exits 0 on the owner's checkout and exits 1 on a scratch copy with an unknown table.
+6. Catalog: the schema file at the place the catalog's `$schema` names, and registrations generated from north's structure registry. Done when: `north config operator init D && north config agents check-owners --north-root . --south-root D` exits 0 with no machine-configuration root named.
+7. Init, configuration: every schema-class file with synthetic values, starter privacy lists, a secrets directory holding only a note, the marker and a landing configuration. Done when: `north config operator init D && north config operator check D` exits 0 and a second init into another directory gives the same tree by `diff -r`.
 8. Init, policy: starter global rules written new in north, with their register, so the policy gate passes with no replay case. Done when: `north check harness policy-gate session --operator D/agents` exits 0.
 9. Sync with an operator repository that has no origin and with no machine-configuration checkout. Done when: in a scratch home holding north's runtime and init's output, `agents sync` exits 0 and the published generation exists.
-10. Example tree: `examples/operator/` equals init's output and the landing checks it. Done when: `north operator init --check examples/operator` exits 0 on main and exits 1 after one byte of the example changes.
-11. Private side, in the private repository: the marker and the check line. Done when: `north operator check .` exits 0 at its main, with the run recorded there.
+10. Example tree: `examples/operator/` equals init's output and the landing checks it. Done when: `north config operator init --check examples/operator` exits 0 on main and exits 1 after one byte of the example changes.
+11. Private side, in the private repository: the marker and the check line. Done when: `north config operator check .` exits 0 at its main, with the run recorded there.
 12. North's landing protects the owner's checkout. Done when: a drill lane that makes one optional key required is refused at landing with the key named.
 13. Private-file refusal. Done when: a drill lane that copies one file from a scratch operator repository into a scratch public one is refused with the path named, lands once the approved-moves list names it, and a run over main's last 200 commits prints each hit for the privacy sweep.
 14. Same-value check. Done when: a drill template holding one value copied from a scratch operator repository is refused with the key named and the value absent from the output.
@@ -191,7 +191,7 @@ Written onto north#1281 under its "Operator repository, built" box. Each is at m
 16. One locator, landing, scan and guard readers. Done when: the same search over `crates/north-landing-gates crates/north-land-scans crates/north-safe-push crates/north-guard crates/north-broker` lists nothing.
 17. One locator, the rest, and a lint that refuses the literal outside the resolver. Done when: `git grep -l "code/south" -- crates src ':!*test*'` lists only the resolver, and a drill lane that adds the literal elsewhere is refused.
 
-Boxes 1 to 9 give `north operator init` and a working first hour; 10 to 14 hold it and the private data in place; 15 to 17 can follow the weekend.
+Boxes 1 to 9 give `north config operator init` and a working first hour; 10 to 14 hold it and the private data in place; 15 to 17 can follow the weekend.
 
 ## Not required
 

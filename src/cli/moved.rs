@@ -33,6 +33,7 @@ const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["brief"], "work brief", &[]),
     (&["review-items"], "work review", &[]),
     (&["grounding"], "graph ground", &[]),
+    (&["operator"], "config operator", &[]),
     (&["agent-config-check"], "check harness", &[]),
     (&["land-abandon"], "land abandon", &[]),
     (&["citation-check"], "check citations", &[]),

@@ -1,0 +1,1 @@
+  config operator paths [--class CLASS]         One line per path north reads from the operator repository, as PATH<TAB>CLASS in the inventory's order; class is schema, generic method, private value or secret

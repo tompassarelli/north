@@ -167,6 +167,7 @@ Commands:
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
   config context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks
+  config operator paths [--class CLASS]         One line per path north reads from the operator repository, as PATH<TAB>CLASS in the inventory's order; class is schema, generic method, private value or secret
   ledger worker [--session ID] [--backfill] | --summary [--by LIST] | --recommend FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
   dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north]  One screen over the window: the readiness bars failing first, each Claude account's week and the spend by model and effort, and per task category the model mix, first-try success and cost per closed box; --closed prints the closed-box report dispatch decides on as JSON, the other flags the scoreboard's reports, and losses lists each first try lost to the harness with its class and boundary record
   policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop
@@ -337,7 +338,6 @@ Commands:
   box path REPO#N [--box K]                     Each state one box passed through from its claim to the runtime holding its landing (claimed, launching, working, handing-in, queued, checking, landed, reported, delivered, verified, promoted), with its start, the time spent in it and its source record; a state no record holds prints as unrecorded with its gap
   issue convert [OWNER/]REPO#N --dry-run [--manifest FILE]  Write a manifest with one row per unticked checkbox of the issue (leaf, third-level issue, prose, gate or held by a live claim, with its title, type, labels and body), creating nothing; exits 1 when the rows do not add up to the open boxes or a row has no title, a title over 80 characters or equal to an open issue's, a leaf without a runnable Done when or declared class, or a deny-listed word
   issue convert [OWNER/]REPO --closed-boxes     List every unticked checkbox on a closed issue of the repository with the open issue that holds the same text, or `no copy`; it edits nothing
-  operator paths [--class CLASS]                One line per path north reads from the operator repository, as PATH<TAB>CLASS in the inventory's order; class is schema, generic method, private value or secret
 
 Options:
   -h, --help  Show the operator and agent commands
