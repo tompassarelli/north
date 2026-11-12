@@ -37,10 +37,6 @@ impl Courier for Told {
     fn launch(&self, words: Vec<String>) {
         self.0.lock().unwrap().push(format!("launch {}", words.join("\n")));
     }
-
-    fn resume(&self, session: &str, text: String) {
-        self.0.lock().unwrap().push(format!("resume {session} {text}"));
-    }
 }
 
 struct Books0;
@@ -214,13 +210,6 @@ fn a_finished_session_retires_at_close_or_at_its_idle_limit_though_its_cli_still
     let written = LaunchRequest { prompt: "Route: small-first\nItem: north#1".into(), ..record.relaunch_request() };
     assert_eq!(SessionRecord::launched(&written, None, None, false, 1).first_attempt, None, "a Route: line in the brief's text routed the launch without the flag");
     assert!(SessionRecord::launched(&LaunchRequest { route: Some("small-first".into()), ..written }, None, None, false, 1).first_attempt.is_some(), "the --route flag did not route the launch");
-
-    let bare = told_over("Write /app/seg.py taking weights_path, output_path, rgb_path and csv_path.", &["Done: saved 48 masks.", "Done: the grader's call with named flags printed 48 masks."]);
-    let [held, stood] = &bare[..] else { panic!("the bare task's two Done reports were not one hold and one report: {bare:?}") };
-    assert_eq!(held, &format!("resume worker {}", done_hold::MESSAGE), "{bare:?}");
-    assert!(stood.starts_with("lead [from worker") && stood.contains("the grader's call"), "the report after the hold did not go up: {bare:?}");
-    let briefed = told_over("Item: north#1\nDone when: `cargo test` exits 0", &["Done: landed abc123."]);
-    assert!(briefed.len() == 1 && briefed[0].starts_with("lead [from worker") && briefed[0].contains("landed abc123"), "a worker with a Done-when line had its Done held: {briefed:?}");
 }
 
 struct Working(usize);
@@ -377,25 +366,4 @@ fn escalations_of(finished: Option<bool>, lane_record: bool, route: Option<&str>
     }
     let told = courier.0.lock().unwrap().clone();
     (told.iter().filter_map(|told| told.strip_prefix("launch ")).map(str::to_owned).collect(), told)
-}
-
-fn told_over(prompt: &str, replies: &[&str]) -> Vec<String> {
-    let root = tempfile::tempdir().unwrap();
-    let host = root.path().join("worker");
-    std::fs::create_dir_all(&host).unwrap();
-    let seed: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "parent": "lead", "role": "worker"})).unwrap();
-    let launched = SessionRecord::launched(&LaunchRequest { prompt: prompt.into(), ..seed.relaunch_request() }, None, Some("s".into()), false, 1);
-    write_record(&host, &SessionRecord { host_pid: Some(std::process::id()), host_dir: host.clone(), ..launched }).unwrap();
-    let courier = Arc::new(Told::default());
-    for reply in replies {
-        let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), courier.clone(), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host.clone()).reading_tickets(Arc::new(Unlanded(Vec::new())));
-        watch.views.insert("s".into(), View { reply: Some((*reply).to_owned()), ..View::of("s") });
-        for signal in [TurnSignal::Started { conversation: "s".into() }, TurnSignal::Ended { conversation: "s".into(), exit: TurnExit::Completed, totals: Default::default() }] {
-            watch.follow(&signal);
-            if let Some(turn) = watch.turns.observe(signal, now_ms()) {
-                watch.record(turn);
-            }
-        }
-    }
-    courier.0.lock().unwrap().clone()
 }

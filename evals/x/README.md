@@ -63,12 +63,7 @@ arm does not end a trial at the first turn's end. `eval-x-runner session-end`, w
 seconds, reads the session host's stream and decides:
 
 - the last turn ended on a report (it opens `Done`, `Not done`, `Split`, `Stop` or `Blocked`): the trial ends
-  (`report`), unless the next case holds;
-- the last turn ended on the session's first `Done` and `north fleet show NAME --json` gives `done_hold` as `due` or
-  `held`: wait instead. north holds the first Done of a worker whose task came with no `Done when:` line once and sends it
-  one message asking it to check its result the way the task's text says it will be used; the report after that
-  stands. `due` means the hold is coming, so the arm does not race it; a runtime without the hold gives no
-  `done_hold`, and the trial ends on the first report as before. The arm sends no such message itself;
+  (`report`);
 - a turn is running, or a command the session started has not ended: wait;
 - the last turn ended with no report and nothing of the session's is running: send it one message, as the lead a
   north worker always has would, and wait for that turn. A second such end ends the trial (`no_report`);
@@ -76,8 +71,8 @@ seconds, reads the session host's stream and decides:
 
 The wait is bounded by the task's agent timeout (`--limit`); a session still going then ends as `limit`. The arm
 stops the session before it writes `done.json`, so no command of the session runs beside the grader. `arm.json` holds
-the outcome under `session_end`: `ended`, `turns` (one per invocation of the session), `nudges` (0 or 1), `holds` (0 or 1, from
-`done_hold` being `held`) and `open_tasks`.
+the outcome under `session_end`: `ended`, `turns` (one per invocation of the session), `nudges` (0 or 1) and
+`open_tasks`.
 
 ## When the plain T3 Code arm ends a trial
 

@@ -37,43 +37,23 @@ pub enum Step {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Hold {
-    #[default]
-    Absent,
-    Due,
-    Held,
-}
-
-impl Hold {
-    fn of(shown: &str) -> Self {
-        match shown {
-            "due" => Self::Due,
-            "held" => Self::Held,
-            _ => Self::Absent,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Seen {
     pub turns: usize,
     pub in_flight: bool,
     pub reported: bool,
     pub open_tasks: usize,
     pub stopped: bool,
-    pub first_done: Option<usize>,
 }
 
 impl Seen {
-    pub fn step(self, nudged_at: Option<usize>, hold: Hold) -> Step {
-        let held = hold != Hold::Absent && self.first_done == Some(self.turns);
-        if self.reported && !self.in_flight && !held {
+    pub fn step(self, nudged_at: Option<usize>) -> Step {
+        if self.reported && !self.in_flight {
             return Step::End(End::Report);
         }
         if self.stopped {
             return Step::End(End::Stopped);
         }
-        if held || self.in_flight || self.turns == 0 || self.open_tasks > 0 {
+        if self.in_flight || self.turns == 0 || self.open_tasks > 0 {
             return Step::Wait;
         }
         match nudged_at {
@@ -94,46 +74,35 @@ impl Seen {
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         {
-            seen.observe(&frame, &mut tasks);
+            let own = frame["parent_tool_use_id"].is_null();
+            let task = frame["task_id"].as_str();
+            match (frame["type"].as_str(), frame["subtype"].as_str()) {
+                (Some("result"), _) => {
+                    seen.turns += 1;
+                    seen.in_flight = false;
+                    seen.reported = is_report(frame["result"].as_str().unwrap_or_default());
+                }
+                (Some("system"), Some("init")) => seen.in_flight = true,
+                (Some("assistant" | "user"), _) if own => seen.in_flight = true,
+                (Some("system"), Some("task_started")) => tasks.extend(task.map(str::to_owned)),
+                (Some("system"), Some("task_notification")) => {
+                    tasks.retain(|open| Some(open.as_str()) != task);
+                }
+                _ => {}
+            }
         }
         seen.open_tasks = tasks.len();
         seen
     }
-
-    fn observe(&mut self, frame: &Value, tasks: &mut Vec<String>) {
-        let own = frame["parent_tool_use_id"].is_null();
-        let task = frame["task_id"].as_str();
-        match (frame["type"].as_str(), frame["subtype"].as_str()) {
-            (Some("result"), _) => self.ended(frame["result"].as_str().unwrap_or_default()),
-            (Some("system"), Some("init")) => self.in_flight = true,
-            (Some("assistant" | "user"), _) if own => self.in_flight = true,
-            (Some("system"), Some("task_started")) => tasks.extend(task.map(str::to_owned)),
-            (Some("system"), Some("task_notification")) => {
-                tasks.retain(|open| Some(open.as_str()) != task);
-            }
-            _ => {}
-        }
-    }
-
-    fn ended(&mut self, reply: &str) {
-        self.turns += 1;
-        self.in_flight = false;
-        self.reported = is_report(reply);
-        if self.first_done.is_none() && opens(reply, "Done") {
-            self.first_done = Some(self.turns);
-        }
-    }
 }
 
 pub fn is_report(reply: &str) -> bool {
-    REPORT_WORDS.iter().any(|word| opens(reply, word))
-}
-
-fn opens(reply: &str, word: &str) -> bool {
-    reply
-        .trim_start_matches(|c: char| c.is_whitespace() || "*#`".contains(c))
-        .strip_prefix(word)
-        .is_some_and(|rest| !rest.starts_with(char::is_alphanumeric))
+    let opening = reply.trim_start_matches(|c: char| c.is_whitespace() || "*#`".contains(c));
+    REPORT_WORDS.iter().any(|word| {
+        opening
+            .strip_prefix(word)
+            .is_some_and(|rest| !rest.starts_with(char::is_alphanumeric))
+    })
 }
 
 pub fn run(args: &[String]) -> Result<bool> {
@@ -144,16 +113,15 @@ pub fn run(args: &[String]) -> Result<bool> {
         return Err(RunError::Usage(USAGE.to_owned()));
     }
     let state = Path::new(state);
-    let (status, hold) = shown(name);
     let seen = Seen::read(
         &fs::read_to_string(stream_file(name)).unwrap_or_default(),
-        &status,
+        &status(name),
     );
     let marker = state.join("nudged");
     let nudged_at = fs::read_to_string(&marker)
         .ok()
         .and_then(|turns| turns.trim().parse().ok());
-    let mut step = seen.step(nudged_at, hold);
+    let mut step = seen.step(nudged_at);
     if step == Step::Nudge {
         if nudged(name) {
             fs::write(&marker, seen.turns.to_string())?;
@@ -166,7 +134,7 @@ pub fn run(args: &[String]) -> Result<bool> {
         Step::Wait | Step::Nudge => None,
     };
     let nudges = usize::from(marker.exists());
-    let record = json!({"ended": ended, "turns": seen.turns, "nudges": nudges, "holds": usize::from(hold == Hold::Held), "open_tasks": seen.open_tasks});
+    let record = json!({"ended": ended, "turns": seen.turns, "nudges": nudges, "open_tasks": seen.open_tasks});
     let scratch = state.join("end.json.tmp");
     fs::write(&scratch, record.to_string())?;
     fs::rename(scratch, state.join("end.json"))?;
@@ -178,19 +146,14 @@ fn stream_file(name: &str) -> PathBuf {
     state.join("north/fleet").join(name).join("g1/stream.jsonl")
 }
 
-fn shown(name: &str) -> (String, Hold) {
+fn status(name: &str) -> String {
     let shown = Command::new("north")
         .args(["fleet", "show", name, "--json"])
         .output();
     shown
         .ok()
         .and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok())
-        .map(|session| {
-            (
-                session["status"].as_str().unwrap_or_default().to_owned(),
-                Hold::of(session["done_hold"].as_str().unwrap_or_default()),
-            )
-        })
+        .and_then(|session| session["status"].as_str().map(str::to_owned))
         .unwrap_or_default()
 }
 
