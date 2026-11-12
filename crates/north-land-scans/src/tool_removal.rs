@@ -129,7 +129,7 @@ pub fn scan(directory: &Path, home: &Path, range: &str, out: &mut impl Write) ->
     if stranded_boxes::scan(directory, &from, head, &north_github_mirror::store::Mirror::local(), out) {
         refused = true;
     }
-    if own == "bin" && peer_invocations::scan(directory, &from, head, &peer, &records_mirror::state_home(), &mut peer_invocations::own_help, out) {
+    if own == "bin" && peer_invocations::scan(directory, &from, head, home, &records_mirror::state_home(), &mut peer_invocations::own_help, out) {
         refused = true;
     }
     u8::from(refused)

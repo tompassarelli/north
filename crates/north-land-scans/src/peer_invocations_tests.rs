@@ -44,32 +44,37 @@ fn help(path: &[&str]) -> Option<String> {
     }
 }
 
-fn run(north: &Path, base: &str, head: &str, peer: &Path, state: &Path) -> (bool, String) {
+fn run(north: &Path, base: &str, head: &str, home: &Path, state: &Path) -> (bool, String) {
     let mut out = Vec::new();
-    let refused = scan(north, base, head, peer, state, &mut help, &mut out);
+    let refused = scan(north, base, head, home, state, &mut help, &mut out);
     (refused, String::from_utf8(out).unwrap())
 }
 
 #[test]
-fn a_lane_that_drops_a_flag_a_nixos_config_unit_still_runs_is_refused_when_enforcing_and_logged_in_shadow() {
+fn a_removal_with_a_caller_in_another_checkout_fails_its_landing() {
     let root = tempfile::tempdir().unwrap();
-    let (north, peer, state) = (root.path().join("north"), root.path().join("nixos-config"), root.path().join("state"));
+    let home = root.path().join("home");
+    let (north, peer, wisp, state) = (root.path().join("north"), home.join("code/nixos-config/main"), home.join("code/wisp/main"), root.path().join("state"));
     let base = commit(&north, &[(REGISTRY, "[gate.peer-invocation]\nmode = \"shadow\"\n"), ("crates/north-landing/src/land/serve.rs", BEFORE)]);
     let head = commit(&north, &[("crates/north-landing/src/land/serve.rs", AFTER)]);
     commit(&peer, &[("modules/north-land/default.nix", UNIT)]);
     git_in(&peer, &["update-ref", PEER_MAIN, "HEAD"]);
+    commit(&wisp, &[("scripts/serve.sh", "north land serve --depth 2\n")]);
+    git_in(&wisp, &["update-ref", PEER_MAIN, "HEAD"]);
 
-    let (refused, out) = run(&north, &base, &head, &peer, &state);
-    assert!(!refused && out.contains("would refuse (shadow)") && out.contains("modules/north-land/default.nix:1: runs `north land serve` with --depth"), "{out}");
+    let (refused, out) = run(&north, &base, &head, &home, &state);
+    assert!(!refused && out.contains("would refuse (shadow)") && out.contains("modules/north-land/default.nix:1: runs `north land serve` with --depth") && out.contains(&format!("{}:1: runs `north land serve` with --depth", wisp.join("scripts/serve.sh").display())), "{out}");
     let log = std::fs::read_to_string(state.join("north/gates/peer-invocation.jsonl")).unwrap();
     assert!(log.contains("\"would_refuse\":true"), "{log}");
 
     let enforcing = commit(&north, &[(REGISTRY, "[gate.peer-invocation]\nmode = \"enforce\"\n")]);
-    let (refused, out) = run(&north, &base, &enforcing, &peer, &state);
+    let (refused, out) = run(&north, &base, &enforcing, &home, &state);
     assert!(refused && out.contains("peer-invocation refused"), "{out}");
 
     commit(&peer, &[("modules/north-land/default.nix", UNIT_FIXED)]);
     git_in(&peer, &["update-ref", PEER_MAIN, "HEAD"]);
-    let (refused, out) = run(&north, &base, &enforcing, &peer, &state);
-    assert!(!refused && out.is_empty(), "the unit that no longer runs --depth passes: {out}");
+    commit(&wisp, &[("scripts/serve.sh", "north land serve\n")]);
+    git_in(&wisp, &["update-ref", PEER_MAIN, "HEAD"]);
+    let (refused, out) = run(&north, &base, &enforcing, &home, &state);
+    assert!(!refused && out.is_empty(), "callers that no longer run --depth pass: {out}");
 }

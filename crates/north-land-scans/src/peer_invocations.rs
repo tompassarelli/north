@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -14,6 +14,7 @@ const SELF: &str = "peer-invocation";
 const REGISTRY: &str = "harness/gates.toml";
 const MARKER: &str = "north ";
 const PEER_MAIN: &str = "refs/remotes/origin/main";
+const PEER_CHECKOUTS: [&str; 4] = ["makgora", "wisp", "nixos-config", "south"];
 const PEER_SOURCES: [&str; 3] = ["*.nix", "*.sh", "dotfiles/bin/"];
 const OWN_SOURCES: [&str; 2] = ["src/", "crates/"];
 const COMMAND_OPENERS: [char; 9] = ['"', '\'', '(', '|', '&', ';', '`', '{', '='];
@@ -125,6 +126,10 @@ pub fn problems(invocation: &Invocation, dropped: &Dropped, ask: &mut dyn FnMut(
     found
 }
 
+fn peer_checkouts(home: &Path) -> Vec<PathBuf> {
+    PEER_CHECKOUTS.iter().map(|name| home.join("code").join(name).join("main")).filter(|checkout| checkout.is_dir()).collect()
+}
+
 fn peer_invocations(peer: &Path) -> Option<Vec<Invocation>> {
     let mut arguments = vec!["grep", "-z", "-n", "-I", "-F", "-e", MARKER, PEER_MAIN, "--"];
     arguments.extend(PEER_SOURCES);
@@ -140,9 +145,9 @@ fn peer_invocations(peer: &Path) -> Option<Vec<Invocation>> {
     for record in text.split('\n').filter(|record| !record.is_empty()) {
         let mut fields = record.splitn(3, '\0');
         let (Some(path), Some(line), Some(body)) = (fields.next(), fields.next(), fields.next()) else { continue };
-        let path = path.strip_prefix(&prefix).unwrap_or(path);
+        let path = peer.join(path.strip_prefix(&prefix).unwrap_or(path)).display().to_string();
         let Ok(line) = line.parse::<usize>() else { continue };
-        found.extend(invocations(path, body).into_iter().map(|invocation| Invocation { location: format!("{path}:{line}"), words: invocation.words }));
+        found.extend(invocations(&path, body).into_iter().map(|invocation| Invocation { location: format!("{path}:{line}"), words: invocation.words }));
     }
     Some(found)
 }
@@ -168,18 +173,23 @@ pub fn own_help(path: &[&str]) -> Option<String> {
     output.status.success().then(|| format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
 }
 
-pub fn scan(directory: &Path, from: &str, head: &str, peer: &Path, state: &Path, ask: &mut dyn FnMut(&[&str]) -> Option<String>, out: &mut dyn Write) -> bool {
+pub fn scan(directory: &Path, from: &str, head: &str, home: &Path, state: &Path, ask: &mut dyn FnMut(&[&str]) -> Option<String>, out: &mut dyn Write) -> bool {
     let mut arguments = vec!["diff", "-U0", "--no-color", "--no-ext-diff", from, head, "--"];
     arguments.extend(OWN_SOURCES);
     let dropped = dropped(&git::text(directory, &arguments).unwrap_or_default());
     if dropped.flags.is_empty() && dropped.names.is_empty() {
         return false;
     }
-    let Some(peers) = peer_invocations(peer) else {
-        let _ = writeln!(out, "{SELF}: ⚠ no {} with {PEER_MAIN}, so the flags and subcommands this lane drops were not checked against its units and scripts", peer.display());
-        return false;
-    };
-    let refused: Vec<String> = peers.iter().flat_map(|invocation| problems(invocation, &dropped, ask)).collect();
+    let mut callers = Vec::new();
+    for peer in peer_checkouts(home) {
+        match peer_invocations(&peer) {
+            Some(found) => callers.extend(found),
+            None => {
+                let _ = writeln!(out, "{SELF}: ⚠ no {} with {PEER_MAIN}, so the flags and subcommands this lane drops were not checked against its units and scripts", peer.display());
+            }
+        }
+    }
+    let refused: Vec<String> = callers.iter().flat_map(|invocation| problems(invocation, &dropped, ask)).collect();
     let enforce = enforcing(directory, [from, head]);
     if !enforce {
         record(state, head, &refused);
@@ -188,7 +198,7 @@ pub fn scan(directory: &Path, from: &str, head: &str, peer: &Path, state: &Path,
         return false;
     }
     let verb = if enforce { "refused" } else { "would refuse (shadow)" };
-    let _ = writeln!(out, "safe-push: ✗ {SELF} {verb}: this lane drops a north flag or subcommand that {} still runs, so its units crash-loop on their next restart; keep it or land the nixos-config change first:", peer.display());
+    let _ = writeln!(out, "safe-push: ✗ {SELF} {verb}: this lane drops a north flag or subcommand that another checkout still runs, so its units crash-loop on their next restart; keep it or land that checkout's change first:");
     for line in &refused {
         let _ = writeln!(out, "  {line}");
     }
