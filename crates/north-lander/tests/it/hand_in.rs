@@ -249,6 +249,13 @@ fn a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_writt
     assert!(text.contains(&format!("{}: the old text of replacement 1 occurs 2 times", inside.display())), "{text}");
     assert!(fs::read_to_string(&inside).unwrap() == "the red draft\n" && fs::read_to_string(&readme).unwrap() == first_readme, "a call with an ambiguous old text wrote a file: {text}");
 
+    let both = serde_json::json!({"content": "the whole draft\n", "replacements": [{"old": "red draft", "new": "green note"}]});
+    let mixed = finish_files(&world, &lane, "true", &[(readme.clone(), whole("the rewritten readme\n")), (inside.clone(), both)]);
+    let text = report(&mixed);
+    assert_eq!(mixed.status.code(), Some(1), "{text}");
+    assert!(text.contains(&format!("{}: carries both whole content and replacements", inside.display())), "{text}");
+    assert!(fs::read_to_string(&inside).unwrap() == "the red draft\n" && fs::read_to_string(&readme).unwrap() == first_readme, "a call with an entry carrying both forms wrote a file: {text}");
+
     let passed = finish_files(&world, &lane, "grep -q green notes/new.txt", &[(inside, lines(&[("red draft", "green note")])), (readme, whole("the rewritten readme\n"))]);
     let text = report(&passed);
     assert_eq!(passed.status.code(), Some(0), "{text}");

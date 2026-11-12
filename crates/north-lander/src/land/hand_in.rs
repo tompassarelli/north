@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane or an absent or repeated old text before anything is written (north#1218).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218).
 
 use std::fs;
 use std::io;
@@ -36,15 +36,8 @@ impl<F: FnOnce(&Lane) -> u8> Road for F {
 #[derive(serde::Deserialize)]
 struct File {
     path: PathBuf,
-    #[serde(flatten)]
-    change: Change,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(untagged)]
-enum Change {
-    Whole { content: String },
-    Lines { replacements: Vec<Replacement> },
+    content: Option<String>,
+    replacements: Option<Vec<Replacement>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -184,7 +177,7 @@ fn apply(named: Named, files: &[File]) -> Result<Named, String> {
     let mut written: Vec<(&PathBuf, String)> = Vec::new();
     for (target, file) in named.targets.iter().zip(files) {
         let earlier = written.iter().rev().find(|(path, _)| *path == target).map(|(_, text)| text.as_str());
-        let content = changed(target, &file.change, earlier)?;
+        let content = changed(target, file, earlier)?;
         written.push((target, content));
     }
     for (target, content) in &written {
@@ -200,10 +193,12 @@ fn apply(named: Named, files: &[File]) -> Result<Named, String> {
     Ok(named)
 }
 
-fn changed(target: &Path, change: &Change, earlier: Option<&str>) -> Result<String, String> {
-    let replacements = match change {
-        Change::Whole { content } => return Ok(content.to_owned()),
-        Change::Lines { replacements } => replacements,
+fn changed(target: &Path, file: &File, earlier: Option<&str>) -> Result<String, String> {
+    let replacements = match (&file.content, &file.replacements) {
+        (Some(content), None) => return Ok(content.to_owned()),
+        (None, Some(replacements)) => replacements,
+        (Some(_), Some(_)) => return Err(format!("{}: carries both whole content and replacements; send one; NOT written", target.display())),
+        (None, None) => return Err(format!("{}: carries neither content nor replacements; NOT written", target.display())),
     };
     let mut text = match earlier {
         Some(text) => text.to_owned(),
