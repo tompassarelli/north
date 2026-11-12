@@ -210,7 +210,7 @@ impl Host for Here<'_> {
     }
 
     fn canary(&self, sha: &str) -> Result<(), String> {
-        canary::preflight(self.layout, self.name(), sha, &canary::Live { layout: self.layout, host: &self.shell })
+        canary::preflight(self.layout, self.name(), sha, self.live().as_deref(), &canary::Live { layout: self.layout, host: &self.shell })
     }
 
     fn go_live(&self, sha: &str) -> Result<(), Failure> {
@@ -246,7 +246,7 @@ impl Host for Elsewhere<'_> {
     }
 
     fn canary(&self, sha: &str) -> Result<(), String> {
-        canary::preflight(self.layout, self.name(), sha, &canary::Live { layout: self.layout, host: &self.shell })
+        canary::preflight(self.layout, self.name(), sha, self.live().as_deref(), &canary::Live { layout: self.layout, host: &self.shell })
     }
 
     /// A ship leaves a host on a runtime newer than the one shipped, so an order that finds the host still off its commit has the runtime live there move it, as the settling host moves itself.

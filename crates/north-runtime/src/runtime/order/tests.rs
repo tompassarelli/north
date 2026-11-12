@@ -1,6 +1,7 @@
 use super::super::canary::{self, Machine, Ran, Rollback};
 use super::super::failure::Failure;
 use super::super::layout::{self, Layout};
+use super::super::lifecycle::{self, Canarying};
 use super::super::pin::{Event, read};
 use super::super::update::{self, Flight};
 use super::{Host, Order, run};
@@ -12,11 +13,22 @@ const OLD: &str = "1111111111111111111111111111111111111111";
 const NEW: &str = "2222222222222222222222222222222222222222";
 const NEWER: &str = "3333333333333333333333333333333333333333";
 
-struct Probes(Option<&'static str>);
+struct Probes {
+    failing: Option<&'static str>,
+    retired: Option<&'static str>,
+}
 
 impl Machine for Probes {
+    fn listed_by(&self, host: &str, sha: &str) -> Result<canary::CoreLoop, String> {
+        let mut list = canary::compiled(host, sha, self);
+        if sha == NEW {
+            list.probes.retain(|probe| !self.retired.is_some_and(|retired| probe.name.contains(retired)));
+        }
+        Ok(list)
+    }
+
     fn probe(&self, probe: &canary::Probe) -> Ran {
-        match self.0.is_some_and(|failing| probe.name.contains(failing)) {
+        match self.failing.is_some_and(|failing| probe.name.contains(failing)) {
             true => Ran::Exited { code: 1, log: "the probe failed".to_owned() },
             false => Ran::Exited { code: 0, log: String::new() },
         }
@@ -59,6 +71,7 @@ struct Rehearsal<'a> {
     layout: &'a Layout,
     name: &'static str,
     failing: Option<&'static str>,
+    retired: Option<&'static str>,
     live: Mutex<String>,
     pin: Mutex<Option<String>>,
     steps: &'a Mutex<Vec<String>>,
@@ -86,7 +99,7 @@ impl Host for Rehearsal<'_> {
 
     fn canary(&self, sha: &str) -> Result<(), String> {
         self.step("canary");
-        canary::preflight(self.layout, self.name, sha, &Probes(self.failing))
+        canary::preflight(self.layout, self.name, sha, self.live().as_deref(), &Probes { failing: self.failing, retired: self.retired })
     }
 
     fn go_live(&self, sha: &str) -> Result<(), Failure> {
@@ -116,7 +129,7 @@ fn an_ordered_promotion_of_a_landed_commit_runs_the_canary_then_goes_live_on_the
     }
     symlink(layout::link(OLD), layout.current()).unwrap();
     let steps = Mutex::new(Vec::new());
-    let host = |name, failing| Rehearsal { layout: &layout, name, failing, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(Some(OLD.to_owned())), steps: &steps, stays: false };
+    let host = |name, failing| Rehearsal { layout: &layout, name, failing, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(Some(OLD.to_owned())), steps: &steps, stays: false };
     let (settling, builder) = (host("whiterabbit", None), host("gex45", Some("depbox")));
     let order = Order { sha: NEW.to_owned(), reason: "the lander cannot take a landing".to_owned(), orderer: "f-promote-order".to_owned() };
 
@@ -240,8 +253,8 @@ fn an_order_names_a_host_kept_on_a_newer_runtime_and_does_not_report_it_live() {
     }
     symlink(layout::link(OLD), layout.current()).unwrap();
     let steps = Mutex::new(Vec::new());
-    let settling = Rehearsal { layout: &layout, name: "whiterabbit", failing: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false };
-    let kept = Rehearsal { layout: &layout, name: "gex45", failing: None, live: Mutex::new(NEWER.to_owned()), pin: Mutex::new(Some(NEWER.to_owned())), steps: &steps, stays: true };
+    let settling = Rehearsal { layout: &layout, name: "whiterabbit", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false };
+    let kept = Rehearsal { layout: &layout, name: "gex45", failing: None, retired: None, live: Mutex::new(NEWER.to_owned()), pin: Mutex::new(Some(NEWER.to_owned())), steps: &steps, stays: true };
     let order = Order { sha: NEW.to_owned(), reason: "main's head holds a change under review".to_owned(), orderer: "f-canary-chain".to_owned() };
 
     let refused = run(&layout, &order, &settling, &[&kept], || Ok(()), |()| Ok(false)).unwrap_err();
@@ -253,4 +266,26 @@ fn an_order_names_a_host_kept_on_a_newer_runtime_and_does_not_report_it_live() {
         _ => None,
     });
     assert!(row.as_ref().is_some_and(|(canary, live)| canary.starts_with("passed; not live: gex45 runs") && !live), "{row:?}");
+}
+
+#[test]
+fn an_order_promotes_a_candidate_failing_only_a_probe_it_retired_and_refuses_one_failing_a_probe_it_kept() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_path_buf() };
+    for sha in [OLD, NEW] {
+        fs::create_dir_all(layout.runtime(sha)).unwrap();
+    }
+    symlink(layout::link(OLD), layout.current()).unwrap();
+    let steps = Mutex::new(Vec::new());
+    let host = |name, failing| Rehearsal { layout: &layout, name, failing, retired: Some("depbox"), live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false };
+    let (settling, builder) = (host("whiterabbit", Some("depbox")), host("gex45", Some("ssh reaches no host")));
+    let order = Order { sha: NEW.to_owned(), reason: "the depbox probe is retired".to_owned(), orderer: "f-canary-chain".to_owned() };
+
+    let refused = run(&layout, &order, &settling, &[&builder], || Ok(()), |()| Ok(false)).unwrap_err();
+
+    assert_eq!(settling.live.lock().unwrap().as_str(), NEW, "the order's own list still held the depbox probe, which the candidate retired and would fail");
+    let judged = lifecycle::record_of::<Canarying>(&layout, &format!("whiterabbit/{NEW}")).unwrap().unwrap().cause;
+    assert!(judged.contains("probes added: none; probes removed: `a worker command's depbox run execs the judged north`"), "{judged}");
+    assert_eq!(builder.live.lock().unwrap().as_str(), OLD);
+    assert!(refused.message.contains("gex45 stays on its old runtime") && refused.message.contains("ssh reaches no host"), "{}", refused.message);
 }

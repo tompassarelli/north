@@ -17,8 +17,8 @@ pub(in crate::runtime) struct Probe {
     pub(super) limit: Duration,
 }
 
-pub(super) struct CoreLoop {
-    pub(super) probes: Vec<Probe>,
+pub(in crate::runtime) struct CoreLoop {
+    pub(in crate::runtime) probes: Vec<Probe>,
     pub(super) not_applicable: Vec<String>,
 }
 

@@ -76,6 +76,14 @@ loses its socket path, which sends its next client to start one on the live runt
 connected and its log has been quiet for 5 s. One still serving a client after 15 s keeps running without new clients
 and is asked again by the next promotion; a request is never cut.
 
+The code that judges a runtime is that runtime's too. A promotion is run by the runtime that was live before it, so
+its probe list and its walk were one runtime behind what they judged: a probe retired on purpose kept failing the
+commit that retired it, and a fix to the walk first ran one promotion late. So the promoting runtime asks the judged
+one for its probes (`north runtime probe list HOST`), and after its swap it runs `north runtime walk` from the runtime
+now live and waits for it. A runtime that knows neither verb is judged and walked as before, by the one promoting it.
+What a candidate drops from the list is the reviewer's to read: an order prints the probes added and removed against
+the live runtime's list before any probe runs (north#1022).
+
 `north runtime lag --json` answers the fleet-wide question (north#1081): a JSON array with one object per long-lived
 process on every declared host, `host`, `process`, `runtime` and `seconds`. The settling host asks each other host for
 its own list with `north runtime lag --processes --json` over ssh, and times each process from the first landing in

@@ -81,6 +81,19 @@ pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
 }
 
 fn walk_and_ship(layout: &Layout) -> Result<(), Failure> {
+    let own = super::own_runtime().map(|(sha, _)| sha);
+    walk::handed_to_live(layout, own.as_deref()).unwrap_or_else(|| walked_and_shipped(layout))
+}
+
+/// `north runtime walk`: the walk a promotion left to this runtime, which hands it no further.
+pub(super) fn walk(layout: &Layout) -> Result<(), Failure> {
+    match land_offload::settles_fleet_here() {
+        true => walked_and_shipped(layout),
+        false => Err(failed(1, "this host does not settle the fleet, so it walks no runtime and ships none; run it on the host that does")),
+    }
+}
+
+fn walked_and_shipped(layout: &Layout) -> Result<(), Failure> {
     let walked = walk::walked_here(layout);
     let follow = walked.is_ok();
     std::thread::scope(|scope| {

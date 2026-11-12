@@ -1,5 +1,5 @@
 use super::canary::{self, Verdict};
-use super::failure::Failure;
+use super::failure::{Failure, failed};
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Canarying, Canary};
 use super::live::Swap;
@@ -7,6 +7,9 @@ use super::pin::{Event, note, now};
 use super::probe::Shell;
 use crate::platform::host;
 use std::fs;
+use std::process::Command;
+
+const UNKNOWN_VERB: i32 = 64;
 
 pub(super) fn judged(layout: &Layout, host: &str, sha: &str, verdict: &Verdict, swaps: &[Swap]) {
     let at = now();
@@ -21,6 +24,25 @@ pub(super) fn judged(layout: &Layout, host: &str, sha: &str, verdict: &Verdict, 
 
 fn live_since(swaps: &[Swap], sha: &str) -> Option<i64> {
     swaps.iter().rev().find(|swap| swap.runtime == sha).map(|swap| swap.at)
+}
+
+/// A promotion run by runtime `own` leaves the walk of the runtime now live to that runtime (`north runtime walk`), so each runtime is judged, shipped and followed by its own code; none when `own` is live itself, is no runtime, or the live one is too old to walk itself, and the caller walks.
+pub(super) fn handed_to_live(layout: &Layout, own: Option<&str>) -> Option<Result<(), Failure>> {
+    let own = own?;
+    let live = layout.live_sha().filter(|live| live.as_str() != own && layout::has_programs(&layout.runtime(live)))?;
+    let short = layout::short(&live);
+    match Command::new(layout.runtime(&live).join("north")).args(["runtime", "walk"]).status() {
+        Ok(status) if status.success() => Some(Ok(())),
+        Ok(status) if status.code() == Some(UNKNOWN_VERB) => {
+            println!("north runtime: {short} is older than `north runtime walk`, so the runtime that promoted it walks it");
+            None
+        }
+        Ok(status) => Some(Err(failed(status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(1), format!("the walk of {short}, run by that runtime, failed; its message is above")))),
+        Err(error) => {
+            println!("north runtime: {short} could not be started to walk itself ({error}), so the runtime that promoted it walks it");
+            None
+        }
+    }
 }
 
 pub(super) fn walked_here(layout: &Layout) -> Result<String, String> {

@@ -1,7 +1,7 @@
 use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Canary, Canarying};
 use super::probes::Probe;
-use super::{Machine, Ran, run_probes, tail};
+use super::{Machine, Ran, listed, run_probes, tail};
 
 /// verify-north's last line (src/bin/verify_north/report.rs) names the step it stopped at.
 const STOPPED_AT: &str = "verify-north FAILED at step ";
@@ -61,7 +61,7 @@ fn walk(layout: &Layout, host: &str, failed_sha: &str, sha: String, broken: &[Br
         println!("north runtime canary: {host}: {short} not walked as the rollback target of {failed_short}: {}", failure.message);
         return Baseline { failed: broken.iter().map(|broken| (broken.probe.clone(), Outcome::Unknown)).collect(), sha };
     }
-    let (probes, ran) = run_probes(layout, host, &sha, short, machine);
+    let (probes, ran) = run_probes(layout, host, &sha, listed(host, &sha, short, machine), machine);
     let mut failed = Vec::new();
     let (mut failures, mut unrun) = (Vec::new(), Vec::new());
     for (probe, ran) in probes.iter().zip(&ran) {

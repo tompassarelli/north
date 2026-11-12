@@ -1,10 +1,12 @@
 use super::super::canary::Verdict;
 use super::super::failure::failed;
-use super::super::layout::Layout;
+use super::super::layout::{self, Layout};
 use super::super::live::Swap;
 use super::super::pin::{Event, read};
-use super::{judged, ship_if_walked};
+use super::{handed_to_live, judged, ship_if_walked};
+use north_base::foundation::shim::write_executable;
 use std::cell::Cell;
+use std::fs;
 
 const PINNED: &str = "1111111111111111111111111111111111111111";
 const MAIN: &str = "2222222222222222222222222222222222222222";
@@ -38,4 +40,28 @@ fn nothing_ships_to_another_host_until_the_runtime_walked_the_spine_here() {
     assert_eq!(ship_if_walked(Ok(MAIN.to_owned()), ship).unwrap(), Some(()));
     assert_eq!(shipped.get(), 1);
     assert!(ship_if_walked(Ok(MAIN.to_owned()), |_| Err::<(), _>(failed(1, "unreachable"))).is_err());
+}
+
+#[test]
+fn a_promotion_leaves_the_walk_after_its_swap_to_the_runtime_it_promoted() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_owned() };
+    let promoted = layout.runtime(MAIN);
+    fs::create_dir_all(&promoted).unwrap();
+    for program in layout::PROGRAMS {
+        write_executable(&promoted.join(program), "#!/bin/sh\nhere=$(dirname \"$0\")\necho \"$*\" >> \"$here/asked\"\nexit \"$(cat \"$here/exit\")\"\n");
+    }
+    std::os::unix::fs::symlink(layout::link(MAIN), layout.current()).unwrap();
+    let exits = |code: &str| fs::write(promoted.join("exit"), code).unwrap();
+
+    exits("0");
+    assert!(matches!(handed_to_live(&layout, Some(PINNED)), Some(Ok(()))), "the promoting runtime walked the runtime it had just swapped in with its own code");
+    assert_eq!(fs::read_to_string(promoted.join("asked")).unwrap(), "runtime walk\n");
+    exits("3");
+    assert_eq!(handed_to_live(&layout, Some(PINNED)).unwrap().unwrap_err().code, 3);
+    exits("64");
+    assert!(handed_to_live(&layout, Some(PINNED)).is_none(), "a runtime older than the verb is walked by the one that promoted it");
+    assert!(handed_to_live(&layout, Some(MAIN)).is_none(), "the live runtime walks itself");
+    assert!(handed_to_live(&layout, None).is_none());
+    assert_eq!(fs::read_to_string(promoted.join("asked")).unwrap().lines().count(), 3);
 }

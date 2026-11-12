@@ -9,13 +9,15 @@ use std::time::{Duration, Instant};
 
 mod baseline;
 mod launch;
+mod listing;
 mod probes;
 mod retirement;
 mod services;
 
 pub(super) use launch::probe as launch_probe;
+pub(super) use listing::print as list_probes;
 pub(super) use services::{probe as services_probe, retire as retire_services};
-pub(super) use probes::{Landers, Probe};
+pub(super) use probes::{CoreLoop, Landers, Probe};
 
 /// The scripts of the two probes that ask a broker from a scratch project they make, for the test of the broker that serves them (worker_sandbox/offload_request_tests.rs).
 #[cfg(test)]
@@ -53,6 +55,13 @@ pub(super) trait Machine: Sync {
     fn sessions_reach_hub(&self, host: &str) -> bool;
     fn settles_fleet(&self, host: &str) -> bool;
     fn lander_repositories(&self) -> Option<Landers>;
+    /// The probes runtime `sha` judges itself by on `host`, or why it printed none; a machine that asks no runtime answers with the list compiled into the running north.
+    fn listed_by(&self, host: &str, sha: &str) -> Result<CoreLoop, String>
+    where
+        Self: Sized,
+    {
+        Ok(compiled(host, sha, self))
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -65,10 +74,21 @@ pub(super) enum Verdict {
     Stuck,
 }
 
-fn run_probes(layout: &Layout, host: &str, sha: &str, short: &str, machine: &impl Machine) -> (Vec<Probe>, Vec<Ran>) {
-    let started = Instant::now();
+pub(super) fn compiled(host: &str, sha: &str, machine: &impl Machine) -> CoreLoop {
     let landers = machine.lander_repositories();
-    let plan = probes::core_loop(host, sha, &machine.launchable_providers(), machine.sessions_reach_hub(host), machine.settles_fleet(host), landers.as_ref());
+    probes::core_loop(host, sha, &machine.launchable_providers(), machine.sessions_reach_hub(host), machine.settles_fleet(host), landers.as_ref())
+}
+
+fn listed(host: &str, sha: &str, short: &str, machine: &impl Machine) -> CoreLoop {
+    machine.listed_by(host, sha).unwrap_or_else(|why| {
+        println!("north runtime canary: {host}: {short} is judged by the probe list of the runtime judging it: {why}");
+        compiled(host, sha, machine)
+    })
+}
+
+fn run_probes(layout: &Layout, host: &str, sha: &str, plan: CoreLoop, machine: &impl Machine) -> (Vec<Probe>, Vec<Ran>) {
+    let started = Instant::now();
+    let short = layout::short(sha);
     if !plan.not_applicable.is_empty() {
         println!("north runtime canary: {host}: {short}: not applicable here: {}", plan.not_applicable.join(", "));
     }
@@ -99,7 +119,7 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         println!("north runtime canary: {host}: {short} not judged here: {}", failure.message);
         return Verdict::Skipped;
     }
-    let (probes, ran) = run_probes(layout, host, sha, short, machine);
+    let (probes, ran) = run_probes(layout, host, sha, listed(host, sha, short, machine), machine);
     let tallied = tallies(&probes, &ran);
     let Tallies { failures, broken, faults, unrun } = &tallied;
     if failures.is_empty() {
@@ -140,8 +160,8 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
     }
 }
 
-/// Judges a runtime that is not live yet: every core-loop probe must exit 0 against `runtimes/SHA`, and nothing is rolled back, quarantined or alarmed, since the host's live runtime was never replaced. The error names each probe that failed or could not run.
-pub(super) fn preflight(layout: &Layout, host: &str, sha: &str, machine: &impl Machine) -> Result<(), String> {
+/// Judges a runtime that is not live yet: every core-loop probe of its own list must exit 0 against `runtimes/SHA`, and nothing is rolled back, quarantined or alarmed, since the host's live runtime was never replaced. The probes it adds to and drops from the list of `live`, the runtime live on the host, are printed before any runs and kept in the verdict's cause. The error names each probe that failed or could not run.
+pub(super) fn preflight(layout: &Layout, host: &str, sha: &str, live: Option<&str>, machine: &impl Machine) -> Result<(), String> {
     let instance = format!("{host}/{sha}");
     let short = layout::short(sha);
     match lifecycle::state_of::<Canarying>(layout, &instance).ok().flatten() {
@@ -150,11 +170,14 @@ pub(super) fn preflight(layout: &Layout, host: &str, sha: &str, machine: &impl M
         _ => {}
     }
     lifecycle::move_to::<Canarying>(layout, &instance, Canary::Judging, "running the core-loop probes before the runtime is live").map_err(|failure| failure.message)?;
-    let (probes, ran) = run_probes(layout, host, sha, short, machine);
+    let plan = listed(host, sha, short, machine);
+    let change = listing::against_live(host, sha, &plan, live, machine);
+    println!("north runtime canary: {host}: {short}: {change}");
+    let (probes, ran) = run_probes(layout, host, sha, plan, machine);
     let Tallies { failures, faults, unrun, .. } = tallies(&probes, &ran);
     let problems: Vec<String> = failures.into_iter().chain(faults).chain(unrun).collect();
     let (state, cause) = match problems.is_empty() {
-        true => (Canary::Passed, format!("all {} core-loop probes exited 0 before the runtime went live", probes.len())),
+        true => (Canary::Passed, format!("all {} core-loop probes exited 0 before the runtime went live; {change}", probes.len())),
         false => (Canary::Unjudged, problems.join("; ")),
     };
     lifecycle::move_to::<Canarying>(layout, &instance, state, &cause).map_err(|failure| failure.message)?;
@@ -291,6 +314,10 @@ impl Machine for Live<'_> {
 
     fn lander_repositories(&self) -> Option<Landers> {
         self.host.run(&probes::repositories_script()).ok().map(|listing| probes::parse_repositories(&listing))
+    }
+
+    fn listed_by(&self, host: &str, sha: &str) -> Result<CoreLoop, String> {
+        listing::listed_by_live(self, host, sha)
     }
 }
 
