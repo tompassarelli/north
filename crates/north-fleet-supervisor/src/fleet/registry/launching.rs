@@ -79,13 +79,13 @@ impl Fleet {
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         let unrecorded = record.clone();
         std::thread::scope(|scope| {
-            let early = (claim == Claim::Fresh).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()))));
-            let joined = || early.map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
+            let mut early = (claim == Claim::Fresh).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()))));
+            let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
             if let Err(error) = self.registrar.register(&row, claim) {
                 self.abandon_early(joined(), session_dir);
                 return Err(error);
             }
-            self.succeed(&request.name, claim, |predecessor| {
+            let launched = self.succeed(&request.name, claim, |predecessor| {
                 record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
                 let claimed = self.claim_before_start(request, &tasks, verification);
                 let opened = joined();
@@ -105,11 +105,15 @@ impl Fleet {
                     Ok(()) => error,
                     Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
                 })
-            })
+            });
+            if launched.is_err() {
+                self.abandon_early(joined(), session_dir);
+            }
+            launched
         })
     }
 
-    /// Ends a host started beside a registration or claim that then failed, and removes the directory it ran in.
+    /// Ends a host started beside a registration, start lock or claim that then failed, and removes the directory it ran in.
     fn abandon_early(&self, opened: Option<NorthResult<OpenedHost>>, session_dir: &Path) {
         let Some(opened) = opened else { return };
         let ended = match opened {
