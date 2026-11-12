@@ -89,16 +89,16 @@ fn capitalized(text: &str) -> String {
 /// Runs `north finish --judge-message` in `cwd`'s lane, here or over ssh on its build host, and returns once its deny-list
 /// scan has answered: `Asked` with the message when the scan passed and the judge was asked, which goes on after this
 /// returns, `Refused` when the scan refused it, and `Unasked` when nothing was judged.
-pub fn judge(message: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) -> Verdict {
+pub fn judge(message: &str, session: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) -> Verdict {
     let mut command = match machine {
         None => {
             let mut local = Command::new(north);
-            local.args(["finish", "--judge-message"]).current_dir(cwd);
+            local.args(["finish", "--judge-message", session]).current_dir(cwd);
             local
         }
         Some(machine) => {
             let mut ssh = Command::new(super::runtime::binary("ssh"));
-            let script = format!("cd {} && {} finish --judge-message", quote(&cwd.to_string_lossy()), quote(&north.to_string_lossy()));
+            let script = format!("cd {} && {} finish --judge-message {}", quote(&cwd.to_string_lossy()), quote(&north.to_string_lossy()), quote(session));
             ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &machine.ssh, "--", &script]);
             ssh
         }

@@ -272,12 +272,12 @@ fn first_prompt(request: &LaunchRequest, verification: bool) -> String {
 
 fn launch_verdict(request: &LaunchRequest, verification: bool) -> proposal::Verdict {
     let one_call = north_base::platform::harness::document("harness/worker-tools.toml")["verbs"].as_array().is_some_and(|verbs| verbs.iter().any(|verb| verb.as_str() == Some("finish")));
-    let Some(message) = proposal::message(&request.prompt).filter(|_| !verification && one_call && proposal::in_band(&request.prompt)) else { return proposal::Verdict::Unasked };
+    let message = proposal::message(&request.prompt).filter(|_| !verification && one_call && proposal::in_band(&request.prompt)).unwrap_or_default();
     let north = match request.machine {
         Some(_) => north_base::platform::north_binary::north_binary(),
         None => north_base::platform::north_binary::own_binary(),
     };
-    proposal::judge(&message, &request.cwd, &north, request.machine.as_ref())
+    proposal::judge(&message, &request.name, &request.cwd, &north, request.machine.as_ref())
 }
 
 fn fresh_opening<'a>(request: &'a LaunchRequest, conversation: Option<&'a str>) -> Opening<'a> {

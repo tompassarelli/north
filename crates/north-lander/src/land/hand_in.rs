@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal (north#1239).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
 
 use std::fs;
 use std::io;
@@ -11,7 +11,7 @@ use crate::land::scans::outgoing::denylist::{Denylist, Stand};
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub const USAGE: &str = "usage: north hand-in --message TEXT [--] PATH...";
-pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH... | north finish --judge-message < MESSAGE";
+pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH... | north finish --judge-message SESSION < MESSAGE";
 const JUDGE_MESSAGE: &str = "--judge-message";
 const PROPOSAL_FILE: &str = "north-proposed-message";
 const PROPOSALS: &str = "north/land/proposed-messages.jsonl";
@@ -75,8 +75,10 @@ pub fn run(arguments: &[String], road: impl Road) -> u8 {
 }
 
 pub fn finish(arguments: &[String], road: impl Road) -> u8 {
-    if matches!(arguments, [flag] if flag == JUDGE_MESSAGE) {
-        return judge_message();
+    if let [flag, session] = arguments
+        && flag == JUDGE_MESSAGE
+    {
+        return judge_message(session);
     }
     let (check, message, rest) = match arguments {
         [check_flag, check, message_flag, message, rest @ ..] if check_flag == "--check" && message_flag == "--message" => (check, message, rest),
@@ -283,20 +285,20 @@ fn ask_early(named: &Named) {
     });
 }
 
-fn judge_message() -> u8 {
+fn judge_message(session: &str) -> u8 {
     let message = io::read_to_string(io::stdin()).unwrap_or_default();
     let Some(root) = std::env::current_dir().ok().and_then(|directory| checkout(&directory)) else { return 1 };
     let Some(kept) = proposal_path(&root) else { return 1 };
     let _ = fs::remove_file(&kept);
     let destination = default_branch(&root);
-    if message.trim().is_empty() || !git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).is_ok_and(|branch| branch != destination) {
+    if message.trim().is_empty() || session.trim().is_empty() || session.contains('\n') || !git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).is_ok_and(|branch| branch != destination) {
         return 1;
     }
     let (Ok(origin), Ok(base)) = (git(&root, &["remote", "get-url", "--push", "origin"]), git(&root, &["rev-parse", "HEAD"])) else { return 1 };
     let Some(head) = message_only(&root, &base, &message) else { return 1 };
     let passed = std::cell::Cell::new(false);
     let on_pass = || {
-        if fs::write(&kept, &message).is_ok() {
+        if fs::write(&kept, format!("{session}\n{message}")).is_ok() {
             println!("{PROPOSED}");
             passed.set(true);
             record_proposal(&root, "judged", &message);
@@ -315,7 +317,10 @@ fn proposal_path(root: &Path) -> Option<PathBuf> {
 }
 
 fn proposed_message(root: &Path) -> Option<String> {
-    fs::read_to_string(proposal_path(root)?).ok().filter(|message| !message.trim().is_empty())
+    let own = std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.trim().is_empty())?;
+    let kept = fs::read_to_string(proposal_path(root)?).ok()?;
+    let (session, message) = kept.split_once('\n')?;
+    Some(message.to_owned()).filter(|message| session == own && !message.trim().is_empty())
 }
 
 fn record_proposal(root: &Path, event: &str, message: &str) {

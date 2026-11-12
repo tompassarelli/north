@@ -151,9 +151,9 @@ fn a_hand_in_verb_call_returns_the_same_refusal_as_safe_push_for_a_refused_lane(
 const FINISH: &str = "hand_in::a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_before_the_verdict";
 const FINISH_ARGUMENTS: &str = "NORTH_FINISH_IT_ARGUMENTS";
 
-fn finish(world: &World, check: &str, message: &str, path: &Path) -> Output {
+fn finish(world: &World, session: &str, check: &str, message: &str, path: &Path) -> Output {
     let arguments = ["--check", check, "--message", message, "--", path.to_str().unwrap()];
-    queueing(world, FINISH, FINISH_ARGUMENTS, &arguments).output().unwrap()
+    queueing(world, FINISH, FINISH_ARGUMENTS, &arguments).env("NORTH_FLEET_SESSION", session).output().unwrap()
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     fs::write(lane.join("unnamed.txt"), "a change the worker did not name\n").unwrap();
     let start = git(&lane, &["rev-parse", "HEAD"]);
 
-    let failed = finish(&world, "echo the box is red; exit 3", "Add the finished note (north#1194)", &lane.join("named.txt"));
+    let failed = finish(&world, "proposer", "echo the box is red; exit 3", "Add the finished note (north#1194)", &lane.join("named.txt"));
     let text = report(&failed);
     assert_eq!(failed.status.code(), Some(1), "{text}");
     assert!(text.contains("the box is red") && text.contains("exited 3") && text.contains("NOT queued"), "a failed check did not return its output: {text}");
@@ -177,12 +177,15 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert_eq!(git(&lane, &["diff", "--cached", "--name-only"]), "", "a failed check staged: {text}");
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "a failed check queued: {text}");
 
-    let mut proposing = queueing(&world, FINISH, FINISH_ARGUMENTS, &["--judge-message"]).current_dir(&lane).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let mut proposing = queueing(&world, FINISH, FINISH_ARGUMENTS, &["--judge-message", "proposer"]).current_dir(&lane).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     proposing.stdin.take().unwrap().write_all(b"Add the proposed note (north#1239)").unwrap();
     let proposed = proposing.wait_with_output().unwrap();
     assert!(String::from_utf8_lossy(&proposed.stdout).split_whitespace().any(|word| word == hand_in::PROPOSED), "the launch-time scan did not pass the proposed message on to its judge: {}", report(&proposed));
+    let stale = finish(&world, "later", "true", "", &lane.join("named.txt"));
+    assert_eq!(stale.status.code(), Some(1), "another session's finish call committed the proposal kept for an earlier one: {}", report(&stale));
+    assert!(queue::pending(&north.queue).unwrap().is_empty(), "another session's empty-message finish call queued: {}", report(&stale));
     let ran = world.path().join("check-ran");
-    let passed = finish(&world, &format!("test -e named.txt && touch {}", ran.display()), "", &lane.join("named.txt"));
+    let passed = finish(&world, "proposer", &format!("test -e named.txt && touch {}", ran.display()), "", &lane.join("named.txt"));
     let text = report(&passed);
     assert_eq!(passed.status.code(), Some(0), "{text}");
     assert!(ran.exists(), "the check did not run in the lane: {text}");
