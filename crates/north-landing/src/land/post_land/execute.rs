@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
 use north_base::foundation::exit::NO_VERDICT_STATUS;
-use north_base::foundation::offload::OWNER_ENV;
+use north_base::foundation::offload::{OWNER_ENV, TREES_ENV};
 
 use super::runner::{self, Ended, ended, supervise};
 use crate::land::outlive::SLICE_ENV;
@@ -69,6 +69,10 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
         Ok(files) => files,
         Err(error) => return Verdict::Transient(format!("{}: {error}", run.log.display())).into(),
     };
+    let record = crate::land::verdict_tree::record(&run.log);
+    if let Err(error) = fs::write(&record, crate::land::verdict_tree::header(tree, run.host.is_some())) {
+        return Verdict::Transient(format!("{}: {error}", record.display())).into();
+    }
     let here = run.host.as_deref() == Some(north_base::platform::host::name().as_str()) && !run.capacity.is_empty();
     let mut argv: Vec<OsString> = Vec::new();
     if here {
@@ -85,7 +89,7 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
     }
     let Some((first, rest)) = argv.split_first() else { return Verdict::Transient("no post-land runner".to_owned()).into() };
     let mut command = Command::new(first);
-    command.args(rest).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env(OWNER_ENV, &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity);
+    command.args(rest).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env(OWNER_ENV, &run.offload_owner).env(TREES_ENV, &record).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity);
     match &run.host {
         Some(host) => command.env("SAFE_PUSH_LAND_RUNNER", host),
         None => command.env_remove("SAFE_PUSH_LAND_RUNNER"),

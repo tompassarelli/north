@@ -462,7 +462,7 @@ pub fn green_ancestor(ledger: &str, repository: &str, history: &[&str]) -> Optio
 
 pub fn file(repo: &Path, head: &str, parent: &str, failing: &BTreeSet<Failure>, log: &Path) -> Result<(), String> {
     let commit_tree = git(repo, &["rev-parse", &format!("{head}^{{tree}}")])?;
-    let tree = super::verdict_tree::verdict_tree(&fs::read_to_string(log).unwrap_or_default(), &commit_tree);
+    let tree = super::verdict_tree::named(log, head, &commit_tree);
     let request = git(repo, &["commit-tree", &commit_tree, "-p", head, "-m", &request_message(head, parent, failing, log, &tree)])?;
     let pushed = Command::new("git").arg("-C").arg(repo).args(["push", "-q", "--no-verify", "origin", &format!("{request}:{REQUESTS}{head}")]).env("SAFE_PUSH_ACTIVE", "1").output().map_err(|error| error.to_string())?;
     if pushed.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&pushed.stderr).trim().to_owned()) }

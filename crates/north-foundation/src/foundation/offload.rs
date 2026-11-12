@@ -9,8 +9,11 @@ pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
 pub const SLOT_ENV: &str = "NORTH_OFFLOAD_SLOT";
 /// The pid of the shell that holds the slot `SLOT_ENV` names, whose life is the life of its hold, so a job nested in that slot ends when it ends.
 pub const SLOT_HOLDER_ENV: &str = "NORTH_OFFLOAD_SLOT_HOLDER";
-/// The line an offload run prints once it proved its slot holds exactly the shipped commit's tree, followed by that tree and `of COMMIT`, which an after-landing verdict reads to name the tree it was computed on.
+/// The line an offload run prints for people once it proved its slot holds exactly the shipped commit's tree, followed by that tree and `of COMMIT`; nothing decides on it, since a check's own output can print it too.
 pub const PROVED_TREE: &str = "offload: proved tree ";
+/// The file an after-landing run's offload clients append one line to for each shipped run whose command reported: the tree the build host proved the run was computed on, else `UNPROVED`, then the commit; the run's log never names it, so the sheriff reads this.
+pub const TREES_ENV: &str = "NORTH_OFFLOAD_TREES";
+pub const UNPROVED: &str = "unproved";
 pub const LANES_ENV: &str = "NORTH_LAND_LANES";
 pub const TIPS_ENV: &str = "SAFE_PUSH_LAND_TIPS";
 pub const LOCAL_ENV: &str = "NORTH_LAND_CHECKS_LOCAL";

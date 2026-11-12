@@ -1,4 +1,5 @@
 use super::*;
+use crate::land::verdict_tree;
 
 const CLIPPY: &str = "CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --workspace --locked --offline -- -D warnings";
 
@@ -70,12 +71,24 @@ fn never_reverts_a_revert_or_a_lane_twice_and_a_run_without_cases_reverts_nothin
     assert!(told[0].0 == "proxy" && told[0].1.contains("main is broken, not a lane: suite::x"), "{told:?}");
     infrastructure_reaches_no_verdict();
     let (commit, other) = ("c".repeat(40), "f".repeat(40));
-    let running = format!("offload: running {} in /slots/code-north-main\n", "a".repeat(40));
-    let named = |log: &str| parse("red", &request_message("red", "parent", &clippy(), Path::new("/logs/post-land-red.log"), &crate::land::verdict_tree::verdict_tree(log, &commit))).tree;
-    assert_eq!(crate::land::verdict_tree::misjudged(&named(&format!("{running}offload: proved tree {commit} of red\n")), &commit), None, "a red computed on the commit's own tree is judged");
-    assert!(crate::land::verdict_tree::misjudged(&named(&format!("{running}offload: proved tree {other} of red\n")), &commit).is_some_and(|why| why.contains(&other)), "a red computed on another tree reverts nothing and names that tree");
-    assert!(crate::land::verdict_tree::misjudged(&named(&running), &commit).is_some(), "a red from an offloaded run that proved no tree reverts nothing");
-    assert!(crate::land::verdict_tree::misjudged(&request().tree, &commit).is_some(), "a request naming no tree reverts nothing");
+    let run = tempfile::tempdir().unwrap();
+    let log = run.path().join("post-land-red.log");
+    fs::write(&log, format!("offload: running {} in /slots/code-north-main\n{}{other} of red\n", "a".repeat(40), north_base::foundation::offload::PROVED_TREE)).unwrap();
+    let named = |record: Option<String>| {
+        let _ = fs::remove_file(verdict_tree::record(&log));
+        if let Some(record) = record {
+            fs::write(verdict_tree::record(&log), record).unwrap();
+        }
+        parse("red", &request_message("red", "parent", &clippy(), &log, &verdict_tree::named(&log, "red", &commit))).tree
+    };
+    let offloaded = verdict_tree::header("red", true);
+    assert_eq!(verdict_tree::misjudged(&named(Some(format!("{offloaded}{commit} red\n"))), &commit), None, "a red its record proves was computed on the commit's own tree is judged, whatever tree a line of its log says was proved");
+    assert!(verdict_tree::misjudged(&named(Some(format!("{offloaded}{other} red\n"))), &commit).is_some_and(|why| why.contains(&other)), "a red computed on another tree reverts nothing and names that tree");
+    assert!(verdict_tree::misjudged(&named(Some(format!("{offloaded}unproved red\n"))), &commit).is_some(), "a red from a shipped run that proved no tree reverts nothing");
+    assert!(verdict_tree::misjudged(&named(Some(offloaded)), &commit).is_some(), "an offloaded run that recorded no shipped run reverts nothing");
+    assert!(verdict_tree::misjudged(&named(Some(format!("{}{commit} red\n", verdict_tree::header("blue", true)))), &commit).is_some(), "another run's record reverts nothing");
+    assert!(verdict_tree::misjudged(&named(None), &commit).is_some(), "a run with no record reverts nothing");
+    assert!(verdict_tree::misjudged(&request().tree, &commit).is_some(), "a request naming no tree reverts nothing");
 }
 
 #[test]

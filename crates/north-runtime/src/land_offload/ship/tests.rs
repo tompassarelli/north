@@ -2,7 +2,7 @@ use super::script::{VERIFY, run_part};
 use super::{CommitId, Land, WRONG_TREE, bundle, carried, job_ref};
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 fn carried_from(caller: &[(&str, &str)]) -> String {
     let land = Land { ssh: "", checkout: Path::new("."), base: Some(CommitId("b".to_owned())), head: CommitId("h".to_owned()), timeout_seconds: 10, command: "", class: super::SlotClass::LandCheck };
@@ -138,7 +138,7 @@ fn a_remote_job_runs_only_on_the_shipped_commit_and_reads_each_checkout_beside_i
     let ran = verify(dir.path(), &second);
     assert!(ran.status.success());
     let mut slot_waits_ended = 0;
-    super::relay(ran.stdout.as_slice(), &mut Vec::new(), "north-offload-ran:job", || slot_waits_ended += 1);
+    super::relay(ran.stdout.as_slice(), &mut Vec::new(), "north-offload-ran:job", "", || slot_waits_ended += 1);
     assert_eq!(slot_waits_ended, 1, "the line the remote prints once it holds its slot ends the slot wait a deadline above the offload excuses");
     assert_eq!(String::from_utf8(ran.stdout).unwrap().lines().next(), Some(format!("offload: running {second} in {}", dir.path().display()).as_str()));
     fs::write(dir.path().join("tracked.rs"), "fn shipped() {}\n").unwrap();
@@ -520,16 +520,19 @@ fn a_lander_job_takes_its_reserved_slot_with_no_waited_line_while_another_job_te
     assert_eq!(fs::read_to_string(&seen).unwrap(), root.join("code-p-main-5").display().to_string());
 }
 
+const PROVED: &str = "0123456789abcdef0123456789abcdef01234567";
+
 fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, String) {
     let slot = tempfile::tempdir().unwrap();
-    let script = format!("set -eu\nslot={} command={} limit=10 ran={}\nproved() {{ :; }}\n{}", shell(slot.path()), super::quote(command), super::quote(marker), run_part());
+    let script = format!("set -eu\nslot={} command={} limit=10 ran={} proof=secret proved_tree={PROVED}\nproved() {{ :; }}\n{}", shell(slot.path()), super::quote(command), super::quote(marker), run_part());
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let output = Command::new("sh").args(["-c", &script]).env("HOME", slot.path()).env("TMPDIR", slot.path()).env("PATH", path).output().unwrap();
     let mut shown = Vec::new();
-    let ran = super::relay(output.stdout.as_slice(), &mut shown, marker, || {});
-    (output.status.code().and_then(|code| u8::try_from(code).ok()), ran, String::from_utf8(shown).unwrap())
+    let relayed = super::relay(output.stdout.as_slice(), &mut shown, marker, "secret", || {});
+    assert_eq!(relayed.tree.as_deref(), Some(PROVED), "the tree the host proved reaches the client on the line its secret opens");
+    (output.status.code().and_then(|code| u8::try_from(code).ok()), relayed.ran, String::from_utf8(shown).unwrap())
 }
 
 #[test]
@@ -540,7 +543,7 @@ fn an_offload_passes_only_when_the_remote_reports_its_command_ran_and_succeeded(
     let (exited, ran, _) = remote_reports("false", marker);
     assert_eq!(super::verdict(exited, ran), Ok(1));
     let mut shown = Vec::new();
-    let never_ran = super::relay(b"bash: --: invalid option\nUsage: bash [option] ...\n".as_slice(), &mut shown, marker, || {});
+    let never_ran = super::relay(b"bash: --: invalid option\nUsage: bash [option] ...\n".as_slice(), &mut shown, marker, "", || {}).ran;
     assert!(super::verdict(Some(0), never_ran).is_err(), "a remote that exits 0 without reporting its command passed");
     assert_eq!(String::from_utf8(shown).unwrap(), "bash: --: invalid option\nUsage: bash [option] ...\n");
 }
@@ -738,7 +741,7 @@ fn a_run_whose_connection_is_killed_in_the_middle_still_reports_its_real_exit_an
     assert_eq!(remote.wait().unwrap().code(), Some(3), "the remote script outlived its connection and ended with the command's exit");
     let read = Command::new("sh").args(["-c", &super::script::reattach_script(), "offload-reattach", marker, "30"]).env("HOME", home.path()).output().unwrap();
     let mut shown = Vec::new();
-    let ran = super::relay(read.stdout.as_slice(), &mut shown, marker, || {});
+    let ran = super::relay(read.stdout.as_slice(), &mut shown, marker, "", || {}).ran;
     assert_eq!(super::verdict(read.status.code().and_then(|code| u8::try_from(code).ok()), ran), Ok(3), "a fresh connection reads the real exit: {}", String::from_utf8_lossy(&read.stderr));
     assert!(String::from_utf8(shown).unwrap().contains("after"), "a fresh connection reads the output written after the loss");
 }
@@ -817,18 +820,22 @@ fn a_200_kb_land_check_command_reaches_the_host_intact() {
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
     let command = format!("printf 'x' >{0}\n# {1}\nprintf 'y' >>{0}", seen.display(), "z".repeat(200 * 1024));
-    let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "");
-    let stdin = bundle::with_header(&header, fs::File::open(&bundle_path).unwrap()).unwrap();
+    let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "", "secret");
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let spilled = header.len().to_string();
-    let output = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", "", &spilled], &[])
+    let mut child = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", "", &spilled], &[])
         .env("HOME", home.path())
         .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", &path)
         .env_remove("NORTH_OFFLOAD_ROOT")
-        .stdin(stdin)
-        .output()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .unwrap();
+    let fed = bundle::feed(header, fs::File::open(&bundle_path).unwrap(), child.stdin.take().unwrap());
+    let output = child.wait_with_output().unwrap();
+    fed.join().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(fs::read_to_string(&seen).unwrap(), "xy");
 }

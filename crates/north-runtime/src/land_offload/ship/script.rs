@@ -225,7 +225,8 @@ if ! proved all && [ -z "${nested:-}" ]; then
 fi
 proved all || { echo "offload: refusing to run: $why" >&2; exit @WRONG_TREE@; }
 echo "offload: running $head in $slot"
-echo "@PROVED_TREE@$(git -C "$slot" rev-parse "HEAD^{tree}") of $head" >&2
+proved_tree=$(git -C "$slot" rev-parse "HEAD^{tree}")
+echo "@PROVED_TREE@$proved_tree of $head" >&2
 "#;
 
 const BESIDE: &str = r#"beside=$root/$s.beside
@@ -263,10 +264,18 @@ leased() {
 if [ -n "${nested:-}" ]; then
   setsid sh -c @WATCH@ offload-watch "$holder" "$$" "$s" "$root" </dev/null >/dev/null 2>&1 4>&- 6>&- 8>&- 9>&- &
 fi
+vouch() {
+  if proved no; then
+    [ -z "${proof:-}" ] || printf "%s %s\n" "$proof" "${proved_tree:-}" || true
+  else
+    echo "offload: the run's verdict is void, its tree changed under it: $why" >&2
+    rc=@WRONG_TREE@
+  fi
+}
 rc=0
 if [ -z "${ran:-}" ]; then
-  leased bash -euo pipefail "$script" 4>&- 5>&- 6>&- 9>&- || rc=$?
-  proved no || { echo "offload: the run's verdict is void, its tree changed under it: $why" >&2; rc=@WRONG_TREE@; }
+  leased bash -euo pipefail "$script" </dev/null 4>&- 5>&- 6>&- 9>&- || rc=$?
+  vouch
   exit "$rc"
 fi
 id=${ran#*:}
@@ -293,7 +302,7 @@ while :; do
   sleep @DRAIN_POLL@
 done
 read -r rc <"$exited"
-proved no || { echo "offload: the run's verdict is void, its tree changed under it: $why" >&2; rc=@WRONG_TREE@; }
+vouch
 printf "%s %s\n" "$ran" "$rc" || true
 exit "$rc"
 "#;

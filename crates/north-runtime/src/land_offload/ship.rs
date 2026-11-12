@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bundle::{bundle, carried};
-use relay::{relay, verdict};
+use relay::{Relayed, relay, verdict};
 pub(super) use north_base::foundation::exit::TRANSPORT_FAILED;
 const WRONG_TREE: u8 = 98;
 use north_base::foundation::exit::{NO_VERDICT, SLOTS_BUSY};
@@ -139,6 +139,7 @@ mod bundle;
 #[cfg(test)]
 mod pinned;
 mod relay;
+mod proof;
 mod master;
 mod reattach;
 
@@ -149,7 +150,7 @@ pub(super) fn run(land: &Land) -> u8 {
     };
     let own = crate::runtime::own_runtime();
     let reported = match (attempt(land, &relative, &name, own.as_ref().map(|(sha, _)| sha.as_str())), &own) {
-        (Ok((Some(RUNTIME_MISSING), None)), Some((sha, directory))) if !land.ssh.is_empty() => {
+        (Ok(Shipped { exited: Some(RUNTIME_MISSING), ran: None, .. }), Some((sha, directory))) if !land.ssh.is_empty() => {
             if let Err(why) = crate::runtime::stage_on(land.ssh, sha, directory) {
                 return unreached(&format!("shipping the lander runtime {sha} to {}: {why}", land.ssh));
             }
@@ -158,26 +159,34 @@ pub(super) fn run(land: &Land) -> u8 {
         (first, _) => first,
     };
     let reported = match reported {
-        Ok((exited, ran)) if ran.or(exited) == Some(WRONG_TREE) => {
+        Ok(shipped) if shipped.ran.or(shipped.exited) == Some(WRONG_TREE) => {
             eprintln!("north capacity offload: the slot did not hold exactly the tree of {}, so the run is shipped once more", land.head.as_str());
             attempt(land, &relative, &name, own.as_ref().map(|(sha, _)| sha.as_str()))
         }
         other => other,
     };
-    reported.map_or_else(|code| code, |(exited, ran)| reached(land, exited, ran))
+    reported.map_or_else(|code| code, |shipped| reached(land, &shipped))
 }
 
-/// The run's exit code, where a run no slot proved to hold exactly the shipped commit's tree for its whole length reached no verdict.
-fn reached(land: &Land, exited: Option<u8>, ran: Option<u8>) -> u8 {
-    match verdict(exited, ran) {
+/// The run's exit code, where a run no slot proved to hold exactly the shipped commit's tree for its whole length reached no verdict, and so did a run whose command reported when the record of the tree it was computed on cannot be written.
+fn reached(land: &Land, shipped: &Shipped) -> u8 {
+    match verdict(shipped.exited, shipped.ran) {
         Ok(WRONG_TREE) => unreached(&format!("no slot held exactly the tree of {} for the whole run, so it reached no verdict", land.head.as_str())),
+        Ok(code) if shipped.ran.is_some() => proof::record(land.head.as_str(), shipped.tree.as_deref()).map_or_else(|why| unreached(&why), |()| code),
         Ok(code) => code,
         Err(why) => unreached(&why),
     }
 }
 
-/// One shipping of the job to the host: the remote script's exit and the status it reported for the command, or this host's failure to ship it.
-fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Result<(Option<u8>, Option<u8>), u8> {
+/// What one shipping of the job to the host ended with: the remote script's exit, the status it reported for the command, and the tree it proved the run was computed on, kept only when the script itself exited with that status on the connection that reported it.
+struct Shipped {
+    exited: Option<u8>,
+    ran: Option<u8>,
+    tree: Option<String>,
+}
+
+/// One shipping of the job to the host, or this host's failure to ship it.
+fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Result<Shipped, u8> {
     let reference = job_ref(&land.head);
     let bundle = bundle(land, &reference).map_err(|why| unreached(&why))?;
     let name = land.class.slot_name(name);
@@ -190,28 +199,34 @@ fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Re
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let beside = beside::pin(land.command, relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
     let carried = carried(land, |name| std::env::var(name).ok());
-    let header = bundle::spilled(&beside.command, &carried, &beside.pins);
-    let bundle = bundle::with_header(&header, bundle).map_err(|why| unreached(&why))?;
+    let secret = proof::secret().map_err(|why| unreached(&why))?;
+    let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret);
     let spilled = header.len().to_string();
     let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled];
     let mut waiting = crate::capacity::deadline::SlotWait::begin(&crate::capacity::local_machine::runtime_root());
     let master = master::options(land.ssh);
     let options: Vec<&str> = ["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"].into_iter().chain(master.iter().map(String::as_str)).collect();
     let spawned = on_host(land.ssh, &script, &words, &options)
-        .stdin(Stdio::from(bundle))
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn();
     let mut child = spawned.map_err(|error| unreached(&format!("ssh: {error}")))?;
+    let fed = child.stdin.take().map(|stdin| bundle::feed(header, bundle, stdin));
     let started = std::cell::Cell::new(false);
-    let ran = child.stdout.take().and_then(|stdout| {
-        relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker, || {
+    let relayed = child.stdout.take().map_or_else(Relayed::default, |stdout| {
+        relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker, &secret, || {
             waiting.end();
             started.set(true);
         })
     });
     let exited = child.wait().map_err(|error| unreached(&format!("ssh: {error}")))?;
-    let first = (exited.code().and_then(|code| u8::try_from(code).ok()), ran);
-    Ok(reattach::ride_out(first, started.get() && !land.ssh.is_empty(), reattach::WINDOW, reattach::PAUSE, || read_back(land, &marker)))
+    if let Some(fed) = fed {
+        let _ = fed.join();
+    }
+    let first = (exited.code().and_then(|code| u8::try_from(code).ok()), relayed.ran);
+    let tree = relayed.tree.filter(|_| first.1.is_some() && first.0 == first.1);
+    let (exited, ran) = reattach::ride_out(first, started.get() && !land.ssh.is_empty(), reattach::WINDOW, reattach::PAUSE, || read_back(land, &marker));
+    Ok(Shipped { exited, ran, tree: tree.filter(|_| (exited, ran) == first) })
 }
 
 /// One fresh connection to the host that reads the result of the run marked `marker` back: the output it wrote since the last byte this host sent, then its status, which the run's own script recorded in files when the first connection was lost.
@@ -221,7 +236,7 @@ fn read_back(land: &Land, marker: &str) -> (Option<u8>, Option<u8>) {
     let mut command = with_caller("ssh");
     command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"]).args(&master).args([land.ssh, "--", &remote]);
     let Ok(mut child) = command.stdout(Stdio::piped()).spawn() else { return (None, None) };
-    let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), marker, || {}));
+    let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), marker, "", || {}).ran);
     let exited = child.wait().ok().and_then(|status| status.code()).and_then(|code| u8::try_from(code).ok());
     (exited, ran)
 }
@@ -229,7 +244,7 @@ fn read_back(land: &Land, marker: &str) -> (Option<u8>, Option<u8>) {
 fn on_host(ssh: &str, script: &str, words: &[&str], options: &[&str]) -> Command {
     if ssh.is_empty() {
         let mut command = with_caller("setsid");
-        command.args(["-w", "sh", "-c", script, "offload"]).args(words);
+        command.env_remove(north_base::foundation::offload::TREES_ENV).args(["-w", "sh", "-c", script, "offload"]).args(words);
         return command;
     }
     let remote = format!("setsid -w sh -c {} offload {}", quote(script), words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));
