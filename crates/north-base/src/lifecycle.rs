@@ -1,6 +1,7 @@
 //! Explicit state machines: each machine names one typed state per instance and its legal moves, one record per
 //! instance lives in a [`Store`], [`Store::transition`] is the only writer and refuses an illegal move, every move is
-//! logged with its cause, [`Store::transition_with_effects`] commits a move with the side effects it starts, and
+//! logged with its cause, [`Store::transition_with_effects`] commits a move with the side effects it starts, [`Store::expire`]
+//! moves an instance past its deadline to the state its machine names and queues that move's effect, and
 //! [`Store::faults`] finds an instance that overstayed its state or whose owner died without knowing any machine's
 //! type, so `north health` judges every machine alike (docs/rationale/state-machines.md).
 use std::fmt::Debug;
@@ -16,7 +17,7 @@ mod store;
 mod tests;
 
 pub use owner::{Liveness, Owner, Proc};
-pub use store::Store;
+pub use store::{EXPIRE_BOUND, EXPIRED, Store};
 
 /// How a side effect a move started is delivered when a crash falls between the move's commit and the delivery.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -86,6 +87,13 @@ pub trait Lifecycle {
     /// Where an instance goes when the process holding `state` dies; `None` for a state no process holds.
     fn orphan(state: Self::State) -> Option<Self::State>;
 
+    /// Where an instance goes when its dwell in `state` runs out and the effect that move queues; `None` leaves an
+    /// overdue instance where it is, a finding for `north health`.
+    fn expire(state: Self::State) -> Option<Expiry<Self::State>> {
+        let _ = state;
+        None
+    }
+
     /// How long an instance that came to rest in `state` keeps its record; `None` keeps it until it moves again.
     fn keep(state: Self::State) -> Option<Duration> {
         let _ = state;
@@ -98,6 +106,15 @@ pub trait Lifecycle {
         let _ = (from, to);
         false
     }
+}
+
+/// What a machine does with an instance whose dwell ran out: the state it moves to and the kind of the effect the move
+/// queues, keyed by the instance and its move so a repeated sweep never queues it twice.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Expiry<S> {
+    pub to: S,
+    pub kind: &'static str,
+    pub delivery: Delivery,
 }
 
 /// The one record of an instance.

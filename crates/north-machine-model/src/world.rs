@@ -52,12 +52,13 @@ pub(crate) enum Event {
     Settle { by: usize },
     Die,
     Late,
+    Expire { by: usize },
 }
 
 impl Event {
     pub(crate) fn by(self) -> Option<usize> {
         match self {
-            Self::Move { by, .. } | Self::Settle { by } => Some(by),
+            Self::Move { by, .. } | Self::Settle { by } | Self::Expire { by } => Some(by),
             Self::Die | Self::Late => None,
         }
     }
@@ -69,6 +70,7 @@ impl Event {
             Self::Settle { by } => format!("{} settles it", label(by)),
             Self::Die => "the process holding it dies".to_owned(),
             Self::Late => "its dwell runs out".to_owned(),
+            Self::Expire { by } => format!("{} sweeps its deadline", label(by)),
         }
     }
 }
@@ -138,6 +140,7 @@ impl<L: Lifecycle> World<L> {
         match event {
             Event::Move { by, to, holder } => drop(self.stores[by].transition_for::<L>(instance, L::State::ALL[to], CAUSE, at, &actor(holder))?),
             Event::Settle { by } => drop(self.stores[by].settle::<L>(instance, at)?),
+            Event::Expire { by } => drop(self.stores[by].expire::<L>(at)?),
             Event::Die => self.dead.set(self.holder(instance)?),
             Event::Late => *now = self.stores[0].current::<L>(instance)?.and_then(|record| record.due).map_or(*now, |due| due.unix_millis() + 1),
         }
@@ -246,6 +249,7 @@ impl<L: Lifecycle> PairWorld<L> {
         match event {
             Event::Move { by, to, holder } => drop(self.stores[by].transition_for::<L>(instance, L::State::ALL[to], CAUSE, at, &actor(holder))?),
             Event::Settle { by } => drop(self.stores[by].settle::<L>(instance, at)?),
+            Event::Expire { by } => drop(self.stores[by].expire::<L>(at)?),
             Event::Die => self.dead.set(self.holder(instance)?),
             Event::Late => *now = self.stores[side].current::<L>(instance)?.and_then(|record| record.due).map_or(*now, |due| due.unix_millis() + 1),
         }
@@ -259,7 +263,8 @@ impl<L: Lifecycle> PairWorld<L> {
 }
 
 /// Everything that can happen next: each live process tries every state, for every holder where the state is one a
-/// process holds, and settles the instance; the holder dies; the dwell runs out.
+/// process holds, and settles the instance; the holder dies; the dwell runs out; a live process sweeps an overdue state
+/// that expires.
 pub(crate) fn events<L: Lifecycle>(situation: &Situation) -> Vec<Event> {
     let states = L::State::ALL;
     let mut events = Vec::new();
@@ -275,6 +280,9 @@ pub(crate) fn events<L: Lifecycle>(situation: &Situation) -> Vec<Event> {
     }
     if situation.state.is_some_and(|state| L::dwell(states[state]).is_some()) && !situation.overdue {
         events.push(Event::Late);
+    }
+    if situation.overdue && situation.state.is_some_and(|state| L::expire(states[state]).is_some()) {
+        events.extend((0..ACTORS.len()).filter(|by| !(situation.dead && situation.holder == Some(*by))).map(|by| Event::Expire { by }));
     }
     events
 }

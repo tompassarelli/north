@@ -9,6 +9,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use north_core::error::{NorthError, NorthResult};
+use north_core::foundation::clock::Timestamp;
 use north_machine_model::{Model, Promises, Together, explore, explore_together, page};
 
 mod history;
@@ -36,6 +37,9 @@ struct Machine {
     /// Code the model's two-instance search drives or gates, so a lane that changes it runs the search.
     guard: &'static [&'static str],
     code: &'static [&'static str],
+    /// Moves the machine's instances past their deadline in the store they live in and says how many, for a machine
+    /// whose states name an expiry; the fleet tick runs it.
+    sweep: Option<fn(Timestamp) -> NorthResult<usize>>,
     explore: Option<fn() -> NorthResult<Model>>,
 }
 
@@ -53,6 +57,7 @@ const MACHINES: &[Machine] = &[
             "crates/north-fleet-supervisor/src/fleet/registry/status.rs",
             "crates/north-fleet-supervisor/src/fleet/registry/stopping.rs",
         ],
+        sweep: None,
         explore: Some(|| {
             use north_session_host::session_lifecycle::{Phase, Session};
             explore_together::<Session>(&Promises { ends: &[Phase::Retired], repeats: &[Phase::Live, Phase::Stopped, Phase::Adopted] }, &session_together())
@@ -72,6 +77,7 @@ const MACHINES: &[Machine] = &[
             "crates/north-landing/src/land/records.rs",
             "crates/north-landing/src/land/reservation.rs",
         ],
+        sweep: None,
         explore: Some(|| {
             use north_core::land_ticket::{LandTicket, Phase};
             explore_together::<LandTicket>(&Promises { ends: &[Phase::Landed, Phase::Replaced, Phase::Withdrawn], repeats: &[Phase::Queued] }, &ticket_together())
@@ -83,6 +89,7 @@ const MACHINES: &[Machine] = &[
         source: "crates/north-session-host/src/row_delivery.rs",
         guard: &[],
         code: &["crates/north-fleet-supervisor/src/fleet/registry/senders.rs"],
+        sweep: None,
         explore: Some(|| {
             use north_session_host::row_delivery::{Phase, RowDelivery};
             explore::<RowDelivery>(&Promises { ends: &[Phase::Delivered], repeats: &[Phase::Delivered] })
@@ -94,18 +101,20 @@ const MACHINES: &[Machine] = &[
         source: AFTER_LANDING,
         guard: &[],
         code: &["crates/north-landing/src/landing/after_landing", "crates/north-landing/src/land/sheriff.rs"],
+        sweep: None,
         explore: Some(|| {
             use north_landing::land::after_landing_lifecycle::{AfterLandingRun, Run};
             explore::<AfterLandingRun>(&Promises { ends: &[Run::Retired], repeats: &[Run::Journaled, Run::Retired] })
         }),
     },
-    Machine { name: "red-main", kind: "RedMain", source: AFTER_LANDING, guard: &[], code: &[], explore: Some(|| explore::<north_landing::land::after_landing_lifecycle::RedMain>(&Promises { ends: &[], repeats: &[] })) },
+    Machine { name: "red-main", kind: "RedMain", source: AFTER_LANDING, guard: &[], code: &[], sweep: None, explore: Some(|| explore::<north_landing::land::after_landing_lifecycle::RedMain>(&Promises { ends: &[], repeats: &[] })) },
     Machine {
         name: "base-broken",
         kind: "BaseBroken",
         source: AFTER_LANDING,
         guard: &[],
         code: &[],
+        sweep: None,
         explore: Some(|| {
             use north_landing::land::after_landing_lifecycle::{BaseBroken, Pause};
             explore::<BaseBroken>(&Promises { ends: &[], repeats: &[Pause::Paused, Pause::Alerted] })
@@ -117,6 +126,7 @@ const MACHINES: &[Machine] = &[
         source: "crates/north-capacity/src/capacity/lease_lifecycle.rs",
         guard: &[],
         code: &["crates/north-capacity/src/capacity/lease_deadline.rs", "crates/north-capacity/src/capacity/deadline.rs"],
+        sweep: None,
         explore: Some(|| {
             use north_capacity::capacity::lease_lifecycle::{Leased, Phase};
             explore::<Leased>(&Promises { ends: &[Phase::Released, Phase::Reclaimed], repeats: &[Phase::Reserved] })
@@ -128,6 +138,7 @@ const MACHINES: &[Machine] = &[
         source: "crates/north-fleet-store/src/gate_lifecycle.rs",
         guard: &[],
         code: &["src/cli/gate"],
+        sweep: None,
         explore: Some(|| {
             use north_fleet_store::gate_lifecycle::{GateLife, GatePhase};
             explore::<GateLife>(&Promises { ends: &[GatePhase::Answered, GatePhase::Defaulted, GatePhase::Orphaned], repeats: &[] })
@@ -139,6 +150,7 @@ const MACHINES: &[Machine] = &[
         source: "crates/north-threads/src/threads/claims/lifecycle.rs",
         guard: &[],
         code: &["crates/north-threads/src/threads/claims/"],
+        sweep: None,
         explore: Some(|| {
             use north_threads::threads::claims::lifecycle::{Claiming, Phase};
             explore::<Claiming>(&Promises { ends: &[], repeats: &[Phase::Held] })
@@ -150,12 +162,13 @@ const MACHINES: &[Machine] = &[
         source: "crates/north-check-environment/src/lib.rs",
         guard: &[],
         code: &["crates/north-check-environment/src/"],
+        sweep: None,
         explore: Some(|| {
             use north_check_environment::{CheckEnvironment, Environment};
             explore::<CheckEnvironment>(&Promises { ends: &[], repeats: &[Environment::Placed, Environment::Local] })
         }),
     },
-    Machine { name: "runtime-promotion", kind: "Promoting", source: RUNTIME, guard: &[], code: &["crates/north-runtime/src/runtime/lifecycle", "crates/north-runtime/src/runtime/update", "crates/north-runtime/src/runtime/settle.rs"], explore: Some(|| {
+    Machine { name: "runtime-promotion", kind: "Promoting", source: RUNTIME, guard: &[], code: &["crates/north-runtime/src/runtime/lifecycle", "crates/north-runtime/src/runtime/update", "crates/north-runtime/src/runtime/settle.rs"], sweep: None, explore: Some(|| {
         use north_runtime::runtime::lifecycle::Promoting;
         explore::<Promoting>(&Promises { ends: &[], repeats: &[] })
     }) },
@@ -165,25 +178,39 @@ const MACHINES: &[Machine] = &[
         source: RUNTIME,
         guard: &[],
         code: &["crates/north-runtime/src/runtime/canary"],
+        sweep: None,
         explore: Some(|| {
             use north_runtime::runtime::lifecycle::{Canarying, Canary};
             explore::<Canarying>(&Promises { ends: &[Canary::Passed, Canary::Stuck, Canary::Kept], repeats: &[] })
         }),
     },
-    Machine { name: "runtime-landing-judgement", kind: "Judge", source: RUNTIME, guard: &[], code: &[], explore: None },
+    Machine { name: "runtime-landing-judgement", kind: "Judge", source: RUNTIME, guard: &[], code: &[], sweep: None, explore: None },
     Machine {
         name: "threads-spool",
         kind: "SpooledWrite",
         source: "crates/north-threads/src/threads/client/spool.rs",
         guard: &[],
         code: &["crates/north-threads/src/threads/client"],
+        sweep: None,
         explore: Some(|| {
             use north_threads::threads::client::spool::{Phase, SpooledWrite};
             explore::<SpooledWrite>(&Promises { ends: &[Phase::Sent], repeats: &[] })
         }),
     },
-    Machine { name: "offload-offer", kind: "OffloadOffer", source: "crates/north-capacity-host/src/capacity/host/offer_lifecycle.rs", guard: &[], code: &[], explore: None },
+    Machine { name: "offload-offer", kind: "OffloadOffer", source: "crates/north-capacity-host/src/capacity/host/offer_lifecycle.rs", guard: &[], code: &[], sweep: None, explore: None },
 ];
+
+/// Runs every machine's expiry sweep once and says what each moved or why it could not.
+pub(super) fn expire(at: Timestamp) -> Vec<String> {
+    let swept = MACHINES.iter().filter_map(|machine| Some((machine.name, (machine.sweep?)(at))));
+    swept
+        .filter_map(|(name, moved)| match moved {
+            Ok(0) => None,
+            Ok(moved) => Some(format!("{name}: moved {moved} past their deadline")),
+            Err(error) => Some(format!("{name}: the expiry sweep failed: {error}")),
+        })
+        .collect()
+}
 
 fn claims(path: &Path) -> bool {
     north_session_host::session_lifecycle::claim(path).is_ok()
@@ -353,6 +380,9 @@ fn check(root: &Path, write: bool) -> NorthResult<Vec<String>> {
         }
         problems.extend(model.findings.iter().map(|finding| format!("{}: {}", model.machine, finding.line())));
         problems.extend(chart(root, machine, &model, write)?);
+        if machine.sweep.is_none() && model.states.iter().any(|state| state.expires.is_some()) {
+            problems.push(format!("{}: a state names an expiry and {REGISTRY} gives the machine no sweep, so its deadlines never act", machine.name));
+        }
         pages.push(format!("{}.md", model.machine));
     }
     problems.extend(strays(root, &pages)?);

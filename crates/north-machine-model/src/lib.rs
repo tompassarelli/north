@@ -36,6 +36,8 @@ pub enum Arrow {
     HolderGone,
     /// A writer's move that took the state from a live holder.
     Replaces,
+    /// The sweep's move when the state's deadline passed.
+    Expired,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -52,6 +54,8 @@ pub struct Facts {
     pub held: bool,
     pub end: bool,
     pub repeats: bool,
+    /// The state the sweep moves an instance to once its dwell here runs out.
+    pub expires: Option<&'static str>,
 }
 
 /// A promise the machine broke, with the shortest ordering that shows it.
@@ -126,7 +130,7 @@ pub fn explore<L: Lifecycle>(promises: &Promises<L::State>) -> NorthResult<Model
     search.findings.extend(rules::reached::<L>(promises, &search.paths, &search.steps));
     let states = L::State::ALL
         .iter()
-        .map(|state| Facts { name: state.name(), dwell: L::dwell(*state), held: L::orphan(*state).is_some(), end: promises.ends.contains(state), repeats: promises.repeats.contains(state) })
+        .map(|state| Facts { name: state.name(), dwell: L::dwell(*state), held: L::orphan(*state).is_some(), end: promises.ends.contains(state), repeats: promises.repeats.contains(state), expires: L::expire(*state).map(|expiry| expiry.to.name()) })
         .collect();
     Ok(Model { machine: L::NAME, states, moves: search.moves, situations: search.paths.len(), steps: search.steps.len(), instances: 1, findings: search.findings })
 }

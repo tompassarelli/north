@@ -35,6 +35,9 @@ fn diagram(model: &Model) -> String {
         if kinds.contains(&&Arrow::HolderGone) {
             labels.push("holder gone");
         }
+        if kinds.contains(&&Arrow::Expired) {
+            labels.push("deadline passed");
+        }
         if kinds.contains(&&Arrow::Replaces) {
             labels.push(if kinds.contains(&&Arrow::Writer) { "also from a live holder" } else { "from a live holder" });
         }
@@ -45,6 +48,11 @@ fn diagram(model: &Model) -> String {
         let _ = writeln!(out, "    {} --> [*]", alias(state.name));
     }
     out
+}
+
+fn expiries(states: &[Facts]) -> String {
+    let swept: Vec<String> = states.iter().filter_map(|state| state.expires.map(|to| format!("{} to {to}", state.name))).collect();
+    if swept.is_empty() { String::new() } else { format!("- Swept when its dwell runs out, queueing the move's effect: {}.\n", swept.join(", ")) }
 }
 
 /// The machine's page: a Mermaid state chart of every move the store accepted while the machine was explored, with
@@ -61,7 +69,7 @@ pub fn page(model: &Model, source: &str) -> String {
            the state, and its dwell running out.\n\
          {scope}- Held by a process, and left when that process is gone: {held}.\n\
          - Dwell: {dwell}.\n\
-         - Ends, which an instance never leaves: {ends}.\n\
+         {expires}- Ends, which an instance never leaves: {ends}.\n\
          - May be announced again: {repeats}.\n\
          - Promises checked: every accepted move is logged and the log alone rebuilds the record; a held state is taken\n  \
            from a live holder only by a move the machine lets replace one; an end has no way out, no dwell and no\n  \
@@ -75,6 +83,7 @@ pub fn page(model: &Model, source: &str) -> String {
         dwell = listed(states, |state| state.dwell.map(|dwell| format!("{} {}", state.name, span(dwell)))),
         ends = listed(states, |state| state.end.then(|| state.name.to_owned())),
         repeats = listed(states, |state| state.repeats.then(|| state.name.to_owned())),
+        expires = expiries(states),
         scope = if model.instances > 1 {
             "- Two instances: the first through every ordering above, the second attempting to start at each of the first's situations, gated by the machine's real admission path, and two launches racing from no record; the `together` promise names the situations in which no second instance may start.\n"
         } else {

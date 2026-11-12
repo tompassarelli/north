@@ -2,6 +2,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::clock::Timestamp;
 use crate::dispatch::{IssueRef, work_gone};
 use crate::fleet::launch_queue::{Admission, QueuedLaunch};
 use crate::fleet::registry::Fleet;
@@ -91,11 +92,14 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let queueing = Instant::now();
     let queued = drain_queue(fleet, began)?;
     ticked.steps.push(Step { name: "launch_queue", began: queueing - began, took: queueing.elapsed() });
+    let expiring = Instant::now();
+    let expired = crate::cli::machines::expire(Timestamp::now());
+    ticked.steps.push(Step { name: "expire", began: expiring - began, took: expiring.elapsed() });
     let dispatching = Instant::now();
     let dispatched = dispatch_pass(fleet);
     ticked.steps.push(Step { name: "dispatch", began: dispatching - began, took: dispatching.elapsed() });
     ticked.wall = began.elapsed();
-    ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).for_each(|line| println!("{line}"));
+    ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).chain(&expired).for_each(|line| println!("{line}"));
     println!("{}", ticked.timing());
     if let Some(line) = dispatch_line(&dispatched) {
         println!("{line}");

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use north_base::lifecycle::{Lifecycle, Move, Record, State};
+use north_base::lifecycle::{EXPIRED, Lifecycle, Move, Record, State};
 
 use super::world::{ACTORS, Event, Played, Situation, label, told};
 use super::{Arrow, Finding, Moved, Promises};
@@ -25,10 +25,26 @@ fn gone(moved: &Move) -> bool {
     moved.cause.starts_with(GONE)
 }
 
+fn expired(moved: &Move) -> bool {
+    moved.cause.ends_with(EXPIRED)
+}
+
 /// What the table alone breaks: an end with a way out, a dwell or a holder, a state with no way out that is no end,
-/// and a state whose repeat the table and the promise disagree on.
+/// a state whose repeat the table and the promise disagree on, and an expiry that never fires or that the table refuses.
 pub(crate) fn table<L: Lifecycle>(promises: &Promises<L::State>) -> Vec<Finding> {
-    L::State::ALL.iter().flat_map(|state| ends::<L>(*state, promises).into_iter().chain(repeats::<L>(*state, promises))).collect()
+    L::State::ALL.iter().flat_map(|state| ends::<L>(*state, promises).into_iter().chain(repeats::<L>(*state, promises)).chain(expiry::<L>(*state))).collect()
+}
+
+fn expiry<L: Lifecycle>(state: L::State) -> Option<Finding> {
+    let to = L::expire(state)?.to;
+    let why = if L::dwell(state).is_none() {
+        "it has no dwell, so no deadline ever passes"
+    } else if !L::legal(Some(state), to) {
+        "the table refuses that move, so every sweep logs an illegal move"
+    } else {
+        return None;
+    };
+    Some(finding("expires", format!("{} expires to {} and {why}", state.name(), to.name())))
 }
 
 fn ends<L: Lifecycle>(state: L::State, promises: &Promises<L::State>) -> Vec<Finding> {
@@ -106,6 +122,7 @@ pub(crate) fn step<L: Lifecycle>(step: &Step, played: &Played<L::State>) -> (Vec
     for moved in played.fresh().iter().filter(|moved| !moved.refused) {
         let (Some(to), from) = (L::State::parse(&moved.to), moved.from.as_deref().and_then(L::State::parse)) else { continue };
         let arrow = match (gone(moved), taker) {
+            _ if expired(moved) => Arrow::Expired,
             (true, _) => Arrow::HolderGone,
             (false, Some(_)) if !orphaned => Arrow::Replaces,
             _ => Arrow::Writer,

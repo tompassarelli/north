@@ -8,7 +8,10 @@ use super::{Effect, Fault, FaultKind, Lifecycle, Liveness, Move, Moved, Owner, P
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
+mod expiry;
 mod outbox;
+
+pub use expiry::{EXPIRE_BOUND, EXPIRED};
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS lifecycle_states(

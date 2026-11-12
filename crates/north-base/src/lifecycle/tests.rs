@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use super::{Delivery, Effect, FaultKind, Leased, Lifecycle, Liveness, Owner, Refusal, Stage, State, Store};
+use super::{Delivery, Effect, Expiry, FaultKind, Leased, Lifecycle, Liveness, Owner, Refusal, Stage, State, Store};
 use crate::foundation::clock::Timestamp;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,6 +38,10 @@ impl Lifecycle for Puller {
 
     fn orphan(state: Pull) -> Option<Pull> {
         (state == Pull::Pulling).then_some(Pull::Abandoned)
+    }
+
+    fn expire(state: Pull) -> Option<Expiry<Pull>> {
+        (state == Pull::Pulling).then_some(Expiry { to: Pull::Abandoned, kind: "pull-expired", delivery: Delivery::ReplaySafe })
     }
 }
 
@@ -104,7 +108,7 @@ fn a_gone_holder_s_row_is_reported_then_retired_once_and_the_next_taker_finds_it
 }
 
 #[test]
-fn a_live_holder_keeps_its_state_and_one_on_another_host_keeps_it_only_until_its_dwell_runs_out() {
+fn a_live_holder_keeps_its_state_and_one_on_another_host_keeps_it_only_until_its_dwell_runs_out_when_the_sweep_moves_it_once() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
     store(&path, owner("laptop", 10), 0).transition::<Puller>("laptop", Pull::Pulling, "pull", at(0)).unwrap().unwrap();
@@ -119,6 +123,15 @@ fn a_live_holder_keeps_its_state_and_one_on_another_host_keeps_it_only_until_its
     assert_eq!(overdue.iter().map(|fault| fault.instance.as_str()).collect::<Vec<_>>(), ["laptop", "gex45"]);
     assert!(overdue.iter().all(|fault| matches!(fault.kind, FaultKind::Overdue { .. })));
     assert_eq!(other.transition::<Puller>("gex45", Pull::Pulling, "take over", at(81)).unwrap().unwrap().owner, Some(owner("laptop", 11)));
+
+    let swept = other.expire::<Puller>(at(82)).unwrap();
+    assert_eq!(swept.iter().map(|record| (record.instance.as_str(), record.state, record.cause.as_str())).collect::<Vec<_>>(), [("laptop", Pull::Abandoned, "its pulling deadline passed")]);
+    assert!(store(&path, owner("gex45", 21), 0).expire::<Puller>(at(83)).unwrap().is_empty());
+    let leased = other.lease("pull-expired", at(84), Duration::from_secs(600)).unwrap().unwrap();
+    assert_eq!((leased.instance.as_str(), leased.effect.key.as_str(), leased.effect.payload["to"].as_str()), ("laptop", "pull/laptop/1/expired", Some("abandoned")));
+    other.delivered(&leased.effect.key, at(84)).unwrap();
+    assert_eq!(other.lease("pull-expired", at(85), Duration::from_secs(600)).unwrap(), None);
+    assert!(other.faults(at(85)).unwrap().is_empty());
 }
 
 #[test]

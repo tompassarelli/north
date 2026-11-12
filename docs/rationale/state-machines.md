@@ -282,6 +282,16 @@ The module is `north_base::lifecycle` (`crates/north-base/src/lifecycle.rs`), bu
   Journaled and leased by the queue's lander until the verdict) and an offload offer's start here (`offload-start`,
   process-bound, committed with the `offload-offer` machine's move to Started in the capacity runtime directory's
   `lifecycle.db`).
+- **A deadline acts where a machine says so.** A machine may name, with `expire(state)`, the state an instance moves
+  to once its dwell there runs out and the kind and delivery of the effect that move queues. `Store::expire::<L>(at)`
+  moves at most `EXPIRE_BOUND` (100) overdue instances of the machine per run, earliest deadline first, each in its own
+  `BEGIN IMMEDIATE` transaction that rereads the record and moves only the stay it found overdue, logged as "its STATE
+  deadline passed", and queues the effect through the outbox under the key `MACHINE/INSTANCE/SEQ/expired`, so two
+  sweeps on two hosts move it and queue the effect once, and the sweep never deletes a record. The fleet tick runs
+  every sweep the registry in `src/cli/machines.rs` names; a machine that names no expiry keeps an overdue state a
+  finding in `north health`, as before. `north check machines` sweeps an overdue expiring state as one more event of
+  its search, draws the move as "deadline passed", and refuses an expiry from a state with no dwell, one the table
+  refuses, and one on a machine the registry gives no sweep (north#1235, [lifecycle-deadlines.md](lifecycle-deadlines.md)).
 
 ### Why this shape
 
