@@ -263,7 +263,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
         lane_squash::refuse_unfinished_subject(&root, &branch)?;
         let queue = queue::directory(environment.state_home, &origin);
-        let seen = Seen { visibility: facts.repository().visibility.clone(), held: facts.denylist() };
+        let seen = Seen { visibility: facts.repository().visibility.clone(), held: None };
         let asked_micros = micros();
         let settled = AtomicBool::new(false);
         let ((gate, ran, answered), gated_from, (red_fix, lander_fix, urgent)) = std::thread::scope(|inner| {

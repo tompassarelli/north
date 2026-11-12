@@ -30,6 +30,7 @@ pub struct Denylist {
     pub south_named: bool,
     pub config: Option<PathBuf>,
     pub kinds: Option<PathBuf>,
+    pub mirror: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -74,6 +75,7 @@ impl Denylist {
             south: south.unwrap_or_else(|| PathBuf::from(var("HOME").unwrap_or_default()).join("code/south")),
             config: named(DENYLIST_ENV),
             kinds: named(private_text::KINDS_ENV),
+            mirror: None,
         }
     }
 
@@ -104,13 +106,20 @@ impl Denylist {
         self.judged_from(root, range, judge, || if self.is_south(origin_url) { "PRIVATE".to_owned() } else { visibility }, held)
     }
 
+    fn list(&self) -> Result<tempfile::NamedTempFile, Fault> {
+        match &self.mirror {
+            Some(mirror) => denylist::south_denylist_in(&self.south, mirror),
+            None => denylist::south_denylist(&self.south),
+        }
+    }
+
     pub fn scans(&self) -> bool {
         self.south_named || self.config.is_some() || self.kinds.is_some() || self.south.is_dir()
     }
 
     pub fn prefetch(&self, origin_url: &str) -> Option<Held> {
         let scans = self.scans() && self.config.is_none() && self.absent_source().is_none() && !self.is_south(origin_url);
-        scans.then(|| denylist::south_denylist(&self.south))
+        scans.then(|| self.list())
     }
 
     pub fn verdict_within(&self, root: &Path, origin_url: &str, (base, head, tag): (&str, &str, &str), wait: Option<Duration>) -> DenylistVerdict {
@@ -242,7 +251,7 @@ impl Denylist {
                 let held = match held {
                     Some(held) => held.as_ref().map_err(Clone::clone)?,
                     None => {
-                        fetched = denylist::south_denylist(&self.south)?;
+                        fetched = self.list()?;
                         &fetched
                     }
                 };

@@ -307,8 +307,7 @@ pub fn south_denylist(south: &Path) -> Result<tempfile::NamedTempFile, Fault> {
     mirror::south_denylist_in(south, &mirror::mirror_path()?)
 }
 
-#[cfg(test)]
-use mirror::south_denylist_in;
+pub use mirror::south_denylist_in;
 
 const PROSE_PATHS: [&str; 4] = ["*.md", "*.txt", "*.rst", "*.adoc"];
 

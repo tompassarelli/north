@@ -83,8 +83,12 @@ impl Lane {
     }
 
     fn try_enqueue_with(&self, host: &str, shape: super::Shape, facts: Option<super::Facts>) -> Result<super::Queued, String> {
-        let (state, denylist) = (self.dir.path().join("state"), without_south(self.dir.path()));
-        let environment = super::Environment { called_micros: 0, state_home: &state, host, session: None, waits: false, denylist: &denylist };
+        self.try_enqueue_scanning(host, shape, facts, &without_south(self.dir.path()))
+    }
+
+    fn try_enqueue_scanning(&self, host: &str, shape: super::Shape, facts: Option<super::Facts>, denylist: &Denylist) -> Result<super::Queued, String> {
+        let state = self.dir.path().join("state");
+        let environment = super::Environment { called_micros: 0, state_home: &state, host, session: None, waits: false, denylist };
         super::enqueue(&self.repo, shape, false, &environment, facts)
     }
 
@@ -457,7 +461,7 @@ fn a_lane_locking_an_npm_version_with_an_open_advisory_is_refused() {
 }
 
 fn without_south(dir: &Path) -> Denylist {
-    Denylist { south: dir.join("absent-south"), south_named: false, config: None, kinds: None }
+    Denylist { south: dir.join("absent-south"), south_named: false, config: None, kinds: None, mirror: None }
 }
 
 /// The land-ticket model `north check machines` explores: one ticket through every ordering, then a second ticket
@@ -519,4 +523,26 @@ fn a_hand_in_whose_head_is_already_on_main_is_refused_before_the_queue_naming_it
     fs::write(lane.repo.join("new.txt"), "untracked\n").unwrap();
     let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).err().unwrap_or_default();
     assert!(refused.starts_with("nothing to land:") && refused.contains("content.txt, new.txt"), "on 2026-11-12 a hand-in from a lane at an old main commit with its change uncommitted was answered landed with main's head: {refused}");
+}
+
+#[test]
+fn the_enqueue_gate_scans_a_deny_list_fetched_after_it_began_not_the_copy_held_from_the_calls_first_instant() {
+    let lane = Lane::new();
+    lane.commit("note zebra-quokka-7731 in the lane", &[]);
+    let rules = |regex: &str| format!("title = \"fixture\"\n[[rules]]\nid = \"fake-private-term\"\nregex = '''{regex}'''\n");
+    let south_origin = lane.dir.path().join("south-origin");
+    run(lane.dir.path(), &["init", "-q", "-b", "main", south_origin.to_str().unwrap()]);
+    fs::create_dir_all(south_origin.join("privacy")).unwrap();
+    fs::write(south_origin.join("privacy/public-denylist.toml"), rules("unrelated-term-0000")).unwrap();
+    commit(&south_origin, "rules");
+    let south = lane.dir.path().join("south");
+    fs::create_dir_all(&south).unwrap();
+    run(&south, &["clone", "-q", south_origin.to_str().unwrap(), "main"]);
+    let denylist = Denylist { south, south_named: true, config: None, kinds: None, mirror: Some(lane.dir.path().join("mirror.git")) };
+    let facts = super::Facts::start(&lane.repo, "main", &denylist).unwrap();
+    assert!(facts.denylist().is_some_and(|held| held.is_ok()), "the first-instant copy is fetched");
+    fs::write(south_origin.join("privacy/public-denylist.toml"), rules("zebra-quokka-7731")).unwrap();
+    commit(&south_origin, "an entry added after the call began");
+    let refused = lane.try_enqueue_scanning("fixture-host", super::Shape::OneCommit { message: None }, Some(facts), &denylist).err().unwrap_or_default();
+    assert!(refused.contains("deny-list scan refused the landing"), "an entry added to the list after the call's first instant must refuse the lane at the gate: {refused:?}");
 }

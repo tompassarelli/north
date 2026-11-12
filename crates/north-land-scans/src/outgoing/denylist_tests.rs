@@ -16,19 +16,19 @@ fn a_push_to_south_itself_is_private_whatever_the_origin_spelling_and_without_as
     std::fs::create_dir_all(&main).unwrap();
     git(&main, &["init", "-q"]);
     git(&main, &["remote", "add", "origin", "https://github.com/tompassarelli/south.git"]);
-    let denylist = Denylist { south, south_named: false, config: None, kinds: None };
+    let denylist = Denylist { south, south_named: false, config: None, kinds: None, mirror: None };
     assert!(denylist.is_south("https://github.com/tompassarelli/south.git"));
     assert_eq!(denylist.visibility_of("git@github.com:tompassarelli/south.git"), "PRIVATE");
     assert_eq!(denylist.visibility_of("https://github.com/TomPassarelli/south"), "PRIVATE");
     assert!(!denylist.is_south("https://github.com/tompassarelli/north.git"));
-    assert!(!Denylist { south: dir.path().join("absent"), south_named: false, config: None, kinds: None }.is_south("https://github.com/tompassarelli/south.git"));
+    assert!(!Denylist { south: dir.path().join("absent"), south_named: false, config: None, kinds: None, mirror: None }.is_south("https://github.com/tompassarelli/south.git"));
 }
 
 #[test]
 fn a_judge_that_times_out_holds_the_push_as_no_verdict_not_a_refusal() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("main")).unwrap();
-    let denylist = Denylist { south: dir.path().to_path_buf(), south_named: false, config: None, kinds: None };
+    let denylist = Denylist { south: dir.path().to_path_buf(), south_named: false, config: None, kinds: None, mirror: None };
     let judged = |judge: Result<Vec<Finding>, String>| denylist.verdict(|| "PUBLIC".to_owned(), || Ok(BTreeSet::new()), || judge.map(Some)).stand;
     assert_eq!(judged(Err("the private-text judge did not finish".to_owned())), Stand::NoVerdict);
     assert_eq!(judged(Err("the private-text judge could not run (exit 2): no model".to_owned())), Stand::NoVerdict);
@@ -40,7 +40,7 @@ fn a_judge_that_times_out_holds_the_push_as_no_verdict_not_a_refusal() {
 fn an_unreachable_deny_list_holds_the_push_as_no_verdict_and_a_scan_failure_still_refuses() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("main")).unwrap();
-    let denylist = Denylist { south: dir.path().to_path_buf(), south_named: false, config: None, kinds: None };
+    let denylist = Denylist { south: dir.path().to_path_buf(), south_named: false, config: None, kinds: None, mirror: None };
     let scanned = |findings: Result<BTreeSet<String>, Fault>| denylist.verdict(|| "PUBLIC".to_owned(), || findings, || Ok(Some(Vec::new()))).stand;
     assert_eq!(scanned(Err(Fault::Unavailable("no network".to_owned()))), Stand::NoVerdict);
     assert_eq!(scanned(Err(Fault::Failed("the deny-list is missing".to_owned()))), Stand::Refuse);
