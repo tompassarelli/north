@@ -397,14 +397,16 @@ fn a_brokered_safe_push_queues_in_its_caller_s_state_home_and_every_other_reques
     assert_eq!(state(super::request_env::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &sent, own())), ["/tmp/verify-north-x/state", "/home/a"], "a worker's brokered safe-push queued its ticket in the host's landing queue, so verify-north found none in its scratch state (north#1022)");
     assert_eq!(state(super::request_env::request_homes(&words("depbox run -- cargo check"), Some(OPEN_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
     assert_eq!(state(super::request_env::request_homes(&words("safe-push --to main"), Some(LANE_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
-    let forged: Vec<(String, String)> = sent.iter().cloned().chain([("NORTH_VERDICT_CACHE_DIR", "/tmp/forged-passes"), ("AGENTS_ORCHESTRATION", "/tmp/forged.toml"), ("PATH", "/tmp/fakes:/usr/bin"), ("NORTH_LAND_NORTH", "/tmp/fakes/north"), ("SAFE_PUSH_LAND_OFFLOAD_HOST", "elsewhere")].map(|(name, value)| (name.to_owned(), value.to_owned()))).collect();
+    let forged: Vec<(String, String)> = sent.iter().cloned().chain([("NORTH_VERDICT_CACHE_DIR", "/tmp/forged-passes"), ("AGENTS_ORCHESTRATION", "/tmp/forged.toml"), ("PATH", "/tmp/fakes:/usr/bin"), ("NORTH_LAND_NORTH", "/tmp/fakes/north"), ("SAFE_PUSH_LAND_OFFLOAD_HOST", "elsewhere"), ("RUSTC_WRAPPER", "/tmp/fakes/wrapper"), ("CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER", "true")].map(|(name, value)| (name.to_owned(), value.to_owned()))).collect();
     let homes = super::request_env::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &forged, own());
-    let chosen = super::request_env::landing_choices(&words("safe-push --to main"), Path::new("/home/a"), "/run/current-system/sw/bin", Path::new("/opt/broker/north"));
+    let broker = [("PATH", "/run/current-system/sw/bin"), ("RUSTC_WRAPPER", "sccache")].map(|(name, value)| (name.to_owned(), value.to_owned()));
+    let chosen = super::request_env::landing_choices(&words("safe-push --to main"), Path::new("/home/a"), &broker, Path::new("/opt/broker/north"));
     let environment = super::request_env::landing(super::request_env::environment(forged.clone(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes), chosen);
     let named = |wanted: &str| environment.iter().filter(|(name, _)| name == wanted).map(|(_, value)| value.as_str()).collect::<Vec<_>>();
     assert_eq!((named("NORTH_VERDICT_CACHE_DIR"), named("AGENTS_ORCHESTRATION")), (vec!["/home/a/.local/state/north/verdict-cache"], vec![]), "a brokered safe-push reused passes from a verdict store or read a policy file its caller named");
     assert_eq!((named("PATH"), named("NORTH_LAND_NORTH"), named("SAFE_PUSH_LAND_OFFLOAD_HOST")), (vec!["/run/current-system/sw/bin"], vec!["/opt/broker/north"], vec![]), "a brokered safe-push ran programs or placed its checks before queueing where its caller named");
-    let build = super::request_env::landing(super::request_env::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes), super::request_env::landing_choices(&words("depbox run -- cargo check"), Path::new("/home/a"), "/run/current-system/sw/bin", Path::new("/opt/broker/north")));
+    assert_eq!((named("RUSTC_WRAPPER"), named("CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER")), (vec!["sccache"], vec![]), "a brokered safe-push built or ran its checks before queueing with a compiler wrapper or test runner its caller named");
+    let build = super::request_env::landing(super::request_env::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes), super::request_env::landing_choices(&words("depbox run -- cargo check"), Path::new("/home/a"), &broker, Path::new("/opt/broker/north")));
     assert_eq!(build.iter().filter(|(name, _)| name == "PATH").map(|(_, value)| value.as_str()).collect::<Vec<_>>(), ["/tmp/fakes:/usr/bin"]);
 }
 

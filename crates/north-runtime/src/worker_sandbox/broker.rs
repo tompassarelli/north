@@ -262,8 +262,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     }
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
     let homes = request_homes(&request.arguments, cgroup, &request.environment, own_homes());
-    let own_path = host.environment.iter().find(|(name, _)| name == "PATH").map_or("", |(_, value)| value.as_str());
-    let chosen = landing_choices(&request.arguments, &host.home, own_path, north);
+    let chosen = landing_choices(&request.arguments, &host.home, &host.environment, north);
     let mut variables = landing(environment(request.environment, cgroup, &runtime(), &homes), chosen);
     if let Some(roots) = roots {
         variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));

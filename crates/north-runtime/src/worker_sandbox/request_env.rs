@@ -17,15 +17,23 @@ const INJECTED_PREFIXES: [&str; 6] = ["LD_", "MALLOC_", "PYTHON", "PERL5", "RUBY
 const TRUSTED_FILES: [&str; 5] = [verdict_cache::DIR_ENV, "AGENTS_ORCHESTRATION", "AGENTS_OPERATOR_DIR", "SAFE_PUSH_SOUTH", "SAFE_PUSH_DENYLIST"];
 const NORTH_PINS: [&str; 3] = ["NORTH_LAND_NORTH", "NORTH_BIN", "AGENT_CAPACITY_NORTH"];
 const LANDING_CHOICES: [&str; 12] = ["PATH", NORTH_PINS[0], NORTH_PINS[1], NORTH_PINS[2], "SAFE_PUSH_CODE_HEALTH", "SAFE_PUSH_LAND_OFFLOAD", "SAFE_PUSH_LAND_OFFLOAD_HOST", "SAFE_PUSH_LAND_RUNNER", "SAFE_PUSH_LAND_CAPACITY", offload::LOCAL_ENV, offload::OFF_HOST_ENV, offload::LANDER_SLOT_ENV];
+const BUILD_NAMES: [&str; 10] = ["CARGO", "RUSTC", "RUSTDOC", "RUSTFLAGS", "RUSTDOCFLAGS", "CC", "CXX", "CFLAGS", "CXXFLAGS", "LDFLAGS"];
+const BUILD_PREFIXES: [&str; 6] = ["CARGO_", "RUSTC_", "SCCACHE_", "CMAKE_", "NEXTEST_", "CLIPPY_"];
+
+fn builds(name: &str) -> bool {
+    BUILD_NAMES.contains(&name) || BUILD_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+}
 
 fn unsafe_name(name: &str) -> bool {
     name == MARK || name == SOCKETS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name)
 }
 
-/// The programs a brokered safe-push runs, `None` for every other request: the broker's own `own_path` behind `home`'s gh shims, and `north`, the broker's own build, as every north it starts, since the programs its checks before queueing run, the north whose `verdict hit` decides which of them run and where they run decide the verdict a ticket carries.
-pub(super) fn landing_choices(arguments: &[String], home: &Path, own_path: &str, north: &Path) -> Option<Vec<(String, String)>> {
+/// The programs a brokered safe-push runs, `None` for every other request: the `PATH` in `own`, the broker's environment, behind `home`'s gh shims, `north`, the broker's own build, as every north it starts, and the compiler, wrapper, flags, cache and test runner `own` sets, since the programs its checks before queueing run, the north whose `verdict hit` decides which of them run, how they build and where they run decide the verdict a ticket carries.
+pub(super) fn landing_choices(arguments: &[String], home: &Path, own: &[(String, String)], north: &Path) -> Option<Vec<(String, String)>> {
+    let own_path = own.iter().find(|(name, _)| name == "PATH").map_or("", |(_, value)| value.as_str());
     let north = north.to_string_lossy().into_owned();
-    arguments.first().is_some_and(|verb| verb == "safe-push").then(|| [("PATH", lane_grant::shimmed_path(home, own_path).unwrap_or_else(|_| own_path.to_owned()))].into_iter().chain(NORTH_PINS.map(|pin| (pin, north.clone()))).map(|(name, value)| (name.to_owned(), value)).collect())
+    let path = lane_grant::shimmed_path(home, own_path).unwrap_or_else(|_| own_path.to_owned());
+    arguments.first().is_some_and(|verb| verb == "safe-push").then(|| [("PATH".to_owned(), path)].into_iter().chain(NORTH_PINS.map(|pin| (pin.to_owned(), north.clone()))).chain(own.iter().filter(|(name, _)| builds(name)).cloned()).collect())
 }
 
 /// The XDG homes a brokered command reads and writes: this broker's own, since the command runs as the host's process and its state, cache and data belong under the host's homes. Taking the client's scratch ones would record a build's capacity admissions beside the worker instead of in the host's decision ledger (north#1030).
@@ -65,10 +73,10 @@ pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>, run
     sent.into_iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV && name != "HOME" && !HOMES.iter().any(|(own, _)| *own == name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).chain([own_runtime]).chain(homes.iter().cloned()).collect()
 }
 
-/// `variables` for a request whose programs the broker chose (`landing_choices`): without the client's `PATH` and the variables that pick the north, the gate programs and the host and runner its checks before queueing use, then with the broker's choices.
+/// `variables` for a request whose programs the broker chose (`landing_choices`): without the client's `PATH`, its build environment and the variables that pick the north, the gate programs and the host and runner its checks before queueing use, then with the broker's choices.
 pub(super) fn landing(variables: Vec<(String, String)>, chosen: Option<Vec<(String, String)>>) -> Vec<(String, String)> {
     match chosen {
-        Some(chosen) => variables.into_iter().filter(|(name, _)| !LANDING_CHOICES.contains(&name.as_str())).chain(chosen).collect(),
+        Some(chosen) => variables.into_iter().filter(|(name, _)| !LANDING_CHOICES.contains(&name.as_str()) && !builds(name)).chain(chosen).collect(),
         None => variables,
     }
 }
