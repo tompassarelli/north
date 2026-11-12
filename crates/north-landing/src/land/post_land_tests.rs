@@ -298,7 +298,7 @@ fn a_failure_outside_the_base_selection_probes_the_base_before_blaming() {
 
 #[test]
 fn an_after_landing_suite_is_placed_on_a_build_host_and_never_on_the_control_host_while_one_is_available() {
-    use crate::land::slots::graph_selection::{Away, list};
+    use crate::land::slots::graph_selection::{Away, Scope, list};
     use std::os::unix::fs::PermissionsExt;
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path().join("tree");
@@ -315,12 +315,16 @@ fn an_after_landing_suite_is_placed_on_a_build_host_and_never_on_the_control_hos
         std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     let away = Away { program: &north, host: "cpx62b", base: "base", tree: "tree" };
-    let listed = list(&root, Some(&away));
+    let listed = list(&root, Some(&away), &Scope::Workspace).unwrap_or_default();
     assert_eq!(listed.keys().collect::<Vec<_>>(), ["north-landing::it"], "the listing the build host printed is the one the selection reads");
     assert!(!here.exists(), "listing an after-landing run's tests compiled the workspace on the control host");
     let asked = std::fs::read_to_string(&record).unwrap();
     assert!(asked.starts_with("capacity offload run --host cpx62b --base base --head tree --timeout"), "the listing was not offered to the build host under its capacity lease: {asked}");
     assert!(asked.contains("CARGO_TARGET_DIR='target' './bin/land-shell' '--dev' '--' 'cargo' 'nextest' 'list'"), "the build host runs the tree's own listing command: {asked}");
+    let scoped = list(&root, Some(&away), &Scope::Packages(["north-landing".to_owned()].into())).unwrap_or_default();
+    assert_eq!(scoped.keys().collect::<Vec<_>>(), ["north-landing::it"], "a listing of the packages a change reaches takes the same binaries the build host prints");
+    let scoped_asked = std::fs::read_to_string(&record).unwrap();
+    assert!(scoped_asked.lines().last().is_some_and(|line| line.contains("'-p' 'north-landing'") && !line.contains("--workspace")), "a listing of the reached packages names each with -p, not the whole workspace: {scoped_asked}");
 }
 
 #[test]

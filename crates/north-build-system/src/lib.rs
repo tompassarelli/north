@@ -112,6 +112,7 @@ pub enum Selection {
     Default,
     Workspace,
     Package(String),
+    Packages(Vec<String>),
     /// Selection arguments in the test runner's own syntax, passed through as a person typed them.
     Typed(Vec<String>),
 }

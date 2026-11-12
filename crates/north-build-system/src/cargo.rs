@@ -24,6 +24,7 @@ fn selected(words: &mut Vec<String>, selection: &Selection) {
         Selection::Default => {}
         Selection::Workspace => words.push("--workspace".to_owned()),
         Selection::Package(package) => words.extend(["-p".to_owned(), package.clone()]),
+        Selection::Packages(packages) => words.extend(packages.iter().flat_map(|package| ["-p".to_owned(), package.clone()])),
         Selection::Typed(typed) => words.extend(typed.iter().cloned()),
     }
 }

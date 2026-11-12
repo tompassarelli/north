@@ -45,6 +45,12 @@ pub struct Listed {
 
 pub type ListedTests = BTreeMap<String, Listed>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Scope {
+    Workspace,
+    Packages(BTreeSet<String>),
+}
+
 pub struct Away<'a> {
     pub program: &'a Path,
     pub host: &'a str,
@@ -74,21 +80,26 @@ impl Away<'_> {
     }
 }
 
-/// Every test the build system lists at `root`, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell the tool is only the capacity shim: on the build host `away` names when given, so a landing never compiles the workspace on the control host, else here. An unbuilt or unlistable tree lists nothing, so the selection falls back to the crate closure.
-pub fn list(root: &Path, away: Option<&Away<'_>>) -> ListedTests {
+/// Every test the build system lists at `root` in the packages `scope` names, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell the tool is only the capacity shim: on the build host `away` names when given, so a landing never compiles the workspace on the control host, else here. `None` when the tree is not one this build system builds or the listing fails, so the selection falls back to the crate closure.
+pub fn list(root: &Path, away: Option<&Away<'_>>, scope: &Scope) -> Option<ListedTests> {
     let builder = north_build_system::here();
     if !builder.governs(root) {
-        return BTreeMap::new();
+        return None;
     }
-    let request = north_build_system::Tests { root, step: Step::List, selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::LandShell, output: Some(Path::new("target")), uncached: false, coverage: None };
+    let selection = match scope {
+        Scope::Workspace => Selection::Workspace,
+        Scope::Packages(packages) if packages.is_empty() => return Some(BTreeMap::new()),
+        Scope::Packages(packages) => Selection::Packages(packages.iter().cloned().collect()),
+    };
+    let request = north_build_system::Tests { root, step: Step::List, selection, resolution: Resolution::PINNED, shell: Shell::LandShell, output: Some(Path::new("target")), uncached: false, coverage: None };
     let invocation = builder.tests(&request);
     let mut command = away.map_or_else(|| invocation.command(), |away| away.command(root, &invocation));
-    let output = command.stdin(Stdio::null()).stderr(Stdio::null()).output();
-    let binaries = match output {
-        Ok(output) if output.status.success() => builder.listing(&String::from_utf8_lossy(&output.stdout)).unwrap_or_default(),
-        _ => Vec::new(),
-    };
-    binaries.into_iter().map(|binary| (binary.id, Listed { package: binary.package, tests: binary.tests })).filter(|(_, listed)| !listed.tests.is_empty()).collect()
+    let output = command.stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let binaries = builder.listing(&String::from_utf8_lossy(&output.stdout)).ok()?;
+    Some(binaries.into_iter().map(|binary| (binary.id, Listed { package: binary.package, tests: binary.tests })).filter(|(_, listed)| !listed.tests.is_empty()).collect())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,10 +132,18 @@ impl Tests {
         self.by_binary.is_empty() && self.added.is_empty()
     }
 
-    /// The inclusion filter's second source: every test `cargo nextest list` sees that the map does not know. `added` already names the unknown tests the change graph scanned; the listing gives each its binary, and it catches a test the scan cannot see. A test the listing does not match stays a name term, and a binary it lacks is dropped, since nextest refuses a filter naming a binary the workspace does not have. `None` when nothing was listed, so no binary the graph names can be checked, or when the resulting filter passes the limit, so the caller runs the whole closure instead.
-    pub fn with_listed(mut self, listed: ListedTests) -> Option<Self> {
-        let listed: ListedTests = listed.into_iter().filter(|(_, suite)| !suite.tests.is_empty()).collect();
-        if listed.is_empty() {
+    pub fn listing_scope(&self) -> Scope {
+        if self.added.iter().any(|(package, _)| package.is_empty()) {
+            return Scope::Workspace;
+        }
+        let binaries = self.by_binary.keys().map(|binary| binary.split("::").next().unwrap_or(binary).to_owned());
+        Scope::Packages(binaries.chain(self.added.iter().map(|(package, _)| package.clone())).collect())
+    }
+
+    /// The inclusion filter's second source: every test `cargo nextest list` sees that the map does not know. `added` already names the unknown tests the change graph scanned; the listing gives each its binary, and it catches a test the scan cannot see. A test the listing does not match stays a name term, and a binary it lacks is dropped, since nextest refuses a filter naming a binary the workspace does not have. `None` when the listing failed, or when it lists nothing for a binary the graph names, so no binary the graph names can be checked, or when the resulting filter passes the limit, so the caller runs the whole closure instead.
+    pub fn with_listed(mut self, listed: Option<ListedTests>) -> Option<Self> {
+        let listed: ListedTests = listed?.into_iter().filter(|(_, suite)| !suite.tests.is_empty()).collect();
+        if listed.is_empty() && !self.by_binary.is_empty() {
             return None;
         }
         let unknown = self.added.clone();

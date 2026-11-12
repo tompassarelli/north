@@ -29,6 +29,7 @@ fn targets(selection: &Selection) -> Vec<String> {
     match selection {
         Selection::Default | Selection::Workspace => vec!["//...".to_owned()],
         Selection::Package(name) => vec![package(name)],
+        Selection::Packages(names) => names.iter().map(|name| package(name)).collect(),
         Selection::Typed(typed) => typed.clone(),
     }
 }

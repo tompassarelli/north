@@ -247,11 +247,11 @@ pub fn selection(root: &Path, base: &str, head: &str, stage: Stage<'_>, away: Op
 }
 
 pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str, stage: Stage<'_>, away: Option<&graph_selection::Away<'_>>) -> Result<Selection, String> {
-    selection_asking_with(program, root, base, head, stage, || graph_selection::list(root, away))
+    selection_asking_with(program, root, base, head, stage, |scope| graph_selection::list(root, away, scope))
 }
 
 /// [`selection_asking`] with its `cargo nextest list` step injected, so a test can judge the graph answer and the inclusion filter without building the workspace.
-pub fn selection_asking_with(program: &Path, root: &Path, base: &str, head: &str, stage: Stage<'_>, listed: impl FnOnce() -> graph_selection::ListedTests) -> Result<Selection, String> {
+pub fn selection_asking_with(program: &Path, root: &Path, base: &str, head: &str, stage: Stage<'_>, listed: impl FnOnce(&graph_selection::Scope) -> Option<graph_selection::ListedTests>) -> Result<Selection, String> {
     let read = |path: &str| std::fs::read_to_string(root.join(path)).map_err(|error| format!("{path}: {error}"));
     let plan = Plan::parse(&read(STRUCTURE)?)?;
     let table = Table::parse(&read(TABLE)?, &plan, &spawners(root))?;
@@ -264,7 +264,8 @@ pub fn selection_asking_with(program: &Path, root: &Path, base: &str, head: &str
         }
         Some(tests) if !tests.is_empty() || matches!(stage, Stage::AfterLanding(_)) => {
             let compiled: Vec<String> = files.iter().filter(|file| compiled(file)).cloned().collect();
-            match tests.with_listed(listed()) {
+            let scope = tests.listing_scope();
+            match tests.with_listed(listed(&scope)) {
                 Some(tests) => Selection::Tests(tests.with_modules(table.tree_wide.iter().cloned().chain(reach(&plan, &table, &compiled).modules).collect())),
                 None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &files)?,
             }
