@@ -1,1 +1,0 @@
-  lane sweep [--dry-run] [north|makgora|wisp...]  Remove spent lanes, targets and scratch of the named projects

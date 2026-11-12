@@ -18,7 +18,7 @@ impl World for Fake {
 fn verdict(command: &str) -> Verdict {
     let payload = json!({"tool_name": "Bash", "cwd": "/tmp", "tool_input": {"command": command}});
     let input = HookInput::parse(payload.to_string().as_bytes()).unwrap();
-    refuse_close(&input, &mut Fake { body: "- [ ] Clean-up: scaffolding removed.\n".to_owned() })
+    refuse_close(&input, &mut Fake { body: "- [x] Shipped the guard.\n".to_owned() })
 }
 
 #[test]

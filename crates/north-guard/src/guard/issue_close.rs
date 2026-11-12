@@ -1,52 +1,9 @@
 use super::gh_write::{self, GhWrite};
-use super::issue_filing::Ref;
 use super::issue_labels::gh;
 use crate::hook_input::{HookInput, Verdict};
 use crate::platform::{box_oracles, cleanup};
 
 const OWNER: &str = "tompassarelli/";
-const READ_TRIES: u32 = 3;
-const READ_PAUSE: std::time::Duration = std::time::Duration::from_secs(1);
-
-pub(super) fn append(new: &Ref) -> Result<bool, String> {
-    let (repo, number) = (&new.0, new.1.to_string());
-    if !cleanup::covers(repo) {
-        return Ok(false);
-    }
-    let issue = created(repo, &number)?;
-    let Some(body) = amended(&issue) else {
-        return Ok(false);
-    };
-    let file = tempfile::NamedTempFile::new().map_err(|error| error.to_string())?;
-    std::fs::write(file.path(), body).map_err(|error| error.to_string())?;
-    let path = file.path().to_string_lossy();
-    gh(None, &["issue", "edit", &number, "-R", repo, "--body-file", &path]).map(|_| true).ok_or_else(|| "gh issue edit failed".to_owned())
-}
-
-/// The issue just filed; GitHub can answer 404 for a second or two after the create returns its URL.
-fn created(repo: &str, number: &str) -> Result<serde_json::Value, String> {
-    let mut last = String::new();
-    for attempt in 0..READ_TRIES {
-        if attempt > 0 {
-            std::thread::sleep(READ_PAUSE);
-        }
-        let out = std::process::Command::new("gh")
-            .args(["api", &format!("repos/{repo}/issues/{number}"), "--jq", "{body: (.body // \"\"), labels: [.labels[].name]}"])
-            .output()
-            .map_err(|error| error.to_string())?;
-        if let Some(issue) = out.status.success().then(|| serde_json::from_slice(&out.stdout).ok()).flatten() {
-            return Ok(issue);
-        }
-        last = String::from_utf8_lossy(&out.stderr).trim().to_owned();
-    }
-    Err(format!("the new issue could not be read after {READ_TRIES} tries: {last}"))
-}
-
-fn amended(issue: &serde_json::Value) -> Option<String> {
-    let labels: Vec<String> = issue["labels"].as_array().into_iter().flatten().filter_map(|label| label.as_str().map(str::to_owned)).collect();
-    cleanup::applies(&labels).then(|| cleanup::appended(issue["body"].as_str().unwrap_or_default())).flatten()
-}
-
 struct Live {
     cwd: Option<String>,
 }
@@ -106,15 +63,7 @@ fn unticked(write: &GhWrite, world: &mut impl World) -> Option<String> {
         return None;
     }
     let body = world.body(&repo, number)?;
-    let open = cleanup::unticked(&body);
-    if open.is_empty() {
-        return unproven(&repo, number, &body);
-    }
-    Some(format!(
-        "No. {repo}#{number} still has {} unticked Clean-up box(es). Delete the tests that pin no guarantee a person would notice, the scaffolding and the follow-up notes this change left, then tick each box with what you deleted (`gh issue view {number} -R {repo} --json body -q .body > /tmp/{number}.md`, edit, `gh issue edit {number} -R {repo} --body-file /tmp/{number}.md`) and close again. Unticked:\n{}",
-        open.len(),
-        open.join("\n")
-    ))
+    unproven(&repo, number, &body)
 }
 
 fn unproven(repo: &str, number: u64, body: &str) -> Option<String> {
@@ -128,5 +77,5 @@ fn unproven(repo: &str, number: u64, body: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-#[path = "issue_cleanup_tests.rs"]
+#[path = "issue_close_tests.rs"]
 mod tests;

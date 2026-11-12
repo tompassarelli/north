@@ -1,7 +1,6 @@
 //! The brief a dispatched worker starts from: the issue's Item, Category and facets, read from its
 //! body or defaulted, and the generic Done when every dispatched box shares.
-use super::issues::{Issue, IssueRef, OWNER};
-use crate::platform::cleanup;
+use super::issues::{Issue, OWNER};
 use super::facets::{FACETS, declared, facet, native};
 use super::grounds::Grounds;
 use super::tier::{Route, Tier};
@@ -45,24 +44,13 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds,
          Claim it with `threads claim {reference}{}` first, and stop with `Not done:` if someone else holds it. \
          Load the skills the issue's work needs, edit in a worktree, land through safe-push, tick each box with its evidence and close the issue with the SHA on origin/main once no box is left. \
          File a new issue only for a real blocker (a `Blocks: REPO#N` body line links it) or an outcome independent of {reference}; add the pieces of your own task as boxes on {reference}, and the filing guard refuses a split of it and a title matching an open issue. \
-         End with Done:, Not done: or Split:, and Stop: with its reason: `north fleet need NAME REASON` (record it first, write no `Stop: host` line) when only another host or need (laptop, native) can finish the box, `Stop: wait until YYYY-MM-DDTHH:MMZ` when it cannot go on before that UTC time, after adding `(not before YYYY-MM-DDTHH:MMZ)` to each box that waits so dispatch and `north graph ready` hold it.{}{}",
+         End with Done:, Not done: or Split:, and Stop: with its reason: `north fleet need NAME REASON` (record it first, write no `Stop: host` line) when only another host or need (laptop, native) can finish the box, `Stop: wait until YYYY-MM-DDTHH:MMZ` when it cannot go on before that UTC time, after adding `(not before YYYY-MM-DDTHH:MMZ)` to each box that waits so dispatch and `north graph ready` hold it.{}",
         head.join("\n"),
         issue.number,
         issue.repo,
         if box_text.is_some() { "only its Box: box, and any other box the same change satisfies, because dispatch staffs its other boxes on their own; report Done: once your Box: box is ticked, whatever other boxes stay open" } else { "its unticked Done-when boxes" },
         if box_text.is_some() { " --box <the text of your Box: line>" } else { "" },
         if route.tier == Tier::Haiku { HAIKU_WAIT } else { "" },
-        cleanup_orders(issue, &reference),
-    )
-}
-
-fn cleanup_orders(issue: &Issue, reference: &IssueRef) -> String {
-    if issue.product_unticked() > 1 || cleanup::unticked(&issue.body).is_empty() {
-        return String::new();
-    }
-    format!(
-        "\n\nThis is the last unticked product box of {reference}, so before you close it do its Clean-up group, tick each box with the deletions you made, and close only once all three are ticked:\n{}",
-        cleanup::BOXES.join("\n")
     )
 }
 

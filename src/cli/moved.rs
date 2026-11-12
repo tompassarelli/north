@@ -44,7 +44,6 @@ const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["lane-rescue"], "lane rescue", &[]),
     (&["lane-seed"], "lane seed", &[]),
     (&["lane-squash"], "lane squash", &[]),
-    (&["lane-sweep"], "lane sweep", &[]),
 ];
 
 pub(super) fn refusal(arguments: &[String]) -> NorthError {

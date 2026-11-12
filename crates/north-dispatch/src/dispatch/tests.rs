@@ -195,7 +195,7 @@ fn a_project_with_paused_true_gets_no_launch_and_each_of_its_issues_prints_as_pa
 }
 
 #[test]
-fn the_main_red_workflows_boxless_issue_is_neither_named_for_a_box_nor_given_a_clean_up_group() {
+fn the_main_red_workflows_boxless_issue_is_not_named_for_a_box() {
     let (hosts, accounts) = fleet();
     let main_red = ["bug", "priority:now", "evidence:code", crate::platform::cleanup::MAIN_RED];
     let boxes = vec![issue("makgora", 912, "Run 1 failed", &main_red), issue("makgora", 913, "Nobody boxed this", &["bug"])];
@@ -203,7 +203,6 @@ fn the_main_red_workflows_boxless_issue_is_neither_named_for_a_box_nor_given_a_c
     let outcome = decide(&survey, "test");
     let named: Vec<String> = super::boxless(&survey, &outcome).iter().map(|issue| issue.reference().to_string()).collect();
     assert_eq!(named, ["makgora#913"]);
-    assert!(!crate::platform::cleanup::applies(&main_red.map(str::to_owned)));
 }
 
 #[test]

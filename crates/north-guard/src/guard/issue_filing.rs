@@ -125,10 +125,9 @@ pub fn link(input: &HookInput) -> Verdict {
 
 pub(super) type Ref = (String, u64);
 
-/// What the hook does after an issue is filed: link what it blocks, append its clean-up group, and claim it for the fleet worker that filed it unless it blocks another issue.
+/// What the hook does after an issue is filed: link what it blocks and claim it for the fleet worker that filed it unless it blocks another issue.
 pub(super) trait Filed {
     fn connect(&mut self, new: &Ref, blocked: &Ref) -> Option<()>;
-    fn tidy(&mut self, new: &Ref) -> Result<bool, String>;
     /// The fleet worker session filing, never the proxy, which files issues for dispatch to staff.
     fn worker(&mut self) -> Option<String>;
     fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String>;
@@ -152,10 +151,6 @@ impl Filed for Live {
             ],
         )
         .map(drop)
-    }
-
-    fn tidy(&mut self, new: &Ref) -> Result<bool, String> {
-        super::issue_cleanup::append(new)
     }
 
     fn worker(&mut self) -> Option<String> {
@@ -211,11 +206,6 @@ pub(super) fn link_with(input: &HookInput, world: &mut impl Filed) -> Verdict {
                 new.0, new.1, blocked.0, blocked.1, blocked.0, blocked.1
             ),
         });
-    }
-    match world.tidy(&new) {
-        Ok(true) => notes.push(format!("Appended the Clean-up group to {}#{}; tick its three boxes before closing.", new.0, new.1)),
-        Ok(false) => {}
-        Err(why) => notes.push(format!("Could not append the Clean-up group to {}#{}: {why}", new.0, new.1)),
     }
     if let Some(worker) = world.worker().filter(|_| !BLOCKS.is_match(&body) || world.files_its_item()) {
         notes.push(match world.claim(&new, &worker) {

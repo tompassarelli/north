@@ -283,7 +283,6 @@ Commands:
   runtime health                                Check that the running binary is the current runtime with its programs and tree
   after-landing --git-dir DIR --base BASE --head HEAD  Run the after-landing checks on a landed range
   build-cache-gate --repo DIR --base REV --head REV  Refuse a landing that breaks build-cache reuse
-  lane sweep [--dry-run] [north|makgora|wisp...]  Remove spent lanes, targets and scratch of the named projects
   convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex|corpus]  Search past agent transcripts and the Tom corpus; corpus appends typed messages to it
   desktop-idle-state idle|active                Record whether Tom's desktop is idle
   evidence start RUN                            Start an evidence folder for one run

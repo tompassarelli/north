@@ -148,7 +148,7 @@ pub fn tick(body: &str, box_text: &str, sha: Option<&str>) -> Tick {
 
 pub fn closable(body: &str) -> bool {
     let lines: Vec<&str> = body.split_inclusive('\n').collect();
-    let boxes = checkboxes(&lines);
+    let boxes: Vec<Checkbox> = checkboxes(&lines).into_iter().filter(|found| !north_base::platform::cleanup::is_box(lines[found.line])).collect();
     !boxes.is_empty() && boxes.iter().all(|found| found.ticked) && north_base::platform::box_oracles::unproven(body).is_empty()
 }
 

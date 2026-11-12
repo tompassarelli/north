@@ -112,7 +112,7 @@ impl HookKind {
                 Guard("north-hook", crate::guard::native_evidence::evaluate),
                 Guard("north-hook", crate::guard::issue_labels::evaluate),
                 Guard("north-hook", crate::guard::issue_filing::evaluate),
-                Guard("north-hook", crate::guard::issue_cleanup::close),
+                Guard("north-hook", crate::guard::issue_close::close),
                 Guard("north-hook", crate::guard::issue_shrink::evaluate),
                 Guard("north-hook", crate::guard::sops_decrypt::evaluate),
                 Guard("north-hook", crate::guard::public_text::evaluate),

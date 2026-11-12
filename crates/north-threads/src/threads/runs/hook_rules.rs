@@ -64,7 +64,7 @@ pub const RULES: &[Rule] = &[
     rule("heavy-command", Mechanical, &["requires capacity admission", "Heavy command routed through machine-capacity", "is heavy and would run in your terminal scope"], CAPACITY),
     rule("native-item", NeedsInput, &["native NorthThread item", "native threads item"], "todo: native items live in threads, never gh."),
     rule("issue-filing", NeedsInput, &["The body has no `- [ ]` box", "A bug category (", "has no `Category:` line", "matches the open issue", "A worker files an issue only", "is a split or follow-up of", "Could not link"], "workers: a worker files an issue only for what it cannot finish in its lane."),
-    rule("issue-cleanup", NeedsInput, &["unticked Clean-up box", "closes only when each ticked box's oracle"], "github: tick each Clean-up box with what was deleted before closing."),
+    rule("issue-cleanup", NeedsInput, &["unticked Clean-up box", "closes only when each ticked box's oracle"], "github: a ticked box closes its issue only with its oracle's passing run or a split to the issue that owns the rest."),
     rule("issue-shrink", NeedsInput, &["which blanks or drops most of it"], "github: append to the issue body you read, or comment; never replace it with less."),
     rule("unrunnable-box", NeedsInput, &["unrunnable-box:"], "github: a new unticked box names a command `north task check --done-when` can run."),
     rule("issue-labels", NeedsInput, &["`gh issue create` in"], "github: gh issue create names its type, priority and evidence labels."),

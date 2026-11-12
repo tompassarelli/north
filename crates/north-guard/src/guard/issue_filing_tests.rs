@@ -11,10 +11,6 @@ impl Filed for Filer {
         Some(())
     }
 
-    fn tidy(&mut self, _: &Ref) -> Result<bool, String> {
-        Ok(false)
-    }
-
     fn worker(&mut self) -> Option<String> {
         self.worker.clone()
     }
