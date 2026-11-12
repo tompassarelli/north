@@ -48,7 +48,7 @@ pub struct Split {
 pub fn read(queue: &Path, calls: &[Call]) -> Split {
     let spans = stamped(queue, calls);
     let (call_p50, call_p90) = percentiles(&calls.iter().map(|call| call.seconds).collect::<Vec<f64>>());
-    let per_lane: Vec<BTreeMap<String, f64>> = calls.iter().map(|call| leaves(spans.get(&format!("{TRACE_PREFIX}{}", call.head)).map_or(&[][..], Vec::as_slice))).collect();
+    let per_lane: Vec<BTreeMap<String, f64>> = calls.iter().map(|call| leaves(spans.get(&format!("{TRACE_PREFIX}{}", call.head)).map_or(&[][..], Vec::as_slice), call.seconds)).collect();
     let names: BTreeSet<&String> = per_lane.iter().flat_map(BTreeMap::keys).collect();
     let mut parts: Vec<Part> = names
         .into_iter()
@@ -77,11 +77,30 @@ fn stamped(queue: &Path, calls: &[Call]) -> BTreeMap<String, Vec<Stamped>> {
     spans
 }
 
-fn leaves(spans: &[Stamped]) -> BTreeMap<String, f64> {
+const UNSPANNED: &str = "unspanned";
+
+fn leaves(spans: &[Stamped], call_seconds: f64) -> BTreeMap<String, f64> {
     let parents: HashSet<&str> = spans.iter().filter_map(|span| span.parent.as_deref()).collect();
+    let leaves: Vec<&Stamped> = spans.iter().filter(|span| !parents.contains(span.id.as_str()) && span.end > span.start).collect();
+    let mut edges: Vec<f64> = leaves.iter().flat_map(|span| [span.start, span.end]).collect();
+    edges.sort_by(f64::total_cmp);
     let mut parts = BTreeMap::new();
-    for span in spans.iter().filter(|span| !parents.contains(span.id.as_str())) {
-        *parts.entry(span.name.clone()).or_insert(0.0) += (span.end - span.start).max(0.0);
+    let mut spanned = 0.0;
+    for window in edges.windows(2) {
+        let (from, to) = (window[0], window[1]);
+        let running: Vec<&&Stamped> = leaves.iter().filter(|span| span.start <= from && span.end >= to).collect();
+        if running.is_empty() || to <= from {
+            continue;
+        }
+        spanned += to - from;
+        let share = (to - from) / running.len() as f64;
+        for span in running {
+            *parts.entry(span.name.clone()).or_insert(0.0) += share;
+        }
+    }
+    let unspanned = call_seconds - spanned;
+    if unspanned > 1e-9 {
+        parts.insert(UNSPANNED.to_owned(), unspanned);
     }
     parts
 }
