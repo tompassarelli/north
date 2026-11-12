@@ -72,6 +72,7 @@ impl Fleet {
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         let unrecorded = record.clone();
         std::thread::scope(|scope| {
+            let shown = scope.spawn(|| first_prompt(request));
             let mut early = (claim == Claim::Fresh).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()))));
             let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
             if let Err(error) = self.registrar.register(&row, claim) {
@@ -86,7 +87,7 @@ impl Fleet {
                     self.abandon_early(opened, session_dir);
                     return Err(error);
                 }
-                let brought = fs::create_dir_all(session_dir).map_err(NorthError::from).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, opened));
+                let brought = fs::create_dir_all(session_dir).map_err(NorthError::from).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, opened, || shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))));
                 let Err(error) = brought else {
                     if let Err(error) = self.inherit_workers(request, &record) {
                         eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
@@ -132,7 +133,7 @@ impl Fleet {
     }
 
     #[allow(clippy::too_many_arguments, reason = "the launch's parts the host start takes, each borrowed from launch_into")]
-    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck, opened: Option<NorthResult<OpenedHost>>) -> NorthResult<()> {
+    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck, opened: Option<NorthResult<OpenedHost>>, prompt: impl FnOnce() -> String) -> NorthResult<()> {
         let opening = match (&request.resume, predecessor) {
             (Some(kept), Some(predecessor)) => {
                 remote::carry_conversation(self.runtime(record)?.as_ref(), request.machine.as_ref(), &self.account(&LaunchRequest { machine: request.machine.clone(), ..predecessor.record().relaunch_request() })?, account, kept)?;
@@ -147,8 +148,7 @@ impl Fleet {
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
-        let prompt = if request.role() == Role::Worker && request.resume.is_none() { brief_files::shown(&request.prompt, &request.cwd, request.machine.as_ref()) } else { request.prompt.clone() };
-        self.deliver_first_turn(record, account, &prompt)
+        self.deliver_first_turn(record, account, &prompt())
     }
 
     /// Ends the host of a failed launch and removes its directory however far the launch got, so a host slow to show its provider's exit leaves nothing under the name; renaming it away first means a watchdog racing on the name cannot leave it half removed.
@@ -254,6 +254,10 @@ impl Fleet {
         self.start(&mut record, &account, Opening::Resume(&conversation), hooks)?;
         Ok(record)
     }
+}
+
+fn first_prompt(request: &LaunchRequest) -> String {
+    if request.role() == Role::Worker && request.resume.is_none() { brief_files::shown(&request.prompt, &request.cwd, request.machine.as_ref()) } else { request.prompt.clone() }
 }
 
 fn fresh_opening<'a>(request: &'a LaunchRequest, conversation: Option<&'a str>) -> Opening<'a> {

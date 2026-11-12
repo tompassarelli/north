@@ -22,22 +22,16 @@ pub fn shown(brief: &str, cwd: &Path, machine: Option<&Machine>) -> String {
     if named.is_empty() {
         return brief.to_owned();
     }
-    let paths: Vec<String> = named.iter().map(|path| quote(path)).collect();
-    let listing = format!("{BASE} && git ls-tree -z -l \"$base\" -- {}", paths.join(" "));
-    let Some(listed) = run(machine, cwd, &listing, None) else { return brief.to_owned() };
-    let Some((base, entries)) = std::str::from_utf8(&listed).ok().and_then(|text| text.split_once('\n')) else { return brief.to_owned() };
+    let paths = named.iter().map(|path| quote(path)).collect::<Vec<_>>().join(" ");
+    let script = format!("{BASE} && git ls-tree -z -l \"$base\" -- {paths} && printf '\\0' && git ls-tree -l \"$base\" -- {paths} | awk '$2 == \"blob\" && $4 <= {FILE_CAP} {{ print $3 }}' | git cat-file --batch");
+    let Some(listed) = run(machine, cwd, &script) else { return brief.to_owned() };
+    let Some((base, entries, batch)) = parted(&listed) else { return brief.to_owned() };
     let tracked: Vec<Entry> = entries.split('\0').filter_map(Entry::parse).collect();
     let (taken, mut left) = chosen(&named, &tracked, base);
-    let contents = if taken.is_empty() {
-        Vec::new()
-    } else {
-        let ids: String = taken.iter().map(|entry| format!("{}\n", entry.blob)).collect();
-        let Some(batch) = run(machine, cwd, "git cat-file --batch", Some(ids.as_bytes())) else { return brief.to_owned() };
-        blobs(&batch)
-    };
+    let contents = blobs(batch);
     let mut section = format!("{HEADING}, read from the lane's base commit {base}; they need no reading:");
-    for (index, entry) in taken.iter().enumerate() {
-        match contents.get(index).and_then(|bytes| std::str::from_utf8(bytes).ok()) {
+    for entry in &taken {
+        match contents.iter().find(|(blob, _)| *blob == entry.blob).and_then(|(_, bytes)| std::str::from_utf8(bytes).ok()) {
             Some(text) => section.push_str(&format!("\n=== {} (blob {})\n{}", entry.path, entry.blob, text.trim_end_matches('\n'))),
             None => left.push(format!("{} is not text", entry.path)),
         }
@@ -105,20 +99,28 @@ fn relative_file(word: &str) -> bool {
     (1..=5).contains(&extension.len()) && extension.starts_with(|c: char| c.is_ascii_alphabetic()) && word.split('/').all(plain)
 }
 
-fn blobs(batch: &[u8]) -> Vec<Vec<u8>> {
+fn parted(listed: &[u8]) -> Option<(&str, &str, &[u8])> {
+    let newline = listed.iter().position(|byte| *byte == b'\n')?;
+    let (base, rest) = (std::str::from_utf8(&listed[..newline]).ok()?, &listed[newline + 1..]);
+    let end = rest.windows(2).position(|pair| pair == b"\0\0").map_or(rest.len(), |at| at + 1);
+    Some((base, std::str::from_utf8(&rest[..end]).ok()?, rest.get(end + 1..).unwrap_or_default()))
+}
+
+fn blobs(batch: &[u8]) -> Vec<(String, &[u8])> {
     let mut found = Vec::new();
     let mut rest = batch;
     while let Some(end) = rest.iter().position(|byte| *byte == b'\n') {
         let header = String::from_utf8_lossy(&rest[..end]).into_owned();
-        let Some(size) = header.split_whitespace().nth(2).and_then(|size| size.parse::<usize>().ok()) else { break };
+        let mut fields = header.split_whitespace();
+        let (Some(blob), Some(size)) = (fields.next(), fields.nth(1).and_then(|size| size.parse::<usize>().ok())) else { break };
         let Some(content) = rest.get(end + 1..end + 1 + size) else { break };
-        found.push(content.to_vec());
+        found.push((blob.to_owned(), content));
         rest = rest.get(end + 2 + size..).unwrap_or_default();
     }
     found
 }
 
-fn run(machine: Option<&Machine>, cwd: &Path, script: &str, input: Option<&[u8]>) -> Option<Vec<u8>> {
+fn run(machine: Option<&Machine>, cwd: &Path, script: &str) -> Option<Vec<u8>> {
     let script = format!("cd {} && {script}", quote(&cwd.to_string_lossy()));
     let command = match machine {
         None => {
@@ -132,7 +134,7 @@ fn run(machine: Option<&Machine>, cwd: &Path, script: &str, input: Option<&[u8]>
             ssh
         }
     };
-    let output = try_run_command_within(command, input, SSH_WAIT).ok().flatten()?;
+    let output = try_run_command_within(command, None, SSH_WAIT).ok().flatten()?;
     output.status.success().then_some(output.stdout)
 }
 
