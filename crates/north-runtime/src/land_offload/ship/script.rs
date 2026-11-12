@@ -173,6 +173,11 @@ owned() {
 started=$(date +%s%N)
 noted=0 polled=
 while :; do
+  if [ -z "$nested" ] && [ -n "$north_bin" ]; then
+    rc=0
+    closed=$("$north_bin" capacity offload closed 2>/dev/null) || rc=$?
+    [ "$rc" -ne 75 ] || { echo "offload: $closed is closed to offloaded checks, so this job leaves its line; place it on another host" >&2; exit @SLOTS_BUSY@; }
+  fi
   if [ "$lander_slot" = 1 ]; then
     if owned "$reserved"; then s=$reserved; break; fi
   fi

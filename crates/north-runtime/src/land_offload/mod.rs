@@ -12,7 +12,7 @@ pub mod room;
 pub mod ship;
 pub(crate) mod slot_lock;
 
-const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--needs PATH]... [--prefer HOST] [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, each --avoid leaves HOST out, and each --needs names a host input the land check reads, a path such as ~/.local/state/north/graph.db that a host must hold to take it, and --prefer prints HOST itself when it answers and holds every input; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | slots (prints the free then total land checks the reachable build hosts take at once, each host's free cores over the cores one check uses) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | trim-target TARGET KEEP_MIB (trims a slot's cargo target that no build holds to KEEP_MIB, least recently used build output first) | slot record NAME (records NAME as a build slot of the checkout it is run from, which the offload's script asks when its own domain cannot write the record) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail) | verdict sync [--host NAME]...";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--needs PATH]... [--prefer HOST] [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, each --avoid leaves HOST out, and each --needs names a host input the land check reads, a path such as ~/.local/state/north/graph.db that a host must hold to take it, and --prefer prints HOST itself when it answers and holds every input; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | slots (prints the free then total land checks the reachable build hosts take at once, each host's free cores over the cores one check uses) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | closed (prints this host's name and exits 75 when `[hosts.NAME] offload_builds = false` closes it to offloaded checks, which the offload's script asks on each wait step so a job in its line leaves it) | trim-target TARGET KEEP_MIB (trims a slot's cargo target that no build holds to KEEP_MIB, least recently used build output first) | slot record NAME (records NAME as a build slot of the checkout it is run from, which the offload's script asks when its own domain cannot write the record) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail) | verdict sync [--host NAME]...";
 
 /// Set by the outside broker in the process it starts for a worker command's offload request: its `choose` only reads each host's room and claims no host for a waiting land check, since none is behind it and a claim stops every other worker's builds there until it lapses (south#118).
 pub(crate) const WORKER_REQUEST_ENV: &str = "NORTH_OFFLOAD_WORKER_REQUEST";
@@ -34,11 +34,20 @@ pub fn run(arguments: &[String]) -> u8 {
         ["free" | "slots" | "slot", ..] => slot(&words),
         ["reap", "--owner", owner] if !owner.is_empty() => reap(owner),
         ["warm"] => warm::run(),
+        ["closed"] => closed(),
         ["trim-target", rest @ ..] => trim::run(rest),
         ["run", "--background", rest @ ..] => run_job(rest, ship::SlotClass::Background),
         ["run", rest @ ..] => run_job(rest, ship::SlotClass::LandCheck),
         _ => usage(),
     }
+}
+
+fn closed() -> u8 {
+    if warms_slots_here() {
+        return 0;
+    }
+    println!("{}", crate::platform::host::name());
+    75
 }
 
 fn slot(words: &[&str]) -> u8 {
