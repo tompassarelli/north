@@ -30,6 +30,14 @@ fn found_in(path: &str, text: &str, pattern: &Regex) -> Vec<String> {
     text.lines().enumerate().filter_map(|(number, line)| pattern.find(line).filter(|hit| !quoted(line, hit.start())).map(|hit| format!("{path}:{} {}", number + 1, hit.as_str()))).collect()
 }
 
+fn rust_files() -> Vec<String> {
+    if !north_base::rust_files::is_checkout(root()) {
+        return north_base::rust_files::under(root());
+    }
+    let listed = Command::new("git").current_dir(root()).args(["ls-files", "-z", "--", "*.rs"]).output().unwrap();
+    String::from_utf8(listed.stdout).unwrap().split('\0').filter(|path| !path.is_empty()).map(str::to_owned).collect()
+}
+
 fn found(paths: &[String], pattern: &Regex) -> Vec<String> {
     paths.iter().flat_map(|path| found_in(path, &std::fs::read_to_string(root().join(path)).unwrap_or_default(), pattern)).collect()
 }
@@ -50,9 +58,8 @@ fn duration_threshold() -> Regex {
 
 #[test]
 fn no_land_check_or_test_reads_wall_time_or_host_load() {
-    let listed = Command::new("git").current_dir(root()).args(["ls-files", "-z", "--", "*.rs"]).output().unwrap();
-    let rust: Vec<String> = String::from_utf8(listed.stdout).unwrap().split('\0').filter(|path| !path.is_empty()).map(str::to_owned).collect();
-    assert!(rust.len() > 100, "git ls-files listed {} Rust files", rust.len());
+    let rust = rust_files();
+    assert!(rust.len() > 100, "listed {} Rust files", rust.len());
     let test_code = Regex::new(TEST_CODE).unwrap();
     let tests: Vec<String> = rust.iter().filter(|path| test_code.is_match(path) && !path.starts_with(RECORDED_LOGS) && *path != THIS_FILE).cloned().collect();
     let checks: Vec<String> = rust.iter().filter(|path| JUDGED_BY_COST.iter().any(|check| path.starts_with(check)) && !test_code.is_match(path)).cloned().collect();

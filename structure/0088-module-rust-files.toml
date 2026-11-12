@@ -1,0 +1,5 @@
+[[module]]
+name = "rust_files"
+paths = ["crates/north-base/src/rust_files.rs"]
+responsibility = "Which Rust files a tree holds: every .rs file under a root that is not a git checkout, where a remote action's input root has no history to list."
+may_use = []

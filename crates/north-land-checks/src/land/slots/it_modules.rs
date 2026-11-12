@@ -252,12 +252,16 @@ pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str, sta
 
 /// [`selection_asking`] with its `cargo nextest list` step injected, so a test can judge the graph answer and the inclusion filter without building the workspace.
 pub fn selection_asking_with(program: &Path, root: &Path, base: &str, head: &str, stage: Stage<'_>, listed: impl FnOnce(&graph_selection::Scope) -> Option<graph_selection::ListedTests>) -> Result<Selection, String> {
+    let files = changed(root, base, head, &[])?;
+    selection_of_files_with(program, root, base, head, &files, stage, listed)
+}
+
+pub fn selection_of_files_with(program: &Path, root: &Path, base: &str, head: &str, files: &[String], stage: Stage<'_>, listed: impl FnOnce(&graph_selection::Scope) -> Option<graph_selection::ListedTests>) -> Result<Selection, String> {
     let read = |path: &str| std::fs::read_to_string(root.join(path)).map_err(|error| format!("{path}: {error}"));
     let plan = Plan::parse(&read(STRUCTURE)?)?;
     let table = Table::parse(&read(TABLE)?, &plan, &spawners(root))?;
     let units = units(&read(tree_wide_units::TABLE)?, &plan)?;
-    let files = changed(root, base, head, &[])?;
-    let floor = Suites::read(root)?.floor(&files);
+    let floor = Suites::read(root)?.floor(files);
     let selection = match graph_selection::ask(program, root, base, head, stage.batch()) {
         Some(tests) if tests.is_empty() && matches!(stage, Stage::AfterLanding(_)) && floor.is_empty() && !files.iter().any(|file| compiled(file) || SELECTION_INPUTS.contains(&file.as_str())) => {
             return Ok(Selection::NoTest(format!("the change graph reaches no test from {}", files.join(", "))));
@@ -267,10 +271,10 @@ pub fn selection_asking_with(program: &Path, root: &Path, base: &str, head: &str
             let scope = tests.listing_scope();
             match tests.with_listed(listed(&scope)) {
                 Some(tests) => Selection::Tests(tests.with_modules(table.tree_wide.iter().cloned().chain(reach(&plan, &table, &compiled).modules).collect())),
-                None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &files)?,
+                None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), files)?,
             }
         }
-        Some(_) | None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &files)?,
+        Some(_) | None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), files)?,
     };
     let selection = selection.with_units(units).with_floor(floor);
     if let Selection::Tests(tests) = &selection

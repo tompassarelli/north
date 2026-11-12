@@ -2,6 +2,7 @@ use super::ambient::{self, Ambient};
 use super::finding::Finding;
 use super::fix::{self, Suggestion};
 use super::rust_text::RustFile;
+use north_base::rust_files;
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -228,6 +229,9 @@ pub(super) fn check(habits: &Habits, files: &[RustFile], edited: Option<&str>) -
 }
 
 fn listed(root: &Path) -> Result<Vec<String>, String> {
+    if !rust_files::is_checkout(root) {
+        return Ok(rust_files::under(root));
+    }
     let output = Command::new("git")
         .arg("-C")
         .arg(root)

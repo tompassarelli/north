@@ -331,7 +331,9 @@ cause is named by what its cases ask of the machine that runs them.
   dependency box or a worker sandbox, which fails on a worker with `Can't mount proc on /proc: Operation not
   permitted`. Open: a worker that lets them.
 - Asks git about the checkout, 5 cases: one in north-code-health and one in north-land-checks list the tree with
-  `git ls-files`, three in north-land-checks run `git diff HEAD HEAD`. A worker's input root has no `.git`. Open.
+  `git ls-files`, three in north-land-checks run `git diff HEAD HEAD`. A worker's input root has no `.git`. Fixed by
+  north-base's `rust_files`: a root that is not a checkout lists its `.rs` files, and the three selections take their
+  change list as an argument (`selection_of_files_with`), so a commit with itself asks git for nothing.
 - The ssh fixture, 4 north-base cases. The fixture starts its own sshd and logs in to it as the user running the
   test, which takes a user with a login; each case waits 120 s for a connection that never comes. Open.
 - `openat2`, 3 north-lanes cases: on a worker the call answers `Function not implemented`. Open.

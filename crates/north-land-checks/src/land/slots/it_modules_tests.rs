@@ -53,7 +53,7 @@ fn a_lane_the_graph_traces_runs_only_its_tests_and_an_untraced_lane_runs_the_cra
     let directory = tempfile::tempdir().unwrap();
     let answer = r#"{"tests":["north::it fleet::launch::refuses_a_full_window","north-land-checks land::slots::select::tests::queues","north-coverage::pick_tests pick::regions"],"always":["north-base::bin/probe tests::reads_home"],"added":[{"package":"north-land-checks","name":"narrows_to_ids"}],"files":[],"untraced":null}"#;
     let traced = graph_stub(directory.path(), "traced", &format!("printf '%s' '{answer}'"));
-    let selection = selection_asking_with(&traced, root(), "HEAD", "HEAD", Stage::BeforePush, |_| listing(&["north::it fleet::launch::refuses_a_full_window", "north-land-checks land::slots::select::tests::queues", "north-coverage::pick_tests pick::regions", "north-base::bin/probe tests::reads_home"])).unwrap();
+    let selection = selection_of_files_with(&traced, root(), "HEAD", "HEAD", &[], Stage::BeforePush, |_| listing(&["north::it fleet::launch::refuses_a_full_window", "north-land-checks land::slots::select::tests::queues", "north-coverage::pick_tests pick::regions", "north-base::bin/probe tests::reads_home"])).unwrap();
     assert_eq!(
         selection.arguments(),
         "--tests -E (binary_id(north-base::bin/probe)&(test(=tests::reads_home)))|(binary_id(north-coverage::pick_tests)&(test(=pick::regions)))|(binary_id(north-land-checks)&(test(=land::slots::select::tests::queues)))|(binary_id(north::it)&(test(=fleet::launch::refuses_a_full_window)))|(package(north-land-checks)&test(/(^|::)narrows_to_ids$/))|(binary_id(north::it)&test(/^(affected_modules|agent_text_reads)::/))|(binary_id(=north-code-health)&test(=code_health::habits_tests::the_north_tree_keeps_its_rust_habits))|(binary_id(=north-land-checks)&test(=land::wall_time_tests::no_land_check_or_test_reads_wall_time_or_host_load))|(binary_id(=north-runtime)&test(=runtime::reuse::tests::every_file_a_source_embeds_at_compile_time_counts_as_a_rust_input))|(binary_id(=north-runtime)&test(=runtime::reuse::tests::no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree))",
@@ -63,7 +63,7 @@ fn a_lane_the_graph_traces_runs_only_its_tests_and_an_untraced_lane_runs_the_cra
     assert_eq!(selection.packages(), ["north", "north-base", "north-code-health", "north-coverage", "north-land-checks", "north-runtime"].map(str::to_owned).into(), "the packages of the selected tests and of the tree-wide unit tests are built");
     let full = listing(&["north::it fleet::launch::refuses_a_full_window", "north-land-checks land::slots::select::tests::queues", "north-coverage::pick_tests pick::regions", "north-coverage::pick_tests pick::narrows_to_regions", "north-base::bin/probe tests::reads_home", "north-threads threads::client::tests::claims"]).unwrap();
     let mut asked = Vec::new();
-    let scoped = selection_asking_with(&traced, root(), "HEAD", "HEAD", Stage::BeforePush, |scope| {
+    let scoped = selection_of_files_with(&traced, root(), "HEAD", "HEAD", &[], Stage::BeforePush, |scope| {
         asked.push(scope.clone());
         listed_in(&full, scope)
     })
@@ -72,18 +72,18 @@ fn a_lane_the_graph_traces_runs_only_its_tests_and_an_untraced_lane_runs_the_cra
     assert_eq!(scoped.arguments(), selection.arguments(), "a workspace listing that holds a package the change does not reach selects the same tests as the listing of the packages it reaches");
     let leaf = graph_stub(directory.path(), "leaf", r#"printf '%s' '{"tests":["north-coverage::pick_tests pick::regions"],"always":[],"added":[{"package":"north-coverage","name":"narrows_to_regions"}],"known":7}'"#);
     let mut leaf_asked = Vec::new();
-    let leaf_scoped = selection_asking_with(&leaf, root(), "HEAD", "HEAD", Stage::BeforePush, |scope| {
+    let leaf_scoped = selection_of_files_with(&leaf, root(), "HEAD", "HEAD", &[], Stage::BeforePush, |scope| {
         leaf_asked.push(scope.clone());
         listed_in(&full, scope)
     })
     .unwrap();
-    let leaf_whole = selection_asking_with(&leaf, root(), "HEAD", "HEAD", Stage::BeforePush, |_| Some(full.clone())).unwrap();
+    let leaf_whole = selection_of_files_with(&leaf, root(), "HEAD", "HEAD", &[], Stage::BeforePush, |_| Some(full.clone())).unwrap();
     assert_eq!(leaf_asked, [graph_selection::Scope::Packages(["north-coverage"].map(str::to_owned).into())], "a leaf change lists only its own package");
     assert_eq!(leaf_scoped.arguments(), leaf_whole.arguments(), "a leaf change selects the same tests the workspace-wide listing selects");
     let crate_level = select(&read(STRUCTURE), &read(TABLE), &spawners(root()), &[]).unwrap().with_units(units(&read(tree_wide_units::TABLE), &Plan::parse(&read(STRUCTURE)).unwrap()).unwrap());
     for (name, body) in [("untraced", "echo '{\"tests\":[]}'; exit 3"), ("missing", "exit 2")] {
         let program = graph_stub(directory.path(), name, body);
-        assert_eq!(selection_asking_with(&program, root(), "HEAD", "HEAD", Stage::BeforePush, |_| None).unwrap(), crate_level, "a graph that answers {name} falls back to the crate-level selection");
+        assert_eq!(selection_of_files_with(&program, root(), "HEAD", "HEAD", &[], Stage::BeforePush, |_| None).unwrap(), crate_level, "a graph that answers {name} falls back to the crate-level selection");
     }
     let error = selection_asking_with(&traced, root(), "no-such-revision", "HEAD", Stage::BeforePush, |_| None).unwrap_err();
     assert!(error.contains("no-such-revision"), "a diff that fails is an error the caller turns into the whole suite, not an empty change list: {error}");
@@ -102,14 +102,14 @@ fn every_lane_selection_names_the_tree_wide_unit_tests_the_graph_and_the_crate_f
     let untraced = graph_stub(directory.path(), "untraced", "exit 2");
     let table = read(tree_wide_units::TABLE);
     for program in [&traced, &untraced] {
-        let selection = selection_asking_with(program, root(), "HEAD", "HEAD", Stage::BeforePush, |_| listing(&["north-land-checks land::slots::select::tests::queues"])).unwrap();
+        let selection = selection_of_files_with(program, root(), "HEAD", "HEAD", &[], Stage::BeforePush, |_| listing(&["north-land-checks land::slots::select::tests::queues"])).unwrap();
         for test in TREE_WIDE_UNITS {
             assert!(selection.summary().contains(test), "{program:?}: the selection line names {test}: {}", selection.summary());
             assert!(table.contains(test), "{test} is declared in {}", tree_wide_units::TABLE);
         }
         assert!(selection.packages().is_superset(&["north-code-health".to_owned(), "north-runtime".to_owned()].into()), "{program:?}: their packages are built");
     }
-    let graph = selection_asking_with(&traced, root(), "HEAD", "HEAD", Stage::BeforePush, |_| listing(&["north-land-checks land::slots::select::tests::queues"])).unwrap().arguments();
+    let graph = selection_of_files_with(&traced, root(), "HEAD", "HEAD", &[], Stage::BeforePush, |_| listing(&["north-land-checks land::slots::select::tests::queues"])).unwrap().arguments();
     for test in TREE_WIDE_UNITS {
         assert!(graph.contains(&format!("test(={test})")), "the graph filter runs {test}: {graph}");
     }
@@ -144,7 +144,7 @@ fn every_declared_tree_wide_unit_test_still_exists_in_its_package() {
 fn a_selected_integration_binary_of_another_crate_is_built_and_run() {
     let directory = tempfile::tempdir().unwrap();
     let traced = graph_stub(directory.path(), "traced", r#"printf '%s' '{"tests":["north-lander::it land_chaos::reverts_the_red_lane"],"files":[]}'"#);
-    let selection = selection_asking_with(&traced, root(), "HEAD", "HEAD", Stage::BeforePush, |_| listing(&["north-lander::it land_chaos::reverts_the_red_lane"])).unwrap();
+    let selection = selection_of_files_with(&traced, root(), "HEAD", "HEAD", &[], Stage::BeforePush, |_| listing(&["north-lander::it land_chaos::reverts_the_red_lane"])).unwrap();
     let arguments = selection.arguments();
     assert!(arguments.starts_with("--tests -E "), "the tests/it binaries are built: {arguments}");
     assert!(arguments.contains("(binary_id(north-lander::it)&(test(=land_chaos::reverts_the_red_lane)))"), "the selected test runs: {arguments}");
