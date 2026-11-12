@@ -80,6 +80,14 @@ pub fn lane_only_cgroup(cgroup: &str) -> bool {
     cgroup.lines().filter_map(|line| line.rsplit('/').next()).any(|leaf| leaf.starts_with(LANE_ONLY_UNIT_PREFIX) && leaf.ends_with(".scope"))
 }
 
+/// The unit name, and the start of every other name, of the outside broker's service, which starts what a sandboxed worker asks for.
+pub const WORKER_BROKER_UNIT: &str = "north-worker-outside";
+
+/// Whether the process whose `/proc/PID/cgroup` reads `cgroup` runs for a fleet worker: in a session's scope, lane-only or not, or in the outside broker's service.
+pub fn worker_cgroup(cgroup: &str) -> bool {
+    cgroup.lines().flat_map(|line| line.split('/')).any(|unit| (unit.starts_with(SESSION_UNIT_PREFIX) && unit.ends_with(".scope")) || unit.starts_with(WORKER_BROKER_UNIT))
+}
+
 /// Whether process `pid` runs in a lane-only session's scope; `None` when its cgroup cannot be read, which a caller must treat as lane-only.
 pub fn lane_only_process(pid: i32) -> Option<bool> {
     std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok().map(|cgroup| lane_only_cgroup(&cgroup))

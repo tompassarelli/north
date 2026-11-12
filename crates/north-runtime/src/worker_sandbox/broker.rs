@@ -26,7 +26,7 @@ use super::{Context, FLAG, MAKER, removable};
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
 pub const SOCKET_ENV: &str = "NORTH_OUTSIDE_BROKER";
-const UNIT: &str = "north-worker-outside";
+const UNIT: &str = north_base::platform::session_scope::WORKER_BROKER_UNIT;
 const SLICE: &str = "agent.slice";
 const NAMESPACE: &str = "--namespaces";
 const KNOWS: &str = "--knows";

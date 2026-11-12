@@ -371,6 +371,35 @@ pub fn record_usage(entry: &str) -> std::io::Result<()> {
     file.write_all(format!("{entry}\n").as_bytes())
 }
 
+/// Where the runs the lander's own leases made are kept, one file a day: under the state home's `north`, which no worker command writes, unlike the usage log, so only those leases set a landing command's charge.
+fn lander_runs_directory() -> PathBuf {
+    state_root().join("north/capacity/lander-runs")
+}
+
+fn day_file(at: &str) -> String {
+    format!("{}.jsonl", at.get(..10).unwrap_or(at))
+}
+
+/// Appends `entry`, a run a lander's lease made at the ISO time `at`, to its day's file, and removes the files of the days before the ISO time `keep`.
+pub fn record_lander_run(entry: &str, at: &str, keep: &str) -> std::io::Result<()> {
+    let directory = lander_runs_directory();
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(&directory)?;
+    let stale = day_file(keep);
+    for old in fs::read_dir(&directory)?.flatten().filter(|file| *file.file_name().to_string_lossy() < *stale) {
+        let _ = fs::remove_file(old.path());
+    }
+    let mut file = fs::OpenOptions::new().create(true).append(true).mode(0o600).open(directory.join(day_file(at)))?;
+    file.write_all(format!("{entry}\n").as_bytes())
+}
+
+/// The lines the lander's leases recorded on the day of the ISO time `since` and after it.
+pub fn lander_runs(since: &str) -> String {
+    let first = day_file(since);
+    let mut days: Vec<PathBuf> = fs::read_dir(lander_runs_directory()).into_iter().flatten().flatten().filter(|file| *file.file_name().to_string_lossy() >= *first).map(|file| file.path()).collect();
+    days.sort();
+    days.iter().filter_map(read_text).collect()
+}
+
 /// The latest sizing window of the usage log's last lines that match.
 pub fn recent_usage(lines: usize, matches: impl Fn(&Value) -> bool) -> Vec<Value> {
     let text = read_text(usage_log_path()).unwrap_or_default();

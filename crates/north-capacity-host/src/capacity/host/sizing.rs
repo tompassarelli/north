@@ -1,14 +1,17 @@
 use serde_json::{Value, json};
 
-use super::database::{capacity_database, capacity_history, failure_status, recent_usage};
+use super::database::{capacity_database, capacity_history, failure_status, lander_runs, recent_usage, record_lander_run};
 use super::estimate::{CapacityQuery, CapacityRun, estimate_capacity, task_signature};
 use super::fail;
 use super::json::{field, num, round2, text};
 use super::model::{Forecast, Prediction, Subject, current_cache_state, forecast};
 use crate::capacity::local_machine::host_name;
-use super::policy::{Resources, charged_resources, heavy_peak_charge, learned_minimum_runs, memory_margin, owner_prefix, percentile, sized_class};
+use crate::foundation::clock::Timestamp;
+use super::policy::{ChargedRun, Resources, charged_resources, heavy_peak_charge, learned_minimum_runs, memory_margin, owner_prefix, percentile, sized_class};
 use super::request::Request;
-use super::shape::command_shape;
+use super::shape::{command_shape, recorded_command};
+
+const DAY_MILLISECONDS: i64 = 86_400_000;
 
 fn cwd() -> Option<String> {
     std::env::current_dir().ok().map(|cwd| cwd.to_string_lossy().into_owned())
@@ -94,6 +97,38 @@ pub fn charge_from_usage(mut request: Request, owner: &str, command: &[String], 
     }));
     request.forecast = Some(forecast.json(memory_mib.ceil()));
     request
+}
+
+fn days_ago(days: i64) -> String {
+    Timestamp::from_unix_millis(Timestamp::now().unix_millis() - days * DAY_MILLISECONDS).iso_millis()
+}
+
+/// The runs of `command` the lander's own leases made on this host in the last day, as a landing charge reads them: only the record those leases write is read, so no row of the usage log, whatever owner it names, lowers a charge.
+pub fn landing_runs(command: &[String]) -> Vec<ChargedRun> {
+    let since = days_ago(1);
+    charged_runs(&lander_runs(&since), command, &since, &host_name())
+}
+
+/// Keeps `entry`, the usage row of a run a lander's lease made, in the record `landing_runs` reads, and drops the days no charge reads any more.
+pub fn record_landing_run(entry: &str) -> std::io::Result<()> {
+    record_lander_run(entry, &days_ago(0), &days_ago(2))
+}
+
+/// The runs of exactly `command` among `rows`, the lines of the lander's record, since the ISO time `since` on `host`: a row of another command never lowers this one's charge.
+pub(super) fn charged_runs(rows: &str, command: &[String], since: &str, host: &str) -> Vec<ChargedRun> {
+    let recorded = Value::from(recorded_command(command));
+    let needle = format!("\"command\":{recorded}");
+    rows.lines()
+        .filter(|line| line.contains(&needle))
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|row| row.get("command") == Some(&recorded) && text(row, "at").is_some_and(|at| at >= since) && text(row, "host").is_none_or(|ran_on| ran_on == host))
+        .map(|row| ChargedRun {
+            wall_seconds: field(&row, "wallSeconds").unwrap_or(f64::NAN),
+            cpu_seconds: field(&row, "cpuSeconds").unwrap_or(f64::NAN),
+            charged_cpus: field(&row, "chargedCpus").or_else(|| field(&row, "reservedCpus")).unwrap_or(f64::NAN),
+            passed: field(&row, "exitCode") == Some(0.0),
+        })
+        .collect()
 }
 
 fn forecast_of(owner: &str, command: &[String]) -> Forecast {

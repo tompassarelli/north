@@ -192,6 +192,8 @@ printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
   [ -z "${exited:-}" ] || [ -e "$exited" ] || echo 143 >"$exited" 2>/dev/null || true
   rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder"
+  rm -f "${script:-}"
+  rmdir "${script_directory:-}" 2>/dev/null || true
   git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
   if [ -e "$slot/.git" ]; then git -C "$slot" clean -ffdxq -e /target 2>/dev/null || true; fi
 }
@@ -249,7 +251,8 @@ done
 "#;
 
 const RUN: &str = r#"cd "$slot"
-script=$(mktemp "${root:-${TMPDIR:-/tmp}}/offload-command.XXXXXX")
+script_directory=$(mktemp -d "${root:-${TMPDIR:-/tmp}}/@SUBJECT_DIRECTORY@XXXXXX")
+script=$script_directory/@SUBJECT_FILE@
 printf '%s\n' "$command" >"$script"
 if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; export PATH; fi
 if [ -n "${runtime:-}" ]; then
@@ -263,7 +266,7 @@ if [ -n "${carried:-}" ]; then eval "export $carried"; fi
 lease_owner=land-offload
 [ -z "${SAFE_PUSH_LAND_HEAD:-}" ] || lease_owner=land-check
 leased() {
-  if command -v north >/dev/null 2>&1; then north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
+  if command -v north >/dev/null 2>&1; then @SUBJECT_ENV@="$script" @OWNER_ENV@="${owner:-}" north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
 if [ -n "${nested:-}" ]; then
   watching=$root/watch.$$.up
@@ -433,6 +436,10 @@ pub(super) fn run_part() -> String {
         .replace("@WATCH_MARGIN@", &WATCH_MARGIN_SECONDS.to_string())
         .replace("@WATCH_START_POLLS@", &WATCH_START_POLLS.to_string())
         .replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV)
+        .replace("@SUBJECT_ENV@", north_base::foundation::offload::SUBJECT_ENV)
+        .replace("@SUBJECT_DIRECTORY@", north_base::foundation::offload::SUBJECT_DIRECTORY)
+        .replace("@SUBJECT_FILE@", north_base::foundation::offload::SUBJECT_FILE)
+        .replace("@OWNER_ENV@", north_base::foundation::offload::OWNER_ENV)
         .replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV)
         .replace("@LEASE@", crate::runtime::layout::LEASE)
         .replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker())

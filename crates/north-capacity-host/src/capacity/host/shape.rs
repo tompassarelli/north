@@ -1,6 +1,9 @@
+use std::path::Path;
 use std::sync::LazyLock;
 
 use regex::Regex;
+
+use crate::foundation::offload::{SUBJECT_DIRECTORY, SUBJECT_FILE};
 
 const SHELL_COMMANDS: [&str; 4] = ["bash", "sh", "zsh", "dash"];
 const SHELL_BUILTINS: [&str; 10] = ["cd", "wait", "echo", "printf", "export", "set", "true", "exit", "source", "."];
@@ -90,4 +93,18 @@ pub fn command_shape(command: &[String]) -> String {
     let mut shape = vec![program(first).to_owned()];
     shape.extend(words[1..].iter().take_while(|word| SUBCOMMAND.is_match(word)).take(2).cloned());
     shape.join(" ")
+}
+
+/// Whether `path` is the command file the offload script writes: `SUBJECT_FILE` directly in a directory whose name is `SUBJECT_DIRECTORY` and a nonce, which that script makes for the one file.
+fn offload_script(path: &Path) -> bool {
+    let made = |name: &str| name.len() > SUBJECT_DIRECTORY.len() && name.starts_with(SUBJECT_DIRECTORY);
+    path.is_absolute() && path.file_name().is_some_and(|name| name == SUBJECT_FILE) && path.parent().and_then(Path::file_name).and_then(|name| name.to_str()).is_some_and(made)
+}
+
+/// The check a landing wrapper runs from a script file, as `shell -c TEXT`, when the wrapper named that file as the subject it runs and the file is the offload script's own command file; any other command has no subject, and no other file is handed to `read`.
+pub fn script_subject(command: &[String], script: Option<&str>, read: impl FnOnce(&Path) -> Option<String>) -> Option<Vec<String>> {
+    let script = script.filter(|script| !script.is_empty() && command.last().map(String::as_str) == Some(*script))?;
+    let shell = command.first().filter(|first| SHELL_COMMANDS.contains(&program(first)))?;
+    let text = Some(Path::new(script)).filter(|path| offload_script(path)).and_then(read)?;
+    Some(vec![shell.clone(), "-c".to_owned(), text.trim_end_matches('\n').to_owned()])
 }
