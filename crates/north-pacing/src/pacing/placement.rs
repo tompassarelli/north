@@ -10,7 +10,10 @@ mod hosts;
 pub use hosts::{Pass, pass};
 mod inputs;
 mod keeper;
-pub use keeper::run as keep_surveys;
+/// `north placement-survey keep`, refreshing every build host's survey answer while launches place work.
+pub fn keep_surveys(arguments: &[String]) -> u8 {
+    keeper::run(arguments, hosts::refresh_every_host)
+}
 pub mod needs;
 mod reach;
 pub mod recent;

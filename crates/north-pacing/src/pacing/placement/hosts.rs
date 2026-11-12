@@ -296,7 +296,19 @@ fn shared(records: &Path, name: &str, now: f64) -> Option<Facts> {
 
 /// Asks `machine` everything placement reads and whether each launch directory it was seen to hold is still there, recording
 /// both, so launches placing work read an answer under `SHARED_SECONDS` old instead of asking it themselves.
-pub(super) fn refresh(machine: &Machine) {
+/// Refreshes every build host the orchestration file names, side by side.
+pub(super) fn refresh_every_host() {
+    let Ok(text) = std::fs::read_to_string(crate::platform::orchestration::path()) else { return };
+    let Ok(cfg) = text.parse::<toml_edit::DocumentMut>() else { return };
+    let machines = super::gate::machines(&cfg);
+    std::thread::scope(|scope| {
+        for machine in &machines {
+            scope.spawn(|| refresh(machine));
+        }
+    });
+}
+
+fn refresh(machine: &Machine) {
     let records = records();
     fetch(&machine.name, &machine.ssh, None, Asked::Refresh);
     let here = machine.name == local();

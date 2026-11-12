@@ -9,7 +9,6 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use super::super::storage;
-use super::{gate, hosts};
 
 const EVERY: Duration = Duration::from_secs(20);
 const IDLE_SECONDS: f64 = 300.0;
@@ -34,7 +33,7 @@ pub(super) fn wanted() {
 }
 
 /// `north placement-survey keep`: keeps every build host's survey answer fresh until launches stop placing work; a keeper already running leaves this one nothing to do.
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], refresh_every_host: fn()) -> u8 {
     if arguments != ["keep"] {
         eprintln!("{USAGE}");
         return 2;
@@ -45,12 +44,7 @@ pub fn run(arguments: &[String]) -> u8 {
         return 0;
     }
     while storage::now() - wanted_at(&dir) < IDLE_SECONDS {
-        let machines = machines();
-        std::thread::scope(|scope| {
-            for machine in &machines {
-                scope.spawn(|| hosts::refresh(machine));
-            }
-        });
+        refresh_every_host();
         std::thread::sleep(EVERY);
     }
     0
@@ -66,9 +60,4 @@ fn lock_file(dir: &Path) -> Option<File> {
 
 fn wanted_at(dir: &Path) -> f64 {
     fs::read_to_string(dir.join("wanted")).ok().and_then(|text| text.trim().parse().ok()).unwrap_or(0.0)
-}
-
-fn machines() -> Vec<gate::Machine> {
-    let Ok(text) = fs::read_to_string(crate::platform::orchestration::path()) else { return Vec::new() };
-    text.parse::<toml_edit::DocumentMut>().map(|cfg| gate::machines(&cfg)).unwrap_or_default()
 }
