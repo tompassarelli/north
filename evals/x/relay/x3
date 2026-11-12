@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -uo pipefail
+here=$(dirname "$(readlink -f "$0")")
+token=${1:?usage: evals/x/relay/x3 TOKEN-FILE [MODEL]} model=${2:-claude-opus-5-5}
+W=/tmp/eval-x/x3
+claude=$(readlink -f "$(command -v claude)") bash=$(readlink -f "$(command -v bash)")
+mkdir -p "$W/repo/sub" "$W/cfg" "$W/home"
+: > "$W/calls.log"
+printf '{"effortLevel": "low", "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo x3-hook-ran >&2"}]}]}}\n' > "$W/cfg/settings.json"
+cat > "$W/prompt.txt" <<'PROMPT'
+Use the Bash tool for each step, one tool call per step, in this order, and change nothing else:
+1. echo one-$((6*7))
+2. cd sub && pwd
+3. pwd
+4. Start `sleep 2; echo background-done` as a background command, then read its output once it has finished.
+5. Run `sleep 5; echo late` with a timeout of 1000 milliseconds.
+Then reply with one line per step giving the output you saw.
+PROMPT
+for variable in $(compgen -e | grep -E '^(ANTHROPIC_|CLAUDE)'); do unset "$variable"; done
+(cd "$W/repo" && env -i HOME="$W/home" PATH="$(dirname "$claude"):$(dirname "$bash"):/run/current-system/sw/bin" LANG=C.UTF-8 \
+  SHELL="$here/probe-shell" EVAL_X_SHELL_LOG="$W/calls.log" EVAL_X_REAL_SHELL="$bash" CLAUDE_CONFIG_DIR="$W/cfg" \
+  CLAUDE_CODE_OAUTH_TOKEN="$(cat "$token")" \
+  timeout 300 "$claude" -p --model "$model" --allowedTools Bash < "$W/prompt.txt" > "$W/reply.txt" 2> "$W/turn.err")
+echo "claude exited $?; version $("$claude" --version)"
+echo "--- reply"; cat "$W/reply.txt"
+echo "--- calls ($(grep -c '^CALL' "$W/calls.log"))"; cat "$W/calls.log"
+echo "--- stderr"; head -20 "$W/turn.err"
