@@ -237,6 +237,36 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert_eq!((queued.alone_green.as_deref(), queued.unjudged_on.as_deref()), (Some(queued.head.as_str()), None), "the judge answered while the checks before queueing ran, yet the ticket waits for the lander to ask again (north#1239): {text}");
 }
 
+#[test]
+fn a_finish_call_refuses_while_another_repositorys_lane_of_the_same_name_holds_an_unlanded_commit() {
+    if let Ok(arguments) = std::env::var(FINISH_ARGUMENTS) {
+        let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
+        let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string()]);
+        std::process::exit(i32::from(hand_in::finish(&arguments, road)));
+    }
+    let (world, north) = scanned_world(JUDGE_PASSES);
+    let wisp = world.repository("wisp");
+    let lane = worktree(&north, "worker");
+    let other = wisp.checkout.parent().unwrap().join("worktrees/worker");
+    git(&wisp.checkout, &["worktree", "add", "-q", "-b", "worker", other.to_str().unwrap(), "origin/main"]);
+    fs::write(other.join("second.txt"), "the second repository's half\n").unwrap();
+    git(&other, &["add", "second.txt"]);
+    git(&other, &["commit", "-qm", "Commit the second repository's half"]);
+    fs::write(lane.join("named.txt"), "the first repository's half\n").unwrap();
+
+    let refused = finish(&world, "two", "true", "Add the first half (north#1233)", &lane.join("named.txt"));
+    let text = report(&refused);
+    assert_eq!(refused.status.code(), Some(1), "{text}");
+    assert!(text.contains(&other.display().to_string()) && text.contains("NOT queued"), "the refusal does not name the other repository's lane: {text}");
+    assert!(queue::pending(&north.queue).unwrap().is_empty(), "a finish call queued with the other repository's commit unlanded: {text}");
+
+    git(&other, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    git(&other, &["fetch", "-q", "origin"]);
+    let passed = finish(&world, "two", "true", "Add the first half (north#1233)", &lane.join("named.txt"));
+    assert_eq!(passed.status.code(), Some(0), "{}", report(&passed));
+    assert_eq!(queue::pending(&north.queue).unwrap().len(), 1, "the call did not queue once the other repository's commit was on its main: {}", report(&passed));
+}
+
 const FILES: &str = "hand_in::a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_written_when_its_check_fails";
 const FILES_ARGUMENTS: &str = "NORTH_FINISH_FILES_IT_ARGUMENTS";
 

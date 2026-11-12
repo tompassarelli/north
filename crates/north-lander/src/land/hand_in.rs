@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them, and rebases a lane behind its destination onto it, with its uncommitted changes, when that applies without a conflict (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running it as the check before queueing on the would-be head's tree, keyed and recorded as the lander's own run, when the lane's checks before queueing hold that command, so the safe-push it hands the lane to reuses that run (north#1230), and returns at the ticket (north#1194), and when the road's checks before queueing then judge that lane and fail it, the finish record turns failed and the attempt is kept as for a failed check (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them, and rebases a lane behind its destination onto it, with its uncommitted changes, when that applies without a conflict (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running it as the check before queueing on the would-be head's tree, keyed and recorded as the lander's own run, when the lane's checks before queueing hold that command, so the safe-push it hands the lane to reuses that run (north#1230), and returns at the ticket (north#1194), refusing first while a lane of the same name in a project beside its own holds a commit not on that repository's main, since each repository a task changes is handed in from its own lane (north#1233), and when the road's checks before queueing then judge that lane and fail it, the finish record turns failed and the attempt is kept as for a failed check (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
 
 use std::fs;
 use std::io;
@@ -9,6 +9,8 @@ use super::enqueue::{Facts, default_branch, fetch_base, git};
 use crate::land::slots::runner;
 use north_base::platform::finish_record::{FinishRecords, Finished};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen, Stand};
+
+mod other_lanes;
 
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 const ATTEMPT: &str = "north-attempt.json";
@@ -161,6 +163,10 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
         return 1;
     }
     if request.check.is_some() {
+        if let Some(refusal) = other_lanes::refusal(&other_lanes::unlanded(&named.lane.root)) {
+            eprintln!("{verb}: ✗ {refusal}; NOT committed, NOT queued.");
+            return 1;
+        }
         forget_attempt(&named.lane.root);
     }
     if let Err(refusal) = commit(&named) {
