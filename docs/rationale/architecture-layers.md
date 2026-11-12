@@ -239,7 +239,7 @@ Files over 500 lines:
 
 Functions. The guard crate holds 98 of the 670, north-core 62, the root 43, north-ops 35, north-base 32. The highest complexities are `Policy.scan_write_commands` at 208 (`crates/north-guard/src/guard/launch_critical/writes.rs`, L41), the pyjson decoder at 155 (in flight), the grounding functions at 108 to 127 (L25), `shell_substitutions` at 117 (`crates/north-base/src/shell/substitution.rs`), the three diff-gate parsers at 69 to 107 (L40) and `dispatch` at 65 (L42). `shell_substitutions` is kept until L41 has shown that the policy replay catches a changed verdict, because every guard reads through it. The rest are held by the existing gate, which refuses a lane that adds or grows one, and fall as their files are split.
 
-The 18 standing `[[rust_habits.allow]]` entries:
+The 17 standing `[[rust_habits.allow]]` entries:
 
 | Entry | Check | Verdict |
 |---|---|---|
@@ -253,7 +253,7 @@ The 18 standing `[[rust_habits.allow]]` entries:
 | `crates/north-session-host/src/session_host.rs`, `crates/north-fleet-supervisor/src/fleet/registry/hand_in.rs`, `crates/north-fleet-supervisor/src/fleet/registry/start_lock.rs` | shared-mutability | keep: state shared between threads by design |
 | `crates/north-threads/src/threads/board/issues.rs`, `src/bin/verify_north/notes.rs` | shared-mutability | keep: one SQLite connection, one stdin pipe |
 
-Eighteen fall to ten. The 21 `[[implicit_state.allow]]` entries are counted with them by L04.
+Seventeen fall to ten. The 21 `[[implicit_state.allow]]` entries are counted with them by L04.
 
 ### 5. One concept in more than one crate
 
@@ -301,8 +301,8 @@ Four boxes cannot be 60 minutes or less, and each says why: L14, L31, L41, L48.
 
 **L04 Check: allowances only fall (new gate).** 0.5 h. After: nothing.
 - Files: `crates/north-code-health/src/code_health/habits.rs` (`grown`), `crates/north-code-health/src/code_health/habits_tests.rs`, `docs/rationale/experiments.toml`.
-- Behavior: the habits check a landing already runs with `--base` refuses a head whose `structure.toml` holds more `[[rust_habits.allow]]` or more `[[implicit_state.allow]]` entries than the base, printing both counts.
-- Check: a scratch lane that adds one `[[rust_habits.allow]]` part is refused with `18 -> 19`; main passes.
+- Behavior: the habits check a landing already runs with `--new-since` (`.safe-push` line 44; `--new-since` reaches `grown` through `findings_new`, `habits.rs` line 377) refuses a head whose `structure.toml` holds more `[[rust_habits.allow]]` or more `[[implicit_state.allow]]` entries than the base, printing both counts. `--base` alone does not reach it.
+- Check: a scratch lane that adds one `[[rust_habits.allow]]` part is refused with `17 -> 18`; main passes.
 
 **L05 Check: ARCHITECTURE.md equals the workspace (new gate).** 0.5 h. After: L03.
 - Files: `crates/north-code-health/src/code_health/layers/`, `.safe-push`, `ARCHITECTURE.md`, `docs/rationale/experiments.toml`.
@@ -632,14 +632,14 @@ A reviewer is not the control. Each rule is a check a landing runs, read from ma
 | A crate does not grow past its line cap | `north code-health crate-lines` | exists |
 | No new file or function over a limit, no new habit finding | `north code-health gate` and `north code-health habits` | exists |
 | The three ambient test allowlists only shrink; a stale allowance is reported | `north code-health habits` | exists |
-| The count of habit and implicit-state allowances only falls | `north code-health habits --base` | new: L04 |
+| The count of habit and implicit-state allowances only falls | `north code-health habits --new-since BASE` | new: L04 |
 
 The lines for what this plan adds, as `docs/rationale/experiments.toml` asks of every new gate and crate. Each lands with the box that adds it, and a crate that misses its bar on its review date is merged back.
 
 | Added | Metric | Bar | Review |
 |---|---|---|---|
 | The manifest layer rule (L03) | manifest edges on main that point up or sideways | 7 on 2026-11-12; never higher at a landing; 0 at the review | 2026-11-26 |
-| Allowances only fall (L04) | standing habit and implicit-state allowances | 39 on 2026-11-12 (18 and 21); never higher; habit allowances at most 10 at the review | 2026-11-26 |
+| Allowances only fall (L04) | standing habit and implicit-state allowances | 38 on 2026-11-13 (17 and 21); never higher; habit allowances at most 10 at the review | 2026-11-26 |
 | The ARCHITECTURE.md check (L05) | table rows that disagree with the workspace | 0 at every landing | 2026-11-26 |
 | north-worker-sandbox (L18) | crates that depend on north-runtime to reach the sandbox | 0, and no cycle through a dev dependency | 2026-11-26 |
 | north-offload (L20), north-timers (L21) | product lines of north-runtime | under 8,000 once L22 lands (17,584 on 2026-11-12) | 2026-11-26 |

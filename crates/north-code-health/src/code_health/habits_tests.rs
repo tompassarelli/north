@@ -198,6 +198,7 @@ fn allowances_only_fall() {
     let raised = grown(root, "HEAD").unwrap();
     assert_eq!(raised.len(), 1, "{raised:?}");
     assert!(raised[0].contains("[[rust_habits.allow]] 1 -> 2") && raised[0].contains("[[implicit_state.allow]] 1 -> 1"), "{raised:?}");
+    assert!(findings_new(root, "HEAD").unwrap().iter().any(|line| line.contains("[[rust_habits.allow]] 1 -> 2")), "a lane that adds a habit allowance meets the grown line on the landing's --new-since path");
     std::fs::write(root.join("structure.toml"), format!("[rust_habits]\nchecks = []\n{habit}{implicit}{implicit}")).unwrap();
     let raised = grown(root, "HEAD").unwrap();
     assert_eq!(raised.len(), 1, "{raised:?}");
