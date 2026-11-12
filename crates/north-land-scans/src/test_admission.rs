@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -16,6 +16,26 @@ use north_base::foundation::exit::NO_VERDICT;
 
 mod kills;
 mod limits;
+
+const MUTANT_BUILD: &str = "target/mutant-cargo";
+
+struct MutantBuild(PathBuf);
+
+impl MutantBuild {
+    fn in_checkout(top: &Path) -> Self {
+        Self(top.join(MUTANT_BUILD))
+    }
+
+    fn of(directory: &Path) -> Option<Self> {
+        git::text(directory, &["rev-parse", "--show-toplevel"]).map(|top| Self::in_checkout(Path::new(top.trim())))
+    }
+}
+
+impl Drop for MutantBuild {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 const CONTRACT_FORMAT: &str = "Test-contract: <test name>; category: <category>";
 
@@ -343,6 +363,7 @@ pub fn fail_to_pass(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
         let _ = writeln!(out, "fail-to-pass: not applicable ({range} adds no Rust test next to a code change, or is marked {})", fails_first::MARK);
         return 0;
     }
+    let _build = MutantBuild::of(directory);
     let passing = match fails_first::pass_on_base(directory, &base, &found.patch, &names, out) {
         Ok(verdicts) => verdicts,
         Err(reason) => {

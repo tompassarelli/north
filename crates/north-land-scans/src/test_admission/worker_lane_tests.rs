@@ -56,9 +56,11 @@ mkdir -p "$out/mutants.out" && echo "src/lib.rs:1:21: replace f -> u8 with 0" >"
     let code = fail_to_pass(&lane, &range, &mut ran);
     let printed = String::from_utf8_lossy(&ran);
     assert!(code <= 1 && !printed.contains("could not run"), "on 2026-11-13 the fail-to-pass scan run from a worker's lane built in a scratch copy under ~/.cache/north/mutant-cargo, which the worker sandbox's broker serves no build from, so it exited 75 with no verdict: {printed}");
+    assert!(!lane.join("target/mutant-cargo").exists(), "on 2026-11-13 the fail-to-pass scan left its base tree's build under target/mutant-cargo in the lane, 5.5 GB per checkout and offload slot");
 
     let mut swept = Vec::new();
     let code = kills(&lane, &["--here".to_owned(), range], &mut swept);
     let printed = String::from_utf8_lossy(&swept);
     assert!(code <= 1 && printed.contains("mutant kill: ✓"), "on 2026-11-13 the mutant kill scan run from a worker's lane swept a worktree under ~/.cache, which the worker sandbox's broker serves no build from and the lane's build cannot be hard-linked into across devices, so it reached no verdict: {printed}");
+    assert!(!lane.join("target/mutant-cargo").exists(), "on 2026-11-13 the mutant kill scan left a build under target/mutant-cargo in the lane, 5.5 GB per checkout and offload slot");
 }

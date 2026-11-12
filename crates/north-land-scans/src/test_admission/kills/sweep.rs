@@ -9,6 +9,7 @@ use toml_edit::DocumentMut;
 
 use north_build_system::{MutantStep, Mutants, Shell};
 use super::own_tree::OwnTree;
+use super::super::MutantBuild;
 use super::{BASELINE_FAILED, End, Lane, SHOWN, Tally, git, judge, sweep_cap, unavailable};
 
 const WORK: &str = "target/mutant-kills";
@@ -25,6 +26,7 @@ pub(super) fn on_this_host(directory: &Path, lane: &Lane, out: &mut impl Write) 
     let Some(top) = checkout_of(directory, &lane.head) else {
         return unavailable(out, &format!("--here copies the checkout its land check built, so it needs a checkout at {}", lane.head));
     };
+    let _build = MutantBuild::in_checkout(&top);
     let cap = match sweep_cap() {
         Ok(cap) => cap,
         Err(why) => return unavailable(out, &why),
