@@ -21,7 +21,7 @@ fn bin_with(programs: &[&str]) -> tempfile::TempDir {
 }
 
 #[test]
-fn a_report_quoting_a_path_before_its_promise_runs_only_the_promised_command_never_the_prose_between_spans() {
+fn a_report_quoting_a_path_before_its_promise_keeps_only_the_promised_command_never_the_prose_between_spans() {
     let bin = bin_with(&["git"]);
     let claims = promised(SCANREUSE, &resolver(bin.path(), bin.path().as_os_str()));
     assert_eq!(commands(&claims), [Some("git -C ~/code/north/main fetch -q origin && git -C ~/code/north/main merge-base --is-ancestor 83f275f3981d08d5e4fd3b0f7e559a279753c27d origin/main")]);

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
@@ -13,7 +13,6 @@ use crate::error::NorthResult;
 const FILE: &str = "promises.jsonl";
 const CHECKED: &str = "promises-checked.jsonl";
 const FENCES: [&str; 2] = ["```", "~~~"];
-static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{7,40}\b").expect("sha pattern"));
 const BOX_MARKER: &str = "Done when:";
 const STOP: &str = "Stop:";
 const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -42,7 +41,7 @@ pub struct Promise {
     pub command: String,
     pub when: When,
     pub said_ms: u64,
-    pub cwd: PathBuf,
+    pub parent: String,
 }
 
 impl Promise {
@@ -165,24 +164,6 @@ fn command_text(line: &str) -> &str {
         Some((_, command_line)) if is_box => command_line,
         _ => line,
     }
-}
-
-pub fn landed_as(command: &str, events: &str) -> String {
-    let mut landed = BTreeMap::new();
-    let mut shas: BTreeMap<u64, BTreeSet<String>> = BTreeMap::new();
-    for event in events.lines().filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok()) {
-        let (Some(pid), Some(sha)) = (event["pid"].as_u64(), event["sha"].as_str().filter(|sha| !sha.is_empty())) else { continue };
-        shas.entry(pid).or_default().insert(sha.to_owned());
-        if event["status"] == "landed" {
-            landed.insert(pid, sha.to_owned());
-        }
-    }
-    SHA.replace_all(command, |found: &regex::Captures| {
-        let token = &found[0];
-        let rebased = landed.iter().find_map(|(pid, landed_sha)| shas[pid].iter().any(|sha| sha != landed_sha && sha.starts_with(token)).then_some(landed_sha));
-        rebased.map_or_else(|| token.to_owned(), |landed_sha| landed_sha[..token.len()].to_owned())
-    })
-    .into_owned()
 }
 
 fn when(line: &str) -> Option<When> {

@@ -380,7 +380,7 @@ impl TurnWatch {
         let (reply, lines) = view.map(|view| (view.reply, view.transcript.entries)).unwrap_or_default();
         let landed = landings::landed_between(record, &landings::pushes_of(record, &push_log()), turn.started_ms, turn.ended_ms);
         if turn.exit == TurnExit::Completed {
-            self.keep_promises(record, turn, number, reply.as_deref().unwrap_or_default());
+            self.keep_promises(record, parent, turn, number, reply.as_deref().unwrap_or_default());
         }
         let waiting = self.tickets.unlanded(&record.name).is_ok_and(|tickets| !tickets.is_empty()) || !Waits::in_root(&self.root).of(&record.name).is_empty();
         let report = Report { child: record.name.clone(), turn: number, exit: turn.exit, landed, reply, waiting };
@@ -389,17 +389,17 @@ impl TurnWatch {
         }
     }
 
-    fn keep_promises(&self, record: &SessionRecord, turn: &Turn, number: u64, reply: &str) {
+    fn keep_promises(&self, record: &SessionRecord, parent: &str, turn: &Turn, number: u64, reply: &str) {
         let mut promises = Vec::new();
         let search = std::env::var_os("PATH").unwrap_or_default();
         for claim in promised(reply, &resolver(&record.cwd, &search)) {
             match claim.command {
-                Some(command) => promises.push(Promise { session: record.name.clone(), turn: number, line: claim.line, command, when: claim.when, said_ms: turn.ended_ms, cwd: record.cwd.clone() }),
-                None => eprintln!("north fleet: {}'s line {:?} names a time but no backticked command whose program resolves, so it holds no promise to check", record.name, claim.line),
+                Some(command) => promises.push(Promise { session: record.name.clone(), turn: number, line: claim.line, command, when: claim.when, said_ms: turn.ended_ms, parent: parent.to_owned() }),
+                None => eprintln!("north fleet: {}'s line {:?} names a time but no backticked command whose program resolves, so it holds no promise to remind its parent of", record.name, claim.line),
             }
         }
         if let Err(error) = Book::at(&self.root).keep(&promises) {
-            eprintln!("north fleet: {}'s promises were not kept for the tick to check: {}", record.name, error.user_message());
+            eprintln!("north fleet: {}'s promises were not kept for the tick to remind its parent of: {}", record.name, error.user_message());
         }
     }
 
