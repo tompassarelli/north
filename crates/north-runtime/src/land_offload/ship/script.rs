@@ -70,7 +70,7 @@ host_jobs() {
 "#;
 
 pub(super) const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-} spilled=${15:-0}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-} spilled=${15:-0} generated=${16:-}
 root=@ROOT@
 mkdir -p "$root"
 if [ -n "$runtime" ] && { [ ! -x "$HOME/.local/state/north/runtimes/$runtime/north" ] || [ ! -f "$HOME/.local/state/north/runtimes/$runtime/@TREE_MARKER@" ]; }; then echo "offload: the lander runtime $runtime is not on this host yet" >&2; exit @RUNTIME_MISSING@; fi
@@ -219,7 +219,12 @@ git -C "$slot" clean -ffdxq -e /target
 pub(super) const VERIFY: &str = r#"landed=$(git -C "$slot" rev-parse HEAD)
 [ "$landed" = "$head" ] || { echo "offload: refusing to run: $slot is on $landed, not the shipped $head" >&2; exit @WRONG_TREE@; }
 proved() {
-  strays=$(git -C "$slot" status --porcelain "--untracked-files=$1" -- . ":(exclude,top)target" 2>&1) || strays="git status failed: $strays"
+  untracked=$1
+  set -- . ":(exclude,top)target"
+  while IFS= read -r written; do [ -z "$written" ] || set -- "$@" ":(exclude,top,literal)$written"; done <<EOF
+${generated:-}
+EOF
+  strays=$(git -C "$slot" status --porcelain "--untracked-files=$untracked" -- "$@" 2>&1) || strays="git status failed: $strays"
   at=$(git -C "$slot" rev-parse HEAD 2>/dev/null) || at=
   [ "$at" = "$head" ] || strays="HEAD is ${at:-unreadable}, not $head; $strays"
   why="$slot does not hold exactly the tree of $head: $(printf '%s\n' "$strays" | head -n 8 | tr '\n' ' ')"

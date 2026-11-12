@@ -136,6 +136,7 @@ pub use script::{SlotClass, is_lander_slot};
 pub(crate) use script::slot_ports;
 use script::remote_script;
 mod bundle;
+mod generated;
 #[cfg(test)]
 mod pinned;
 mod relay;
@@ -202,7 +203,8 @@ fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Re
     let secret = proof::secret().map_err(|why| unreached(&why))?;
     let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret);
     let spilled = header.len().to_string();
-    let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled];
+    let generated = generated::paths(land.checkout, land.head.as_str());
+    let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled, &generated];
     let mut waiting = crate::capacity::deadline::SlotWait::begin(&crate::capacity::local_machine::runtime_root());
     let master = master::options(land.ssh);
     let options: Vec<&str> = ["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"].into_iter().chain(master.iter().map(String::as_str)).collect();
