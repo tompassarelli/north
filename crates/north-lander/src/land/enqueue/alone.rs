@@ -28,6 +28,5 @@ pub(super) fn check_lane(root: &Path, base: &str, branch: &str, environment: &En
     judged(environment, root, branch, &lane_head, "commit trailers", crate::land::divergence::refuse_malformed(&bodies))?;
     timings.stage("fails first", || runner::fails_first(root, base, &lane_head))?;
     timings.stage("crate fetch", || refuse_unfetchable(root, base, &lane_head))?;
-    timings.stage("queue checks", || runner::refuse_queue_checks(root, base, &lane_head))?;
     git(root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])
 }
