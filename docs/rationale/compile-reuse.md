@@ -724,6 +724,250 @@ Decisions, each carried from what Cargo does:
 - Refused shapes: a `harness = false` target and `required-features`, rather than emit a target that differs from
   Cargo's.
 
+## Runnable from source
+
+Deep dive b of north#1247 (2026-11-12): which of north's crates a from-source runner such as [Relax](https://github.com/makepad/relax) could run
+as they are, which after one move, and which not, read from manifests, build scripts and sources with no build. The
+question behind it is whether north can hold itself to a restricted set of Rust so that most of it runs from source
+in the development loop and optimised native builds are paid for only where they are worth it. Nothing here adopts
+Relax: no hook, skill, dependency or config changes.
+
+Rerun: `harness/scripts/from-source-census.sh . 2026-11-11` prints the tab-separated table, the group totals and the
+test seconds of that day; `MD=1 harness/scripts/from-source-census.sh . 2026-11-11` prints the table below (59 lines of
+shell: `cargo metadata`, `cargo tree --workspace`, `north code-health crate-lines`, `jq`, `rg`, `awk`; the test seconds
+read the nextest `PASS` lines of the lander's shadow logs in the state directory, so they hold only while those logs do).
+Counts below are from origin/main at the commit that adds this section.
+
+### What a from-source runner needs
+
+Asked of deep dive a (Relax at ce52155e, source read, nothing run); each line is the answer, and **assumed** marks what
+no source read settles and the trial must show.
+
+- Build scripts run, as Relax programs. A script is *native* when the manifest has `links =`, it build-depends on
+  `cc`, `cmake`, `pkg_config`, `bindgen`, `vcpkg` or `nasm_rs`, or its text names `DEP_`. A native script that compiles C
+  stops `relax run` and `relax test` unless `--allow-c` is given, and then cargo, rustc, a C compiler and a linker must
+  be on the host (Relax builds only the native scripts and their build-dependencies, and loads the result as a shared
+  library). So the C columns split as Relax splits them: *C-compiling* (needs `--allow-c` and a full native toolchain)
+  and *links or system library only* (does not).
+- Procedural macros: any, compiled from source in a separate macro world. Open gap: derive and function-like macros
+  resolve by bare name across the whole graph, the first registered wins silently, and named collisions are an error.
+  Hence the column of names exported by two proc-macro crates in one graph.
+- `#![feature]` is accepted; a gate is checked as on rustc 1.97.1. Whether each nightly feature is implemented is
+  **assumed**. `unsafe` and `extern` blocks work (symbols resolve through assembler labels, loader symbols, then
+  `dlsym`); `asm!`, `global_asm!` and `naked_asm!` are assembled by Relax on x86-64 and AArch64. `std::arch` is **assumed**.
+- Raw `syscall(2)` through libc is passed through and asm syscalls go through the assembler; threads are OS threads;
+  `Command` is fork then exec with the child's code precompiled first. tokio, rustix, nix and landlock have no test input
+  in Relax's repository: **assumed**. The standard library lacks `uid`, `gid` and `groups` on `CommandExt`, `PidFd`, `chroot`
+  and `chown`; north uses none of them (`rg` over non-test sources).
+- `std::env::current_exe` returns the Relax runner, not the program. Nextest cannot drive Relax's test harness (its own
+  libtest port, no `--format`, no capture). `relax test PACKAGE` runs the library's unit tests, then each binary's, then each
+  `tests/*.rs` target, each in its own process; doc tests are counted and not run (north has two, both in
+  north-runtime; 43 manifests set `doctest = false`). `CARGO_BIN_EXE_<bin>` is a wrapper that starts `relax run`, so
+  each spawn of the package's own binary is another JIT start.
+- A run borrow-checks only the app's crates. The cache is per cargo target directory, so each worktree starts cold.
+
+Columns the census added after that answer: native C split into C-compiling and links-only, proc-macro name clashes,
+tests that run the package's own binary apart from tests that start other programs, `CARGO_BIN_EXE` sites, and
+`current_exe` sites (as a host interface). Dropped: nothing. Doc tests were asked for and counted once, above.
+
+### The 65 crates
+
+Every workspace member: the root package and 64 crates, 242,962 non-test lines. Facts that hold for every row:
+
+- No `#![feature]`, no `unsafe` block, `unsafe fn`, `unsafe impl`, `extern` block or `asm!` in any of the 65
+  (`unsafe_code = "forbid"` in `[workspace.lints.rust]`, inherited by every manifest). `north-strategy-types` has one
+  `extern crate alloc`, which is not foreign code. Nightly is in the build, not the source: `.cargo/config.toml` sets
+  `[unstable] codegen-backend` and `feature-unification`, and the dev profile uses Cranelift.
+- No build script reads `DEP_` and none is native with `links =` only: the *links-only* column is empty. Every native
+  script is the C-compiling kind.
+- No two proc-macro crates in any crate's graph export the same derive or function-like macro name (checked on literal
+  `#[proc_macro_derive(Name` and `#[proc_macro]` items; `derive_more` is in the TUI graph with the `error` derive off, so
+  it exports only `IsVariant`). Own macros: `serde` is the `Serialize`/`Deserialize` derive (37 crates); `tokio` is
+  `#[tokio::main]` and `#[tokio::test]` (6 crates); every other derive in first-party code is the standard library's.
+- The only own `build.rs` is the root's, which rewrites three committed registries and emits nothing rustc reads. Build
+  scripts in the graph are third-party (59 crates run between 1 and 20).
+- Native C in a graph is SQLite (`libsqlite3-sys`, bundled by `rusqlite`; 52 crates) and `ring` (C and assembly; 51
+  crates). Their direct callers are in the "Native C reached" column as call sites in non-test code.
+- A test counts when it carries `#[test]` or `#[tokio::test]` (1,850; nextest ran 1,808 and skipped 2 on 2026-11-12
+  at another tree). By file: *in-process* when the test file has no process marker, *own binary* when it names
+  `CARGO_BIN_EXE` or `bin_exe!`, *other process* when it has `Command::new`, `.spawn(` or `tokio::process`. Inline
+  `mod tests` count from `#[cfg(test)]` on. This is per file: a test that calls a helper in another file is counted by its own file.
+- Host interfaces: `ptrace`, `landlock`, `seccompiler` (nix, landlock and seccompiler crates), `mount` and `pty` (rustix
+  modules), `pidfd_open`, and `current_exe` (the program re-executes itself).
+
+| Crate | Non-test lines | build.rs (own / in graph) | Native C reached | Proc-macro crates in graph | Own macros | Sys crates declared | Host interfaces | unsafe, extern, asm, feature | Tests: in-process, own binary, other process | Group |
+|---|---|---|---|---|---|---|---|---|---|---|
+| north-buck | 962 | n / 6 | none | 1 | serde | - | - | 0, 0, 0, 0 | 0, 0, 0 | 1 as is |
+| north-claude-stream | 215 | n / 6 | none | 1 | serde | - | - | 0, 0, 0, 0 | 3, 0, 0 | 1 as is |
+| north-cli-reference | 45 | n / 0 | none | 0 | - | - | - | 0, 0, 0, 0 | 0, 0, 0 | 1 as is |
+| north-foundation | 901 | n / 7 | none | 1 | - | - | - | 0, 0, 0, 0 | 7, 0, 1 | 1 as is |
+| north-git-locks | 136 | n / 0 | none | 0 | - | - | - | 0, 0, 0, 0 | 0, 0, 2 | 1 as is |
+| north-monitor | 1802 | n / 12 | none | 9 | serde | crossterm | - | 0, 0, 0, 0 | 1, 0, 0 | 1 as is |
+| north-publish | 21 | n / 1 | none | 0 | - | rustix | - | 0, 0, 0, 0 | 0, 0, 0 | 1 as is |
+| north-registries | 65 | n / 0 | none | 0 | - | - | - | 0, 0, 0, 0 | 1, 0, 0 | 1 as is |
+| north-runtime-follow | 83 | n / 0 | none | 0 | - | - | current_exe | 0, 0, 0, 0 | 0, 0, 0 | 1 as is |
+| north-shared-config | 175 | n / 0 | none | 0 | - | - | - | 0, 0, 0, 0 | 0, 0, 1 | 1 as is |
+| north-ssh-spare | 230 | n / 1 | none | 0 | - | rustix | current_exe | 0, 0, 0, 0 | 0, 0, 1 | 1 as is |
+| north-strategy-types | 607 | n / 4 | none | 1 | serde | - | - | 0, 0, 0, 0 | 0, 0, 0 | 1 as is |
+| north-test-cases | 173 | n / 0 | none | 0 | - | - | - | 0, 0, 0, 0 | 0, 0, 0 | 1 as is |
+| north-build-system | 525 | n / 13 | SQLite, ring | 2 | serde | - | - | 0, 0, 0, 0 | 1, 0, 1 | 2a one move (north-base) |
+| north-code-health | 4109 | n / 13 | SQLite, ring | 2 | serde | - | - | 0, 0, 0, 0 | 1, 0, 25 | 2a one move (north-base) |
+| north-concerns | 721 | n / 13 | SQLite, ring | 2 | serde | - | - | 0, 0, 0, 0 | 3, 0, 0 | 2a one move (north-base) |
+| north-context-pack | 283 | n / 13 | SQLite, ring | 2 | - | - | - | 0, 0, 0, 0 | 1, 0, 0 | 2a one move (north-base) |
+| north-coverage | 1534 | n / 13 | SQLite, ring | 2 | serde | - | current_exe | 0, 0, 0, 0 | 16, 0, 0 | 2a one move (north-base) |
+| north-diff-gates | 3307 | n / 13 | SQLite, ring | 2 | serde | - | - | 0, 0, 0, 0 | 0, 0, 7 | 2a one move (north-base) |
+| north-fleet | 6361 | n / 13 | SQLite, ring | 2 | serde,tokio | rusqlite, rustix, tokio | current_exe | 0, 0, 0, 0 | 27, 0, 11 | 2a one move (north-base) |
+| north-graph-change | 1994 | n / 13 | SQLite, ring | 2 | - | - | - | 0, 0, 0, 0 | 0, 0, 11 | 2a one move (north-base) |
+| north-graph-ground | 738 | n / 13 | SQLite, ring | 2 | - | - | - | 0, 0, 0, 0 | 3, 0, 0 | 2a one move (north-base) |
+| north-graph-loops | 799 | n / 13 | SQLite, ring | 2 | - | - | - | 0, 0, 0, 0 | 9, 0, 0 | 2a one move (north-base) |
+| north-implicit-state | 694 | n / 13 | SQLite, ring | 2 | - | - | - | 0, 0, 0, 0 | 0, 0, 5 | 2a one move (north-base) |
+| north-land-checks | 6202 | n / 13 | SQLite, ring | 2 | serde,tokio | rustix, tokio | current_exe | 0, 0, 0, 0 | 14, 0, 16 | 2a one move (north-base) |
+| north-landing-gates | 6059 | n / 13 | SQLite, ring | 2 | - | - | current_exe | 0, 0, 0, 0 | 16, 0, 15 | 2a one move (north-base) |
+| north-land-scans | 5123 | n / 13 | SQLite, ring | 2 | tokio | rustix | current_exe | 0, 0, 0, 0 | 2, 0, 21 | 2a one move (north-base) |
+| north-land-watch | 772 | n / 13 | SQLite, ring | 2 | serde | rustix | - | 0, 0, 0, 0 | 10, 0, 0 | 2a one move (north-base) |
+| north-lanes | 6686 | n / 13 | SQLite, ring | 2 | serde | rustix | - | 0, 0, 0, 0 | 39, 0, 15 | 2a one move (north-base) |
+| north-mutants | 1016 | n / 13 | SQLite, ring | 2 | - | - | - | 0, 0, 0, 0 | 1, 0, 0 | 2a one move (north-base) |
+| north-replay | 612 | n / 13 | SQLite, ring | 2 | serde | rustix | - | 0, 0, 0, 0 | 6, 0, 0 | 2a one move (north-base) |
+| north-resume | 92 | n / 13 | SQLite, ring | 2 | - | - | - | 0, 0, 0, 0 | 0, 0, 0 | 2a one move (north-base) |
+| north-safe-push | 3606 | n / 15 | SQLite, ring | 4 | - | rustix, tokio | current_exe | 0, 0, 0, 0 | 13, 0, 3 | 2a one move (north-base) |
+| north-tui | 2539 | n / 18 | SQLite, ring | 13 | - | crossterm | - | 0, 0, 0, 0 | 6, 0, 0 | 2a one move (north-base) |
+| north-base | 9087 | n / 13 | SQLite, ring (calls: 12) | 2 | serde | ring, rusqlite, rustix, tokio | pty,pidfd_open,current_exe | 0, 0, 0, 0 | 27, 0, 42 | 2b one move (own SQL) |
+| north-broker | 1009 | n / 13 | SQLite, ring (calls: 2) | 2 | - | ring, rustix | - | 0, 0, 0, 0 | 4, 0, 7 | 2b one move (own SQL) |
+| north-calibration | 2961 | n / 13 | SQLite, ring (calls: 37) | 2 | serde | rusqlite | - | 0, 0, 0, 0 | 4, 0, 0 | 2b one move (own SQL) |
+| north-capacity | 5062 | n / 13 | SQLite, ring (calls: 3) | 2 | serde | rusqlite, rustix, tokio | current_exe | 0, 0, 0, 0 | 33, 0, 10 | 2b one move (own SQL) |
+| north-capacity-host | 7831 | n / 13 | SQLite, ring (calls: 52) | 2 | serde,tokio | rusqlite, rustix, tokio | current_exe | 0, 0, 0, 0 | 46, 0, 7 | 2b one move (own SQL) |
+| north-convo | 6632 | n / 13 | SQLite, ring (calls: 30) | 2 | serde | rusqlite, rustix, tokio | current_exe | 0, 0, 0, 0 | 4, 0, 6 | 2b one move (own SQL) |
+| north-dispatch | 6628 | n / 13 | SQLite, ring (calls: 2) | 2 | serde | rusqlite | current_exe | 0, 0, 0, 0 | 89, 0, 3 | 2b one move (own SQL) |
+| north-fleet-store | 2344 | n / 13 | SQLite, ring (calls: 13) | 2 | serde | rusqlite | - | 0, 0, 0, 0 | 19, 0, 0 | 2b one move (own SQL) |
+| north-flow | 8776 | n / 13 | SQLite, ring (calls: 21) | 2 | serde | rusqlite, rustix | current_exe | 0, 0, 0, 0 | 28, 0, 0 | 2b one move (own SQL) |
+| north-github-mirror | 536 | n / 13 | SQLite, ring (calls: 2) | 2 | - | rusqlite | - | 0, 0, 0, 0 | 5, 0, 0 | 2b one move (own SQL) |
+| north-graph | 3789 | n / 5 | SQLite (calls: 30) | 0 | - | rusqlite | - | 0, 0, 0, 0 | 42, 0, 0 | 2b one move (own SQL) |
+| north-graph-ingest | 1422 | n / 13 | SQLite, ring (calls: 13) | 2 | - | rusqlite | - | 0, 0, 0, 0 | 1, 0, 6 | 2b one move (own SQL) |
+| north-guard | 18540 | n / 13 | SQLite, ring (calls: 1) | 2 | serde | rusqlite, rustix | current_exe | 0, 0, 0, 0 | 74, 0, 32 | 2b one move (own SQL) |
+| north-health | 1292 | n / 13 | SQLite, ring (calls: 2) | 2 | serde | rusqlite | - | 0, 0, 0, 0 | 5, 0, 8 | 2b one move (own SQL) |
+| north-ops | 14704 | n / 13 | SQLite, ring (calls: 40) | 2 | serde | rusqlite, rustix, tokio | pidfd_open,current_exe | 0, 0, 0, 0 | 54, 0, 15 | 2b one move (own SQL) |
+| north-pace | 6341 | n / 13 | SQLite, ring (calls: 30) | 2 | serde | rusqlite, rustix | - | 0, 0, 0, 0 | 38, 0, 0 | 2b one move (own SQL) |
+| north-pacing | 3550 | n / 13 | SQLite, ring (calls: 7) | 2 | serde | rusqlite, rustix | current_exe | 0, 0, 0, 0 | 19, 0, 2 | 2b one move (own SQL) |
+| north-providers | 8284 | n / 13 | SQLite, ring (calls: 33) | 2 | serde | rusqlite, rustix | - | 0, 0, 0, 0 | 55, 0, 36 | 2b one move (own SQL) |
+| north-threads | 6343 | n / 13 | SQLite, ring (calls: 78) | 2 | serde | rusqlite, rustix, tokio | - | 0, 0, 0, 0 | 28, 0, 22 | 2b one move (own SQL) |
+| north-check-environment | 81 | n / 13 | SQLite, ring | 2 | - | - | - | 0, 0, 0, 0 | 2, 0, 0 | 2c one move (north-base SQL API) |
+| north-core | 13649 | n / 13 | SQLite, ring | 2 | serde | rustix, tokio | current_exe | 0, 0, 0, 0 | 28, 0, 11 | 2c one move (north-base SQL API) |
+| north-fleet-supervisor | 5738 | n / 13 | SQLite, ring | 2 | serde | rustix | current_exe | 0, 0, 0, 0 | 52, 0, 8 | 2c one move (north-base SQL API) |
+| north-lander | 5640 | n / 15 | SQLite, ring | 4 | serde | rustix | current_exe | 0, 0, 0, 0 | 22, 0, 66 | 2c one move (north-base SQL API) |
+| north-lander-doctor | 1917 | n / 15 | SQLite, ring | 4 | serde | - | current_exe | 0, 0, 0, 0 | 0, 0, 16 | 2c one move (north-base SQL API) |
+| north-landing | 6811 | n / 13 | SQLite, ring | 2 | serde | rustix, tokio | pidfd_open,current_exe | 0, 0, 0, 0 | 37, 0, 19 | 2c one move (north-base SQL API) |
+| north-machine-model | 735 | n / 13 | SQLite, ring | 2 | - | - | - | 0, 0, 0, 0 | 0, 0, 0 | 2c one move (north-base SQL API) |
+| north-session-host | 1184 | n / 13 | SQLite, ring | 2 | serde,tokio | rustix, tokio | - | 0, 0, 0, 0 | 2, 0, 1 | 2c one move (north-base SQL API) |
+| north-tune | 1308 | n / 13 | SQLite, ring | 2 | - | - | current_exe | 0, 0, 0, 0 | 14, 0, 0 | 2c one move (north-base SQL API) |
+| north | 15639 | y / 20 | SQLite, ring (calls: 32) | 14 | serde,tokio | crossterm, rusqlite, rustix, tokio | current_exe | 0, 0, 0, 0 | 119, 128, 31 | 3 native |
+| north-land-sandbox | 912 | n / 15 | SQLite, ring | 4 | - | landlock, libc, nix, rustix, seccompiler | ptrace,landlock,seccompiler,current_exe | 0, 0, 0, 0 | 3, 19, 0 | 3 native |
+| north-runtime | 15030 | n / 14 | SQLite, ring (calls: 2) | 4 | serde | landlock, rusqlite, rustix, tokio | landlock,mount,current_exe | 0, 0, 0, 0 | 53, 0, 133 | 3 native |
+
+### Three groups
+
+Groups follow from the table by rule (the script assigns them): *native* when non-test code uses `ptrace`, `landlock`,
+`seccompiler` or `mount`, or is the root package; otherwise *one move* when a C-compiling build script is in the
+graph or two proc-macro crates share a macro name; otherwise *as is*.
+
+- **Likely runnable as they are: 13 crates, 5,415 lines (2.2%).** No C, no `links`, no kernel interface in the graph:
+  north-buck, north-claude-stream, north-cli-reference, north-foundation, north-git-locks, north-monitor, north-publish,
+  north-registries, north-runtime-follow, north-shared-config, north-ssh-spare, north-strategy-types and north-test-cases.
+  What is still **assumed** for them: `rustix` (north-ssh-spare), `crossterm` and ratatui's nine proc-macro crates
+  (north-monitor), `current_exe` (north-ssh-spare, north-runtime-follow, which would see the runner, not themselves).
+- **Runnable if SQLite moves: 49 crates, 205,966 lines (84.8%).** All 49 reach `libsqlite3-sys` (C, built by `cc`) and 48
+  reach `ring` (C and assembly) through north-base or their own `rusqlite` dependency. The one named thing is a leaf crate
+  for the SQLite adapter (call it north-sqlite, layer 1) that holds `rusqlite`, with the `ring` dependency of
+  north-base, which no north-base source names, dropped (north-broker is the only crate that calls `ring`).
+  What flips with that move depends on what each crate calls:
+  - 2a, 21 crates, 53,772 lines: they reach C only because north-base declares `rusqlite` and `ring`, and call nothing of
+    north-base's SQL (`lifecycle::Store`, `platform::sqlite`, `platform::usage_table`). The move alone makes them group 1 (the `State` and `Lifecycle` traits stay behind):
+    north-build-system, north-code-health, north-concerns, north-context-pack, north-coverage, north-diff-gates,
+    north-fleet, north-graph-change, north-graph-ground, north-graph-loops, north-implicit-state, north-land-checks,
+    north-landing-gates, north-land-scans, north-land-watch, north-lanes, north-mutants, north-replay, north-resume,
+    north-safe-push and north-tui. north-base itself (9,087 lines, five files with `rusqlite`: `platform/sqlite.rs`,
+    `platform/usage_table.rs`, `lifecycle/store.rs`, `lifecycle/store/outbox.rs`, `lifecycle/store/expiry.rs`) joins them.
+  - 2c, 9 crates, 37,063 lines: they call north-base's SQL (check-environment, core, fleet-supervisor, lander-doctor,
+    lander, landing, machine-model, session-host, tune). After the move they depend on the leaf and stay in this group
+    until the call goes through a record crate (architecture layer 2) or Relax is run with `--allow-c`.
+  - 2b, 19 crates, 115,131 lines: they call `rusqlite` or `ring` themselves (408 call sites in non-test code, 442 with the root and north-runtime; the largest are
+    north-threads 78, north-capacity-host 52, north-ops 40, north-calibration 37, north-providers 33, north-pace 30,
+    north-graph 30, north-convo 30, north-flow 21, north-fleet-store 13, north-graph-ingest 13, north-base 12). Six need
+    three sites or fewer moved: north-guard 1, north-broker 2 (`ring`), north-dispatch 2, north-github-mirror 2,
+    north-health 2, north-capacity 3.
+  The other route for all 49 is not a move in north: Relax with `--allow-c` builds `libsqlite3-sys` and `ring` natively
+  once (cargo, rustc, `cc` and a linker on the host) and loads them; it prices one native C build per version, not per edit.
+- **Must stay native: 3 crates, 31,581 lines (13.0%).**
+  - north (15,639 lines): the shipped binary; 128 of its tests start the built `north` (116 `CARGO_BIN_EXE` sites), each a
+    JIT start under Relax; its own `build.rs`; it calls `rusqlite` 32 times.
+  - north-land-sandbox (912): ptrace through `nix`, Landlock, `seccompiler` and `libc` system call numbers; its tests start its
+    built binary (4 sites). The Relax sources mention none of these interfaces (**assumed** until the trial).
+  - north-runtime (15,030): `worker_sandbox` uses Landlock and `mount`. Box L18 of north#1276 moves it to
+    north-worker-sandbox; north-runtime then has two `rusqlite` sites and belongs to 2b.
+
+### Conventions that keep the first group growing
+
+Draft, for review; none is adopted. Each lists its cost and the crates that break it today. "Plan" says
+whether `docs/rationale/architecture-layers.md` and the L boxes of north#1276 already ask for it, so that these and the
+architecture plan are one plan.
+
+1. **C and assembly only in leaf crates behind a narrow interface; `rusqlite` and `ring` named in one leaf each.** Cost: a
+   new leaf crate (five north-base files), the `Store` imports of 9 crates, and a land scan that refuses a new manifest edge to
+   `rusqlite`, `ring` or a `-sys` crate outside the leaves. Breakers: 21 crates call `rusqlite` or `ring` (list above, plus
+   north and north-broker); north-base declares `ring` and never names it. Plan: partly. Layer 1 holds the adapters
+   "(git, GitHub, processes, SQLite, ssh, Nix)" and layer 2 is "one crate per durable store", so a layer-3 or layer-4
+   crate with `rusqlite` calls (north-guard, north-pace, north-health, north-pacing, north-capacity-host, north-providers)
+   already departs from the target; but no box splits the SQLite adapter from north-base (L48 moves the landing records, and
+   `platform/sqlite.rs` stays) and nothing checks who may name `rusqlite`.
+2. **No `build.rs` outside the root's registry writer, and none that compiles C.** Cost: none. Breakers: none (one own
+   script, not native). Plan: not asked.
+3. **A closed list of macros in first-party code: the standard derives, serde's two, and `#[tokio::main]` and
+   `#[tokio::test]`; a new proc-macro crate in a graph goes through the dependency review and is refused when it exports a
+   name another crate in that graph exports.** Cost: none today. Breakers: none (0 clashes in 65 graphs). Plan: not asked;
+   the dependency gate (`crates/north-diff-gates/src/dep_gate.rs`) and north#1246 (dependencies by what each brings) are
+   where it would sit.
+4. **No `#![feature]`, and no first-party need for a nightly rustc; nightly stays in `.cargo/config.toml` and the
+   toolchain pin.** Cost: none. Breakers: none (0 of 65). Plan: not asked.
+5. **No `unsafe`, `extern` block or `asm!` in first-party code.** Cost: none, it is enforced (`unsafe_code = "forbid"`).
+   Breakers: none. Dependencies are outside it: `ring` carries assembly and `rustix` (0.38.44 and 1.1.4, `linux_raw`
+   backend, no `use-libc`) issues system calls and reads the vDSO through `asm!`; Relax assembles `asm!` (**assumed** for
+   these two). Plan: not asked.
+6. **Kernel-interface code (`ptrace`, Landlock, seccomp, `mount`, `pty`, `pidfd`) in named leaf crates.** Cost: L18 moves
+   the sandbox; the `pty` and `pidfd_open` sites are small moves (`north-base/src/platform/process.rs` and `terminal.rs`,
+   `north-landing/src/land/wake.rs`, `north-ops/src/ops/job_run/records.rs`). Breakers: north-runtime (until L18),
+   north-base (`pty`, `pidfd_open`), north-landing and north-ops (`pidfd_open`). Plan: partly, L18 only.
+7. **Tests that run the built binary live in the root's `tests/it`, and a crate's tests start no other program except
+   through the one git fixture.** Cost: moving the 19 tests of north-land-sandbox (4 sites) next to the root's. Breakers: that one crate.
+   Beyond it, 585 tests in 35 other crates start another
+   process, many of them through git fixtures. Plan: partly. L35 and L36 make one git fixture, which is the other-process half; the
+   built-binary half is not asked.
+8. **A library crate takes the path of the program it starts instead of calling `current_exe`; the binary supplies it.**
+   Cost: a program path argument at each of 26 crates' call sites, filled by the command layer. Breakers: 26 crates use
+   `current_exe` in non-test code (north-runtime 14 files, north 12, north-ops 8, north-dispatch 7, north-base 7); under
+   Relax each would start the runner, not north. Plan: in spirit, layer 7 "wire ports to their implementations" and layer
+   4 "the ports a family needs filled from outside"; no box.
+
+### The most a from-source test loop could take over
+
+Yesterday's test seconds are the `PASS` times in the lander's shadow-run logs of 2026-11-11 (347 logs with results, 139,152
+passing test executions, 97,165 s; a test run on several lanes counts each time, and the logs hold the selection the lander
+made, not the whole suite).
+
+- Group 1 today: 17 of 1,850 tests (0.9%), 12 in-process and 5 starting other processes; 319 s (0.3%).
+- Group 1 after the SQLite leaf (adds the 21 crates of 2a and north-base): 384 tests (20.8%), 207 of them in-process;
+  8,660 s (8.9%).
+- Everything outside the native group, SQLite handled in every crate (route through the leaf, record crates, or
+  `--allow-c`): 1,364 tests (73.7%); 44,257 s (45.5%). This is the ceiling: the native group is 486 tests (26.3%) and
+  52,908 s (54.5%), and the root's two binaries (`north` and `north::it`) alone are 48,294 s (49.7%) of all test seconds.
+- By group, tests and seconds: 2a 298 tests, 6,665 s; 2b 771 tests, 10,491 s (north-base 69 tests, 1,676 s of it); 2c 278
+  tests, 26,781 s (north-landing, north-core and north-lander are most of it).
+
+What follows for the loop: group 1 is too small to matter before the leaf split, and the leaf split alone reaches about a
+fifth of the tests and a ninth of the seconds. The seconds sit in the root's integration tests, which run the built
+binary and stay native. Relax's own test harness replaces nextest, so the graph-selected runs that the lander and the
+workers use (`north land tests`, the coverage map) would need a runner for that harness before a from-source loop takes
+any of this over.
+
+
 [reindeer]: https://github.com/facebookincubator/reindeer
 [prelude-cargo-package]: https://github.com/facebook/buck2-prelude/blob/main/rust/cargo_package.bzl
 [prelude-build]: https://github.com/facebook/buck2-prelude/blob/main/rust/build.bzl
