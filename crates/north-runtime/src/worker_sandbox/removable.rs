@@ -192,6 +192,11 @@ pub(super) fn common_git_dir(checkout: &Path) -> Option<PathBuf> {
     git_dirs(checkout).map(|(_, common)| common)
 }
 
+/// Whether the checkout at `top`, a lane or the main checkout of `project`, reads a repository other than the project's own: its `.git` leads to a common directory that is not the one `project`'s main checkout keeps, as a lane's gitfile and a worktree's `commondir`, both where a worker writes, can be made to. A `top` git reads no repository from, and a project with no main checkout to compare with, are not.
+pub(super) fn foreign(project: &Path, top: &Path) -> bool {
+    main_common_dir(&project.join("main")).zip(common_git_dir(top)).is_some_and(|(own, read)| own != read)
+}
+
 /// The git directory of the checkout at `checkout` and its common directory, both canonical.
 fn git_dirs(checkout: &Path) -> Option<(PathBuf, PathBuf)> {
     let dot = checkout.join(".git");

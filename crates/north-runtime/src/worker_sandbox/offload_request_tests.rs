@@ -21,6 +21,25 @@ const TEST: &str = "worker_sandbox::tests::the_outside_broker_runs_only_north_s_
 const BUILD_HOST: &str = "n118-build";
 const CLAIMS: [&str; 3] = [OWNER_ENV, RED_FIX_ENV, LANDER_SLOT_ENV];
 const LAND_CHECK_CEILING: &str = "2100";
+const GIT_PLACES: [&str; 3] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE"];
+const FOREIGN: &str = "names another repository";
+const SERVED: [&str; 15] = [
+    "safe-push --to main",
+    "task check x",
+    "task comment x",
+    "lane sync /c/main",
+    "lane unlock x",
+    "lane stray y",
+    "lane remove z",
+    "lane gc",
+    "depbox run -- true",
+    "depbox fetch -- true",
+    "capacity host run --class moderate --owner o --timeout-seconds 9 -- true",
+    "home move plan.tsv",
+    "threads x",
+    "--worker-sandbox --built -- ./t",
+    "--worker-sandbox --lane -- /bin/sh -c true",
+];
 
 /// Whether this process is one the test started again, as the broker or as a request's `north`; it has then played its part.
 pub(super) fn played() -> bool {
@@ -102,15 +121,52 @@ fn serve(root: &Path) {
     if code != 126 || !told.contains("refused") || text("seen") != seen {
         failures.push(format!("a request from a directory in no lane and no main checkout was not refused: exit {code}: {told}"));
     }
+    a_request_is_served_only_from_the_checkout_north_made(root, &north, &host, &worker, &mut failures);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The cases of a request asked from a lane that reads another repository than its project's own, through its `.git` or its worktree's `commondir`, and of one that names another repository in its environment.
+fn a_request_is_served_only_from_the_checkout_north_made(root: &Path, north: &Path, host: &Host, worker: &[(String, String)], failures: &mut Vec<String>) {
+    let lane = root.join("home/code/alpha/worktrees/lane");
+    let other = root.join("elsewhere/.git").display().to_string();
+    let text = |file: &str| std::fs::read_to_string(root.join(file)).unwrap_or_default();
+    let seen = text("seen");
+    let free = format!("capacity offload free --host {BUILD_HOST}");
+    let verbs: Vec<&str> = std::iter::once(free.as_str()).chain(SERVED).collect();
+    let mut refused = |verbs: &[&str], through: &str| {
+        for verb in verbs {
+            let (code, told) = ask(north, host, verb, &lane, worker);
+            if code != 126 || !told.contains(FOREIGN) || text("seen") != seen {
+                failures.push(format!("`{verb}` was served from a lane whose {through} names another repository: exit {code}: {told}"));
+            }
+        }
+    };
+    let pointer = lane.join(".git");
+    let made = std::fs::read_to_string(&pointer).unwrap();
+    std::fs::write(&pointer, format!("gitdir: {other}\n")).unwrap();
+    refused(&verbs, ".git");
+    std::fs::write(&pointer, made).unwrap();
+    let common = root.join("home/code/alpha/main/.git/worktrees/lane/commondir");
+    let made = std::fs::read_to_string(&common).unwrap();
+    std::fs::write(&common, format!("{other}\n")).unwrap();
+    refused(&verbs[..1], "commondir");
+    std::fs::write(&common, made).unwrap();
+
+    let located: Vec<(String, String)> = worker.iter().cloned().chain(GIT_PLACES.map(|name| (name.to_owned(), other.clone()))).collect();
+    let (code, told) = ask(north, host, "lane unlock x", &lane, &located);
+    let after = text("seen");
+    let places = after.strip_prefix(seen.as_str()).unwrap_or_default().split('|').nth(1).unwrap_or("GIT_ unseen: no north was started");
+    if code != 0 || places.contains("GIT_") {
+        failures.push(format!("a request from the lane north made, naming another repository in its environment, was not served without those names: {places}, exit {code}: {told}"));
+    }
 }
 
 fn offload(root: &Path) {
     let words: Vec<String> = std::env::var(WORDS).unwrap().split(' ').map(str::to_owned).collect();
-    let claims: Vec<&str> = CLAIMS.into_iter().filter(|name| std::env::var_os(name).is_some()).collect();
+    let claims: Vec<&str> = CLAIMS.into_iter().chain(GIT_PLACES).filter(|name| std::env::var_os(name).is_some()).collect();
     let started = format!("{}|{}|{}\n", std::env::current_dir().unwrap().display(), claims.join(","), words.join(" "));
     std::fs::OpenOptions::new().append(true).create(true).open(root.join("seen")).unwrap().write_all(started.as_bytes()).unwrap();
-    let code = if words[2] == "free" { crate::land_offload::run(&words[2..]) } else { 0 };
+    let code = if words.get(2).is_some_and(|word| word == "free") { crate::land_offload::run(&words[2..]) } else { 0 };
     std::process::exit(i32::from(code));
 }
 

@@ -19,6 +19,7 @@ use super::lane_grant::{self, Host};
 use super::offload_request;
 pub(super) use super::offload_request::offload_refusal;
 use super::session_join;
+use super::request_checkout;
 use super::request_env::{environment, landing, landing_choices, own_homes, request_homes};
 use super::{Context, FLAG, MAKER, removable};
 
@@ -299,7 +300,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if request.arguments.first().is_some_and(|verb| verb == "threads") && cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup) {
         return Err("a lane-only session's command does not reach the ledger host through the broker".to_owned());
     }
-    let refused = offload_refusal(&request.arguments, cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup), crate::land_offload::reaches);
+    let refused = request_checkout::refusal(&host.home, &request.directory).or_else(|| offload_refusal(&request.arguments, cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup), crate::land_offload::reaches));
     let offload = match refused.map_or_else(|| offload_request::granted(&request.arguments, &request.directory, &host.home, &host.environment, &runtime(), &own_homes()), Err) {
         Ok(offload) => offload,
         Err(why) => return Err(refuse(streams, why)),

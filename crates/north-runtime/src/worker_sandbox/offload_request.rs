@@ -13,7 +13,8 @@ use north_base::platform::git_credential;
 use north_base::platform::session_scope::REMOVAL_ROOTS;
 
 use super::lane_grant::GIT_HARDENING;
-use super::removable::{common_git_dir, lane, project};
+use super::removable::common_git_dir;
+use super::request_checkout;
 use super::{HOSTS_HIDDEN, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDDEN};
 
 const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
@@ -71,11 +72,8 @@ pub(super) fn granted(arguments: &[String], directory: &Path, home: &Path, own: 
 
 /// The top of the lane (`~/code/PROJECT/worktrees/NAME`) or main checkout (`~/code/PROJECT/main`) under `home` that `directory` lies in: the one place the offload reads a repository from, since git run anywhere else would read a repository, and its configuration, of the client's making.
 fn checkout(home: &Path, directory: &Path) -> Result<PathBuf, String> {
-    let found = home.canonicalize().ok().zip(directory.canonicalize().ok()).and_then(|(home, real)| {
-        let main = project(&home, &real).map(|project| project.join("main")).filter(|main| real.starts_with(main));
-        lane(&home, &real).or(main)
-    });
-    found.filter(|top| common_git_dir(top).is_some()).ok_or_else(|| format!("{} is in no lane (~/code/PROJECT/worktrees/NAME) and no main checkout (~/code/PROJECT/main) of this host, and an offload ships only from one; run it from your lane", directory.display()))
+    let found = home.canonicalize().ok().zip(directory.canonicalize().ok()).and_then(|(home, real)| request_checkout::top(&home, &real));
+    found.map(|(_, top)| top).filter(|top| common_git_dir(top).is_some()).ok_or_else(|| format!("{} is in no lane (~/code/PROJECT/worktrees/NAME) and no main checkout (~/code/PROJECT/main) of this host, and an offload ships only from one; run it from your lane", directory.display()))
 }
 
 /// `arguments` with a `run`'s `--timeout` no longer than the ceiling, and the seconds asked when they were more.
