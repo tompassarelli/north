@@ -280,6 +280,7 @@ impl Live<'_> {
                 .env("EVAL_T_TOKEN_FILE", self.token_file)
                 .env("EVAL_T_CLAUDE", self.claude)
                 .env("EVAL_X_RUNNER", std::env::current_exe()?)
+                .env("EVAL_T_TARGET", self.work("build/eval-t-target"))
                 .process_group(0)
                 .stdin(Stdio::null())
                 .stdout(log)
@@ -498,7 +499,7 @@ mod tests {
 
     #[test]
     fn a_north_arm_refused_at_launch_is_an_invalid_row() {
-        let refusal = "eval-t arm north: launch refused; see /tmp/eval-x/arms/JOB/launch.log";
+        let refusal = "eval-t arm north: launch refused; see ~/.local/state/north/eval-x/arms/JOB/launch.log";
         let session = Session {
             harbor_status: json!(0),
             arm: Some(json!({"exit": 1})),

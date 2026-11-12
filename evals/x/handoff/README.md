@@ -10,7 +10,7 @@ ends the trial; the stub then answers `end_turn` whatever `done.json` says, so t
 - `stub.sh`: POSIX sh, 48 lines. Uses shell builtins plus `mv` and `sleep`, which every task image has, so nothing is
   installed in the image and no binary is built.
 - `constraints.txt`: pins the protocol library (see below).
-- `args`: copies `stub.sh` and `constraints.txt` into `$EVAL_X_WORK/bin` (default `/tmp/eval-x/bin`) when missing or
+- `args`: copies `stub.sh` and `constraints.txt` into `$EVAL_X_WORK/bin` (default `~/.local/state/north/eval-x/bin`) when missing or
   different, and prints the Harbor arguments that select the stub, one per line: `--agent acp`, three `--ak` lines
   (the inline registry entry with its `local` distribution, `distribution_preference=local`, `auth_policy=disabled`)
   and two `--ae` lines (the constraints variables).

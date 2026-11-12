@@ -4,7 +4,7 @@ here=$(dirname "$(readlink -f "$0")")
 [ -n "${EVAL_X_SHELL:-}" ] || exec env EVAL_X_SHELL=1 north capacity dev-shell run --dir "$here" -- "$0" "$@"
 TASKS=2fd12b88aafdd04a52c298e3940bcb189f9766d6
 HARBOR=fdba28fc411e47e8765420a1a063b4918fce3def
-work=${EVAL_X_WORK:-/tmp/eval-x}
+work=${EVAL_X_WORK:-${XDG_STATE_HOME:-$HOME/.local/state}/north/eval-x}
 # Rootless podman maps the subordinate ids with the setuid newuidmap wrapper, which must come before the store's copy.
 EVAL_X_PODMAN=${EVAL_X_PODMAN:-$(command -v podman)}
 export EVAL_X_PODMAN PATH=$here/slice:/run/wrappers/bin:$PATH

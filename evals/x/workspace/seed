@@ -2,7 +2,7 @@
 set -eu
 here=$(dirname "$(readlink -f "$0")")
 [ -n "${EVAL_X_SHELL:-}" ] || exec env EVAL_X_SHELL=1 north capacity dev-shell run --dir "$here/.." -- "$0" "$@"
-work=${EVAL_X_WORK:-/tmp/eval-x}
+work=${EVAL_X_WORK:-${XDG_STATE_HOME:-$HOME/.local/state}/north/eval-x}
 export PATH=/run/wrappers/bin:$PATH
 task=${1:?usage: evals/x/workspace/seed TASK}
 case $task in ''|*[!a-z0-9-]*) echo "eval-x: bad task name $task" >&2; exit 2 ;; esac

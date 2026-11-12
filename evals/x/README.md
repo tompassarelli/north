@@ -11,7 +11,7 @@ container tasks run and graded by the benchmark's own harness, [Harbor](https://
 - `flake.nix`, `flake.lock`: a dev shell for this directory only, with rootless podman, podman-compose, uv and
   Python from the nixpkgs revision north's own flake locks. It changes no system configuration and needs no root.
 - `host`: glue under the dev shell. `host fetch` checks out the tasks at `2fd12b88aafd` and Harbor at its release
-  `v0.25.0` (`fdba28fc411e`) under `/tmp/eval-x` (or `EVAL_X_WORK`), installs Harbor from its own lock and prints
+  `v0.25.0` (`fdba28fc411e`) under `~/.local/state/north/eval-x` (or `EVAL_X_WORK`), installs Harbor from its own lock and prints
   its version. `host oracle TASK` runs the benchmark's reference solution for one task through Harbor and the
   task's own grader, and prints one graded row, the digests of the images pulled and the disk they take: it proves
   a host can run the benchmark before any agent is involved. `host caps IMAGE` starts one container with a cap of

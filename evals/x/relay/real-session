@@ -10,9 +10,10 @@ model=${2:-claude-opus-5-5}
 # claude on a north host's path is a launcher that finds the client through the caller's home, which the session replaces.
 claude=$(readlink -f "${EVAL_T_CLAUDE:-${CLAUDE_RUNTIME:-$HOME/.local/lib/claude/current/bin/claude}}")
 name=eval-x-relay-check
-T=/tmp/eval-x/trials/relay-check
-R=/tmp/eval-x/ws/relay-check/app
-S=/tmp/eval-x/state/relay-check
+work=${EVAL_X_WORK:-${XDG_STATE_HOME:-$HOME/.local/state}/north/eval-x}
+T=$work/trials/relay-check
+R=$work/ws/relay-check/app
+S=$work/state/relay-check
 mkdir -p "$T" "$R/sub" "$S/cfg" "$S/home"
 : > "$S/calls.log"
 printf '%s\n' '{"effortLevel":"low","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo relay-check-hook >&2"}]}]}}' > "$S/cfg/settings.json"

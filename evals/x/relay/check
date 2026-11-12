@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 here=$(dirname "$(readlink -f "$0")")
-W=$(mktemp -d /tmp/eval-x-relay-check.XXXXXX)
+work=${EVAL_X_WORK:-${XDG_STATE_HOME:-$HOME/.local/state}/north/eval-x}
+mkdir -p "$work"
+W=$(mktemp -d "$work/relay-check.XXXXXX")
 trap 'rm -r -- "$W"' EXIT
 T=$W/trials/job
 R=$W/ws

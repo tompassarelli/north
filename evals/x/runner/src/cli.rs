@@ -21,6 +21,7 @@ pub struct Settings {
     pub policy: PathBuf,
     pub in_flight: usize,
     pub work: PathBuf,
+    pub work_is_default: bool,
     pub seed: u64,
     pub max_load: f64,
     pub min_five_hour_headroom: f64,
@@ -58,6 +59,7 @@ impl Settings {
             ["stop"] => Command::Stop,
             _ => return Err(RunError::Usage(USAGE.to_owned())),
         };
+        let env_work = std::env::var_os("EVAL_X_WORK").filter(|value| !value.is_empty());
         let mut settings = Self {
             command,
             account: None,
@@ -66,8 +68,8 @@ impl Settings {
                 .map_or_else(PathBuf::new, PathBuf::from)
                 .join(".claude/CLAUDE.md"),
             in_flight: 1,
-            work: std::env::var_os("EVAL_X_WORK")
-                .map_or_else(|| PathBuf::from("/tmp/eval-x"), PathBuf::from),
+            work_is_default: env_work.is_none(),
+            work: env_work.map_or_else(default_work, PathBuf::from),
             seed: DEFAULT_SEED,
             max_load: 2.0,
             min_five_hour_headroom: 20.0,
@@ -90,7 +92,10 @@ impl Settings {
             "token-file" => self.token_file = Some(PathBuf::from(value)),
             "policy" => self.policy = PathBuf::from(value),
             "in-flight" => self.in_flight = number(name, &value)?,
-            "work" => self.work = PathBuf::from(value),
+            "work" => {
+                self.work = PathBuf::from(value);
+                self.work_is_default = false;
+            }
             "seed" => self.seed = number(name, &value)?,
             "max-load" => self.max_load = number(name, &value)?,
             "min-5h-headroom" => self.min_five_hour_headroom = number(name, &value)?,
@@ -128,6 +133,20 @@ impl Settings {
         }
         Ok(file)
     }
+}
+
+fn default_work() -> PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .filter(|value| !value.is_empty())
+        .map_or_else(
+            || {
+                std::env::var_os("HOME")
+                    .map_or_else(PathBuf::new, PathBuf::from)
+                    .join(".local/state")
+            },
+            PathBuf::from,
+        )
+        .join("north/eval-x")
 }
 
 fn number<T: std::str::FromStr>(name: &str, value: &str) -> Result<T> {

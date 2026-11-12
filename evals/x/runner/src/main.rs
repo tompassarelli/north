@@ -51,6 +51,12 @@ fn run(args: &[String]) -> Result<bool> {
         return plain_end::run(rest);
     }
     let settings = Settings::parse(args)?;
+    if settings.work_is_default {
+        eprintln!(
+            "eval-x-runner: work directory {} (the default; EVAL_X_WORK or --work names another)",
+            settings.work.display()
+        );
+    }
     match settings.command.clone() {
         Verb::Plan => {
             print!(

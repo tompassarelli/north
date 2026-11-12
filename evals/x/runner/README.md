@@ -14,7 +14,7 @@ two minutes to end by itself; then its process group is stopped.
 ## Commands
 
 Run from a checkout of main, on the host that runs the trials, as a user unit. `evals/x/run` builds the runner from
-its lockfile in north's dev shell and runs it:
+its lockfile in north's dev shell into `WORK/build/runner-target`, outside the live runtime's tree, and runs it:
 
     evals/x/run plan
     evals/x/run smoke TASK --account A --token-file FILE
@@ -36,7 +36,7 @@ its lockfile in north's dev shell and runs it:
   `evals/x/host podman`. It then prints what remains of each and exits non-zero if anything does, or if containers
   or units could not be listed.
 
-Other options: `--work DIR` (default `$EVAL_X_WORK`, else `/tmp/eval-x`), `--seed N`, `--max-load F` (default 2),
+Other options: `--work DIR` (default `$EVAL_X_WORK`, else `~/.local/state/north/eval-x`, under `$XDG_STATE_HOME` when that is set; the runner prints the path it uses), `--seed N`, `--max-load F` (default 2),
 `--min-5h-headroom P` and `--min-week-headroom P` (default 20 and 10 percent left), `--max-reading-age S` (600),
 `--max-reruns N` (2).
 

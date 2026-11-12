@@ -35,7 +35,7 @@ done
 jq -j "$prompt" "$trial/prompt.json" > "$state/prompt.txt" 2> /dev/null \
   || { echo "eval-x arm $arm: no hand-off in $trial/prompt.json" >&2; exit 1; }
 ln -sfn "$cwd" "$state/repo"
-runner=${EVAL_X_RUNNER:-$here/runner/target/debug/eval-x-runner}
+runner=${EVAL_X_RUNNER:?evals/x/arm is started by the runner, which names its own binary in EVAL_X_RUNNER}
 rm -f "$state/end.json" "$state/nudged" "$state/quiet"
 start=$(date +%s) rc=0
 case $arm in north) settled="$runner session-end --state $state" ;; *) settled="$runner plain-end --state $state" ;; esac

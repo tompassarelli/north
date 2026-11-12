@@ -7,7 +7,11 @@ if [ -z "${EVAL_X_TREE:-}" ]; then
   [ -f "$runtime/tree/evals/x/run" ] || { echo "eval-x: the live runtime $runtime has no $runtime/tree/evals/x/run; the run stops before its first trial" >&2; exit 1; }
   exec env EVAL_X_TREE="$runtime/tree" "$runtime/tree/evals/x/run" "$@"
 fi
-north capacity dev-shell run --dir "$here/../.." -- \
-  sh -c 'cd "$1" && exec cargo build -q --locked --target-dir target' sh "$here/runner" >&2
+work=${EVAL_X_WORK:-${XDG_STATE_HOME:-$HOME/.local/state}/north/eval-x}
+case $work in /*) ;; *) work=$PWD/$work ;; esac
+target=$work/build/runner-target
+mkdir -p "$work"
+north capacity dev-shell run --dir "$work" -- \
+  sh -c 'exec cargo build -q --locked --manifest-path "$1/Cargo.toml" --target-dir "$2"' sh "$here/runner" "$target" >&2
 # Rootless podman maps the subordinate ids with the setuid newuidmap wrapper, which must come before the store's copy.
-EVAL_X_DIR=$here PATH=/run/wrappers/bin:$PATH exec "$here/runner/target/debug/eval-x-runner" "$@"
+EVAL_X_DIR=$here PATH=/run/wrappers/bin:$PATH exec "$target/debug/eval-x-runner" "$@"

@@ -25,7 +25,8 @@ done
 [ -n "$list" ] || { echo "$usage" >&2; exit 2; }
 work=${EVAL_T_WORK:-work} node=${EVAL_T_NODE:-node} T3=${T3_RUNTIME:-$HOME/.local/lib/t3/versions/0.1.9/t3}
 run=$work/runs/$label
-tool() { cargo run -q --locked --offline -- "$@"; }
+target=$(readlink -m "$work/target") && export EVAL_T_TARGET=$target
+tool() { cargo run -q --locked --offline --target-dir "$target" -- "$@"; }
 mkdir -p "$run"
 pin=$(jq -r .pin cases.json) source=$(jq -r .source cases.json)
 [ -d "$work/t3code/.git" ] || { git init -q "$work/t3code" && git -C "$work/t3code" fetch -q --depth 1 "$source" "$pin" \
