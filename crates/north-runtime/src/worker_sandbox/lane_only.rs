@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::Context;
 use super::except::{Entries, beneath_except};
-use super::readable::personal_logins;
+use super::readable::{Reader, unreadable};
 use super::removable::{lane, project};
 
 /// Home entries an agent confined to its lane still reads: the toolchains, git's own configuration and `.local`, of which only `bin`, `share/north` and the `lib/opencode` and `lib/pi` programs the DeepSeek harnesses run stay readable, the places the toolchain shims and those programs live, and the north runtimes directory wherever the host keeps it: `cargo` and `north` on `PATH` resolve through them, and a lane's tests and builds run only through those shims, which enter depbox (south#93).
@@ -17,7 +17,7 @@ pub fn readable_in_lane(context: &Context, fresh: &[PathBuf]) -> Vec<PathBuf> {
 pub(super) fn hidden(context: &Context, fresh: &[PathBuf]) -> Vec<PathBuf> {
     let home = &context.home;
     let code = home.join("code");
-    let mut hidden = personal_logins(context);
+    let mut hidden = unreadable(context, Reader::Worker);
     let kept: Vec<PathBuf> = TOOLCHAINS.iter().map(|name| home.join(name)).chain([code.clone(), home.join(".config")]).collect();
     hidden.extend(others(home, &kept));
     hidden.extend(others(&home.join(".config"), &[home.join(".config/git")]));

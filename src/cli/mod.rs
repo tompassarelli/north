@@ -216,7 +216,7 @@ fn dispatch(command: Command) -> ExitCode {
             }
         },
         Command::NixGc(arguments) => nix::gc(&arguments),
-        Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet::Registry), THREADS_FAMILIES)),
+        Command::Threads(arguments) => ExitCode::from(ledger::threads(&arguments)),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
         Command::VerbHelp(path) => match verb_help::usage(&path) {

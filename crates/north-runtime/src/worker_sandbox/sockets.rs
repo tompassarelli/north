@@ -12,6 +12,7 @@ use super::Context;
 const KEPT: [&str; 6] = ["wayland-", "pipewire-", "pulse", "private-desktop", "cc-socks", "north"];
 const DEPTH: usize = 4;
 const SSH_CONFIG: &str = "/etc/ssh/ssh_config";
+pub const AGENT_ENV: &str = "SSH_AUTH_SOCK";
 /// What `make` prints when its namespaces are laid.
 pub const READY: &[u8] = b"ready\n";
 
@@ -24,8 +25,8 @@ pub fn multiplexer(uid: u32, tmpdir: Option<OsString>) -> PathBuf {
     tmpdir.filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from("/tmp"), PathBuf::from).join(format!("tmux-{uid}"))
 }
 
-/// The sockets a worker command may not connect to: every socket in the runtime directory other than those of the display and audio servers, north's own and Claude Code's proxy, and the sockets of the terminal multiplexer. The kernel's Landlock before ABI 9 cannot refuse a connect(2), so `hide` puts a null device over each.
-pub fn hidden(runtime: &Path, multiplexer: &Path) -> Vec<PathBuf> {
+/// The sockets a worker command may not connect to: every socket in the runtime directory other than those of the display and audio servers, north's own and Claude Code's proxy, the sockets of the terminal multiplexer, and the `ssh` ones through which ssh reaches another host without reading a key. The kernel's Landlock before ABI 9 cannot refuse a connect(2), so `hide` puts a null device over each.
+pub fn hidden(runtime: &Path, multiplexer: &Path, ssh: &[PathBuf]) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for entry in std::fs::read_dir(runtime).into_iter().flatten().flatten() {
         if !KEPT.iter().any(|prefix| entry.file_name().to_string_lossy().starts_with(prefix)) {
@@ -33,7 +34,53 @@ pub fn hidden(runtime: &Path, multiplexer: &Path) -> Vec<PathBuf> {
         }
     }
     sockets(multiplexer, DEPTH, &mut found);
+    found.extend(ssh.iter().filter(|path| !found.contains(path)).cloned().collect::<Vec<_>>());
     found
+}
+
+/// The sockets through which ssh reaches another host without reading a key (south#118): the agent socket `agent` names, and every control-master socket a `ControlPath` of ssh's system or user configuration names, matched by the fixed part of the path before its first token.
+pub fn ssh_reach(home: &Path, uid: u32, agent: Option<&Path>) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    if let Some(agent) = agent {
+        sockets(agent, 0, &mut found);
+    }
+    for text in [ssh_config(), Some(home.join(".ssh/config"))].into_iter().flatten().filter_map(|path| std::fs::read_to_string(path).ok()) {
+        for pattern in control_paths(&text, home, uid) {
+            masters(&pattern, &mut found);
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+fn control_paths(text: &str, home: &Path, uid: u32) -> Vec<String> {
+    let value = |line: &str| {
+        let (key, rest) = line.trim().split_once(|character: char| character.is_whitespace() || character == '=')?;
+        let rest = rest.trim_start_matches(|character: char| character.is_whitespace() || character == '=').trim().trim_matches('"');
+        (key.eq_ignore_ascii_case("controlpath") && !rest.is_empty() && !rest.eq_ignore_ascii_case("none")).then(|| rest.to_owned())
+    };
+    text.lines().filter_map(value).map(|path| expand(&path, home, uid)).collect()
+}
+
+fn expand(path: &str, home: &Path, uid: u32) -> String {
+    let home = home.to_string_lossy();
+    let path = path.strip_prefix("~/").map_or_else(|| path.to_owned(), |rest| format!("{home}/{rest}"));
+    path.replace("%i", &uid.to_string()).replace("%d", &home)
+}
+
+fn masters(pattern: &str, found: &mut Vec<PathBuf>) {
+    let fixed = pattern.split('%').next().unwrap_or_default();
+    if fixed.len() == pattern.len() {
+        sockets(Path::new(pattern), 0, found);
+        return;
+    }
+    let Some((directory, prefix)) = fixed.rsplit_once('/') else { return };
+    for entry in std::fs::read_dir(if directory.is_empty() { "/" } else { directory }).into_iter().flatten().flatten() {
+        if entry.file_name().to_string_lossy().starts_with(prefix) {
+            sockets(&entry.path(), DEPTH, found);
+        }
+    }
 }
 
 fn sockets(path: &Path, depth: usize, found: &mut Vec<PathBuf>) {

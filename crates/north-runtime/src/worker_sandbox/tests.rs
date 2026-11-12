@@ -4,7 +4,7 @@ use std::process::Command;
 use landlock::RulesetStatus;
 use serde_json::{Value, json};
 
-use super::{Context, confine, executable, readable, removable};
+use super::{Context, Reader, confine, executable, readable, removable};
 
 const COMMAND: &str = "NORTH_706_LOCKS_COMMAND";
 const LOGINS_ONLY: &str = "NORTH_977_LOGINS_ONLY";
@@ -37,7 +37,7 @@ fn a_confined_command_child() {
     let command = command.to_string_lossy().into_owned();
     let context = Context::from_env(&command);
     let roots = std::env::var_os(LOGINS_ONLY).is_none().then(|| removable(&context));
-    assert!(matches!(confine(roots.as_deref(), &readable(&context), Some(&executable(&context)), None, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    assert!(matches!(confine(roots.as_deref(), &readable(&context, Reader::of(roots.is_some())), Some(&executable(&context)), None, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let output = Command::new("bash").arg("-c").arg(&command).output().unwrap();
     assert!(output.status.success(), "{command}: {}", String::from_utf8_lossy(&output.stderr));
 }
@@ -151,20 +151,31 @@ fn a_command_run_from_main_may_build_in_the_done_when_lane_north_task_check_uses
 }
 
 #[test]
-fn no_agent_command_of_any_role_can_read_or_link_away_the_operators_gh_login_north_969_north_977() {
+fn no_agent_command_reads_the_operators_gh_login_and_no_worker_command_reads_a_key_a_linked_secret_or_the_agent_socket_north_969_north_977_south_118() {
     let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     std::fs::create_dir_all(&outside_tmp).unwrap();
     let scratch = tempfile::Builder::new().prefix("north-969-gh-login").tempdir_in(outside_tmp).unwrap();
     let home = scratch.path().canonicalize().unwrap();
     let gh = home.join(".config/gh");
-    std::fs::create_dir_all(&gh).unwrap();
+    let (ssh, secrets) = (home.join(".ssh"), home.join("secrets"));
+    for directory in [&gh, &ssh, &secrets] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
     std::fs::write(gh.join("hosts.yml"), "github.com:\n    oauth_token: personal\n").unwrap();
     std::fs::write(gh.join("config.yml"), "git_protocol: https\n").unwrap();
     std::os::unix::fs::symlink(gh.join("hosts.yml"), home.join("hosts-link.yml")).unwrap();
-    let command = "! cat ~/.config/gh/hosts.yml && ! cat ~/hosts-link.yml && ! ln ~/.config/gh/hosts.yml /tmp/north-969-leak-$$ && cat ~/.config/gh/config.yml";
+    std::fs::write(ssh.join("made-for-the-test"), "not a key\n").unwrap();
+    for name in ["linked", "agent", "beside"] {
+        std::fs::write(secrets.join(name), "not a secret\n").unwrap();
+    }
+    std::os::unix::fs::symlink(secrets.join("linked"), ssh.join("peer")).unwrap();
+    let logins = "! cat ~/.config/gh/hosts.yml && ! cat ~/hosts-link.yml && ! ln ~/.config/gh/hosts.yml /tmp/north-969-leak-$$ && cat ~/.config/gh/config.yml && cat ~/secrets/beside";
+    let trusted = ["~/.ssh/made-for-the-test", "~/.ssh/peer", "~/secrets/linked", "~/secrets/agent"];
     for logins_only in [false, true] {
+        let refused = if logins_only { "" } else { "! " };
+        let command = std::iter::once(logins.to_owned()).chain(trusted.iter().map(|path| format!("{refused}cat {path}"))).collect::<Vec<_>>().join(" && ");
         let mut child = Command::new(std::env::current_exe().unwrap());
-        child.args(["--exact", "worker_sandbox::tests::a_confined_command_child", "--nocapture"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &home).env(COMMAND, command).current_dir(&home);
+        child.args(["--exact", "worker_sandbox::tests::a_confined_command_child", "--nocapture"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &home).env("SSH_AUTH_SOCK", secrets.join("agent")).env(COMMAND, &command).current_dir(&home);
         if logins_only {
             child.env(LOGINS_ONLY, "1");
         }
@@ -264,7 +275,7 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     for directory in [state.join("threads"), state.join("convo"), state.join("north/profiles"), state.join("north/fleet"), state.join("north/land"), main.clone()] {
         std::fs::create_dir_all(directory).unwrap();
     }
-    let context = Context { home, cwd: main, uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None };
+    let context = Context { home, cwd: main, uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None };
     let roots = removable(&context);
     for store in ["threads", "convo", "north/profiles", "north/fleet"] {
         let store = state.join(store).canonicalize().unwrap();
@@ -284,7 +295,7 @@ fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
         std::fs::create_dir_all(directory).unwrap();
     }
     std::os::unix::fs::symlink("runtimes/a", state.join("current")).unwrap();
-    let context = Context { home: home.clone(), cwd: home.join("code/north/main"), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: Some(runtimes.clone()), session: None };
+    let context = Context { home: home.clone(), cwd: home.join("code/north/main"), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: Some(runtimes.clone()), session: None, agent_socket: None };
     let hidden: Vec<PathBuf> = super::lane_only::hidden(&context, &[]).iter().map(|path| path.canonicalize().unwrap_or_else(|_| path.clone())).collect();
     assert!(!hidden.iter().any(|path| runtimes.join("a/tree/bin").starts_with(path)), "the north runtime is hidden: {hidden:?}");
     assert!(hidden.contains(&state.join("profiles")), "the agent state beside the runtime is readable: {hidden:?}");
@@ -294,10 +305,10 @@ fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
 fn namespaces_laid_before_a_nixos_activation_moved_ssh_config_are_not_reused_north_1083() {
     use super::broker::Laid;
     let socket = PathBuf::from("/run/user/1000/bus");
-    let before = Laid { hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/d980-etc-ssh-ssh_config")) };
-    let after = Laid { hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/zhf1-etc-ssh-ssh_config")) };
+    let before = Laid { hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/d980-etc-ssh-ssh_config")), inodes: Vec::new() };
+    let after = Laid { hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/zhf1-etc-ssh-ssh_config")), inodes: Vec::new() };
     assert!(!before.serves(&after));
-    assert!(before.serves(&Laid { hidden: vec![socket], ssh_config: before.ssh_config.clone() }));
+    assert!(before.serves(&Laid { hidden: vec![socket], ssh_config: before.ssh_config.clone(), inodes: Vec::new() }));
 }
 
 #[test]
@@ -365,7 +376,7 @@ fn a_lane_only_write_child() {
         return;
     };
     let home = PathBuf::from(home);
-    let context = Context { home: home.clone(), cwd: home.join("code/alpha/worktrees/lane"), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None };
+    let context = Context { home: home.clone(), cwd: home.join("code/alpha/worktrees/lane"), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None };
     assert!(matches!(super::confine_to_lane(&context, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let writes = |path: &str| std::fs::OpenOptions::new().write(true).open(home.join(path)).is_ok();
     assert!(writes("code/alpha/worktrees/lane/file"), "a lane-only command cannot write its own lane");
@@ -462,7 +473,7 @@ fn a_confined_lane_rescue_child() {
     };
     let context = Context::from_env("north lane rescue");
     let roots = removable(&context);
-    assert!(matches!(confine(Some(&roots), &readable(&context), Some(&executable(&context)), None, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    assert!(matches!(confine(Some(&roots), &readable(&context, Reader::Worker), Some(&executable(&context)), None, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let _ = north_lanes::lanes::wt_rescue(&[main.to_string_lossy().into_owned()]);
 }
 

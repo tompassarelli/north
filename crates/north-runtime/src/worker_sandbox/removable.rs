@@ -17,6 +17,7 @@ pub struct Context {
     pub named_projects: Vec<PathBuf>,
     pub runtimes: Option<PathBuf>,
     pub session: Option<String>,
+    pub agent_socket: Option<PathBuf>,
 }
 
 impl Context {
@@ -49,6 +50,7 @@ impl Context {
             named_projects: named.projects,
             runtimes: runtimes(),
             session: set("NORTH_FLEET_SESSION").and_then(|session| session.into_os_string().into_string().ok()),
+            agent_socket: set(super::sockets::AGENT_ENV),
         }
     }
 }

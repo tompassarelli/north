@@ -6,7 +6,7 @@ use north_base::store_pins;
 
 use super::Context;
 use super::lane_only::readable_in_lane;
-use super::readable::readable;
+use super::readable::{Reader, readable};
 
 const SAFE_PUSH_VALUED: [&str; 4] = ["--to", "--tag", "--delete-tag", "--several-commits"];
 
@@ -37,7 +37,7 @@ pub(super) fn named_file_readable(arguments: &[String], directory: &Path, enviro
     let Some(file) = named_file(arguments, directory) else { return Ok(()) };
     let real = file.canonicalize().map_err(|error| format!("cannot read {}: {error}", file.display()))?;
     let context = Context::from_request(&arguments.join(" "), directory, environment);
-    let roots = if cgroup.is_none_or(session_scope::lane_only_cgroup) { readable_in_lane(&context, &[]) } else { readable(&context) };
+    let roots = if cgroup.is_none_or(session_scope::lane_only_cgroup) { readable_in_lane(&context, &[]) } else { readable(&context, Reader::Worker) };
     if roots.iter().any(|root| real.starts_with(root)) {
         Ok(())
     } else {
@@ -52,7 +52,7 @@ pub(super) fn pinned_entries_readable(arguments: &[String], directory: &Path, en
         return Ok(None);
     }
     let context = Context::from_request(&arguments.join(" "), directory, environment);
-    let roots = if cgroup.is_none_or(session_scope::lane_only_cgroup) { readable_in_lane(&context, &[]) } else { readable(&context) };
+    let roots = if cgroup.is_none_or(session_scope::lane_only_cgroup) { readable_in_lane(&context, &[]) } else { readable(&context, Reader::Worker) };
     let top = std::process::Command::new("git").arg("-C").arg(directory).args(["rev-parse", "--show-toplevel"]).output().ok().filter(|output| output.status.success()).map(|output| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())).ok_or_else(|| format!("{} is not inside a git checkout", directory.display()))?;
     let head = store_pins::viewed_commit(&top, view)?;
     for entry in store_pins::pinned_store_entries(&top, &head, home) {

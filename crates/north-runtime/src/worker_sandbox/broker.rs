@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{IoSlice, IoSliceMut, Read, Write};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -50,7 +51,7 @@ fn socket() -> PathBuf {
     std::env::var_os(SOCKET_ENV).filter(|value| !value.is_empty()).map_or_else(|| runtime().join(DIRECTORY).join(SOCKET), PathBuf::from)
 }
 
-/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other.
+/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `threads` reaches a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and is refused to a lane-only caller.
 /// Where the command begins in the arguments of `capacity host run`: after the first `--`, when a word follows it.
 fn payload(words: &[&str]) -> Option<usize> {
     words.iter().position(|word| *word == "--").map(|at| at + 1).filter(|start| *start < words.len())
@@ -70,7 +71,7 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
     match words.as_slice() {
         ["depbox", "fetch" | "run", "--", program, ..] | [FLAG, "--built" | "--lane", "--", program, ..] => !program.is_empty(),
         ["lane", "unlock" | "stray" | "remove" | "gc" | "sync", ..] => true,
-        ["home", "move", ..] => true,
+        ["home", "move", ..] | ["threads", _, ..] => true,
         ["capacity", "host", "run", rest @ ..] => payload(rest).is_some(),
         _ => lane_grant::privileged(arguments),
     }
@@ -251,6 +252,9 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if !permitted(&request.arguments) {
         return Err(format!("{} is not a request the broker runs", request.arguments.join(" ")));
     }
+    if request.arguments.first().is_some_and(|verb| verb == "threads") && cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup) {
+        return Err("a lane-only session's command does not reach the ledger host through the broker".to_owned());
+    }
     super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, cgroup)?;
     let own_home = own_homes().into_iter().find(|(name, _)| name == "HOME").map(|(_, home)| PathBuf::from(home)).unwrap_or_default();
     let viewed = super::brokered_reads::pinned_entries_readable(&request.arguments, &request.directory, &request.environment, cgroup, &own_home)?;
@@ -363,16 +367,21 @@ fn hung_up(stream: &UnixStream) -> bool {
 pub(super) struct Laid {
     pub(super) hidden: Vec<PathBuf>,
     pub(super) ssh_config: Option<PathBuf>,
+    pub(super) inodes: Vec<(u64, u64)>,
 }
 
 impl Laid {
     fn now(runtime: &Path, request: &Request) -> Self {
-        Self { hidden: super::sockets::hidden(runtime, &multiplexer(request)), ssh_config: super::sockets::ssh_config() }
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let agent = request.environment.iter().find(|(name, _)| name == super::sockets::AGENT_ENV).map(|(_, value)| PathBuf::from(value));
+        let hidden = super::sockets::hidden(runtime, &multiplexer(request), &super::sockets::ssh_reach(&home, rustix::process::getuid().as_raw(), agent.as_deref()));
+        let inodes = hidden.iter().filter_map(|path| std::fs::symlink_metadata(path).ok()).map(|metadata| (metadata.dev(), metadata.ino())).collect();
+        Self { hidden, ssh_config: super::sockets::ssh_config(), inodes }
     }
 
-    /// Whether namespaces laid for `self` still serve `now`: they hide every socket there is now and overlay the ssh configuration ssh reads now.
+    /// Whether namespaces laid for `self` still serve `now`: they hide every socket there is now, each the very socket they laid the null device over, since a socket made again where an overlaid one was unlinked sheds that overlay (an ssh master that restarts does so), and overlay the ssh configuration ssh reads now.
     pub(super) fn serves(&self, now: &Self) -> bool {
-        self.ssh_config == now.ssh_config && now.hidden.iter().all(|path| self.hidden.contains(path))
+        self.ssh_config == now.ssh_config && now.hidden.iter().all(|path| self.hidden.contains(path)) && now.inodes.iter().all(|inode| self.inodes.contains(inode))
     }
 }
 
@@ -388,8 +397,8 @@ static NAMESPACES: Mutex<Option<Namespaces>> = Mutex::new(None);
 pub fn join_namespaces() -> Result<(), String> {
     let stream = UnixStream::connect(socket()).map_err(|error| format!("the outside broker does not answer ({error})"))?;
     stream.set_read_timeout(Some(ANSWER_WAIT)).map_err(|error| error.to_string())?;
-    let tmux = std::env::var("TMUX_TMPDIR").ok();
-    let body = serde_json::to_vec(&Request { arguments: vec![NAMESPACE.to_owned()], directory: PathBuf::from("/"), environment: tmux.into_iter().map(|value| ("TMUX_TMPDIR".to_owned(), value)).collect() }).map_err(|error| error.to_string())?;
+    let sent = ["TMUX_TMPDIR", super::sockets::AGENT_ENV].into_iter().filter_map(|name| Some((name.to_owned(), std::env::var(name).ok()?))).collect();
+    let body = serde_json::to_vec(&Request { arguments: vec![NAMESPACE.to_owned()], directory: PathBuf::from("/"), environment: sent }).map_err(|error| error.to_string())?;
     (&stream).write_all(&(body.len() as u64).to_le_bytes()).and_then(|()| (&stream).write_all(&body)).map_err(|error| error.to_string())?;
     let mut answer = [0u8; 1];
     let mut space = [0u8; 64];

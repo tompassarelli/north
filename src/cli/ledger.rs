@@ -65,6 +65,15 @@ fn comment(reference: &str, body: &str) -> NorthResult<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `north threads ARGUMENTS`: on a host whose ledger lives on another host, a worker command asks the outside broker to run it, since its domain holds neither the ssh key nor the master socket that reach the ledger host (south#118).
+pub(super) fn threads(arguments: &[String]) -> u8 {
+    let request: Vec<String> = std::iter::once("threads".to_owned()).chain(arguments.iter().cloned()).collect();
+    if crate::threads::client::ledger_host_name().is_some() && let Some(code) = north_runtime::worker_sandbox::reenter_outside(&request) {
+        return code;
+    }
+    crate::threads::client::run(arguments, std::sync::Arc::new(super::fleet::Registry), super::THREADS_FAMILIES)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
