@@ -87,18 +87,11 @@ fn worktrees_of_one_clone_fetching_a_moving_origin_at_once_all_succeed_north_119
     moving.join().unwrap();
     let failures: Vec<String> = fetchers.into_iter().flat_map(|fetcher| fetcher.join().unwrap()).collect();
     assert!(failures.is_empty(), "{failures:?}");
-}
 
-#[test]
-fn a_fetch_that_meets_a_sibling_holding_the_ref_lock_runs_again_north_1115() {
-    let checkout = tempfile::tempdir().unwrap();
-    git(checkout.path(), &["init", "-q"]);
     let mut attempts = 0;
-
-    let fetched = super::retry_after_clearing(checkout.path(), || {
+    let held = super::retry_after_clearing(&clone, || {
         attempts += 1;
         if attempts == 1 { Err("error: cannot lock ref 'refs/remotes/origin/main': Unable to create '/clone/.git/refs/remotes/origin/main.lock': File exists.\n\nAnother git process seems to be running in this repository".to_owned()) } else { Ok(()) }
     });
-
-    assert_eq!((fetched, attempts), (Ok(()), 2));
+    assert_eq!((held, attempts), (Ok(()), 2), "a fetch that meets a sibling holding the ref's lock runs again");
 }

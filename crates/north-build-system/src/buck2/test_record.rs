@@ -23,6 +23,20 @@ fn label(target: &Value) -> Option<String> {
     Some(format!("{}:{}", target["label"]["package"].as_str()?, target["label"]["name"].as_str()?))
 }
 
+/// The action that ran a test target and whether its result came from the action cache: only a remote command says so, a local one is never reused.
+fn action(ended: &Value) -> Option<(String, (String, bool))> {
+    let command = &ended["command_report"]["details"]["command_kind"]["command"];
+    let ran = command.get("RemoteCommand").or_else(|| command.get("LocalCommand"))?;
+    Some((label(&ended["suite"]["target_label"])?, (ran["action_digest"].as_str()?.to_owned(), ran["cache_hit"] == true)))
+}
+
+fn run(result: &Value) -> Result<TestRun, String> {
+    let target = label(&result["target_label"]).ok_or("Buck2's event log holds a test result that names no target")?;
+    #[allow(clippy::cast_precision_loss)]
+    let seconds = result["duration_us"].as_u64().unwrap_or(0) as f64 / 1e6;
+    Ok(TestRun { target, action: None, reused: false, passed: result["status"] == PASS, seconds, printed: result["details"].as_str().unwrap_or_default().to_owned() })
+}
+
 pub fn runs(record: &mut dyn BufRead) -> Result<Vec<TestRun>, String> {
     let mut actions: BTreeMap<String, (String, bool)> = BTreeMap::new();
     let mut runs = Vec::new();
@@ -33,17 +47,9 @@ pub fn runs(record: &mut dyn BufRead) -> Result<Vec<TestRun>, String> {
         }
         let event: Value = serde_json::from_str(&line).map_err(|error| format!("Buck2's event log holds a line that is not JSON: {error}"))?;
         let data = &event["Event"]["data"];
-        if let Some(ended) = data["SpanEnd"]["data"].get("TestEnd") {
-            let command = &ended["command_report"]["details"]["command_kind"]["command"];
-            let ran = command.get("RemoteCommand").or_else(|| command.get("LocalCommand"));
-            if let (Some(target), Some(action)) = (label(&ended["suite"]["target_label"]), ran.and_then(|ran| ran["action_digest"].as_str())) {
-                actions.insert(target, (action.to_owned(), ran.is_some_and(|ran| ran["cache_hit"] == true)));
-            }
-        } else if let Some(result) = data["Instant"]["data"].get("TestResult") {
-            let target = label(&result["target_label"]).ok_or("Buck2's event log holds a test result that names no target")?;
-            #[allow(clippy::cast_precision_loss)]
-            let seconds = result["duration_us"].as_u64().unwrap_or(0) as f64 / 1e6;
-            runs.push(TestRun { target, action: None, reused: false, passed: result["status"] == PASS, seconds, printed: result["details"].as_str().unwrap_or_default().to_owned() });
+        actions.extend(data["SpanEnd"]["data"].get("TestEnd").and_then(action));
+        if let Some(result) = data["Instant"]["data"].get("TestResult") {
+            runs.push(run(result)?);
         }
     }
     for run in &mut runs {
