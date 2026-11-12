@@ -1,4 +1,4 @@
-//! The checkout a request to the outside broker is asked from (south#118). The process the broker starts runs as the operator outside the worker's domain, and the git it runs reads the repository its working directory names, so a request is served only from a lane or a main checkout of a project this host keeps, and only while that checkout reads its project's own repository. A directory the broker cannot place in one is refused for every verb. Where git reads from is the repository the project's main checkout keeps, which no worker writes: a lane's own `.git` is read to refuse a request, never to name a repository.
+//! The checkout a request to the outside broker is asked from (south#118). The process the broker starts runs as the operator outside the worker's domain, and the git it runs reads the repository its working directory names, so a request is served only from a lane or a main checkout of a project this host keeps, or from a slot the build offload made for one, and only while that checkout reads its project's own repository. A directory the broker cannot place in one is refused for every verb. Where git reads from is the repository the project's main checkout keeps, which no worker writes: a lane's own `.git` is read to refuse a request, never to name a repository.
 
 use std::path::{Path, PathBuf};
 
@@ -50,4 +50,25 @@ pub(super) fn registered(code: &[PathBuf], directory: &Path) -> Result<Checkout,
         Some((_, shared)) if shared != common => Err(format!("{} is not a checkout of {}: its .git names another repository, and a request is served only from a lane as `north lane new` made it", top.display(), main.display())),
         _ => Err(format!("{} is not the worktree {} keeps for it: its .git does not lead to {}, and a request is served only from a lane as `north lane new` made it", top.display(), main.display(), git_dir.display())),
     }
+}
+
+/// Where this host's build offload keeps its slots: the `NORTH_OFFLOAD_ROOT` of `environment`, the broker's own, else `.cache/land-offload` under `home`, as the offload's script reads it.
+pub(super) fn slots(environment: &[(String, String)], home: &Path) -> PathBuf {
+    use north_base::foundation::offload::{ROOT_DEFAULT, ROOT_ENV};
+    environment.iter().find(|(name, value)| name == ROOT_ENV && !value.is_empty()).map_or_else(|| home.join(ROOT_DEFAULT), |(_, root)| PathBuf::from(root))
+}
+
+/// The checkout a request asked from `directory` is served from, or why it is refused: the lane or main checkout `registered` places it in, else the build offload's slot under `slots` it lies in. A job the offload runs asks from its slot, which lies under no project.
+pub(super) fn served(code: &[PathBuf], slots: &Path, directory: &Path) -> Result<Checkout, String> {
+    registered(code, directory).or_else(|refusal| slot(code, slots, directory).ok_or(refusal))
+}
+
+/// The slot `SLOTS/NAME` that `directory` lies in, as the checkout of the one project under `code` whose main checkout keeps the worktree `NAME` for it: the offload's script makes a slot with `git worktree add` in that repository (land_offload/ship/script.rs), and the slot's `.git` is read only to tell whether it leads there. `None` for a directory in no such slot, whatever its name.
+fn slot(code: &[PathBuf], slots: &Path, directory: &Path) -> Option<Checkout> {
+    let (real, slots) = (directory.canonicalize().ok()?, slots.canonicalize().ok()?);
+    let top = slots.join(real.strip_prefix(&slots).ok()?.components().next()?);
+    let read = git_dirs(&top)?;
+    let mains = code.iter().filter_map(|code| std::fs::read_dir(code.canonicalize().ok()?).ok()).flatten().flatten().map(|project| project.path().join("main"));
+    let kept = mains.filter_map(|main| main_git_dirs(&main)).map(|(_, common)| (common.join("worktrees").join(top.file_name().unwrap_or_default()), common)).find(|kept| *kept == read)?;
+    Some(Checkout { top, git_dir: kept.0, common: kept.1 })
 }
