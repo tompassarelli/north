@@ -24,7 +24,7 @@ In the current directory write the single line `the worker's change` to worker.t
 const CHANGED_FILE: &str = "worker.txt";
 const HAND_IN_TOOL: &str = "mcp__north__hand-in";
 const CLAUDE_MODEL: &str = "haiku";
-const HAND_IN_WAIT: Duration = Duration::from_mins(9);
+const HAND_IN_WAIT: Duration = Duration::from_mins(2);
 const SERVE_WAIT: Duration = Duration::from_secs(30);
 const SETTLE_WAIT: Duration = Duration::from_mins(2);
 const LEDGER_WAIT: Duration = Duration::from_mins(3);

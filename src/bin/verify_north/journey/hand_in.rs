@@ -4,7 +4,7 @@ use super::super::transcript::{Transcript, shorten};
 use super::{HAND_IN_TOOL, HAND_IN_WAIT, Journey, short};
 
 pub(super) fn hand_in(journey: &mut Journey) -> Result<String, String> {
-    journey.settled_report(HAND_IN_WAIT, |_| true)?;
+    journey.settled_report(HAND_IN_WAIT, |_| true).map_err(|unsettled| format!("the hand-in step gave up within its {} s deadline, ten times its slowest passing run (3 to 12 s, north#1273): {unsettled}", HAND_IN_WAIT.as_secs()))?;
     let transcript = journey.transcript()?;
     let scratch = journey.scratch()?;
     let landed = scratch.origin_main()?;
