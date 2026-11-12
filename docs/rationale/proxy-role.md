@@ -294,6 +294,12 @@ read under a repository checkout but `git log --oneline`, naming the brief to wr
 runner (cargo, bun, npm, make, go, pytest, nix build) and shell writes into a repository (redirect,
 tee, patch, git apply) from the proxy.
 
+All of this reads one table, `proxy_role` in `harness/defaults.toml` (north#1106): one row per class of
+call, owned by the proxy (launch, send, ask, stop, adopt, gate, issue-box, status, placement-look) or by
+a worker it briefs (source-read, remote-read, build, test, repository-edit).
+`crates/north-guard/src/guard/proxy_table.rs` reads it into typed rows, refusing a missing, duplicated or
+unknown class, and `north config proxy role` prints it. Section 7 gives `north fleet break-glass`.
+
 Enforced by: hook for the streak, the landing denial and the exemptions; types for verb kinds;
 metric with an alarm for recurring work. "Predictable answer" stays text; the streak bounds what
 misjudging it costs.

@@ -126,3 +126,21 @@ One snapshot with four parts, each fact computed once from its source of truth, 
 - Accounts: the usage table's latest reading per window, and `credit::standing` per api organization.
 - Infra: the infrastructure manifest and provider APIs as `north infra` reads them.
 - Health: the readiness bars, the goals and the harness invariants.
+
+## The main window is a chat with the coordinator (2026-11-11, north#1048)
+
+North is the owner's own harness, and its main view replaces Claude Code as the window he types into. The fleet
+is event-driven: worker reports, landings, gate answers and alarms reach the coordinator as fleet messages while
+it is idle, and its session has to survive an account move or a closed window. Claude Code's client is built
+around one person typing to one agent in one terminal, so it cannot carry those events by construction; north's
+window can, because north owns the session it shows.
+
+So the main view is one thing: the chat with the coordinator, filling the window above the input line. The bar
+is the Pi harness already on disk: streaming text, tool calls collapsed to one line each with expand, scrollback,
+multi-line input with paste, interrupt and coloured markdown; a feature Pi has and north lacks is a gap, not a
+choice. Everything else leaves the main view: sessions, the landing queue, runtimes and health are the
+monitor's and the layers above, and a child command's output is captured and shown as one status line, never
+drawn over the chat.
+
+Not chosen: keeping Claude Code's window and adding views around it, which still cannot carry fleet events;
+and a dashboard as the main view, which is what the monitor already is.
