@@ -28,6 +28,10 @@ const DECLARED: &str = "cargo ";
 const CARGO_SETTING: &str = "CARGO_";
 /// A check build leaves its outputs in the store: materialising `//...` took 71 s and 4.4 GiB where this took 4.3 s (gex45, 2026-11-12).
 const UNMATERIALISED: &str = "--materializations=none";
+/// Refuses an action that cannot run on the workers, whatever executor the tree's own platform names. `bin/land-shell` gives a Buck2 client the network only with it, so nothing a tree defines runs beside that network.
+const REMOTE_ONLY: &str = "--remote-only";
+/// Buck2's exit status for a build the tree's own targets or code failed; an engine or daemon failure exits with another.
+const USER_ERROR: i32 = 3;
 
 fn words(verb: &[&str]) -> Vec<String> {
     std::iter::once("buck2").chain(verb.iter().copied()).map(str::to_owned).collect()
@@ -81,7 +85,7 @@ impl BuildSystem for Buck2 {
     }
 
     fn build(&self, request: &Build) -> Invocation {
-        let mut words = words(&["build"]);
+        let mut words = words(&["build", REMOTE_ONLY]);
         words.extend((request.profile == Profile::Release).then(|| "@mode/release".to_owned()));
         words.push(request.binary.map_or_else(|| "//:".to_owned(), |binary| format!("//:{binary}")));
         words.extend(request.jobs.into_iter().flat_map(|jobs| ["--num-threads".to_owned(), jobs.to_string()]));
@@ -93,6 +97,19 @@ impl BuildSystem for Buck2 {
 
     fn built(&self, request: &Build, name: &str) -> PathBuf {
         output_dir(request.root, request.profile, request.output).join(name)
+    }
+
+    fn tree_binary(&self, root: &Path, binary: &str) -> (Invocation, PathBuf) {
+        let request = Build { root, profile: Profile::Dev, binary: Some(binary), jobs: None, resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, timings: false };
+        (self.build(&request), self.built(&request, binary))
+    }
+
+    fn broken(&self, status: Option<i32>, _log: &str) -> bool {
+        status == Some(USER_ERROR)
+    }
+
+    fn warms(&self) -> bool {
+        !self.tests
     }
 
     fn finished(&self, log: &str) -> bool {
@@ -112,9 +129,9 @@ impl BuildSystem for Buck2 {
             return Cargo.tests(request);
         }
         let mut words = match &request.step {
-            Step::Compile => words(&["build", UNMATERIALISED]),
+            Step::Compile => words(&["build", REMOTE_ONLY, UNMATERIALISED]),
             Step::List => words(&["uquery", "--json", "--output-attribute", BINARY_ID]),
-            Step::Run { .. } => words(&["test", ON_WORKERS]),
+            Step::Run { .. } => words(&["test", REMOTE_ONLY, ON_WORKERS]),
         };
         words.extend(request.coverage.is_some().then(|| "@mode/coverage".to_owned()));
         let targets = targets(&request.selection);
@@ -132,11 +149,11 @@ impl BuildSystem for Buck2 {
     }
 
     fn check(&self, root: &Path, package: &str, _output: Option<&Path>) -> Invocation {
-        Invocation::new(root, Shell::Inherited, words(&["build", UNMATERIALISED, &format!("{}{package}[check]", self::package(package))]))
+        Invocation::new(root, Shell::Inherited, words(&["build", REMOTE_ONLY, UNMATERIALISED, &format!("{}{package}[check]", self::package(package))]))
     }
 
     fn lint(&self, request: &Lint) -> Invocation {
-        let mut words = words(&["bxl", UNMATERIALISED, CLIPPY_GATE, "--", "--targets"]);
+        let mut words = words(&["bxl", REMOTE_ONLY, UNMATERIALISED, CLIPPY_GATE, "--", "--targets"]);
         words.extend(targets(&request.selection));
         Invocation::new(request.root, request.shell, words)
     }

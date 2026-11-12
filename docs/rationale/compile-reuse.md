@@ -630,9 +630,9 @@ The land check lines of `.safe-push` name Cargo until box 8 rewrites them. On a 
 line through the seam (`land_line`), which issues that side's own command behind the declared line's shell:
 
 - The lint line becomes
-  `./bin/land-shell --dev -- buck2 bxl --materializations=none //lint/clippy.bxl:clippy -- --targets //...`.
+  `./bin/land-shell --dev -- buck2 bxl --remote-only --materializations=none //lint/clippy.bxl:clippy -- --targets //...`.
 - With `buck2_tests`, every nextest and `cargo test` line becomes
-  `./bin/land-shell --dev -- buck2 test --unstable-allow-compatible-tests-on-re //...`; the five lines are then one
+  `./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re //...`; the five lines are then one
   command and run once.
 - Every other line runs as declared. So does every line on a Cargo host, where nothing changes.
 
@@ -640,23 +640,50 @@ Each list of `.safe-push` that names a check line (`land.check`, `land.after`, `
 and the rest) is read the same way, so a reason or deadline declared for the Cargo line holds for the line issued
 in its place.
 
-`bin/land-shell` runs a `buck2` command in the dependency box's `fetch` mode, which shares the host's network, and
-every other command in `run` mode, which has none. A Buck2 client compiles nothing itself: it sends each action to
-the remote execution engine, which the closed network of `run` mode cannot reach (gex45, 2026-11-12: the clippy gate
-stopped at `Error connecting to grpc://...: Network is unreachable`). The home, the runtime directory and the
-secrets stay masked as in `run` mode, so on a host without an engine, where Buck2 runs an action itself, a build
-script still reaches no credential.
+**Where a tree's actions run.** A Buck2 client compiles nothing itself: it sends each action to the remote
+execution engine. A tree's build rules (`BUCK`, `.bzl`, `.bxl`, `.buckconfig`, `toolchains/`) are text a lane
+writes, and they name the execution platform. Two rules keep a tree's actions on the workers whatever those rules
+say (decision 5 of Lanes as a guarantee of the command, not of the tree), and neither is in the build rules:
+
+- Every build, lint and test command the seam issues passes `--remote-only`, which makes Buck2 refuse an action
+  that cannot run on the workers, whatever executor the tree's platform names.
+- `bin/land-shell` runs a `buck2` command in the dependency box's `fetch` mode, which a client needs to reach the
+  engine, only when the command carries `--remote-only` before any `--`. Every other command runs in `run` mode, as
+  a Cargo build does.
+
+Checked on a build host through `bin/land-shell` (2026-11-12), on one crate with an edit that no cache held:
+
+- The tree's platform changed to a local-only executor: exit 3, `The desired execution strategy (RemoteOnly) is
+  incompatible with the executor config that was selected`. Nothing ran.
+- The platform changed to allow both: exit 0, `Commands: 2 (cached: 1, remote: 1, local: 0)`.
+- The clippy gate: `clippy: 148 targets clean`, 1283 commands, 0 local.
+
+Not checked: where `buck2 test` runs a test whose own rule names a local executor. The test run stays behind
+`buck2_tests` until that is shown the same way.
 
 A check build passes `--materializations=none` (`-M none`): the lint gate, the type check and the compile before a
 test run leave their outputs in the store, since nothing after them reads one (Lanes: 4.3 s against 71 s and
 4.4 GiB for `//...`). The runtime build keeps `--out`, which copies the one binary a later step runs.
 
+The host's side applies to a tree only when the tree is its kind of project (`for_tree`): a Buck2 host's land checks
+for a repository with no `.buckconfig` read its Cargo lines as declared and build it with Cargo.
+
+`bin/head-north` names no build tool. When no built runtime covers a tree it asks the live runtime to build north
+from the tree, `north runtime tree-build`, which goes through the seam: the Cargo side compiles north as the test
+run does (`cargo test --no-run -p north --test it`, so a tree whose tests were compiled has it already), the Buck2
+side runs `buck2 build --remote-only //:north --out buck-out/north/dev/`. The verb exits 1 when the tree itself does not build
+(Cargo's `could not compile`, Buck2's exit 3 for a user error) and 75 when the build failed for another reason, as
+the script did. The script keeps its own Cargo build only for a live runtime that does not know the verb.
+
+A host that builds and tests with Buck2 warms no land-check slot (Lanes, decision 8): `north capacity offload warm`
+marks the slot as at the head and runs nothing, since the store every slot shares holds what a warm target held.
+With `buck2_tests` unset the nextest lines still compile with Cargo, so the warm stays.
+
 What each of the four does on the Buck2 side, and what it cannot yet do that the Cargo side does:
 
 - Build: `buck2 build [@mode/release] //:BIN --out DIR/`. It writes no per-unit timings line: `--build-report`
   records each target's outcome and outputs, not how long each compile unit took, so the runtime build's timings
-  reader has nothing to read.
-  `bin/head-north` and `landing.warm` still call Cargo themselves; they are not behind the seam yet.
+  reader has nothing to read. The fails-first flake runs (`[flake] build`) still compile with Cargo.
 - Lint: the clippy gate over `//...`. It takes no changed-crate selection: it lints every first-party target, and an
   unchanged crate's verdict is a cache hit, where the Cargo line lints only the crates a lane changed.
 - Test listing: `buck2 uquery --json --output-attribute binary_id 'kind("^_north_test$", //...)'`, a query that compiles

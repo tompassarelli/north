@@ -5,7 +5,8 @@ dev=0
 [ "${1:-}" = -- ] || { printf 'usage: land-shell [--dev] -- COMMAND...\n' >&2; exit 2; }
 shift
 mode=run
-[ "$(basename -- "${1:-}")" != buck2 ] || mode=fetch
+before=" $* " before=${before%% -- *}
+[ "$(basename -- "${1:-}")" != buck2 ] || [[ "$before " != *' --remote-only '* ]] || mode=fetch
 if [ "${GITHUB_ACTIONS:-}" = true ]; then exec "$@"; fi
 hermetic=(env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL -u EMAIL GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
 depbox=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/depbox

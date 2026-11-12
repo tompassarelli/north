@@ -184,6 +184,11 @@ fn changed_files(repo: &Path, at: &str, head: &str) -> usize {
 fn warm(root: &Path, slot: &Slot, head: &str) -> u8 {
     let Some(command) = git(&slot.repo, &["config", "--blob", "refs/remotes/origin/main:.safe-push", "--get", SETTING]) else { return 0 };
     let path = root.join(&slot.name);
+    if !north_build_system::for_tree(&path).warms() {
+        println!("warm: {} builds and tests with Buck2, whose outputs every slot shares, so nothing is warmed", slot.name);
+        let _ = fs::write(root.join(format!("{}{WARMED}", slot.name)), format!("{head}\n"));
+        return 0;
+    }
     if git(&path, &["checkout", "-q", "--detach", "-f", head]).is_none() && git(&path, &["rev-parse", "HEAD"]).as_deref() != Some(head) {
         eprintln!("north capacity: could not check {} out at {head}", path.display());
         return 1;

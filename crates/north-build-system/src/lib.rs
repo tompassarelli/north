@@ -29,6 +29,12 @@ pub trait BuildSystem {
     fn build(&self, request: &Build) -> Invocation;
     /// Where `request` leaves the binary `name`.
     fn built(&self, request: &Build, name: &str) -> PathBuf;
+    /// Builds the tree's own `binary` for a check that runs it from the tree, and says where it is left. The Cargo side builds it as the test run does (test profile, the `it` test's dev-dependency features), so a tree whose tests were compiled has it already.
+    fn tree_binary(&self, root: &Path, binary: &str) -> (Invocation, PathBuf);
+    /// Whether a failed build's exit status and output say the tree itself does not build, rather than the machine failing the build.
+    fn broken(&self, status: Option<i32>, log: &str) -> bool;
+    /// Whether a checkout's own build output, kept warm between checks, saves its next check a compile: a Cargo target directory does, and Buck2's outputs live in the store every checkout shares.
+    fn warms(&self) -> bool;
     /// Whether a build's printed output says it finished, so a wrapper that exited 0 without building is caught.
     fn finished(&self, log: &str) -> bool;
     /// Whether the build into `request`'s output started compiling at or after `since`, rather than being stopped before.
@@ -56,6 +62,12 @@ pub fn here() -> Box<dyn BuildSystem> {
         true => Box::new(Buck2 { tests }),
         false => Box::new(Cargo),
     }
+}
+
+/// The side that builds the tree at `root` on this host: this host's when the tree is its kind of project, else Cargo, so a Buck2 host still builds a repository that has no Buck2 targets.
+pub fn for_tree(root: &Path) -> Box<dyn BuildSystem> {
+    let side = here();
+    if side.governs(root) { side } else { Box::new(Cargo) }
 }
 
 /// Whether `command` is the lint line of either side.

@@ -60,7 +60,7 @@ impl Blob {
             return Self(Vec::new());
         }
         let text = String::from_utf8_lossy(&output.stdout);
-        let side = north_build_system::here();
+        let side = north_build_system::for_tree(repo);
         let side = side.as_ref();
         Self(text.split('\0').filter_map(|entry| entry.split_once('\n')).flat_map(|(key, value)| value.lines().map(move |line| (key.to_owned(), issued(side, line)))).collect())
     }

@@ -8,6 +8,7 @@ use serde::Deserialize;
 use super::{Build, BuildSystem, Invocation, Lint, MutantStep, Mutants, Profile, Resolution, Selection, Shell, Step, TestBinary, Tests};
 
 const CLIPPY: &str = "cargo clippy";
+const UNCOMPILED: &str = "error: could not compile";
 
 /// Whether `command` runs this side's clippy.
 pub(crate) fn lints(command: &str) -> bool {
@@ -112,6 +113,20 @@ impl BuildSystem for Cargo {
             Profile::Release => "release",
         };
         output_dir(request.root, request.output).join(profile).join(name)
+    }
+
+    fn tree_binary(&self, root: &Path, binary: &str) -> (Invocation, PathBuf) {
+        let selection = Selection::Typed(["-q", "-p", binary, "--test", "it"].map(str::to_owned).to_vec());
+        let request = Tests { root, step: Step::Compile, selection, resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, coverage: None };
+        (self.tests(&request), output_dir(root, None).join("debug").join(binary))
+    }
+
+    fn broken(&self, _status: Option<i32>, log: &str) -> bool {
+        log.contains(UNCOMPILED)
+    }
+
+    fn warms(&self) -> bool {
+        true
     }
 
     fn finished(&self, log: &str) -> bool {

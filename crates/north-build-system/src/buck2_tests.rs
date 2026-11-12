@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::Buck2;
 use crate::cargo::Cargo;
 use crate::BuildSystem;
@@ -11,9 +13,19 @@ const SCAN: &str = "CARGO_TARGET_DIR=target ./bin/head-north --code crates/north
 fn a_buck2_host_lints_with_its_own_gate_and_runs_its_own_tests_only_behind_the_test_switch() {
     let (builds, tests_too) = (Buck2 { tests: false }, Buck2 { tests: true });
 
-    assert_eq!(builds.land_line(CLIPPY), "./bin/land-shell --dev -- buck2 bxl --materializations=none //lint/clippy.bxl:clippy -- --targets //...");
+    assert_eq!(builds.land_line(CLIPPY), "./bin/land-shell --dev -- buck2 bxl --remote-only --materializations=none //lint/clippy.bxl:clippy -- --targets //...");
     assert_eq!(builds.land_line(NEXTEST), NEXTEST, "the test run stays Cargo's until the host sets buck2_tests");
-    assert_eq!(tests_too.land_line(NEXTEST), "./bin/land-shell --dev -- buck2 test --unstable-allow-compatible-tests-on-re //...");
+    assert_eq!(tests_too.land_line(NEXTEST), "./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re //...");
     assert_eq!((tests_too.land_line(SCAN), Cargo.land_line(CLIPPY)), (SCAN.to_owned(), CLIPPY.to_owned()), "a line that runs no lint or test, and every line on a Cargo host, runs as declared");
     assert!(crate::lints(CLIPPY) && crate::lints(&builds.land_line(CLIPPY)) && !crate::lints(NEXTEST), "the lint line of either side is told from a test line");
+}
+
+#[test]
+fn a_buck2_host_builds_a_tree_s_north_with_buck2_and_calls_the_tree_broken_only_on_buck2_s_user_error() {
+    let side = Buck2 { tests: false };
+    let (invocation, binary) = side.tree_binary(Path::new("/tree"), "north");
+
+    assert_eq!(invocation.words, ["buck2", "build", "--remote-only", "//:north", "--out", "/tree/buck-out/north/dev/"]);
+    assert_eq!(binary, Path::new("/tree/buck-out/north/dev/north"));
+    assert!(side.broken(Some(3), "") && !side.broken(Some(2), "") && !side.broken(None, ""), "only exit 3, Buck2's user error, blames the tree; an engine or daemon failure gives no verdict");
 }
