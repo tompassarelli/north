@@ -378,7 +378,7 @@ may_use = ["north-base", "north-pace", "north-publish"]
 [[crate_dag.crate]]
 name = "north-fleet"
 paths = ["crates/north-fleet/src/**"]
-may_use = ["north-claude-stream", "north-fleet-store", "north-pace", "north-resume", "north-session-host", "north-ssh-spare"]
+may_use = ["north-claude-stream", "north-fleet-store", "north-pace", "north-resume", "north-session-host"]
 
 [[crate_dag.crate]]
 name = "north-fleet-supervisor"

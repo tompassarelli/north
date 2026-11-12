@@ -97,7 +97,7 @@ pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path, session
         launch.push(' ');
         launch.push_str(&quote(arg));
     }
-    let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch, session: session.to_owned(), trace: trace.to_path_buf(), master: None, spare: None };
+    let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch, session: session.to_owned(), trace: trace.to_path_buf(), master: None };
     let argv = [vec![std::env::current_exe()?.display().to_string(), "session-link".into()], link.arguments()].concat();
     Ok(HostSpec { argv, cwd: home.to_path_buf(), ..spec })
 }

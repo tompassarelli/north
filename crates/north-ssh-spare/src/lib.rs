@@ -29,8 +29,7 @@ const WATCH: Duration = Duration::from_secs(2);
 const RETRY: Duration = Duration::from_secs(5);
 const HANDED_WITHIN: Duration = Duration::from_millis(500);
 const EXIT_MARK: &str = "north-spare-exit";
-/// The command a spare runs: it says `ready`, then reads one framed command from its input and runs it.
-pub const WAITING: &str = r#"exec sh -c 'echo ready; IFS= read -r n && c=$(dd bs=1 count="$n" 2>/dev/null) && eval "$c"'"#;
+const WAITING: &str = r#"exec sh -c 'echo ready; IFS= read -r n && c=$(dd bs=1 count="$n" 2>/dev/null) && eval "$c"'"#;
 
 /// A spare's two pipes, handed to the caller: what it writes to `input` reaches the remote shell's standard input, and `output` carries that shell's standard output until it exits.
 pub struct Taken {
@@ -53,17 +52,8 @@ pub fn run(destination: &str, script: &str, within: Duration) -> Option<(i32, St
 
 /// A ready spare to `destination` from its holder, or None when none is ready; with no holder running, starts one for the next caller.
 pub fn take(destination: &str) -> Option<Taken> {
-    take_at(&socket_for(destination)?, destination)
-}
-
-/// Where the holder for `destination` hands out its spares.
-pub fn socket_for(destination: &str) -> Option<PathBuf> {
-    Some(socket(&runtime_dir()?, destination))
-}
-
-/// A ready spare from the holder at `socket`, or None when none is ready; with no holder there, starts one for `destination`.
-pub fn take_at(socket: &Path, destination: &str) -> Option<Taken> {
-    match UnixStream::connect(socket) {
+    let socket = socket(&runtime_dir()?, destination);
+    match UnixStream::connect(&socket) {
         Ok(stream) => received(&stream),
         Err(_) => {
             start_holder(destination);
@@ -89,7 +79,7 @@ pub fn hold(arguments: &[String], ssh: impl Fn(&str) -> Vec<OsString> + Send + S
     }
     let Some(dir) = runtime_dir() else { return 1 };
     let words = ssh(destination);
-    match serve(&dir, destination, move || spawn(&words), current_runtime) {
+    match holding(&dir, destination, move || spawn(&words), current_runtime) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("north ssh-spare: {destination}: {error}");
@@ -98,8 +88,7 @@ pub fn hold(arguments: &[String], ssh: impl Fn(&str) -> Vec<OsString> + Send + S
     }
 }
 
-/// Holds spares to `destination` opened by `open` and hands them out at its owner-only socket in `dir` until none is taken for `IDLE` or `runtime` answers differently than when it started.
-pub fn serve(dir: &Path, destination: &str, open: impl Fn() -> io::Result<Child> + Send + Sync + 'static, runtime: fn() -> Option<PathBuf>) -> io::Result<()> {
+fn holding(dir: &Path, destination: &str, open: impl Fn() -> io::Result<Child> + Send + Sync + 'static, runtime: fn() -> Option<PathBuf>) -> io::Result<()> {
     fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     owner_only(dir)?;
     let socket = socket(dir, destination);
