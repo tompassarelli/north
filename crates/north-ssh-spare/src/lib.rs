@@ -11,6 +11,7 @@ use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -88,14 +89,17 @@ pub fn hold(arguments: &[String], ssh: impl Fn(&str) -> Vec<OsString> + Send + S
 }
 
 fn holding(dir: &Path, destination: &str, open: impl Fn() -> io::Result<Child> + Send + Sync + 'static, runtime: fn() -> Option<PathBuf>) -> io::Result<()> {
-    fs::create_dir_all(dir)?;
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    owner_only(dir)?;
     let socket = socket(dir, destination);
-    let lock = OpenOptions::new().create(true).truncate(false).write(true).open(socket.with_extension("lock"))?;
+    let lock = OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(socket.with_extension("lock"))?;
     if lock.try_lock().is_err() {
         return Ok(());
     }
     let _ = fs::remove_file(&socket);
     let listener = UnixListener::bind(&socket)?;
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
+    owner_only(&socket)?;
     let open: Arc<dyn Fn() -> io::Result<Child> + Send + Sync> = Arc::new(open);
     let (opened, arrivals) = mpsc::channel();
     for _ in 0..SPARES {
@@ -135,6 +139,16 @@ fn holding(dir: &Path, destination: &str, open: impl Fn() -> io::Result<Child> +
         std::thread::spawn(move || child.wait());
         refill(&opened, &open);
     }
+}
+
+/// Refuses a path any other user could reach: the socket hands whoever connects a shell on the build host.
+fn owner_only(path: &Path) -> io::Result<()> {
+    let found = fs::symlink_metadata(path)?;
+    let mode = found.permissions().mode() & 0o777;
+    if mode & 0o077 == 0 && found.uid() == rustix::process::getuid().as_raw() {
+        return Ok(());
+    }
+    Err(io::Error::new(io::ErrorKind::PermissionDenied, format!("{} has mode {mode:o} or another owner, so it is not this user's alone", path.display())))
 }
 
 fn called(listener: &UnixListener) -> bool {
