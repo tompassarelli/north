@@ -70,20 +70,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_dry_run_prints_a_finding_for_a_skill_changed_since_its_review_and_none_for_an_unchanged_one() {
-        let root = tempfile::tempdir().unwrap();
-        let places = Places { home: root.path().join("home"), state: root.path().join("state"), ledger: root.path().join("threads.db"), graph: root.path().join("graph.db") };
-        for (id, written) in [("debugging", "2026-11-01"), ("workers", "2026-11-09")] {
-            let directory = places.checkout("north").join("harness/skills").join(id);
-            fs::create_dir_all(&directory).unwrap();
-            fs::write(directory.join("SKILL.md"), format!("---\nname: {id}\ngrounded: 2026-10-15\nwritten: {written}\n---\n# {id}\n")).unwrap();
-        }
-        let lines = tick(&places, &Skills, 1.0, false);
-        let found: Vec<&String> = lines.iter().filter(|line| line.starts_with("detectors: skill-review skill-review:")).collect();
-        assert_eq!(found, ["detectors: skill-review skill-review:debugging:2026-11-01: Review the debugging skill"]);
-    }
-
     fn skill(id: &str) -> Skill {
         Skill { id: id.into(), reviewed: "2026-11-01".into(), ..Skill::default() }
     }
@@ -96,5 +82,16 @@ mod tests {
         assert_eq!(found[0].key, "skill-review:debugging:2026-11-01");
         assert_eq!(found[0].owner.as_deref(), Some("north#1012"));
         assert!(found[0].detail.contains("corrections classed to it were seen 1 time"));
+
+        let root = tempfile::tempdir().unwrap();
+        let places = Places { home: root.path().join("home"), state: root.path().join("state"), ledger: root.path().join("threads.db"), graph: root.path().join("graph.db") };
+        for (id, written) in [("debugging", "2026-11-01"), ("workers", "2026-11-09")] {
+            let directory = places.checkout("north").join("harness/skills").join(id);
+            fs::create_dir_all(&directory).unwrap();
+            fs::write(directory.join("SKILL.md"), format!("---\nname: {id}\ngrounded: 2026-10-15\nwritten: {written}\n---\n# {id}\n")).unwrap();
+        }
+        let lines = tick(&places, &Skills, 1.0, false);
+        let found: Vec<&String> = lines.iter().filter(|line| line.starts_with("detectors: skill-review skill-review:")).collect();
+        assert_eq!(found, ["detectors: skill-review skill-review:debugging:2026-11-01: Review the debugging skill"]);
     }
 }

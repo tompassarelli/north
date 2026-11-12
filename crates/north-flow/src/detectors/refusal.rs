@@ -8,9 +8,12 @@ use super::{Detector, Finding, Limits};
 static FAILED_TEST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^test (\S+) \.\.\. FAILED").expect("failed test pattern"));
 static URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://\S+").expect("url pattern"));
 static VARIABLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{7,40}\b|\d+").expect("variable pattern"));
+static PASSING_TEST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^test \S+ \.\.\. (?:ok|ignored)\b").expect("passing test pattern"));
 static BLOCKING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:failed )?\d+ blocking check\(s\) failed: (.+)$").expect("blocking pattern"));
 const GENERIC_GATE: &str = "land checks";
 const BUSY: [&str; 2] = ["text file busy", "etxtbsy"];
+const BUSY_OS_ERROR: &str = "(os error 26)";
+const FAILURE_WORDS: [&str; 4] = ["error", "failed", "cannot", "could not"];
 
 pub struct Refusal {
     pub lane: String,
@@ -43,10 +46,15 @@ fn gates(text: &str) -> Vec<String> {
     named
 }
 
+fn reports_busy_executable(text: &str) -> bool {
+    text.lines().map(|line| line.trim().to_lowercase()).filter(|line| !PASSING_TEST.is_match(line)).any(|line| {
+        line.contains(BUSY_OS_ERROR) || (BUSY.iter().any(|needle| line.contains(needle)) && FAILURE_WORDS.iter().any(|word| line.contains(word)))
+    })
+}
+
 fn classes(text: &str) -> BTreeSet<String> {
-    let lower = text.to_lowercase();
     let mut found = BTreeSet::new();
-    if BUSY.iter().any(|needle| lower.contains(needle)) {
+    if reports_busy_executable(text) {
         found.insert("text-file-busy".to_owned());
     }
     found.extend(FAILED_TEST.captures_iter(text).map(|test| format!("test:{}", &test[1])));
@@ -87,4 +95,17 @@ pub fn repeated(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refusal_whose_passing_output_mentions_etxtbsy_is_not_classed_text_file_busy_but_a_busy_executable_error_is() {
+        let failed = "test shim::etxtbsy_retries_the_write ... ok\nretrying after ETXTBSY\ntest lander::lands ... FAILED\n";
+        assert_eq!(classes(failed), BTreeSet::from(["test:lander::lands".to_owned()]));
+        let busy = "test shim::etxtbsy_retries_the_write ... ok\nerror: failed to run script: Text file busy (os error 26)\n";
+        assert_eq!(classes(busy), BTreeSet::from(["text-file-busy".to_owned()]));
+    }
 }
