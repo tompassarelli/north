@@ -212,6 +212,7 @@ printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
   [ -z "${exited:-}" ] || [ -e "$exited" ] || echo 143 >"$exited" 2>/dev/null || true
   rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder"
+  rm -f "$placed/$s" 2>/dev/null || true
   rm -f "${script:-}"
   rmdir "${script_directory:-}" 2>/dev/null || true
   git -C "$repo" update-ref -d "$ref" 2>/dev/null || true

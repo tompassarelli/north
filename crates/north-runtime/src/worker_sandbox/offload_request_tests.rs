@@ -10,6 +10,7 @@ use std::process::Command;
 use north_base::foundation::offload::{LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 
 use super::super::broker::{self, Request};
+use super::super::broker_served::Served;
 use super::super::lane_grant::Host;
 use super::super::{Context, removable};
 use super::{OPEN_SCOPE, git};
@@ -251,16 +252,24 @@ fn a_request_from_an_offload_slot_is_served_only_as_the_project_the_offload_reco
     refused(&named_as_lane, "a recorded slot whose name is a lane of its project");
     let lane = home.join("code/alpha/worktrees/lane");
     let recorded = |name: &str| (ask(north, host, &format!("capacity offload slot record {name}"), &lane, worker), std::fs::read_to_string(records.join(name)).unwrap_or_default());
+    let mut unrecorded = Vec::new();
     let ((code, told), record) = recorded("made-up");
     if code == 0 || !record.is_empty() {
-        failures.push(format!("{CASE}: a session had a name that is no slot of its project recorded as one: exit {code}, record {record:?}: {told}"));
+        unrecorded.push(format!("{CASE}: a session had a name that is no slot of its project recorded as one: exit {code}, record {record:?}: {told}"));
     }
     let ((code, told), record) = recorded("code-alpha-main-5");
     if code != 0 || record != "code/alpha/main\n" {
-        failures.push(format!("{CASE}: the record a job's script asks for from inside a session's domain, where it cannot write it, was not written by the broker's side as the project of the checkout the request was placed in: exit {code}, record {record:?}: {told}"));
+        unrecorded.push(format!("{CASE}: the record a job's script asks for from inside a session's domain, where it cannot write it, was not written by the broker's side as the project of the checkout the request was placed in: exit {code}, record {record:?}: {told}"));
     }
     let (code, told) = ask(north, host, verb, &slot, worker);
-    if code != 0 || text("seen").lines().next_back().and_then(|started| started.split('|').next()) != Some(&*slot.to_string_lossy()) {
+    let served = code == 0 && text("seen").lines().next_back().and_then(|started| started.split('|').next()) == Some(&*slot.to_string_lossy());
+    std::fs::remove_file(records.join("code-alpha-main-5")).unwrap();
+    std::fs::remove_dir_all(&slot).unwrap();
+    std::fs::create_dir_all(&slot).unwrap();
+    std::fs::copy(made_up.join(".git"), slot.join(".git")).unwrap();
+    refused(&slot, "a directory made again under the name of a slot whose job ended, its record gone with the job while git still keeps the slot's worktree entry");
+    failures.extend(unrecorded);
+    if !served {
         failures.push(format!("{CASE}: `{verb}` asked from a job's recorded slot was not served there: exit {code}: {told}"));
     }
 }
@@ -283,7 +292,6 @@ fn a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for
             broker::SOCKET_ENV
         ),
     );
-    let text = |file: &str| std::fs::read_to_string(root.join(file)).unwrap_or_default();
     for (script, verb) in crate::runtime::scratch_project_probes(&judged.to_string_lossy()).into_iter().zip(["depbox run -- true", "safe-push --to main"]) {
         for file in ["code", "socket", "words", "directory", "asked", "answer"] {
             let _ = std::fs::remove_file(stub.join(file));
@@ -295,10 +303,10 @@ fn a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for
         let started = !code.is_empty() && Path::new(&socket).parent() == Some(Path::new(&code));
         let own = Host::own();
         let (code_of_host, told_by_host) = ask(north, &own, verb, &directory, worker);
-        let serving = Host { code: own.code.iter().cloned().chain(started.then(|| PathBuf::from(&code))).collect(), ..own };
-        let seen = text("seen");
-        let (exit, told) = ask(north, &serving, verb, &directory, worker);
-        let served = text("seen").strip_prefix(&seen).and_then(|new| new.lines().next_back()).and_then(|line| line.split('|').next()) == Some(&*directory.to_string_lossy());
+        let (exit, told, served, elsewhere) = answers_of_a_probe_s_broker(root, north, started.then(|| PathBuf::from(&code)), verb, &directory, worker);
+        if let Some(answered) = elsewhere {
+            failures.push(format!("{CASE}: the broker the probe started for its scratch project, where every session of the host writes, answered a `{verb}` asked from another session's cgroup: {answered}"));
+        }
         std::fs::write(stub.join("answer"), "0").unwrap();
         let _ = probe.wait();
         if !asked || words != verb {
@@ -310,6 +318,21 @@ fn a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for
             failures.push(format!("{CASE}: the host's own broker served the probe's `{verb}` from the scratch project {}: exit {code_of_host}: {told_by_host}", directory.display()));
         }
     }
+}
+
+/// The answers of the broker a probe starts for the projects under `code` (for none, when it started none) to `verb` asked from `directory`: to a caller in the probe's own cgroup, its exit code, what it told and whether the verb started in `directory`; and how it answered a caller in another session's cgroup, when it did not refuse that one and start nothing.
+fn answers_of_a_probe_s_broker(root: &Path, north: &Path, code: Option<PathBuf>, verb: &str, directory: &Path, worker: &[(String, String)]) -> (u8, String, bool, Option<String>) {
+    let started = || std::fs::read_to_string(root.join("seen")).unwrap_or_default();
+    let serving = Served { code, peers: Some(OPEN_SCOPE.trim().to_owned()) };
+    let from = |cgroup: &str| asked(|server| broker::answer_as(north, server, Some(cgroup), &serving)
+, verb, directory, worker);
+    let seen = started();
+    let (exit, told) = from(OPEN_SCOPE);
+    let served = started().strip_prefix(&seen).and_then(|new| new.lines().next_back()).and_then(|line| line.split('|').next()) == Some(&*directory.to_string_lossy());
+    let seen = started();
+    let (code, told_elsewhere) = from(&OPEN_SCOPE.replace("77c49ab1", "0badc0de"));
+    let elsewhere = (code != 126 || !told_elsewhere.contains("refused") || started() != seen).then(|| format!("exit {code}: {told_elsewhere}"));
+    (exit, told, served, elsewhere)
 }
 
 /// The cases of a request asked from a lane that reads another repository than its project's own, through its `.git` or its worktree's `commondir`, and of one that names another repository in its environment.
@@ -368,13 +391,18 @@ fn offload(root: &Path) {
 }
 
 fn ask(north: &Path, host: &Host, words: &str, directory: &Path, environment: &[(String, String)]) -> (u8, String) {
+    asked(|server| broker::answer(north, server, Some(OPEN_SCOPE), host), words, directory, environment)
+}
+
+/// What a caller that asks for `words` from `directory` gets from the broker `answer` plays on the other end of its socket: its exit code, and what it was told with what the broker logged.
+fn asked(answer: impl FnOnce(&UnixStream) -> Result<(), String> + Send, words: &str, directory: &Path, environment: &[(String, String)]) -> (u8, String) {
     let (client, server) = UnixStream::pair().unwrap();
     let (mut out, out_writer) = std::io::pipe().unwrap();
     let (mut err, err_writer) = std::io::pipe().unwrap();
     let stdin = File::open("/dev/null").unwrap();
     let request = Request { arguments: words.split(' ').map(str::to_owned).collect(), directory: directory.to_owned(), environment: environment.to_vec() };
     let (code, logged) = std::thread::scope(|scope| {
-        let served = scope.spawn(|| broker::answer(north, &server, Some(OPEN_SCOPE), host));
+        let served = scope.spawn(|| answer(&server));
         let code = broker::send(&client, request, [stdin.as_fd(), out_writer.as_fd(), err_writer.as_fd()]).unwrap();
         let logged = served.join().unwrap().err().unwrap_or_default();
         (code, logged)

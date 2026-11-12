@@ -22,6 +22,7 @@ struct Fixture {
     north: PathBuf,
     main: PathBuf,
     lane: PathBuf,
+    top: PathBuf,
 }
 
 impl Fixture {
@@ -42,11 +43,11 @@ impl Fixture {
         write_executable(&shim.join("gh"), format!("#!/bin/sh\n# {}\necho 'echo the command the issue holds'\n", gh_shim::MARKER));
         write_executable(&lane.join("gh"), "#!/bin/sh\necho 'echo the command the lane holds'\n");
         std::fs::write(fleet.join(NAME).join("host.scope"), "north-session-398cca43.scope\n").unwrap();
-        std::fs::write(fleet.join(NAME).join("session.json"), serde_json::json!({ "name": NAME, "cwd": lane }).to_string()).unwrap();
+        std::fs::write(fleet.join(NAME).join("session.json"), serde_json::json!({ "name": NAME, "cwd": lane, "task_ref": ISSUE }).to_string()).unwrap();
         let north = top.join("north");
-        write_executable(&north, "#!/bin/sh\nprintf '%s|%s|%s|%s\\n' \"$PWD\" \"$*\" \"$NORTH_FLEET_SESSION\" \"$FROM_THE_LANE\"\nsh -c \"$(gh)\"\n");
+        write_executable(&north, "#!/bin/sh\nprintf '%s|%s|%s|%s\\n' \"$PWD\" \"$*\" \"$NORTH_FLEET_SESSION\" \"$FROM_THE_LANE\"\nsh -c \"$(gh)\"\nif [ -p \"$0.started\" ] && mkdir \"$0.first\" 2>/dev/null; then : > \"$0.started\"; cat \"$0.release\" > /dev/null; fi\n");
         let environment = vec![("HOME".to_owned(), home.display().to_string()), ("PATH".to_owned(), format!("{}:{}", programs.display(), std::env::var("PATH").unwrap()))];
-        Self { host: Host { fleet, code: vec![home.join("code")], home, environment, cgroups: top.join("cgroup") }, _root: root, north, main, lane }
+        Self { host: Host { fleet, code: vec![home.join("code")], home, environment, cgroups: top.join("cgroup") }, _root: root, north, main, lane, top }
     }
 
     fn ask(&self, cgroup: &str, arguments: &[&str], directory: &Path) -> (u8, String, String) {
@@ -79,8 +80,9 @@ fn a_check_asked_from_a_lane_that_holds_another_command_for_the_box_runs_the_iss
         (vec!["task", "check", "--done-when", "--body-file", "boxes.md"], "takes no other word"),
         (vec!["task", "check", "--done-when", ISSUE], "takes no other word"),
         (vec!["task", "check", "--done-when", "--box", BOX, "north#1022"], "OWNER/REPO#N"),
-        (vec!["task", "check", "--done-when", "--box", BOX, "tompassarelli/wisp#3"], "no main checkout"),
-        (vec!["task", "check", "--done-when", "--box", BOX, "someone/north#1022"], "is not someone/north"),
+        (vec!["task", "check", "--done-when", "--box", BOX, "tompassarelli/wisp#3"], "its own task issue"),
+        (vec!["task", "check", "--done-when", "--box", BOX, "someone/north#1022"], "its own task issue"),
+        (vec!["task", "check", "--done-when", "--box", BOX, "tompassarelli/north#1048"], "its own task issue"),
     ] {
         let (code, stdout, stderr) = fixture.ask(CGROUP, &arguments, &fixture.lane);
         assert_eq!((code, stdout.as_str()), (126, ""), "{arguments:?} started nothing: {stderr}");
@@ -90,4 +92,20 @@ fn a_check_asked_from_a_lane_that_holds_another_command_for_the_box_runs_the_iss
     let (code, stdout, stderr) = fixture.ask(&outside, &["task", "check", "--done-when", "--box", BOX, ISSUE], &fixture.lane);
     assert_eq!((code, stdout.as_str()), (126, ""), "{stderr}");
     assert!(stderr.contains("fleet session's own scope"), "{stderr}");
+    let (started, release) = (fixture.top.join("north.started"), fixture.top.join("north.release"));
+    assert!(Command::new("mkfifo").args([&started, &release]).status().unwrap().success());
+    let words = ["task", "check", "--done-when", "--box", BOX, ISSUE];
+    std::thread::scope(|scope| {
+        let first = scope.spawn(|| fixture.ask(CGROUP, &words, &fixture.lane));
+        std::fs::read(&started).unwrap();
+        let (code, stdout, stderr) = fixture.ask(CGROUP, &words, &fixture.lane);
+        std::fs::remove_file(&started).unwrap();
+        std::fs::write(&release, "").unwrap();
+        assert_eq!((code, stdout.as_str()), (126, ""), "a second check asked while the session's first still ran started a checker: {stderr}");
+        assert!(stderr.contains("one at a time"), "{stderr}");
+        let (code, _, stderr) = first.join().unwrap();
+        assert_eq!(code, 0, "{stderr}");
+    });
+    let (code, _, stderr) = fixture.ask(CGROUP, &words, &fixture.lane);
+    assert_eq!(code, 0, "a check asked after the session's first ended is run: {stderr}");
 }

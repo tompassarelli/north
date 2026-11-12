@@ -186,7 +186,7 @@ fn own_issue(session: &Session, named: &str) -> Result<(), String> {
 }
 
 /// Whether the reference `named` (`OWNER/REPO#N`, `REPO#N` or `#N`) names the issue `task` does.
-fn same_issue(named: &str, task: &str) -> bool {
+pub(super) fn same_issue(named: &str, task: &str) -> bool {
     let parts = |reference: &str| {
         let (repository, number) = reference.split_once('#')?;
         let (owner, name) = repository.rsplit_once('/').map_or((None, repository), |(owner, name)| (Some(owner.to_owned()), name));

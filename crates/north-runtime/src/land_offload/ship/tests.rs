@@ -222,6 +222,7 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap(), &head]);
     fs::remove_dir_all(&slot).unwrap();
     let script = super::script::slot_part().replace("@JOBS@", &super::script::jobs_part()).replace("@ADMIT@", super::script::ADMIT).replace("@SETTLE@", "0").replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@SLOT_PORTS@", "");
+    let script = format!("{script}cp \"$placed/$s\" \"$HOME/read-by-the-job\" 2>/dev/null || :\n");
     let ship = |north: Option<&Path>| {
         let mut shell = Command::new("sh");
         shell.args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"]).env("HOME", home.path()).env("NORTH_OFFLOAD_SETTLE_SECONDS", "0").env_remove("NORTH_OFFLOAD_ROOT").stdin(fs::File::open(&bundle).unwrap());
@@ -229,9 +230,12 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
         shell.output().unwrap()
     };
     let records = home.path().join(north_base::foundation::offload::SLOT_RECORDS);
+    let record = records.join("code-p-main");
+    let read = home.path().join("read-by-the-job");
     let output = ship(None);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(fs::read_to_string(records.join("code-p-main")).unwrap_or_default(), "code/p/main\n", "the script recorded no checkout for the slot it took, so the sandbox broker cannot tell which project a request from it belongs to");
+    assert_eq!(fs::read_to_string(&read).unwrap_or_default(), "code/p/main\n", "the script recorded no checkout for the slot while it held it, so the sandbox broker cannot tell which project a request from its job belongs to");
+    assert!(!record.exists(), "the record outlived the job that held the slot, so a directory made under a released slot's name is served as that project");
     assert_eq!(git(&home.path().join(".cache/land-offload/code-p-main"), &["rev-parse", "HEAD"]), head);
     assert!(half_made.is_dir(), "a fetch's auto maintenance pruned a worktree entry that has no gitdir yet, as it would one git worktree add is still creating");
     fs::remove_dir_all(&records).unwrap();
