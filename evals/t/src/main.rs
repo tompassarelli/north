@@ -19,7 +19,7 @@ const USAGE: &str = "usage:
   eval-t classify --checkout DIR --check FILE
   eval-t context --transcript FILE [--bare FILE]
   eval-t transfer-fixture --state DIR
-  eval-t world --checkout DIR --case ID --into DIR
+  eval-t world --checkout DIR --case ID --into DIR [--seen-at DIR]
   eval-t grade --checkout DIR --grader DIR --node PROGRAM --case ID --arm NAME --transcript FILE --cwd DIR --out DIR [--stamp JSON]";
 
 fn flags(args: &[String]) -> BTreeMap<String, String> {
@@ -97,7 +97,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "classify" => classify(&flags),
         "context" => context(&flags),
         "transfer-fixture" => transfer::fixture(Path::new(need(&flags, "state")?)).map(|manifest| println!("{manifest:#}")),
-        "world" => world::build(Path::new(need(&flags, "checkout")?), need(&flags, "case")?, Path::new(need(&flags, "into")?)).map(|manifest| println!("{manifest:#}")),
+        "world" => world::build(Path::new(need(&flags, "checkout")?), need(&flags, "case")?, Path::new(need(&flags, "into")?), flags.get("seen-at").map(String::as_str)).map(|manifest| println!("{manifest:#}")),
         "grade" => grade(&flags),
         _ => Err(USAGE.to_owned()),
     }

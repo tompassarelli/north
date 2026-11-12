@@ -45,7 +45,7 @@ for case in $cases; do
     [ $(($(printf '%s' "$seed-$case-$sample" | cksum | cut -d' ' -f1) % 2)) = 0 ] || arms="north t3"
     for arm in $arms; do
       w=$run/$case-$sample-$arm started=$(date -u +%FT%TZ) load=$(cut -d' ' -f1 /proc/loadavg)
-      tool world --checkout "$work/t3code" --case "$case" --into "$w" > /dev/null && ./arm "$arm" "$w" \
+      tool world --checkout "$work/t3code" --case "$case" --into "$w" --seen-at "$(readlink -f "$run")/$case-$sample-$arm/repo" > /dev/null && ./arm "$arm" "$w" \
         && tool grade --checkout "$work/t3code" --grader "$work/grader" --node "$node" --case "$case" --arm "$arm" \
           --transcript "$w/transcript.jsonl" --cwd "$(readlink -f "$w/repo")" --out "$w" --stamp "$(stamp "$sample" "$started" "$load")" | tee -a "$run/results.jsonl"
       [ "${PIPESTATUS[0]}" = 0 ] || { failed=1; echo "eval-t: $case sample $sample in $arm gave no graded row; see $w" >&2; }

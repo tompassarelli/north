@@ -40,6 +40,12 @@ repository), which the world builder here does not write. `lists` names the case
 `asking_and_runnable_in_both_arms`, and `counts` gives each list's size by kind (bad, guard, control). At the pin:
 7 neutral, 3 of them runnable; 16 asking, 2 of them runnable.
 
+Two more fields are judged case by case and are not the rule's (the file's `judged` text says so): `runnable_given`
+names what a real session in either harness is given besides the case's files so that it runs alike in both, and
+`not_run` names why a case's world cannot be given alike in both. Their lists are
+`asking_and_runnable_given_more_than_files` (1 case at the pin) and `asking_and_not_run` (9); the asking cases with
+neither wait on a mechanism that is not built (stub commands, replayed earlier turns).
+
 `eval-t classify --checkout DIR --check cases.json` derives the list again from the checkout and fails unless it is
 byte-for-byte the frozen file, so the list cannot drift from the rule or the pin.
 
@@ -77,8 +83,9 @@ arm; `evals/t/run --list NAME --samples N [--label NAME] [--seed N]` runs every 
 N samples each, the arm order per sample drawn from the seed. For each sample and arm it:
 
 1. writes the case's world (`eval-t world`): the case's files committed on the case's branch in a new repository,
-   with the case's prompt beside it. Both arms get the same tree; the row's world is refused when the case sets
-   up more than files.
+   with the case's prompt beside it. Both arms get the same tree. A case that sets up more than files is refused unless
+   `cases.json` names what it is given (`runnable_given`): so far the case's context text, put in front of the
+   prompt with the runner's working directory rewritten to the scratch repository.
 2. runs one session on the prompt (`evals/t/arm`), claude-opus-5-5 at medium effort unless `EVAL_T_MODEL` or
    `EVAL_T_EFFORT` say otherwise. The `north` arm is `north fleet launch --prompt north --test` in scratch state on
    the subscription account `EVAL_T_ACCOUNT` names. The `t3` arm is the T3 Code release binary (`T3_RUNTIME`,

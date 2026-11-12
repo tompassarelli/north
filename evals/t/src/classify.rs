@@ -5,9 +5,11 @@ use std::path::Path;
 use serde_json::{Map, Value, json};
 
 use super::pin;
-use super::world::beyond_files;
+use super::world::{GIVEN, NOT_RUN, beyond_files, judged};
 
 pub const RULE: &str = "A case is neutral when none of its checks names a tool only T3 Code has. A check names one when (a) one of its tool-name fields (calls, distinctCalls, order, minCalls and endsTurnAfter, which require a call; callsMustNot, notCalls and maxCalls, which forbid or bound one) holds a tool T3 Code's MCP server defines, which in the case files is every lower-case name, each found under apps/server/src/mcp/toolkits, while Claude Code's own tools are capitalised; or (b) it is a check whose grader is built on T3 Code's tools or thread state: newThreads (t3_thread_launch, create_threads), linked and linkedNumbers (pull requests linked to a T3 Code thread), device (device_*), secret (request_secret). A case is runnable in both arms when a real session can be given its world: files alone (no mocked tool or shell result, no earlier turn, thread context or side chat, no file outside the repository), the top role, not Codex-only and a prompt of its own. A case asks for something without T3 Code's tools when it requires no T3 Code tool, has no check on T3 Code's thread state, and at least one check asks the agent to produce something (a call of a tool both harnesses have, a pattern its text or shell command must match, or working file links); a case whose only checks forbid things is passed by doing nothing.";
+
+pub const JUDGED: &str = "Two fields are judged case by case and are not the rule's: runnable_given names what a real session in either harness is given besides the case's files so that the case can run alike in both, and not_run names why a case's world cannot be given alike in both harnesses. A case with neither and a world beyond files waits on a mechanism that is not built.";
 
 const TOOL_CHECKS: [&str; 8] = ["calls", "distinctCalls", "order", "minCalls", "endsTurnAfter", "callsMustNot", "notCalls", "maxCalls"];
 const REQUIRING: usize = 5;
@@ -76,10 +78,12 @@ fn entry(case: &Value, file: &str) -> Value {
     let world = world(case);
     let beyond = beyond_files(case);
     let neutral = required.is_empty() && forbidden.is_empty() && state.is_empty();
+    let id = case["id"].as_str().unwrap_or_default();
     json!({
         "file": file, "kind": case["kind"], "area": case["area"], "neutral": neutral, "runnable_in_both_arms": world.is_empty() && beyond.is_empty(),
         "requires_t3_tools": required, "forbids_t3_tools": forbidden, "t3_state_checks": state, "world_needs_t3": world,
         "asks_without_t3_tools": asked, "bars_without_t3_tools": barred, "world_beyond_files": beyond,
+        "runnable_given": judged(&GIVEN, id), "not_run": judged(&NOT_RUN, id),
     })
 }
 
@@ -163,10 +167,16 @@ pub fn classify(checkout: &Path, pin_commit: &str) -> Result<Value, String> {
         "neutral_and_runnable_in_both_arms": ids(&cases, |case| case["neutral"] == true && runnable(case)),
         "asking_for_something_without_t3_tools": ids(&cases, asks),
         "asking_and_runnable_in_both_arms": ids(&cases, |case| asks(case) && runnable(case)),
+        "asking_and_runnable_given_more_than_files": ids(&cases, |case| asks(case) && !case["runnable_given"].is_null()),
+        "asking_and_not_run": ids(&cases, |case| asks(case) && !case["not_run"].is_null()),
     });
+    let stray: Vec<&str> = GIVEN.iter().chain(&NOT_RUN).map(|(id, _)| *id).filter(|id| !cases.get(*id).is_some_and(|case| asks(case) && !runnable(case))).collect();
+    if pin_commit == pin::PIN && !stray.is_empty() {
+        return Err(format!("these judged cases are not asking cases a files-only world leaves out at the pin: {}", stray.join(", ")));
+    }
     let graders: Vec<String> = pin::GRADERS.iter().map(|path| (*path).to_owned()).collect();
     Ok(json!({
-        "source": pin::SOURCE, "release": pin::RELEASE, "pin": pin_commit, "rule": RULE,
+        "source": pin::SOURCE, "release": pin::RELEASE, "pin": pin_commit, "rule": RULE, "judged": JUDGED,
         "case_files": pin::hashes(checkout, &files)?, "graders": pin::hashes(checkout, &graders)?,
         "counts": counts, "lists": lists, "cases": cases,
     }))

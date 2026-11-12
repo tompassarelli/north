@@ -57,9 +57,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -85,10 +87,12 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_open",
         "device_screenshot"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -109,9 +113,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -140,10 +146,12 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_list",
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -164,9 +172,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -193,7 +203,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -221,9 +233,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -250,7 +264,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -275,9 +291,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -309,7 +327,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -329,9 +349,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "orchestrator_capabilities"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -358,10 +380,12 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_list",
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -387,10 +411,12 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_list",
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -416,9 +442,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -439,9 +467,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -467,9 +497,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device"
@@ -491,9 +523,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_project_update"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -516,9 +550,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -543,9 +579,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "watch_pull_request"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -566,9 +604,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "preview_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -595,9 +635,11 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "preview_snapshot"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -623,9 +665,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -655,7 +699,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": "the session is a T3 Code delegated child, started by T3 Code's own task prompt",
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -684,7 +730,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "linked"
@@ -715,9 +763,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "link_pull_request"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -747,7 +797,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": "the case is for the Codex harness only",
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -770,7 +822,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -804,7 +858,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -837,7 +893,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -872,7 +930,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -893,7 +953,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -913,7 +975,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -934,7 +998,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -952,7 +1018,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -973,7 +1041,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -1000,7 +1070,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -1033,7 +1105,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -1066,7 +1140,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1101,7 +1177,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1124,7 +1202,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -1144,7 +1224,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -1167,7 +1249,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "linked"
@@ -1194,10 +1278,12 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task",
         "orchestrator_capabilities"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1219,10 +1305,12 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task",
         "orchestrator_capabilities"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1245,9 +1333,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1269,9 +1359,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1303,7 +1395,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1325,9 +1419,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_background_wait"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1354,9 +1450,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "preview_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1379,7 +1477,9 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": true,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -1396,7 +1496,9 @@
       "forbids_t3_tools": [],
       "kind": "control",
       "neutral": true,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -1412,7 +1514,9 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": true,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1431,7 +1535,9 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": true,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -1453,7 +1559,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1483,7 +1591,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1510,7 +1620,9 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": true,
+      "not_run": "the answer under test comes from a mocked T3 Code tool: north could be given it only by carrying T3 Code's tool list, and T3 Code only by replacing its own tool's answer",
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1533,10 +1645,12 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task",
         "orchestrator_capabilities"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1560,10 +1674,12 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1584,10 +1700,12 @@
       "forbids_t3_tools": [],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "device_list",
         "device_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1610,9 +1728,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "preview_open"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1636,10 +1756,12 @@
       "forbids_t3_tools": [],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "preview_open",
         "preview_snapshot"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1661,10 +1783,12 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1698,7 +1822,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": "the earlier turn is the agent calling T3 Code's tools, which a north session cannot have made",
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1723,9 +1849,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "preview_evaluate"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1759,7 +1887,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1782,9 +1912,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "unwatch_pull_request"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1807,10 +1939,12 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1831,9 +1965,11 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "link_pull_request"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1852,9 +1988,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "link_pull_requests"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "linked"
@@ -1875,9 +2013,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "link_pull_requests"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "linked"
@@ -1898,9 +2038,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_read"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1923,7 +2065,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1946,7 +2090,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1970,9 +2116,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "watch_pull_request"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -1999,9 +2147,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "watch_pull_request"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2029,7 +2179,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2052,7 +2204,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2080,7 +2234,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": "the earlier turn is the agent calling T3 Code's tools, which a north session cannot have made",
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2107,9 +2263,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2131,7 +2289,9 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "linked"
@@ -2158,7 +2318,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": "the answer under test comes from a mocked T3 Code tool: north could be given it only by carrying T3 Code's tool list, and T3 Code only by replacing its own tool's answer",
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2181,10 +2343,12 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "preview_snapshot",
         "t3_preview_close"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2208,10 +2372,12 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -2228,10 +2394,12 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -2251,7 +2419,9 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": true,
+      "not_run": "the answer under test comes from a mocked T3 Code tool: north could be given it only by carrying T3 Code's tool list, and T3 Code only by replacing its own tool's answer",
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2276,7 +2446,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2297,10 +2469,12 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2322,10 +2496,12 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "preview_recording_start",
         "preview_recording_stop"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2350,10 +2526,12 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task",
         "task_cancel"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2381,7 +2559,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2408,7 +2588,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2433,9 +2615,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2462,7 +2646,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2486,7 +2672,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2511,9 +2699,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2539,10 +2729,12 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2568,9 +2760,11 @@
       "forbids_t3_tools": [],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2592,9 +2786,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "schedule_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2619,9 +2815,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "schedule_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2644,9 +2842,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "schedule_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2671,9 +2871,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "schedule_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2697,7 +2899,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2721,7 +2925,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -2747,9 +2953,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -2774,9 +2982,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -2801,9 +3011,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device",
@@ -2830,9 +3042,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -2855,9 +3069,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -2882,7 +3098,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -2905,7 +3123,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -2930,7 +3150,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device",
@@ -2958,7 +3180,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -2983,7 +3207,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3005,7 +3231,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3026,7 +3254,9 @@
       "forbids_t3_tools": [],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3048,7 +3278,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3073,7 +3305,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3099,7 +3333,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3122,7 +3358,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3141,7 +3379,9 @@
       "forbids_t3_tools": [],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3162,7 +3402,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3191,7 +3433,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3216,9 +3460,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3245,9 +3491,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3275,7 +3523,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device",
@@ -3303,9 +3553,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3333,9 +3585,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3355,9 +3609,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3380,9 +3636,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device",
@@ -3409,9 +3667,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "device",
@@ -3437,7 +3697,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3463,9 +3725,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3491,9 +3755,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3522,10 +3788,12 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret",
         "schedule_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3554,7 +3822,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": "the session is a T3 Code side chat carrying its parent thread's digest",
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3575,9 +3845,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_read"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3603,7 +3875,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": "the answer under test comes from a mocked T3 Code tool: north could be given it only by carrying T3 Code's tool list, and T3 Code only by replacing its own tool's answer",
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3628,10 +3902,12 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task",
         "orchestrator_capabilities"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3651,7 +3927,9 @@
       "forbids_t3_tools": [],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "linked"
@@ -3676,9 +3954,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "task_cancel"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3706,9 +3986,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "task_cancel"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3732,7 +4014,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3756,7 +4040,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3780,9 +4066,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3808,9 +4096,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3836,9 +4126,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "request_secret"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "secret"
@@ -3860,10 +4152,12 @@
       "forbids_t3_tools": [],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "link_pull_request",
         "watch_pull_request"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3883,9 +4177,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_read"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3908,9 +4204,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_list"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3933,9 +4231,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_read"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3957,9 +4257,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_send"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -3984,9 +4286,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_send"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4009,9 +4313,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "task_cancel"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4037,7 +4343,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "linked"
@@ -4067,9 +4375,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4096,9 +4406,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "newThreads"
@@ -4128,9 +4440,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4160,9 +4474,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4185,9 +4501,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4214,9 +4532,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "newThreads"
@@ -4246,7 +4566,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4280,9 +4602,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "task_status"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4312,7 +4636,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4343,7 +4669,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": "the case's context text in front of the prompt, with the runner's working directory rewritten to the scratch repository",
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4368,7 +4696,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -4392,7 +4722,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4421,7 +4753,9 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [],
       "world_beyond_files": [],
@@ -4445,7 +4779,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4477,9 +4813,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4506,9 +4844,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "newThreads"
@@ -4537,9 +4877,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "newThreads"
@@ -4568,9 +4910,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "newThreads"
@@ -4597,9 +4941,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_read"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4627,7 +4973,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4656,9 +5004,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "newThreads"
@@ -4685,7 +5035,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "newThreads"
@@ -4711,7 +5063,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "newThreads"
@@ -4736,9 +5090,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "task_cancel"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4764,9 +5120,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_interrupt"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4799,9 +5157,11 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "newThreads"
@@ -4828,7 +5188,9 @@
       ],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [
         "newThreads"
@@ -4850,9 +5212,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4874,9 +5238,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "unlink_pull_requests"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [
         "linkedNumbers"
@@ -4892,7 +5258,9 @@
       "forbids_t3_tools": [],
       "kind": "guard",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [
         "linkedNumbers"
@@ -4910,9 +5278,11 @@
       ],
       "kind": "control",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "unlink_pull_request"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [
         "linkedNumbers"
@@ -4931,9 +5301,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "unlink_pull_requests"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": true,
       "t3_state_checks": [
         "linkedNumbers"
@@ -4954,10 +5326,12 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -4983,7 +5357,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -5016,7 +5392,9 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -5042,9 +5420,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "html_render"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -5071,9 +5451,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "preview_evaluate"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -5097,9 +5479,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "preview_evaluate"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -5122,9 +5506,11 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -5145,7 +5531,9 @@
       "forbids_t3_tools": [],
       "kind": "bad",
       "neutral": true,
+      "not_run": null,
       "requires_t3_tools": [],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -5170,9 +5558,11 @@
       ],
       "kind": "bad",
       "neutral": false,
+      "not_run": null,
       "requires_t3_tools": [
         "delegate_task"
       ],
+      "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
@@ -5257,7 +5647,22 @@
       "sha256": "618757421adb370cc6047f08bf91ad5c60138c9c343b42752580ff8233d7389f"
     }
   },
+  "judged": "Two fields are judged case by case and are not the rule's: runnable_given names what a real session in either harness is given besides the case's files so that the case can run alike in both, and not_run names why a case's world cannot be given alike in both harnesses. A case with neither and a world beyond files waits on a mechanism that is not built.",
   "lists": {
+    "asking_and_not_run": [
+      "child-babysit-calls-watch",
+      "codex-same-model-subagents-stay-native",
+      "found-thread-mentioned-without-link",
+      "guard-stop-preview-after-correction",
+      "opus-review-too-via-delegate",
+      "preview-snapshot-timeout-retry-loop",
+      "provider-unavailable-cli-fallback",
+      "side-chat-does-not-continue-main-task",
+      "snapshot-desktop-tab-from-remote-server"
+    ],
+    "asking_and_runnable_given_more_than_files": [
+      "tt-control-background-test-run"
+    ],
     "asking_and_runnable_in_both_arms": [
       "file-links-ambiguous-basename",
       "file-links-package-relative"
