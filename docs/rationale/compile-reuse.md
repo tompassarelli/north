@@ -1109,8 +1109,40 @@ the runtime build; this section measures only the edit-run loop. Nothing is adop
   3 of 3, all passed) and 54 stopped at the first error of blocker 1 below before running a test (`north-monitor` on
   `rustix 0.38.44` instead of `1.1.4`). With `north-foundation`'s 8 (run without the flag), 17 of the 1,501 library unit
   tests run today (1%); the other 1,484 do not.
-- Not reached: `relax run --quiet north -- --version` on the root package stops at `could not determine which binary
-  to run: use --bin (available: north, verify-north, fake_claude, push_trace_git)`; the next try is `--bin north`.
+- North itself from source: first try `relax run --quiet north -- --version` stopped at `could not determine which binary to run:
+  use --bin (available: north, verify-north, fake_claude, push_trace_git)`; the second run below got past it.
+
+### Second run: past blocker 1 (cpx62, later the same day)
+
+With `CARGO_RESOLVER_FEATURE_UNIFICATION=selected` in the environment of the cargo Relax starts (the env value overrides
+north's config key), `MAKEPAD_RUN_ALLOW_C=1`, `RUSTC_WRAPPER` unset and the real cargo first on `PATH`, one fresh target
+directory per crate:
+
+- The refusal is gone. `north-graph` (bundled SQLite) ran 42 of 42 tests and `north-base` (SQLite and `ring`) 69 of 69,
+  every verdict equal to nextest's (119 of 119 with `north-foundation`'s 8). The `rusqlite` and `ring` C builds went
+  through cargo, the C compiler and the linker with no further error.
+- Seconds, first verdict in a fresh target directory (native C build included): `north-foundation` 12.7 s, `north-graph`
+  14.7 s, `north-base` 16.3 s; peak memory growth 0.84, 1.6 and 2.5 GB. After the optimized native library is built in the
+  background, the warm run is 1.52 s (graph) and 8.95 s (base). Cache size was not measured.
+- Edit to verdict, median of three, against `cargo nextest` on the same host: `north-graph` Relax 2.03 s (2.08, 1.93, 2.03)
+  against 1.47 s (1.93, 1.43, 1.47), 0.7 times as fast; `north-base` Relax 8.11 s (8.32, 8.11, 8.06) against 8.30 s
+  (8.20, 8.31, 8.30), 1.0 times, 6.7 s of which are the tests themselves. `relax check` after the edit: 1.27 s (graph),
+  2.94 s (base). Memory after an edit: Relax 240 to 290 MB (graph) and about 1.0 GB (base) against nextest's 240 to 260 and
+  360 MB.
+- All 56 library crates with unit tests, `relax test` once each (1,517 `#[test]` functions by this loop's count): 36 crates
+  exit 0 and 20 do not; 718 tests pass and 5 fail, 48% of the library unit tests, compared with nextest test by test only
+  on the three crates above. The 20: 15 crates (734 tests, none ran) stop at a borrow-check error on valid code,
+  `error[E0597]: pathspecs does not live long enough` or `base`, `config.sources`, or `error[E0521]: borrowed data
+  escapes outside of function` (`north-runtime`, `north-guard`, `north-providers`, `north-ops`, `north-lanes`,
+  `north-landing`, `north-landing-gates`, `north-land-checks`, `north-lander`, `north-land-scans`, `north-safe-push`,
+  `north-lander-doctor`, `north-land-watch`, `north-replay`, `north-mutants`); `north-fleet-supervisor` (62) stops at
+  `E0433: failed to resolve: use of undeclared type Paper` in a test file; `north-dispatch` ran 90 of 94 and one panicked
+  in the JIT (`compile error in time::num_fmt::str_from_raw_parts`); `north-pacing` ran 20 of 21 and failed on
+  `assertion left == right failed, left: Some(45.0), right: None`; `north-broker` 9 of 11 (`refused: a lane-only
+  session`, a test that reads its caller's identity); `north-land-sandbox` 21 of 22.
+- North itself from source: `relax run --quiet north --bin north -- --version` started the `north` binary: 30.6 s the
+  first time (the native build included, 3.4 GB peak growth), 1.02 s the second (290 MB), and the binary's own parser
+  answered `error: unrecognized option '--version'` (exit 2), as the real binary does.
 
 ### Blockers, in the order they stop north
 
@@ -1124,32 +1156,28 @@ the runtime build; this section measures only the edit-run loop. Nothing is adop
    `[resolver] feature-unification = "workspace"` (with `[unstable] feature-unification = true`), so the cargo Relax
    starts resolves a `-p` package's features as `--workspace` does: the `stdio` and `termios` on `rustix` come from
    `crossterm` and `termina` elsewhere in the lock, while the only package in `north-graph`'s closure asking for
-   `rustix` 1.x is `tempfile` (`fs`, `std`), which is Relax's set. That reading is from the config and the source, not
-   from a run: the run that settles it is the same `relax test north-graph` with
-   `MAKEPAD_RUN_ALLOW_C=1 CARGO_RESOLVER_FEATURE_UNIFICATION=selected` in the environment, which was not completed
-   (the build hosts' queue refused the job after ten minutes). It also fits what was measured: `north-tui`, whose own
-   graph has `crossterm`, ran 6 of 6, and cutting `members` to one crate (my one try) failed the same way because the
-   root package `north` stays a member. Relax's own options do not move either side except `--features` and
-   `--no-default-features`, which go to both (`native.rs:908-912`); the test page takes `<package>
-   [--lib|--bins|--tests] [-- test arguments]` and the check page `--workspace` and `--also=<pkg,..>`
-   (`tools/run/runner/src/help.rs:307, 334-343`); `-p` appears only on `clean` (`help.rs:396`). If the settling run
-   passes the refusal, blocker 1 is north's setting and not a Relax gap; if not, Relax would have to resolve the
-   selected package's features as cargo does or take cargo's set as the authority for native packages. Worth, once
-   lifted: 54 crates (1,484 tests) would reach the next stop; the speed for a crate that runs is not changed by it.
+   `rustix` 1.x is `tempfile` (`fs`, `std`), which is Relax's set. A second run with `CARGO_RESOLVER_FEATURE_UNIFICATION=selected` in the environment settled it: the refusal is gone and
+   the C crates build (second run, below). It also fits the first run: `north-tui`, whose own graph has `crossterm`, ran
+   6 of 6, and cutting `members` to one crate (my one try) failed the same way because the root package `north` stays a
+   member. Relax's own options do not move either side except `--features` and `--no-default-features`, which go to
+   both (`native.rs:908-912`); the test page takes `<package> [--lib|--bins|--tests] [-- test arguments]` and the check
+   page `--workspace` and `--also=<pkg,..>` (`tools/run/runner/src/help.rs:307, 334-343`); `-p` appears only on `clean`
+   (`help.rs:396`). So blocker 1 is north's setting, not a Relax gap, and the cargo Relax starts needs that environment
+   value, which a worker's loop would have to export.
 2. C libraries. Without `--allow-c`, `relax test` refuses `libsqlite3-sys` 0.39.1 and `ring` 0.17.14 at once
    (`registry package libsqlite3-sys 0.39.1 compiles C or C++ (build-dependency cc): it is built only with
-   --allow-c`). With it, the first error is blocker 1 for `north-graph`, `north-base`, `north-tune` and every other
-   crate in the loop, so what happens after is not measured: whether `sqlite3.c` and `ring`'s assembly build through
-   the cargo shim, and what the optimized background build costs. The flag also makes Relax start real cargo,
-   rustc, the C compiler and the linker, so it no longer replaces them.
-3. The count. Measured today: 17 of 1,501 library unit tests run (1%), 8 of them with verdicts compared equal to
-   nextest's and 9 passing. After blocker 1 alone: not measured. After 1 and 2: not measured. A count by manifests
-   alone puts 1,485 of the 1,501 in crates that depend directly or through a path dependency on `rusqlite` or `ring`;
-   `north-tui` ran although its graph reaches `north-base`, so that count is an upper bound on what needs C.
-4. Speed. Where a crate runs, the edit loop is no faster: 0.9 times on cpx62b, 1.2 times on cpx62, because the unit
-   tests (0.7 s native, 2.1 s under the JIT) dominate and `cargo nextest`'s rebuild of a leaf crate is under 1.3 s here.
-   Lifting blockers 1 to 3 does not by itself reach five times; a crate with a slow link (a hub's test binary) would
-   gain more, and none of the hubs ran.
+   --allow-c`). With it and blocker 1 lifted they build: a fresh target directory's first verdict took 12.7 to 16.3 s,
+   cached afterwards. The flag makes Relax start real cargo, rustc, the C compiler and the linker for those packages,
+   so Relax no longer replaces them there.
+3. Valid code Relax rejects or miscompiles. Past blockers 1 and 2, 15 of the 56 crates (734 of the tests) stop at a
+   borrow-check error on code rustc accepts (`E0597`, `E0521`), one at `E0433` on a test file's type, and a few tests
+   fail in the JIT or on a platform difference (`time`'s `str_from_raw_parts`, a `None` where `Some(45.0)` is expected,
+   a caller-identity refusal). These are Relax fidelity gaps, each with a first error above; none is north's to fix.
+4. The count and the speed. Measured: 718 of 1,501 library unit tests pass (48%), 119 of 119 equal to nextest's on the
+   three crates compared. Where a crate runs, the edit loop is no faster: 0.9 to 1.2 times for the leaf, 0.7 times for
+   `north-graph` and 1.0 times for the hub, because the tests dominate (0.7 s native, 2.1 s under the JIT, 6.7 s for
+   the hub's) and `cargo nextest`'s rebuild and link of a crate is under 1.6 s on these hosts. Lifting blockers 1 to 3
+   would not by itself reach five times.
 
 ### Failures, with the first error of each
 
@@ -1185,13 +1213,16 @@ the runtime build; this section measures only the edit-run loop. Nothing is adop
   `rust-version = "1.96"` did not stop `relax check` or `relax test` on `north-foundation`, `north-tui` or
   `north-claude-stream`. No nightly feature stopped a run.
 
-### Verdict: drop for now, with named blockers
+### Verdict: drop for the edit loop
 
-By the box's rule (at least 80% of the crates' unit tests run with equal verdicts, and an edit to verdict at least
-five times shorter): of the 119 unit tests in the three crates, 8 ran (7%), with equal verdicts, in the one crate with
-no C library; the best edit-to-verdict ratio was 1.2 times (0.9 times on cpx62b). Both conditions fail, so the answer
-is drop. What would reopen it is the one run that settles blocker 1, then the measured cost of the C builds behind it and a
-speed figure on a crate whose test binary is slow to link; none exists today.
+By the box's rule (at least 80% of the three crates' unit tests run with equal verdicts, and an edit to verdict at least
+five times shorter): the tests of the three crates run and agree (119 of 119, once blocker 1 is lifted), but the edit to
+verdict is 0.9, 0.7 and 1.0 times as fast as nextest's on the leaf, the SQLite crate and the hub, so the second
+condition fails by a wide margin and the answer is drop. The staged plan's bars (docs/rationale/watch/2026-11-12-relax.md)
+read the same way: 718 of the 1,501 library unit tests pass against at least 1,201 required (48%), a hub's edit to
+verdict is 1.0 times against at least five, and a fresh target directory's first verdict is inside 60 s (12.7 to 16.3 s;
+cache size not measured). What reopens it is a hub whose rebuild and link, not its tests, dominate its loop, and Relax
+fixing the borrow-check false positives behind blocker 3; neither is in hand.
 
 [reindeer]: https://github.com/facebookincubator/reindeer
 [prelude-cargo-package]: https://github.com/facebook/buck2-prelude/blob/main/rust/cargo_package.bzl
