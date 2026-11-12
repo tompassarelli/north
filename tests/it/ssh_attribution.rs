@@ -2,7 +2,6 @@ use north_core::foundation::shim::write_script;
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::os::unix::net::UnixListener;
-use std::path::Path;
 use std::process::Command;
 
 const SESSION: &str = "n-626-repro";
@@ -15,7 +14,7 @@ fn a_remote_command_through_the_fleet_ssh_path_runs_in_a_scope_the_far_watchdog_
     let (shim, far) = (scratch.path().join("shim"), scratch.path().join("far"));
     fs::create_dir_all(&shim).unwrap();
     fs::create_dir_all(&far).unwrap();
-    symlink(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/ssh"), shim.join("ssh")).unwrap();
+    symlink(crate::support::manifest_dir().join("bin/ssh"), shim.join("ssh")).unwrap();
     symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), far.join("north")).unwrap();
     write_script(&far.join("ssh"), FAR_SSH);
     write_script(&far.join("systemd-run"), FAR_SYSTEMD_RUN);

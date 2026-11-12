@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 const ALLOWLIST: &str = "harness/agent-text-reads.toml";
 
 fn root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
+    crate::support::manifest_dir()
 }
 
 fn is_test_file(path: &str) -> bool {

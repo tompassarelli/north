@@ -9,6 +9,7 @@ mod cargo;
 mod cargo_metadata;
 
 use std::collections::BTreeSet;
+use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
@@ -140,6 +141,38 @@ pub struct Tests<'a> {
     /// Bypasses every compile cache, so the run measures the compiler itself.
     pub uncached: bool,
     pub coverage: Option<Coverage<'a>>,
+}
+
+/// One test binary's run as the build system itself recorded it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TestRun {
+    pub target: String,
+    /// The key of the action that ran it: its command, its environment and every declared input.
+    pub action: Option<String>,
+    /// Whether the result is an earlier run's, answered for the same key, with nothing run now.
+    pub reused: bool,
+    pub passed: bool,
+    pub seconds: f64,
+    pub printed: String,
+}
+
+/// How to read back the test run a command made, when the build system it names keeps a record of its runs.
+pub struct TestRecord {
+    /// Prints the record of the tree's last test run.
+    pub command: String,
+    read: fn(&mut dyn BufRead) -> Result<Vec<TestRun>, String>,
+}
+
+impl TestRecord {
+    /// The test binaries of the run, from what [`TestRecord::command`] printed.
+    pub fn runs(&self, printed: &mut dyn BufRead) -> Result<Vec<TestRun>, String> {
+        (self.read)(printed)
+    }
+}
+
+/// The record of the run `command` makes, read by the side `command` itself names whichever side this host builds with: Buck2 keeps one, Cargo and nextest none.
+pub fn test_record(command: &str) -> Option<TestRecord> {
+    buck2::test_record::command(command).map(|command| TestRecord { command, read: buck2::test_record::runs })
 }
 
 /// One test binary a listing found: its id, package, path and test names.

@@ -62,7 +62,7 @@ impl Rig {
             .env("GH_TRACE", self.root.join("gh.trace"))
             .env("AGENTS_ORCHESTRATION", self.root.join("orchestration.toml"))
             .env("NORTH_BIN", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
-            .env("NORTH_HOME", env!("CARGO_MANIFEST_DIR"))
+            .env("NORTH_HOME", crate::support::manifest_dir())
             .env("THREADS_ALIVE_OWNERS", r#"["alice","bob","fixture"]"#)
             .env("PATH", format!("{}:{}", self.root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
             .env_remove("THREADS_NO_NATIVE")

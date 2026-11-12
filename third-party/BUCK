@@ -6408,6 +6408,7 @@ cargo.rust_library(
     },
     features = [
         "default",
+        "float_roundtrip",
         "raw_value",
         "std",
     ],
@@ -6446,6 +6447,7 @@ cargo.rust_binary(
     },
     features = [
         "default",
+        "float_roundtrip",
         "raw_value",
         "std",
     ],
@@ -6470,6 +6472,7 @@ buildscript_run(
     },
     features = [
         "default",
+        "float_roundtrip",
         "raw_value",
         "std",
     ],

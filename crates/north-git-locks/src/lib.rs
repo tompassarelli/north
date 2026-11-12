@@ -45,7 +45,7 @@ pub fn clear(checkout: &Path) -> Result<Sweep, String> {
     clear_at(checkout, SystemTime::now())
 }
 
-/// Runs `operation`; when it fails because a sibling worktree moved the same remote-tracking ref first, runs it again a bounded number of times, and when it fails naming a lock file, clears the stale locks in `checkout` and runs it once more if any was removed.
+/// Runs `operation`; when it fails because a sibling worktree moved the same remote-tracking ref first or held that ref's lock, runs it again a bounded number of times, and when it still fails naming a lock file, clears the stale locks in `checkout` and runs it once more if any was removed.
 pub fn retry_after_clearing<T>(checkout: &Path, mut operation: impl FnMut() -> Result<T, String>) -> Result<T, String> {
     let mut result = operation();
     for _ in 0..RACE_RETRIES {
@@ -68,8 +68,9 @@ pub fn retry_after_clearing<T>(checkout: &Path, mut operation: impl FnMut() -> R
     }
 }
 
+/// Git gives up on a ref lock a sibling holds after `core.filesRefLockTimeout`, 100 ms, which a busy host outlasts.
 fn lost_ref_race(error: &str) -> bool {
-    error.contains("cannot lock ref") && error.contains("but expected")
+    error.contains("cannot lock ref") && (error.contains("but expected") || error.contains("File exists"))
 }
 
 fn clear_at(checkout: &Path, now: SystemTime) -> Result<Sweep, String> {

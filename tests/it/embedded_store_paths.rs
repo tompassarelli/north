@@ -16,7 +16,7 @@ fn sources(dir: &Path, found: &mut Vec<PathBuf>) {
 
 #[test]
 fn no_file_a_shipped_binary_embeds_holds_a_nix_store_hash() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = crate::support::manifest_dir();
     let mut files = Vec::new();
     sources(&root.join("src"), &mut files);
     sources(&root.join("crates"), &mut files);

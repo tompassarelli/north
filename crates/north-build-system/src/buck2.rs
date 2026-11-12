@@ -4,11 +4,15 @@ use std::time::SystemTime;
 
 use super::{Build, BuildSystem, Invocation, Mutants, Profile, Selection, Shell, Step, TestBinary, Tests};
 
+pub(crate) mod test_record;
+
 /// Buck2 over the generated BUCK targets (north#1115): the root package is `//:north`, a workspace crate `//crates/NAME:NAME`
 /// with its tests beside it. No host chooses it before box 7b turns it on.
 pub struct Buck2;
 
 const OUT: &str = "buck-out/north";
+/// Without it Buck2 runs every test on the invoking host, as the invoking user: outside the workers' fence, and never cached.
+const ON_WORKERS: &str = "--unstable-allow-compatible-tests-on-re";
 
 fn words(verb: &[&str]) -> Vec<String> {
     std::iter::once("buck2").chain(verb.iter().copied()).map(str::to_owned).collect()
@@ -85,7 +89,7 @@ impl BuildSystem for Buck2 {
         let mut words = match &request.step {
             Step::Compile => words(&["build"]),
             Step::List => words(&["uquery", "--json"]),
-            Step::Run { .. } => words(&["test"]),
+            Step::Run { .. } => words(&["test", ON_WORKERS]),
         };
         words.extend(request.coverage.is_some().then(|| "@mode/coverage".to_owned()));
         let targets = targets(&request.selection);

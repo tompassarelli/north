@@ -5,14 +5,20 @@ mod observe;
 pub use observe::checked_environment;
 pub mod outcome;
 mod recorder;
+mod runs;
 
-pub const USAGE: &str = "north land reuse observe --probe ID [--record] [--tree REV] -- COMMAND (runs the nextest land line under bash, passes its output and exit status through, then prints for each test the lookup of its recorded path sets as north-reuse lines; with --record, each test also runs under the sandbox recorder and its path set and verdict are stored) | available";
+pub const USAGE: &str = "north land reuse observe --probe ID [--record] [--tree REV] -- COMMAND (runs the nextest land line under bash, passes its output and exit status through, then prints for each test the lookup of its recorded path sets as north-reuse lines; with --record, each test also runs under the sandbox recorder and its path set and verdict are stored; a `buck2 test` line is read back from Buck2's own record of the run instead, one north-reuse line per test binary, reused when its action's result came from the action cache) | available";
 const RUNNER_KEY: &str = "target.x86_64-unknown-linux-gnu.runner";
 pub const RECORD_ENV: &str = "NORTH_LAND_REUSE_RECORD";
 const NO_RECORDING: [&str; 1] = ["north-land-sandbox"];
 
 pub fn runs_nextest(command: &str) -> bool {
     command.contains("cargo nextest run") && !command.contains("--no-run")
+}
+
+/// Whether `command` runs tests the observer reads reuse for: a nextest run, or a run the build system records itself.
+pub fn runs_tests(command: &str) -> bool {
+    runs_nextest(command) || north_build_system::test_record(command).is_some()
 }
 
 pub fn quote(word: &str) -> String {

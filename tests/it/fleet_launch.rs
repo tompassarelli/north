@@ -83,7 +83,7 @@ pub(crate) fn environment(mut command: Command, root: &Path, host: &str) -> Comm
         .env("CLAUDE_RUNTIME", root.join("bin/claude"))
         .env("FLEET_LAUNCH_FIXTURE", root)
         .env("THREADS_DB", root.join("threads.db"))
-        .env("NORTH_HOME", env!("CARGO_MANIFEST_DIR"))
+        .env("NORTH_HOME", crate::support::manifest_dir())
         .env("PLACEMENT_HOSTS", root.join("placement-hosts.json"))
         .env("FAKE_CLAUDE_HOOK_MS", "1500")
         .env("FAKE_CLAUDE_SIGNED_OUT_MARK", root.join("signed-out"))

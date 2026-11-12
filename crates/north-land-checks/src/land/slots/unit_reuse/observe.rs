@@ -12,7 +12,7 @@ use north_build_system::{Resolution, Shell};
 
 use super::lines::Record;
 use super::outcome::{Outcome, parse};
-use super::{USAGE, execute, recorder};
+use super::{USAGE, execute, recorder, runs};
 
 const METADATA_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
 
@@ -163,7 +163,8 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let inside = recorder::inside_root(&root);
     let target = target_directory(&root, &options.command);
-    let recording = options.record.then(|| recorder::stage(&root, inside.as_deref(), &target, &options.command)).flatten();
+    let record = north_build_system::test_record(&options.command);
+    let recording = (options.record && record.is_none()).then(|| recorder::stage(&root, inside.as_deref(), &target, &options.command)).flatten();
     let command = recording.as_ref().map_or(options.command.as_str(), |recording| recording.command.as_str());
     let (code, text) = match execute::run(command, &[]) {
         Ok(ran) => ran,
@@ -172,10 +173,17 @@ pub fn run(arguments: &[String]) -> u8 {
             return 125;
         }
     };
-    match shadow(&options, &root, inside.as_deref(), &text, recording.as_ref().map(|recording| recording.records.path())) {
-        Ok(records) => {
+    let seen = match &record {
+        Some(record) => runs::read(record).map(|runs| {
+            let (cases, failed) = runs::cases(&runs);
+            (runs::units(&runs, &options.probe), format!("reused from the action cache; {cases} case(s), {failed} failed"))
+        }),
+        None => shadow(&options, &root, inside.as_deref(), &text, recording.as_ref().map(|recording| recording.records.path())).map(|records| (records, format!("would be reused{}", if recording.is_some() { ", recorded" } else { "" }))),
+    };
+    match seen {
+        Ok((records, reuse)) => {
             let reused = records.iter().filter(|record| matches!(record, Record::Unit { set: Some(_), .. })).count();
-            println!("north land reuse: {}: {} unit(s) seen, {reused} would be reused{}", options.probe, records.iter().filter(|record| matches!(record, Record::Unit { .. })).count(), if recording.is_some() { ", recorded" } else { "" });
+            println!("north land reuse: {}: {} unit(s) seen, {reused} {reuse}", options.probe, records.iter().filter(|record| matches!(record, Record::Unit { .. })).count());
             for record in records {
                 println!("{}", record.marked());
             }

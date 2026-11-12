@@ -431,7 +431,7 @@ impl Fixture {
 
 
 fn safe_push_entries(key: &str) -> Vec<String> {
-    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join(".safe-push");
+    let file = crate::support::manifest_dir().join(".safe-push");
     let output = Command::new("git").args(["config", "--file"]).arg(file).args(["--get-all", key]).output().unwrap();
     String::from_utf8(output.stdout).unwrap().lines().map(str::to_owned).collect()
 }
@@ -485,7 +485,7 @@ fn a_features_entry_over_1200_characters_lands_and_its_check_runs_even_on_a_runt
     let fixture = Fixture::new(&[("land.check-local", "true"), ("land.check", &format!("docs/features/ :: {command}"))]);
     live_runtime(&fixture);
     fs::create_dir_all(fixture.repo.join("bin")).unwrap();
-    shim::copy_executable(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/head-north"), fixture.repo.join("bin/head-north"));
+    shim::copy_executable(crate::support::manifest_dir().join("bin/head-north"), fixture.repo.join("bin/head-north"));
     let section = fixture.repo.join("docs/features/core");
     fs::create_dir_all(&section).unwrap();
     fs::write(fixture.repo.join("docs/features/_header.md"), "# Features\n").unwrap();
@@ -523,7 +523,7 @@ fn head_north_on_a_runtime_mid_build() -> (Fixture, PathBuf) {
     let fixture = Fixture::new(&[("land.check-local", "true")]);
     live_runtime(&fixture);
     fs::create_dir_all(fixture.repo.join("bin")).unwrap();
-    shim::copy_executable(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/head-north"), fixture.repo.join("bin/head-north"));
+    shim::copy_executable(crate::support::manifest_dir().join("bin/head-north"), fixture.repo.join("bin/head-north"));
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "head-north"]);
     north_from_the_tree(&fixture);
@@ -567,7 +567,7 @@ fn head_north_refuses_a_tree_that_does_not_compile_and_reaches_no_verdict_only_w
     let fixture = Fixture::new(&[("land.check-local", "true")]);
     live_runtime(&fixture);
     fs::create_dir_all(fixture.repo.join("bin")).unwrap();
-    shim::copy_executable(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/head-north"), fixture.repo.join("bin/head-north"));
+    shim::copy_executable(crate::support::manifest_dir().join("bin/head-north"), fixture.repo.join("bin/head-north"));
     script(&fixture.repo.join("bin/land-shell"), "printf '%s\\n' \"$STUB_CARGO_ERROR\" >&2\nexit 101\n");
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "head-north"]);

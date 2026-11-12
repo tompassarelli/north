@@ -110,7 +110,7 @@ fn refused_inside_depbox(host: &Host) {
     assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(&project).status().unwrap().success());
     std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), host.path("real/north")).unwrap();
     for command in [&["run", "--", "cargo", "build"][..], &["run", "--", "nix", "develop", "-c", "cargo", "test", "--locked", "--offline"]] {
-        let mut depbox = fleet(host, concat!(env!("CARGO_MANIFEST_DIR"), "/bin/depbox"));
+        let mut depbox = fleet(host, crate::support::manifest_dir().join("bin/depbox"));
         let refused = depbox.current_dir(&project).args(command).output_exclusive().unwrap();
         refused_for_want_of_a_build_host(&refused, &format!("depbox {command:?}"));
     }

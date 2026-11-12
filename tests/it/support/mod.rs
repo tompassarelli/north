@@ -14,6 +14,12 @@ pub(crate) use bin_exe;
 
 static RESOLVED: LazyLock<Mutex<BTreeMap<&'static str, &'static str>>> = LazyLock::new(Mutex::default);
 
+/// The package directory as an absolute path: Cargo compiles it in absolute, a Buck2 target relative to the project root a test runs from.
+pub fn manifest_dir() -> &'static std::path::Path {
+    static ABSOLUTE: LazyLock<std::path::PathBuf> = LazyLock::new(|| std::path::absolute(env!("CARGO_MANIFEST_DIR")).unwrap_or_else(|error| panic!("CARGO_MANIFEST_DIR: {error}")));
+    &ABSOLUTE
+}
+
 pub fn resolve_bin_exe(variable: &'static str, built: Option<&'static str>) -> &'static str {
     built.unwrap_or_else(|| {
         let mut resolved = RESOLVED.lock().unwrap_or_else(PoisonError::into_inner);

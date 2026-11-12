@@ -1,12 +1,12 @@
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use north_landing::land::slots::it_modules::{Plan, STRUCTURE, Selection, TABLE, Table, select, spawners};
 use north_landing::land::slots::tree_wide_units::Units;
 use north_landing::land::slots::guard_suites::Floor;
 
 fn read(path: &str) -> String {
-    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(path)).unwrap()
+    std::fs::read_to_string(crate::support::manifest_dir().join(path)).unwrap()
 }
 
 #[test]
@@ -21,7 +21,7 @@ fn every_tests_it_module_maps_to_crates_the_crate_dag_names() {
 
 
 fn sources(module: &str) -> String {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it");
+    let root = crate::support::manifest_dir().join("tests/it");
     let mut pending: Vec<PathBuf> = vec![root.join(format!("{module}.rs")), root.join(module)];
     let mut text = String::new();
     while let Some(path) = pending.pop() {
@@ -64,7 +64,7 @@ fn a_module_that_spawns_the_north_binary_runs_for_any_crate_change_unless_its_li
 }
 
 fn spawners_of_tree() -> BTreeSet<String> {
-    spawners(Path::new(env!("CARGO_MANIFEST_DIR")))
+    spawners(crate::support::manifest_dir())
 }
 
 #[test]

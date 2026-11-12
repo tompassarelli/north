@@ -1,6 +1,6 @@
 use north_core::foundation::shim;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use rusqlite::Connection;
@@ -66,7 +66,7 @@ impl Fixture {
         Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .args(["config", "agents", "plan"])
             .args(arguments)
-            .env("NORTH_HOME", env!("CARGO_MANIFEST_DIR"))
+            .env("NORTH_HOME", crate::support::manifest_dir())
             .env("PATH", path)
             .env("AGENTS_CLAUDE_BIN", self.path("bin/claude"))
             .env("AGENTS_ORCHESTRATION", self.path("orchestration.toml"))
@@ -84,7 +84,7 @@ impl Fixture {
 }
 
 fn scenario(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/north-pace/src/router/fixtures/scenarios").join(format!("{name}.json"))
+    crate::support::manifest_dir().join("crates/north-pace/src/router/fixtures/scenarios").join(format!("{name}.json"))
 }
 
 #[test]

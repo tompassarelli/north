@@ -6,7 +6,7 @@ const ENQUEUE: &str = "@enqueue";
 const OWNED_BY_NORTH714: [&str; 2] = ["land tests --select changed --only portable", "land scan test-admission run"];
 
 fn values(key: &str) -> Vec<String> {
-    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join(".safe-push");
+    let file = crate::support::manifest_dir().join(".safe-push");
     let output = Command::new("git").args(["config", "-f"]).arg(file).args(["--get-all", key]).output().unwrap();
     String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect()
 }
@@ -17,7 +17,7 @@ fn command(entry: &str) -> &str {
 
 #[test]
 fn every_code_path_a_land_line_names_exists_in_the_tree() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = crate::support::manifest_dir();
     let missing: Vec<String> = ["land.check", "land.after", "land.machine-bound"]
         .iter()
         .flat_map(|key| values(key))
@@ -92,7 +92,7 @@ fn nextest_refusals(root: &Path, command: &str) -> Vec<String> {
 
 #[test]
 fn a_nextest_land_line_refuses_to_pass_on_no_tests_and_names_only_tests_that_exist() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = crate::support::manifest_dir();
     let live: Vec<String> = ["land.check", "land.after", "land.machine-bound"].iter().flat_map(|key| values(key)).flat_map(|entry| nextest_refusals(root, command(&entry)).into_iter().map(move |refusal| format!("{}: {refusal}", command(&entry).chars().take(80).collect::<String>()))).collect();
     assert_eq!(live, Vec::<String>::new());
     let stale = "cargo nextest run --locked --offline --no-tests=pass -p north-guard --lib -E 'binary_id(=north-guard) & test(=code_health::habits_tests::the_north_tree_keeps_its_rust_habits)'";

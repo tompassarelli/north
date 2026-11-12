@@ -160,6 +160,10 @@ lane for `buck2` would hand that HOME to every program the daemon and `buck2 run
   `[test] v2_test_executor` names an external one. Meta's external runner, Tpx, is not open source.
 - The built-in runner executes each test target's command once, with a 600 s timeout by default. It reports one
   verdict per target: pass on exit 0, fail otherwise. It splits no target into its cases.
+- `buck2 test` runs every test on the host that invoked it unless it is given
+  `--unstable-allow-compatible-tests-on-re`, whatever the execution platform says. With the flag, a test that runs
+  from the project root with project-relative paths, as every north test target does, runs on the remote-execution
+  workers. The seam's test run passes the flag (`crates/north-build-system/src/buck2.rs`).
 - Test execution caching (`supports_test_execution_caching`, on by default for `rust_test`) looks the test command
   up in the remote action cache. A local test run is never uploaded ("We never upload local test executions",
   `app/buck2_test/src/orchestrator.rs`). A test result is reused only when the run happened on remote execution,
@@ -179,6 +183,10 @@ non-ignored case in its own process, `BINARY --exact NAME --nocapture`, as nexte
 prints, sorted by name, one nextest-format line per case, `PASS [   0.012s] north-base platform::tests::x`
 (`FAIL`, or `SIG*` for a signal), with the output of each case that did not pass. A `Summary` line follows. It exits
 0 when every case passed and 100 when any failed.
+- A case writes its output to an unlinked temporary file, not a pipe. Two north-providers cases leave a process
+  behind that holds their output (nextest marks them `LEAK` after 100 ms and counts them passed); with a pipe the
+  runner waited for that process, and a 100 ms wait as nextest's would name a case by how busy the host is. A
+  case's verdict is its own exit, so the runner prints `PASS` for them and nextest's `LEAK` compares as a pass.
 - Same verdicts: per-test processes keep nextest's semantics, where a test that sets an environment variable or a
   static sees a fresh process. Running a binary's cases in one libtest process would change verdicts.
 - Same count: the lines carry nextest's binary id and test name, so the per-test verdict sets of the two runs
@@ -239,6 +247,16 @@ prints, sorted by name, one nextest-format line per case, `PASS [   0.012s] nort
 takes, per target, the action digest and `cache_hit` from `TestEnd`, and the per-case lines from `TestResult`.
 The two-phase verdict store and the recorded path sets of [verdict-reuse.md](verdict-reuse.md) stop being the key:
 Buck2 keys on declared inputs, and remote execution enforces them.
+- As built: `north land reuse observe`, which already wraps the landing's test line, reads a `buck2 test` line back
+  from `buck2 log show`, run behind the same shell words as the test
+  (`crates/north-build-system/src/buck2/test_record.rs`,
+  `crates/north-land-checks/src/land/slots/unit_reuse/runs.rs`). It prints one `north-reuse` unit per test binary,
+  carrying the action digest when the result was a cache hit, so `north land reuse report` counts Buck2's reuse with
+  the lines it already harvests. Its summary line gives the cases the binaries printed and how many failed.
+- Measured on gex45, 2026-11-12, four targets run twice with the flag above: the first run executed each on a worker
+  (`RemoteCommand`, `cache_hit` false), the second answered all four from the action cache (`cache_hit` true, the
+  same digests, the first run's durations). A test run locally carries its digest in `LocalCommand` and is never
+  reused.
 
 **What declared inputs do not fence, and the fix.** A read outside the input root, such as `$HOME`,
 `~/code/north/main` through `harness_root`'s fallback, or `/etc`, is not in the key. On a worker that runs as
@@ -251,7 +269,40 @@ dedicated user that cannot read `/home/tom`, so that read fails. The ptrace reco
 
 - `buck2 test //...` exits 0 on a build host.
 - The `PASS` lines in the `TestResult` details of `buck2 log show`, taken as (binary id, test) pairs, are the same set
-  as the `PASS` lines of `cargo nextest run --workspace` on the same commit. Both counts are printed.
+  as the `PASS` and `LEAK` lines of `cargo nextest run --workspace` on the same commit. Both counts are printed.
+
+### Measured, 2026-11-12
+
+Both runs outside any worker sandbox, through `north capacity offload run`. An earlier comparison ran inside a worker
+sandbox, where nextest itself fails 12 cases, so its differences said nothing about Buck2.
+
+- Count: equal. On cpx62b at one tree (origin/main aaac03c8b5 with this box's changes), nextest ran 1808 cases and
+  skipped 2, and `buck2 test //...` ran 1808 cases in 252 targets.
+- Nextest, as the landing runs it (`bin/land-shell --dev`, so inside the dependency box): 1808 passed, 2 of them
+  leaky, in 72 s of test time.
+- `buck2 test //...`, tests on the host: 1792 passed and 16 failed, in 278 s. The tests ran as the invoking user,
+  outside the dependency box, with that user's home and the network:
+  - 12 `north::it worker_sandbox` cases and one north-lanes case assert a confinement the dependency box supplies;
+  - one north-runtime case read sweep cooldowns from the real state directory;
+  - one north-safe-push case asked the host's installed north for a private-text verdict and waited 244 s for it,
+    which the dependency box's masked home and closed network never allow;
+  - one north-guard case failed because `third-party/BUCK` built serde_json without `float_roundtrip`, which the
+    manifest has asked for since north#1276 (regenerated in this change).
+- `buck2 test --unstable-allow-compatible-tests-on-re //...` on gex45, tests on the workers: 1759 passed and 51
+  failed of 1810 (the tree had two more cases), in 135 s. By test binary: `north::it` 27, north-land-checks 9,
+  north-base 4, north-lanes 3, north-guard 3, and one each in north-code-health, north-fleet, north-lander,
+  north-runtime and the north binary. Seen causes:
+  - a read of a file no target declares, such as another crate's sources, `.safe-push` or `.cargo/config.toml`, which
+    the workers refuse as designed;
+  - a worker where the dependency box cannot start (`bwrap: Can't mount proc on /proc: Operation not permitted`),
+    so every case that runs the dependency box or a worker sandbox fails; four north-base ssh cases that each
+    wait 120 s on their fixture; and `Function not implemented` when north-lanes opens a directory.
+- One verdict differed only under load: north-git-locks' four worktrees fetching at once failed once on gex45 with
+  `cannot lock ref ... File exists`, a sibling holding the ref's lock past git's 100 ms wait. The fetch retry now
+  takes that for the race it is.
+- So box 5's count holds and its verdicts do not yet. The tests belong on the workers, where an undeclared read
+  fails and a pass is cached; a run on the host is neither fenced nor reused. What remains is to declare the inputs
+  the 51 cases read, and to give the cases that start a sandbox or a fixture service a worker that lets them.
 
 Sources: [Buck2 test command](../references.md#buck2-test), [Buck2 test execution](../references.md#buck2-test-execution),
 [nextest environment variables](../references.md#nextest-env).
@@ -403,7 +454,8 @@ The store was on cpx62, with Buildbarn workers on gex45 (8 slots), cpx62 and cpx
    exit status, not a file.
    - The seam's Buck2 side passes `-M none` to every build whose result is only its exit status: the land build
      check, the offload build and box 6's check.
-   - `buck2 test` runs tests on the workers, so no test binary is materialised.
+   - `buck2 test` runs tests on the workers when given `--unstable-allow-compatible-tests-on-re`, as the seam's test
+     run is, so no test binary is materialised; without the flag it runs them on the host (Tests, north#1115 box 5).
    - Materialised are only what a command runs or ships: a `buck2 run` target, the runtime build's `--out`, and the
      proc-macro libraries and build-script outputs that rust-project hands the editor.
    - Saved: 572 MiB and 321 MiB of download per `//...`, against 0 B and 11 MiB.

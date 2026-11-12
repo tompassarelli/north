@@ -150,7 +150,7 @@ impl Shared {
     }
 
     pub(super) fn observes(&self, command: &str) -> bool {
-        !self.arguments.after && unit_reuse::runs_nextest(command)
+        !self.arguments.after && unit_reuse::runs_tests(command)
     }
 
     pub(super) fn observed(&self, command: &str) -> String {

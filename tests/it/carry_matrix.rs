@@ -148,7 +148,7 @@ impl Matrix {
             }
         }
         symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
-        shim::copy_executable(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/cargo"), bin.join("cargo"));
+        shim::copy_executable(crate::support::manifest_dir().join("bin/cargo"), bin.join("cargo"));
         shim::write_script(&bin.join("nix"), &FAKE_NIX.replace("@TOOLCHAIN@", &toolchain.display().to_string()));
         shim::write_script(&bin.join("ssh"), FAKE_SSH);
         shim::write_script(&toolchain.join("cargo"), "echo \"$0\"\n");
@@ -186,7 +186,7 @@ impl Matrix {
     }
 
     fn sandboxed(&self, script: &str, probe: &[&str]) -> Output {
-        let mut command = self.command(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin").join(script));
+        let mut command = self.command(crate::support::manifest_dir().join("bin").join(script));
         command.args(if script == "land-shell" { ["--dev", "--"] } else { ["run", "--"] }).args(probe).output().unwrap()
     }
 
