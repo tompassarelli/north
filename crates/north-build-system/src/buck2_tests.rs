@@ -72,10 +72,15 @@ fn a_lint_only_host_runs_the_gate_only_while_the_tree_s_gate_script_and_buck2_co
     write(".buckconfig.flake", "[buck2_re_client]\n  engine_address = grpc://lane:1\n");
     assert_eq!(gate(CLIPPY), None, "a plain file where the shell hook's link belongs is linted by Cargo: the tree's .buckconfig includes it, any section");
     git(&["add", "--force", ".buckconfig.flake"]);
-    link(Path::new("/nix/store/toolchain.buckconfig"));
+    let stored = std::fs::read_dir("/nix/store").unwrap().next().unwrap().unwrap().path();
+    link(&stored);
     assert_eq!(gate(CLIPPY), None, "and so is a toolchain buckconfig the tree tracks, whatever stands in the checkout");
     git(&["rm", "-q", "--cached", "-f", ".buckconfig.flake"]);
     assert!(gate(CLIPPY).is_some(), "the untracked link into the store that the hook makes is the host's own");
     link(&tree.path().join("code.rs"));
     assert_eq!(gate(CLIPPY), None, "a link to anything outside the store is not the hook's");
+    link(Path::new(&format!("/nix/store/../..{}", tree.path().join("code.rs").display())));
+    assert_eq!(gate(CLIPPY), None, "nor is one that starts with the store's path and reaches a file of the tree");
+    link(Path::new("/nix/store/no-such-toolchain.buckconfig"));
+    assert_eq!(gate(CLIPPY), None, "nor one that reaches nothing");
 }

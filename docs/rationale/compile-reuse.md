@@ -678,8 +678,9 @@ hold, each asked by the commit review before any host sets it:
   `.buckconfig.local`, `.buckconfig.d/`, and `flake.nix` with `flake.lock`, whose dev shell writes the toolchain
   buckconfig the tree includes; an untracked file among them counts as a change. That toolchain buckconfig,
   `.buckconfig.flake`, can hold any section, so it must be absent or the untracked link into the store that the
-  shell hook makes: a tracked one, a plain file or a link elsewhere counts as a change too. Otherwise the declared
-  Cargo line runs. So a lane that rewrites the gate script or names its own endpoint is judged by Cargo, and the endpoint, the
+  shell hook makes: a tracked one, a plain file or a link elsewhere counts as a change too. The link is resolved
+  before it is placed, so one that starts with the store's path and ends outside it, or reaches nothing, counts as
+  elsewhere. Otherwise the declared Cargo line runs. So a lane that rewrites the gate script or names its own endpoint is judged by Cargo, and the endpoint, the
   cache and the store are the ones the host and main name. A flag cannot do this instead: a tree's `.buckconfig`
   outranks the host's file, and neither `--config-file` nor `--config` changes where the remote execution client
   connects (build host, 2026-11-12: with a tree naming its own endpoint, both still failed to connect to it).

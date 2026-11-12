@@ -87,7 +87,7 @@ fn unchanged_since(root: &Path, base: &str) -> bool {
     same && git(&["ls-files", "--others", "--"]).is_some_and(|output| output.status.success() && output.stdout.is_empty()) && linked_by_the_shell(root)
 }
 
-/// Whether the tree's toolchain buckconfig is absent or the link the flake's shell hook makes, and not a file the tree tracks or one left in its place.
+/// Whether the tree's toolchain buckconfig is absent or the link the flake's shell hook makes, and not a file the tree tracks or one left in its place. The link is resolved before it is placed, since one whose text starts with the store's path can still end outside it.
 fn linked_by_the_shell(root: &Path) -> bool {
     let untracked = Command::new("git")
         .arg("-C")
@@ -99,7 +99,7 @@ fn linked_by_the_shell(root: &Path) -> bool {
     let link = root.join(TOOLCHAIN_LINK);
     untracked
         && match fs::symlink_metadata(&link) {
-            Ok(file) => file.file_type().is_symlink() && fs::read_link(&link).is_ok_and(|target| target.starts_with(NIX_STORE)),
+            Ok(file) => file.file_type().is_symlink() && fs::canonicalize(&link).is_ok_and(|target| target.starts_with(NIX_STORE)),
             Err(error) => error.kind() == std::io::ErrorKind::NotFound,
         }
 }
