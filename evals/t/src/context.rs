@@ -1,13 +1,30 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use serde_json::{Value, json};
 
-fn text_bytes(content: &Value) -> usize {
+pub const PLAIN: [&str; 2] = ["t3", "bare"];
+
+fn texts(content: &Value) -> Vec<&str> {
     match content {
-        Value::String(text) => text.len(),
-        Value::Array(blocks) => blocks.iter().map(|block| block["text"].as_str().map_or(0, str::len) + text_bytes(&block["content"])).sum(),
-        _ => 0,
+        Value::String(text) => vec![text],
+        Value::Array(blocks) => blocks.iter().flat_map(|block| block["text"].as_str().into_iter().chain(texts(&block["content"]))).collect(),
+        _ => Vec::new(),
     }
+}
+
+fn text_bytes(content: &Value) -> usize {
+    texts(content).iter().map(|text| text.len()).sum()
+}
+
+fn instruction_files<'a>(texts: impl Iterator<Item = &'a str>) -> BTreeSet<&'a str> {
+    let named = |rest: &'a str| rest.lines().next()?.split_once(" (").map(|(path, _)| path);
+    texts.flat_map(|text| text.split("Contents of ").skip(1)).filter_map(named).filter(|path| path.starts_with('/')).collect()
+}
+
+pub fn from_outside(first: &Value, repo: &str) -> Vec<String> {
+    let files = first["instruction_files"].as_array().into_iter().flatten().filter_map(Value::as_str);
+    files.filter(|file| !Path::new(file).starts_with(repo)).map(str::to_owned).collect()
 }
 
 fn server(name: &str) -> String {
@@ -30,7 +47,7 @@ pub fn first_request(transcript: &str) -> Result<Value, String> {
     let request = of("api-request").map_or(&Value::Null, |frame| &frame["params"]);
     let tools = shape["shape"]["tools"].as_array().map(Vec::as_slice).unwrap_or_default();
     let before_reply = frames.iter().take_while(|frame| frame["type"] != "assistant");
-    let message: usize = before_reply.filter(|frame| frame["type"] == "api-request-blob").map(|frame| text_bytes(&frame["message"]["content"])).sum();
+    let message: Vec<&str> = before_reply.filter(|frame| frame["type"] == "api-request-blob").flat_map(|frame| texts(&frame["message"]["content"])).collect();
     Ok(json!({
         "claude_code": shape["version"], "model": request["model"], "effort": request["output_config"]["effort"],
         "system_bytes": text_bytes(&shape["shape"]["system"]),
@@ -38,7 +55,8 @@ pub fn first_request(transcript: &str) -> Result<Value, String> {
         "tools_deferred": tools.iter().filter(|tool| tool["defer_loading"] == true).count(),
         "tools_json_bytes": shape["shape"]["tools"].to_string().len(),
         "tools_by_server": by_server(tools),
-        "first_message_bytes": message,
+        "first_message_bytes": message.iter().map(|text| text.len()).sum::<usize>(),
+        "instruction_files": instruction_files(texts(&shape["shape"]["system"]).into_iter().chain(message.iter().copied())),
     }))
 }
 

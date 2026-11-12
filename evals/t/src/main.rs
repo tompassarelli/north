@@ -18,7 +18,7 @@ const USAGE: &str = "usage:
   eval-t fetch --into DIR [--pin COMMIT]
   eval-t classify --checkout DIR [--pin COMMIT] [--out FILE]
   eval-t classify --checkout DIR --check FILE
-  eval-t context --transcript FILE [--bare FILE]
+  eval-t context --transcript FILE [--bare FILE] [--plain DIR]
   eval-t transfer-fixture --state DIR
   eval-t world --checkout DIR --case ID --into DIR [--seen-at DIR]
   eval-t plant --turns FILE --session ID --cwd DIR --out FILE
@@ -58,11 +58,25 @@ fn classify(flags: &BTreeMap<String, String>) -> Result<(), String> {
     Ok(())
 }
 
+fn first_request(transcript: &str, repo: &str, plain: bool) -> Result<Value, String> {
+    let mut first = context::first_request(transcript)?;
+    let outside = context::from_outside(&first, repo);
+    if plain && !outside.is_empty() {
+        return Err(format!("the arm is registered as plain, yet its first request holds instructions from outside {repo} ({}), so the row does not count", outside.join(", ")));
+    }
+    first["instructions_from_outside"] = json!(outside);
+    Ok(first)
+}
+
 fn context(flags: &BTreeMap<String, String>) -> Result<(), String> {
-    let read = |path: &str| fs::read_to_string(path).map_err(|e| format!("{path}: {e}")).and_then(|text| context::first_request(&text));
-    let mut row = read(need(flags, "transcript")?)?;
+    let read = |path: &str| fs::read_to_string(path).map_err(|e| format!("{path}: {e}"));
+    let text = read(need(flags, "transcript")?)?;
+    let mut row = match flags.get("plain") {
+        Some(repo) => first_request(&text, repo, true)?,
+        None => context::first_request(&text)?,
+    };
     if let Some(bare) = flags.get("bare") {
-        row["added_over_bare"] = context::over_bare(&row, &read(bare)?);
+        row["added_over_bare"] = context::over_bare(&row, &context::first_request(&read(bare)?)?);
     }
     println!("{row}");
     Ok(())
@@ -74,7 +88,13 @@ fn grade(flags: &BTreeMap<String, String>) -> Result<(), String> {
     let case = world::case(Path::new(need(flags, "checkout")?), need(flags, "case")?)?;
     let transcript = need(flags, "transcript")?;
     let text = fs::read_to_string(transcript).map_err(|e| format!("{transcript}: {e}"))?;
-    let row = row::row(&case, &text, need(flags, "cwd")?);
+    let (arm, cwd) = (need(flags, "arm")?, need(flags, "cwd")?);
+    let plain = context::PLAIN.contains(&arm);
+    let first = match first_request(&text, cwd, plain) {
+        Err(why) if plain => return Err(format!("{arm}: {why}")),
+        first => first.unwrap_or(Value::Null),
+    };
+    let row = row::row(&case, &text, cwd);
     let out = fs::canonicalize(need(flags, "out")?).map_err(|e| format!("--out: {e}"))?;
     let rows = out.join("row.jsonl");
     fs::write(&rows, format!("{row}\n")).map_err(|e| format!("{}: {e}", rows.display()))?;
@@ -82,8 +102,8 @@ fn grade(flags: &BTreeMap<String, String>) -> Result<(), String> {
     let table = proc::must(regrade, "T3 Code's regrade.ts")?;
     fs::write(out.join("regrade.txt"), &table).map_err(|e| e.to_string())?;
     let mut stamp: Value = flags.get("stamp").map_or(Ok(json!({})), |stamp| serde_json::from_str(stamp)).map_err(|e| format!("--stamp: {e}"))?;
-    stamp["arm"] = json!(need(flags, "arm")?);
-    stamp["first_request"] = context::first_request(&text).unwrap_or(Value::Null);
+    stamp["arm"] = json!(arm);
+    stamp["first_request"] = first;
     stamp["grader"] = json!({"release": pin::RELEASE, "pin": pin::PIN, "script": pin::GRADERS[1], "run_ts_sha256": pin::hashes(grader, &[pin::GRADERS[0].to_owned()])?[pin::GRADERS[0]]["sha256"]});
     println!("{}", row::graded(&table, &row, stamp)?);
     Ok(())

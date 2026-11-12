@@ -57,11 +57,30 @@ and effort, and `api-request-blob` records with the first message's text. Both h
 so that record is the same measurement point in every arm, with no proxy between a session and its endpoint
 (north removes `ANTHROPIC_BASE_URL` from a session's environment, so a recording proxy could not sit there).
 
-`eval-t context --transcript FILE [--bare FILE]` prints it: system bytes, tool count, deferred tool count,
-tool-definition JSON bytes in total and per MCP server, first-message bytes, model and effort; with `--bare`, also
-what the harness adds over a bare Claude Code session (`evals/t/arm bare DIR`: `claude -p` on the same prompt with
-a configuration directory holding only the effort level). Every graded row carries the same figures under
-`first_request`, so a behaviour run is also a context-bytes run.
+`eval-t context --transcript FILE [--bare FILE] [--plain DIR]` prints it: system bytes, tool count, deferred tool
+count, tool-definition JSON bytes in total and per MCP server, first-message bytes, model, effort and the
+instruction files the request holds; with `--bare`, also what the harness adds over a bare Claude Code session
+(`evals/t/arm bare DIR`: `claude -p` on the same prompt with a configuration directory holding only the effort
+level). Every graded row carries the same figures under `first_request`, so a behaviour run is also a
+context-bytes run.
+
+## Plain arms
+
+The `t3` and `bare` arms are plain: no instruction file from outside the case's repository may reach the session.
+Claude Code loads `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md` and `.claude/rules` from every directory
+above its working directory, whatever `HOME` and `CLAUDE_CONFIG_DIR` say, so a scratch repository under a home
+directory that holds such a file is not plain. Three things keep the arms plain:
+
+- `evals/t/run` starts a plain session in a copy of the case's world under `EVAL_T_PLAIN` (default `/tmp/eval-t`),
+  at `LABEL/CASE-SAMPLE-ARM/repo`, and the `north` session where it always ran, so north's own start is unchanged.
+  `evals/t/arm` takes that place as `EVAL_T_ROOT` (default: `repo` in the session directory).
+- `evals/t/arm` refuses to start a plain session when a directory above its repository holds one of those files.
+- Claude Code names each instruction file it loaded in its first request (`Contents of PATH (...)`). Every row
+  records them as `first_request.instruction_files`, and those outside the session's repository as
+  `first_request.instructions_from_outside`. `eval-t grade` gives no row for a plain arm whose first request holds
+  one from outside, or whose first request is not recorded, so the run counts no such row and exits non-zero.
+  `eval-t context --transcript FILE --plain DIR` applies the same rule to any transcript, DIR being the session's
+  repository.
 
 ## Thread-transfer bytes
 
@@ -91,7 +110,8 @@ N samples each, the arm order per sample drawn from the seed. For each sample an
    the subscription account `EVAL_T_ACCOUNT` names. The `t3` arm is the T3 Code release binary (`T3_RUNTIME`,
    else `~/.local/lib/t3/current/t3`) served headless on loopback with telemetry off, a scratch home and a
    configuration directory holding only the effort level, logged in with the subscription OAuth token in the file
-   `EVAL_T_TOKEN_FILE` names. Every `ANTHROPIC_*` variable is unset first, so no arm holds an API key.
+   `EVAL_T_TOKEN_FILE` names. Every `ANTHROPIC_*` variable is unset first, so no arm holds an API key. A plain
+   session starts outside the checkout (see Plain arms), and both arms wait at most `EVAL_T_LIMIT_S` seconds.
 3. turns the session's Claude Code transcript into one row of T3 Code's results shape and grades it
    (`eval-t grade`) by running T3 Code's own `evals/mcp-tool-use/regrade.ts` on it, from a second checkout of the
    pinned commit that carries its installed dependencies. The command refuses a grader checkout that is not at the

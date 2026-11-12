@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 arm=$1 W=$(readlink -f "$2")
-MODEL=${EVAL_T_MODEL:-claude-opus-5-5} EFFORT=${EVAL_T_EFFORT:-medium} LIMIT=${EVAL_T_LIMIT_S:-600} ROOT=$W/repo
+MODEL=${EVAL_T_MODEL:-claude-opus-5-5} EFFORT=${EVAL_T_EFFORT:-medium} LIMIT=${EVAL_T_LIMIT_S:-600} ROOT=${EVAL_T_ROOT:-$W/repo}
 fail() { echo "eval-t arm $arm: $1" >&2; exit 1; }
 for variable in $(compgen -e | grep -E '^(ANTHROPIC_|CLAUDE_CODE_USE_)'); do unset "$variable"; done
 case $arm in
@@ -16,7 +16,8 @@ case $arm in
       --role worker --prompt north --test --cwd "$ROOT" --no-wait "$(cat "$W/prompt.txt")" > "$W/launch.log" 2>&1 || fail "launch refused; see $W/launch.log"
     settled() { north fleet show "$name" --json 2> /dev/null | jq -e '.status != "working"
       and ([.entries[] | select(.kind == "user" or .kind == "assistant")] | last | .kind) == "assistant"' > /dev/null; }
-    for _ in $(seq $((LIMIT / 3))); do sleep 3; settled && break; done
+    deadline=$((SECONDS + LIMIT))
+    until settled || [ "$SECONDS" -ge "$deadline" ]; do sleep 3; done
     settled || echo "eval-t arm north: not settled after $LIMIT s" >&2
     conversation=$(north fleet show "$name" --json 2> /dev/null | jq -r '.conversation // empty')
     kept=$(find "$XDG_STATE_HOME" "$HOME/.local/state/north/profiles" -name "$conversation.jsonl" 2> /dev/null | head -1)
@@ -25,6 +26,17 @@ case $arm in
     north fleet forget "$name" >> "$W/launch.log" 2>&1 ;;
   t3 | bare)
     : "${EVAL_T_TOKEN_FILE:?names a file holding the subscription OAuth token}"
+    if [ "$ROOT" != "$W/repo" ]; then
+      [ ! -e "$ROOT" ] || fail "$ROOT is already there; a plain session starts in a fresh copy of its world"
+      mkdir -p "$(dirname "$ROOT")" && cp -a "$W/repo" "$ROOT" || fail "could not place the repository at $ROOT"
+    fi
+    above=$ROOT
+    until [ "$above" = / ]; do
+      above=$(dirname "$above")
+      for file in CLAUDE.md CLAUDE.local.md .claude/CLAUDE.md .claude/rules; do
+        [ ! -e "$above/$file" ] || fail "Claude Code would load $above/$file into a plain session; start it outside that directory (EVAL_T_ROOT)"
+      done
+    done
     T3=${T3_RUNTIME:-$HOME/.local/lib/t3/current/t3}
     claude=$(readlink -f "${EVAL_T_CLAUDE:-$(command -v claude)}")
     cfg=$W/cfg state=$W/t3-base port=$(shuf -i 38800-38999 -n 1) tools=$(dirname "$claude"):$(dirname "$(command -v git)"):$(dirname "$(command -v bash)")
