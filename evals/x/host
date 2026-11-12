@@ -7,7 +7,7 @@ HARBOR=fdba28fc411e47e8765420a1a063b4918fce3def
 work=${EVAL_X_WORK:-/tmp/eval-x}
 # Rootless podman maps the subordinate ids with the setuid newuidmap wrapper, which must come before the store's copy.
 export PATH=/run/wrappers/bin:$PATH
-export HARBOR_TELEMETRY=off UV_PYTHON_DOWNLOADS=never UV_CACHE_DIR="$work/uv-cache" UV_TOOL_DIR="$work/uv-tools" UV_PROJECT_ENVIRONMENT="$work/harbor-venv"
+export PODMAN_COMPOSE_WARNING_LOGS=false HARBOR_TELEMETRY=off UV_PYTHON_DOWNLOADS=never UV_CACHE_DIR="$work/uv-cache" UV_TOOL_DIR="$work/uv-tools" UV_PROJECT_ENVIRONMENT="$work/harbor-venv"
 pin() {
   [ "$(git -C "$1" rev-parse HEAD 2> /dev/null)" != "$3" ] || return 0
   mkdir -p "$1"
