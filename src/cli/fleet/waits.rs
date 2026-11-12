@@ -143,6 +143,7 @@ impl WaitProbes for Probes {
         let published = vec![
             ProbeJob { name: "probes.records_mirror", own: None, run: Box::new(|_| said(crate::runtime::mirror::publish())) },
             ProbeJob { name: "probes.checkouts", own: None, run: Box::new(|_| said(crate::runtime::checkouts::publish())) },
+            ProbeJob { name: "probes.runtime_lag", own: None, run: Box::new(|_| said(crate::runtime::lag::publish())) },
         ];
         match self {
             Self::Fleet { reports: true } => registry.into_iter().chain(reports).chain(published).collect(),

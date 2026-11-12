@@ -16,7 +16,7 @@ use std::fs;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
-pub(super) use page::watch;
+pub use page::publish;
 
 const RESIDENTS: &[(&[&str], &str)] = &[
     (&["land", "serve"], "land serve"),
@@ -59,6 +59,7 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Option<Result<(), Fa
         ["--processes"] => print!("{}", report(Path::new("/proc"), &layout.state)),
         ["--processes", "--json"] => println!("{}", serde_json::to_string(&processes(Path::new("/proc"), &layout.state)).unwrap_or_default()),
         ["--json"] => println!("{:#}", serde_json::Value::Array(page::objects(layout, &[]))),
+        ["--sample"] => return Some(page::sample(layout)),
         _ => return None,
     }
     Some(Ok(()))

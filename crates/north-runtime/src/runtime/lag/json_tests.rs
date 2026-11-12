@@ -1,23 +1,53 @@
 use super::behind::{Landing, Process, Seen, objects};
-use super::page::conclude;
+use super::page::{Pager, conclude};
 use super::samples;
 use serde_json::json;
-use std::cell::RefCell;
 
 const OLD: &str = "aaaaaaaa1111111111111111111111111111aaaa";
 const MIDDLE: &str = "bbbbbbbb2222222222222222222222222222bbbb";
 const NEWEST: &str = "cccccccc3333333333333333333333333333cccc";
+const LATEST: &str = "dddddddd4444444444444444444444444444dddd";
 
 fn process(pid: u32, kind: &str, name: &str, runtime: Option<&str>) -> Process {
     Process { pid, kind: kind.to_owned(), process: name.to_owned(), runtime: runtime.map(str::to_owned) }
 }
 
 fn rank(sha: &str) -> u8 {
-    [OLD, MIDDLE, NEWEST].iter().position(|known| *known == sha).map_or(0, |at| at as u8 + 1)
+    [OLD, MIDDLE, NEWEST, LATEST].iter().position(|known| *known == sha).map_or(0, |at| at as u8 + 1)
+}
+
+/// Records the pages and clears sent; `accept` says whether the proxy took them.
+struct Recorder {
+    accept: bool,
+    lags: Vec<(String, String)>,
+    clears: Vec<String>,
+}
+
+impl Recorder {
+    fn new(accept: bool) -> Self {
+        Self { accept, lags: Vec::new(), clears: Vec::new() }
+    }
+}
+
+impl Pager for Recorder {
+    fn session_lags(&mut self, text: &str) -> bool {
+        self.lags.push(("runtime-lag".to_owned(), text.to_owned()));
+        self.accept
+    }
+
+    fn service_lags(&mut self, key: &str, text: &str) -> bool {
+        self.lags.push((key.to_owned(), text.to_owned()));
+        self.accept
+    }
+
+    fn service_clears(&mut self, key: &str, _text: &str) -> bool {
+        self.clears.push(key.to_owned());
+        self.accept
+    }
 }
 
 #[test]
-fn runtime_lag_json_reports_seconds_behind_for_every_process_and_pages_once() {
+fn runtime_lag_json_reports_seconds_behind_for_every_process_and_pages_each_episode() {
     let landings = vec![Landing { at: 1_000, sha: MIDDLE.to_owned() }, Landing { at: 2_000, sha: NEWEST.to_owned() }];
     let seen = vec![
         Seen { host: "laptop".to_owned(), processes: Ok(vec![process(1, "land serve", "land serve all repositories", Some(NEWEST)), process(2, "session-host", "session-host worker-1", Some(MIDDLE)), process(3, "fleet watchdog", "fleet watchdog worker-1", None)]) },
@@ -38,22 +68,41 @@ fn runtime_lag_json_reports_seconds_behind_for_every_process_and_pages_once() {
     );
 
     let state = tempfile::tempdir().unwrap();
-    let pages = RefCell::new(Vec::new());
-    let page = |text: &str| {
-        pages.borrow_mut().push(text.to_owned());
-        true
-    };
-    conclude(state.path(), &found, 2_490, |_| false);
-    conclude(state.path(), &found, 2_500, page);
-    conclude(state.path(), &found, 2_560, page);
-    assert_eq!(pages.borrow().len(), 1, "a page that was delivered ends the paging for its episode, and one that was not is tried again");
-    assert!(pages.borrow()[0].contains("offload taker on nexus") && pages.borrow()[0].contains("1500s"), "{:?}", pages.borrow());
+    let mut refused = Recorder::new(false);
+    conclude(state.path(), &found, 2_490, &mut refused);
+    assert_eq!(refused.lags.len(), 3, "the session and both services over 5 min are each tried, and a refused page is tried again");
+
+    let mut pager = Recorder::new(true);
+    conclude(state.path(), &found, 2_500, &mut pager);
+    assert_eq!(pager.lags.len(), 3, "one page for the session and one for each host service over 5 min: {:?}", pager.lags);
+    assert!(pager.lags.iter().any(|(key, text)| key == "runtime-lag:nexus:offload taker" && text.contains("offload taker on nexus") && text.contains("1500s")), "{:?}", pager.lags);
+    conclude(state.path(), &found, 2_560, &mut pager);
+    assert_eq!(pager.lags.len(), 3, "an episode that was paged is not paged again while it lasts");
 
     let recovered = objects(&seen[..1], &landings[..1], 1_100, holds);
-    conclude(state.path(), &recovered, 1_100, page);
-    conclude(state.path(), &found, 2_600, page);
-    assert_eq!(pages.borrow().len(), 2, "lag that falls under 5 min ends the episode, so the next one pages again");
+    conclude(state.path(), &recovered, 1_100, &mut pager);
+    assert_eq!(pager.clears, ["runtime-lag:laptop:fleet watchdog worker-1", "runtime-lag:nexus:offload taker"], "a service back under 5 min, or on a host that no longer reports it, ends its episode with a cleared notice");
+    conclude(state.path(), &found, 2_600, &mut pager);
+    assert_eq!(pager.lags.len(), 6, "lag that falls under 5 min ends the episode, so the next one pages again");
     let sampled = samples::read(state.path());
     assert_eq!(sampled.len(), 5);
     assert_eq!(samples::worst_in(&sampled, 2_000, 3_000), Some((1_500.0, 4)));
+}
+
+#[test]
+fn a_broker_that_falls_behind_pages_by_name_while_a_session_stays_hours_behind() {
+    let landings = vec![Landing { at: 1_000, sha: MIDDLE.to_owned() }, Landing { at: 2_000, sha: NEWEST.to_owned() }, Landing { at: 10_600, sha: LATEST.to_owned() }];
+    let holds = |landed: &str, runtime: &str| rank(runtime) >= rank(landed);
+    let reading = |broker: &str| vec![Seen { host: "laptop".to_owned(), processes: Ok(vec![process(1, "session-host", "session-host worker-1", Some(OLD)), process(2, "broker", "broker", Some(broker))]) }];
+    let state = tempfile::tempdir().unwrap();
+    let mut pager = Recorder::new(true);
+    for (now, broker) in [(10_000, NEWEST), (10_700, NEWEST), (11_000, NEWEST), (11_100, NEWEST), (11_200, LATEST), (11_300, NEWEST)] {
+        conclude(state.path(), &objects(&reading(broker), &landings, now, holds), now, &mut pager);
+    }
+    let broker_pages: Vec<&String> = pager.lags.iter().filter(|(key, _)| key == "runtime-lag:laptop:broker").map(|(_, text)| text).collect();
+    assert_eq!(broker_pages.len(), 2, "the broker pages each time it starts to lag, whatever the session does: {:?}", pager.lags);
+    assert!(broker_pages.iter().all(|text| text.contains("broker on laptop")), "{broker_pages:?}");
+    assert_eq!(pager.clears, ["runtime-lag:laptop:broker"]);
+    assert_eq!(pager.lags.iter().filter(|(key, _)| key == "runtime-lag").count(), 1, "the session's episode stays one page");
+    assert_eq!(samples::read(state.path()).len(), 6);
 }

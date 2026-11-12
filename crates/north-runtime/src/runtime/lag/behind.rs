@@ -49,3 +49,8 @@ fn seconds(landings: &[Landing], runtime: Option<&str>, now: i64, holds: &impl F
 pub(super) fn worst(objects: &[Value]) -> Option<&Value> {
     objects.iter().filter(|object| object["seconds"].is_i64()).max_by_key(|object| object["seconds"].as_i64())
 }
+
+/// Whether a process kind is a host service rather than a session's own process.
+pub(super) fn serves_host(kind: &str) -> bool {
+    !matches!(kind, "session-host" | "session-link" | "tool-server" | "worker-sandbox broker")
+}

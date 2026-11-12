@@ -72,7 +72,6 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         }
         records.push(probe::record(&facts, &problems));
     }
-    super::lag::watch(layout, &records);
     if let Err(error) = history.save().and_then(|()| growth.save()) {
         eprintln!("north runtime settle: could not record each host's problems and process counts: {error}");
     }
