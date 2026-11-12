@@ -73,6 +73,15 @@ fn an_after_landing_run_past_its_deadline_is_killed_with_its_group_reaches_no_ve
     assert!(rows.iter().all(|row| row[3] == "transient" && row[5] == "lane-a,lane-b"), "{rows:?}");
     assert!(rows.iter().all(|row| row[8].is_empty()), "a run with no nextest summary records no test-run time: {rows:?}");
     assert_eq!(super::execute::test_run_seconds("     Summary [  12.698s] 789 tests run: 789 passed\n     Summary [   3.1s] 5 tests run: 5 passed\n"), Some(16), "the nextest summaries of a log add up as the run's test time");
+    std::fs::write(&stuck.outcome, "selected\tb\td\t{\"tests\":[],\"added\":[],\"modules\":[],\"no_test\":\"the change graph reaches no test from docs/a.md\"}\n").unwrap();
+    std::fs::remove_file(&stuck.ledger).unwrap();
+    record(&stuck, &landed, &Verdict::Green, false, 1);
+    let marked = std::fs::read_to_string(&stuck.ledger).unwrap();
+    assert!(marked.lines().all(|row| { let row: Vec<&str> = row.split('\t').collect(); row[3] == "green" && row[9] == "no-test" }), "a green landing that ran no test says so in a column after the ones the readers use: {marked}");
+    std::fs::write(&stuck.outcome, "selected\tb\td\t{\"tests\":[\"x\"],\"added\":[],\"modules\":[]}\n").unwrap();
+    std::fs::remove_file(&stuck.ledger).unwrap();
+    record(&stuck, &landed, &Verdict::Green, false, 1);
+    assert!(std::fs::read_to_string(&stuck.ledger).unwrap().lines().all(|row| row.split('\t').nth(9) == Some("")), "a landing that ran its tests carries no mark");
 }
 
 #[test]

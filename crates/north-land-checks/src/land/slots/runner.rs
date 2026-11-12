@@ -213,7 +213,7 @@ async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environmen
     }
     let trees = Trees::of(&root, &arguments.base, arguments.tree());
     let paths = path_class(&root, &arguments.base, &arguments.head);
-    let selected_paths = arguments.pinned().then(|| changed(&root, &arguments.base, &arguments.head, &[]).join("\n"));
+    let selected_paths = arguments.pinned().then(|| changed(&root, &arguments.base, &arguments.head, &[]).ok().map(|files| files.join("\n"))).flatten();
     let mut shared = Shared {
         selected_paths,
         trees,

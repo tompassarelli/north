@@ -256,7 +256,7 @@ pub fn selection_asking_with(program: &Path, root: &Path, base: &str, head: &str
     let plan = Plan::parse(&read(STRUCTURE)?)?;
     let table = Table::parse(&read(TABLE)?, &plan, &spawners(root))?;
     let units = units(&read(tree_wide_units::TABLE)?, &plan)?;
-    let files = changed(root, base, head, &[]);
+    let files = changed(root, base, head, &[])?;
     let floor = Suites::read(root)?.floor(&files);
     let selection = match graph_selection::ask(program, root, base, head, stage.batch()) {
         Some(tests) if tests.is_empty() && matches!(stage, Stage::AfterLanding(_)) && floor.is_empty() && !files.iter().any(|file| compiled(file) || SELECTION_INPUTS.contains(&file.as_str())) => {

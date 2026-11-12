@@ -66,6 +66,8 @@ fn a_lane_the_graph_traces_runs_only_its_tests_and_an_untraced_lane_runs_the_cra
         let program = graph_stub(directory.path(), name, body);
         assert_eq!(selection_asking_with(&program, root(), "HEAD", "HEAD", Stage::BeforePush, BTreeMap::new).unwrap(), crate_level, "a graph that answers {name} falls back to the crate-level selection");
     }
+    let error = selection_asking_with(&traced, root(), "no-such-revision", "HEAD", Stage::BeforePush, BTreeMap::new).unwrap_err();
+    assert!(error.contains("no-such-revision"), "a diff that fails is an error the caller turns into the whole suite, not an empty change list: {error}");
 }
 
 const TREE_WIDE_UNITS: [&str; 3] = [

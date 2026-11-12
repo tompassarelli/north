@@ -16,7 +16,10 @@ use crate::landing::red_check::{self, Failure};
 use crate::land::candidate::change_worktrees_alone;
 use crate::land::checks::Verdict;
 use north_base::foundation::exit::SLOTS_BUSY_STATUS;
+use crate::land::slots::graph_selection::{SELECTED, Selected};
 use crate::land::telemetry;
+
+const NO_TEST_MARK: &str = "no-test";
 
 pub(crate) struct Checked {
     pub(super) verdict: Verdict,
@@ -156,10 +159,16 @@ pub(super) fn record(run: &Run, landed: &Landed, verdict: &Verdict, expired: boo
     }
     let tests = fs::read_to_string(&run.log).ok().and_then(|text| test_run_seconds(&text)).map(|seconds| seconds.to_string()).unwrap_or_default();
     let covered_by = |head: &str| if head == landed.head { "" } else { landed.head.as_str() };
-    let lines: String = landed.heads.iter().map(|head| format!("{}\t{}\t{head}\t{class}\t{}\t{}\t{seconds}\t{}\t{tests}\n", telemetry::seconds(), landed.repository, detail.replace(['\t', '\n'], " "), landed.lanes.join(","), covered_by(head))).collect();
+    let mark = if ran_no_test(&run.outcome) { NO_TEST_MARK } else { "" };
+    let lines: String = landed.heads.iter().map(|head| format!("{}\t{}\t{head}\t{class}\t{}\t{}\t{seconds}\t{}\t{tests}\t{mark}\n", telemetry::seconds(), landed.repository, detail.replace(['\t', '\n'], " "), landed.lanes.join(","), covered_by(head))).collect();
     if let Err(error) = OpenOptions::new().create(true).append(true).open(&run.ledger).and_then(|mut file| file.write_all(lines.as_bytes())) {
         eprintln!("north land: could not record the post-land verdict of {}: {error}", landed.head);
     }
+}
+
+fn ran_no_test(outcome: &Path) -> bool {
+    let text = fs::read_to_string(outcome).unwrap_or_default();
+    text.lines().filter_map(|line| line.strip_prefix(SELECTED)?.strip_prefix('\t')?.splitn(3, '\t').nth(2)).filter_map(|json| serde_json::from_str::<Selected>(json).ok()).any(|selected| selected.no_test.is_some())
 }
 
 pub(super) fn test_run_seconds(log: &str) -> Option<u64> {

@@ -77,7 +77,7 @@ pub(super) fn without_empty_test_selections(root: &Path, arguments: &Arguments, 
     if arguments.base.is_empty() || !commands.iter().any(|command| land_test_runner::selection_of(command).is_some()) || !checked_out(root, arguments.tree()) {
         return commands;
     }
-    let changes = changed(root, &arguments.base, &arguments.head, &[]);
+    let Ok(changes) = changed(root, &arguments.base, &arguments.head, &[]) else { return commands };
     commands
         .into_iter()
         .filter(|command| {

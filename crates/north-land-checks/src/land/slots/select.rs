@@ -30,13 +30,15 @@ pub struct Config {
 }
 
 pub(super) fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
-    let Ok(output) = Command::new("git").arg("-C").arg(repo).args(arguments).output() else {
-        return Vec::new();
-    };
+    git_output(repo, arguments).unwrap_or_default()
+}
+
+fn git_output(repo: &Path, arguments: &[&str]) -> Result<Vec<String>, String> {
+    let output = Command::new("git").arg("-C").arg(repo).args(arguments).output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))?;
     if !output.status.success() {
-        return Vec::new();
+        return Err(format!("git {} failed: {}", arguments.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
     }
-    String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect()
+    Ok(String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect())
 }
 
 struct Blob(Vec<(String, String)>);
@@ -248,7 +250,7 @@ fn reason<'a>(entries: &'a [String], command: &str) -> Option<&'a str> {
 }
 
 pub fn path_class(repo: &Path, base: &str, head: &str) -> String {
-    let mut tops: Vec<String> = changed(repo, base, head, &[]).iter().filter_map(|path| path.split('/').next()).map(str::to_owned).collect();
+    let mut tops: Vec<String> = changed(repo, base, head, &[]).unwrap_or_default().iter().filter_map(|path| path.split('/').next()).map(str::to_owned).collect();
     tops.sort_unstable();
     tops.dedup();
     tops.join("+")
@@ -260,15 +262,15 @@ fn queued(entries: &[String]) -> impl Iterator<Item = &String> {
 
 fn touches(repo: &Path, base: &str, head: &str, patterns: &str) -> bool {
     let (rust, specs): (Vec<&str>, Vec<&str>) = patterns.split(',').filter(|spec| *spec != ENQUEUE_PATTERN).partition(|spec| *spec == RUST_INPUT);
-    (!rust.is_empty() && changed(repo, base, head, &[]).iter().any(|path| rust_build_input(path))) || (!specs.is_empty() && !changed(repo, base, head, &specs).is_empty())
+    (!rust.is_empty() && changed(repo, base, head, &[]).map_or(true, |files| files.iter().any(|path| rust_build_input(path)))) || (!specs.is_empty() && changed(repo, base, head, &specs).map_or(true, |files| !files.is_empty()))
 }
 
-pub(super) fn changed(repo: &Path, base: &str, head: &str, specs: &[&str]) -> Vec<String> {
+pub(super) fn changed(repo: &Path, base: &str, head: &str, specs: &[&str]) -> Result<Vec<String>, String> {
     let mut arguments: Vec<&str> = if base.is_empty() {
         vec!["ls-tree", "-r", "--name-only", head, "--"]
     } else {
         vec!["diff", "--name-only", "--no-renames", base, head, "--"]
     };
     arguments.extend(specs);
-    git_lines(repo, &arguments).into_iter().filter(|line| !line.is_empty()).collect()
+    git_output(repo, &arguments).map(|lines| lines.into_iter().filter(|line| !line.is_empty()).collect())
 }
