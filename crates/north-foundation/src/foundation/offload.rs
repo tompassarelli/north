@@ -34,6 +34,7 @@ pub const RUN_SECONDS_CEILING: u64 = 2100;
 /// The ssh and the git an offload starts, as absolute programs: the outside broker resolves them from its own `PATH` and names them here for the run it starts for a worker command, so no program on a `PATH` the worker wrote runs outside its domain (south#118).
 pub const SSH_ENV: &str = "NORTH_OFFLOAD_SSH";
 pub const GIT_ENV: &str = "NORTH_OFFLOAD_GIT";
+pub const WORKER_REQUEST_ENV: &str = "NORTH_OFFLOAD_WORKER_REQUEST";
 
 /// The ssh an offload starts: the absolute program `SSH_ENV` names, else `ssh` by name.
 pub fn ssh() -> String {

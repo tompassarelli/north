@@ -62,7 +62,7 @@ const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 const LANE_ONLY: &str = north_base::platform::session_scope::LANE_ONLY;
 const HOSTS_HIDDEN: &str = north_base::platform::session_scope::HOSTS_HIDDEN;
 const SESSION_SCOPE: &str = "NORTH_WORKER_SESSION_SCOPE";
-const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --checked -- COMMAND | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --hand-off -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker [--code DIRECTORY [--detached | --peers CGROUP]]";
+const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --checked -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --hand-off -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker [--code DIRECTORY [--detached | --peers CGROUP]]";
 
 /// Restricts this process, and everything it starts, to removing and renaming away only beneath `roots`: the rule a process the outside broker handed work to keeps inside the namespace it builds, where Landlock could not be applied before the mount calls and the namespace alone does not know the worker's trees.
 fn confine_removal(roots: &[PathBuf]) -> Result<RulesetStatus, String> {
@@ -114,7 +114,7 @@ pub fn run(arguments: &[String], screen: Screen) -> std::process::ExitCode {
         [lane, separator, program @ ..] if lane == LANE && separator == "--" && !program.is_empty() => self::in_lane(program, screen),
         [hand, separator, program @ ..] if hand == HAND_OFF && separator == "--" && !program.is_empty() => self::hand_off(program),
         [flag, separator, program @ ..] if flag == PROGRAM && separator == "--" && !program.is_empty() => self::program(program, false, screen),
-        [flag, separator, command] if flag == CHECKED && separator == "--" => in_domain(&["sh".to_owned(), "-c".to_owned(), command.clone()], false, true),
+        [flag, separator, program @ ..] if flag == CHECKED && separator == "--" && !program.is_empty() => in_domain(program, false, true),
         [command] => shell(command, screen),
         _ => {
             eprintln!("{USAGE}");
@@ -334,10 +334,10 @@ pub fn ask_check(arguments: &[String]) -> u8 {
     })
 }
 
-/// The command that runs the shell command `command` in a new worker domain whatever role starts it, judged by no hook: what the checker the broker starts for a session runs a box's Done-when command as, since the command's text comes from an issue a session may have written.
-pub fn checked_shell(command: &str) -> Command {
+/// The command that runs the program `program` in a new worker domain whatever role starts it, judged by no hook: what the checker the broker starts for a session runs a box's Done-when command as, since the command's text comes from an issue a session may have written.
+pub fn checked_shell(program: &[String]) -> Command {
     let mut shell = Command::new(std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary()));
-    shell.args([FLAG, CHECKED, "--", command]);
+    shell.args([FLAG, CHECKED, "--"]).args(program);
     shell
 }
 

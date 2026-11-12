@@ -43,8 +43,14 @@ fn stamp() -> Stamp {
     Stamp { sha: "0123456789abcdef0123".into(), date: "2026-11-05".into() }
 }
 
+fn judge(command: &str, main: &Path) -> Run {
+    let mut shell = Command::new("sh");
+    shell.args(["-c", command]).current_dir(main);
+    launch(shell, LIMIT)
+}
+
 fn verdict_of(line: &str, main: &Path) -> (Outcome, String) {
-    let found = verdicts(line, &|command| judge(command, main));
+    let found = verdicts(line, &|check| judge(&check.command, main));
     assert_eq!(found.len(), 1, "{line}");
     (found[0].outcome, found[0].line("north#360"))
 }
@@ -77,12 +83,12 @@ fn a_threshold_or_comparison_the_program_cannot_read_is_a_judge_verdict_and_is_n
     }
     let body = "- [ ] Fast. Done when: `echo 3` prints a count of at most 5.\n";
     let mut issue = Fixture { read: body.into(), edits: Vec::new() };
-    settle(&mut issue, 7, &verdicts(body, &|command| judge(command, main.path())), &stamp()).unwrap();
+    settle(&mut issue, 7, &verdicts(body, &|check| judge(&check.command, main.path())), &stamp()).unwrap();
     assert!(issue.edits.is_empty());
 }
 
 #[test]
-fn a_command_box_is_ticked_only_when_its_expectation_holds_on_main_and_a_landed_box_alone_gets_the_evidence_stamp_the_climber_counts_as_checker_verified() {
+fn a_command_box_is_ticked_only_when_its_expectation_holds_on_main_and_a_landed_box_alone_gets_the_evidence_stamp_the_climber_counts_as_checker_verified_and_a_build_host_box_runs_its_command_through_the_offload() {
     let still_there = git_main_with(&["bin/safe-push.test.sh"]);
     assert_eq!(judge("git ls-files bin/safe-push.test.sh", still_there.path()).exit, 0);
     assert_eq!(verdict_of(SAFE_PUSH_BOX, still_there.path()).0, Outcome::Fail);
@@ -92,9 +98,9 @@ fn a_command_box_is_ticked_only_when_its_expectation_holds_on_main_and_a_landed_
     let body = "- [ ] Climb shares. Done when: `true` passes.\n- [ ] Other box. Done when: `false` passes.\n";
     let mut issue = Fixture { read: body.into(), edits: Vec::new() };
     let ran = std::cell::RefCell::new(Vec::new());
-    let run = |command: &str| {
-        ran.borrow_mut().push(command.to_owned());
-        judge(command, main.path())
+    let run = |check: &Check| {
+        ran.borrow_mut().push(check.command.clone());
+        judge(&check.command, main.path())
     };
     settle(&mut issue, 7, &verdicts(&only(body, Some("Climb shares")), &run), &stamp()).unwrap();
     assert_eq!(ran.into_inner(), ["true"], "only the landed box's command runs");
@@ -102,6 +108,67 @@ fn a_command_box_is_ticked_only_when_its_expectation_holds_on_main_and_a_landed_
     assert!(edited.lines().next().unwrap().starts_with("- [x] Climb shares. Done when: `true` passes. Evidence: `true` passed on main "), "{edited}");
     assert!(edited.contains("- [ ] Other box."), "{edited}");
     assert!(north_providers::ledger::closed::checker_verified(edited), "{edited}");
+
+    let stamp_at = stamp();
+    let sha = stamp_at.sha.as_str();
+    let offload_body = "- [ ] Stress box. Done when: `north stress --one case` exits 0 on a build host.\n- [ ] Plain box. Done when: `true` exits 0.\n";
+    let launched = std::cell::RefCell::new(Vec::new());
+    let reply = std::cell::Cell::new(Some(0));
+    let record = |command: Command, limit: Duration| {
+        let words = command.get_args().map(|word| word.to_string_lossy().into_owned()).collect::<Vec<_>>();
+        let offloaded = words.first().is_some_and(|word| word == "capacity");
+        let nonce = words.last().and_then(|word| word.split("NORTH_CHECK ").nth(1)).and_then(|rest| rest.split(' ').next()).map(str::to_owned);
+        let stdout = match (offloaded, reply.get(), nonce) {
+            (true, Some(exit), Some(nonce)) => format!("box output\nNORTH_CHECK {nonce} {exit}\n"),
+            (true, _, _) => "offload: slot busy\n".to_owned(),
+            (false, _, _) => String::new(),
+        };
+        let exit = if offloaded && !stdout.contains("NORTH_CHECK") { 75 } else { 0 };
+        launched.borrow_mut().push((command.get_program().to_string_lossy().into_owned(), words, command.get_current_dir().map(Path::to_path_buf), limit));
+        Run { exit, output: stdout.clone(), stdout }
+    };
+    let host = || -> Result<String, String> { Ok("gex45".to_owned()) };
+    let unconfined = Runner { main: main.path(), stamp: &stamp_at, confined: false, domain: &|_| unreachable!("an unconfined run starts no domain"), host: &host, launch: &record };
+    let found = verdicts(offload_body, &|check| unconfined.run(check));
+    assert!(found.iter().all(Verdict::passed), "{found:?}");
+    let north = north_binary().to_string_lossy().into_owned();
+    let prefix: Vec<String> = ["capacity", "offload", "run", "--host", "gex45", "--base", sha, "--head", sha, "--timeout", "600", "--"].map(str::to_owned).to_vec();
+    let launches = launched.borrow().clone();
+    let [offloaded_launch, checker_launch] = launches.as_slice() else { panic!("{launches:?}") };
+    let (program, words, here, limit) = offloaded_launch;
+    assert_eq!(program, &north);
+    assert_eq!(words[..12], prefix[..]);
+    assert_eq!(words.len(), 13);
+    assert!(words[12].starts_with("sh -c 'north stress --one case' ; printf '\\nNORTH_CHECK "), "{}", words[12]);
+    assert_eq!((here, limit), (&Some(main.path().to_path_buf()), &Duration::from_secs(1800)));
+    assert_eq!(*checker_launch, ("sh".to_owned(), vec!["-c".to_owned(), "true".to_owned()], Some(main.path().to_path_buf()), Duration::from_secs(600)));
+
+    let stress = "- [ ] Stress box. Done when: `north stress --one case` exits 0 on a build host.\n";
+    reply.set(None);
+    let refused = verdicts(stress, &|check| unconfined.run(check));
+    assert_eq!(refused.iter().map(|verdict| verdict.outcome).collect::<Vec<_>>(), [Outcome::Judge], "a refusal that reports no exit is no verdict");
+    assert!(refused[0].line("north#1137").contains("(no NORTH_CHECK line)"), "{}", refused[0].line("north#1137"));
+    reply.set(Some(1));
+    let red = "- [ ] Red box. Done when: `north stress --one case` exits 1 on a build host.\n";
+    assert!(verdicts(red, &|check| unconfined.run(check)).iter().all(Verdict::passed), "the command's own exit is the verdict");
+    reply.set(Some(0));
+
+    let domained = std::cell::RefCell::new(Vec::new());
+    let domain = |argv: &[String]| {
+        domained.borrow_mut().push(argv.to_vec());
+        let mut command = Command::new(&argv[0]);
+        command.args(&argv[1..]);
+        command
+    };
+    let confined = Runner { main: main.path(), stamp: &stamp_at, confined: true, domain: &domain, host: &host, launch: &record };
+    assert!(verdicts(stress, &|check| confined.run(check)).iter().all(Verdict::passed));
+    let argv = domained.borrow()[0].clone();
+    assert_eq!(argv[0], north);
+    assert_eq!(argv[1..13], prefix[..]);
+    assert!(argv[13].starts_with("sh -c 'north stress --one case' ; printf"), "{}", argv[13]);
+    assert_eq!(launched.borrow().last().map(|launch| launch.0.as_str()), Some(north.as_str()));
+
+    assert_eq!(avoided_by_checker(["gex45", "cpx62", "cpx62b", "nexus"].map(str::to_owned)), ["cpx62", "nexus"]);
 }
 
 #[test]
@@ -111,7 +178,7 @@ fn a_passing_box_whose_output_doubles_a_short_body_is_ticked_with_evidence_the_g
     assert_eq!(body.trim().chars().count(), 1_200);
     let output = format!("{}\n{}", vec!["y".repeat(383); 5].join("\n"), "y".repeat(380));
     assert_eq!((output.chars().count(), output.lines().count()), (2_300, 6));
-    let run = |_: &str| Run { exit: 0, stdout: output.clone(), output: output.clone() };
+    let run = |_: &Check| Run { exit: 0, stdout: output.clone(), output: output.clone() };
     let mut issue = Fixture { read: body.clone(), edits: Vec::new() };
     settle(&mut issue, 1130, &verdicts(&body, &run), &stamp()).unwrap();
     let [edited] = issue.edits.as_slice() else { panic!("{:?}", issue.edits) };

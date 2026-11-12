@@ -1,12 +1,15 @@
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use north_base::platform::north_binary::north_binary;
 use tempfile::TempDir;
+use toml_edit::Item;
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::check_lane;
+use crate::foundation::offload::WORKER_REQUEST_ENV;
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{CheckRun, Ledger};
 use crate::platform::rolling_issue::{Gh, Tracker};
@@ -20,13 +23,29 @@ mod expectation;
 
 const MARKER: &str = "Done when: `";
 const OPEN: &str = "- [ ] ";
+const BUILD_HOST: &str = "on a build host";
 const LIMIT: Duration = Duration::from_secs(600);
+const OFFLOAD_LIMIT: Duration = Duration::from_secs(1800);
+const UNREPORTED: i32 = i32::MIN;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Placement {
+    Checker,
+    BuildHost,
+}
+
+impl Placement {
+    fn of(text: &str) -> Self {
+        if text.contains(BUILD_HOST) { Self::BuildHost } else { Self::Checker }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Check {
     pub text: String,
     pub command: String,
     pub expected: Expected,
+    pub placement: Placement,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,7 +72,8 @@ impl Verdict {
             Expected::Judge(reason) => format!(" [{reason}]"),
             Expected::All(_) => String::new(),
         };
-        format!("{label}: {} (exit {}) `{}`: {}{reason}", self.outcome.label(), self.run.exit, self.check.command, self.check.text)
+        let exit = if self.run.exit == UNREPORTED { "no NORTH_CHECK line".to_owned() } else { format!("exit {}", self.run.exit) };
+        format!("{label}: {} ({exit}) `{}`: {}{reason}", self.outcome.label(), self.check.command, self.check.text)
     }
 }
 
@@ -69,39 +89,124 @@ pub fn checks(body: &str) -> Vec<Check> {
             let after = &rest[rest.find(MARKER)? + MARKER.len()..];
             let close = after.find('`')?;
             let command = after[..close].trim();
-            (!command.is_empty()).then(|| Check { text: rest.trim().to_owned(), command: command.to_owned(), expected: expectation::expected(&after[close + 1..]) })
+            (!command.is_empty()).then(|| Check { text: rest.trim().to_owned(), command: command.to_owned(), expected: expectation::expected(&after[close + 1..]), placement: Placement::of(rest) })
         })
         .collect()
 }
 
-pub fn judge(command: &str, main: &Path) -> Run {
-    judge_under(plain(command), main)
-}
-
-fn plain(command: &str) -> Command {
-    let mut shell = Command::new("sh");
-    shell.args(["-c", command]);
-    shell
-}
-
-fn judge_under(mut shell: Command, main: &Path) -> Run {
-    shell.current_dir(main);
-    match process::run_group_within(shell, LIMIT) {
+fn launch(shell: Command, limit: Duration) -> Run {
+    match process::run_group_within(shell, limit) {
         Some(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
             let output_text = format!("{stdout}{}", String::from_utf8_lossy(&output.stderr));
             Run { exit: output.status.code().unwrap_or(1), stdout, output: output_text }
         }
-        None => Run { exit: 124, stdout: String::new(), output: format!("no exit within {}s", LIMIT.as_secs()) },
+        None => Run { exit: 124, stdout: String::new(), output: format!("no exit within {}s", limit.as_secs()) },
     }
 }
 
-pub fn verdicts(body: &str, run: &dyn Fn(&str) -> Run) -> Vec<Verdict> {
+fn spawn(argv: &[String]) -> Command {
+    let mut command = Command::new(&argv[0]);
+    command.args(&argv[1..]);
+    command
+}
+
+fn offloaded(host: &str, sha: &str, command: &str) -> Vec<String> {
+    let north = north_binary().to_string_lossy().into_owned();
+    let timeout = LIMIT.as_secs().to_string();
+    [north.as_str(), "capacity", "offload", "run", "--host", host, "--base", sha, "--head", sha, "--timeout", timeout.as_str(), "--", command].map(str::to_owned).to_vec()
+}
+
+const CHECKER_HOSTS: [&str; 2] = ["gex45", "cpx62b"];
+
+fn build_host() -> Result<String, String> {
+    let configured = crate::platform::orchestration::read()?;
+    let hosts = configured.get("hosts").and_then(Item::as_table_like).ok_or("orchestration names no [hosts] table, so no build host may be chosen")?;
+    let host = offload_choice(&avoided_by_checker(hosts.iter().map(|(name, _)| name.to_owned())))?;
+    if CHECKER_HOSTS.contains(&host.as_str()) { Ok(host) } else { Err(format!("choose named {host}, which the checker may not use")) }
+}
+
+fn avoided_by_checker(hosts: impl IntoIterator<Item = String>) -> Vec<String> {
+    hosts.into_iter().filter(|name| !CHECKER_HOSTS.contains(&name.as_str())).collect()
+}
+
+fn offload_choice(avoid: &[String]) -> Result<String, String> {
+    let mut command = Command::new(north_binary());
+    command.args(["capacity", "offload", "choose", "--any"]).env(WORKER_REQUEST_ENV, "1");
+    for host in avoid {
+        command.args(["--avoid", host.as_str()]);
+    }
+    let output = command.stdin(Stdio::null()).output().map_err(|error| format!("north capacity offload choose: {error}"))?;
+    let host = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if output.status.success() {
+        return Ok(if host.is_empty() { crate::platform::host::name() } else { host });
+    }
+    Err(format!("no build host has room: {}", String::from_utf8_lossy(&output.stderr).trim()))
+}
+
+fn reported(command: &str, nonce: &str) -> String {
+    format!("sh -c {} ; printf '\\nNORTH_CHECK {nonce} %s\\n' \"$?\"", quoted(command))
+}
+
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+fn nonce() -> String {
+    format!("{:x}{:x}", Timestamp::now().unix_millis(), std::process::id())
+}
+
+fn reported_exit(run: Run, nonce: &str) -> Run {
+    let prefix = format!("NORTH_CHECK {nonce} ");
+    match run.stdout.lines().rev().find_map(|line| line.strip_prefix(&prefix)?.trim().parse::<i32>().ok()) {
+        Some(exit) => Run { exit, ..run },
+        None => Run { exit: UNREPORTED, output: format!("no exit reported by the build host, so no verdict: {}", run.output.trim()), ..run },
+    }
+}
+
+struct Runner<'a> {
+    main: &'a Path,
+    stamp: &'a Stamp,
+    confined: bool,
+    domain: &'a dyn Fn(&[String]) -> Command,
+    host: &'a dyn Fn() -> Result<String, String>,
+    launch: &'a dyn Fn(Command, Duration) -> Run,
+}
+
+impl<'a> Runner<'a> {
+    fn new(main: &'a Path, stamp: &'a Stamp, confined: bool, domain: &'a dyn Fn(&[String]) -> Command) -> Self {
+        Self { main, stamp, confined, domain, host: &build_host, launch: &launch }
+    }
+
+    fn run(&self, check: &Check) -> Run {
+        match check.placement {
+            Placement::Checker => self.start(vec!["sh".to_owned(), "-c".to_owned(), check.command.clone()], LIMIT),
+            Placement::BuildHost => match (self.host)() {
+                Ok(host) => {
+                    let nonce = nonce();
+                    reported_exit(self.start(offloaded(&host, &self.stamp.sha, &reported(&check.command, &nonce)), OFFLOAD_LIMIT), &nonce)
+                }
+                Err(why) => {
+                    eprintln!("{why}");
+                    Run { exit: UNREPORTED, stdout: String::new(), output: why }
+                }
+            },
+        }
+    }
+
+    fn start(&self, argv: Vec<String>, limit: Duration) -> Run {
+        let mut shell = if self.confined { (self.domain)(&argv) } else { spawn(&argv) };
+        shell.current_dir(self.main);
+        (self.launch)(shell, limit)
+    }
+}
+
+pub fn verdicts(body: &str, run: &dyn Fn(&Check) -> Run) -> Vec<Verdict> {
     checks(body)
         .into_iter()
         .map(|check| {
-            let run = run(&check.command);
-            let outcome = expectation::outcome(&check.expected, run.exit, &run.stdout, &run.output);
+            let run = run(&check);
+            let outcome = if run.exit == UNREPORTED { Outcome::Judge } else { expectation::outcome(&check.expected, run.exit, &run.stdout, &run.output) };
             Verdict { check, run, outcome }
         })
         .collect()
@@ -297,16 +402,15 @@ fn main_for(options: &Options) -> NorthResult<Main> {
     }
 }
 
-/// `domain` makes the command that runs a box's shell command in a new worker domain, which `--confined` asks for: the broker's check for a session (north#1137) runs a command whose text a session may have written into the issue.
-pub fn run(ledger: &Ledger, arguments: &[String], domain: &dyn Fn(&str) -> Command) -> NorthResult<()> {
+/// `domain` starts a program's argument vector in a new worker domain, which `--confined` asks for: the broker's check for a session runs a command whose text a session may have written into the issue, on the laptop or on a build host.
+pub fn run(ledger: &Ledger, arguments: &[String], domain: &dyn Fn(&[String]) -> Command) -> NorthResult<()> {
     let options = options(arguments)?;
-    let shell = |command: &str| if options.confined { domain(command) } else { plain(command) };
     if let Some(path) = &options.body_file {
         let main = main_for(&options)?;
         let stamp = Stamp { sha: main.sha()?, date: Timestamp::now().iso_date() };
-        let run = |command: &str| judge_under(shell(command), main.dir());
+        let runner = Runner::new(main.dir(), &stamp, options.confined, domain);
         let body = std::fs::read_to_string(path)?;
-        let verdicts = verdicts(&body, &run);
+        let verdicts = verdicts(&body, &|check| runner.run(check));
         for verdict in &verdicts {
             eprintln!("{}", verdict.line(path));
         }
@@ -324,9 +428,9 @@ pub fn run(ledger: &Ledger, arguments: &[String], domain: &dyn Fn(&str) -> Comma
     }
     let main = main_for(&options)?;
     let stamp = Stamp { sha: main.sha()?, date: Timestamp::now().iso_date() };
-    let run = |command: &str| judge_under(shell(command), main.dir());
+    let runner = Runner::new(main.dir(), &stamp, options.confined, domain);
     for (number, body) in issues {
-        let verdicts = verdicts(&body, &run);
+        let verdicts = verdicts(&body, &|check| runner.run(check));
         for verdict in &verdicts {
             println!("{}", verdict.line(&format!("{repo}#{number}")));
         }
