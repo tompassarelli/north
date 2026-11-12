@@ -32,7 +32,13 @@ impl ClaudeOnly {
     pub fn matching(&self, title: &str, box_text: Option<&str>) -> Option<&str> {
         let mut subject = format!("{title}\n{}", box_text.unwrap_or_default());
         for ignored in &self.ignored {
-            subject = ignored.replace_all(&subject, " ").into_owned();
+            loop {
+                let blanked = ignored.replace_all(&subject, " ").into_owned();
+                if blanked == subject {
+                    break;
+                }
+                subject = blanked;
+            }
         }
         self.patterns.iter().find(|pattern| pattern.is_match(&subject)).map(|pattern| pattern.as_str().trim_start_matches("(?i)"))
     }
@@ -74,8 +80,11 @@ mod tests {
             assert_eq!(only.refusal("claude", "north#4", telemetry, Some(text)), None, "a Claude worker reads the host's state, so it takes the box");
         }
         assert_eq!(only.refusal("opencode", "north#5", telemetry, Some("size a run to the measured capacity")), None, "a box about capacity that reads no host file stays available to DeepSeek");
-        for text in ["bump the pinned crate and refresh Cargo.lock", "regenerate bun.lock and flake.lock", "commit the package lock", "rebuild the lock file", "delete the lockfile"] {
+        for text in ["bump the pinned crate and refresh Cargo.lock", "regenerate bun.lock and flake.lock", "refresh Cargo.lock, bun.lockb,flake.lock.", "update pnpm-lock.yaml, package-lock.json, yarn.lock, poetry.lock, Gemfile.lock and composer.lock"] {
             assert_eq!(only.refusal("opencode", "north#6", "Bump a dependency", Some(text)), None, "{text:?} names a lock file, not concurrency");
+        }
+        for text in ["hold state.lock() across the await", "Mutex.lock() poisoned", "a stale .git/index.lock blocks git", "release packed-refs.lock", "the keeper.lock is held by a second process", "wait on the lock file until the writer finishes", "rotate secrets.lock", "credentials.lock", "commit the package lock", "rebuild the lock file", "refresh src/Cargo.lock"] {
+            assert!(only.refusal("opencode", "north#8", "Fix a hang", Some(text)).is_some(), "{text:?} is not a dependency lock file name");
         }
         for text in ["a lock held across the await", "release the lock after the write", "flock the state file", "guard it with a mutex", "take the lock before regenerating Cargo.lock"] {
             assert!(only.refusal("opencode", "north#7", "Fix a hang", Some(text)).is_some(), "{text:?} is locking as concurrency");

@@ -13,5 +13,5 @@ repos = ["south"]
 hosts = ["gex45", "cpx62", "cpx62b", "whiterabbit"]
 slot_cap = 16
 claude_only = ['\bcredentials?\b', '\bsecrets?\b', '\bsops\b', '\bpasswords?\b', '\bkeyring\b', '\bsandbox', '\blandlock\b', '\block(s|ed|ing)?\b', '\bflock\b', '\bmutex', '\bA DeepSeek session cannot do\b', 'capacity\.db', 'samples\.jsonl']
-# claude_only_ignore: text dropped from the subject before claude_only is matched, so a lock file's name is not the lock word (north#1210).
-claude_only_ignore = ['[\w-]+\.lockb?\b', '\bpackage[- ]lock\b', '\block[- ]?files?\b']
+# claude_only_ignore: text dropped from the subject before claude_only is matched, so the name of a dependency lock file is not the lock word (north#1210).
+claude_only_ignore = ['(?:^|[^\w./-])(?:Cargo\.lock|bun\.lockb?|flake\.lock|yarn\.lock|pnpm-lock\.yaml|package-lock\.json|poetry\.lock|Gemfile\.lock|composer\.lock)(?:$|\.(?:$|\W)|[^\w(.])']
