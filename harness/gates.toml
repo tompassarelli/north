@@ -86,3 +86,7 @@ mode = "shadow"
 # A post-landing culprit search whose base is already red on the failed tests walks back over the landings before it, each probed on the same failed tests, to the first one red where its parent passes, and would revert that earlier lane (north#1039, docs/rationale/test-selection.md "Blame"). Would-be reverts: $XDG_STATE_HOME/north/gates/blame-walk-back.jsonl on the lander host.
 [gate.blame-walk-back]
 mode = "shadow"
+
+# A tree whose `third-party/BUCK` lags the Cargo build: no target for a package Cargo builds, a target built without a feature Cargo turns on, a target for a package Cargo dropped, or no target under a name a workspace target depends on (north#1115 box 4a, docs/rationale/compile-reuse.md "First-party targets"). `north buck targets --check`, the land check that also holds Cargo.lock and the generated crate targets, reads this mode from the tree it checks. Would-be refusals: $XDG_STATE_HOME/north/gates/buck-targets-drift.jsonl on the host that runs the check.
+[gate.buck-targets-drift]
+mode = "shadow"

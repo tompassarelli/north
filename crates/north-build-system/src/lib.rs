@@ -68,6 +68,11 @@ pub fn manifest_graph(root: &Path, platform: &str) -> Result<String, String> {
     cargo_metadata::resolved_for(root, platform)
 }
 
+/// Cargo's resolved features per package for one platform, as `cargo tree --format "{p}|{f}"` prints them.
+pub fn feature_graph(root: &Path, platform: &str) -> Result<String, String> {
+    cargo_metadata::features_for(root, platform)
+}
+
 /// The environment a command runs in: as inherited, through the tree's `bin/land-shell --dev` when it has one, or `nix develop`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shell {

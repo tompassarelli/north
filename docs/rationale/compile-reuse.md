@@ -732,6 +732,19 @@ package for package. The other 90 entries fall in three groups:
 Every workspace crate, binary, test and example has a Buck2 target, written by `north buck targets` from
 `cargo metadata` and the manifests' `[lints]` tables. The command owns `BUCK` at the repository root and in each
 `crates/<dir>`; `--check` exits 1 on any file that differs, so the two graphs cannot drift while both exist.
+`--check` also holds `third-party/BUCK` to the Cargo build (north#1115 box 4a). It reads Cargo's resolved packages
+and features from `cargo tree --workspace --target x86_64-unknown-linux-gnu -e normal,build,dev` (the resolver's
+answer; `cargo metadata` lists features of optional dependencies the build never turns on, 86 of them on 2026-11-12)
+and finds a package Cargo builds without a target, a target built without a feature Cargo turns on (as `serde_json`
+lacked `float_roundtrip` for part of 2026-11-12 and `rustix` lacked `event`), a target for a package Cargo no longer builds, and
+a `//third-party:` label a workspace target depends on that the file does not define. A feature only the Buck target
+has is not a finding, since reindeer may add one. The two cargo reads run side by side, so the comparison adds no
+wall time to the check (3.0 s for both on the laptop on 2026-11-12, against 3.0 s for `cargo metadata` alone and
+2.6 s for `cargo tree` alone). It is the same land check of `.safe-push` that holds `Cargo.lock` to the manifests
+(north#1239), since one command reads both from the same tree. The findings are the `buck-targets-drift` gate of
+`harness/gates.toml`: in shadow each prints as `buck-targets-drift: would refuse (shadow): ...`, every decision is
+appended to `$XDG_STATE_HOME/north/gates/buck-targets-drift.jsonl` and the exit status is unchanged; enforcing, or
+in a tree whose registry does not name the gate, a finding exits 1.
 
 Prior art. Reindeer generates Buck2 targets for third-party crates from a `Cargo.toml` and is what box 2 runs on
 `third-party/` [reindeer]; it is built for vendored or downloaded registry crates, sets `--cap-lints` and drops

@@ -1,15 +1,18 @@
 //! `north buck targets`: writes the Buck2 target of every workspace crate, binary, test and example from the
-//! Cargo manifests, so the two build graphs cannot drift while both exist (docs/rationale/compile-reuse.md).
-//! Reads the resolved manifests through the reader its caller passes and the manifests' lint tables; depends on no other north crate.
+//! Cargo manifests, so the two build graphs cannot drift while both exist (docs/rationale/compile-reuse.md);
+//! `--check` also holds `third-party/BUCK` to the packages and features Cargo resolves.
+//! Reads the resolved manifests and features through the readers its caller passes and the manifests' lint tables; depends on no other north crate.
 mod env;
+mod gate;
 mod lints;
 mod plan;
 mod scan;
 mod sources;
 mod starlark;
+mod third_party;
 mod workspace;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 const USAGE: &str = "usage: north buck targets [--check] [--root DIR]";
@@ -17,12 +20,22 @@ const USAGE: &str = "usage: north buck targets [--check] [--root DIR]";
 /// Reads a workspace's packages with their dependency graph resolved for one platform, in `cargo metadata --format-version 1` form.
 pub type Manifests = fn(&Path, &str) -> Result<String, String>;
 
+/// Reads the features Cargo's resolver turns on for each package of a workspace for one platform, in `cargo tree --workspace --prefix none --format "{p}|{f}"` form.
+pub type FeatureGraph = fn(&Path, &str) -> Result<String, String>;
+
+/// What Cargo says about a workspace; the Buck2 targets must agree with it.
+pub struct Cargo {
+    pub manifests: Manifests,
+    pub features: FeatureGraph,
+}
+
 const PLATFORM: &str = "x86_64-unknown-linux-gnu";
 // The mark north-build-system and the capacity shim print when cargo itself could not run.
 const INFRASTRUCTURE: &str = "(infrastructure, exit 75)";
 const INFRASTRUCTURE_STATUS: u8 = 75;
 
-pub fn run(arguments: &[String], manifests: Manifests) -> u8 {
+/// `state` is the state home a gate in shadow logs its decisions under.
+pub fn run(arguments: &[String], cargo: &Cargo, state: &Path) -> u8 {
     let Some(("targets", rest)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) else {
         eprintln!("{USAGE}");
         return 2;
@@ -40,7 +53,8 @@ pub fn run(arguments: &[String], manifests: Manifests) -> u8 {
             }
         }
     }
-    match generate(&root, manifests).and_then(|files| if check { report_drift(&files) } else { write(&files) }) {
+    let outcome = if check { compare(&root, cargo, state) } else { generate(&root, cargo.manifests).and_then(|planned| write(&planned.files)) };
+    match outcome {
         Ok(code) => code,
         Err(why) => {
             eprintln!("north buck targets: {why}");
@@ -49,12 +63,30 @@ pub fn run(arguments: &[String], manifests: Manifests) -> u8 {
     }
 }
 
+fn compare(root: &Path, cargo: &Cargo, state: &Path) -> Result<u8, String> {
+    let (planned, features) = std::thread::scope(|scope| {
+        let features = scope.spawn(|| (cargo.features)(root, PLATFORM));
+        (generate(root, cargo.manifests), features.join())
+    });
+    let planned = planned?;
+    let features = features.map_err(|_| "the read of Cargo's resolved features panicked".to_owned())??;
+    let lagging = third_party::lag(&planned.root, &features, &planned.labels);
+    Ok(report_drift(&planned.files)?.max(gate::decide(&planned.root, state, &lagging)))
+}
+
 pub struct Generated {
     pub path: PathBuf,
     pub content: Option<String>,
 }
 
-pub fn generate(dir: &Path, manifests: Manifests) -> Result<Vec<Generated>, String> {
+pub struct Planned {
+    pub root: PathBuf,
+    pub files: Vec<Generated>,
+    /// Every `//third-party:` label a workspace target depends on.
+    pub labels: BTreeSet<String>,
+}
+
+pub fn generate(dir: &Path, manifests: Manifests) -> Result<Planned, String> {
     let workspace = workspace::parse(&manifests(dir, PLATFORM)?)?;
     let workspace_lints = lints::workspace_table(&workspace.root)?;
     let mut lint_flags = BTreeMap::new();
@@ -67,11 +99,12 @@ pub fn generate(dir: &Path, manifests: Manifests) -> Result<Vec<Generated>, Stri
         }
     }
     let files = plan::plan(&workspace, &lint_flags)?;
+    let labels = files.iter().flat_map(|file| &file.rules).flat_map(|rule| rule.deps.iter().chain(rule.named_deps.values())).filter(|label| label.starts_with("//third-party:")).cloned().collect();
     let mut generated: Vec<Generated> = files.iter().map(|file| Generated { path: workspace.root.join(&file.dir).join("BUCK"), content: Some(starlark::render(file)) }).collect();
     for stale in stale_buckfiles(&workspace.root, &generated)? {
         generated.push(Generated { path: stale, content: None });
     }
-    Ok(generated)
+    Ok(Planned { root: workspace.root, files: generated, labels })
 }
 
 fn stale_buckfiles(root: &Path, generated: &[Generated]) -> Result<Vec<PathBuf>, String> {

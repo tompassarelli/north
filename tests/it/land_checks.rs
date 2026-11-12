@@ -725,9 +725,9 @@ fn clippy_and_the_tests_under_one_lease_run_side_by_side_on_a_host_with_the_core
 }
 
 #[test]
-fn the_lock_and_buck_check_answers_infrastructure_when_cargo_cannot_run_and_refuses_only_cargos_own_lock_answer() {
+fn the_buck_check_answers_infrastructure_when_cargo_cannot_run_and_refuses_cargos_own_lock_answer_and_a_third_party_target_behind_cargo() {
     let fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
-    let check = |path: &Path| Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["buck", "targets", "--check", "--root"]).arg(&fixture.repo).env("PATH", path).output().unwrap();
+    let check = |path: &Path| Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["buck", "targets", "--check", "--root"]).arg(&fixture.repo).env("PATH", path).env("XDG_STATE_HOME", fixture.path("state")).output().unwrap();
     let empty = fixture.path("no-cargo");
     fs::create_dir_all(&empty).unwrap();
     let missing = check(&empty);
@@ -739,4 +739,25 @@ fn the_lock_and_buck_check_answers_infrastructure_when_cargo_cannot_run_and_refu
     let refused = check(Path::new(&format!("{}:{}", stale.display(), std::env::var("PATH").unwrap_or_default())));
     assert_eq!(refused.status.code(), Some(1), "cargo's own lock answer did not refuse: {}", text(&refused));
     assert!(text(&refused).contains("cannot update the lock file"), "{}", text(&refused));
+
+    let behind = fixture.path("behind");
+    fs::create_dir_all(&behind).unwrap();
+    fs::create_dir_all(fixture.repo.join("third-party")).unwrap();
+    fs::write(fixture.repo.join("Cargo.toml"), "[workspace]\n").unwrap();
+    fs::write(fixture.repo.join("third-party/BUCK"), "cargo.rust_library(\n    name = \"serde_json-1\",\n    env = {\n        \"CARGO_PKG_NAME\": \"serde_json\",\n        \"CARGO_PKG_VERSION\": \"1.0.151\",\n    },\n    features = [\n        \"default\",\n        \"std\",\n    ],\n)\n").unwrap();
+    let metadata = behind.join("metadata.json");
+    fs::write(&metadata, serde_json::json!({"packages": [], "workspace_members": [], "workspace_root": fixture.repo, "resolve": {"nodes": []}}).to_string()).unwrap();
+    script(&behind.join("cargo"), &format!("case \"$1\" in\n  metadata) cat '{}' ;;\n  tree) printf '%s\\n' 'serde_json v1.0.151|default,float_roundtrip,std' 'itoa v1.0.18|' ;;\nesac\n", metadata.display()));
+    let path = format!("{}:{}", behind.display(), std::env::var("PATH").unwrap_or_default());
+    let lagging = check(Path::new(&path));
+    assert_eq!(lagging.status.code(), Some(1), "a third-party target behind the Cargo build did not refuse: {}", text(&lagging));
+    assert!(text(&lagging).contains("third-party/BUCK builds serde_json 1.0.151 without float_roundtrip") && text(&lagging).contains("third-party/BUCK has no target for itoa 1.0.18"), "{}", text(&lagging));
+
+    fs::create_dir_all(fixture.repo.join("harness")).unwrap();
+    fs::write(fixture.repo.join("harness/gates.toml"), "[gate.buck-targets-drift]\nmode = \"shadow\"\n").unwrap();
+    let shadowed = check(Path::new(&path));
+    assert_eq!(shadowed.status.code(), Some(0), "the gate refused while in shadow: {}", text(&shadowed));
+    assert!(text(&shadowed).contains("would refuse (shadow): third-party/BUCK builds serde_json 1.0.151 without float_roundtrip"), "{}", text(&shadowed));
+    let logged = fs::read_to_string(fixture.path("state/north/gates/buck-targets-drift.jsonl")).unwrap_or_default();
+    assert!(logged.contains(r#""would_refuse":true"#) && logged.contains("float_roundtrip"), "the shadow decision was not logged: {logged}");
 }

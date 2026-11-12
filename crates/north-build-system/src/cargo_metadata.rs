@@ -32,18 +32,28 @@ pub fn no_deps(root: &Path) -> Result<String, String> {
     no_deps_in(root, &memo_dir())
 }
 
-pub fn resolved_for(root: &Path, platform: &str) -> Result<String, String> {
+fn answer(root: &Path, verb: &str, arguments: &[&str]) -> Result<String, String> {
     let output = Command::new("cargo")
-        .args(["metadata", "--format-version", "1", "--locked", "--offline", "--filter-platform", platform])
+        .arg(verb)
+        .args(arguments)
+        .args(["--locked", "--offline"])
         .current_dir(root)
         .output()
-        .map_err(|why| format!("cargo metadata did not start {INFRASTRUCTURE}: {why}"))?;
+        .map_err(|why| format!("cargo {verb} did not start {INFRASTRUCTURE}: {why}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let mark = if matches!(output.status.code(), Some(75 | 127) | None) || stderr.contains(OFFLINE_MISS) { format!(" {INFRASTRUCTURE}") } else { String::new() };
-        return Err(format!("cargo metadata failed{mark}: {}", stderr.trim_end()));
+        return Err(format!("cargo {verb} failed{mark}: {}", stderr.trim_end()));
     }
-    String::from_utf8(output.stdout).map_err(|why| format!("cargo metadata printed non-UTF-8: {why}"))
+    String::from_utf8(output.stdout).map_err(|why| format!("cargo {verb} printed non-UTF-8: {why}"))
+}
+
+pub fn resolved_for(root: &Path, platform: &str) -> Result<String, String> {
+    answer(root, "metadata", &["--format-version", "1", "--filter-platform", platform])
+}
+
+pub fn features_for(root: &Path, platform: &str) -> Result<String, String> {
+    answer(root, "tree", &["--workspace", "--target", platform, "-e", "normal,build,dev", "--prefix", "none", "--format", "{p}|{f}"])
 }
 
 fn quoted(root: &str) -> [(String, String); 3] {
