@@ -18,7 +18,7 @@ pub(super) enum Pass {
     Elsewhere(String),
 }
 
-pub(super) fn within(budget: Duration, run: impl FnOnce() -> Pass + Send + 'static) -> Result<Pass, String> {
+pub(super) fn within<R: Send + 'static>(budget: Duration, run: impl FnOnce() -> R + Send + 'static) -> Result<R, String> {
     detach("dispatch", run).by(Instant::now() + budget).map_err(|late| format!("deferred dispatch to the next tick: {}", late.why(budget)))
 }
 

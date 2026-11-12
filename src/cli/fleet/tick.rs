@@ -11,7 +11,7 @@ use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::fleet::stage::{Detached, detach};
 use crate::fleet::store::OverSsh;
-use crate::fleet::tick::{Budgets, FarHost, Pulls, Step, Ticked, open_ledger, probe_pass, tick};
+use crate::fleet::tick::{Budgets, Cpu, FarHost, Pulls, Step, Ticked, detach_metered, metered, open_ledger, probe_pass, tick};
 use crate::pacing::placement::{config, gate, pass};
 use crate::platform::shared_config;
 
@@ -26,6 +26,7 @@ const USAGE: &str = "Usage: north fleet tick";
 const BESIDE: Duration = Duration::from_secs(20);
 pub(super) const QUEUE_ENTRY: &str = "NORTH_FLEET_QUEUE_ENTRY";
 const QUEUE_RETRY_MS: u64 = 3 * 60 * 1000;
+type Refresh = (Option<Result<shared_config::Stamp, String>>, Instant, Duration);
 
 fn always_pulled(fleet: &Fleet) -> Vec<FarHost> {
     config().map(|cfg| gate::spool_pulls(&cfg, fleet.host())).unwrap_or_default().into_iter().map(|(name, ssh)| FarHost { name, ssh }).collect()
@@ -37,9 +38,12 @@ fn dispatch_pass(fleet: &Fleet) -> dispatch_tick::Pass {
     dispatch_tick::pass(fleet.host(), cfg.as_ref(), paused.as_deref(), &crate::dispatch::launch_directory(), now_ms() as f64 / 1000.0, || crate::pacing::placement::resident_clis(fleet.host(), ""), || crate::dispatch::run(&[], super::router::roster))
 }
 
-fn dispatch_beside(fleet: &Fleet, began: Instant) -> Result<dispatch_tick::Pass, String> {
+fn dispatch_beside(fleet: &Fleet, began: Instant) -> (Result<dispatch_tick::Pass, String>, Option<Duration>) {
     let fleet = fleet.clone();
-    dispatch_tick::within(Budgets::TICK.worst().saturating_sub(began.elapsed()), move || dispatch_pass(&fleet))
+    match dispatch_tick::within(Budgets::TICK.worst().saturating_sub(began.elapsed()), move || metered(|| dispatch_pass(&fleet))) {
+        Ok((dispatched, cpu)) => (Ok(dispatched), Some(cpu)),
+        Err(deferred) => (Err(deferred), None),
+    }
 }
 
 fn dispatch_line(dispatched: &Result<dispatch_tick::Pass, String>) -> Option<String> {
@@ -54,66 +58,73 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if !words.is_empty() {
         return Err(NorthError::Usage(USAGE.into()));
     }
-    let began = Instant::now();
-    let refreshing = detach("shared_config", || (shared_config::refresh_if_due(&home(), shared_config::now()), Instant::now()));
+    let (began, spent) = (Instant::now(), Cpu::process());
+    let refreshing = detach("shared_config", || {
+        let (stamp, cpu) = metered(|| shared_config::refresh_if_due(&home(), shared_config::now()));
+        (stamp, Instant::now(), cpu)
+    });
     let ledger = open_ledger(|| Ok(Ledger));
     let probes = Probes::here(fleet);
     if probes == Probes::Registry {
         let ticked = probe_pass(fleet, &ledger, &probes, Budgets::TICK)?;
         ticked.lines().iter().for_each(|line| println!("{line}"));
-        drain_queue(fleet, began)?.iter().for_each(|line| println!("{line}"));
+        drain_queue(fleet, began)?.0.iter().for_each(|line| println!("{line}"));
         kept_fresh(fleet, &refreshing, began).0.iter().for_each(|line| println!("{line}"));
         println!("{}", ticked.timing());
-        if let Some(line) = dispatch_line(&dispatch_beside(fleet, began)) {
+        if let Some(line) = dispatch_line(&dispatch_beside(fleet, began).0) {
             println!("{line}");
         }
         return Ok(());
     }
     let spending = {
         let fleet = fleet.clone();
-        detach("api_spend", move || (api_spend::pull(&fleet), Instant::now()))
+        detach("api_spend", move || {
+            let (lines, cpu) = metered(|| api_spend::pull(&fleet));
+            (lines, Instant::now(), cpu)
+        })
     };
     let moving = {
         let fleet = fleet.clone();
         detach("window_move", move || {
-            window_move::auto(&fleet);
-            Instant::now()
+            let ((), cpu) = metered(|| window_move::auto(&fleet));
+            (Instant::now(), cpu)
         })
     };
     let _pass = pass();
     let pulls = Pulls { spools: std::sync::Arc::new(OverSsh::default()), always: always_pulled(fleet) };
     let ticked = tick(fleet, &ledger, &pulls, &probes, now_ms(), Budgets::TICK);
     let reviving = Instant::now();
-    let revived = rebooted::revive_within(fleet, rebooted::REVIVE_BUDGET.min(Budgets::TICK.worst().saturating_sub(began.elapsed())));
+    let (revived, reviving_cpu) = metered(|| rebooted::revive_within(fleet, rebooted::REVIVE_BUDGET.min(Budgets::TICK.worst().saturating_sub(began.elapsed()))));
     let mut ticked = ticked?;
-    ticked.steps.push(Step { name: "rebooted", began: reviving - began, took: reviving.elapsed() });
+    ticked.steps.push(Step { name: "rebooted", began: reviving - began, took: reviving.elapsed(), cpu: Some(reviving_cpu) });
     let deadline = (began + BESIDE).max(Instant::now());
     let spend_lines = match spending.by(deadline) {
-        Ok((lines, ended)) => {
-            ticked.steps.push(Step { name: "api_spend", began: Duration::ZERO, took: ended - began });
+        Ok((lines, ended, cpu)) => {
+            ticked.steps.push(Step { name: "api_spend", began: Duration::ZERO, took: ended - began, cpu: Some(cpu) });
             lines
         }
         Err(late) => late_beside(&mut ticked, "api_spend", &late.why(BESIDE), began),
     };
     let moved = match moving.by(deadline) {
-        Ok(ended) => {
-            ticked.steps.push(Step { name: "window_move", began: Duration::ZERO, took: ended - began });
+        Ok((ended, cpu)) => {
+            ticked.steps.push(Step { name: "window_move", began: Duration::ZERO, took: ended - began, cpu: Some(cpu) });
             Vec::new()
         }
         Err(late) => late_beside(&mut ticked, "window_move", &late.why(BESIDE), began),
     };
     let queueing = Instant::now();
-    let queued = drain_queue(fleet, began)?;
-    ticked.steps.push(Step { name: "launch_queue", began: queueing - began, took: queueing.elapsed() });
+    let (queued, queueing_cpu) = drain_queue(fleet, began)?;
+    ticked.steps.push(Step { name: "launch_queue", began: queueing - began, took: queueing.elapsed(), cpu: queueing_cpu });
     let expiring = Instant::now();
-    let expired = crate::cli::machines::expire(Timestamp::now());
-    ticked.steps.push(Step { name: "expire", began: expiring - began, took: expiring.elapsed() });
-    let (refreshed, ended) = kept_fresh(fleet, &refreshing, began);
-    ticked.steps.push(Step { name: "shared_config", began: Duration::ZERO, took: ended - began });
+    let (expired, expiring_cpu) = metered(|| crate::cli::machines::expire(Timestamp::now()));
+    ticked.steps.push(Step { name: "expire", began: expiring - began, took: expiring.elapsed(), cpu: Some(expiring_cpu) });
+    let (refreshed, ended, refreshing_cpu) = kept_fresh(fleet, &refreshing, began);
+    ticked.steps.push(Step { name: "shared_config", began: Duration::ZERO, took: ended - began, cpu: refreshing_cpu });
     let dispatching = Instant::now();
-    let dispatched = dispatch_beside(fleet, began);
-    ticked.steps.push(Step { name: "dispatch", began: dispatching - began, took: dispatching.elapsed() });
+    let (dispatched, dispatching_cpu) = dispatch_beside(fleet, began);
+    ticked.steps.push(Step { name: "dispatch", began: dispatching - began, took: dispatching.elapsed(), cpu: dispatching_cpu });
     ticked.wall = began.elapsed();
+    ticked.cpu = spent.spent();
     ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).chain(&expired).chain(&refreshed).for_each(|line| println!("{line}"));
     println!("{}", ticked.timing());
     if let Some(line) = dispatch_line(&dispatched) {
@@ -128,20 +139,20 @@ fn finished(queued: &QueuedLaunch) -> Option<String> {
     work_gone(&item, queued.request.claimed_box().as_deref())
 }
 
-fn drain_queue(fleet: &Fleet, began: Instant) -> NorthResult<Vec<String>> {
+fn drain_queue(fleet: &Fleet, began: Instant) -> NorthResult<(Vec<String>, Option<Duration>)> {
     let left = Budgets::TICK.worst().saturating_sub(began.elapsed());
     let budget = Budgets::TICK.queue_after(began.elapsed());
     let admitting = {
         let fleet = fleet.clone();
-        detach("launch_queue", move || {
+        detach_metered("launch_queue", move || {
             let (started, now) = (Instant::now(), now_ms());
             let due = |queued: &QueuedLaunch| queued.tried_ms.is_none_or(|tried| now.saturating_sub(tried) >= QUEUE_RETRY_MS);
             fleet.admit_queued(now, &Admission { due: &due, gone: &finished, start: &start, budget, spent: &|| started.elapsed() })
         })
     };
     match admitting.by(Instant::now() + left) {
-        Ok(lines) => lines,
-        Err(late) => Ok(vec![format!("deferred launch_queue to the next tick: {}", late.why(left))]),
+        Ok((lines, cpu)) => lines.map(|lines| (lines, Some(cpu))),
+        Err(late) => Ok((vec![format!("deferred launch_queue to the next tick: {}", late.why(left))], None)),
     }
 }
 
@@ -152,7 +163,7 @@ fn start(queued: &QueuedLaunch) -> Result<(), String> {
 }
 
 fn late_beside(ticked: &mut Ticked, name: &'static str, why: &str, began: Instant) -> Vec<String> {
-    ticked.steps.push(Step { name, began: Duration::ZERO, took: began.elapsed() });
+    ticked.steps.push(Step { name, began: Duration::ZERO, took: began.elapsed(), cpu: None });
     vec![format!("deferred {name} to the next tick: {why}")]
 }
 
@@ -161,18 +172,18 @@ fn home() -> std::path::PathBuf {
 }
 
 /// The shared-config refresh started beside the tick, waited for only until its deadline, then the coordinator's line once its snapshot is past three quarters of the bound, which goes out whether the fetch failed, ran late or never ran.
-fn kept_fresh(fleet: &Fleet, refreshing: &Detached<(Option<Result<shared_config::Stamp, String>>, Instant)>, began: Instant) -> (Vec<String>, Instant) {
+fn kept_fresh(fleet: &Fleet, refreshing: &Detached<Refresh>, began: Instant) -> (Vec<String>, Instant, Option<Duration>) {
     let mut lines = Vec::new();
-    let ended = match refreshing.by((began + BESIDE).max(Instant::now())) {
-        Ok((refreshed, ended)) => {
+    let (ended, cpu) = match refreshing.by((began + BESIDE).max(Instant::now())) {
+        Ok((refreshed, ended, cpu)) => {
             if let Some(Err(error)) = refreshed {
                 lines.push(format!("shared_config: {error}"));
             }
-            ended
+            (ended, Some(cpu))
         }
         Err(late) => {
             lines.push(format!("shared_config: the refresh is {}; the next tick fetches again", late.why(BESIDE)));
-            Instant::now()
+            (Instant::now(), None)
         }
     };
     let (home, now) = (home(), shared_config::now());
@@ -188,5 +199,5 @@ fn kept_fresh(fleet: &Fleet, refreshing: &Detached<(Option<Result<shared_config:
         }
         lines.push(line);
     }
-    (lines, ended)
+    (lines, ended, cpu)
 }

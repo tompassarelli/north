@@ -5,7 +5,9 @@ use crate::error::NorthResult;
 
 use super::model::SessionRecord;
 
+mod cpu;
 mod far;
+pub use cpu::{Cpu, detach_metered, metered};
 use far::{cache_far, deliver_far, drop_far, far_hosts, take_far};
 use super::registry::{Fleet, HandedIn};
 use super::stage::{Detached, Late, detach};
@@ -76,6 +78,7 @@ pub struct Ticked {
     pub uncached: Vec<(String, String)>,
     pub far_failed: Vec<(String, String)>,
     pub wall: Duration,
+    pub cpu: Duration,
     pub steps: Vec<Step>,
 }
 
@@ -84,6 +87,7 @@ pub struct Step {
     pub name: &'static str,
     pub began: Duration,
     pub took: Duration,
+    pub cpu: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -126,29 +130,38 @@ impl WaitProbes for NoProbes {
 
 struct Clock {
     origin: Instant,
+    spent: Cpu,
     steps: Mutex<Vec<Step>>,
 }
 
 impl Clock {
     fn new() -> Self {
-        Self { origin: Instant::now(), steps: Mutex::new(Vec::new()) }
+        Self { origin: Instant::now(), spent: Cpu::process(), steps: Mutex::new(Vec::new()) }
     }
 
     fn time<R>(&self, name: &'static str, run: impl FnOnce() -> R) -> R {
         let began = Instant::now();
-        let ran = run();
-        self.record(name, began, Instant::now());
+        let (ran, cpu) = metered(run);
+        self.record(name, began, Instant::now(), Some(cpu));
         ran
     }
 
-    fn record(&self, name: &'static str, began: Instant, ended: Instant) {
+    fn wait<R>(&self, name: &'static str, running: &Detached<(R, Duration)>, deadline: Instant) -> Result<R, Late> {
+        let began = Instant::now();
+        let answer = running.by(deadline);
+        self.record(name, began, Instant::now(), answer.as_ref().ok().map(|(_, cpu)| *cpu));
+        answer.map(|(ran, _)| ran)
+    }
+
+    fn record(&self, name: &'static str, began: Instant, ended: Instant, cpu: Option<Duration>) {
         if let Ok(mut steps) = self.steps.lock() {
-            steps.push(Step { name, began: began.saturating_duration_since(self.origin), took: ended.saturating_duration_since(began) });
+            steps.push(Step { name, began: began.saturating_duration_since(self.origin), took: ended.saturating_duration_since(began), cpu });
         }
     }
 
     fn stop(self, ticked: &mut Ticked) {
         ticked.wall = self.origin.elapsed();
+        ticked.cpu = self.spent.spent();
         let mut steps = self.steps.into_inner().unwrap_or_else(PoisonError::into_inner);
         steps.sort_by_key(|step| step.began);
         ticked.steps = steps;
@@ -209,8 +222,15 @@ impl Ticked {
 
     pub fn timing(&self) -> String {
         let wall = self.wall.as_secs_f64().max(f64::EPSILON);
-        let steps: Vec<String> = self.steps.iter().map(|step| format!("{} {}ms {:.0}%", step.name, step.took.as_millis(), 100.0 * step.took.as_secs_f64() / wall)).collect();
-        format!("tick took {}ms: {}", self.wall.as_millis(), steps.join(", "))
+        let steps: Vec<String> = self
+            .steps
+            .iter()
+            .map(|step| {
+                let cpu = step.cpu.map_or_else(String::new, |cpu| format!(" {}cpu-ms", cpu.as_millis()));
+                format!("{} {}ms{cpu} {:.0}%", step.name, step.took.as_millis(), 100.0 * step.took.as_secs_f64() / wall)
+            })
+            .collect();
+        format!("tick took {}ms {}cpu-ms: {}", self.wall.as_millis(), self.cpu.as_millis(), steps.join(", "))
     }
 }
 
@@ -220,16 +240,16 @@ pub fn tick(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, probes: &dyn Wait
     let placing = probes.placement().map(|place| {
         let began = Instant::now();
         (began, detach("placement", move || {
-            place();
-            Instant::now()
+            let ((), cpu) = metered(place);
+            (Instant::now(), cpu)
         }))
     });
     let late = exchange_and_hand_in(fleet, ledger, pulls, &clock, &mut ticked, (now_ms, budgets))?;
     if let Some((began, placing)) = placing {
         match placing.by(began + budgets.placement) {
-            Ok(ended) => clock.record("placement", began, ended),
+            Ok((ended, cpu)) => clock.record("placement", began, ended, Some(cpu)),
             Err(late) => {
-                clock.record("placement", began, Instant::now());
+                clock.record("placement", began, Instant::now(), None);
                 ticked.put_off("placement", &late, budgets.placement);
             }
         }
@@ -253,7 +273,7 @@ fn probe_and_prune(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, 
 }
 
 struct Exchanging {
-    running: Detached<NorthResult<Exchanged>>,
+    running: Detached<(NorthResult<Exchanged>, Duration)>,
     began: Instant,
     spooled: Vec<String>,
     covered: Vec<String>,
@@ -306,10 +326,10 @@ fn exchange_and_hand_in(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, clock
     let began = Instant::now();
     let running = {
         let ledger = ledger.clone();
-        detach("ledger.exchange", move || ledger()?.exchange(&exchange))
+        detach_metered("ledger.exchange", move || ledger()?.exchange(&exchange))
     };
     let exchanging = Exchanging { running, began, spooled, covered, pulled, taken, now_ms };
-    match clock.time("ledger.exchange", || exchanging.running.by(began + budgets.ledger)) {
+    match clock.wait("ledger.exchange", &exchanging.running, began + budgets.ledger) {
         Ok(exchanged) => exchanging.hand_in(exchanged?, (fleet, ledger, pulls), clock, ticked, budgets).map(|()| None),
         Err(_) => Ok(Some(exchanging)),
     }
@@ -317,7 +337,7 @@ fn exchange_and_hand_in(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, clock
 
 fn finish_late_exchange(late: Option<Exchanging>, (fleet, ledger, pulls): (&Fleet, &OpenLedger, &Pulls), clock: &Clock, ticked: &mut Ticked, budgets: Budgets) -> NorthResult<()> {
     let Some(exchanging) = late else { return Ok(()) };
-    match clock.time("ledger.exchange.late", || exchanging.running.by(exchanging.began + budgets.ledger * 2)) {
+    match clock.wait("ledger.exchange.late", &exchanging.running, exchanging.began + budgets.ledger * 2) {
         Ok(exchanged) => exchanging.hand_in(exchanged?, (fleet, ledger, pulls), clock, ticked, budgets),
         Err(late) => {
             ticked.put_off("ledger.exchange", &late, budgets.ledger);
@@ -335,9 +355,9 @@ fn settle(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: &C
     }
     let settling = {
         let (ledger, settled) = (ledger.clone(), settled.clone());
-        detach("settle", move || ledger()?.settle(&settled))
+        detach_metered("settle", move || ledger()?.settle(&settled))
     };
-    let left = match clock.time("settle", || settling.by(Instant::now() + budgets.ledger)) {
+    let left = match clock.wait("settle", &settling, Instant::now() + budgets.ledger) {
         Ok(Ok(())) => Vec::new(),
         Ok(Err(error)) => {
             ticked.unsettled = Some(error.user_message());
@@ -360,7 +380,10 @@ fn probe(fleet: &Fleet, jobs: Vec<ProbeJob>, clock: &Clock, budget: Duration) ->
         .map(|ProbeJob { name, own, run }| {
             let fleet = fleet.clone();
             let by = own.map_or(deadline, |own| (started + own).min(deadline));
-            (name, by, detach(name, move || (run(fleet), Instant::now())))
+            (name, by, detach(name, move || {
+                let (probed, cpu) = metered(|| run(fleet));
+                (probed, Instant::now(), cpu)
+            }))
         })
         .collect();
     let mut probed = Probed { lines: Vec::new(), settled: Vec::new() };
@@ -370,17 +393,17 @@ fn probe(fleet: &Fleet, jobs: Vec<ProbeJob>, clock: &Clock, budget: Duration) ->
             continue;
         }
         let fleet = fleet.clone();
-        let running = detach(name, move || run(fleet));
-        let answer = clock.time(name, || running.by(deadline));
+        let running = detach_metered(name, move || run(fleet));
+        let answer = clock.wait(name, &running, deadline);
         probed.hear(name, answer, || format!("still running when probes spent their {}ms budget", budget.as_millis()));
     }
     for (name, by, running) in beside {
-        let answer = running.by(by).map(|(probed, ended)| {
-            clock.record(name, started, ended);
+        let answer = running.by(by).map(|(probed, ended, cpu)| {
+            clock.record(name, started, ended, Some(cpu));
             probed
         });
         if answer.is_err() {
-            clock.record(name, started, Instant::now());
+            clock.record(name, started, Instant::now(), None);
         }
         probed.hear(name, answer, || format!("still running when it spent its own {}ms budget", by.saturating_duration_since(started).as_millis()));
     }
