@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 north-runtime-follow = { path = "../north-runtime-follow" }
+north-build-system = { path = "../north-build-system" }
 north-base = { path = "../north-base" }
 north-lanes = { path = "../north-lanes" }
 north-providers = { path = "../north-providers" }

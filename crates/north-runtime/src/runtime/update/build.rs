@@ -130,19 +130,21 @@ fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, co
     let kept = layout::home().join(".cache/cargo-target/north");
     let built = lane.path.join("target");
     let _kept = KeptTarget::borrow(&kept, &built);
+    let system = north_build_system::here();
+    let request = cargo_build::release_build(&lane.path, &built, confined);
+    let invocation = system.build(&request);
     let mut build = Command::new(north_base::platform::north_binary::north_binary());
     build
         .args(["capacity", "host", "run", "--class", "runtime", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
-        .args(cargo_build::cargo_words(confined))
-        .current_dir(&lane.path)
-        .env("CARGO_TARGET_DIR", &built)
-        .env("CARGO_PROFILE_RELEASE_INCREMENTAL", "true");
+        .args(cargo_build::idle(confined))
+        .args(&invocation.words);
+    invocation.environ(&mut build);
     let log = BuildLog::open(layout, target)?;
     let mut attempt = || -> Result<_, Failure> {
         let wall = std::time::SystemTime::now();
         log.attach(&mut build)?;
         let status = build.status()?;
-        Ok((status, cargo_build::cargo_ran(&built, wall)))
+        Ok((status, system.compiled_since(&request, wall)))
     };
     let (mut status, mut ran) = attempt()?;
     if let Some(archives) = log.stale_archives().filter(|_| !status.success() && ran) {
@@ -159,13 +161,12 @@ fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, co
         return Err(cargo_build::build_failure(target, status, ran, &log));
     }
     log.discard();
-    let release = built.join("release");
-    if !layout::has_programs(&release) {
+    if !PROGRAMS.iter().all(|program| system.built(&request, program).is_file()) {
         return Err(failed(DEFERRED, "build did not run or produced no binary (capacity lease deferred?); runtime unchanged"));
     }
     fs::create_dir_all(runtime)?;
     for program in PROGRAMS {
-        layout::install(&release.join(program), &runtime.join(program))?;
+        layout::install(&system.built(&request, program), &runtime.join(program))?;
     }
     fs::write(runtime.join(BUILT_HERE), layout::short(target))?;
     layout::stamp(runtime, target)?;

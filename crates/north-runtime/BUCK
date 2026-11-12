@@ -27,6 +27,7 @@ rust_library(
     },
     deps = [
         "//crates/north-base:north-base",
+        "//crates/north-build-system:north-build-system",
         "//crates/north-dispatch:north-dispatch",
         "//crates/north-lanes:north-lanes",
         "//crates/north-providers:north-providers",
@@ -60,6 +61,7 @@ north_rust_test(
     },
     deps = [
         "//crates/north-base:north-base",
+        "//crates/north-build-system:north-build-system",
         "//crates/north-dispatch:north-dispatch",
         "//crates/north-lanes:north-lanes",
         "//crates/north-pacing:north-pacing",

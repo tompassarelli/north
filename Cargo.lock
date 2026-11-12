@@ -1845,6 +1845,7 @@ dependencies = [
  "base64",
  "landlock",
  "north-base",
+ "north-build-system",
  "north-dispatch",
  "north-lanes",
  "north-pacing",

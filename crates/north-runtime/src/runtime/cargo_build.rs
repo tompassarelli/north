@@ -1,6 +1,7 @@
 use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, Layout};
 use crate::capacity::game_reserve::Confinement;
+use north_build_system::{Build, Profile, Resolution, Shell};
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -10,6 +11,7 @@ use std::time::SystemTime;
 const STALE_INCREMENTAL_LINK: &str = "undefined hidden symbol";
 const ARCHIVE: &str = " in archive ";
 const KEPT_LOGS: usize = 8;
+const IDLE: [&str; 6] = ["nice", "-n", "19", "ionice", "-c", "3"];
 
 pub(super) struct BuildLog {
     path: PathBuf,
@@ -87,16 +89,14 @@ fn forget_incremental_of(built: &Path, archives: &[PathBuf]) -> io::Result<()> {
     Ok(())
 }
 
-pub(super) fn cargo_words(confined: Option<&Confinement>) -> Vec<String> {
-    let cargo = ["nix", "develop", "-c", "cargo", "build", "--release", "--locked", "--timings"].map(str::to_owned);
-    match confined {
-        Some(confinement) => ["nice", "-n", "19", "ionice", "-c", "3"].map(str::to_owned).into_iter().chain(cargo).chain(["-j".to_owned(), confinement.jobs.to_string()]).collect(),
-        None => cargo.to_vec(),
-    }
+/// The release build of every runtime program of `lane` into `built`, held to the confinement's jobs when the host is in game-reserve.
+pub(super) fn release_build<'a>(lane: &'a Path, built: &'a Path, confined: Option<&Confinement>) -> Build<'a> {
+    Build { root: lane, profile: Profile::Release, binary: None, jobs: confined.map(|confinement| confinement.jobs as usize), resolution: Resolution::LOCKED, shell: Shell::NixDevelop, output: Some(built), uncached: false, timings: true }
 }
 
-pub(super) fn cargo_ran(built: &Path, since: SystemTime) -> bool {
-    fs::metadata(built.join("cargo-timings/cargo-timing.html")).and_then(|metadata| metadata.modified()).is_ok_and(|written| written >= since)
+/// The words that run a confined build at idle CPU and I/O priority, none for a build that is not confined.
+pub(super) fn idle(confined: Option<&Confinement>) -> impl Iterator<Item = &'static str> {
+    confined.map(|_| IDLE).into_iter().flatten()
 }
 
 pub(super) fn build_failure(target: &str, status: ExitStatus, cargo_ran: bool, log: &BuildLog) -> Failure {
