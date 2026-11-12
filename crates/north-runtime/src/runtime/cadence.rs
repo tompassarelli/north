@@ -41,6 +41,10 @@ impl Schedule {
     }
 }
 
+pub(super) fn promotion_slot_sec() -> i64 {
+    Schedule::declared().spacing
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Call {
     Open(Reason, i64),

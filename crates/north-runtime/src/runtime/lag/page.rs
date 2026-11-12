@@ -87,7 +87,12 @@ pub(super) fn objects(layout: &Layout, probed: &[Value]) -> Vec<Value> {
 }
 
 fn over(object: &Value) -> bool {
-    object["seconds"].as_i64().is_some_and(|seconds| seconds > PAGE_AFTER_S)
+    let limit = if is_service(object) { PAGE_AFTER_S } else { session_page_after_s() };
+    object["seconds"].as_i64().is_some_and(|seconds| seconds > limit)
+}
+
+fn session_page_after_s() -> i64 {
+    crate::runtime::cadence::promotion_slot_sec()
 }
 
 fn is_service(object: &Value) -> bool {
@@ -143,7 +148,7 @@ fn service_key((host, process): &(String, String)) -> String {
 }
 
 fn session_text(worst: &Value, over: usize) -> String {
-    format!("{}; {over} session process{} over {PAGE_AFTER_S}s; north runtime lag --json lists them", reading(worst), if over == 1 { "" } else { "es" })
+    format!("{}; {over} session process{} over {}s; north runtime lag --json lists them", reading(worst), if over == 1 { "" } else { "es" }, session_page_after_s())
 }
 
 fn service_text(object: &Value) -> String {

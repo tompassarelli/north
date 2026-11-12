@@ -96,7 +96,7 @@ several landings keeps growing instead of resetting at each new one; a process o
 reads 0, one whose runtime cannot be named is timed from the newest landing, and a host that did not answer is one
 object with a null `seconds` and its reason in `unread`. The settling host's fleet tick starts `north runtime lag --sample` in a scope of its own, at most once a minute, so the
 reading does not stop with the stable pin. Each sample appends the worst reading to `runtime-lag.jsonl`, which the
-`ready-runtime-lag` bar reads (at most 5 min). A session process that passes 5 min pages the proxy once, keyed
+`ready-runtime-lag` bar reads (at most 5 min). A session process more than `runtime_promotion_slot_sec` behind the pin (it keeps the runtime it started on by design) pages the proxy once, keyed
 `runtime-lag`, and the episode ends when no session process does. A host service (a broker, lander, watchdog or the
 offload taker; a worker sandbox broker is a session's own) pages the proxy by name, keyed `runtime-lag:HOST:PROCESS`, each
 time it starts to lag past 5 min, and a cleared notice ends its episode once it is back under 5 min; an unreadable host keeps its episodes open. Open episodes live in `runtime-lag-episodes.json`.
