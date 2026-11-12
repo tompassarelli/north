@@ -8,16 +8,27 @@ use north_base::foundation::exit::{NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 const ATTEMPTS: usize = 3;
 
 /// The checks a lane runs alone before its ticket is written: its clippy (build and link), the
-/// `@enqueue` land.check lines, and the land test selection the batch would otherwise run. Read
-/// without running them, so a test can pin the set (north#892).
+/// `@enqueue` land.check lines, and the land test selection the batch would otherwise run, or the
+/// land.check lines themselves when none of them reads a test selection, so a lane is never vouched
+/// for on tests that did not run (north#1230). Read without running them, so a test can pin the set
+/// (north#892).
 pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let config = Config::load(root, head);
     let landing = config.after_set().commands(root, base, head)?;
     let clippy = clippy_first::listed(&landing, |command| !config.is_inferred(command));
     let queued_lines = config.queue_set(crate::landing_refusals::enforcing()).commands(root, base, head)?;
     let queued: Vec<String> = queued_lines.iter().map(|command| shared_build::built(command)).collect();
-    let tests = lane_tests(&landing);
-    Ok(clippy.iter().cloned().chain(queued.into_iter().filter(|command| clippy.as_ref() != Some(command))).chain(tests).collect())
+    let tests = match lane_tests(&landing) {
+        Some(selected) => vec![selected],
+        None => config.commands(root, base, head)?.iter().map(|command| shared_build::built(command)).collect(),
+    };
+    let mut commands: Vec<String> = clippy.into_iter().collect();
+    for command in queued.into_iter().chain(tests) {
+        if !commands.contains(&command) {
+            commands.push(command);
+        }
+    }
+    Ok(commands)
 }
 
 pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), String> {

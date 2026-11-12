@@ -63,6 +63,7 @@ impl Host {
             .env("XDG_STATE_HOME", &self.root)
             .env("NORTH_TEST_ROOT", &self.root)
             .env("THREADS_DB", self.root.join("threads.db"))
+            .env("NORTH_GRAPH_DB", self.root.join("graph.db"))
             .env("HOME", &self.home)
             .env("PATH", path)
             .env("NORTH_FLEET_SESSION", "vn-1794159129")

@@ -293,7 +293,8 @@ fn block_on<T>(work: impl Future<Output = T>) -> std::io::Result<T> {
 
 pub fn fails_first(root: &Path, base: &str, head: &str) -> Result<(), String> {
     let config = Config::load(root, head);
-    let commands = config.added_since(&Config::load(root, base)).commands(root, base, head)?;
+    let queued = queue_commands(root, base, head)?;
+    let commands: Vec<String> = config.added_since(&Config::load(root, base)).commands(root, base, head)?.into_iter().filter(|command| !queued.contains(&shared_build::built(command))).collect();
     if commands.is_empty() {
         return Ok(());
     }

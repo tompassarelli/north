@@ -176,7 +176,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     let tickets = queue::pending(&queue::directory(&rig.root.join(".local/state"), rig.origin.to_str().unwrap())).unwrap();
     assert_eq!(tickets.len(), 1, "{said}");
     assert_eq!((tickets[0].1.branch.as_str(), tickets[0].1.head.as_str(), tickets[0].1.session.as_deref()), ("worker", lane_head.as_str(), Some("worker")));
-    assert!(!rig.root.join("checks").exists(), "no land check ran before the lander took the ticket");
+    assert_eq!(fs::read_to_string(rig.root.join("checks")).unwrap_or_default(), "checked", "the land check ran on the lane's tree before its ticket was written");
 
     let served = rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).arg("--app-token").arg(rig.root.join("bin/app-token")).output().unwrap();
     let said = text(&served);
@@ -184,7 +184,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     let landed = git(&rig.origin, &["rev-parse", "refs/heads/main"]);
     assert_ne!(landed, base, "{said}");
     assert!(said.contains(&format!("worker ({lane_head}): landed {landed}")), "{said}");
-    assert_eq!(fs::read_to_string(rig.root.join("checks")).unwrap(), "checked", "the land check ran exactly once on the candidate");
+    assert_eq!(fs::read_to_string(rig.root.join("checks")).unwrap(), "checked", "the land check ran exactly once, on the lane before queueing");
     assert!(Command::new("git").arg("-C").arg(&rig.origin).args(["merge-base", "--is-ancestor", &landed, "refs/heads/main"]).status().unwrap().success());
     assert_eq!(git(&rig.origin, &["rev-parse", &format!("{landed}^")]), base, "the landing is the one lane commit on the old main");
     assert_eq!(git(&rig.origin, &["rev-parse", &format!("{landed}^{{tree}}")]), git(&rig.lane, &["rev-parse", "HEAD^{tree}"]), "main holds exactly the lane's tree");

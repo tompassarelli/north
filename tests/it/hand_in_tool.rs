@@ -120,7 +120,7 @@ impl Canary {
         let entry = &config["mcpServers"]["north"];
         let line: Vec<&str> = std::iter::once(entry["command"].as_str().unwrap()).chain(entry["args"].as_array().unwrap().iter().filter_map(Value::as_str)).collect();
         let prefix = shell_prefix(&self.candidate).expect("a launch links worker-sandbox beside its north");
-        let mut server = self.command(&prefix).env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").arg(line.join(" ")).current_dir(&self.lane).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        let mut server = self.command(&prefix).envs(JUDGED_NORTH.iter().map(|pin| (pin, &self.candidate))).env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").arg(line.join(" ")).current_dir(&self.lane).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
         let mut stdin = server.stdin.take().unwrap();
         for request in requests {
             writeln!(stdin, "{request}").unwrap();

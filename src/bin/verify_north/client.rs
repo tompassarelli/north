@@ -85,7 +85,8 @@ impl North {
             .env("NORTH_FLEET_TEST", "1")
             .env("XDG_STATE_HOME", &self.state)
             .env("NORTH_TEST_ROOT", &self.state)
-            .env("THREADS_DB", self.state.join("threads.db"));
+            .env("THREADS_DB", self.state.join("threads.db"))
+            .env("NORTH_GRAPH_DB", self.state.join("graph.db"));
         command.envs(variables.iter().copied());
         command
     }

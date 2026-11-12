@@ -184,6 +184,20 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     lane.commit("grow harness text", &[]);
     let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
     assert!(refused.contains("a check before queueing exited 1"), "{refused}");
+
+    let lane = Lane::new();
+    run(&lane.repo, &["switch", "-q", "main"]);
+    fs::write(lane.repo.join(".safe-push"), "[land]\n\tcheck = ** :: ! grep -qx broken content.txt\n").unwrap();
+    let main = commit(&lane.repo, "main carries a test no selection reads");
+    run(&lane.repo, &["push", "-q", "origin", "main"]);
+    run(&lane.repo, &["switch", "-q", "lane"]);
+    run(&lane.repo, &["rebase", "-q", "main"]);
+    lane.commit("broken", &[]);
+    let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
+    assert!(refused.contains("a check before queueing exited 1"), "a lane breaking a land.check test that no selection reads was vouched for without running it: {refused}");
+    let queue = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
+    assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.next().is_none()), "a lane red on its land check left a ticket in {}", queue.display());
+    assert_eq!(run(&lane.dir.path().join("origin.git"), &["rev-parse", "main"]), main);
 }
 
 #[test]
