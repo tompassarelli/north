@@ -1,4 +1,4 @@
-use crate::landing::{fails_first, land_actions, lane_squash, lane_target, land_test_runner, missed, red_check};
+use crate::landing::{fails_first, land_actions, land_dispatch, lane_squash, lane_target, land_test_runner, missed, red_check};
 use crate::land_abandon;
 
 pub(super) type Run = fn(&[String]) -> u8;
@@ -32,6 +32,7 @@ pub(super) fn ledger_verb(verb: &str, arguments: &[String]) -> u8 {
 const LAND: &[(&str, Run)] = &[
     ("abandon", |arguments| land_abandon::abandon(arguments, &super::super::abandon_witness::FleetWitness)),
     ("actions", land_actions::run),
+    ("dispatch", land_dispatch::run),
     ("clean", lane_target::run),
     ("fails-first", fails_first::run),
     ("missed", missed::run),
