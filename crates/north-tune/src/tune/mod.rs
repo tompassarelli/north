@@ -21,7 +21,7 @@ use crate::dispatch::tuned::{WRITER, directory};
 use crate::dispatch::LEDGER_WINDOW;
 use crate::threads::calibration::predictions::Brier;
 use crate::platform::github;
-use crate::platform::rolling_issue::{self, Breaches, alarm};
+use crate::platform::rolling_issue::{self, Breaches, settle};
 use cells::{Cells, Change};
 use north_graph_loops::Learned;
 use costs::Cost;
@@ -142,7 +142,10 @@ fn keep(tracker: &mut dyn Tracker, breaches: &mut Breaches, title: &str, body: O
         }
         return Ok(());
     }
-    alarm(tracker.rolling(), breaches, title, body, closing).inspect_err(|error| lines.push(format!("  not settled: {title}: {error}")))
+    if !breaches.record(title, body.is_some()) && body.is_some() {
+        return Ok(());
+    }
+    settle(tracker.rolling(), title, body, closing).inspect_err(|error| lines.push(format!("  not settled: {title}: {error}")))
 }
 
 /// Tells the proxy of each dividend that decayed and returns the rows to keep: a dividend whose

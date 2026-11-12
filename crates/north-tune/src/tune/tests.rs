@@ -255,3 +255,14 @@ fn an_eta_a_quarter_of_the_runs_that_cover_it_would_need_still_drifts() {
     let short: Vec<(f64, f64)> = RECORDED_OPUS_HIGH_DEBUGGING.iter().map(|(minutes, eta)| (*minutes, eta / 4.0)).collect();
     assert!(super::estimates::calibrations(&estimated(&short))[0].drifted());
 }
+
+#[test]
+fn the_estimate_drift_body_is_filed_through_the_path_north_tune_files_it_by() {
+    let drifted = estimated(&[(60.0, 10.0), (70.0, 10.0), (80.0, 10.0)]);
+    let ledger = Ledger { week: report(&[], "2026-10-20T06:00:00Z"), before: report(&[], "2026-10-13T06:00:00Z"), estimates: Ok(drifted), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
+    let mut issues = Issues::default();
+    let (_, ticked) = two_ticks(&ledger, &mut issues);
+    assert!(!ticked.lines.iter().any(|line| line.contains("not settled")), "{:#?}", ticked.lines);
+    let filed = issues.created.iter().find(|(title, _)| title == super::estimates::TITLE).unwrap_or_else(|| panic!("{:#?}", ticked.lines));
+    assert!(filed.1.contains("Category: "), "{}", filed.1);
+}
