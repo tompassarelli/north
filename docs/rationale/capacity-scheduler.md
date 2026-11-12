@@ -422,6 +422,11 @@ measured, and cloud workers placed again under accounts with headroom.
 Every Wave 2 and Wave 3 Done-when is a replay or fixture check that runs inside the box. Checks that need hours or
 days of live traffic are in [Live audits](#live-audits), dated, and run by the lead after the boxes land.
 
+Status 2026-11-12: W2-3 (command placement) and W2-5 (session placement) are replaced by the single placement
+function in [placement.md](placement.md), whose fourteen build boxes carry their Done-when checks; placement by
+predicted finish time stays here and is staffed only once replay shows the placement rule leaves work waiting
+beside an open host. W3-5 depends on placement build boxes 7 and 9 instead of W2-3.
+
 **W2-1. Admission replay simulator.** Category: tooling. Spec: measured. Scope: single-module. Surface: rust.
 Verify: local-test. After: elastic-cpu, capacity-model, W1-1. Files:
 `crates/north-core/src/capacity/pressure_target_tests.rs` grows a `capacity/replay.rs`. Spec: replay a recorded
