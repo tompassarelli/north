@@ -16,6 +16,7 @@ use crate::threads::calibration::rework::{Rework, Sources};
 use crate::threads::catalog::{CATALOG, Catalog};
 
 use super::closed::{ClosedReport, SpendRun, summarize};
+use super::leaf::{Closed, apart, creators};
 use crate::router::pricing::PriceTable;
 
 const OWNER: &str = "tompassarelli";
@@ -109,30 +110,30 @@ fn native_namespaces(database: &std::path::Path) -> NorthResult<HashSet<String>>
     Ok(rows.iter().map(|row| text(row, "ns")).collect())
 }
 
-fn native_closed(database: &std::path::Path, since: &str, until: &str) -> NorthResult<HashMap<String, String>> {
+fn native_closed(database: &std::path::Path, since: &str, until: &str) -> NorthResult<HashMap<String, Closed>> {
     let query = format!(
         "SELECT ns || '#' || number AS item, body FROM items WHERE state = 'closed' AND closed >= '{}' AND closed < '{}'",
         since.replace('\'', ""),
         until.replace('\'', "")
     );
-    Ok(sqlite::rows(database, Access::ReadOnly, Duration::from_secs(5), &query)?.iter().map(|row| (text(row, "item"), text(row, "body"))).collect())
+    Ok(sqlite::rows(database, Access::ReadOnly, Duration::from_secs(5), &query)?.iter().map(|row| (text(row, "item"), Closed::of_body(text(row, "body")))).collect())
 }
 
 #[derive(Clone)]
 pub(super) struct ClosedIssue {
     item: String,
     at: String,
-    body: String,
+    closed: Closed,
 }
 
 pub(super) fn github_closed(repo: &str, since: &str, until: &str) -> NorthResult<Vec<ClosedIssue>> {
     let repository = format!("{OWNER}/{repo}");
     let search = format!("closed:{since}..{until}");
-    let issues = github::json(&["issue", "list", "-R", &repository, "--state", "closed", "--search", &search, "--limit", &ISSUE_LIMIT.to_string(), "--json", "number,closedAt,body"])
+    let issues = github::json(&["issue", "list", "-R", &repository, "--state", "closed", "--search", &search, "--limit", &ISSUE_LIMIT.to_string(), "--json", "number,closedAt,body,createdAt,parent,comments"])
         .map_err(|error| NorthError::Configuration(format!("gh issue list {repository}: {}", error.trim())))?;
     let listed = issues.as_array().map_or(&[][..], Vec::as_slice);
     if listed.len() < ISSUE_LIMIT {
-        return Ok(listed.iter().filter_map(|issue| Some(ClosedIssue { item: format!("{repo}#{}", issue["number"].as_i64()?), at: text(issue, "closedAt"), body: text(issue, "body") })).collect());
+        return Ok(listed.iter().filter_map(|issue| Some(ClosedIssue { item: format!("{repo}#{}", issue["number"].as_i64()?), at: text(issue, "closedAt"), closed: closed_issue(repo, issue) })).collect());
     }
     let (start, end) = (Timestamp::parse(since)?.unix_seconds(), Timestamp::parse(until)?.unix_seconds());
     if end - start < 2 {
@@ -144,11 +145,11 @@ pub(super) fn github_closed(repo: &str, since: &str, until: &str) -> NorthResult
     Ok(halves)
 }
 
-pub(super) fn within(issues: &[ClosedIssue], since: &str, until: &str) -> HashMap<String, String> {
-    issues.iter().filter(|issue| issue.at.as_str() >= since && issue.at.as_str() < until).map(|issue| (issue.item.clone(), issue.body.clone())).collect()
+pub(super) fn within(issues: &[ClosedIssue], since: &str, until: &str) -> HashMap<String, Closed> {
+    issues.iter().filter(|issue| issue.at.as_str() >= since && issue.at.as_str() < until).map(|issue| (issue.item.clone(), issue.closed.clone())).collect()
 }
 
-fn live_closed(repo: &str, since: &str, until: &str) -> NorthResult<HashMap<String, String>> {
+fn live_closed(repo: &str, since: &str, until: &str) -> NorthResult<HashMap<String, Closed>> {
     github_closed(repo, since, until).map(|issues| within(&issues, since, until))
 }
 
@@ -243,26 +244,26 @@ pub(super) fn window_bounds(window: &str, now: Timestamp) -> NorthResult<(String
     Ok((Timestamp::from_unix_seconds(now.unix_seconds() - span_seconds(window)?).iso(), now.iso()))
 }
 
-pub(super) fn report_over(database: &Path, since: &str, until: &str, keep: impl Fn(&SpendRun) -> bool, corroborated: Option<HashSet<String>>, github: impl Fn(&str, &str, &str) -> NorthResult<HashMap<String, String>> + Sync) -> NorthResult<ClosedReport> {
+pub(super) fn report_over(database: &Path, since: &str, until: &str, keep: impl Fn(&SpendRun) -> bool, corroborated: Option<HashSet<String>>, github: impl Fn(&str, &str, &str) -> NorthResult<HashMap<String, Closed>> + Sync) -> NorthResult<ClosedReport> {
     let runs: Vec<SpendRun> = spend_runs(database)?.into_iter().filter(|run| run.ended.as_str() < until && keep(run)).collect();
     let native = native_namespaces(database)?;
     let closed = native_closed(database, since, until)?;
     report_between(&Inputs { runs, native, closed, corroborated, catalog: &CATALOG }, since, until, github, &PriceTable::load()?)
 }
 
-struct Inputs<'a> {
-    runs: Vec<SpendRun>,
-    native: HashSet<String>,
-    closed: HashMap<String, String>,
-    corroborated: Option<HashSet<String>>,
-    catalog: &'a Catalog,
+pub(super) struct Inputs<'a> {
+    pub(super) runs: Vec<SpendRun>,
+    pub(super) native: HashSet<String>,
+    pub(super) closed: HashMap<String, Closed>,
+    pub(super) corroborated: Option<HashSet<String>>,
+    pub(super) catalog: &'a Catalog,
 }
 
 /// The report over `sources`, asking `github` for the closed issues of each repository the native
 /// ledger does not hold. A landed run naming a repository outside the catalog (an archived or
 /// renamed one) can never match a closed issue, so it is left out of every cell and named in
 /// `skipped` rather than failing the report for the repositories that are known.
-fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&str, &str, &str) -> NorthResult<HashMap<String, String>> + Sync, prices: &PriceTable) -> NorthResult<ClosedReport> {
+pub(super) fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&str, &str, &str) -> NorthResult<HashMap<String, Closed>> + Sync, prices: &PriceTable) -> NorthResult<ClosedReport> {
     let mut landed: BTreeMap<&str, usize> = BTreeMap::new();
     for repo in sources.runs.iter().filter(|run| run.landed).filter_map(|run| run.item.as_deref()?.split_once('#').map(|(repo, _)| repo)) {
         *landed.entry(repo).or_default() += 1;
@@ -270,7 +271,7 @@ fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&s
     let known = |repo: &str| sources.catalog.repos.iter().chain(&sources.catalog.native).any(|known| known == repo);
     let mut closed = sources.closed.clone();
     let repos: Vec<&str> = landed.keys().copied().filter(|repo| known(repo) && !sources.native.contains(*repo)).collect();
-    let read: Vec<NorthResult<HashMap<String, String>>> = std::thread::scope(|scope| {
+    let read: Vec<NorthResult<HashMap<String, Closed>>> = std::thread::scope(|scope| {
         let reads: Vec<_> = repos.iter().map(|repo| scope.spawn(|| github(repo, since, until))).collect();
         reads.into_iter().map(|read| read.join().unwrap_or_else(|_| Err(NorthError::State("a closed-issue read panicked".into())))).collect()
     });
@@ -278,7 +279,9 @@ fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&s
         closed.extend(issues?);
     }
     let items: HashSet<String> = closed.keys().cloned().collect();
-    let mut report = summarize(&sources.runs, &items, since, prices).verified(&closed, sources.corroborated.as_ref());
+    let bodies: HashMap<String, String> = closed.iter().map(|(item, issue)| (item.clone(), issue.body.clone())).collect();
+    let (counted, made) = apart(&sources.runs, &items, &creators(&sources.runs, &closed));
+    let mut report = summarize(&counted, &items, since, prices).split(&made, since, prices).verified(&bodies, sources.corroborated.as_ref()).leaves(&closed);
     report.skipped = landed.into_iter().filter(|(repo, _)| !known(repo)).map(|(repo, runs)| (repo.to_owned(), runs)).collect();
     Ok(report)
 }
@@ -481,4 +484,10 @@ pub fn session_spend(days: u32) -> NorthResult<BTreeMap<String, (u64, f64)>> {
     let query = format!("SELECT fleet_name, coalesce(sum(tokens), 0) AS tokens, coalesce(sum(cost_usd), 0.0) AS cost FROM runs WHERE coalesce(fleet_name, '') != '' AND ended >= strftime('%Y-%m-%dT%H:%M:%S', 'now', '-{days} days') GROUP BY fleet_name");
     let rows = sqlite::rows(&threads_database(), Access::ReadOnly, Duration::from_secs(5), &query)?;
     Ok(rows.iter().map(|row| (text(row, "fleet_name"), (row["tokens"].as_u64().unwrap_or(0), row["cost"].as_f64().unwrap_or(0.0)))).collect())
+}
+
+fn closed_issue(repo: &str, issue: &Value) -> Closed {
+    let parent = issue["parent"]["number"].as_i64().map(|number| format!("{}#{number}", issue["parent"]["repository"]["name"].as_str().unwrap_or(repo)));
+    let comments = issue["comments"].as_array().into_iter().flatten().filter_map(|comment| comment["body"].as_str());
+    Closed { body: text(issue, "body"), parent, created: text(issue, "createdAt"), by_check: Closed::check_named_in(comments) }
 }

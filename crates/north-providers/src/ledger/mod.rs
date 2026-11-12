@@ -20,11 +20,13 @@ pub mod corroborated;
 pub mod outcome;
 pub mod rises;
 mod gates;
+mod leaf;
 mod recorded;
 mod report;
 mod verdict;
 
 pub use closed::{ClosedBox, ClosedReport, Figures};
+pub use leaf::{Closed, SplitBox};
 #[doc(hidden)]
 pub use closed::{SpendRun, summarize};
 pub use corroborated::{Census, census};

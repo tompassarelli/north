@@ -365,3 +365,63 @@ fn a_fable_5_2_run_is_priced_so_fleet_spend_prints_dollars_instead_of_unmeasured
     assert_eq!(fable.tokens, 1_000_000);
     assert!(fable.api_usd.is_some_and(|usd| usd > 0.0), "a Fable session reads {:?}", fable.api_usd);
 }
+
+fn worker_run(agent: &str, item: &str, started: &str, ended: &str, landed: bool) -> super::closed::SpendRun {
+    super::closed::SpendRun {
+        agent: agent.into(),
+        item: Some(item.into()),
+        role: "worker".into(),
+        tier: "sonnet-high".into(),
+        category: "feature".into(),
+        arm: "context-400k".into(),
+        box_text: None,
+        model: Some("claude-sonnet-5-5".into()),
+        effort: "high".into(),
+        started: started.into(),
+        ended: ended.into(),
+        landed,
+        reworked: false,
+        input: 1_000,
+        cache_read: 0,
+        output: 100,
+        skills: Vec::new(),
+    }
+}
+
+const LEAF: &str = "Count a leaf closed by its check.\n\nDone when: `cargo nextest run -p north-providers -E 'test(/leaf/)'` exits 0.";
+const LEAF_COMMAND: &str = "cargo nextest run -p north-providers -E 'test(/leaf/)'";
+
+fn report_of(runs: Vec<super::closed::SpendRun>, closed: &[(&str, super::Closed)]) -> super::ClosedReport {
+    let closed: std::collections::HashMap<String, super::Closed> = closed.iter().map(|(item, issue)| ((*item).to_owned(), issue.clone())).collect();
+    let sources = super::closed_source::Inputs { runs, native: Default::default(), closed: Default::default(), corroborated: None, catalog: &crate::threads::catalog::CATALOG };
+    super::closed_source::report_between(&sources, "2026-11-01T00:00:00Z", "2026-11-09T00:00:00Z", move |_, _, _| Ok(closed.clone()), &crate::router::pricing::PriceTable::load().unwrap()).unwrap()
+}
+
+#[test]
+fn a_closed_leaf_counts_as_one_closed_box() {
+    let runs = vec![worker_run("leaf-worker", "north#5", "2026-11-08T10:00:00Z", "2026-11-08T11:00:00Z", true), worker_run("hand-closed-worker", "north#6", "2026-11-08T10:00:00Z", "2026-11-08T11:00:00Z", true)];
+    let by_check = super::Closed { by_check: Some(LEAF_COMMAND.to_owned()), ..super::Closed::of_body(LEAF) };
+    let report = report_of(runs, &[("north#5", by_check), ("north#6", super::Closed::of_body(LEAF))]);
+    let verified = |item: &str| report.arms.iter().find(|arm| arm.item == item).map(|arm| (arm.closed, arm.verified)).unwrap();
+    assert_eq!(report.closed, 2);
+    assert_eq!(verified("north#5"), (true, true), "a leaf the lander closed by its Done-when command is a box graded by its own check");
+    assert_eq!(verified("north#6"), (true, false), "a leaf closed by hand counts as closed and is not graded");
+    assert_eq!(super::Closed::check_named_in(["Main is green", &format!("Closed by the landing of 4cd01a47cd12: its Done-when command `{LEAF_COMMAND}` passed on that commit.")]), Some(LEAF_COMMAND.to_owned()));
+}
+
+#[test]
+fn a_run_that_created_children_counts_as_a_split() {
+    let runs = vec![
+        worker_run("parent-worker", "north#9", "2026-11-08T10:00:00Z", "2026-11-08T11:00:00Z", false),
+        worker_run("later-worker", "north#9", "2026-11-08T13:00:00Z", "2026-11-08T14:00:00Z", false),
+        worker_run("child-worker", "north#10", "2026-11-08T11:30:00Z", "2026-11-08T12:00:00Z", true),
+    ];
+    let child = super::Closed { parent: Some("north#9".to_owned()), created: "2026-11-08T10:45:00Z".to_owned(), by_check: Some(LEAF_COMMAND.to_owned()), ..super::Closed::of_body(LEAF) };
+    let report = report_of(runs, &[("north#10", child)]);
+    assert_eq!(report.closed, 1);
+    assert_eq!(report.splits.iter().map(|split| split.item.as_str()).collect::<Vec<_>>(), ["north#9"]);
+    let unclosed: f64 = report.cells.iter().map(|cell| cell.unclosed_usd).sum();
+    let later = report.boxes.iter().find(|spent| spent.item == "north#9" && !spent.closed).map(|spent| spent.usd).unwrap();
+    assert!((unclosed - later).abs() < 1e-9, "only the run that made no child is spend that closed nothing: {unclosed} against {later}");
+    assert!(report.dashboard("7d").contains("split 1 ("), "{}", report.dashboard("7d"));
+}

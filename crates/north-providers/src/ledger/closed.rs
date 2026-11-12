@@ -7,7 +7,7 @@ use crate::foundation::clock::Timestamp;
 use crate::router::pricing::PriceTable;
 
 const LEADS: [&str; 2] = ["parent", "proxy"];
-const WORKER: &str = "worker";
+pub(super) const WORKER: &str = "worker";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpendRun {
@@ -191,6 +191,9 @@ pub struct ClosedReport {
     pub skipped: Vec<(String, usize)>,
     pub arms: Vec<ArmBox>,
     pub boxes: Vec<SkillBox>,
+    /// The open issues whose runs created children in the window; their spend is counted here, not as spend that closed nothing, because the children carry the closing.
+    #[serde(default)]
+    pub splits: Vec<super::leaf::SplitBox>,
     /// The runs of every role that ended in the window and loaded each skill, by skill.
     pub loaded: BTreeMap<String, usize>,
     pub closed: usize,
@@ -206,7 +209,7 @@ impl SpendRun {
         (wall >= 0).then(|| wall as f64 / 60.0)
     }
 
-    fn usd(&self, prices: &PriceTable) -> f64 {
+    pub(super) fn usd(&self, prices: &PriceTable) -> f64 {
         prices.run_usd(self.model.as_deref(), &self.tier, self.input, self.cache_read, self.output)
     }
 }
@@ -327,6 +330,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         cell_boxes,
         arms,
         boxes: spent_boxes,
+        splits: Vec::new(),
         loaded,
         spend_usd: window().map(|run| run.usd(prices)).sum(),
         leads_usd: window().filter(|run| LEADS.contains(&run.role.as_str())).map(|run| run.usd(prices)).sum(),
@@ -421,6 +425,9 @@ impl ClosedReport {
         let mut parts = vec![format!("window spend {} ({})", money(self.per_closed(self.spend_usd)), self.closed)];
         parts.extend(self.cells.iter().map(|cell| format!("{} {} {} ({})", cell.tier, cell.category, money(Some(cell.usd_per_closed())), cell.closed)));
         parts.push(format!("leads {}/closed", money(self.per_closed(self.leads_usd))));
+        if !self.splits.is_empty() {
+            parts.push(format!("split {} (${:.2})", self.splits.len(), self.splits.iter().map(|split| split.usd).sum::<f64>()));
+        }
         format!("cost/closed, {}: {}", self.reach(window), parts.join(" | "))
     }
 
@@ -437,6 +444,7 @@ impl ClosedReport {
             })).collect::<Vec<_>>(),
             "runs_per_closed": self.runs_per_closed().iter().map(|(category, runs, closed)| json!({"category": category, "runs": runs, "closed": closed, "runs_per_closed": *runs as f64 / *closed as f64})).collect::<Vec<_>>(),
             "arms": self.arms,
+            "splits": self.splits.iter().map(|split| json!({"item": split.item, "usd": split.usd})).collect::<Vec<_>>(),
             "skipped_repositories": self.skipped.iter().map(|(repo, runs)| json!({"repo": repo, "landed_runs": runs})).collect::<Vec<_>>(),
         })
     }

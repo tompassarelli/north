@@ -6,6 +6,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
 use super::closed::ClosedReport;
+use super::leaf::Closed;
 use super::closed_source::{ClosedIssue, github_closed, report_over, threads_database, window_bounds, within};
 
 const BOUND_S: i64 = 45 * 60;
@@ -39,7 +40,7 @@ fn reports(windows: &[&str], now: Timestamp) -> NorthResult<Vec<ClosedReport>> {
     let widest = bounds.iter().map(|(since, _)| since.clone()).min().unwrap_or_default();
     let until = now.iso();
     let fetched: Mutex<HashMap<String, Vec<ClosedIssue>>> = Mutex::default();
-    let github = |repo: &str, since: &str, end: &str| -> NorthResult<HashMap<String, String>> {
+    let github = |repo: &str, since: &str, end: &str| -> NorthResult<HashMap<String, Closed>> {
         let held = fetched.lock().unwrap_or_else(PoisonError::into_inner).get(repo).cloned();
         let issues = match held {
             Some(issues) => issues,
