@@ -304,7 +304,7 @@ fn checkout(repo: &Path) -> Result<(PathBuf, String), String> {
 }
 
 /// Fetches `destination` into its remote ref and returns the ref and the commit it now names.
-fn fetch_base(root: &Path, destination: &str) -> Result<(String, String), String> {
+pub(super) fn fetch_base(root: &Path, destination: &str) -> Result<(String, String), String> {
     let remote_ref = format!("refs/remotes/origin/{destination}");
     git(root, &["fetch", "-q", "origin", &format!("+refs/heads/{destination}:{remote_ref}")])
         .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;

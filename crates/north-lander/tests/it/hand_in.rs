@@ -15,6 +15,15 @@ const VERB_ARGUMENTS: &str = "NORTH_HAND_IN_IT_ARGUMENTS";
 const ROAD: &str = "serve::enqueue_process";
 const ROAD_ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
 const JUDGE_PASSES: &str = "#!/bin/sh\ncat > /dev/null\nexit 0\n";
+const VERDICT_NORTH: &str = r#"#!/bin/sh
+cache="$XDG_STATE_HOME/north/verdict-cache"
+case "$1 $2 $3 $4" in
+  'capacity deadline '*) shift 5; exec "$@" ;;
+  'capacity offload verdict hit') shift 4; for key; do [ -f "$cache/$key" ] && printf '%s local %s\n' "$key" "$(cat "$cache/$key")"; done; exit 0 ;;
+  'capacity offload verdict record') shift 4; while [ $# -gt 0 ]; do case "$1" in --key) key=$2; shift ;; --pass) pass=$2; shift ;; esac; shift; done; [ -z "$pass" ] || { mkdir -p "$cache" && echo "$(date +%s) $pass" > "$cache/$key"; }; exit 0 ;;
+esac
+exit 1
+"#;
 const JUDGE_FINDS_AN_ADDRESS: &str = "#!/bin/sh\ntext=$(cat)\ncase \"$text\" in\n  *'lives at'*) printf 'address\\tthe owner lives at 1 Example Road\\n'; exit 1 ;;\nesac\nexit 0\n";
 
 fn scanned_world(judge: &str) -> (World, Repository) {
@@ -268,11 +277,15 @@ fn a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_writt
     assert!(text.contains(&format!("{}: carries both whole content and replacements", inside.display())), "{text}");
     assert!(fs::read_to_string(&inside).unwrap() == "the red draft\n" && fs::read_to_string(&readme).unwrap() == first_readme, "a call with an entry carrying both forms wrote a file: {text}");
 
-    let passed = finish_files(&world, &lane, "grep -q green notes/new.txt", &[(inside, lines(&[("red draft", "green note")])), (readme, whole("the rewritten readme\n"))]);
+    write_executable(&world.path().join("bin/north"), VERDICT_NORTH);
+    let runs = world.path().join("runs");
+    let (config, count) = (whole("[landing]\n\tpush-app = lander\n[land]\n\tcheck = ** :: sh count.sh\n"), whole(&format!("grep -q green notes/new.txt || exit 1\necho ran >> {}\n", runs.display())));
+    let passed = finish_files(&world, &lane, "sh count.sh", &[(inside, lines(&[("red draft", "green note")])), (readme, whole("the rewritten readme\n")), (lane.join(".safe-push"), config), (lane.join("count.sh"), count)]);
     let text = report(&passed);
     assert_eq!(passed.status.code(), Some(0), "{text}");
+    assert_eq!(fs::read_to_string(&runs).unwrap_or_default().lines().count(), 1, "the finish call's check, one of the lane's checks before queueing, ran again before the ticket: {text}");
     let pending = queue::pending(&north.queue).unwrap();
     let [(_, queued)] = &pending[..] else { panic!("the passing call did not leave one undecided ticket: {pending:?}\n{text}") };
-    assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), "README\nnotes/new.txt", "the call did not commit exactly its files");
+    assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), ".safe-push\nREADME\ncount.sh\nnotes/new.txt", "the call did not commit exactly its files");
     assert_eq!(git(&lane, &["show", &format!("{}:notes/new.txt", queued.head)]), "the green note");
 }

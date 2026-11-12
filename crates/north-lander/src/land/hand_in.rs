@@ -1,11 +1,12 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194), keeping a failed check's output and diff in the lane's git directory for a two-rung route's second attempt (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running it as the check before queueing on the would-be head's tree, keyed and recorded as the lander's own run, when the lane's checks before queueing hold that command, so the safe-push it hands the lane to reuses that run (north#1230), and returns at the ticket (north#1194), keeping a failed check's output and diff in the lane's git directory for a two-rung route's second attempt (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
 
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::enqueue::{default_branch, git};
+use super::enqueue::{default_branch, fetch_base, git};
+use crate::land::slots::runner;
 use crate::land::scans::outgoing::denylist::{Denylist, Stand};
 
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -126,12 +127,17 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
             return 1;
         }
     };
-    if request.check.is_some() {
-        ask_early(&named);
+    let head = request.check.and_then(|_| would_be(&named.lane.root, &named.message, &named.paths));
+    if let Some(head) = &head {
+        ask_early(&named, head.clone());
     }
-    if let Some(check) = request.check
-        && let Err((failure, output)) = passes(&named.lane.root, check)
-    {
+    let landed = request.check.zip(head.as_deref()).and_then(|(check, head)| as_land_check(&named.lane, check, head));
+    let checked = match (request.check, landed) {
+        (_, Some(ran)) => ran.map_err(|refusal| ("failed as a check before queueing".to_owned(), refusal)),
+        (Some(check), None) => passes(&named.lane.root, check),
+        (None, None) => Ok(()),
+    };
+    if let (Some(check), Err((failure, output))) = (request.check, checked) {
         eprint!("{output}");
         let written = if request.files.is_empty() { "" } else { "the files stay as written; " };
         let attempt = keep_attempt(&named, request.message, check, &output).map_or_else(|why| format!("the attempt was not kept: {why}"), |path| format!("the attempt is kept in {}", path.display()));
@@ -145,6 +151,13 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
             1
         }
     }
+}
+
+fn as_land_check(lane: &Lane, check: &str, head: &str) -> Option<Result<(), String>> {
+    git(&lane.root, &["show", &format!("{head}:.safe-push")]).ok().filter(|config| config.contains(check.trim()))?;
+    let (_, base) = fetch_base(&lane.root, &lane.destination).ok()?;
+    let commands = runner::queue_commands(&lane.root, &base, head).ok()?;
+    commands.iter().any(|command| command.trim() == check.trim()).then(|| runner::refuse_queue_checks(&lane.root, &base, head))
 }
 
 fn passes(root: &Path, check: &str) -> Result<(), (String, String)> {
@@ -294,11 +307,9 @@ fn normal(path: &Path) -> PathBuf {
     normal
 }
 
-fn ask_early(named: &Named) {
-    let message = named.message.as_str();
+fn ask_early(named: &Named, head: String) {
     let root = named.lane.root.clone();
     let destination = named.lane.destination.clone();
-    let Some(head) = would_be(&root, message, &named.paths) else { return };
     std::thread::spawn(move || {
         let Ok(origin) = git(&root, &["remote", "get-url", "--push", "origin"]) else { return };
         let base = format!("refs/remotes/origin/{destination}");
