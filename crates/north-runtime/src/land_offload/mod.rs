@@ -102,6 +102,10 @@ pub fn build_hosts() -> Vec<(String, String)> {
     config().map(|cfg| destinations::build_hosts(&cfg, &crate::platform::host::name())).unwrap_or_default()
 }
 
+pub fn build_session_hosts() -> Vec<(String, String)> {
+    config().map(|cfg| destinations::build_session_hosts(&cfg, &crate::platform::host::name())).unwrap_or_default()
+}
+
 /// Whether other hosts send builds to this one: `[hosts.HERE] offload_builds`.
 pub(crate) fn warms_slots_here() -> bool {
     config().map_or(true, |cfg| destinations::warms_slots(&cfg, &crate::platform::host::name()))

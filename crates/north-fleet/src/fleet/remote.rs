@@ -60,7 +60,7 @@ fn unguarded_where_it_runs(runtime: &dyn Runtime, account: &Account, machine: Op
     let Some(machine) = machine else { return runtime.unguarded(account, &|path| std::fs::read_to_string(path).map_or(Seen::Absent, Seen::Text)) };
     let read = |path: &Path| {
         let mut ssh = Command::new(binary("ssh"));
-        ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &machine.ssh, "--", &format!("cat -- {}", quote(&path.to_string_lossy()))]);
+        ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &format!("cat -- {}", quote(&path.to_string_lossy()))]);
         match try_run_command_within(ssh, None, SSH_WAIT).ok().flatten() {
             Some(output) if output.status.success() => Seen::Text(String::from_utf8_lossy(&output.stdout).into_owned()),
             Some(output) if output.status.code() == Some(1) => Seen::Absent,
@@ -113,7 +113,7 @@ struct Held {
 
 fn linked(spec: HostSpec, machine: &Machine, home: &Path, held: Held, session: &str, trace: &Path) -> NorthResult<HostSpec> {
     let Held { unit, dir, nonce, launch } = held;
-    let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch, session: session.to_owned(), trace: trace.to_path_buf(), master: None };
+    let link = Link { ssh: binary("ssh"), destination: machine.session_login().to_owned(), unit, dir, nonce, launch, session: session.to_owned(), trace: trace.to_path_buf(), master: None };
     let argv = [vec![std::env::current_exe()?.display().to_string(), "session-link".into()], link.arguments()].concat();
     Ok(HostSpec { argv, cwd: home.to_path_buf(), ..spec })
 }
@@ -156,7 +156,7 @@ fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path) -> NorthRes
     let file = record_file(&directory).to_string_lossy().into_owned();
     let script = format!("mkdir -p {} && cat > {} && mv {} {}", quote(&directory.to_string_lossy()), quote(&format!("{file}.tmp")), quote(&format!("{file}.tmp")), quote(&file));
     let mut child = Command::new(ssh)
-        .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, "--", &script])
+        .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", machine.session_login(), "--", &script])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -175,7 +175,7 @@ pub fn carry_conversation(runtime: &dyn Runtime, machine: Option<&Machine>, from
     let (mut command, place) = match machine {
         Some(machine) => {
             let mut ssh = Command::new(binary("ssh"));
-            ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &machine.ssh, "--", &script]);
+            ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &script]);
             (ssh, machine.name.as_str())
         }
         None => {

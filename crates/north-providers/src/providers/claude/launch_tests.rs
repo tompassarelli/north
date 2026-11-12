@@ -192,7 +192,7 @@ const SHELL_PREFIX: &str = "CLAUDE_CODE_SHELL_PREFIX";
 fn the_spawned_tool_server_is_an_existing_executable(profile: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
     let account = Account { provider: Claude.provider(), label: "a".into(), home: profile.to_path_buf(), token_file: None, api: None };
-    let placed = crate::fleet::model::Machine { name: "far".into(), ssh: "tom@far".into() };
+    let placed = crate::fleet::model::Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: None };
     for machine in [None, Some(placed)] {
         let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), machine, ..request() };
         let spec = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();

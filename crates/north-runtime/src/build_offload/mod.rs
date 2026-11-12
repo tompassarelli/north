@@ -2,7 +2,7 @@
 use std::time::Duration;
 
 use crate::capacity::build_offload::{Candidate, Declined, Job, PROBE_LIMIT_SECONDS, Room, Route, refusal, route, wants_offload};
-use crate::land_offload::{build_hosts, room};
+use crate::land_offload::{build_hosts, build_session_hosts, room};
 
 mod lane;
 mod remote;
@@ -29,6 +29,7 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str) -> bool
     if hosts.is_empty() {
         return Err(None);
     }
+    let sessions = build_session_hosts();
     if let Some(refused) = refusal(candidate) {
         return Err(Some(refused));
     }
@@ -42,7 +43,8 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str) -> bool
             Route::Local => return Err(None),
         };
         let position = hosts.iter().position(|(name, _)| *name == host).ok_or(None)?;
-        match run_on(&host, hosts[position].1.as_str(), job, announce)? {
+        let login = sessions.iter().find(|(name, _)| *name == host).map(|(_, login)| login.as_str()).ok_or(None)?;
+        match run_on(&host, login, job, announce)? {
             remote::Ran::Exit(code) => return Ok(code),
             remote::Ran::Abandoned => return Err(None),
             remote::Ran::NotSynced(why) => {

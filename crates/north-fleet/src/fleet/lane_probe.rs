@@ -44,7 +44,7 @@ fn standing(block: &str, tree: &Worktree) -> Option<Lane> {
 pub(super) fn run(machine: Option<&Machine>, script: &str) -> Option<String> {
     let output = match machine {
         None => run_within("sh", &["-c", script], LIMIT),
-        Some(machine) => run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, script], LIMIT),
+        Some(machine) => run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", machine.session_login(), script], LIMIT),
     }?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }

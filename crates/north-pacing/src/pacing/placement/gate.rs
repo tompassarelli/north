@@ -62,6 +62,7 @@ pub enum Target {
 pub struct Machine {
     pub name: String,
     pub ssh: String,
+    pub agent_ssh: Option<String>,
     pub serves: Vec<String>,
     pub pushes: Option<Vec<String>>,
     /// The `[hosts]` names a session there can reach over ssh besides itself, None when the host declares no list and so reaches only itself.
@@ -79,6 +80,12 @@ pub struct Machine {
     pub stale_age_s: Option<f64>,
     /// Launches this host placed there inside the recent-placement window, which `saturation` does not show yet.
     pub placed_recently: i64,
+}
+
+impl Machine {
+    pub fn session_login(&self) -> &str {
+        self.agent_ssh.as_deref().unwrap_or(&self.ssh)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -344,15 +351,19 @@ pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
         .filter_map(|name| {
             let host = hosts.get(&name)?;
             let ssh = ssh_destination(host.get("ssh")?.as_str()?)?.to_owned();
+            let agent_ssh = match host.get("agent_ssh") {
+                Some(login) => Some(ssh_destination(login.as_str()?)?.to_owned()),
+                None => None,
+            };
             let cap = host.get("resident_cap").and_then(Item::as_integer);
-            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, cap, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None, stale_age_s: None, placed_recently: 0 })
+            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, agent_ssh, cap, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None, stale_age_s: None, placed_recently: 0 })
         })
         .collect()
 }
 
 /// The `[hosts.NAME]` machines marked `pulls_spool = true`: each far machine whose CLIs this fleet runs whether or not a session is placed there now.
 pub fn spool_pulls(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
-    machines(cfg).into_iter().filter(|machine| machine.name != here).filter(|machine| spool_pulled(cfg, &machine.name)).map(|machine| (machine.name, machine.ssh)).collect()
+    machines(cfg).into_iter().filter(|machine| machine.name != here).filter(|machine| spool_pulled(cfg, &machine.name)).map(|machine| { let ssh = machine.session_login().to_owned(); (machine.name, ssh) }).collect()
 }
 
 pub fn spool_pulled(cfg: &DocumentMut, host: &str) -> bool {

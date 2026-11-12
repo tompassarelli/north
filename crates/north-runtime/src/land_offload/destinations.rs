@@ -103,6 +103,18 @@ pub(super) fn build_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)
         .collect()
 }
 
+pub(super) fn build_session_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
+    let machines = crate::pacing::placement::gate::machines(cfg);
+    build_hosts(cfg, here)
+        .into_iter()
+        .filter_map(|(name, ssh)| match machines.iter().find(|machine| machine.name == name) {
+            Some(machine) => Some((name.clone(), machine.session_login().to_owned())),
+            None if cfg.get("hosts").and_then(|hosts| hosts.get(&name)).is_some_and(|host| host.get("agent_ssh").is_some()) => None,
+            None => Some((name, ssh)),
+        })
+        .collect()
+}
+
 pub(super) fn pull_sources(cfg: &DocumentMut, here: &str) -> Vec<String> {
     let hosts = cfg.get("hosts").and_then(Item::as_table_like);
     let refused: Vec<&str> = hosts

@@ -11,7 +11,7 @@ use super::remote::{SYNCED, Trust, script, words};
 use crate::capacity::admission::offload_room;
 use crate::capacity::handover::{Frame, Offer};
 use crate::land_offload::room::{self, Room};
-use crate::land_offload::{build_hosts, ship::quote};
+use crate::land_offload::{build_hosts, build_session_hosts, ship::quote};
 
 const WAIT_SECONDS: u64 = 3;
 const UNREACHABLE_BACKOFF: Duration = Duration::from_secs(10);
@@ -321,6 +321,7 @@ pub fn run(arguments: &[String]) -> u8 {
         return 2;
     }
     let hosts = build_hosts();
+    let sessions = build_session_hosts();
     if hosts.is_empty() {
         eprintln!("north capacity offload take: this host declares no reaches to a host that offloads builds");
         return 2;
@@ -331,7 +332,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let here = crate::platform::host::name();
     let starting: HashMap<String, Arc<AtomicUsize>> = std::iter::once(here.clone()).chain(hosts.iter().map(|(name, _)| name.clone())).map(|name| (name, Arc::new(AtomicUsize::new(0)))).collect();
     let serving = Arc::new(AtomicUsize::new(0));
-    let mut remote_rooms = RemoteRooms::read_from(hosts.clone());
+    let mut remote_rooms = RemoteRooms::read_from(hosts);
     let mut printed: HashMap<String, String> = HashMap::new();
     let mut taken = false;
     let mut runtime = north_runtime_follow::Follow::current();
@@ -346,7 +347,7 @@ pub fn run(arguments: &[String]) -> u8 {
         let rooms = remote_rooms.now();
         let mut backoff = false;
         let mut polled = false;
-        for (source, source_ssh) in &hosts {
+        for (source, source_ssh) in &sessions {
             let count = |name: &str| starting.get(name).map_or(0, |count| count.load(Ordering::SeqCst));
             let mut targets = Vec::new();
             match discharging {
@@ -362,7 +363,7 @@ pub fn run(arguments: &[String]) -> u8 {
                     targets.push(Target { name: &here, ssh: None, room: here_room.as_ref(), starting: count(&here) });
                 }
             }
-            targets.extend(hosts.iter().filter(|(name, _)| name != source).map(|(name, ssh)| Target { name, ssh: Some(ssh), room: rooms.get(name), starting: count(name) }));
+            targets.extend(sessions.iter().filter(|(name, _)| name != source).map(|(name, ssh)| Target { name, ssh: Some(ssh), room: rooms.get(name), starting: count(name) }));
             let (target, ssh) = match pick(&targets, reserved) {
                 Ok(chosen) => chosen,
                 Err(reasons) => {

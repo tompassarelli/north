@@ -1,7 +1,7 @@
 use super::*;
 
 fn machine(name: &str) -> Machine {
-    Machine { name: name.into(), ssh: name.into(), serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: None, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None, stale_age_s: None, placed_recently: 0 }
+    Machine { name: name.into(), ssh: name.into(), agent_ssh: None, serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: None, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None, stale_age_s: None, placed_recently: 0 }
 }
 
 static MEMO: Memo = Mutex::new(None);

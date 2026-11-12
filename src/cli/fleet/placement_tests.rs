@@ -79,7 +79,7 @@ fn a_lead_launched_on_a_worker_host_or_onto_a_worker_machine_is_refused_with_the
 
 #[test]
 fn a_pin_keeps_a_saturated_machine_but_queues_on_it_instead_of_starting() {
-    let gex45 = placement::Machine { name: "gex45".into(), ssh: "tom@gex45".into(), serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: Some(8), live: Some(5), accounts: vec!["a".into()], claude_ai: Vec::new(), saturation: None, stale_age_s: None, placed_recently: 0 };
+    let gex45 = placement::Machine { name: "gex45".into(), ssh: "tom@gex45".into(), agent_ssh: None, serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: Some(8), live: Some(5), accounts: vec!["a".into()], claude_ai: Vec::new(), saturation: None, stale_age_s: None, placed_recently: 0 };
     let mut full = decision(Target::Account("claude:a".into()));
     full.machine = Some(gex45);
     full.saturated = Some("gex45 skipped: 4 jobs queued in machine-capacity admission (limit 4)".into());
@@ -151,7 +151,7 @@ fn a_reviewer_placed_on_the_build_host_that_holds_its_lane_is_not_refused_for_na
 fn a_brief_naming_no_local_path_places_on_another_host_though_the_launch_carries_a_prior_report_naming_a_lane_here() {
     let home = PathBuf::from(std::env::var_os("HOME").expect("HOME"));
     let lane = home.join("code/north/worktrees/spare-fill-reserve");
-    let elsewhere = Machine { name: "build-host-not-this-one".into(), ssh: "build-host-not-this-one".into() };
+    let elsewhere = Machine { name: "build-host-not-this-one".into(), ssh: "build-host-not-this-one".into(), agent_ssh: None };
     let written = "Category: debugging-unknown-cause\nDone when: the case passes\n";
     let launched = format!("{written}Prior report: Not done: Lane `{}` (HEAD `02a07fbf2e`) is kept. Stop: landing\n", lane.display());
     let cwd = Path::new("/tmp");

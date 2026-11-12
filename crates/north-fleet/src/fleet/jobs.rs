@@ -62,7 +62,7 @@ impl SpooledLeases {
 
     fn starting_there(&self, session: &str, machine: &Machine) -> NorthResult<bool> {
         let Some(far) = &self.far else { return Ok(false) };
-        Ok(starting(&far.take(&machine.ssh)?.rows, session))
+        Ok(starting(&far.take(machine.session_login())?.rows, session))
     }
 }
 
@@ -132,11 +132,11 @@ mod tests {
         assert!(!leases.leased("other", None).unwrap());
     }
 
-    struct Far(Vec<FleetRow>, Result<(), &'static str>);
+    struct Far(Vec<FleetRow>, Result<(), &'static str>, &'static str);
 
     impl FarSpools for Far {
         fn take(&self, ssh: &str) -> NorthResult<Pull> {
-            assert_eq!(ssh, "gex45");
+            assert_eq!(ssh, self.2);
             self.1.map_err(|why| NorthError::Refused(why.into()))?;
             Ok(Pull::from(self.0.clone()))
         }
@@ -163,7 +163,7 @@ mod tests {
     }
 
     fn placed() -> Machine {
-        Machine { name: "gex45".into(), ssh: "gex45".into() }
+        Machine { name: "gex45".into(), ssh: "gex45".into(), agent_ssh: None }
     }
 
     fn far_leases(ledger: Result<bool, &'static str>, far: Far) -> (tempfile::TempDir, SpooledLeases) {
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn a_far_spool_that_cannot_be_read_is_an_error_not_a_free_session_unless_the_ledger_already_leases_it() {
-        assert!(far_leases(Ok(false), Far(Vec::new(), Err("ssh down"))).1.leased("child", Some(&placed())).is_err());
-        assert!(far_leases(Ok(true), Far(Vec::new(), Err("ssh down"))).1.leased("child", Some(&placed())).unwrap());
+        assert!(far_leases(Ok(false), Far(Vec::new(), Err("ssh down"), "gex45")).1.leased("child", Some(&placed())).is_err());
+        assert!(far_leases(Ok(true), Far(Vec::new(), Err("ssh down"), "gex45")).1.leased("child", Some(&placed())).unwrap());
     }
 }

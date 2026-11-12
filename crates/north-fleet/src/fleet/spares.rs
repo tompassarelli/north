@@ -268,12 +268,12 @@ fn digest(text: &str) -> String {
 
 fn run(place: &Place, script: &str) -> Option<(i32, String)> {
     let wrapped = format!("sh -c {}", quote(script));
-    north_ssh_spare::run(&place.machine.ssh, &wrapped, CHANNEL_WAIT).or_else(|| plain(place, script))
+    north_ssh_spare::run(place.machine.session_login(), &wrapped, CHANNEL_WAIT).or_else(|| plain(place, script))
 }
 
 fn plain(place: &Place, script: &str) -> Option<(i32, String)> {
     let mut ssh = Command::new(place.ssh);
-    ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &place.machine.ssh, "--", &format!("sh -c {}", quote(script))]);
+    ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", place.machine.session_login(), "--", &format!("sh -c {}", quote(script))]);
     let output = try_run_command_within(ssh, None, SSH_WAIT).ok().flatten()?;
     Some((output.status.code().unwrap_or(255), String::from_utf8_lossy(&output.stdout).into_owned()))
 }

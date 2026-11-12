@@ -195,7 +195,7 @@ pub(super) fn north_on(survey: &Survey, host: &str, words: &[String]) -> Result<
     } else {
         let machine = gate::machines(&survey.cfg).into_iter().find(|machine| machine.name == host).ok_or_else(|| format!("no ssh destination for {host}"))?;
         let command = std::iter::once("north".to_owned()).chain(words.iter().map(|word| quoted(word))).collect::<Vec<_>>().join(" ");
-        run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, &command], LAUNCH_WAIT)
+        run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", machine.session_login(), &command], LAUNCH_WAIT)
     };
     match output {
         None => Err(format!("north {} did not return within {} s", words[..2].join(" "), LAUNCH_WAIT.as_secs())),

@@ -57,6 +57,10 @@ fn home() -> PathBuf {
     PathBuf::from(env::var_os("HOME").unwrap_or_default())
 }
 
+pub fn agent_login(cfg: &DocumentMut, host: &str) -> Option<String> {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get("agent_ssh")?.as_str()).map(str::to_owned)
+}
+
 /// The names of the `[hosts.NAME]` tables that carry an `ssh` destination: the machines a lander reaches to pull an outbox from.
 pub fn ssh_hosts(cfg: &DocumentMut) -> Vec<String> {
     let hosts = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter());

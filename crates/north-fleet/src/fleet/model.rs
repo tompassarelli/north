@@ -59,6 +59,14 @@ impl Account {
 pub struct Machine {
     pub name: String,
     pub ssh: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_ssh: Option<String>,
+}
+
+impl Machine {
+    pub fn session_login(&self) -> &str {
+        self.agent_ssh.as_deref().unwrap_or(&self.ssh)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -22,7 +22,7 @@ pub(super) fn stage(machine: &Machine, scratch: &Path, lane: Option<&Planned>) -
         script.push_str(&format!(" && cd {} && {{ [ -d {} ] || north lane new --issue {} {}; }}", quote(&lane.checkout.to_string_lossy()), quote(&lane.path.to_string_lossy()), quote(&lane.issue), quote(&lane.path.to_string_lossy())));
     }
     let mut ssh = Command::new(binary("ssh"));
-    ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &machine.ssh, "--", &script]);
+    ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &script]);
     match try_run_command_within(ssh, Some(&archive), WAIT) {
         Ok(Some(output)) if output.status.success() => Ok(()),
         Ok(Some(output)) => Err(NorthError::Refused(format!("staging the session on {}: {}: {}", machine.name, output.status, String::from_utf8_lossy(&output.stderr).trim()))),

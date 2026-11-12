@@ -99,7 +99,7 @@ pub fn judge(message: &str, session: &str, cwd: &Path, north: &Path, machine: Op
         Some(machine) => {
             let mut ssh = Command::new(super::runtime::binary("ssh"));
             let script = format!("cd {} && {} finish --judge-message {}", quote(&cwd.to_string_lossy()), quote(&north.to_string_lossy()), quote(session));
-            ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &machine.ssh, "--", &script]);
+            ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &script]);
             ssh
         }
     };

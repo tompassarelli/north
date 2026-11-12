@@ -1,12 +1,27 @@
 use north_base::platform::{land_queue, orchestration};
+use toml_edit::DocumentMut;
 
 pub const SSH_OPTIONS: &[&str] = &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2"];
 pub const REMOTE_NORTH: &str = "n=\"$HOME/.local/state/north/current/north\"; [ -x \"$n\" ] || n=\"$(head -n 1 /etc/north/agent-runtime-link 2>/dev/null)/north\"; [ -x \"$n\" ] || n=north;";
 
-/// The fleet's ssh hosts in the shared-config snapshot's orchestration.toml, none when it is stale or a test fixture root is declared and the file lies outside it.
 pub fn fleet_hosts() -> Vec<String> {
-    let fleet = land_queue::confined(&orchestration::snapshot_path()).ok().and_then(|()| orchestration::snapshot().ok());
-    fleet.map(|fleet| orchestration::ssh_hosts(&fleet)).unwrap_or_default()
+    fleet().map(|fleet| orchestration::ssh_hosts(&fleet)).unwrap_or_default()
+}
+
+pub fn session_login(host: &str) -> Result<String, String> {
+    login_in(fleet().as_ref(), host)
+}
+
+fn fleet() -> Option<DocumentMut> {
+    land_queue::confined(&orchestration::snapshot_path()).ok().and_then(|()| orchestration::snapshot().ok())
+}
+
+fn login_in(fleet: Option<&DocumentMut>, host: &str) -> Result<String, String> {
+    match fleet.and_then(|fleet| orchestration::agent_login(fleet, host)) {
+        None => Ok(host.to_owned()),
+        Some(login) if plain(&login) => Ok(login),
+        Some(login) => Err(format!("{host}'s agent login {login:?} is not an ssh login")),
+    }
 }
 
 pub trait Courier {
@@ -28,6 +43,10 @@ pub fn deliver(courier: &dyn Courier, hosts: &[String], session: &str, message: 
 
 pub fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+pub fn plain(text: &str) -> bool {
+    !text.is_empty() && !text.starts_with('-') && text.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | '@'))
 }
 
 #[cfg(test)]

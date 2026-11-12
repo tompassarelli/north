@@ -383,7 +383,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
     }
     let machine = match (&decision.machine, &overrides.local) {
         (Some(chosen), None) if !chosen.accounts.iter().any(|label| label == launch.account) => return Err(Refusal::Final(not_signed_in(decision, chosen, launch.account))),
-        (Some(chosen), None) => Some(Machine { name: chosen.name.clone(), ssh: chosen.ssh.clone() }),
+        (Some(chosen), None) => Some(Machine { name: chosen.name.clone(), ssh: chosen.ssh.clone(), agent_ssh: chosen.agent_ssh.clone() }),
         _ => None,
     };
     notes.extend(decision.moved.clone().filter(|_| machine.is_some()));

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use north_base::foundation::exit::NO_VERDICT;
 
-use crate::land::after::route::{REMOTE_NORTH, SSH_OPTIONS, quote};
+use crate::land::after::route::{REMOTE_NORTH, SSH_OPTIONS, quote, session_login};
 use crate::land::enqueue::default_branch;
 use crate::land::queue::Ticket;
 use crate::land::repositories;
@@ -17,17 +17,21 @@ pub(super) fn verdict(repo: &Path, ticket: &Ticket, base: &str, wait: Option<Dur
         return Denylist::from_env().verdict_within(&ticket.root, &ticket.origin, (base, &ticket.head, &default_branch(&ticket.root)), wait);
     }
     let script = script(ticket, base, &default_branch(repo), wait);
-    read(&ticket.host, Command::new("ssh").args(SSH_OPTIONS).args(["-T", &dialed(&ticket.host), "--", &script]).stdin(Stdio::null()).output())
+    let login = match dialed(&ticket.host) {
+        Ok(login) => login,
+        Err(why) => return unreachable(&ticket.host, &why),
+    };
+    read(&ticket.host, Command::new("ssh").args(SSH_OPTIONS).args(["-T", &login, "--", &script]).stdin(Stdio::null()).output())
 }
 
-fn dialed(host: &str) -> String {
-    dialed_through(host, crate::land::lander::login)
+fn dialed(host: &str) -> Result<String, String> {
+    dialed_through(host, session_login)
 }
 
-fn dialed_through(host: &str, login: impl Fn(&str) -> String) -> String {
+fn dialed_through(host: &str, login: impl Fn(&str) -> Result<String, String>) -> Result<String, String> {
     let named = host.split('.').next().unwrap_or(host);
-    let session = login(named);
-    if session == named { host.to_owned() } else { session }
+    let session = login(named)?;
+    Ok(if session == named { host.to_owned() } else { session })
 }
 
 fn asked_elsewhere(host: &str) -> bool {

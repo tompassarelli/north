@@ -67,7 +67,7 @@ esac
 fn held(root: &Path, argv: &[&str], env: Vec<(String, std::ffi::OsString)>) -> Link {
     let shims = machine(root);
     let spec = HostSpec { key: "box one".into(), shared: false, argv: argv.iter().map(|word| (*word).to_owned()).collect(), env, env_remove: Vec::new(), cwd: root.to_path_buf() };
-    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "tom@far".into() }, root, "box one", &root.join("hops.jsonl")).unwrap();
+    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: None }, root, "box one", &root.join("hops.jsonl")).unwrap();
     assert_eq!(placed.argv[1], "session-link");
     Link { ssh: shims.join("ssh"), ..Link::parse(&placed.argv[2..]).unwrap() }
 }
@@ -149,12 +149,12 @@ async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_the
     let root = tempfile::tempdir().unwrap();
     let lane = Path::new("/home/tom/code/north/worktrees/only-on-far");
     let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["opencode".into()], env: Vec::new(), env_remove: Vec::new(), cwd: lane.to_path_buf() };
-    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "tom@far".into() }, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
+    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: None }, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
     assert_eq!(placed.cwd, root.path());
     assert!(Link::parse(&placed.argv[2..]).unwrap().launch.contains(&format!("cd {}", quote(&lane.to_string_lossy()))));
 
     let shims = machine(root.path());
-    let (ssh, far, home) = (shims.join("ssh"), Machine { name: "far".into(), ssh: "tom@far".into() }, root.path());
+    let (ssh, far, home) = (shims.join("ssh"), Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: None }, root.path());
     let place = Place { ssh: &ssh, machine: &far, home };
     let cli = r#"while read -r line; do echo "got $line as $(tr "\n" " " < "$NORTH_FLEET_BINDING")"; done"#;
     let spec = HostSpec { key: "spare-one".into(), shared: false, argv: vec!["sh".into(), "-c".into(), cli.into()], env: Vec::new(), env_remove: Vec::new(), cwd: home.to_path_buf() };
@@ -205,7 +205,7 @@ fn pooled(place: &Place) -> Vec<String> {
 async fn a_spare_whose_directory_was_removed_is_retired_by_the_next_survey_and_its_slot_counts_free() {
     let root = tempfile::tempdir().unwrap();
     let shims = machine(root.path());
-    let (far, home) = (Machine { name: "far".into(), ssh: "tom@far".into() }, root.path());
+    let (far, home) = (Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: None }, root.path());
     let place = Place { ssh: &shims.join("ssh"), machine: &far, home };
     let (kept, gone) = (home.join("lanes/kept"), home.join("lanes/gone"));
     fs::create_dir_all(&kept).unwrap();
@@ -233,7 +233,7 @@ async fn a_spare_whose_directory_was_removed_is_retired_by_the_next_survey_and_i
 async fn retiring_a_directory_tree_stops_every_spare_under_it_and_none_outside() {
     let root = tempfile::tempdir().unwrap();
     let shims = machine(root.path());
-    let (far, home) = (Machine { name: "far".into(), ssh: "tom@far".into() }, root.path());
+    let (far, home) = (Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: None }, root.path());
     let place = Place { ssh: &shims.join("ssh"), machine: &far, home };
     let tree = home.join("eval/worktrees");
     let (one, two, outside) = (tree.join("one"), tree.join("two"), home.join("eval/worktrees-other"));

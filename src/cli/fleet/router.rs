@@ -264,7 +264,7 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     gated::admit(fleet, &mut request)?;
     (request.placement, request.capacity_need) = (placed.note, placed.need);
     request.machine = placed.machine.or(request.machine);
-    if let Some(prompt) = super::agent_root::for_machine(&request.prompt, request.machine.as_ref().map(|machine| machine.ssh.as_str())) {
+    if let Some(prompt) = super::agent_root::for_machine(&request.prompt, request.machine.as_ref()) {
         request.prompt = prompt;
     }
     let tasks = request.tasks();

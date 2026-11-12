@@ -143,7 +143,7 @@ pub(super) fn run(machine: Option<&Machine>, cwd: &Path, script: &str) -> Option
         }
         Some(machine) => {
             let mut ssh = Command::new(super::runtime::binary("ssh"));
-            ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &machine.ssh, "--", &script]);
+            ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &script]);
             ssh
         }
     };

@@ -241,7 +241,7 @@ fn survey_via(memo: &'static Memo, records: &Path, machines: &[Machine], cwd: Op
             let (send, receive) = mpsc::channel();
             let (machine, cwd, ask, records) = (machine.clone(), cwd.map(str::to_owned), Arc::clone(&ask), records.to_path_buf());
             std::thread::spawn(move || {
-                let key = format!("{}\0{}\0{}", machine.name, machine.ssh, cwd.clone().unwrap_or_default());
+                let key = format!("{}\0{}\0{}", machine.name, machine.session_login(), cwd.clone().unwrap_or_default());
                 let _ = send.send(remembered(memo, key, || answered(&records, &machine, cwd.as_deref(), &ask)));
             });
             receive
@@ -265,7 +265,7 @@ fn answered(records: &Path, machine: &Machine, cwd: Option<&str>, ask: &Ask) -> 
     let directory = || match cwd {
         Some(dir) if seen_there(records, &machine.name, dir, storage::now()) => Some(true),
         Some(dir) => {
-            let found = ask(&machine.name, &machine.ssh, cwd, Asked::Directory).has_cwd;
+            let found = ask(&machine.name, machine.session_login(), cwd, Asked::Directory).has_cwd;
             if found == Some(true) {
                 mark_there(records, &machine.name, dir, true);
             }
@@ -274,7 +274,7 @@ fn answered(records: &Path, machine: &Machine, cwd: Option<&str>, ask: &Ask) -> 
         None => None,
     };
     let reused = |facts: Facts, has_cwd: Option<bool>| if cwd.is_some() { Facts { has_cwd, ..facts } } else { facts };
-    let everything = || ask(&machine.name, &machine.ssh, cwd, Asked::Everything);
+    let everything = || ask(&machine.name, machine.session_login(), cwd, Asked::Everything);
     if let Some(facts) = shared(records, &machine.name, storage::now()) {
         return reused(facts, directory());
     }
@@ -326,11 +326,11 @@ pub(super) fn refresh_every_host() {
 
 fn refresh(machine: &Machine) {
     let records = records();
-    fetch(&machine.name, &machine.ssh, None, Asked::Refresh);
+    fetch(&machine.name, machine.session_login(), None, Asked::Refresh);
     let here = machine.name == local();
     let seen = load(&records.join(format!("{}.dirs.json", machine.name)));
     for directory in seen.as_object().into_iter().flat_map(|entries| entries.keys()) {
-        if let Some(present) = directory_there(here, &machine.ssh, directory) {
+        if let Some(present) = directory_there(here, machine.session_login(), directory) {
             mark_there(&records, &machine.name, directory, present);
         }
     }

@@ -61,7 +61,7 @@ impl Fleet {
         let shared = sessions.iter().any(|other| {
             other.name != record.name && other.machine.as_ref().is_some_and(|held| held.name == machine.name) && (other.cwd == path || worktree_of(other, worktrees).as_ref() == Some(&path))
         });
-        (!shared).then(|| RemoteLane { machine: machine.name.clone(), ssh: machine.ssh.clone(), path })
+        (!shared).then(|| RemoteLane { machine: machine.name.clone(), ssh: machine.session_login().to_owned(), path })
     }
 
     /// The lanes freeing kept since `since_secs`, with the machine, the lane and the reason `north lane remove` gave.
