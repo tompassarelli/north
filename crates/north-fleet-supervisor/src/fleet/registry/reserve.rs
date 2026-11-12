@@ -31,9 +31,15 @@ pub fn refusal(reserve: &[String], account: &Account, role: Role, parent: Option
         .then(|| format!("{resolved} is the operational reserve: no worker or subagent starts on it, whatever account it was launched under; only the proxy, scheduled routines, the privacy judge, the lander and canaries draw it"))
 }
 
+/// The reserve caller a host start draws as: the one `record` was stamped with, only while the process starting it runs in that same unit, so a revive or relaunch from anywhere else meets the rule afresh.
+pub fn standing<'a>(stamp: Option<&'a str>, starter: Option<&str>) -> Option<&'a str> {
+    stamp.filter(|stamp| starter == Some(*stamp))
+}
+
 impl Fleet {
     pub(super) fn refuse_reserve(&self, record: &SessionRecord, account: &Account) -> NorthResult<()> {
-        refusal(&declared(&self.policy), account, record.role(), record.parent.as_deref(), record.reserve_caller.as_deref()).map_or(Ok(()), |line| Err(NorthError::Refused(line)))
+        let caller = north_base::platform::session_scope::reserve_caller();
+        refusal(&declared(&self.policy), account, record.role(), record.parent.as_deref(), standing(record.reserve_caller.as_deref(), caller.as_deref())).map_or(Ok(()), |line| Err(NorthError::Refused(line)))
     }
 
     /// Stops every running worker or subagent this host holds on a declared reserve; one line per session stopped or left.
@@ -100,20 +106,24 @@ mod tests {
     }
 
     #[test]
-    fn a_canary_lander_or_judge_launched_from_its_own_service_unit_runs_on_the_reserve_while_a_worker_found_there_is_parked_and_refused_a_wake() {
+    fn a_canary_launched_from_the_promotion_unit_runs_on_the_reserve_while_an_owner_worker_from_a_lander_unit_or_a_revive_elsewhere_is_refused() {
         let reserve = vec!["api:fixture-reserve-org".to_owned()];
         let pooled = account("api", Some("fixture-reserve-org"));
         let canary = north_base::platform::session_scope::reserve_caller_unit("0::/user.slice/user-1000.slice/user@1000.service/control.slice/north-runtime-follow.service\n");
         assert_eq!(canary.as_deref(), Some("north-runtime-follow.service"));
-        assert!(north_base::platform::session_scope::reserve_caller_unit("0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-land@north.service\n").is_some());
+        assert_eq!(north_base::platform::session_scope::reserve_caller_unit("0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-land@north.service\n"), None);
         assert_eq!(north_base::platform::session_scope::reserve_caller_unit("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-fixture.scope\n"), None);
         assert_eq!(refusal(&reserve, &pooled, Role::Worker, None, canary.as_deref()), None);
         assert!(refusal(&reserve, &pooled, Role::Worker, None, None).is_some());
         assert!(!on_reserve(&reserve, &record("worker", None, canary.as_deref())));
-        assert!(!on_reserve(&reserve, &record("lead", Some("fixture-parent"), Some("north-land@north.service"))));
+        assert!(!on_reserve(&reserve, &record("lead", Some("fixture-parent"), canary.as_deref())));
         let parked = record("worker", Some("fixture-parent"), None);
         assert!(on_reserve(&reserve, &parked));
         let relaunched = SessionRecord { model: Some("fixture-model".to_owned()), ..parked };
         assert!(refusal(&reserve, &pooled, relaunched.role(), relaunched.parent.as_deref(), relaunched.reserve_caller.as_deref()).is_some());
+        let stamped = record("worker", None, canary.as_deref());
+        assert_eq!(standing(stamped.reserve_caller.as_deref(), None), None);
+        assert!(refusal(&reserve, &pooled, stamped.role(), None, standing(stamped.reserve_caller.as_deref(), Some("north-land@north.service"))).is_some());
+        assert_eq!(standing(stamped.reserve_caller.as_deref(), canary.as_deref()), canary.as_deref());
     }
 }
