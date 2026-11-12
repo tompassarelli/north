@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-ssh-spare"
+paths = ["crates/north-ssh-spare/src/**"]
+may_use = ["north-base"]
+

@@ -125,14 +125,28 @@ fn probe(name: &str, destination: &str) -> Option<Saturation> {
 }
 
 fn ssh_script(destination: &str, script: &str) -> Result<process::Output, String> {
+    if let Some((code, out)) = north_ssh_spare::run(destination, script, SPARE_WAIT) {
+        return Ok(process::Output { code, out, err: String::new() });
+    }
+    let words = ssh_words(destination, &["sh", "-s"]);
+    let refs: Vec<&str> = words[1..].iter().map(String::as_str).collect();
+    process::run(&words[0], &refs, Some(script), 20.0)
+}
+
+/// `north ssh-spare hold DESTINATION`, keeping spare shells open to a build host over the same ssh command the survey uses.
+pub(in crate::pacing) fn hold_spares(arguments: &[String]) -> u8 {
+    north_ssh_spare::hold(arguments, |destination| ssh_words(destination, &[]).into_iter().map(std::ffi::OsString::from).collect())
+}
+
+fn ssh_words(destination: &str, command: &[&str]) -> Vec<String> {
     let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
-    let argv = crate::platform::ssh::argv(&["ssh".into()], &env, &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "sh", "-s"]);
+    let options = [&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination][..], command].concat();
+    let argv = crate::platform::ssh::argv(&["ssh".into()], &env, &options);
     let mut words: Vec<String> = argv.iter().map(|word| word.to_string_lossy().into_owned()).collect();
     if let Some(at) = words.iter().position(|word| word == "-F") {
         words.drain(at..at + 2);
     }
-    let refs: Vec<&str> = words[1..].iter().map(String::as_str).collect();
-    process::run(&words[0], &refs, Some(script), 20.0)
+    words
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -152,6 +166,8 @@ pub(in crate::pacing) struct Facts {
 }
 
 const SURVEY_DEADLINE: Duration = Duration::from_secs(2);
+
+const SPARE_WAIT: Duration = Duration::from_secs(20);
 
 const STALE_LIMIT_SECONDS: f64 = 600.0;
 

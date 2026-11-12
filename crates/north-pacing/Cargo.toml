@@ -14,6 +14,7 @@ north-base = { path = "../north-base" }
 north-capacity-host = { path = "../north-capacity-host" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-pace = { path = "../north-pace" }
+north-ssh-spare = { path = "../north-ssh-spare" }
 north-providers = { path = "../north-providers" }
 north-calibration = { path = "../north-calibration" }
 north-strategy-types = { path = "../north-strategy-types" }

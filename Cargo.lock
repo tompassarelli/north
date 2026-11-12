@@ -1764,6 +1764,7 @@ dependencies = [
  "north-fleet-supervisor",
  "north-pace",
  "north-providers",
+ "north-ssh-spare",
  "north-strategy-types",
  "north-threads",
  "proptest",
@@ -1897,6 +1898,15 @@ dependencies = [
 name = "north-shared-config"
 version = "0.1.0"
 dependencies = [
+ "tempfile",
+]
+
+[[package]]
+name = "north-ssh-spare"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "rustix 0.38.44",
  "tempfile",
 ]
 

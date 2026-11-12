@@ -14,6 +14,10 @@ mod keeper;
 pub fn keep_surveys(arguments: &[String]) -> u8 {
     keeper::run(arguments, hosts::refresh_every_host)
 }
+/// `north ssh-spare hold DESTINATION`, holding spare shells open to a build host so a survey question costs one round trip.
+pub fn hold_spares(arguments: &[String]) -> u8 {
+    hosts::hold_spares(arguments)
+}
 pub mod needs;
 mod reach;
 pub mod recent;
