@@ -89,6 +89,21 @@ pub fn lane_only_command_outside_scope(marker: bool, cgroup: Option<&str>) -> bo
     marker && cgroup.is_some_and(|cgroup| !lane_only_cgroup(cgroup))
 }
 
+/// The service units the operational reserve's callers run in: the runtime promotion whose canaries probe it, and the landers whose privacy verdicts draw it.
+const RESERVE_CALLER_UNITS: [&str; 2] = ["north-runtime-follow.service", "north-land-rest.service"];
+const LANDER_UNIT_PREFIX: &str = "north-land@";
+
+/// The service unit a process whose `/proc/PID/cgroup` reads `cgroup` runs in when it is one of the reserve's callers, read from its cgroup, which a fleet session cannot leave.
+pub fn reserve_caller_unit(cgroup: &str) -> Option<String> {
+    let leaf = cgroup.lines().last()?.rsplit('/').next()?;
+    (RESERVE_CALLER_UNITS.contains(&leaf) || (leaf.starts_with(LANDER_UNIT_PREFIX) && leaf.ends_with(".service"))).then(|| leaf.to_owned())
+}
+
+/// The reserve caller unit this process runs in, or none.
+pub fn reserve_caller() -> Option<String> {
+    std::fs::read_to_string("/proc/self/cgroup").ok().as_deref().and_then(reserve_caller_unit)
+}
+
 /// Whether this process is a lane-only command outside its session's own scope.
 pub fn lane_only_outside_scope() -> bool {
     lane_only_command_outside_scope(std::env::var_os(LANE_ONLY).is_some(), std::fs::read_to_string("/proc/self/cgroup").ok().as_deref())

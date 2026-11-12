@@ -359,6 +359,9 @@ pub struct SessionRecord {
     /// The held unit on its machine when the session took a spare, whose name is not the one its session name gives.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub held_unit: Option<String>,
+    /// The reserve caller service unit that launched it, read from the launcher's cgroup; only such a session draws a declared reserve.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reserve_caller: Option<String>,
     /// The phase this host's lifecycle store gave the launch when the record was read; session.json never holds it.
     #[serde(skip)]
     pub phase: Option<Phase>,
@@ -411,6 +414,7 @@ impl SessionRecord {
             adopted_ms: None,
             revived_mid_task_ms: None,
             held_unit: None,
+            reserve_caller: None,
             phase: None,
         }
     }

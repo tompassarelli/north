@@ -285,7 +285,7 @@ fn settle(
             None => Ok(false),
         };
         lines.extend(marked_line(org, &record.name, &marked));
-        let kept_off = crate::fleet::registry::reserve::kept_off(record.role(), record.parent.as_deref());
+        let kept_off = record.reserve_caller.is_none() && crate::fleet::registry::reserve::kept_off(record.role(), record.parent.as_deref());
         let reserved = |org: &Org| kept_off && reserve.iter().any(|held| held.split_once(':').is_some_and(|(_, held)| held == org.name));
         let next = match moved_to(&record.account, &orgs, today, |org| exhausted(&dir, org) || reserved(org)) {
             Some(to) => Some((to, None)),

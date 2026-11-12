@@ -389,6 +389,7 @@ impl Fleet {
         self.refuse_on_window(record.conversation.as_deref())?;
         let runtime = self.runtime(record)?;
         self.refuse_headless_proxy(record, runtime.as_ref(), account)?;
+        self.refuse_reserve(record, account)?;
         let (instructions, sha) = self.instructions(record)?;
         let trace = hops::trace_in(&self.root.join(&record.name));
         let spec = runtime.host(account, &record.relaunch_request(), opening, &instructions)?;

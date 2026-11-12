@@ -55,7 +55,8 @@ impl Fleet {
     fn launch_into(&self, request: &LaunchRequest, claim: Claim, session_dir: &Path) -> NorthResult<SessionRecord> {
         let verification = self.admitted(request, claim)?;
         let account = self.account(request)?;
-        self.refuse_reserve(request, &account)?;
+        let caller = north_base::platform::session_scope::reserve_caller();
+        reserve::refusal(&reserve::declared(&self.policy), &account, request.role(), request.parent.as_deref(), caller.as_deref()).map_or(Ok(()), |line| Err(NorthError::Refused(line)))?;
         let runtime = self.runtimes.get(&request.provider)?;
         let hooks = HooksCheck::start(runtime.clone(), &account, request.machine.as_ref());
         if let Some(model) = request.model.as_deref().filter(|model| !runtime.models().contains(model)) {
@@ -73,6 +74,7 @@ impl Fleet {
         let mut record = SessionRecord::launched(request, effort, conversation.clone(), verification, now_ms());
         record.overlay = runtime.overlay(&request.name);
         record.account = account.recorded_label();
+        record.reserve_caller = caller;
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         let unrecorded = record.clone();
         std::thread::scope(|scope| {
@@ -199,7 +201,7 @@ impl Fleet {
             }
             return Ok(revived);
         };
-        self.refuse_reserve(&record.relaunch_request(), &onto)?;
+        self.refuse_reserve(&record, &onto)?;
         let conversation = record.conversation.clone().ok_or_else(|| NorthError::State(format!("{name} never started a conversation, so it has none to carry onto {}", onto.label)))?;
         self.refuse_beside_interactive(&record)?;
         let cut_short = self.halt_cut_short(name, self.ordered_by(self.caller().as_deref(), Halt::MovedAccount))?;
