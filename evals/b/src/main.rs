@@ -100,7 +100,7 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     if let Some((initial, after)) = plan.burst {
         conditions["burst"] = json!({"initial": initial, "after_s": after});
     }
-    conditions["unseen"] = json!(format!("each task adds `export const RUN_ID = \"{stamp}-l{level}-<task>\";` to its source and its check greps for it, so no diff repeats one an earlier run handed in"));
+    conditions["unseen"] = json!(format!("each task adds `export const RUN_ID = \"{stamp}-l{level}-<task>\";` to its source, which its check greps for, and ends its commit message with `Run: {stamp}-l{level}-<task>`, so neither the diff nor the prose the private-kind judge reads repeats an earlier run's; a row's verdict_s shows whether the judge answered from its cache"));
     let stop = AtomicBool::new(false);
     let restart_log = plan.work.join("lander-restart.log");
     let (runs, outage) = std::thread::scope(|scope| {

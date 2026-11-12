@@ -27,8 +27,10 @@ beside the repository; the runner compares each landed test file with them (the 
 
 Every brief carries `Needs: cpx62`, so placement prefers the build host reserved for the ladder. Every task's text
 also asks for one line at the end of its source, `export const RUN_ID = "<stamp>-l<level>-<task>";`, and its
-acceptance command greps for it, so no run hands in a diff an earlier run handed in and the private-kind judge never
-answers a landing from its cache; `conditions.unseen` records it and `model_requests` counts the session's distinct
+acceptance command greps for it, and the commit message to end with `Run: <stamp>-l<level>-<task>`, because the
+private-kind judge reads only prose (commit messages, added doc lines, the ref name): no run hands in a diff or a
+message an earlier run handed in, so the judge answers no landing from its cache unless the worker drops that line,
+which a row's `verdict_s` (0.2 to 0.4 s from the cache, 3 s or more judged) shows; `conditions.unseen` records it and `model_requests` counts the session's distinct
 model requests. `--model M` launches every worker of the ladder on M instead of claude-opus-5-5, at the same effort and
 with the same brief, and each row names it in `conditions.model`; its rows answer which model the harness may choose
 behind the same check, a different comparison from the pinned-model rows, and go in their own results file.

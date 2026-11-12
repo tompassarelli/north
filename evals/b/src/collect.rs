@@ -88,8 +88,10 @@ pub fn spans(queue: Option<&Path>, branch: &str, since: f64) -> Value {
         .map(|landing| {
             let id = landing["id"].as_str().unwrap_or_default();
             let queued = all.iter().find(|s| s["name"] == "queued" && s["parent"].as_str() == Some(id));
+            let verdict = all.iter().find(|s| s["name"] == "private-kind verdict" && s["parent"].as_str() == Some(id));
             json!({"queued_at": landing["start"], "decided_at": landing["end"], "attributes": landing["attributes"],
-                   "queue_wait_s": queued.and_then(|q| Some(q["end"].as_f64()? - q["start"].as_f64()?))})
+                   "queue_wait_s": queued.and_then(|q| Some(q["end"].as_f64()? - q["start"].as_f64()?)),
+                   "verdict_s": verdict.and_then(|v| Some(v["end"].as_f64()? - v["start"].as_f64()?))})
         })
         .collect();
     Value::Array(attempts)

@@ -54,7 +54,7 @@ pub fn unseen(task: &Value, nonce: &str) -> Value {
     let id = task["id"].as_str().unwrap_or_default();
     let line = format!("export const RUN_ID = \"{nonce}-{id}\";");
     let mut marked = task.clone();
-    marked["text"] = json!(format!("{} Also add this line at the end of `src/{id}.ts`: `{line}`", task["text"].as_str().unwrap_or_default()));
+    marked["text"] = json!(format!("{} Also add this line at the end of `src/{id}.ts`: `{line}`, and end the commit message with the line `Run: {nonce}-{id}`.", task["text"].as_str().unwrap_or_default()));
     marked["check"] = json!(format!("{} && grep -qF '{line}' src/{id}.ts", task["check"].as_str().unwrap_or_default()));
     marked
 }

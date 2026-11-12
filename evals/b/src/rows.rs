@@ -75,6 +75,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
         "launch_output": run.launch_output.chars().rev().take(1500).collect::<Vec<_>>().into_iter().rev().collect::<String>(),
         "first_request_s": after(run.launch_start, transcript["first_request_at"].as_f64()),
         "handin_s": after(run.launch_start, first_queued),
+        "verdict_s": landed_attempt.as_ref().map_or(Value::Null, |a| a["verdict_s"].clone()),
         "queue_wait_s": landed_attempt.as_ref().map_or(Value::Null, |a| a["queue_wait_s"].clone()),
         "landed": landed && acceptance, "merged": landed, "t_land_s": if landed { after(run.launch_start, Some(resolved_at)) } else { Value::Null },
         "failed": !(landed && acceptance), "failure": if landed && !acceptance { "acceptance-failed".to_owned() } else if landed { String::new() } else { reason },
