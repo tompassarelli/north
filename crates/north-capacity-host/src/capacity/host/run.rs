@@ -415,18 +415,19 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
     let cache = current_cache_state();
     let witness = subject_start::witness(root, &lease);
     subject_start::arm(&witness);
+    let subject = request.subject.as_deref().unwrap_or(command);
     let exit_code = match scope_command(root, request, admitted, timeout_seconds, command).spawn() {
         Ok(child) => {
             let measurement = measure_scope(root, &lease, scope_cgroup(request.admitted_class(), &unit));
             let usual = Usual::of(request.forecast.as_ref(), timeout_seconds);
-            let overrun = Overrun::watch(env(crate::fleet::runtime::SESSION_ENV), command, usual);
+            let overrun = Overrun::watch(env(crate::fleet::runtime::SESSION_ENV), subject, usual);
             let exit = Exit::judge(supervise(child, &unit, terminations, overrun).await, &witness);
             let exit_code = exit.code();
             let usage = measurement.finish();
-            let entry = usage_entry(owner, request, command, admitted, exit_code, &usage, children_cpu_seconds() - child_cpu_before);
+            let entry = usage_entry(owner, request, subject, admitted, exit_code, &usage, children_cpu_seconds() - child_cpu_before);
             let memory_high = admitted.get("scope").and_then(|scope| field(scope, "memoryMiB"));
-            let entry = model_fields(entry, owner, request, command, &usage, cache, memory_high);
-            record(&entry, &usage, command, request, &lease);
+            let entry = model_fields(entry, owner, request, subject, &usage, cache, memory_high);
+            record(&entry, &usage, subject, request, &lease);
             if let Some(line) = command_exit(request, owner, command, admitted, exit) {
                 print_to(&line, true);
             }

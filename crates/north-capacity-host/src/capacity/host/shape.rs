@@ -91,3 +91,11 @@ pub fn command_shape(command: &[String]) -> String {
     shape.extend(words[1..].iter().take_while(|word| SUBCOMMAND.is_match(word)).take(2).cloned());
     shape.join(" ")
 }
+
+/// The check a landing wrapper runs from a script file, as `shell -c TEXT`, when the wrapper named that file as the subject it runs; any other command has no subject.
+pub fn script_subject(command: &[String], script: Option<&str>, read: impl FnOnce(&str) -> Option<String>) -> Option<Vec<String>> {
+    let script = script.filter(|script| !script.is_empty() && command.last().map(String::as_str) == Some(*script))?;
+    let shell = command.first().filter(|first| SHELL_COMMANDS.contains(&program(first)))?;
+    let text = read(script)?;
+    Some(vec![shell.clone(), "-c".to_owned(), text.trim_end_matches('\n').to_owned()])
+}

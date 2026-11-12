@@ -263,7 +263,7 @@ if [ -n "${carried:-}" ]; then eval "export $carried"; fi
 lease_owner=land-offload
 [ -z "${SAFE_PUSH_LAND_HEAD:-}" ] || lease_owner=land-check
 leased() {
-  if command -v north >/dev/null 2>&1; then north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
+  if command -v north >/dev/null 2>&1; then @SUBJECT_ENV@="$script" north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
 if [ -n "${nested:-}" ]; then
   watching=$root/watch.$$.up
@@ -433,6 +433,7 @@ pub(super) fn run_part() -> String {
         .replace("@WATCH_MARGIN@", &WATCH_MARGIN_SECONDS.to_string())
         .replace("@WATCH_START_POLLS@", &WATCH_START_POLLS.to_string())
         .replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV)
+        .replace("@SUBJECT_ENV@", north_base::foundation::offload::SUBJECT_ENV)
         .replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV)
         .replace("@LEASE@", crate::runtime::layout::LEASE)
         .replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker())
