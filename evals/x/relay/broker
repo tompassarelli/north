@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+here=$(dirname "$(readlink -f "$0")")
+usage="usage: evals/x/relay/broker TRIAL | stop TRIAL"
+channel() { t=$(readlink -f "$1"); echo "${t%/trials/*}/exec/${t##*/}"; }
+[ "${1:-}" != stop ] || { echo stop > "$(channel "${2:?$usage}")/requests"; exit; }
+[ -n "${EVAL_X_SHELL:-}" ] || exec env EVAL_X_SHELL=1 north capacity dev-shell run --dir "${here%/relay}" -- "$0" "$@"
+# Rootless podman maps the subordinate ids with the setuid newuidmap wrapper, which must come before the store's copy.
+export PATH=/run/wrappers/bin:$PATH
+T=$(readlink -f "${1:?$usage}")
+X=$(channel "$T")
+mkdir -p "$X" "$T/exec"
+rm -f "$X/requests"
+mkfifo "$X/requests"
+start='echo $$ > "$1"; exec bash -c "$2"'
+stop='p=$(cat "$1") && { kill -KILL -- "-$p" || kill -KILL "$p"; }'
+
+container() {
+  cat "$X/container" 2> /dev/null && return
+  for c in $(podman ps -q); do
+    podman inspect --format '{{range .Mounts}}{{println .Source}}{{end}}' "$c" | grep -qxF "$T" || continue
+    echo "$c" > "$X/container.new"
+    mv "$X/container.new" "$X/container"
+    echo "$c"
+    return
+  done
+  echo "eval-x broker: no running container mounts $T" >&2
+  return 1
+}
+
+serve() {
+  d=$X/$1
+  pid=/eval-x/exec/pid.$1
+  set --
+  for f in "$d"/env/*; do [ ! -e "$f" ] || set -- "$@" --env "${f##*/}=$(cat "$f")"; done
+  {
+    status=0
+    ctr=$(container) && podman exec -w "$(cat "$d/cwd")" "$@" "$ctr" sh -c "$start" sh "$pid" "$(cat "$d/cmd")" || status=$?
+    echo "$status" > "$d/status.new"
+    mv "$d/status.new" "$d/status"
+  } < /dev/null > "$d/out" 2> "$d/err" &
+  cat "$d/alive" > /dev/null
+  exec 4<> "$d/out" 5<> "$d/err"
+  n=0
+  until [ -e "$d/status" ] || [ "$n" -ge 50 ] || podman exec "$(container)" sh -c "$stop" sh "$pid" 2> /dev/null; do
+    n=$((n + 1))
+    sleep 0.1
+  done
+  wait
+}
+
+exec 3<> "$X/requests"
+pids=
+trap 'kill $pids 2> /dev/null; rm -f "$X/requests"; exit 0' TERM INT
+while read -r id <&3; do
+  case $id in stop) break ;; '' | *[!A-Za-z0-9]*) continue ;; esac
+  [ -d "$X/$id" ] || continue
+  serve "$id" &
+  pids="$pids $!"
+done
+kill $pids 2> /dev/null || :
+rm -f "$X/requests"

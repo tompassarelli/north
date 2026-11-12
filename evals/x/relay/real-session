@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+here=$(dirname "$(readlink -f "$0")")
+[ -n "${EVAL_X_SHELL:-}" ] || exec env EVAL_X_SHELL=1 north capacity dev-shell run --dir "${here%/relay}" -- "$0" "$@"
+# Rootless podman maps the subordinate ids with the setuid newuidmap wrapper, which must come before the store's copy.
+export PATH=/run/wrappers/bin:$PATH
+token=${1:?usage: evals/x/relay/real-session TOKEN-FILE [MODEL]}
+model=${2:-claude-opus-5-5}
+name=eval-x-relay-check
+T=/tmp/eval-x/trials/relay-check
+R=/tmp/eval-x/ws/relay-check/app
+S=/tmp/eval-x/state/relay-check
+mkdir -p "$T" "$R/sub" "$S/cfg" "$S/home"
+: > "$S/calls.log"
+printf '%s\n' '{"effortLevel":"low","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo relay-check-hook >&2"}]}]}}' > "$S/cfg/settings.json"
+cat > "$S/prompt.txt" << 'EOF'
+Run these six steps with the Bash tool, one call each, in this order, and change nothing else. Then reply with one line per step giving exactly what it printed or how it ended.
+1. cat /etc/hostname
+2. cd sub && pwd
+3. pwd
+4. echo made-in-the-container > note.txt && cat note.txt
+5. In the background: sleep 2; echo background-done. Then read its output once it has finished.
+6. sleep 300 with a time limit of 2000 ms.
+EOF
+podman rm -f "$name" > /dev/null 2>&1 || :
+podman run -d --name "$name" --hostname relay-check-box -v "$T:/eval-x" -v "$R:$R" docker.io/alexgshaw/fix-git:20251031 sleep 900 > /dev/null
+"$here/broker" "$T" &
+status=0
+(cd "$R" && env -i HOME="$S/home" PATH="$PATH" LANG=C.UTF-8 SHELL="$here/container-bash" EVAL_X_TRIAL="$T" EVAL_X_SHELL_LOG="$S/calls.log" CLAUDE_CONFIG_DIR="$S/cfg" CLAUDE_CODE_OAUTH_TOKEN="$(cat "$token")" timeout 300 claude -p --model "$model" --allowedTools Bash < "$S/prompt.txt" > "$S/reply.txt" 2> "$S/turn.err") || status=$?
+echo "== session exit $status, $(claude --version)"
+cat "$S/reply.txt"
+echo "== the file step 4 made, read on the host: $(cat "$R/sub/note.txt" 2>&1)"
+echo "== calls: $(grep -c '^CALL container' "$S/calls.log") in the container, $(grep -c '^CALL host' "$S/calls.log") on the host"
+echo "== still running in the container:"
+podman top "$name" args
+echo "== stderr:"
+head -n 20 "$S/turn.err"
+"$here/broker" stop "$T"
+podman rm -f "$name" > /dev/null
+wait

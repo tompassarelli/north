@@ -1,16 +1,37 @@
 #!/bin/sh
-log=${EVAL_X_SHELL_LOG:?names the file each call is appended to}
-{
-  printf 'CALL pid=%s ppid=%s cwd=%s stdin=%s\n' "$$" "$PPID" "$PWD" "$(readlink /proc/$$/fd/0)"
+# Claude Code takes a replaced shell only when its path contains bash or zsh, hence this file's name.
+for last in "$@"; do :; done
+trial=${EVAL_X_TRIAL:-}
+where=host
+case ${trial:+on}:${1:-}:${last:-} in
+  on:-c:/* | on:-c:\'/* | on:-c:\"/*) ;;
+  on:-c:*' && pwd -P >| '*) where=container ;;
+esac
+[ -z "${EVAL_X_SHELL_LOG:-}" ] || {
+  printf 'CALL %s pid=%s cwd=%s\n' "$where" "$$" "$PWD"
   n=0
-  for a in "$@"; do
-    n=$((n + 1))
-    printf 'ARG %s: %s\n' "$n" "$a"
-  done
-  printf 'ENV-NAMES: %s\n' "$(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | sort | tr '\n' ' ')"
-  printf 'ENV-CLAUDE: %s\n' "$(env | grep -E '^(CLAUDECODE|CLAUDE_CODE_ENTRYPOINT|CLAUDE_PROJECT_DIR|SHELL|PWD|OLDPWD)=' | tr '\n' ' ')"
-} >> "$log"
-"${EVAL_X_REAL_SHELL:-bash}" "$@"
-status=$?
-printf 'EXIT pid=%s status=%s\n' "$$" "$status" >> "$log"
-exit "$status"
+  for a in "$@"; do n=$((n + 1)); printf 'ARG %s: %s\n' "$n" "$a"; done
+} >> "$EVAL_X_SHELL_LOG"
+[ "$where" = container ] || exec "${EVAL_X_REAL_SHELL:-bash}" "$@"
+
+x=${trial%/trials/*}/exec/${trial##*/}
+[ -p "$x/requests" ] || { echo "eval-x relay: no broker is serving $trial" >&2; exit 126; }
+d=$(mktemp -d "$x/XXXXXXXX") || exit 126
+id=${d##*/}
+file=${last##* && pwd -P >| }
+file=${file#\'}
+file=${file%\'}
+mkdir "$d/env" || exit 126
+printf '%s' "$PWD" > "$d/cwd"
+printf '%s && pwd -P >| /eval-x/exec/cwd.%s' "${last% && pwd -P >| *}" "$id" > "$d/cmd"
+for n in $(env | sed -n 's/^\(__CLAUDE_CC_[A-Za-z0-9_]*\|GIT_EDITOR\|CLAUDECODE\)=.*/\1/p'); do
+  eval "printf %s \"\$$n\"" > "$d/env/$n"
+done
+mkfifo "$d/out" "$d/err" "$d/alive" || exit 126
+echo "$id" > "$x/requests"
+exec 9> "$d/alive"
+cat "$d/out" 9>&- &
+cat "$d/err" >&2 9>&- &
+wait
+[ ! -s "$trial/exec/cwd.$id" ] || cat "$trial/exec/cwd.$id" > "$file"
+exit "$(cat "$d/status" 2> /dev/null || echo 126)"

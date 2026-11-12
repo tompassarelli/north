@@ -28,8 +28,15 @@ A container needs the full range of subordinate user ids, which a worker's sandb
 
 A pass is a row with `"reward":{"reward":1}` and `"error":null`.
 
-## Not here yet
+## How a harness reaches a task
 
-The two arms. Each harness stays on the host as in Eval A and only its tools reach the task: shell commands run in
-the task's container through the runtime's exec, and the file tools see the task's working directory through a
-mount of it on the host. Model traffic never passes through the container.
+Each harness and Claude Code stay on the host as in Eval A; only tool execution reaches the task. Shell commands run
+in the task's container through the runtime's exec, and the file tools see the task's working directory through a
+mount of it on the host. Model traffic never passes through the container and no credential enters it. Each part has
+its own directory and README:
+
+- `handoff/`: the stand-in agent Harbor starts in the container. It passes the task's instruction to the host and
+  waits for the turn to end.
+- `workspace/`: copies a task's working directory out of its image to the host and prints the mounts for it.
+- `relay/`: the shell both arms give Claude Code, and the broker that runs its commands in the container.
+- `arm`: runs one turn of one arm on the host for one trial and writes the trial's result.

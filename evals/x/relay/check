@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+here=$(dirname "$(readlink -f "$0")")
+W=$(mktemp -d /tmp/eval-x-relay-check.XXXXXX)
+trap 'rm -r -- "$W"' EXIT
+T=$W/trials/job
+R=$W/ws
+mkdir -p "$T" "$R/sub" "$W/bin"
+cat > "$W/bin/podman" << 'EOF'
+#!/usr/bin/env bash
+case $1 in
+  ps) echo stand-in ;;
+  inspect) echo "$EVAL_X_CHECK_TRIAL" ;;
+  exec)
+    shift
+    vars=(IN_CONTAINER=yes)
+    while :; do case $1 in -w) cd "$2" || exit 125; shift 2 ;; --env) vars+=("$2"); shift 2 ;; *) break ;; esac; done
+    shift
+    args=()
+    for a in "$@"; do args+=("${a//\/eval-x\//$EVAL_X_CHECK_TRIAL/}"); done
+    exec setsid -w env "${vars[@]}" "${args[@]}" ;;
+esac
+EOF
+chmod +x "$W/bin/podman"
+PATH=$W/bin:$PATH EVAL_X_SHELL=1 EVAL_X_CHECK_TRIAL=$T "$here/broker" "$T" &
+until [ -p "$W/exec/job/requests" ]; do sleep 0.05; done
+relay() { (cd "$R" && EVAL_X_TRIAL=$T EVAL_X_SHELL_LOG=$W/calls.log "$here/container-bash" -c "$1"); }
+fail() { echo "FAIL: $1" >&2; "$here/broker" stop "$T"; exit 1; }
+tail="pwd -P >| $W/cwd-file"
+
+out=$(relay "eval 'cd sub; echo \${IN_CONTAINER:-host}-\$((6 * 7)); echo warn >&2' && $tail" 2> "$W/err")
+[ "$out" = yes-42 ] && [ "$(cat "$W/err")" = warn ] || fail "output: $out / $(cat "$W/err")"
+[ "$(cat "$W/cwd-file")" = "$R/sub" ] || fail "working directory: $(cat "$W/cwd-file")"
+status=0
+relay "eval 'exit 3' && $tail" || status=$?
+[ "$status" = 3 ] || fail "exit status: $status"
+out=$(__CLAUDE_CC_COMMAND_TEXT='echo carried' relay "eval \"\$__CLAUDE_CC_COMMAND_TEXT\" && $tail")
+[ "$out" = carried ] || fail "carried variable: $out"
+[ "$(relay 'echo ${IN_CONTAINER:-host}')" = host ] || fail "a hook's command left the host"
+[ "$(relay "/usr/bin/env echo 'x && $tail'")" = "x && $tail" ] || fail "a prefixed command left the host"
+
+relay "eval 'sleep 300' && $tail" &
+until inner=$(cat "$(ls -t "$T"/exec/pid.* | head -n 1)") && [ -n "$inner" ] && [ "$(ps -o comm= -p "$inner")" = bash ]; do sleep 0.05; done
+pkill -KILL -f "container-bash -c eval 'sleep 300'"
+for _ in $(seq 60); do kill -0 "$inner" 2> /dev/null || break; sleep 0.1; done
+! kill -0 "$inner" 2> /dev/null || fail "a killed command kept running as $inner"
+"$here/broker" stop "$T"
+wait
+echo "relay check passed: output, exit status, working directory, carried variable, host commands, kill"
