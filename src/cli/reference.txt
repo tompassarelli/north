@@ -69,7 +69,6 @@ Commands:
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
   denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]  Scan an outgoing range, its messages, ref name and arriving files for deny-listed terms
-  denylist hold SOUTH_DIR                       Keep a connection to the deny-list source open so a scan asks whether its ref moved instead of fetching, stopping 10 min after the last question or when the runtime changes
   denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]  Post the denylist status on claude/ tips and dispatch Autoland when clean
   check privacy judge --text FILE|- [--kinds FILE]       Judge a text for the private kinds listed in south: prints one kind and quoted span per finding (exit 1), exits 2 when the judge cannot run
   check oneshot --model M [--effort E] --system TEXT [--seconds N] [--json]  Ask one fast-model question on the subscription accounts as the privacy judge does: reads the question on stdin, prints the answer (with --json, the answer and its token counts), exits 3 when every account is at its limit and 2 when the call fails

@@ -10,8 +10,6 @@ use crate::platform::private_text;
 
 #[path = "denylist_archive.rs"]
 mod archive;
-#[path = "denylist_holder.rs"]
-mod holder;
 #[path = "denylist_mirror.rs"]
 mod mirror;
 
@@ -20,7 +18,7 @@ pub use mirror::Fault;
 
 type Staged = BTreeMap<PathBuf, BTreeMap<String, String>>;
 
-const USAGE: &str = "usage: north denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]\n       north denylist hold SOUTH_DIR\n       north denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]";
+const USAGE: &str = "usage: north denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]\n       north denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]";
 const NON_FILE_MODES: [&str; 2] = ["160000", "040000"];
 
 #[derive(Debug, Eq, PartialEq)]
@@ -306,7 +304,7 @@ fn text_segments(root: &Path, request: &Request, commits: &[String], blobs: &BTr
 }
 
 pub fn south_denylist(south: &Path) -> Result<tempfile::NamedTempFile, Fault> {
-    mirror::south_denylist_in(south, &mirror::mirror_path()?, holder::dir().as_deref())
+    mirror::south_denylist_in(south, &mirror::mirror_path()?)
 }
 
 #[cfg(test)]
@@ -393,9 +391,6 @@ fn scan(root: &Path, request: &Request) -> Result<BTreeSet<String>, Fault> {
 }
 
 pub fn run(args: &[String]) -> u8 {
-    if args.first().is_some_and(|command| command == "hold") {
-        return holder::hold(&args[1..], mirror::origin_url);
-    }
     if args.first().is_some_and(|command| command == "attest") {
         return super::denylist_attest::run(&args[1..]);
     }

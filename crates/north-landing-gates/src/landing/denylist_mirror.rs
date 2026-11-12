@@ -8,8 +8,6 @@ use std::time::{Duration, SystemTime};
 use crate::platform::git as platform_git;
 use crate::platform::process;
 
-use super::holder::{self, Answer};
-
 const SOUTH_REF: &str = "refs/south/main";
 const SOUTH_DENYLIST_PATH: &str = "privacy/public-denylist.toml";
 const FETCH_LIMIT: Duration = Duration::from_secs(90);
@@ -45,21 +43,15 @@ pub fn mirror_path() -> Result<PathBuf, Fault> {
     Ok(base.join("north").join("south-denylist.git"))
 }
 
-pub fn south_denylist_in(south: &Path, mirror: &Path, holders: Option<&Path>) -> Result<tempfile::NamedTempFile, Fault> {
-    let url = origin_url(&south.join("main"));
-    let at = match url.as_deref().ok().zip(holders).and_then(|(url, holders)| confirmed(south, mirror, holders, url)) {
-        Some(oid) => oid,
-        None => {
-            if let Err(reason) = url.and_then(|url| fetch(mirror, &url)) {
-                if !holds_copy(mirror) {
-                    return Err(Fault::Unavailable(format!("cannot fetch the deny-list into {} and it holds no earlier copy: {reason}", mirror.display())));
-                }
-                eprintln!("denylist: ⚠ cannot refresh the deny-list ({reason}); scanning with the copy fetched {} ago", age(mirror));
-            }
-            SOUTH_REF.to_owned()
+pub fn south_denylist_in(south: &Path, mirror: &Path) -> Result<tempfile::NamedTempFile, Fault> {
+    let main = south.join("main");
+    if let Err(reason) = origin_url(&main).and_then(|url| fetch(mirror, &url)) {
+        if !holds_copy(mirror) {
+            return Err(Fault::Unavailable(format!("cannot fetch the deny-list into {} and it holds no earlier copy: {reason}", mirror.display())));
         }
-    };
-    let spec = format!("{at}:{SOUTH_DENYLIST_PATH}");
+        eprintln!("denylist: ⚠ cannot refresh the deny-list ({reason}); scanning with the copy fetched {} ago", age(mirror));
+    }
+    let spec = format!("{SOUTH_REF}:{SOUTH_DENYLIST_PATH}");
     let rules = platform_git::stdout(mirror, &["--no-replace-objects", "--git-dir", ".", "show", &spec], |output| String::from_utf8_lossy(&output.stderr).trim().to_owned())
         .map_err(|e| Fault::Failed(format!("the deny-list is missing from {} {spec}: {e}", mirror.display())))?;
     let mut file = tempfile::NamedTempFile::new().map_err(|e| Fault::Failed(format!("cannot create the deny-list copy: {e}")))?;
@@ -67,23 +59,10 @@ pub fn south_denylist_in(south: &Path, mirror: &Path, holders: Option<&Path>) ->
     Ok(file)
 }
 
-pub(super) fn origin_url(main: &Path) -> Result<String, String> {
+fn origin_url(main: &Path) -> Result<String, String> {
     let url = platform_git::stdout(main, &["remote", "get-url", "origin"], |output| String::from_utf8_lossy(&output.stderr).trim().to_owned())
         .map_err(|e| format!("cannot read south's origin URL in {}: {e}", main.display()))?;
     Ok(String::from_utf8_lossy(&url).trim().to_owned())
-}
-
-fn confirmed(south: &Path, mirror: &Path, holders: &Path, url: &str) -> Option<String> {
-    let oid = platform_git::stdout(mirror, &["--git-dir", ".", "rev-parse", "--verify", "-q", &format!("{SOUTH_REF}^{{commit}}")], |_| String::new()).ok()?;
-    let oid = String::from_utf8_lossy(&oid).trim().to_owned();
-    match holder::ask(holders, url, &oid) {
-        Answer::Equal => Some(oid),
-        Answer::Absent if holder::held(url) => {
-            holder::start(south);
-            None
-        }
-        _ => None,
-    }
 }
 
 fn holds_copy(mirror: &Path) -> bool {
