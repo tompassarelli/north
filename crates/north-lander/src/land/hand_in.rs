@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, and returns at the ticket (north#1194), keeping a failed check's output and diff in the lane's git directory for a two-rung route's second attempt (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
 
 use std::fs;
 use std::io;
@@ -9,6 +9,7 @@ use super::enqueue::{default_branch, git};
 use crate::land::scans::outgoing::denylist::{Denylist, Stand};
 
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+const ATTEMPT: &str = "north-attempt.json";
 
 pub const USAGE: &str = "usage: north hand-in --message TEXT [--] PATH...";
 pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH... | north finish --judge-message SESSION < MESSAGE";
@@ -129,10 +130,12 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
         ask_early(&named);
     }
     if let Some(check) = request.check
-        && let Err(failure) = passes(&named.lane.root, check)
+        && let Err((failure, output)) = passes(&named.lane.root, check)
     {
-        let kept = if request.files.is_empty() { "" } else { "the files stay as written; " };
-        eprintln!("{verb}: ✗ the check `{check}` {failure}; {kept}NOT committed, NOT queued.");
+        eprint!("{output}");
+        let written = if request.files.is_empty() { "" } else { "the files stay as written; " };
+        let attempt = keep_attempt(&named, request.message, check, &output).map_or_else(|why| format!("the attempt was not kept: {why}"), |path| format!("the attempt is kept in {}", path.display()));
+        eprintln!("{verb}: ✗ the check `{check}` {failure}; {written}NOT committed, NOT queued; {attempt}");
         return 1;
     }
     match commit(&named) {
@@ -144,16 +147,34 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
     }
 }
 
-fn passes(root: &Path, check: &str) -> Result<(), String> {
+fn passes(root: &Path, check: &str) -> Result<(), (String, String)> {
     if check.trim().is_empty() {
-        return Err("is empty".to_owned());
+        return Err(("is empty".to_owned(), String::new()));
     }
-    let status = Command::new("sh").arg("-c").arg(check).current_dir(root).stdin(Stdio::null()).status().map_err(|error| format!("did not start: {error}"))?;
+    let unstarted = |error: io::Error| (format!("did not start: {error}"), String::new());
+    let mut log = tempfile::tempfile().map_err(unstarted)?;
+    let (out, err) = (log.try_clone().map_err(unstarted)?, log.try_clone().map_err(unstarted)?);
+    let status = Command::new("sh").arg("-c").arg(check).current_dir(root).stdin(Stdio::null()).stdout(out).stderr(err).status().map_err(unstarted)?;
+    let mut output = String::new();
+    let _ = io::Seek::rewind(&mut log).and_then(|()| io::Read::read_to_string(&mut log, &mut output));
     match status.code() {
-        Some(0) => Ok(()),
-        Some(code) => Err(format!("exited {code}")),
-        None => Err("was killed by a signal".to_owned()),
+        Some(0) => {
+            eprint!("{output}");
+            Ok(())
+        }
+        Some(code) => Err((format!("exited {code}"), output)),
+        None => Err(("was killed by a signal".to_owned(), output)),
     }
+}
+
+fn keep_attempt(named: &Named, message: &str, check: &str, output: &str) -> Result<PathBuf, String> {
+    let root = &named.lane.root;
+    let path = PathBuf::from(git(root, &["rev-parse", "--path-format=absolute", "--git-path", ATTEMPT])?);
+    let base = format!("refs/remotes/origin/{}", named.lane.destination);
+    let diff = would_be(root, message, &named.paths).map_or_else(|| git(root, &["diff", &base]), |head| git(root, &["diff", &base, &head]))?;
+    let attempt = serde_json::json!({"check": check, "output": output, "diff": diff});
+    fs::write(&path, attempt.to_string()).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(path)
 }
 
 fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, String> {

@@ -32,6 +32,10 @@ impl Courier for Told {
     fn ask(&self, _request: GateRequest) {}
 
     fn answer(&self, _host_dir: &Path, _frame: String) {}
+
+    fn launch(&self, words: Vec<String>) {
+        self.0.lock().unwrap().push(format!("launch {}", words.join("\n")));
+    }
 }
 
 struct Books0;
@@ -181,6 +185,17 @@ fn a_finished_session_retires_at_close_or_at_its_idle_limit_though_its_cli_still
 
     let (_root, _host, mut monitoring) = watched("Not done: CI is still running; its monitor wakes me.");
     assert!(matches!(monitoring.rest(Duration::from_secs(3 * 600), limit), Rest::Wait), "an unfinished session's own monitor still wakes it");
+
+    let [second] = &escalations(&["failed"], Some("small-first"))[..] else { panic!("a small-first attempt that stopped short did not start one second attempt") };
+    for part in ["--name\nworker-r2", "--task\nnorth#1", "--route\nafter:worker:opus\n", "Item: north#1 (dates parse)", "Not done: the check failed.", "cargo test -p north-fleet", "test parses_dates ... FAILED", "+fn parse() {}"] {
+        assert!(second.contains(part), "the second attempt lacks {part:?}: {second}");
+    }
+    assert!(!second.contains("Route: small-first") && !second.contains(crate::fleet::rungs::NOTE), "the second attempt routes small first again: {second}");
+    let [same_model] = &escalations(&["t0", "failed"], Some("opus:low,opus:medium"))[..] else { panic!("a same-model route did not start its second rung") };
+    assert!(same_model.contains("--route\nafter:worker:opus:medium\n"), "the second rung lost its effort: {same_model}");
+    for (finishes, route) in [(&["failed", "t1"][..], Some("small-first")), (&[][..], Some("small-first")), (&["failed"][..], None), (&["failed"][..], Some("after:worker:opus"))] {
+        assert_eq!(escalations(finishes, route), Vec::<String>::new(), "finishes {finishes:?} (route {route:?})");
+    }
 }
 
 struct Working(usize);
@@ -287,4 +302,29 @@ fn a_hook_spawned_run_under_the_session_scope_wakes_no_session() {
     assert!(settled.is_empty(), "a hook child's end settles no wait: {settled:?}");
     assert!(told.into_inner().unwrap().is_empty(), "a hook child's end wakes no session");
     assert!(waits.of("proxy").is_empty(), "the unregistered pid wait is dropped without a message");
+}
+
+fn escalations(finishes: &[&str], route: Option<&str>) -> Vec<String> {
+    let root = tempfile::tempdir().unwrap();
+    let host = root.path().join("worker");
+    std::fs::create_dir_all(&host).unwrap();
+    let attempt = root.path().join("north-attempt.json");
+    std::fs::write(&attempt, serde_json::json!({"check": "cargo test -p north-fleet", "output": "test parses_dates ... FAILED", "diff": "+fn parse() {}"}).to_string()).unwrap();
+    let brief = route.map(|route| format!("Route: {route}\nItem: north#1 (dates parse)\nGoal: parse dates{}", crate::fleet::rungs::NOTE));
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": root.path(), "model": "claude-haiku-5-5", "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead", "task_ref": "north#1", "first_attempt": brief})).unwrap();
+    write_record(&host, &record).unwrap();
+    let courier = Arc::new(Told::default());
+    let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), courier.clone(), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host);
+    let mut view = View { reply: Some("Not done: the check failed.\nStop: reasoning".to_owned()), ..View::of("s") };
+    for finish in finishes {
+        let text = if *finish == "failed" { format!("finish: ✗ the check `cargo test -p north-fleet` exited 101; NOT committed, NOT queued; the attempt is kept in {}", attempt.display()) } else { format!("Done: queued ticket {finish}") };
+        view.transcript.entries.push(Entry { kind: EntryKind::ToolResult, text });
+    }
+    watch.views.insert("s".into(), view);
+    for signal in [TurnSignal::Started { conversation: "s".into() }, TurnSignal::Ended { conversation: "s".into(), exit: TurnExit::Completed, totals: Default::default() }] {
+        if let Some(turn) = watch.turns.observe(signal, now_ms()) {
+            watch.record(turn);
+        }
+    }
+    courier.0.lock().unwrap().iter().filter_map(|told| told.strip_prefix("launch ")).map(str::to_owned).collect()
 }

@@ -25,7 +25,6 @@ pub mod refusals;
 pub mod records;
 pub mod link;
 pub mod remote;
-pub mod spares;
 pub mod model;
 pub mod overlap;
 pub mod peer_row;
@@ -53,3 +52,5 @@ pub use north_fleet_store::{alarm_stats, alarms, flood, fold, held, ask_once, ga
 use north_fleet_store::ssh;
 pub mod board;
 pub mod claude_only;
+pub mod rungs;
+pub mod spares;

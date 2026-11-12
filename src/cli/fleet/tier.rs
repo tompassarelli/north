@@ -1,6 +1,7 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, LaunchRequest};
-use crate::dispatch::{Ask, Start, draw_untasked_window, start_hand, tier_reason, untasked};
+use crate::dispatch::{Ask, Start, Tier, draw_untasked_window, start_hand, tier_reason, untasked};
+use crate::fleet::rungs;
 
 use super::placement::{self, Overrides};
 
@@ -17,6 +18,7 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
     if request.provider.label() != "claude" || request.verification {
         return Ok(None);
     }
+    let routed = Routed::of(request)?;
     let mut brief = placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
     brief.extend(request.named_brief());
     let reason = tier_reason(&brief, overrides.tier.as_deref());
@@ -34,7 +36,7 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
     };
     let worker = request.role() == crate::fleet::model::Role::Worker;
     let ask = Ask { item: &item, brief: &brief, prompt: &request.prompt, model: request.model.as_deref(), reason: reason.as_deref(), worker, places: true };
-    let start = start_hand(&ask).map_err(NorthError::Refused)?;
+    let start = begin(ask, routed.as_ref())?;
     request.model = Some(start.model.clone());
     if request.effort.is_none() {
         request.effort = start.effort.as_deref().map(Effort::parse).transpose()?;
@@ -49,6 +51,43 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
     Ok(Some(start))
 }
 
+struct Routed {
+    model: String,
+    effort: String,
+    pinned: bool,
+    first: bool,
+    why: String,
+}
+
+impl Routed {
+    fn of(request: &LaunchRequest) -> NorthResult<Option<Self>> {
+        let Some(route) = rungs::Route::of(&request.prompt) else { return Ok(None) };
+        if request.task().is_none() {
+            return Err(NorthError::Refused("--route starts a box, so the launch names its issue (--task or a first `Item:` line)".to_owned()));
+        }
+        let rung = route.rung();
+        let tier = [Tier::Haiku, Tier::Sonnet, Tier::Opus].into_iter().find(|tier| tier.serves(rung.family)).ok_or_else(|| NorthError::Refused(format!("no tier serves {}", rung.family)))?;
+        let (model, effort) = tier.model_effort(&crate::pacing::placement::config().map_err(NorthError::Refused)?).map_err(NorthError::Refused)?;
+        let (first, why) = match &route {
+            rungs::Route::First(_, second) => (true, format!("the route's first rung, {} after a failed check", second.word())),
+            rungs::Route::Second { after, .. } => (false, format!("the route's second rung after {after}'s attempt stopped short")),
+        };
+        Ok(Some(Self { model, effort: rung.effort.map_or(effort, |effort| effort.label().to_owned()), pinned: rung.effort.is_some(), first, why }))
+    }
+}
+
+fn begin(ask: Ask, routed: Option<&Routed>) -> NorthResult<Start> {
+    let Some(routed) = routed else { return start_hand(&ask).map_err(NorthError::Refused) };
+    let mut start = start_hand(&Ask { model: Some(&routed.model), reason: Some(&routed.why), ..ask }).map_err(NorthError::Refused)?;
+    if routed.pinned || start.effort.is_none() {
+        start.effort = Some(routed.effort.clone());
+    }
+    if routed.first {
+        start.prompt.push_str(rungs::NOTE);
+    }
+    Ok(start)
+}
+
 pub(super) fn admit_class(request: &LaunchRequest) -> NorthResult<()> {
     let header = header(request)?;
     let refusal = crate::router::brief::class_refusal(&header).or_else(|| crate::platform::signin::brief_refusal(&header));
@@ -58,7 +97,7 @@ pub(super) fn admit_class(request: &LaunchRequest) -> NorthResult<()> {
 pub(super) fn recorded(start: Option<Start>, request: &LaunchRequest, name: &str) {
     let Some(start) = start else { return };
     let host = request.machine.as_ref().map_or_else(crate::platform::host::name, |machine| machine.name.clone());
-    if let Err(why) = start.record(&host, &format!("{}:{}", request.provider.label(), request.account), name) {
+    if let Err(why) = start.record(&host, &format!("{}:{}", request.provider.label(), request.account), name, rungs::declared(&request.prompt)) {
         eprintln!("north fleet: tier not recorded: {why}");
     }
 }
