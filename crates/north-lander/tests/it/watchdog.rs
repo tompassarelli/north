@@ -100,7 +100,7 @@ fn invariants(report: &watchdog::Report) -> Vec<Invariant> {
 }
 
 #[test]
-fn a_lane_older_than_twenty_minutes_pages_its_wait_stays_queued() {
+fn a_lane_older_than_twenty_minutes_pages_its_wait_stays_queued_until_a_quarantine_pages_its_path() {
     let fixture = Fixture::new();
     let hands = Fake::default();
     let stale = fixture.lane(NOW - 21 * MINUTE, "lane/stale");
@@ -114,6 +114,17 @@ fn a_lane_older_than_twenty_minutes_pages_its_wait_stays_queued() {
     assert!(report.violations[0].detail.contains("lane lane/stale (") && report.violations[0].detail.contains("waited 21 minutes"), "{}", report.violations[0].detail);
     assert!(matches!(&report.pages[..], [(Invariant::StaleLane, Page::Sent(text))] if text.contains("lane/stale")));
     assert_eq!(hands.pages.borrow().iter().map(|(session, _)| session.as_str()).collect::<Vec<_>>(), [watchdog::OWNER]);
+    for round in 0..3 {
+        fixture.round(NOW + round, 2, Some("transient: boom"));
+    }
+    let report = fixture.patrol(NOW, &hands);
+    assert!(invariants(&report).contains(&Invariant::RepeatedError));
+    assert_eq!(fixture.quarantined().len(), 2);
+    let pages = hands.pages.borrow();
+    let (session, text) = &pages[1];
+    assert_eq!(session, watchdog::OWNER);
+    let directory = fixture.queue.join(watchdog::QUARANTINE);
+    assert!(text.contains("lane/stale") && text.contains(directory.to_str().unwrap()), "{text}");
 }
 
 #[test]

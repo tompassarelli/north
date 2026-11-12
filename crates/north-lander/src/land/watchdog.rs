@@ -267,10 +267,23 @@ fn repair_error(queue: &Path, latest: &Observation, problem: &str, reason: &str,
         return Ok(vec![Repair::Nothing(format!("no lane waits to quarantine and no {unit} unit exists"))]);
     }
     let lanes = pending.len();
+    let mut unowned = Vec::new();
     for (path, ticket) in pending {
-        queue::settle(&path, ticket, reason.to_owned(), Phase::Quarantined).map_err(|error| format!("cannot quarantine {}: {error}", path.display()))?;
+        let sessionless = ticket.session.as_deref().is_none_or(str::is_empty);
+        let branch = ticket.branch.clone();
+        let moved = queue::settle(&path, ticket, reason.to_owned(), Phase::Quarantined).map_err(|error| format!("cannot quarantine {}: {error}", path.display()))?;
+        if sessionless {
+            unowned.push(format!("{branch} at {}", moved.display()));
+        }
     }
-    Ok(vec![Repair::QuarantinedRepository(lanes)])
+    let mut repairs = vec![Repair::QuarantinedRepository(lanes)];
+    if !unowned.is_empty() {
+        let text = format!("north land watchdog: quarantined {} lane(s) with no session to tell, in {}: {}", unowned.len(), queue.join(QUARANTINE).display(), unowned.join(", "));
+        if !hands.page(OWNER, &text) {
+            repairs.push(Repair::Failed(format!("cannot page {OWNER} about the quarantined lanes with no session")));
+        }
+    }
+    Ok(repairs)
 }
 
 fn named_worktrees(problem: &str) -> Vec<PathBuf> {
