@@ -30,8 +30,11 @@ its lockfile in north's dev shell and runs it:
   `--token-file FILE` names a file holding that account's subscription OAuth token, which the plain arm logs in
   with; the runner passes the file's name on and never reads the token.
 - `smoke TASK` runs both arms of one task and, like every run, prints each row as it is written.
-- `stop` signals the run, removes every container of a task image, stops every `eval-x-*` unit and kills the trial
-  and job processes, then prints what remains and exits non-zero if anything does.
+- `stop` signals the run, stops every other `eval-x-*` unit, and ends every process whose command line, working
+  directory or environment names `WORK/trials`, `WORK/arms`, `WORK/jobs` or `WORK/ws` (TERM, then KILL after five
+  seconds) and every container of a task image or with a mount under those, reaching podman through
+  `evals/x/host podman`. It then prints what remains of each and exits non-zero if anything does, or if containers
+  or units could not be listed.
 
 Other options: `--work DIR` (default `$EVAL_X_WORK`, else `/tmp/eval-x`), `--seed N`, `--max-load F` (default 2),
 `--min-5h-headroom P` and `--min-week-headroom P` (default 20 and 10 percent left), `--max-reading-age S` (600),
@@ -57,6 +60,9 @@ this checkout and the north runtime, and the versions and SHA-256 of the T3 Code
 itself (`EVAL_T_CLAUDE`, else `CLAUDE_RUNTIME`, else `~/.local/lib/claude/current/bin/claude`), which the runner hands
 to both arms, because `claude` on a north host's path is a launcher that needs the caller's own home.
 
+`container_calls` counts the shell-tool commands the relay ran in the task's container for this trial (one directory
+each under `WORK/exec/JOB`); a trial whose session ran commands but shows none here ran them on the host.
+
 `session` is read from the session's Claude Code transcript: the effort its requests ran at, the request count, the
 tokens summed once per reply (input, output, cache creation, cache read), whether a reply was a rate-limit refusal,
 and every north guard that fired: a tool call a hook refused (`refused`) or let through with a note or a rewrite
@@ -65,7 +71,7 @@ and every north guard that fired: a tool call a hook refused (`refused`) or let 
 `first_request` shows what instructions a session started under, read from its system text and the messages before
 its first reply: the instruction files Claude Code names there (`Contents of PATH (LABEL)`), and of the lines of 60
 characters or more in the policy file (`--policy FILE`, default `~/.claude/CLAUDE.md`), how many were searched for and
-how many the first request holds. A plain-arm row that names an instruction file outside the task's workspace, holds
+how many the first request holds. A plain-arm row that names an instruction file outside the task's workspace (or the session's link to it), holds
 any policy line, or records no first request, is invalid (`policy_in_plain_arm`): that arm was not plain.
 
 An attempt that met a rate limit is invalid and rerun. One with no Harbor result, no arm record or policy text in the

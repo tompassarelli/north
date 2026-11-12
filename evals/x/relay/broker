@@ -10,7 +10,7 @@ export PATH=/run/wrappers/bin:$PATH
 T=$(readlink -f "${1:?$usage}")
 X=$(channel "$T")
 mkdir -p "$X" "$T/exec"
-rm -f "$X/requests"
+rm -f "$X/requests" "$X/container"
 mkfifo "$X/requests"
 start='echo $$ > "$1"; exec bash -c "$2"'
 stop='p=$(cat "$1") && { kill -KILL -- "-$p" || kill -KILL "$p"; }'

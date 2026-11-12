@@ -26,6 +26,7 @@ Run these six steps with the Bash tool, one call each, in this order, and change
 6. i=0; while [ $i -lt 300 ]; do i=$((i+1)); sleep 1; done; echo not-reached, with a time limit of 2000 ms.
 EOF
 podman rm -f "$name" > /dev/null 2>&1 || :
+rm -f "$R/sub/note.txt"
 podman run -d --name "$name" --hostname relay-check-box -v "$T:/eval-x" -v "$R:$R" docker.io/alexgshaw/fix-git:20251031 sleep 900 > /dev/null
 "$here/broker" "$T" &
 status=0
@@ -38,6 +39,8 @@ echo "== still running in the container:"
 podman top "$name" args
 echo "== stderr:"
 head -n 20 "$S/turn.err"
+passed() { grep -q relay-check-box "$S/reply.txt" && [ "$(cat "$R/sub/note.txt" 2> /dev/null)" = made-in-the-container ] && ! podman top "$name" args | grep -qE 'sleep 1 *$'; }
+passed || { echo "== FAILED: a step did not reach the container, or the loop of step 6 is still running"; [ "$status" != 0 ] || status=1; }
 "$here/broker" stop "$T"
 podman rm -f -t 0 "$name" > /dev/null
 wait

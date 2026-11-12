@@ -15,7 +15,7 @@ use crate::gate::{self, Headroom};
 use crate::images::{self, Images};
 use crate::manifest::{HARBOR_COMMIT, TASKS_COMMIT, Task};
 use crate::plan::{EFFORT, Harness, MODEL, Trial};
-use crate::proc::{self, EVAL_X};
+use crate::proc;
 use crate::transcript::{self, Reading};
 use crate::wait;
 
@@ -101,6 +101,7 @@ impl Live<'_> {
             "wall_s": finished.saturating_sub(started),
             "arm_result": session.arm,
             "session": session.reading.row(),
+            "container_calls": session.container_calls,
             "first_request": first_request,
             "disk_kb": session.disk_kb,
             "valid": invalid_reason.is_none(),
@@ -136,7 +137,8 @@ struct Session {
     harbor: Option<Value>,
     reading: Reading,
     disk_kb: Value,
-    workspace_top: String,
+    container_calls: usize,
+    session_roots: [String; 2],
 }
 
 impl Session {
@@ -146,7 +148,7 @@ impl Session {
         let recorded = self.reading.first_request_bytes() > 0;
         let inside = files
             .iter()
-            .all(|file| file.starts_with(&self.workspace_top));
+            .all(|file| self.session_roots.iter().any(|root| file.starts_with(root)));
         let plain = recorded && found == 0 && inside;
         let row = json!({
             "bytes": self.reading.first_request_bytes(),
@@ -216,7 +218,11 @@ impl Live<'_> {
                 "arm": disk_kb(&arm_dir),
                 "job": disk_kb(&job_dir),
             }),
-            workspace_top: workspace.host_top,
+            container_calls: directories(&self.work("exec").join(job)),
+            session_roots: [
+                workspace.host_top,
+                arm_dir.join("repo").display().to_string(),
+            ],
         })
     }
 
@@ -230,7 +236,7 @@ impl Live<'_> {
         let log = proc::create(&arm_dir.join("driver.log"))?;
         let log_err = log.try_clone()?;
         let child = proc::spawn(
-            Command::new(format!("{EVAL_X}/arm"))
+            Command::new(proc::eval_x().join("arm"))
                 .args(["--arm", trial.harness.arm_name(), "--trial"])
                 .arg(trial_dir)
                 .arg("--state")
@@ -266,7 +272,7 @@ struct Workspace {
 }
 
 fn seed_workspace(task: &str) -> Result<Workspace> {
-    let output = proc::output(Command::new(format!("{EVAL_X}/workspace/seed")).arg(task))?;
+    let output = proc::output(Command::new(proc::eval_x().join("workspace/seed")).arg(task))?;
     if !output.status.success() {
         return Err(RunError::Failed(format!(
             "workspace seed for {task} exited {}",
@@ -316,7 +322,7 @@ fn run_harbor(
     sentence: &str,
     arm_dir: &Path,
 ) -> Result<Value> {
-    let handoff = proc::output(&mut Command::new(format!("{EVAL_X}/handoff/args")))?;
+    let handoff = proc::output(&mut Command::new(proc::eval_x().join("handoff/args")))?;
     if !handoff.status.success() {
         return Err(RunError::Failed(format!(
             "handoff args exited {}",
@@ -330,7 +336,7 @@ fn run_harbor(
     let log = proc::create(&arm_dir.join("harbor.log"))?;
     let log_err = log.try_clone()?;
     let status = proc::status(
-        Command::new(format!("{EVAL_X}/host"))
+        Command::new(proc::eval_x().join("host"))
             .args(["harbor", "run", "--path"])
             .arg(live.work("tasks").join(&task.name))
             .args([
@@ -358,7 +364,7 @@ fn run_harbor(
 }
 
 fn broker_command() -> PathBuf {
-    Path::new(EVAL_X).join("relay/broker")
+    proc::eval_x().join("relay/broker")
 }
 
 fn start_broker(trial_dir: &Path, arm_dir: &Path) -> Result<Child> {
@@ -417,6 +423,11 @@ fn stop_group(child: &mut Child) -> Result<()> {
     proc::status(Command::new("kill").args(["-TERM", "--", &format!("-{}", child.id())]))?;
     child.wait()?;
     Ok(())
+}
+
+fn directories(path: &Path) -> usize {
+    let entries = fs::read_dir(path).into_iter().flatten().flatten();
+    entries.filter(|entry| entry.path().is_dir()).count()
 }
 
 fn disk_kb(path: &Path) -> Option<u64> {

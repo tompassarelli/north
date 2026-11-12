@@ -29,7 +29,8 @@ Read from Claude Code 2.1.322 and seen in a live north session:
 - `broker TRIAL`: a separate process the runner starts, one per trial, before Harbor, and stops with
   `broker stop TRIAL`. It serves the relay's requests through `podman exec`, so both arms reach the container the
   same way whatever each harness wraps its commands in. It finds the container as the running one that mounts the
-  trial directory, so nothing a task can write chooses it. When the relay dies (Claude Code kills it at a time limit
+  trial directory, so nothing a task can write chooses it, and looks again at each start, so a trial directory used
+  twice never meets the container of its first use. When the relay dies (Claude Code kills it at a time limit
   or on a stop), the broker kills the command's process group inside the container.
 - `check`: the relay and broker against a stand-in for podman, with no container: output, exit status, working
   directory, a carried variable, host-side calls and a kill.

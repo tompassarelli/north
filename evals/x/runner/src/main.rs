@@ -15,7 +15,6 @@ mod unit;
 mod wait;
 
 use std::fs;
-use std::path::Path;
 use std::process::{self, ExitCode};
 use std::sync::Mutex;
 
@@ -86,10 +85,7 @@ where
         claude: &claude,
         run_id: &run_id,
         host: host_name()?,
-        stamps: stamp::stamps(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.."),
-            &claude,
-        ),
+        stamps: stamp::stamps(&proc::eval_x().join("../.."), &claude),
         images: Images::open(settings.work.join("images.tsv"))?,
         rows: Mutex::new(rows),
     };
