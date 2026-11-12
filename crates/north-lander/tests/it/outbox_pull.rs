@@ -194,6 +194,12 @@ fn a_lane_is_taken_as_the_objects_of_its_bundle_whatever_its_repository_configur
     let stale_head = commit_in(&agent, "after the bundle");
     outboxed(&outbox, 1_794_020_900_000_001, &agent, "stale", &stale_head);
 
+    git(&agent, &["checkout", "-q", "-b", "borrowed", "origin/main"]);
+    commit_in(&agent, "its own");
+    let borrowed_ticket = queue::file_name(1_794_020_900_000_002, "borrowed");
+    bundled(&outbox, &borrowed_ticket, &agent, "borrowed");
+    outboxed(&outbox, 1_794_020_900_000_002, &agent, "borrowed", &whole);
+
     let marker = pull.world.path().join("ran-in-the-agents-repository");
     let hostile = pull.world.path().join("hostile");
     write_executable(&hostile, format!("#!/bin/sh\ntouch {}\n", marker.display()));
@@ -211,6 +217,7 @@ fn a_lane_is_taken_as_the_objects_of_its_bundle_whatever_its_repository_configur
     assert_eq!(git(&pull.repository.checkout, &["rev-parse", "refs/land-remote/gex45/whole"]), whole, "{transcript}");
     assert!(transcript.contains("north land: took whole from gex45's bundle"), "{transcript}");
     assert!(!pull.repository.queue.join(&stale_ticket).exists() && outbox.join(&stale_ticket).is_file(), "a ticket whose head no fetched object holds was queued:\n{transcript}");
+    assert!(!pull.repository.queue.join(&borrowed_ticket).exists() && outbox.join(&borrowed_ticket).is_file(), "a ticket naming another lane's commit was queued:\n{transcript}");
     assert!(!marker.exists(), "git ran what the agent's repository configures:\n{transcript}");
 }
 

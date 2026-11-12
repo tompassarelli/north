@@ -75,6 +75,10 @@ fn ssh_with_input(host: &str, script: &str, input: &[u8]) -> Result<String, Stri
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+fn lane_ref(host: &str, branch: &str) -> String {
+    format!("refs/land-remote/{host}/{}", queue::slug(branch))
+}
+
 enum Refusal {
     Unreachable(String),
     Moved(String),
@@ -128,7 +132,7 @@ impl Lander {
 
     fn fetch_lane_once(&self, host: &str, ticket: &Ticket) -> Result<(), String> {
         let url = format!("ssh://{}{}", login(host), ticket.root.display());
-        let target = format!("+refs/heads/{}:refs/land-remote/{host}/{}", ticket.branch, queue::slug(&ticket.branch));
+        let target = format!("+refs/heads/{}:{}", ticket.branch, lane_ref(host, &ticket.branch));
         let ssh_command = std::iter::once("ssh").chain(SSH_OPTIONS.iter().copied()).collect::<Vec<_>>().join(" ");
         let output = Command::new("git").arg("-C").arg(&self.repo).args(["fetch", "-q", "--no-tags", &url, &target]).env("GIT_SSH_COMMAND", ssh_command).output().map_err(|error| format!("git fetch {url}: {error}"))?;
         if !output.status.success() {
@@ -253,7 +257,7 @@ impl Lander {
 
     fn take_lane(&self, host: &str, ticket: &Ticket, bundle: Option<&str>) -> Result<(), Refusal> {
         let from_bundle = bundle.map(|bundle| self.unbundle(host, ticket, bundle));
-        if from_bundle.as_ref().is_some_and(Result::is_ok) && self.holds(&ticket.head) {
+        if from_bundle.as_ref().is_some_and(Result::is_ok) && self.holds(host, ticket) {
             println!("north land: took {} from {host}'s bundle", ticket.branch);
             return Ok(());
         }
@@ -263,11 +267,12 @@ impl Lander {
             None => {}
         }
         self.fetch_lane(host, ticket).map_err(Refusal::Unreachable)?;
-        if self.holds(&ticket.head) { Ok(()) } else { Err(Refusal::Moved(format!("{} on {host} no longer holds {}, so the lander cannot take it", ticket.branch, ticket.head))) }
+        if self.holds(host, ticket) { Ok(()) } else { Err(Refusal::Moved(format!("{} on {host} no longer holds {}, so the lander cannot take it", ticket.branch, ticket.head))) }
     }
 
-    fn holds(&self, head: &str) -> bool {
-        !head.is_empty() && head.chars().all(|digit| digit.is_ascii_hexdigit()) && git(&self.repo, &["cat-file", "-e", &format!("{head}^{{commit}}")]).is_ok()
+    fn holds(&self, host: &str, ticket: &Ticket) -> bool {
+        let head = &ticket.head;
+        !head.is_empty() && head.chars().all(|digit| digit.is_ascii_hexdigit()) && git(&self.repo, &["merge-base", "--is-ancestor", head, &lane_ref(host, &ticket.branch)]).is_ok()
     }
 
     fn unbundle(&self, host: &str, ticket: &Ticket, encoded: &str) -> Result<(), String> {
@@ -278,7 +283,7 @@ impl Lander {
         let mut file = tempfile::Builder::new().suffix(".bundle").tempfile().map_err(|error| format!("cannot hold the bundle: {error}"))?;
         file.write_all(&bytes).map_err(|error| format!("cannot hold the bundle: {error}"))?;
         let path = file.path().to_str().ok_or("the bundle's path is not UTF-8")?.to_owned();
-        let target = format!("+refs/heads/{}:refs/land-remote/{host}/{}", ticket.branch, queue::slug(&ticket.branch));
+        let target = format!("+refs/heads/{}:{}", ticket.branch, lane_ref(host, &ticket.branch));
         north_git_locks::retry_after_clearing(&self.repo, || git(&self.repo, &["fetch", "-q", "--no-tags", &path, &target]).map(drop))
     }
 
