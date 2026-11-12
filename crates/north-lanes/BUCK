@@ -46,6 +46,41 @@ north_rust_test(
     crate_root = "src/lib.rs",
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
+    skip = [
+        "lanes::home_move::tests::a_row_moves_one_entry_and_is_logged_before_it_is_reported_north_992",
+        "lanes::home_move::tests::a_second_run_appends_to_the_log_and_never_replaces_an_existing_destination_north_992",
+        "lanes::home_move::tests::the_plan_header_and_comments_are_not_rows_north_992",
+    ],
+    deps = [
+        "//crates/north-base:north-base",
+        "//crates/north-git-locks:north-git-locks",
+        "//crates/north-github-mirror:north-github-mirror",
+        "//third-party:regex",
+        "//third-party:rustix",
+        "//third-party:serde",
+        "//third-party:serde_json",
+        "//third-party:sha2",
+        "//third-party:tempfile",
+        "//third-party:time",
+        "//third-party:toml_edit",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+north_rust_test(
+    name = "north-lanes-unittest-host",
+    binary_id = "north-lanes",
+    srcs = glob(["src/**"]),
+    crate = "north_lanes",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    rustc_flags = RUSTC_FLAGS,
+    only = [
+        "lanes::home_move::tests::a_row_moves_one_entry_and_is_logged_before_it_is_reported_north_992",
+        "lanes::home_move::tests::a_second_run_appends_to_the_log_and_never_replaces_an_existing_destination_north_992",
+        "lanes::home_move::tests::the_plan_header_and_comments_are_not_rows_north_992",
+    ],
+    host = True,
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-git-locks:north-git-locks",

@@ -24,3 +24,15 @@ toml_edit.workspace = true
 
 [lints]
 workspace = true
+
+[[package.metadata.north.buck.host-cases]]
+name = "lanes::home_move::tests::a_row_moves_one_entry_and_is_logged_before_it_is_reported_north_992"
+reason = "moves the row with openat2, which a worker's seccomp filter answers with ENOSYS while RestrictSUIDSGID is on"
+
+[[package.metadata.north.buck.host-cases]]
+name = "lanes::home_move::tests::a_second_run_appends_to_the_log_and_never_replaces_an_existing_destination_north_992"
+reason = "moves the row with openat2, which a worker's seccomp filter answers with ENOSYS while RestrictSUIDSGID is on"
+
+[[package.metadata.north.buck.host-cases]]
+name = "lanes::home_move::tests::the_plan_header_and_comments_are_not_rows_north_992"
+reason = "moves the row with openat2, which a worker's seccomp filter answers with ENOSYS while RestrictSUIDSGID is on"

@@ -1,31 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::env;
-use crate::sources::{self, Export, Owners, Tree};
+use crate::host_class;
+use crate::rule::{rule, Rule, RuleKind};
+use crate::sources::{self, Export, Owners};
 use crate::workspace::{DepKind, Kind, Package, Target, Workspace};
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum RuleKind {
-    Library,
-    ProcMacro,
-    Binary,
-    Test,
-}
-
-pub struct Rule {
-    pub kind: RuleKind,
-    pub name: String,
-    pub crate_name: String,
-    pub crate_root: String,
-    pub tree: Tree,
-    pub edition: String,
-    pub env: BTreeMap<String, String>,
-    pub run_env: BTreeMap<String, String>,
-    pub resources: Vec<String>,
-    pub binary_id: Option<String>,
-    pub deps: Vec<String>,
-    pub named_deps: BTreeMap<String, String>,
-}
 
 pub struct Buckfile {
     pub dir: String,
@@ -98,7 +77,7 @@ fn package_rules(workspace: &Workspace, package: &Package, owners: &Owners, expo
         if target.test && matches!(target.kind, Kind::Lib | Kind::ProcMacro | Kind::Bin) {
             let context = env::Context { unittest: true, ..context };
             let binary_id = if target.kind == Kind::Bin { format!("{}::bin/{}", package.name, target.name) } else { package.name.clone() };
-            rules.push(rule(RuleKind::Test, format!("{name}-unittest"), Some(binary_id), &tree, &context, own_lib, &[DepKind::Normal, DepKind::Dev])?);
+            rules.extend(host_class::unittest_rules(&name, binary_id, package, target, &tree, &context, own_lib)?);
         }
     }
     Ok(rules)
@@ -122,33 +101,4 @@ fn dep_kinds(kind: Kind) -> &'static [DepKind] {
         Kind::Lib | Kind::ProcMacro | Kind::Bin => &[DepKind::Normal],
         Kind::Test | Kind::Example => &[DepKind::Normal, DepKind::Dev],
     }
-}
-
-fn rule(kind: RuleKind, name: String, binary_id: Option<String>, tree: &Tree, context: &env::Context, own_lib: Option<&Package>, kinds: &[DepKind]) -> Result<Rule, String> {
-    let target = context.target;
-    let crate_name = target.name.replace('-', "_");
-    let env = env::values(context, &tree.reads, &crate_name)?;
-    let run_env = env::run_values(context);
-    let mut deps = BTreeSet::new();
-    let mut named_deps = BTreeMap::new();
-    if let Some(package) = own_lib {
-        deps.insert(format!(":{}", package.name));
-    }
-    for dep in context.package.deps.iter().filter(|dep| dep.kinds.iter().any(|kind| kinds.contains(kind))) {
-        if dep.package == context.package.name {
-            continue;
-        }
-        let label = match &dep.first_party_dir {
-            Some(dir) => format!("//{dir}:{}", dep.package),
-            None => format!("//third-party:{}", dep.package),
-        };
-        if dep.extern_name == dep.lib_crate {
-            deps.insert(label);
-        } else {
-            named_deps.insert(dep.extern_name.clone(), label);
-        }
-    }
-    let crate_root = tree.path_of(&target.src_path);
-    let resources = if kind == RuleKind::Test { context.package.test_resources.clone() } else { Vec::new() };
-    Ok(Rule { kind, name, crate_name, crate_root, tree: tree.clone(), edition: target.edition.clone(), env, run_env, resources, binary_id, deps: deps.into_iter().collect(), named_deps })
 }

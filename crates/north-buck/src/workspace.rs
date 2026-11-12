@@ -46,6 +46,16 @@ struct NorthMetadata {
 struct BuckMetadata {
     #[serde(rename = "test-resources", default)]
     test_resources: Vec<String>,
+    #[serde(rename = "host-cases", default)]
+    host_cases: Vec<HostCase>,
+}
+
+/// A libtest case that a worker cannot run, named with the reason; `north_rust_test` runs it in the host class instead.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostCase {
+    pub name: String,
+    pub reason: String,
 }
 
 #[derive(Deserialize)]
@@ -111,6 +121,7 @@ pub struct Package {
     pub declared_features: Vec<String>,
     pub deps: Vec<Dep>,
     pub test_resources: Vec<String>,
+    pub host_cases: Vec<HostCase>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -159,6 +170,7 @@ pub fn parse(json: &str) -> Result<Workspace, String> {
         let build_script = scripts.first().map(|script| script.src_path.strip_prefix(&root).unwrap_or(&script.src_path).to_string_lossy().into_owned());
         let targets = targets.into_iter().map(|target| convert_target(&root, &raw.name, target)).collect::<Result<Vec<_>, _>>()?;
         let deps = node.deps.iter().map(|dep| convert_dep(&root, &members, &by_id, &raw.name, dep)).filter_map(Result::transpose).collect::<Result<Vec<_>, _>>()?;
+        let host_cases = host_cases(&raw.name, raw.metadata.as_ref())?;
         packages.push(Package {
             name: raw.name.clone(),
             dir,
@@ -175,10 +187,17 @@ pub fn parse(json: &str) -> Result<Workspace, String> {
             declared_features: raw.features.keys().cloned().collect(),
             deps,
             test_resources: raw.metadata.as_ref().map(|metadata| metadata.north.buck.test_resources.clone()).unwrap_or_default(),
+            host_cases,
         });
     }
     packages.sort_by(|left, right| left.dir.cmp(&right.dir));
     Ok(Workspace { root, packages })
+}
+
+fn host_cases(package: &str, metadata: Option<&RawMetadata>) -> Result<Vec<HostCase>, String> {
+    let cases = metadata.map(|metadata| metadata.north.buck.host_cases.clone()).unwrap_or_default();
+    cases.iter().find(|case| case.reason.trim().is_empty()).map_or(Ok(()), |case| Err(format!("{package}: host case {} names no reason", case.name)))?;
+    Ok(cases)
 }
 
 fn relative_dir(root: &Path, manifest: &Path) -> Result<String, String> {

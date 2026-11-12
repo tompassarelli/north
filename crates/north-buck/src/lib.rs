@@ -4,8 +4,10 @@
 //! Reads the resolved manifests and features through the readers its caller passes and the manifests' lint tables; depends on no other north crate.
 mod env;
 mod gate;
+mod host_class;
 mod lints;
 mod plan;
+mod rule;
 mod scan;
 mod sources;
 mod starlark;
