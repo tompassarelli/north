@@ -67,6 +67,8 @@ fn cargo_in_a_lease_runs_as_many_jobs_as_the_lease_holds_cpus_not_its_scopes_cei
     let command = scope_command(std::path::Path::new("/nonexistent"), &request, &admitted, Some(60), &["cargo".to_owned(), "build".to_owned()]);
     let jobs = command.as_std().get_envs().find(|(name, _)| *name == "CARGO_BUILD_JOBS").and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string));
     assert_eq!(jobs.as_deref(), Some(std::ffi::OsStr::new("4")), "on 2026-11-08 at 8:02 AM a 4-CPU land-check lease on the laptop ran cargo with CARGO_BUILD_JOBS=20, its scope's ceiling, and held 41 rustc processes at load 86");
+    let threads = command.as_std().get_envs().find(|(name, _)| *name == "NEXTEST_TEST_THREADS").and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string));
+    assert_eq!(threads.as_deref(), Some(std::ffi::OsStr::new("4")), "cargo-nextest reads NEXTEST_TEST_THREADS, not RUST_TEST_THREADS, and ran one test per host thread in a 4-CPU land check on 2026-11-12");
 }
 
 fn launched(root: &std::path::Path, launcher: &str) -> (crate::capacity::subject_start::Exit, Option<serde_json::Value>) {

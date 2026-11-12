@@ -42,6 +42,7 @@ const CARRY: &[(&str, Reach)] = &[
     ("TERM", Reach::Host),
     ("CARGO_BUILD_JOBS", Reach::Host),
     ("RUST_TEST_THREADS", Reach::Host),
+    ("NEXTEST_TEST_THREADS", Reach::Host),
     ("AGENT_CAPACITY_LEASE", Reach::Host),
     ("NORTH_DEV_SHELL", Reach::Host),
     ("NORTH_FLEET_SESSION", Reach::Host),
