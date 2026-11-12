@@ -5,10 +5,10 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::enqueue::{default_branch, fetch_base, git};
+use super::enqueue::{Facts, default_branch, fetch_base, git};
 use crate::land::slots::runner;
 use north_base::platform::finish_record::{FinishRecords, Finished};
-use crate::land::scans::outgoing::denylist::{Denylist, Stand};
+use crate::land::scans::outgoing::denylist::{Denylist, Seen, Stand};
 
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 const ATTEMPT: &str = "north-attempt.json";
@@ -131,17 +131,19 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
             return 1;
         }
     };
-    if let Some(rebased) = rebase_onto_destination(&named.lane) {
+    let facts = Facts::start(&named.lane.root, &named.lane.destination, &Denylist::from_env());
+    facts.iter().for_each(Facts::keep);
+    if let Some(rebased) = rebase_onto_destination(&named.lane, facts.as_ref()) {
         println!("{verb}: {rebased}");
     }
     if !named.added.is_empty() {
         println!("{verb}: also landing {}, which the lane's commits change and the call did not name", named.added.join(" "));
     }
     let head = request.check.and_then(|_| would_be(&named.lane.root, &named.message, &named.paths));
-    if let Some(head) = &head {
-        ask_early(&named, head.clone());
+    if let (Some(head), Some(facts)) = (&head, &facts) {
+        ask_early(&named, head.clone(), facts.clone());
     }
-    let landed = request.check.zip(head.as_deref()).and_then(|(check, head)| as_land_check(&named.lane, check, head));
+    let landed = request.check.zip(head.as_deref()).and_then(|(check, head)| as_land_check(&named.lane, check, head, facts.as_ref()));
     let checked = match (request.check, landed) {
         (_, Some(ran)) => ran.map_err(|refusal| ("failed as a check before queueing".to_owned(), refusal)),
         (Some(check), None) => passes(&named.lane.root, check),
@@ -170,9 +172,9 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
     }
 }
 
-fn rebase_onto_destination(lane: &Lane) -> Option<String> {
+fn rebase_onto_destination(lane: &Lane, facts: Option<&Facts>) -> Option<String> {
     let root = &lane.root;
-    let (remote_ref, base) = fetch_base(root, &lane.destination).ok()?;
+    let (remote_ref, base) = facts?.base().or_else(|_| fetch_base(root, &lane.destination)).ok()?;
     let behind = git(root, &["merge-base", "--is-ancestor", &base, "HEAD"]).is_err();
     let published = git(root, &["rev-parse", "--symbolic-full-name", "@{upstream}"]).is_ok_and(|upstream| upstream != remote_ref);
     if !behind || published {
@@ -192,9 +194,9 @@ fn rebase_onto_destination(lane: &Lane) -> Option<String> {
     Some(format!("rebased the lane's {commits} commit(s) and its uncommitted changes onto origin/{} at {}, which moved on without a conflict", lane.destination, &base[..base.len().min(10)]))
 }
 
-fn as_land_check(lane: &Lane, check: &str, head: &str) -> Option<Result<(), String>> {
+fn as_land_check(lane: &Lane, check: &str, head: &str, facts: Option<&Facts>) -> Option<Result<(), String>> {
     git(&lane.root, &["show", &format!("{head}:.safe-push")]).ok().filter(|config| config.contains(check.trim()))?;
-    let (_, base) = fetch_base(&lane.root, &lane.destination).ok()?;
+    let (_, base) = facts?.base().or_else(|_| fetch_base(&lane.root, &lane.destination)).ok()?;
     let commands = runner::queue_commands(&lane.root, &base, head).ok()?;
     commands.iter().any(|command| command.trim() == check.trim()).then(|| runner::refuse_queue_checks(&lane.root, &base, head))
 }
@@ -375,13 +377,14 @@ fn normal(path: &Path) -> PathBuf {
     normal
 }
 
-fn ask_early(named: &Named, head: String) {
+fn ask_early(named: &Named, head: String, facts: Facts) {
     let root = named.lane.root.clone();
     let destination = named.lane.destination.clone();
     std::thread::spawn(move || {
         let Ok(origin) = git(&root, &["remote", "get-url", "--push", "origin"]) else { return };
         let base = format!("refs/remotes/origin/{destination}");
-        let _ = Denylist::from_env().verdict_within(&root, &origin, (&base, &head, &destination), Some(EARLY_WAIT));
+        let seen = Seen { visibility: facts.repository().visibility.clone(), held: facts.denylist() };
+        let _ = Denylist::from_env().verdict_seen_within(&root, &origin, (&base, &head, &destination), EARLY_WAIT, seen);
     });
 }
 

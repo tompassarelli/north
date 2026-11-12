@@ -1,20 +1,17 @@
 use std::path::Path;
-use std::process::{Command, Stdio};
 
+use super::facts::Repository;
 use crate::land::candidate::{git, output};
 use crate::land::lane_gates::{self, Lane};
 use crate::land::scans::git::merge_base;
 use crate::dep_gate::Registry;
 use crate::landing::{merge_set, stale_revert};
-use north_land_scans::slug::slug_of;
 
-pub(super) fn refuse_archived(origin: &str) -> Result<(), String> {
-    let Some(slug) = origin.contains("github.com").then(|| slug_of(origin)).flatten() else { return Ok(()) };
-    let answer = Command::new("timeout").args(["10", "gh", "api", &format!("repos/{slug}"), "--jq", ".archived"]).stdin(Stdio::null()).stderr(Stdio::null()).output();
-    match answer {
-        Ok(output) if output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true" => Err(format!("GitHub reports {slug} as archived, so origin refuses every push; unarchive it or land elsewhere")),
-        _ => Ok(()),
+pub(super) fn refuse_archived(repository: &Repository) -> Result<(), String> {
+    if repository.archived {
+        return Err(format!("GitHub reports {} as archived, so origin refuses every push; unarchive it or land elsewhere", repository.name));
     }
+    Ok(())
 }
 
 pub(in crate::land) fn refuse_static_gates(root: &Path, destination: &str, head: &str) -> Result<(), &'static str> {

@@ -144,7 +144,7 @@ const JUDGE_OUT_ONCE: &str = "#!/bin/sh\nif [ ! -e \"$0.answered\" ]; then\n  : 
 
 pub(super) const NO_SECRETS: &str = "#!/bin/sh\nreport=\nfor arg in \"$@\"; do\n  if [ -n \"$report\" ]; then printf '[]' > \"$arg\"; report=; fi\n  case \"$arg\" in --report-path) report=1 ;; esac\ndone\nexit 0\n";
 
-pub(super) const PUBLIC_REPO: &str = "#!/bin/sh\necho PUBLIC\n";
+pub(super) const PUBLIC_REPO: &str = "#!/bin/sh\ncase \"$*\" in *isArchived*) echo false PUBLIC;; *) echo PUBLIC;; esac\n";
 
 /// Queues `lane` through the same `north land enqueue` entry safe-push runs, with a judge that exits 75 once.
 pub(super) fn enqueue(world: &World, lane: &Path) -> Output {

@@ -64,7 +64,7 @@ impl Fixture {
         let bin = top.join("bin");
         fs::create_dir_all(&bin).unwrap();
         shim::write_executable(&bin.join("betterleaks"), BETTERLEAKS);
-        shim::write_executable(&bin.join("gh"), "#!/bin/sh\necho PUBLIC\n");
+        shim::write_executable(&bin.join("gh"), "#!/bin/sh\ncase \"$*\" in *isArchived*) echo false PUBLIC;; *) echo PUBLIC;; esac\n");
         std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
         Self { destination_oid, base_oid, ..fixture }
     }

@@ -16,7 +16,7 @@ const WAIT_STEP: Duration = Duration::from_millis(20);
 const LOCK: &str = "north-fetch.lock";
 const FETCHED: &str = "north-last-fetch";
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Fault {
     Unavailable(String),
     Failed(String),

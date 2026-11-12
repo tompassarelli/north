@@ -17,6 +17,14 @@ const DENYLIST_ENV: &str = "SAFE_PUSH_DENYLIST";
 
 type Judge<'a> = &'a dyn Fn(&str) -> Result<Option<Vec<Finding>>, String>;
 
+pub type Held = Result<tempfile::NamedTempFile, Fault>;
+
+pub struct Seen<'a> {
+    pub visibility: String,
+    pub held: Option<&'a Held>,
+}
+
+#[derive(Clone)]
 pub struct Denylist {
     pub south: PathBuf,
     pub south_named: bool,
@@ -77,14 +85,32 @@ impl Denylist {
     }
 
     /// Scans and returns the stand: a pass or a no verdict is `Ok`, while a hard refusal is `Err`. An enqueue queues a
-    /// lane that reached no verdict, without an alone pass, so the lander judges it again before it lands. `stand_while`
+    /// lane that reached no verdict, without an alone pass, so the lander judges it again before it lands. `stand_seen`
     /// also returns `Judging` when the private-kind judge is still asking a model, which it leaves running.
     pub fn scan_stand(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step<(Stand, Option<String>)> {
         self.stand(root, origin_url, (base, head, tag), &|text| private_text::judge(text).map(Some))
     }
 
-    pub fn stand_while(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), running: &dyn Fn() -> bool) -> Step<(Stand, Option<String>)> {
-        self.stand(root, origin_url, range, &|text| private_text::judge_while(text, running))
+    pub fn stand_seen(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), seen: Seen<'_>, running: &dyn Fn() -> bool) -> Step<(Stand, Option<String>)> {
+        Self::shown(self.verdict_seen(root, origin_url, range, &|text| private_text::judge_while(text, running), seen))
+    }
+
+    pub fn verdict_seen_within(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), wait: Duration, seen: Seen<'_>) -> DenylistVerdict {
+        self.verdict_seen(root, origin_url, range, &|text| private_text::judge_within(text, wait), seen)
+    }
+
+    fn verdict_seen(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), judge: Judge, seen: Seen<'_>) -> DenylistVerdict {
+        let Seen { visibility, held } = seen;
+        self.judged_from(root, range, judge, || if self.is_south(origin_url) { "PRIVATE".to_owned() } else { visibility }, held)
+    }
+
+    pub fn scans(&self) -> bool {
+        self.south_named || self.config.is_some() || self.kinds.is_some() || self.south.is_dir()
+    }
+
+    pub fn prefetch(&self, origin_url: &str) -> Option<Held> {
+        let scans = self.scans() && self.config.is_none() && self.absent_source().is_none() && !self.is_south(origin_url);
+        scans.then(|| denylist::south_denylist(&self.south))
     }
 
     pub fn verdict_within(&self, root: &Path, origin_url: &str, (base, head, tag): (&str, &str, &str), wait: Option<Duration>) -> DenylistVerdict {
@@ -101,9 +127,13 @@ impl Denylist {
         })
     }
 
-    fn judged(&self, root: &Path, origin_url: &str, (base, head, tag): (&str, &str, &str), judge: Judge) -> DenylistVerdict {
+    fn judged(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), judge: Judge) -> DenylistVerdict {
+        self.judged_from(root, range, judge, || self.visibility_of(origin_url), None)
+    }
+
+    fn judged_from(&self, root: &Path, (base, head, tag): (&str, &str, &str), judge: Judge, visibility: impl FnOnce() -> String, held: Option<&Held>) -> DenylistVerdict {
         let ran = std::cell::RefCell::new(None);
-        let mut verdict = self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag), || {
+        let mut verdict = self.verdict(visibility, || self.findings_from(root, (base, head, tag), held), || {
             let started = private_text::seconds_now();
             let prose = denylist::prose_range(root, base, head, Some(tag))?;
             if prose.trim().is_empty() {
@@ -120,7 +150,10 @@ impl Denylist {
     }
 
     fn stand(&self, root: &Path, origin_url: &str, range: (&str, &str, &str), judge: Judge) -> Step<(Stand, Option<String>)> {
-        let verdict = self.judged(root, origin_url, range, judge);
+        Self::shown(self.judged(root, origin_url, range, judge))
+    }
+
+    fn shown(verdict: DenylistVerdict) -> Step<(Stand, Option<String>)> {
         if matches!(verdict.stand, Stand::Refuse | Stand::NoVerdict) {
             cancelled()?;
         }
@@ -147,8 +180,7 @@ impl Denylist {
         findings: impl FnOnce() -> Result<BTreeSet<String>, Fault>,
         judged: impl FnOnce() -> Result<Option<Vec<Finding>>, String>,
     ) -> DenylistVerdict {
-        let named = self.south_named || self.config.is_some() || self.kinds.is_some();
-        if !named && !self.south.is_dir() {
+        if !self.scans() {
             return DenylistVerdict::pass(vec![format!(
                 "safe-push: ⚠ no deny-list and no south checkout at {}, so private values were not scanned.",
                 self.south.display()
@@ -202,11 +234,18 @@ impl Denylist {
         }
     }
 
-    fn findings(&self, root: &Path, base: &str, head: &str, tag: &str) -> Result<BTreeSet<String>, Fault> {
+    fn findings_from(&self, root: &Path, (base, head, tag): (&str, &str, &str), held: Option<&Held>) -> Result<BTreeSet<String>, Fault> {
         match &self.config {
             Some(config) => Ok(denylist::scan_range(root, config, base, head, Some(tag))?),
             None => {
-                let held = denylist::south_denylist(&self.south)?;
+                let fetched;
+                let held = match held {
+                    Some(held) => held.as_ref().map_err(Clone::clone)?,
+                    None => {
+                        fetched = denylist::south_denylist(&self.south)?;
+                        &fetched
+                    }
+                };
                 Ok(denylist::scan_range(root, held.path(), base, head, Some(tag))?)
             }
         }

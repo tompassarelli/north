@@ -24,7 +24,7 @@ fn a_named_missing_south_is_refused_rather_than_passing_unscanned() {
     let fixture = Fixture::new();
     fixture.commit(&fixture.repo, "notes.txt", "Add notes");
     let missing = fixture.root.join("no-south");
-    let path = stub_gh(&fixture, "echo PUBLIC");
+    let path = stub_gh(&fixture, "case \"$*\" in *isArchived*) echo false PUBLIC;; *) echo PUBLIC;; esac");
     let output = north_enqueue_with(&fixture, &[("SAFE_PUSH_SOUTH", &missing), ("PATH", &path)]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -40,7 +40,7 @@ fn a_deny_listed_value_is_refused() {
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "Add identity"]);
     let list = deny_list(&fixture);
-    let path = stub_gh(&fixture, "echo PUBLIC");
+    let path = stub_gh(&fixture, "case \"$*\" in *isArchived*) echo false PUBLIC;; *) echo PUBLIC;; esac");
     let output = north_enqueue_with(&fixture, &[("SAFE_PUSH_DENYLIST", &list), ("PATH", &path)]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -57,10 +57,11 @@ fn a_lane_the_secret_scan_flags_is_refused() {
     let stub = fixture.root.join("stub-bin");
     fs::create_dir_all(&stub).unwrap();
     north_core::foundation::shim::write_executable(&stub.join("betterleaks"), "#!/bin/sh\nexit 1\n");
-    let path = PathBuf::from(format!("{}:{}", stub.display(), std::env::var("PATH").unwrap_or_default()));
+    let gh = stub_gh(&fixture, "mkdir -p \"$XDG_STATE_HOME/gh\" && echo id >\"$XDG_STATE_HOME/gh/device-id\"; echo false PUBLIC");
+    let path = PathBuf::from(format!("{}:{}", stub.display(), gh.display()));
     let output = north_enqueue_with(&fixture, &[("PATH", &path)]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("secret scan refused the landing"), "{}", String::from_utf8_lossy(&output.stderr));
-    assert!(!fixture.state.exists(), "a refused lane writes no ticket");
+    assert!(!fixture.state.exists(), "a refused lane writes no ticket: {:?}", written(&fixture.state));
 }
 
