@@ -10,7 +10,7 @@ use crate::proc::{now, run};
 use crate::scratch;
 
 pub const PINNED_MODEL: &str = "claude-opus-5-5";
-pub const EFFORT: &str = "medium";
+pub const PINNED_EFFORT: &str = "medium";
 pub const NUDGE: &str = "Continue with your best judgment; the task text is complete.";
 const LIMIT_S: f64 = 2700.0;
 const SETTLED_S: f64 = 45.0;
@@ -25,6 +25,7 @@ pub struct Plan {
     pub work: PathBuf,
     pub burst: Option<(usize, f64)>,
     pub model: String,
+    pub effort: String,
 }
 
 pub struct Run {
@@ -43,8 +44,8 @@ pub struct Run {
     pub wave: &'static str,
 }
 
-fn header(model: &str) -> String {
-    format!("Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: cpx62\nModel: {model} at medium effort, pinned so Eval B holds the model fixed as Eval A does.\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n")
+fn header(model: &str, effort: &str) -> String {
+    format!("Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: cpx62\nModel: {model} at {effort} effort, pinned so Eval B holds the model fixed as Eval A does.\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n")
 }
 
 pub fn prompt(task: &Value) -> String {
@@ -62,10 +63,10 @@ pub fn unseen(task: &Value, nonce: &str) -> Value {
 
 fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wave: &'static str) -> Run {
     let cwd = scratch::worktree(branch);
-    let text = header(&plan.model) + &prompt(task);
-    let tier_reason = format!("Eval B pins {} at medium for the whole ladder", plan.model);
+    let text = header(&plan.model, &plan.effort) + &prompt(task);
+    let tier_reason = format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort);
     let args = [
-        "fleet", "launch", "--provider", "claude", "--account", account, "--model", &plan.model, "--effort", EFFORT, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
+        "fleet", "launch", "--provider", "claude", "--account", account, "--model", &plan.model, "--effort", &plan.effort, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
         "--tier-reason", &tier_reason, "--cwd", &cwd, "--no-wait", &text,
     ];
     let launch_start = now();
