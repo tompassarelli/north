@@ -68,27 +68,7 @@ pub(super) fn float_repr(value: f64) -> String {
 }
 
 pub(super) fn json_string(text: &str) -> String {
-    let mut out = String::from('"');
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\x08' => out.push_str("\\b"),
-            '\x0c' => out.push_str("\\f"),
-            ' '..='~' | '\x7f' => out.push(c),
-            _ => {
-                let mut units = [0u16; 2];
-                for unit in c.encode_utf16(&mut units) {
-                    out.push_str(&format!("\\u{unit:04x}"));
-                }
-            }
-        }
-    }
-    out.push('"');
-    out
+    north_base::json_text::ascii_string(text)
 }
 
 pub(super) fn str_repr(text: &str) -> String {

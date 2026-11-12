@@ -11,6 +11,7 @@ north-base = { path = "../north-base" }
 north-lander = { path = "../north-lander" }
 north-landing = { path = "../north-landing" }
 rustix.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 
 [lints]
