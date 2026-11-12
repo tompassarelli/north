@@ -18,6 +18,8 @@ pub struct Context {
     pub runtimes: Option<PathBuf>,
     pub session: Option<String>,
     pub agent_socket: Option<PathBuf>,
+    pub offload_slot: Option<PathBuf>,
+    pub land_check: bool,
 }
 
 impl Context {
@@ -56,6 +58,8 @@ impl Context {
             runtimes: runtimes(),
             session: set("NORTH_FLEET_SESSION").and_then(|session| session.into_os_string().into_string().ok()),
             agent_socket: set(super::sockets::AGENT_ENV),
+            offload_slot: set(north_base::foundation::offload::SLOT_ENV),
+            land_check: set(north_base::foundation::carry::LAND_HEAD).is_some(),
         }
     }
 }

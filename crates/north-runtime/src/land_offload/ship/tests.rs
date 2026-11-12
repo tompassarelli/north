@@ -1067,3 +1067,29 @@ fn a_worker_build_passes_a_land_check_the_host_cannot_lease_yet_which_waits_out_
     assert!(charged.wait_with_output().unwrap().status.success());
     assert!(fs::read_to_string(&log).unwrap().contains("end-charged"));
 }
+
+#[test]
+fn a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slot() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let job = |command: &str| {
+        super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", "", "", "", "", ""], &[])
+            .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+            .env("PATH", &path)
+            .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .env_remove(north_base::foundation::offload::SLOT_ENV)
+            .stdin(fs::File::open(&bundle).unwrap())
+            .output()
+            .unwrap()
+    };
+    let state = "\"$HOME/.buck/buckd$(pwd -P)/v2\"";
+    let first = job(&format!("mkdir -p {state} && echo first >{state}/buckd.info"));
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    let second = job(&format!("test ! -e {state}"));
+    assert!(second.status.success(), "the second job in a slot found the Buck2 daemon state the first left, so its buck2 would reach whatever daemon that state names, in the first job's domain: {}", String::from_utf8_lossy(&second.stderr));
+}
