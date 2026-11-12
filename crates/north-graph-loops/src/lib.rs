@@ -21,7 +21,7 @@ mod tests;
 
 pub use capacity_estimate::{Estimate, MEASURES as CAPACITY_MEASURES, WRITER as CAPACITY_WRITER, estimate, estimate_from, tell_estimate, tell_estimate_to};
 pub use cells::{Cells, Learned, Measure};
-pub use check_deadline::{CheckDeadline, CheckDeadlines, WRITER as CHECK_WRITER, check_deadlines, check_deadlines_from, check_key, tell_check_deadline, tell_check_deadline_to};
+pub use check_deadline::{CheckDeadline, WRITER as CHECK_WRITER, check_deadline, check_deadline_from, check_key, tell_check_deadline, tell_check_deadline_to};
 pub use fleet::{Retirement, WRITER as FLEET_WRITER, retirement, retirement_from, tell_retirement, tell_retirement_to};
 pub use lander_doctor::{DOCTOR_WRITER, Held, Remembered, remembered, remembered_from, tell_remembered, tell_remembered_to};
 pub use north_graph::default_path as graph_path;

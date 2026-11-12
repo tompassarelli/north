@@ -7,7 +7,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use north_graph_loops::{CheckDeadline, check_deadlines, check_key, graph_path, tell_check_deadline};
+use north_graph_loops::{CheckDeadline, check_deadline, check_key, graph_path, tell_check_deadline};
 
 pub const CEILING: u64 = 2100;
 const FLOOR: u64 = 300;
@@ -179,7 +179,7 @@ impl Timings {
     }
 
     pub fn deadline(&self, command: &str, class: &str) -> Deadline {
-        if let Some(told) = check_deadlines(&self.graph).ok().and_then(|told| told.get(&check_key(class, command)).copied()) {
+        if let Some(told) = check_deadline(&self.graph, &check_key(class, command)).ok().flatten() {
             return Deadline::learned(&told);
         }
         let (walls, exceeded) = self.observed(command, class);

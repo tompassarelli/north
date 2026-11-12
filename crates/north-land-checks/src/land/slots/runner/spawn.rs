@@ -301,7 +301,7 @@ impl Shared {
             Err(status) => return status,
         };
         let cpu = before.zip(children_cpu_seconds()).filter(|_| measured).map(|(before, after)| after - before);
-        steps::add_all(steps::split(&ran));
+        steps::add_all(steps::split(ran.started_at, ran.ended_at, &ran.marks));
         steps::awaited("result write", self.finish_check(&command, Attempt { leased, started, timeout }, &ran, cpu, None)).await
     }
 }

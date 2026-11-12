@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use north_graph::Graph;
 
-use crate::{CheckDeadline, Held, Remembered, check_deadlines_from, remembered_from, tell_check_deadline_to, tell_remembered_to, ticks_from};
+use crate::{CheckDeadline, Held, Remembered, check_deadline_from, remembered_from, tell_check_deadline_to, tell_remembered_to, ticks_from};
 
 #[test]
 fn a_pass_tells_the_lander_one_deadline_per_check_and_the_land_tick() {
@@ -12,8 +12,7 @@ fn a_pass_tells_the_lander_one_deadline_per_check_and_the_land_tick() {
     tell_check_deadline_to(&mut graph, "gex45:cargo test", &first, 1_500).unwrap();
     let raised = CheckDeadline { seconds: 1_800, passes: 7, p90: Some(41), exceeded: Some(900) };
     tell_check_deadline_to(&mut graph, "local:cargo test", &raised, 2_000).unwrap();
-    let told = check_deadlines_from(&graph).unwrap();
-    assert_eq!((told.get("local:cargo test"), told.get("gex45:cargo test")), (Some(&raised), Some(&first)));
+    assert_eq!((check_deadline_from(&graph, "local:cargo test").unwrap(), check_deadline_from(&graph, "gex45:cargo test").unwrap(), check_deadline_from(&graph, "local:cargo nextest").unwrap()), (Some(raised), Some(first), None));
     assert_eq!(ticks_from(&graph).unwrap().get("land"), Some(&2_000));
 }
 

@@ -69,7 +69,7 @@ pub(super) async fn tee(mut source: impl AsyncRead + Unpin, log: PathBuf, sink: 
     let Ok(mut file) = OpenOptions::new().append(true).open(&log) else { return marks };
     let mut buffer = [0u8; 8192];
     let mut pending = Vec::new();
-    let (mut opened, mut previous) = (true, None::<Mark>);
+    let mut marking = Marking { opened: true, previous: None };
     while let Ok(count) = source.read(&mut buffer).await {
         if count == 0 {
             break;
@@ -79,19 +79,7 @@ pub(super) async fn tee(mut source: impl AsyncRead + Unpin, log: PathBuf, sink: 
         while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
             let line = String::from_utf8_lossy(&pending[..end]).into_owned();
             pending.drain(..=end);
-            let at = epoch();
-            if check_log::is_marker(&line) {
-                if check_log::is_released(&line) {
-                    marks.extend(previous.take());
-                }
-                marks.push(Mark { at, line });
-                opened = true;
-            } else if opened {
-                marks.push(Mark { at, line });
-                opened = false;
-            } else {
-                previous = Some(Mark { at, line });
-            }
+            marking.take(Mark { at: epoch(), line }, &mut marks);
         }
         match sink {
             Sink::Out => {
@@ -106,6 +94,28 @@ pub(super) async fn tee(mut source: impl AsyncRead + Unpin, log: PathBuf, sink: 
             }
         }
     }
-    marks.extend(previous);
+    marks.extend(marking.previous);
     marks
+}
+
+struct Marking {
+    opened: bool,
+    previous: Option<Mark>,
+}
+
+impl Marking {
+    fn take(&mut self, mark: Mark, marks: &mut Vec<Mark>) {
+        if check_log::is_marker(&mark.line) {
+            if check_log::is_released(&mark.line) {
+                marks.extend(self.previous.take());
+            }
+            marks.push(mark);
+            self.opened = true;
+        } else if self.opened {
+            marks.push(mark);
+            self.opened = false;
+        } else {
+            self.previous = Some(mark);
+        }
+    }
 }

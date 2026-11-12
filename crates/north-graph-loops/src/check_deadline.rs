@@ -1,10 +1,9 @@
 //! The check-deadline loop's facts: each passing land check, and each timeout that lane and base both ran past, tells the
-//! deadline its check learned, `(check:CLASS:COMMAND :check/deadline-s N)`, and the lander reads it back through harness/graph-rules/check-deadline.json.
-use std::collections::BTreeMap;
+//! deadline its check learned, `(check:CLASS:COMMAND :check/deadline-s N)`, and a land check reads its own back by the subject.
 use std::path::Path;
 use std::time::Duration;
 
-use north_graph::{Graph, Term};
+use north_graph::{Atom, Graph, Term};
 
 use crate::cells;
 use crate::facts::{Fact, facts_from, tell_facts_to};
@@ -23,9 +22,6 @@ pub struct CheckDeadline {
     pub p90: Option<u64>,
     pub exceeded: Option<u64>,
 }
-
-/// Each check's learned deadline by its `CLASS:COMMAND`.
-pub type CheckDeadlines = BTreeMap<String, CheckDeadline>;
 
 fn int(value: u64) -> Term {
     Term::int(i64::try_from(value).unwrap_or(i64::MAX))
@@ -47,12 +43,25 @@ pub fn check_key(class: &str, command: &str) -> String {
     format!("{class}:{command}")
 }
 
-/// Every check's deadline; where two live values disagree after a race, the longer one stands.
-pub fn check_deadlines_from(graph: &Graph) -> Result<CheckDeadlines, String> {
-    let mut found = CheckDeadlines::new();
-    for (subject, predicate, value) in facts_from(graph, RULE)? {
-        let (Some(key), Some(measure), Some(value)) = (subject.strip_prefix(SUBJECT), predicate.strip_prefix(PREDICATE), cells::value(&value).and_then(|value| value.as_u64())) else { continue };
-        let learned = found.entry(key.to_owned()).or_default();
+/// The live facts about one check, read through the graph's subject index instead of a rule over every fact the land writer told.
+fn own_facts(graph: &Graph, key: &str) -> Result<Vec<Fact>, String> {
+    let subject = format!("{SUBJECT}{key}");
+    let live = graph.show(&Term::string(subject.clone())).map_err(|why| why.to_string())?;
+    Ok(live
+        .into_iter()
+        .filter_map(|live| match live.triple.t2 {
+            Term::Atom(Atom::Keyword(predicate)) => Some((subject.clone(), predicate, live.triple.t3)),
+            _ => None,
+        })
+        .collect())
+}
+
+/// One check's learned deadline, None when it never told one; where two live values disagree after a race, the longer one stands.
+pub fn check_deadline_from(graph: &Graph, key: &str) -> Result<Option<CheckDeadline>, String> {
+    let mut learned = None::<CheckDeadline>;
+    for (_, predicate, value) in own_facts(graph, key)? {
+        let (Some(measure), Some(value)) = (predicate.strip_prefix(PREDICATE), cells::value(&value).and_then(|value| value.as_u64())) else { continue };
+        let learned = learned.get_or_insert_default();
         let slot = match measure {
             "deadline-s" => &mut learned.seconds,
             "passes" => &mut learned.passes,
@@ -62,11 +71,11 @@ pub fn check_deadlines_from(graph: &Graph) -> Result<CheckDeadlines, String> {
         };
         *slot = (*slot).max(value);
     }
-    Ok(found)
+    Ok(learned)
 }
 
-pub fn check_deadlines(db: &Path) -> Result<CheckDeadlines, String> {
-    check_deadlines_from(&Graph::open_read_only(db, READ_PATIENCE).map_err(|why| format!("{}: {why}", db.display()))?)
+pub fn check_deadline(db: &Path, key: &str) -> Result<Option<CheckDeadline>, String> {
+    check_deadline_from(&Graph::open_read_only(db, READ_PATIENCE).map_err(|why| format!("{}: {why}", db.display()))?, key)
 }
 
 /// Tells one check's deadline as one transaction: its values that moved or went, and the lander's tick at `at`.

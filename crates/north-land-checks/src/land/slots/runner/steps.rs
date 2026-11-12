@@ -3,7 +3,6 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::land::trace::check_log::{self, Mark};
-use super::spawn::Ran;
 
 static STEPS: Mutex<Vec<(&'static str, Duration)>> = Mutex::new(Vec::new());
 static RECORDING: AtomicBool = AtomicBool::new(false);
@@ -39,18 +38,18 @@ pub(super) async fn awaited<T>(name: &'static str, work: impl Future<Output = T>
 }
 
 /// Splits a check's own process into the capacity lease, the sandbox's start, the command and the release, by the times its lease lines and its first and last output lines reached the log; a check whose output names no lease counts whole as the command.
-pub(super) fn split(ran: &Ran) -> Vec<(&'static str, Duration)> {
-    let at = |wanted: fn(&str) -> bool| ran.marks.iter().find(|mark| wanted(&mark.line)).map(|mark| mark.at);
+pub(super) fn split(started_at: f64, ended_at: f64, marks: &[Mark]) -> Vec<(&'static str, Duration)> {
+    let at = |wanted: fn(&str) -> bool| marks.iter().find(|mark| wanted(&mark.line)).map(|mark| mark.at);
     let (Some(reserved), Some(released)) = (at(check_log::is_reserved), at(check_log::is_released)) else {
-        return vec![("command", seconds(ran.ended_at - ran.started_at))];
+        return vec![("command", seconds(ended_at - started_at))];
     };
     let running = at(check_log::is_offload_running).filter(|running| *running <= reserved);
-    let output: Vec<&Mark> = ran.marks.iter().filter(|mark| !check_log::is_marker(&mark.line) && mark.at >= reserved && mark.at <= released).collect();
+    let output: Vec<&Mark> = marks.iter().filter(|mark| !check_log::is_marker(&mark.line) && mark.at >= reserved && mark.at <= released).collect();
     let first = output.first().map_or(reserved, |mark| mark.at);
     let last = output.last().map_or(first, |mark| mark.at);
-    let slot = running.map(|running| ("slot and tree proof", seconds(running - ran.started_at)));
-    let leased_from = running.unwrap_or(ran.started_at);
-    slot.into_iter().chain([("lease", seconds(reserved - leased_from)), ("sandbox start", seconds(first - reserved)), ("command", seconds(last - first)), ("release", seconds(ran.ended_at - last))]).collect()
+    let slot = running.map(|running| ("slot and tree proof", seconds(running - started_at)));
+    let leased_from = running.unwrap_or(started_at);
+    slot.into_iter().chain([("lease", seconds(reserved - leased_from)), ("sandbox start", seconds(first - reserved)), ("command", seconds(last - first)), ("release", seconds(ended_at - last))]).collect()
 }
 
 pub(super) fn add_all(steps: Vec<(&'static str, Duration)>) {
