@@ -1,7 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
+
+use base64::Engine as _;
 
 use super::candidate::{self, git};
 use super::heartbeat::Heartbeat;
@@ -162,22 +165,30 @@ impl Lander {
         self.tell(host, queue::ANSWERS, name, &format!("{text}\n"))
     }
 
-    pub fn pull_host(&self, host: &str, wait: Duration) -> Result<usize, String> {
+    pub fn pull_host(&self, host: &str, wait: Duration, taken: &mut Vec<String>) -> Result<usize, String> {
         let home = self.remote_queue()?;
         let outbox = self.remote_outbox()?;
         let mirror = format!("q={home}; mkdir -p \"$q\" && cat >\"$q/{0}.part\" && mv -f \"$q/{0}.part\" \"$q/{0}\" || exit 1; ", queue::LANDER_LEDGER);
         let ticks = wait.as_millis() / WAIT_TICK.as_millis();
+        let settle = settle_script(taken);
         let asks = format!("for f in \"$d\"/{}/*.json; do [ -f \"$f\" ] || continue; printf '?%s\\n\\000' \"${{f##*/}}\"; rm -f -- \"$f\"; done; ", queue::ASKS);
-        let listing = ssh_with_input(host, &format!("d={outbox}; n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json \"$d\"/{0}/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; {asks}set -- \"$d\"/*.json; [ -e \"$1\" ] || exit 0; {mirror} for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", queue::ASKS, tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
+        let bundle = format!("b=\"${{f%.json}}.{}\"; [ -f \"$b\" ] && {{ printf '=%s\\n' \"${{f##*/}}\"; base64 -w0 \"$b\"; printf '\\000'; }}; ", queue::BUNDLE);
+        let listing = ssh_with_input(host, &format!("d={outbox}; {settle}n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json \"$d\"/{0}/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; {asks}set -- \"$d\"/*.json; [ -e \"$1\" ] || exit 0; {mirror} for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; {bundle}printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", queue::ASKS, tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
+        taken.clear();
         let mut records = Records::open(&self.queue).map_err(|error| format!("cannot read the records of {}: {error}", self.queue.display()))?;
-        let mut taken = Vec::new();
         let mut failures = Vec::new();
         let mut withdrawn = Vec::new();
         let mut asked = Vec::new();
+        let mut bundles = HashMap::new();
+        let mut arrived = Vec::new();
         for record in listing.split('\0').filter(|record| !record.trim().is_empty()) {
             let (name, json) = record.split_once('\n').unwrap_or((record, ""));
             if let Some(name) = name.strip_prefix('?') {
                 asked.push(name.to_owned());
+                continue;
+            }
+            if let Some(name) = name.strip_prefix('=') {
+                bundles.insert(name.to_owned(), json.to_owned());
                 continue;
             }
             if !plain(name) || !name.ends_with(".json") {
@@ -191,7 +202,7 @@ impl Lander {
                     continue;
                 }
             };
-            if let Err(error) = self.fetch_lane(host, &ticket) {
+            if let Err(error) = self.take_lane(host, &ticket, bundles.remove(name).as_deref()) {
                 if lane_gone(host, &ticket) {
                     withdrawn.push((name.to_owned(), ticket));
                 } else {
@@ -199,21 +210,41 @@ impl Lander {
                 }
                 continue;
             }
-            let path = self.queue.join(name);
+            arrived.push((name.to_owned(), ticket));
+        }
+        for (name, ticket) in arrived {
+            let path = self.queue.join(&name);
             if records.phase(&path).is_none() {
                 queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
                 records.moved(&path, Phase::Queued, &format!("taken from {host}'s outbox")).map_err(|error| format!("cannot record {}: {error}", path.display()))?;
             }
-            taken.push(name.to_owned());
-        }
-        if !taken.is_empty() {
-            ssh(host, &format!("d={outbox}; mkdir -p \"$d/taken\" && cd \"$d\" && mv -f -- {} taken/", taken.join(" ")))?;
+            taken.push(name);
         }
         if !withdrawn.is_empty() {
             self.withdraw(host, &outbox, withdrawn)?;
         }
         failures.extend(asked.iter().filter_map(|name| self.answer(host, name).err().map(|error| format!("cannot answer {host}'s ask about {name}: {error}"))));
         if failures.is_empty() { Ok(taken.len()) } else { Err(failures.join("; ")) }
+    }
+
+    fn take_lane(&self, host: &str, ticket: &Ticket, bundle: Option<&str>) -> Result<(), String> {
+        let Some(bundle) = bundle else { return self.fetch_lane(host, ticket) };
+        match self.unbundle(host, ticket, bundle) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                println!("north land: fetching {} from {host}, since the bundle its ticket carried did not apply: {error}", ticket.branch);
+                self.fetch_lane(host, ticket)
+            }
+        }
+    }
+
+    fn unbundle(&self, host: &str, ticket: &Ticket, encoded: &str) -> Result<(), String> {
+        let bytes = base64::engine::general_purpose::STANDARD.decode(encoded.trim()).map_err(|error| format!("the bundle is not base64: {error}"))?;
+        let mut file = tempfile::Builder::new().suffix(".bundle").tempfile().map_err(|error| format!("cannot hold the bundle: {error}"))?;
+        file.write_all(&bytes).map_err(|error| format!("cannot hold the bundle: {error}"))?;
+        let path = file.path().to_str().ok_or("the bundle's path is not UTF-8")?.to_owned();
+        let target = format!("+refs/heads/{}:refs/land-remote/{host}/{}", ticket.branch, queue::slug(&ticket.branch));
+        north_git_locks::retry_after_clearing(&self.repo, || git(&self.repo, &["fetch", "-q", "--no-tags", &path, &target]).map(drop))
     }
 
     fn withdraw(&self, host: &str, outbox: &str, withdrawn: Vec<(String, Ticket)>) -> Result<(), String> {
@@ -228,7 +259,7 @@ impl Lander {
             told.push((name, ticket, reason));
         }
         let names: Vec<&str> = told.iter().map(|(name, _, _)| name.as_str()).collect();
-        ssh(host, &format!("d={outbox}; mkdir -p \"$d/{0}\" && cd \"$d\" && mv -f -- {1} {0}/", queue::WITHDRAWN, names.join(" ")))?;
+        ssh(host, &format!("d={outbox}; mkdir -p \"$d/{0}\" && cd \"$d\" && mv -f -- {1} {0}/ && rm -f -- {2}", queue::WITHDRAWN, names.join(" "), bundles(&names)))?;
         for (_, ticket, reason) in told {
             if let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) {
                 super::after::send(session, &format!("north land: {} ({}) was withdrawn from {host}'s outbox: {reason}; queue it again from a worktree on its branch", ticket.branch, ticket.head));
@@ -244,14 +275,32 @@ impl Lander {
                 waiting.push(format!("the outbox hosts name {host:?}, which is not an ssh host name; skipped"));
                 continue;
             }
-            match self.pull_host(&host, Duration::ZERO) {
+            let mut taken = Vec::new();
+            match self.pull_host(&host, Duration::ZERO, &mut taken) {
                 Ok(0) => {}
                 Ok(pulled) => println!("north land: pulled {pulled} tickets from {host}'s outbox"),
                 Err(error) => waiting.push(format!("{host}'s outbox skipped this round: {error}")),
             }
+            if !taken.is_empty()
+                && let Err(error) = self.remote_outbox().and_then(|outbox| ssh(&host, &format!("d={outbox}; {}", settle_script(&taken))))
+            {
+                waiting.push(format!("{host}'s outbox keeps its taken tickets this round: {error}"));
+            }
         }
         waiting
     }
+}
+
+fn settle_script(taken: &[String]) -> String {
+    if taken.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = taken.iter().map(String::as_str).collect();
+    format!("(mkdir -p \"$d/taken\" && cd \"$d\" && mv -f -- {} taken/ && rm -f -- {}) || exit 1; ", names.join(" "), bundles(&names))
+}
+
+fn bundles(names: &[&str]) -> String {
+    names.iter().map(|name| queue::bundle(Path::new(name)).to_string_lossy().into_owned()).collect::<Vec<_>>().join(" ")
 }
 
 fn ledger_tail() -> String {

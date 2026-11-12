@@ -39,7 +39,7 @@ fn remote_outbox_lands() {
     assert!(fixture.fleet().contains(&format!("fleet send --from service:north-land session-remote landed lane-r as {main}")), "{:?}", fixture.fleet());
     let ssh = fixture.read("ssh");
     assert!(ssh.lines().all(|line| line.contains("ConnectTimeout=5")), "{ssh}");
-    assert!(ssh.lines().any(|line| line.contains("git-upload-pack") && line.contains(&top)), "the lane is fetched from ssh://gex45{top}: {ssh}");
+    assert!(!ssh.lines().any(|line| line.contains("git-upload-pack")), "the lane was fetched from ssh://gex45{top} instead of taken from the bundle beside its ticket: {ssh}");
     assert!(fixture.serve().status.success());
     assert_eq!(fixture.subjects(), ["change from r"], "a taken ticket was pulled again");
 }

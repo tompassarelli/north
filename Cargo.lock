@@ -1613,6 +1613,7 @@ dependencies = [
 name = "north-landing"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "north-base",
  "north-check-environment",
  "north-concerns",

@@ -81,8 +81,9 @@ fn supervise(lander: &Arc<Lander>, stop: &Arc<AtomicBool>, wake: &Arc<Wake>) {
 }
 
 fn follow(lander: &Lander, host: &str, stop: &AtomicBool, wake: &Wake) {
+    let mut taken = Vec::new();
     while !stop.load(Ordering::Relaxed) {
-        match lander.pull_host(host, WAIT) {
+        match lander.pull_host(host, WAIT, &mut taken) {
             Ok(0) => {}
             Ok(pulled) => {
                 println!("north land: pulled {pulled} tickets from {host}'s outbox");

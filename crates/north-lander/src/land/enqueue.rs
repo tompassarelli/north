@@ -150,15 +150,29 @@ fn lander_ledger_at(lander: &str, queue: &Path, environment: &Environment) -> Op
 /// Writes a new ticket: an outboxed one replaces its lane's older outboxed ticket, and one in the lander's own queue is
 /// recorded as queued before it is written, since the write wakes the lander; its older ticket is left for the lander to
 /// decide as replaced.
-fn file(directory: &Path, path: &Path, ticket: &Ticket, outbox: bool) -> Result<(), String> {
+fn file(directory: &Path, path: &Path, ticket: &Ticket, outbox: Option<&str>) -> Result<(), String> {
     let write = || queue::write(path, ticket).map_err(|error| format!("cannot write {}: {error}", path.display()));
-    if outbox {
+    if let Some(base) = outbox {
+        if let Err(error) = bundle(path, ticket, base) {
+            println!("safe-push: the lander fetches this lane from this host, since its bundle was not written: {error}");
+        }
         write()?;
         replace_older(directory, path, &ticket.root, &ticket.branch).map_err(|error| format!("cannot replace this lane's older ticket in {}: {error}", directory.display()))
     } else {
         land_ticket::queued(path, "enqueued").map_err(|error| format!("cannot record {}: {error}", path.display()))?;
         write()
     }
+}
+
+fn bundle(path: &Path, ticket: &Ticket, base: &str) -> Result<(), String> {
+    let bundle = queue::bundle(path);
+    let partial = bundle.with_file_name(format!(".{}.part", bundle.file_name().unwrap_or_default().to_string_lossy()));
+    if let Some(parent) = partial.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("cannot make {}: {error}", parent.display()))?;
+    }
+    let written = partial.to_str().ok_or_else(|| format!("{} is not UTF-8", partial.display()))?;
+    git(&ticket.root, &["bundle", "create", "-q", written, &format!("refs/heads/{}", ticket.branch), &format!("^{base}")])?;
+    fs::rename(&partial, &bundle).map_err(|error| format!("cannot write {}: {error}", bundle.display()))
 }
 
 fn replace_older(directory: &Path, kept: &Path, root: &Path, branch: &str) -> io::Result<()> {
@@ -171,9 +185,11 @@ fn replace_older(directory: &Path, kept: &Path, root: &Path, branch: &str) -> io
         let path = entry?.path();
         let undecided = path.extension().is_some_and(|extension| extension == "json") && path.is_file() && path != kept;
         if undecided && queue::read(&path).is_ok_and(|older| older.root == root && older.branch == branch) {
-            match fs::remove_file(&path) {
-                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-                _ => {}
+            for stale in [queue::bundle(&path), path] {
+                match fs::remove_file(&stale) {
+                    Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+                    _ => {}
+                }
             }
         }
     }
@@ -274,7 +290,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         };
         let directory = if outbox { queue.join(queue::OUTBOX) } else { queue };
         let path = directory.join(queue::file_name(queued_micros, &branch));
-        timings.stage("ticket", || file(&directory, &path, &ticket, outbox))?;
+        timings.stage("ticket", || file(&directory, &path, &ticket, outbox.then_some(base.as_str())))?;
         Ok(Queued { path, outbox, ticket, squash })
     })
 }

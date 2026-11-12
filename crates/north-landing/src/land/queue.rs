@@ -131,6 +131,12 @@ pub fn file_name(queued_micros: u128, branch: &str) -> String {
     format!("{queued_micros}-{}.json", slug(branch))
 }
 
+pub const BUNDLE: &str = "bundle";
+
+pub fn bundle(ticket: &Path) -> PathBuf {
+    ticket.with_extension(BUNDLE)
+}
+
 pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| io::Error::other(format!("{} has no parent", path.display())))?;
     fs::create_dir_all(parent)?;
@@ -294,7 +300,12 @@ pub fn settle(path: &Path, mut ticket: Ticket, verdict: String, phase: Phase) ->
         Some(asked) if !matches!(phase, Phase::Landed | Phase::Withdrawn) => (asked.verdict.unwrap_or(verdict), Phase::Withdrawn),
         _ => (verdict, phase),
     };
-    if queue_of(path)?.file_name() != Some(std::ffi::OsStr::new(OUTBOX)) {
+    if queue_of(path)?.file_name() == Some(std::ffi::OsStr::new(OUTBOX)) {
+        match fs::remove_file(bundle(path)) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+    } else {
         Records::of(path)?.moved(path, phase, &verdict)?;
     }
     ticket.verdict = Some(verdict);
