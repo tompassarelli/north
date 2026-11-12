@@ -514,14 +514,14 @@ fn a_probe_worker_follows_the_judged_runtime_while_the_link_still_names_the_live
     fs::create_dir_all(state.join("runtimes/1111111111111111111111111111111111111111")).unwrap();
     symlink("runtimes/1111111111111111111111111111111111111111", state.join("current")).unwrap();
     for program in ["north", "verify-north"] {
-        north_base::foundation::shim::write_executable(&judged.join(program), "#!/bin/sh\necho \"claude: $(basename \"$(readlink \"$NORTH_RUNTIME_LINK\")\")\"\n");
+        north_base::foundation::shim::write_executable(&judged.join(program), "#!/bin/sh\necho \"wr.md: target whiterabbit claude:$(basename \"$(readlink \"$NORTH_RUNTIME_LINK\")\")\"\n");
     }
     let plan = probes::core_loop("whiterabbit", PROMOTED, &["claude".to_owned()], false, true, None);
     let workers: Vec<&Probe> = plan.probes.iter().filter(|probe| probe.name.contains("verify-north") || probe.name.contains("first turn")).collect();
     assert_eq!(workers.len(), 2, "{:?}", plan.probes.iter().map(|probe| &probe.name).collect::<Vec<_>>());
     for probe in workers {
         let output = Command::new(bash_program()).arg("-c").arg(&probe.script).env("HOME", home.path()).env_remove("XDG_STATE_HOME").env_remove("NORTH_RUNTIME_LINK").output().unwrap();
-        assert!(String::from_utf8_lossy(&output.stdout).trim() == format!("claude: {PROMOTED}"), "{}: the session hosts it starts would follow {:?}, not the judged runtime; {}", probe.name, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stdout).trim() == format!("wr.md: target whiterabbit claude:{PROMOTED}"), "{}: the session hosts it starts would follow {:?}, not the judged runtime; {}", probe.name, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         assert!(output.status.success(), "{}: {}", probe.name, String::from_utf8_lossy(&output.stderr));
     }
 }

@@ -139,11 +139,12 @@ brief=$(mktemp "${TMPDIR:-/tmp}/north-canary-verify.XXXXXX")
 trap 'rm -f "$brief"' EXIT
 printf 'Surface: shell\nNeeds: laptop\n' > "$brief"
 placed=$("$north" config agents plan --place "$brief")
-if ! grep -q 'claude:' <<<"$placed"; then
-  echo 'no Claude account can place the verify-north worker here' >&2
+account=$(grep -o 'target [^ ]* claude:[^ ]*' <<<"$placed" | head -n 1 | sed 's/.*claude://' || true)
+if [ -z "$account" ]; then
+  echo "no Claude account can place the verify-north worker here: $placed" >&2
   exit 75
 fi
-__RUNTIME__/verify-north --north "$north"
+__RUNTIME__/verify-north --north "$north" --claude-account "$account"
 "#;
 
 /// A scratch repository whose lane queues one commit with the judged runtime and lands it through
