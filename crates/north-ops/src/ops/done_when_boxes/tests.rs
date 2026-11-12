@@ -121,9 +121,15 @@ fn a_passing_box_whose_output_doubles_a_short_body_is_ticked_with_evidence_the_g
 }
 
 #[test]
-fn an_unquoted_phrase_after_prints_is_a_judge_expectation_and_only_a_quoted_one_is_text_to_find() {
+fn only_a_quoted_phrase_after_prints_is_text_to_find_single_quoted_included_and_an_unquoted_one_is_judge() {
     let Expected::Judge(reason) = expectation::expected("exits 0 and prints the guard refusal of its probe command") else { panic!("an unquoted phrase is matched literally") };
     assert!(reason.contains("the guard refusal of its probe command"), "{reason}");
     assert_eq!(expectation::expected("exits 0 and prints \"blind staging refused\""), Expected::All(vec![Expectation::Contains("blind staging refused".into()), Expectation::Exit(0)]));
     assert_eq!(expectation::expected("passes with the phrase \"exits 1 and prints the guard refusal\" read as judge"), Expected::All(vec![Expectation::Exit(0)]));
+    let ten = expectation::expected("`echo 10` prints '10'");
+    assert_eq!(ten, Expected::All(vec![Expectation::Contains("10".into())]));
+    assert_eq!(expectation::outcome(&ten, 0, "10\n", "10\n"), Outcome::Pass);
+    assert_eq!(expectation::outcome(&ten, 0, "11\n", "11\n"), Outcome::Fail);
+    assert_eq!(expectation::expected("`echo 'prints 10'` exits 0"), Expected::All(vec![Expectation::Exit(0)]));
+    assert_eq!(expectation::expected("prints 'at most 5'"), Expected::All(vec![Expectation::Contains("at most 5".into())]));
 }

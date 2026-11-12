@@ -14,6 +14,8 @@ static PASSES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(passes|pas
 static CLAUSE_END: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.,;:]( |$)|\.$| and | or | with | on | for | in ").expect("clause pattern"));
 static QUOTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"`[^`]*`|"[^"]*""#).expect("quoted pattern"));
 
+static SINGLE_QUOTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(\b(?:prints|outputs|shows|reports|lists) +)('[^']*')").expect("single quoted pattern"));
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expectation {
     Exit(i32),
@@ -46,7 +48,7 @@ impl Outcome {
 
 fn shown(verb: &str, after: &str) -> Result<String, String> {
     let mut characters = after.chars();
-    if let Some(quote @ ('`' | '"')) = characters.next() {
+    if let Some(quote @ ('`' | '"' | '\'')) = characters.next() {
         return match characters.as_str().split_once(quote) {
             Some((inside, _)) if !inside.trim().is_empty() => Ok(inside.to_owned()),
             _ => Err(format!("nothing named after `{verb}`")),
@@ -58,8 +60,13 @@ fn shown(verb: &str, after: &str) -> Result<String, String> {
     }
 }
 
+fn blanked(quoted: &str) -> String {
+    format!("{0}{1}{0}", &quoted[..1], " ".repeat(quoted.len() - 2))
+}
+
 fn unquoted(text: &str) -> String {
-    QUOTED.replace_all(text, |quoted: &regex::Captures| format!("{0}{1}{0}", &quoted[0][..1], " ".repeat(quoted[0].len() - 2))).into_owned()
+    let masked = QUOTED.replace_all(text, |quoted: &regex::Captures| blanked(&quoted[0]));
+    SINGLE_QUOTED.replace_all(&masked, |quoted: &regex::Captures| format!("{}{}", &quoted[1], blanked(&quoted[2]))).into_owned()
 }
 
 pub fn expected(text: &str) -> Expected {
