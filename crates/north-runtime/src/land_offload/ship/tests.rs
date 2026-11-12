@@ -746,6 +746,53 @@ fn a_run_whose_connection_is_killed_in_the_middle_still_reports_its_real_exit_an
     assert!(String::from_utf8(shown).unwrap().contains("after"), "a fresh connection reads the output written after the loss");
 }
 
+fn relayed_run(home: &Path, head: &str, bundle: &Path, marker: &str, command: &str, grace_seconds: &str) -> std::process::Child {
+    let bin = home.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    crate::foundation::shim::write_script(&bin.join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    Command::new("setsid")
+        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", head, "30", "code-p-main", command, "refs/land-offload/job", "", "", "", "", marker])
+        .env("HOME", home)
+        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+        .env("NORTH_OFFLOAD_DRAIN_GRACE_SECONDS", grace_seconds)
+        .env("PATH", &path)
+        .env_remove(north_base::foundation::offload::SLOT_ENV)
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .stdin(fs::File::open(bundle).unwrap())
+        .stdout(Stdio::piped())
+        .stderr(fs::File::create(home.join(format!("{}.err", marker.replace(':', "-")))).unwrap())
+        .spawn()
+        .unwrap()
+}
+
+#[test]
+fn a_finished_check_whose_client_stopped_reading_frees_its_slot_while_a_running_check_with_a_slow_client_is_left_alone() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let root = home.path().join(".cache/land-offload");
+    let flood = "head -c 300000 /dev/zero | tr '\\0' x; echo";
+    let stuck = "north-offload-ran:job-stuck";
+    let mut remote = relayed_run(home.path(), &head, &bundle, stuck, &format!("{flood}; exit 3"), "1");
+    let unread = remote.stdout.take();
+    let exited = root.join("results/job-stuck.exit");
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || exited.exists()), "the check never ran");
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || remote.try_wait().unwrap().is_some()), "a finished check whose client reads nothing kept its slot");
+    assert_eq!(fs::read_to_string(&exited).unwrap().trim(), "3", "the check's exit stays on record for a reattaching client");
+    let held = Command::new("sh").arg("-c").arg("for lock in \"$1\"/code-p-main*.lock; do flock -n \"$lock\" true || echo \"$lock\"; done").arg("held").arg(&root).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&held.stdout), "", "a slot stays locked after its relay ended");
+    drop(unread);
+    let slow = "north-offload-ran:job-slow";
+    let mut remote = relayed_run(home.path(), &head, &bundle, slow, &format!("{flood}; sleep 3; touch \"$HOME/unread-past-grace\"; exit 4"), "2");
+    let stdout = remote.stdout.take().unwrap();
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || home.path().join("unread-past-grace").exists()), "the slow check never reached its end");
+    let mut shown = Vec::new();
+    let ran = super::relay(std::io::BufReader::new(stdout), &mut shown, slow, "", || {}).ran;
+    let code = remote.wait().unwrap().code().and_then(|code| u8::try_from(code).ok());
+    assert_eq!(super::verdict(code, ran), Ok(4), "a running check whose client read late lost its verdict: {}", fs::read_to_string(home.path().join("north-offload-ran-job-slow.err")).unwrap_or_default());
+    assert!(String::from_utf8(shown).unwrap().contains(&"x".repeat(300_000)), "the slow client read all the output");
+}
+
 #[test]
 fn a_connection_that_ends_after_the_run_started_is_asked_again_until_the_host_answers_and_never_when_it_cannot_help() {
     let lost = (Some(255), None);

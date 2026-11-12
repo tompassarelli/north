@@ -3,6 +3,8 @@ use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, RUNTIME_MISSING, OFFLOAD_ROOT, PO
 /// Minutes a run whose client lost its connection keeps going with no client reattached, so a caller killed on purpose does not leave the run holding its slot to its deadline; the runner reattaches within `REATTACH_WINDOW`, which is shorter.
 const REATTACH_MINUTES: u32 = 3;
 const DRAIN_POLL: &str = "0.1";
+/// Seconds a run whose check has recorded its exit keeps relaying to its client before it ends its own process group, so a client that stopped reading (a lander restarted under it) cannot hold the slot by a write that never completes; the exit and output stay on record for a reattaching client.
+const DRAIN_GRACE_SECONDS: u32 = REATTACH_MINUTES * 60;
 /// Polls of `DRAIN_POLL` a nested job whose check ended waits for its group to obey TERM before it sends KILL, and before it reports that the group survives KILL; it never frees the slot while a member is left.
 const TERM_POLLS: u32 = 1200;
 const KILL_POLLS: u32 = 1500;
@@ -314,6 +316,9 @@ trap '' PIPE HUP
   rc=0
   leased bash -euo pipefail "$script" || rc=$?
   echo "$rc" >"$exited.part" && mv "$exited.part" "$exited"
+  grace=${NORTH_OFFLOAD_DRAIN_GRACE_SECONDS:-@DRAIN_GRACE@} waited=0
+  while [ "$waited" -lt "$grace" ] && kill -0 "$$" 2>/dev/null; do sleep 1; waited=$((waited + 1)); done
+  if kill -0 "$$" 2>/dev/null; then echo "offload: ending the relay of run $id, whose check ended ${grace}s ago while its client read none of the rest" >&2; kill -TERM "-$$" 2>/dev/null || true; fi
 ) >"$out" 2>"$err" 4>&- 5>&- 6>&- 9>&- </dev/null &
 @DRAIN@detached=
 while :; do
@@ -435,6 +440,7 @@ pub(super) fn run_part() -> String {
     RUN.replace("@WATCH@", &super::quote(WATCH))
         .replace("@DRAIN@", DRAIN)
         .replace("@REATTACH_MINUTES@", &REATTACH_MINUTES.to_string())
+        .replace("@DRAIN_GRACE@", &DRAIN_GRACE_SECONDS.to_string())
         .replace("@DRAIN_POLL@", DRAIN_POLL)
         .replace("@TERM_POLLS@", &TERM_POLLS.to_string())
         .replace("@KILL_POLLS@", &KILL_POLLS.to_string())
