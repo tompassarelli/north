@@ -491,6 +491,14 @@ mod tests {
     }
 
     #[test]
+    fn a_cost_question_recommending_a_bare_yes_takes_no_default_unless_it_names_ask_once() {
+        let bare = |recommend: usize, ask_once: Option<&str>, default: usize| GateRequest { default, default_after_ms: if default > 0 { 60_000 } else { 0 }, ask_once: ask_once.map(str::to_owned), recommend, question: "Pay for the GPU box?".into(), options: vec!["yes".into(), "no".into()], ..request() };
+        assert!(bare(1, None, 1).validate().unwrap_err().user_message().contains("--ask-once cost"), "a cost question recommending yes takes no default, however bare its options");
+        assert!(bare(1, Some("cost"), 0).validate().is_ok(), "--ask-once with no default is accepted");
+        assert!(bare(2, None, 2).validate().is_ok(), "a default that declines the cost commits to nothing");
+    }
+
+    #[test]
     fn a_gate_without_a_default_names_the_ask_once_category_of_its_recommended_option() {
         let gate = |question: &str, options: [&str; 2], recommend: usize, ask_once: Option<&str>| GateRequest { question: question.into(), options: options.map(String::from).to_vec(), recommend, default: 0, default_after_ms: 0, ask_once: ask_once.map(str::to_owned), ..request() };
         let widening = ["keep the read-only token", "widen the token's access"];

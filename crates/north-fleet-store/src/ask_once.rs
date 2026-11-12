@@ -43,3 +43,10 @@ pub fn categories() -> impl Iterator<Item = &'static str> {
 pub fn is_category(word: &str) -> bool {
     categories().any(|class| class == word)
 }
+
+const DECLINES: [&str; 11] = ["no", "not", "don't", "never", "keep", "wait", "skip", "decline", "leave", "stay", "defer"];
+
+/// Whether the option plainly turns the question down, so a default on it commits to nothing.
+pub fn is_decline(option: &str) -> bool {
+    option.split_whitespace().next().is_some_and(|first| DECLINES.contains(&first.to_lowercase().trim_matches(|character: char| !character.is_alphanumeric() && character != '\'')))
+}

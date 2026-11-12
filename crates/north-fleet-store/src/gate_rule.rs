@@ -7,10 +7,11 @@ impl GateRequest {
         if let Some(category) = self.ask_once.as_deref().filter(|category| !ask_once::is_category(category)) {
             return Err(NorthError::Usage(format!("--ask-once names no ask-once category ({category}): use one of {}", categories())));
         }
-        let class = ask_once::class_of(&self.options[self.recommend - 1]);
+        let recommended = &self.options[self.recommend - 1];
+        let class = ask_once::class_of(recommended).or_else(|| if ask_once::is_decline(recommended) { None } else { ask_once::class(&self.question, &self.options) });
         match (self.has_default(), self.ask_once.as_deref(), class) {
             (true, Some(_), _) => Err(NorthError::Usage("a gate that names an ask-once category waits for Tom and takes no --default or --default-after: drop them, or drop --ask-once".into())),
-            (true, None, Some(class)) => Err(NorthError::Usage(format!("the recommended option is an ask-once matter ({class}) that only Tom answers: open the gate with --ask-once {class} and without --default and --default-after, and it waits for his answer"))),
+            (true, None, Some(class)) => Err(NorthError::Usage(format!("this gate decides an ask-once matter ({class}) that only Tom answers: open the gate with --ask-once {class} and without --default and --default-after, and it waits for his answer"))),
             (true, None, None) if self.default_applies() => Ok(()),
             (true, None, None) => Err(NorthError::Usage(format!("--default must name an option from 1 to {} and --default-after must be a duration", self.options.len()))),
             (false, Some(_), _) => Ok(()),
