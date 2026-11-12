@@ -33,7 +33,7 @@ case $arm in
     north fleet stop "$name" >> "$W/launch.log" 2>&1
     file=$(find "$XDG_STATE_HOME" "$HOME/.local/state/north/profiles" -name "$conv.jsonl" 2> /dev/null | head -1)
     [ -n "$file" ] || fail "no transcript for conversation $conv"
-    tool plant --turns "$turns" --session "$conv" --cwd "$ROOT" --out "$file" || fail "planting failed"
+    tool plant --turns "$turns" --session "$conv" --cwd "$ROOT" --out /dev/stdout > "$file" || fail "planting failed"
     north fleet revive "$name" >> "$W/launch.log" 2>&1 || fail "revive refused; see $W/launch.log"
     before=$(assistants "$file")
     north fleet send "$name" "$ASK" >> "$W/launch.log" 2>&1 || fail "send refused; see $W/launch.log"
@@ -60,7 +60,7 @@ case $arm in
     [ -n "$thread" ] || fail "thread start gave no thread; see $W/server.log"
     file=$(ls "$cfg"/projects/*/*.jsonl 2> /dev/null | head -1); [ -n "$file" ] || fail "the seed left no transcript"
     stop; rm -f "$W/server.pid"
-    tool plant --turns "$turns" --session "$(basename "$file" .jsonl)" --cwd "$ROOT" --out "$file" || fail "planting failed"
+    tool plant --turns "$turns" --session "$(basename "$file" .jsonl)" --cwd "$ROOT" --out /dev/stdout > "$file" || fail "planting failed"
     serve; trap stop EXIT
     answer=$(timeout "$LIMIT" "${cli[@]}" thread send "$thread" "$ASK" --wait --json --base-dir "$state" | jq -r '.reply // empty') ;;
   *) fail "the arms are north and t3" ;;
