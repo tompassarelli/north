@@ -104,7 +104,7 @@ impl route::Courier for Fleet {
 
     fn on(&self, host: &str, session: &str, message: &str) -> bool {
         let script = format!("{} exec \"$n\" fleet send --from {} {} {}", route::REMOTE_NORTH, land_notice::SENDER, route::quote(session), route::quote(message));
-        sent(Command::new("ssh").args(route::SSH_OPTIONS).args(["-T", host, "--", &script]))
+        sent(Command::new("ssh").args(route::SSH_OPTIONS).args(["-T", &crate::land::lander::login(host), "--", &script]))
     }
 }
 
