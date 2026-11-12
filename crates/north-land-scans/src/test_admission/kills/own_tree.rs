@@ -10,6 +10,8 @@ use super::super::super::git;
 
 const PROFILE: &str = "target/debug";
 const LINKED: [&str; 3] = ["deps", "incremental", "examples"];
+const OWNER: &str = "owner";
+const TREE: &str = "tree";
 
 pub(super) struct OwnTree {
     origin: PathBuf,
@@ -26,10 +28,11 @@ struct Linked {
 }
 
 impl OwnTree {
-    pub(super) fn of(top: &Path, head: &str) -> Result<Self, String> {
-        let parent = top.parent().ok_or_else(|| format!("{} has no parent directory", top.display()))?;
-        let scratch = tempfile::Builder::new().prefix(".mutant-kills-").tempdir_in(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
-        let root = scratch.path().join("tree");
+    pub(super) fn of(top: &Path, head: &str, sweeps: &Path) -> Result<Self, String> {
+        reclaim(sweeps);
+        let scratch = fs::create_dir_all(sweeps).and_then(|()| tempfile::Builder::new().prefix("sweep-").tempdir_in(sweeps)).map_err(|error| format!("{}: {error}", sweeps.display()))?;
+        fs::write(scratch.path().join(OWNER), format!("{}\n{}\n", std::process::id(), top.display())).map_err(|error| format!("{}: {error}", scratch.path().display()))?;
+        let root = scratch.path().join(TREE);
         let path = root.display().to_string();
         git::text(top, &["-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", &path, head]).ok_or_else(|| format!("git worktree add {path} {head} failed"))?;
         let mut tree = Self { origin: top.to_path_buf(), root, linked: Vec::new(), _scratch: scratch };
@@ -59,7 +62,9 @@ impl OwnTree {
 
     fn keep_times(&self) -> Result<(), String> {
         let listed = git::bytes(&self.origin, &["ls-files", "-z"]).ok_or("git ls-files failed")?;
-        for path in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()).map(|path| Path::new(OsStr::from_bytes(path))) {
+        let changed = git::bytes(&self.origin, &["diff", "--name-only", "--no-renames", "-z", "HEAD"]).ok_or("git diff HEAD failed")?;
+        let changed: Vec<&[u8]> = changed.split(|byte| *byte == 0).collect();
+        for path in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty() && !changed.contains(path)).map(|path| Path::new(OsStr::from_bytes(path))) {
             let Ok(meta) = fs::symlink_metadata(self.origin.join(path)) else { continue };
             if meta.is_file() {
                 stamp(&self.root.join(path), &meta).map_err(|error| format!("{}: {error}", path.display()))?;
@@ -119,4 +124,18 @@ fn linked(relative: &Path) -> bool {
     let rewritten = name.starts_with('.') || name.ends_with(".d") || name.ends_with(".o");
     let first = inner.components().next().and_then(|first| first.as_os_str().to_str()).unwrap_or_default();
     !rewritten && (inner.components().count() == 1 || LINKED.contains(&first))
+}
+
+fn reclaim(sweeps: &Path) {
+    let Ok(listing) = fs::read_dir(sweeps) else { return };
+    for scratch in listing.flatten().map(|entry| entry.path()) {
+        let Ok(owner) = fs::read_to_string(scratch.join(OWNER)) else { continue };
+        let mut lines = owner.lines();
+        let (Some(pid), Some(origin)) = (lines.next(), lines.next()) else { continue };
+        if Path::new("/proc").join(pid).exists() {
+            continue;
+        }
+        let _ = git::bytes(Path::new(origin), &["worktree", "remove", "--force", &scratch.join(TREE).display().to_string()]);
+        let _ = fs::remove_dir_all(&scratch);
+    }
 }

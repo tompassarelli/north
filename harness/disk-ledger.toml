@@ -20,6 +20,12 @@ kind = "cache"
 trim = "cargo-targets"
 
 [[store]]
+name = "mutant_sweeps"
+path = ".cache/north/mutant-sweeps"
+kind = "cache"
+trim = "north land scan test-admission kills"
+
+[[store]]
 name = "wisp_window"
 path = ".cache/wisp/window"
 kind = "cache"

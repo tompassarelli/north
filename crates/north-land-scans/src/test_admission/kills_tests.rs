@@ -6,6 +6,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::process::ExitStatus;
 
 use super::own_tree::OwnTree;
+use super::sweep::checkout_of;
 use super::{End, Tally, fallbacks, judge, judge_each, judged_alone};
 
 const HOSTS: &str = "[hosts.gex45]\nssh = \"tom@gex45\"\n\n[hosts.cpx62]\nssh = \"tom@cpx62\"\n\n[hosts.whiterabbit]\nreaches = [\"gex45\", \"cpx62\"]\n";
@@ -107,10 +108,15 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
         std::fs::write(built.join(path), text).unwrap();
     }
     std::fs::File::options().write(true).open(repo.join("crates/b/src/lib.rs")).unwrap().set_modified(long_ago).unwrap();
+    let committed = std::fs::read_to_string(repo.join("crates/a/src/lib.rs")).unwrap();
+    std::fs::write(repo.join("crates/a/src/lib.rs"), "pub fn f() -> u8 { 9 }\n").unwrap();
+    assert!(checkout_of(repo, &second).is_some(), "on 2026-11-12 the live case's sweep could not run because building north from the tree rewrote a tracked generated file in the slot; a checkout at the head is enough (north#1254)");
     let before = snapshot(repo);
-    let tree = OwnTree::of(repo, &second).unwrap();
+    let sweeps = tempfile::tempdir().unwrap();
+    let tree = OwnTree::of(repo, &second, sweeps.path()).unwrap();
     let own = tree.root().to_path_buf();
     let modified = |path: &Path| std::fs::metadata(path).unwrap().modified().unwrap();
+    assert_eq!(std::fs::read_to_string(own.join("crates/a/src/lib.rs")).unwrap(), committed, "the sweep's tree holds the head's content of a file the check's checkout changed");
     assert_eq!(modified(&own.join("crates/b/src/lib.rs")), long_ago, "the sweep's tree keeps the check's source times, so cargo finds the check's build fresh");
     assert_eq!(modified(&own.join("target/debug/.fingerprint/a/lib-a")), modified(&built.join(".fingerprint/a/lib-a")));
     std::fs::write(own.join("crates/b/src/lib.rs"), "pub fn g() -> u8 { 0 }\n").unwrap();
@@ -121,6 +127,15 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     assert!(tree.written_through().is_empty());
     drop(tree);
     assert!(!own.exists());
+    let killed = OwnTree::of(repo, &second, sweeps.path()).unwrap();
+    let left = killed.root().parent().unwrap().to_path_buf();
+    std::mem::forget(killed);
+    let mut ended = std::process::Command::new("true").spawn().unwrap();
+    ended.wait().unwrap();
+    std::fs::write(left.join("owner"), format!("{}\n{}\n", ended.id(), repo.display())).unwrap();
+    drop(OwnTree::of(repo, &second, sweeps.path()).unwrap());
+    assert!(!left.exists(), "on 2026-11-12 a sweep killed at its check's deadline left its tree and copied build on a build host whose disk ran short; the next sweep removes the tree its record names (north#1254)");
+    assert!(!git_in(repo, &["worktree", "list"]).contains(&left.display().to_string()));
     assert_eq!(snapshot(repo), before, "on 2026-11-12 a sweep mutated and rebuilt in place in the slot its check built, which another run then took; a sweep now writes nothing into the checkout or build directory of its check (north#1254)");
 }
 

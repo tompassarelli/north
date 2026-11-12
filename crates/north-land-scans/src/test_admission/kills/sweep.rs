@@ -14,24 +14,24 @@ use super::{BASELINE_FAILED, End, Lane, SHOWN, Tally, git, judge, sweep_cap, una
 const WORK: &str = "target/mutant-kills";
 const POLL: Duration = Duration::from_secs(2);
 const GRACE: Duration = Duration::from_secs(30);
+const SWEEPS: &str = ".cache/north/mutant-sweeps";
 
 pub(super) fn checkout_of(directory: &Path, head: &str) -> Option<PathBuf> {
     let top = git::text(directory, &["rev-parse", "--show-toplevel"]).map(|top| PathBuf::from(top.trim()))?;
-    let at_head = git::text(&top, &["rev-parse", "HEAD"]).is_some_and(|at| at.trim() == head);
-    let clean = git::text(&top, &["status", "--porcelain", "--untracked-files=no"]).is_some_and(|status| status.is_empty());
-    (at_head && clean).then_some(top)
+    git::text(&top, &["rev-parse", "HEAD"]).is_some_and(|at| at.trim() == head).then_some(top)
 }
 
 pub(super) fn on_this_host(directory: &Path, lane: &Lane, out: &mut impl Write) -> u8 {
     let Some(top) = checkout_of(directory, &lane.head) else {
-        return unavailable(out, &format!("--here copies the checkout its land check built, so it needs a clean checkout of {}", lane.head));
+        return unavailable(out, &format!("--here copies the checkout its land check built, so it needs a checkout at {}", lane.head));
     };
     let cap = match sweep_cap() {
         Ok(cap) => cap,
         Err(why) => return unavailable(out, &why),
     };
     let copying = Instant::now();
-    let tree = match OwnTree::of(&top, &lane.head) {
+    let sweeps = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(SWEEPS);
+    let tree = match OwnTree::of(&top, &lane.head, &sweeps) {
         Ok(tree) => tree,
         Err(why) => return unavailable(out, &format!("no copy of the check's checkout and build: {why}")),
     };
