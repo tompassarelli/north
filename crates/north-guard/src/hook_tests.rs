@@ -1,10 +1,6 @@
 use super::*;
 use serde_json::{Value, json};
 
-fn serde_output(output: Option<pyjson::Value>) -> Option<Value> {
-    output.map(|value| serde_json::from_str(&pyjson::dumps(&value)).unwrap())
-}
-
 #[test]
 fn provider_events_select_matching_guard_list() {
     crate::guard::activation::TEST_GUARDS_OFF.with(|off| off.set(true));
@@ -119,7 +115,7 @@ fn provider_events_select_matching_guard_list() {
 
 fn deny(input: &HookInput) -> Verdict {
     assert_eq!(
-        input.command().and_then(|text| text.as_str()),
+        input.command(),
         Some("echo ready")
     );
     assert_eq!(input.cwd(), Some("/tmp"));
@@ -152,11 +148,10 @@ fn fixture_denial_preserves_both_provider_inputs_and_first_message() {
     ] {
         let mut output = Vec::new();
         process(bytes, &mut output, &[guard("", |input| {
-            assert!(input.command().unwrap().codepoints.starts_with(&"wtype hi".chars().map(u32::from).collect::<Vec<_>>()));
+            assert!(input.command().unwrap().starts_with("wtype hi"));
             Verdict::Deny("No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.".into())
         }), guard("", |_| panic!("ran after deny"))], "PreToolUse").unwrap();
-        assert_eq!(output, b"{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.\"}}\n");
-        eprintln!("desktop-action opaque surrogate: fixture deny matches Python's 260-byte denial");
+        assert_eq!(serde_json::from_slice::<Value>(&output).unwrap(), json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first."}}));
     }
 }
 
@@ -197,13 +192,13 @@ fn malformed_and_oversized_payloads_fail_open() {
 #[test]
 fn stop_denial_blocks_verbatim_and_no_guards_say_nothing() {
     let input = HookInput::parse(b"{}").unwrap();
-    assert_eq!(serde_output(evaluate(&input, &[], "Stop")), None);
+    assert_eq!(evaluate(&input, &[], "Stop"), None);
     assert_eq!(
-        serde_output(evaluate(
+        evaluate(
             &input,
             &[guard("", |_| Verdict::Deny("stop\nverbatim".into()))],
             "Stop"
-        )),
+        ),
         Some(json!({"decision":"block", "reason":"stop\nverbatim"}))
     );
 }

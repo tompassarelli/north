@@ -1,7 +1,7 @@
 use rusqlite::{Connection, params};
 
 use super::runs::row::Row;
-use crate::platform::pyjson::Value;
+use serde_json::Value;
 use super::verb::Failure;
 
 const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS done_checks(
@@ -24,7 +24,7 @@ pub fn ensure(db: &Connection) -> Result<(), Failure> {
 pub fn record(db: &Connection, row: &Row) -> Result<usize, Failure> {
     let field = |key: &str| row.get(key).and_then(|value| value.as_str()).map(str::to_owned).unwrap_or_default();
     let number = |key: &str| match row.get(key) {
-        Some(Value::Number { raw, .. }) => raw.parse::<i64>().ok(),
+        Some(Value::Number(number)) => number.as_i64(),
         _ => None,
     };
     let (host, task_ref, head_sha, command) = (field("host"), field("task_ref"), field("head_sha").to_ascii_lowercase(), field("command"));

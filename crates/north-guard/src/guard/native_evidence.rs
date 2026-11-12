@@ -23,8 +23,7 @@ pub(super) fn decide_with(
     let Some(text) = input.command() else {
         return Verdict::Allow;
     };
-    let text = text.lossy();
-    let Ok(tokens) = operator_tokens(&strip_heredocs(&text)) else {
+    let Ok(tokens) = operator_tokens(&strip_heredocs(text)) else {
         return Verdict::Allow;
     };
     let mut segment = Vec::new();
@@ -55,7 +54,7 @@ pub(super) fn decide_with(
         return Verdict::Deny(denials.join("\n"));
     }
     if let Some(reason) = exceptions.first() {
-        let _ = record(reason, &text);
+        let _ = record(reason, text);
     }
     Verdict::Allow
 }

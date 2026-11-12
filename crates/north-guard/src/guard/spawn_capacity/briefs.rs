@@ -1,6 +1,5 @@
 use super::{LOCAL_CLAUDE_TYPES, World, capacity_home};
 use crate::hook_input::HookInput;
-use crate::platform::pyjson;
 use regex::Regex;
 use serde_json::Value;
 use std::sync::LazyLock;
@@ -21,7 +20,7 @@ pub struct Event {
 
 impl Event {
     pub fn from_hook(input: &HookInput) -> Option<Self> {
-        let raw: Value = serde_json::from_str(&pyjson::dumps(&input.data)).ok()?;
+        let raw = input.data.clone();
         raw.as_object()?;
         let texts = input.data.get("tool_input").filter(|input| py_truthy(input)).map(brief_texts).unwrap_or_default();
         Some(Self { raw, texts })
@@ -77,25 +76,25 @@ pub(super) fn text(value: &Value) -> String {
     }
 }
 
-fn py_truthy(value: &pyjson::Value) -> bool {
+fn py_truthy(value: &Value) -> bool {
     match value {
-        pyjson::Value::Null => false,
-        pyjson::Value::Bool(flag) => *flag,
-        pyjson::Value::Number { raw, .. } => raw.parse::<f64>() != Ok(0.0),
-        pyjson::Value::String(text) => !text.codepoints.is_empty(),
-        pyjson::Value::Array(items) => !items.is_empty(),
-        pyjson::Value::Object(items) => !items.is_empty(),
+        Value::Null => false,
+        Value::Bool(flag) => *flag,
+        Value::Number(number) => number.as_f64() != Some(0.0),
+        Value::String(text) => !text.is_empty(),
+        Value::Array(items) => !items.is_empty(),
+        Value::Object(items) => !items.is_empty(),
     }
 }
 
-fn brief_texts(value: &pyjson::Value) -> Vec<String> {
+fn brief_texts(value: &Value) -> Vec<String> {
     match value {
-        pyjson::Value::String(raw) => match pyjson::loads_string(raw) {
-            Ok(pyjson::Value::String(_)) | Err(_) => vec![raw.lossy().into_owned()],
-            Ok(parsed) => brief_texts(&parsed),
+        Value::String(raw) => match crate::hook_input::read_json(raw.as_bytes()) {
+            Some(Value::String(_)) | None => vec![raw.clone()],
+            Some(parsed) => brief_texts(&parsed),
         },
-        pyjson::Value::Object(items) => items.iter().flat_map(|(_, value)| brief_texts(value)).collect(),
-        pyjson::Value::Array(items) => items.iter().flat_map(brief_texts).collect(),
+        Value::Object(items) => items.iter().flat_map(|(_, value)| brief_texts(value)).collect(),
+        Value::Array(items) => items.iter().flat_map(brief_texts).collect(),
         _ => Vec::new(),
     }
 }

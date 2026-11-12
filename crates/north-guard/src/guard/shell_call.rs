@@ -1,4 +1,4 @@
-use crate::platform::pyjson::{PyString, Value};
+use serde_json::Value;
 
 const SHELL_TOOLS: [&str; 6] = ["Bash", "Monitor", "exec_command", "shell", "shell_command", "local_shell"];
 
@@ -6,7 +6,7 @@ pub fn is_shell_tool(name: &str) -> bool {
     SHELL_TOOLS.contains(&name)
 }
 
-pub fn command_text(tool_name: &str, tool_input: &Value) -> Option<PyString> {
+pub fn command_text(tool_name: &str, tool_input: &Value) -> Option<String> {
     if !is_shell_tool(tool_name.rsplit('.').next()?) {
         return None;
     }
@@ -20,8 +20,8 @@ pub fn command_text(tool_name: &str, tool_input: &Value) -> Option<PyString> {
                 }
                 _ => words.join(" "),
             };
-            Some(text.as_str().into())
+            Some(text)
         }
-        _ => tool_input["cmd"].as_string().cloned(),
+        _ => tool_input["cmd"].as_str().map(str::to_owned),
     }
 }

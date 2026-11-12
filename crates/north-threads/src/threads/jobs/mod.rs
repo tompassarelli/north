@@ -8,8 +8,8 @@ use std::io::{Read, Write};
 
 use rusqlite::params;
 
-use super::verb::{Args, Context, Failure, Outcome, immediate, integer, open, report, table, text_or_null};
-use crate::platform::pyjson::Value;
+use super::verb::{Args, Context, Failure, Outcome, immediate, open, report, table, text_or_null};
+use serde_json::{Value, json};
 
 pub const VERBS: [&str; 3] = ["job-run", "job-runs", "queue"];
 
@@ -64,18 +64,10 @@ fn job_runs(argv: &[String], context: &Context) -> Outcome {
     if args.has("--json") {
         let mut statement = db.prepare(JOB_RUNS_JSON)?;
         let rows = statement.query_map([], |row| {
-            Ok(Value::object([
-                ("name", Value::from(row.get::<_, String>(0)?)),
-                ("host", Value::from(row.get::<_, String>(1)?)),
-                ("first_started", text_or_null(row.get(2)?)),
-                ("last_started", text_or_null(row.get(3)?)),
-                ("last_ok", text_or_null(row.get(4)?)),
-                ("last_rc", row.get::<_, Option<i64>>(5)?.map_or(Value::Null, integer)),
-                ("open_since", text_or_null(row.get(6)?)),
-            ]))
+            Ok(json!({"name": Value::from(row.get::<_, String>(0)?), "host": Value::from(row.get::<_, String>(1)?), "first_started": text_or_null(row.get(2)?), "last_started": text_or_null(row.get(3)?), "last_ok": text_or_null(row.get(4)?), "open_since": text_or_null(row.get(6)?)}))
         })?;
         let rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        return Ok(format!("{}\n", crate::platform::pyjson::dumps(&Value::Array(rows))));
+        return Ok(format!("{}\n", Value::Array(rows)));
     }
     let mut statement = db.prepare(JOB_RUNS)?;
     let rows = statement.query_map([], |row| {

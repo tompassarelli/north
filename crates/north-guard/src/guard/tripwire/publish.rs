@@ -240,7 +240,7 @@ impl<'a> State<'a> {
         Ok(())
     }
     fn command_text(&self) -> Option<&str> {
-        self.input.command().and_then(|command| command.as_str())
+        self.input.command()
     }
     fn gh_body(&self, value: &str, input: bool) -> bool {
         let mutation = !input && MUTATION.is_match(value);

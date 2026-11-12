@@ -13,7 +13,7 @@ pub fn verdict(input: &HookInput) -> Verdict {
     if input.runs_in_background() {
         return Verdict::Allow;
     }
-    match input.command().and_then(|command| command.as_str()) {
+    match input.command() {
         Some(command) if polls_task_output(command) => Verdict::Deny(refusal()),
         _ => Verdict::Allow,
     }

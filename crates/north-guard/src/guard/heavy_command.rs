@@ -1,7 +1,8 @@
 use self::cpu::{cpu_file, cpu_throttle};
 use crate::hook_input::{HookInput, Verdict};
 use crate::nix_command::{self, Inner};
-use crate::{platform::pyjson::Value, shell};
+use crate::shell;
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 mod bun;
@@ -21,7 +22,7 @@ pub(super) enum Decision {
 }
 
 pub fn judge(input: &HookInput) -> Verdict {
-    let Some(command) = input.command().and_then(|s| s.as_str()) else {
+    let Some(command) = input.command() else {
         return Verdict::Allow;
     };
     match decide(command, Path::new(input.cwd().unwrap_or(".")), false, 0) {

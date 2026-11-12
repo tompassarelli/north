@@ -1,5 +1,5 @@
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::pyjson::{self, Value};
+use serde_json::Value;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
@@ -76,7 +76,7 @@ fn final_text(path: &str) -> Option<String> {
 
 pub fn last_assistant_text(tail: &[u8]) -> Option<String> {
     for line in tail.split(|byte| *byte == b'\n').rev() {
-        let Ok(entry) = pyjson::loads(line) else { continue };
+        let Some(entry) = crate::hook_input::read_json(line) else { continue };
         match entry["type"].as_str() {
             Some("assistant") => {}
             Some("user") if entry["isMeta"] != Value::Bool(true) => return None,

@@ -4,7 +4,7 @@ mod lexical;
 mod reason;
 
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::pyjson::Value;
+use serde_json::Value;
 use crate::shell;
 use commands::{DYNAMIC_UNIT, SHELLS, Script, Systemd, full_pattern, kill, killall, pkill, shell_script, ssh};
 use reason::reason;
@@ -68,7 +68,7 @@ fn user_bus() -> bool {
 }
 
 fn evaluate_with(input: &HookInput, bus: bool) -> Verdict {
-    let hits = input.command().and_then(|s| s.as_str()).map(decide).unwrap_or_default();
+    let hits = input.command().map(decide).unwrap_or_default();
     if hits.is_empty() {
         return Verdict::Allow;
     }

@@ -22,7 +22,7 @@ const HINTS: &[&str] = &["wine", "proton", "steam-run", "umu-run", ".exe"];
 const REASON: &str = "No. A Wine/Proton/Warcraft client started here runs in your terminal scope, outside capacity admission, and can saturate the GPU. Wrap it: north capacity host session --class native --new-clients 1 --owner OWNER -- COMMAND ARG... (one session per client; retry DEFER after 30 s). Self-wrapping routes: `wisp lan pool`, ~/.local/share/wisp/online/launch.sh.";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    match input.command().and_then(|s| s.as_str()) {
+    match input.command() {
         Some(command) if launches_unwrapped_client(command) => {
             Verdict::Deny(REASON.into())
         }

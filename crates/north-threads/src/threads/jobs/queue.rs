@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use crate::threads::verb::{Args, Context, Failure, Outcome, event, immediate, integer, is_native_ref, item_ref, open, table, text_or_null};
 use crate::foundation::clock::Timestamp;
-use crate::platform::pyjson::{self, Value};
+use serde_json::{Value, json};
 
 const POLL: &str = "queue-poll:";
 const STALLED_MINUTES: i64 = 5;
@@ -46,7 +46,7 @@ fn job(row: &rusqlite::Row<'_>) -> rusqlite::Result<Job> {
 }
 
 fn cmd_of(job: &Job) -> Result<Value, Failure> {
-    pyjson::loads(job.cmd.as_bytes()).map_err(|_| Failure::Refused(format!("job {} has an unreadable cmd", job.id)))
+    serde_json::from_str(&job.cmd).map_err(|_| Failure::Refused(format!("job {} has an unreadable cmd", job.id)))
 }
 
 pub(super) fn run(argv: &[String], context: &Context, stdin: &mut dyn Read) -> Outcome {
@@ -90,14 +90,14 @@ fn follow(argv: &[String], context: &Context, stdin: &mut dyn Read) -> Outcome {
     let (repo, number) = item_ref(item, context)?;
     let item = format!("{repo}#{number}");
     let repo = args.get("--repo").filter(|named| !named.is_empty()).map_or(repo, str::to_owned);
-    let cmd = Value::object([("repo", repo.into()), ("tier", tier.into()), ("parent", parent.into()), ("follows", follows.into()), ("brief", brief.into())]);
+    let cmd = json!({"repo": repo, "tier": tier, "parent": parent, "follows": follows, "brief": brief});
     insert(context, "follows", Some(&item), &cmd)
 }
 
 fn insert(context: &Context, placement: &str, item: Option<&str>, cmd: &Value) -> Outcome {
     let mut db = open(context.database, true)?;
     let tx = immediate(&mut db)?;
-    tx.execute("INSERT INTO job_queue(placement, item, cmd, queued) VALUES (?1, ?2, ?3, ?4)", params![placement, item, pyjson::dumps(cmd), context.now.iso()])?;
+    tx.execute("INSERT INTO job_queue(placement, item, cmd, queued) VALUES (?1, ?2, ?3, ?4)", params![placement, item, cmd.to_string(), context.now.iso()])?;
     let id = tx.last_insert_rowid();
     tx.commit()?;
     Ok(format!("{id}\n"))
@@ -109,25 +109,13 @@ fn follow_list(context: &Context) -> Outcome {
     let jobs = statement.query_map([], job)?.collect::<rusqlite::Result<Vec<_>>>()?;
     let mut boxes = Vec::new();
     for job in &jobs {
-        let mut entry = Value::object([
-            ("id", integer(job.id)),
-            ("item", text_or_null(job.item.clone())),
-            ("state", job.state.as_str().into()),
-            ("queued", job.queued.as_str().into()),
-            ("taken", text_or_null(job.taken.clone())),
-            ("alerted", text_or_null(job.result.clone())),
-        ]);
-        if let (Value::Object(fields), Value::Object(ref cmd)) = (&mut entry, cmd_of(job)?) {
-            for (key, value) in cmd.iter() {
-                match fields.iter_mut().find(|(name, _)| name == key) {
-                    Some(field) => field.1 = value.clone(),
-                    None => fields.push((key.clone(), value.clone())),
-                }
-            }
+        let mut entry = json!({"id": integer(job.id), "item": text_or_null(job.item.clone()), "state": job.state.as_str(), "queued": job.queued.as_str(), "taken": text_or_null(job.taken.clone()), "alerted": text_or_null(job.result.clone())});
+        if let (Value::Object(fields), Value::Object(cmd)) = (&mut entry, cmd_of(job)?) {
+            fields.extend(cmd);
         }
         boxes.push(entry);
     }
-    Ok(format!("{}\n", pyjson::dumps(&Value::Array(boxes))))
+    Ok(format!("{}\n", Value::Array(boxes)))
 }
 
 fn follow_step(step: &str, argv: &[String], context: &Context) -> Outcome {
@@ -184,8 +172,8 @@ fn take(argv: &[String], context: &Context, by: &str) -> Outcome {
     };
     tx.execute("UPDATE job_queue SET state = 'taken', taken = ?1 WHERE id = ?2", params![context.now.iso(), found.id])?;
     tx.commit()?;
-    let taken = Value::object([("id", integer(found.id)), ("placement", found.placement.as_str().into()), ("item", text_or_null(found.item.clone())), ("cmd", cmd_of(&found)?)]);
-    Ok(format!("{}\n", pyjson::dumps(&taken)))
+    let taken = json!({"id": integer(found.id), "placement": found.placement.as_str(), "item": text_or_null(found.item.clone()), "cmd": cmd_of(&found)?});
+    Ok(format!("{}\n", taken))
 }
 
 fn msg(argv: &[String], context: &Context, by: &str) -> Outcome {
@@ -208,7 +196,7 @@ fn msg(argv: &[String], context: &Context, by: &str) -> Outcome {
     }
     let item = found.item.as_deref();
     if let Some(item) = item.filter(|item| is_native_ref(item)) {
-        event(&tx, Some(item), "note", by, Value::object([("text", format!("job {id} {status}: {text}").into())]), context.now)?;
+        event(&tx, Some(item), "note", by, json!({"text": format!("job {id} {status}: {text}")}), context.now)?;
     }
     tx.commit()?;
     if let Some(item) = item.filter(|item| !is_native_ref(item)) {
@@ -241,7 +229,7 @@ fn drop_job(db: &Connection, id: i64, reason: &str, by: &str, now: Timestamp) ->
     let changed = db.execute("UPDATE job_queue SET state = 'dropped', finished = ?1, result = ?2 WHERE id = ?3 AND state IN ('queued','requeued')", params![now.iso(), reason, id])?;
     if changed == 1 {
         let item: Option<String> = db.query_row("SELECT item FROM job_queue WHERE id = ?1", [id], |row| row.get(0))?;
-        event(db, item.as_deref(), "note", by, Value::object([("job", integer(id)), ("text", format!("job {id} dropped: {reason}").into())]), now)?;
+        event(db, item.as_deref(), "note", by, json!({"job": integer(id), "text": format!("job {id} dropped: {reason}")}), now)?;
     }
     Ok(changed == 1)
 }
@@ -252,20 +240,9 @@ fn listed_json(rows: Vec<(Job, Option<String>, Option<String>)>, polls: &[Poll],
     for (job, host, _) in rows {
         let waiting = waiting(&job, polls, now);
         let cmd = if job.finished.is_none() { cmd_of(&job)? } else { text_or_null(None) };
-        jobs.push(Value::object([
-            ("id", integer(job.id)),
-            ("placement", job.placement.into()),
-            ("item", text_or_null(job.item)),
-            ("cmd", cmd),
-            ("state", job.state.into()),
-            ("queued", job.queued.into()),
-            ("taken", text_or_null(job.taken)),
-            ("finished", text_or_null(job.finished)),
-            ("host", text_or_null(host)),
-            ("waiting", text_or_null(waiting)),
-        ]));
+        jobs.push(json!({"id": integer(job.id), "placement": job.placement, "item": text_or_null(job.item), "cmd": cmd, "state": job.state, "queued": job.queued, "taken": text_or_null(job.taken), "finished": text_or_null(job.finished), "host": text_or_null(host), "waiting": text_or_null(waiting)}));
     }
-    Ok(format!("{}\n", pyjson::dumps(&Value::Array(jobs))))
+    Ok(format!("{}\n", Value::Array(jobs)))
 }
 
 fn list(context: &Context, json: bool) -> Outcome {
@@ -333,6 +310,6 @@ fn follows_text(cmd: &Value) -> String {
     if cmd.is_object() {
         return format!("follows {} on {}", cmd["follows"].as_str().unwrap_or(""), cmd["tier"].as_str().unwrap_or(""));
     }
-    let words = cmd.as_array().unwrap_or(&[]);
-    words.iter().map(|word| crate::threads::client::shell_quote(&word.as_string().map_or_else(String::new, |text| text.lossy().into_owned()))).collect::<Vec<_>>().join(" ")
+    let words = cmd.as_array().map_or(&[][..], Vec::as_slice);
+    words.iter().map(|word| crate::threads::client::shell_quote(word.as_str().unwrap_or_default())).collect::<Vec<_>>().join(" ")
 }

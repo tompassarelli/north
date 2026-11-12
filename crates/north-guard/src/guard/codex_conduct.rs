@@ -107,20 +107,19 @@ pub(super) fn chars(text: &str, limit: usize) -> &str {
 }
 
 pub(super) fn log_override(ctx: &Ctx, input: &HookInput, gate: &str, case: &str, fact: &str) {
-    use crate::platform::pyjson::{self, Value as Py};
-    let line = Py::object([
-        ("at", Py::float(ctx.now)),
-        ("session", input.data["session_id"].clone()),
-        ("agent", input.data["agent_id"].clone()),
-        ("gate", gate.into()),
-        ("case", case.into()),
-        ("cwd", input.data["cwd"].clone()),
-        ("fact", chars(fact, 300).into()),
-    ]);
+    let line = serde_json::json!({
+        "at": ctx.now,
+        "session": input.data["session_id"],
+        "agent": input.data["agent_id"],
+        "gate": gate,
+        "case": case,
+        "cwd": input.data["cwd"],
+        "fact": chars(fact, 300),
+    });
     let _ = std::fs::create_dir_all(&ctx.state_root);
     if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(ctx.state_root.join("verify-overrides.jsonl")) {
         use std::io::Write;
-        let _ = writeln!(log, "{}", pyjson::dumps(&line));
+        let _ = writeln!(log, "{line}");
     }
 }
 

@@ -23,7 +23,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     if !input.is_shell() || !input.raw.windows(4).any(|bytes| bytes == b"sops") {
         return Verdict::Allow;
     }
-    if prints_decrypted(&text.lossy(), 0, false) {
+    if prints_decrypted(text, 0, false) {
         Verdict::Deny(DENIAL.into())
     } else {
         Verdict::Allow

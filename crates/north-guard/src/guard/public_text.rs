@@ -76,10 +76,10 @@ pub(super) fn decide_with(
     let Some(text) = input.command() else {
         return Verdict::Allow;
     };
-    for write in gh_write::writes(&text.lossy(), input.cwd()) {
+    for write in gh_write::writes(text, input.cwd()) {
         let mut bodies = write.bodies.clone();
         if write.opaque {
-            bodies.push(text.lossy().into_owned());
+            bodies.push(text.to_owned());
         }
         if bodies.is_empty() {
             continue;

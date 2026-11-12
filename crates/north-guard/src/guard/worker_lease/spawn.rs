@@ -1,8 +1,7 @@
 use super::{Env, valid_id};
 use crate::foundation::clock::Timestamp;
 use crate::hook_input::HookInput;
-use crate::platform::pyjson::{self, Value};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::io::{ErrorKind, Write};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
@@ -13,8 +12,8 @@ pub(super) fn truthy(value: &Value) -> bool {
     match value {
         Value::Null | Value::Bool(false) => false,
         Value::Bool(true) => true,
-        Value::Number { raw, .. } => raw.parse::<f64>() != Ok(0.0),
-        Value::String(text) => !text.codepoints.is_empty(),
+        Value::Number(number) => number.as_f64() != Some(0.0),
+        Value::String(text) => !text.is_empty(),
         Value::Array(items) => !items.is_empty(),
         Value::Object(items) => !items.is_empty(),
     }
@@ -24,17 +23,13 @@ fn py_str(value: &Value) -> String {
     match value {
         Value::Null => "None".into(),
         Value::Bool(flag) => if *flag { "True" } else { "False" }.into(),
-        Value::Number { raw, .. } => raw.clone(),
-        Value::String(text) => text.lossy().into_owned(),
-        other => pyjson::dumps(other),
+        Value::Number(number) => number.to_string(),
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
     }
 }
 
-fn plain(value: &Value) -> serde_json::Value {
-    serde_json::from_str(&pyjson::dumps(value)).unwrap_or(serde_json::Value::Null)
-}
-
-fn row(input: &HookInput, now: f64) -> Option<serde_json::Value> {
+fn row(input: &HookInput, now: f64) -> Option<Value> {
     let data = &input.data;
     let (args, result) = (&data["tool_input"], &data["tool_response"]);
     if !args.is_object() || !result.is_object() || result["status"] != "async_launched" {
@@ -47,9 +42,9 @@ fn row(input: &HookInput, now: f64) -> Option<serde_json::Value> {
     let tier = tier.strip_prefix('-').unwrap_or(tier);
     let staffed = Timestamp::from_unix_seconds_f64(now).iso_micros_utc_offset();
     Some(json!({
-        "id": child, "session": plain(&data["session_id"]), "status": "running", "role": "worker",
+        "id": child, "session": data["session_id"], "status": "running", "role": "worker",
         "tier": if tier.is_empty() { "medium" } else { tier },
-        "model": plain(&result["resolvedModel"]), "started": staffed, "staffed": staffed,
+        "model": result["resolvedModel"], "started": staffed, "staffed": staffed,
         "brief": brief, "brief_text": brief, "brief_origin": ORIGIN,
     }))
 }

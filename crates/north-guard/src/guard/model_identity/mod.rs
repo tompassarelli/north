@@ -3,7 +3,7 @@ mod script;
 
 use crate::guard::paths::{basename, dirname, expanduser, join, normpath, realpath};
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::pyjson::Value;
+use serde_json::Value;
 use identity::{splitlines, text_invalid};
 use regex::Regex;
 use std::path::Path;
@@ -88,8 +88,8 @@ fn truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
         Value::Bool(flag) => *flag,
-        Value::Number { raw, .. } => raw.parse::<f64>() != Ok(0.0),
-        Value::String(text) => !text.lossy().is_empty(),
+        Value::Number(number) => number.as_f64() != Some(0.0),
+        Value::String(text) => !text.is_empty(),
         Value::Array(items) => !items.is_empty(),
         Value::Object(entries) => !entries.is_empty(),
     }
@@ -140,7 +140,7 @@ impl Context {
             "apply_patch" => tool_input["input"].as_str().is_some_and(|patch| patch_invalid(self, patch)),
             _ if input.is_shell() => input
                 .command()
-                .is_some_and(|command| script::writes_invalid(self, &command.lossy(), 0)),
+                .is_some_and(|command| script::writes_invalid(self, command, 0)),
             _ => false,
         }
     }

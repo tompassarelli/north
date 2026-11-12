@@ -40,18 +40,17 @@ fn refuse(input: &HookInput, world: &mut impl World) -> Verdict {
     let Some(text) = input.command() else {
         return Verdict::Allow;
     };
-    let text = text.lossy();
-    if ALLOWED.is_match(&text) {
+    if ALLOWED.is_match(text) {
         return Verdict::Allow;
     }
-    for write in gh_write::writes(&text, input.cwd()) {
+    for write in gh_write::writes(text, input.cwd()) {
         let Some((_, number)) = write.edits.as_ref().filter(|(group, _)| group == "issue") else {
             continue;
         };
         let Ok(number) = number.parse::<u64>() else {
             continue;
         };
-        if !write.body_set || write.opaque || write.unread || written_here(&text, &write) {
+        if !write.body_set || write.opaque || write.unread || written_here(text, &write) {
             continue;
         }
         let Some(repo) = world.repo(write.repo.as_deref(), write.dir.as_deref()).filter(|repo| repo.to_lowercase().starts_with(OWNER)) else {

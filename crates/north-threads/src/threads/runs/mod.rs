@@ -23,7 +23,6 @@ use self::record::{Ingest, Tally};
 use self::row::{Row, value};
 use super::verb::{Args, Context, Failure, Outcome, immediate, open, report};
 use crate::foundation::clock::Timestamp;
-use crate::platform::pyjson;
 
 pub const VERBS: [&str; 4] = ["ingest", "label-runs", "run-ids", "landed-runs"];
 const LANDING_DAYS: i64 = 3;
@@ -77,7 +76,7 @@ fn run_ids(argv: &[String], context: &Context) -> Outcome {
         shown += &match agent {
             Sql::Text(text) => text,
             Sql::Integer(number) => number.to_string(),
-            other => pyjson::dumps(&value(&other)),
+            other => value(&other).to_string(),
         };
         if let (true, Sql::Text(ended)) = (args.has("--ended"), ended) {
             shown.push('\t');

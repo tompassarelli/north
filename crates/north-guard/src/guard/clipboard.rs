@@ -26,7 +26,7 @@ static PRIVATE_RUNTIME: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    match input.command().and_then(|s| s.as_str()) {
+    match input.command() {
         Some(command)
             if touches_clipboard(command) =>
         {

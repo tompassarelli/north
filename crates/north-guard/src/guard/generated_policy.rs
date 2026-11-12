@@ -1,6 +1,6 @@
 use crate::guard::paths::{basename, dirname, expand_home, join, normpath, realpath};
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::pyjson::Value;
+use serde_json::Value;
 use crate::shell::{command_index, is_separator, words};
 use regex::Regex;
 use std::path::Path;
@@ -297,7 +297,7 @@ impl Policy {
         if input.is_shell() {
             return input
                 .command()
-                .map_or_else(Vec::new, |command| self.shell_targets(&command.lossy()));
+                .map_or_else(Vec::new, |command| self.shell_targets(command));
         }
         if tool.ends_with("apply_patch") {
             return find_envelope(&input.tool_input)
@@ -401,14 +401,8 @@ fn operand_targets(name: &str, args: &[String], state: &State, out: &mut Vec<Tar
 
 fn find_envelope(value: &Value) -> Option<&str> {
     match value {
-        Value::String(text) => text.as_str().filter(|s| s.contains(PATCH_BEGIN)),
-        Value::Object(entries) => entries.iter().enumerate().find_map(|(index, (key, _))| {
-            if entries[..index].iter().any(|(earlier, _)| earlier == key) {
-                return None;
-            }
-            let last = entries.iter().rfind(|(later, _)| later == key)?;
-            find_envelope(&last.1)
-        }),
+        Value::String(text) => Some(text.as_str()).filter(|s| s.contains(PATCH_BEGIN)),
+        Value::Object(entries) => entries.values().find_map(find_envelope),
         _ => None,
     }
 }

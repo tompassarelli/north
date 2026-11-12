@@ -8,7 +8,7 @@ use std::io::{Read, Write};
 use rusqlite::{OptionalExtension, params};
 
 use super::verb::{Args, Context, Failure, Outcome, event, immediate, item_ref, open, report};
-use crate::platform::pyjson::Value;
+use serde_json::{Value, json};
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::lifecycle::{self, Moved};
 use crate::threads::claims::{box_slug, key};
@@ -58,12 +58,12 @@ fn release(argv: &[String], context: &Context) -> Outcome {
     let printed = match args.get("--to").filter(|to| !to.is_empty()) {
         Some(to) => {
             tx.execute("UPDATE claims SET owner = ?1, since = ?2 WHERE item = ?3", params![to, context.now.iso(), held])?;
-            event(&tx, Some(&item), "handoff", &by, Value::object([("from", owner.as_str().into()), ("to", to.into())]), context.now)?;
+            event(&tx, Some(&item), "handoff", &by, json!({"from": owner.as_str(), "to": to}), context.now)?;
             format!("{shown} handed from {owner} to {to}\n")
         }
         None => {
             tx.execute("DELETE FROM claims WHERE item = ?1", [&held])?;
-            event(&tx, Some(&item), "release", &by, Value::object([("owner", owner.as_str().into())]), context.now)?;
+            event(&tx, Some(&item), "release", &by, json!({"owner": owner.as_str()}), context.now)?;
             format!("{shown} released by {owner}\n")
         }
     };
@@ -94,7 +94,7 @@ fn dependency(argv: &[String], context: &Context, need: bool) -> Outcome {
         } else {
             tx.execute("DELETE FROM item_needs WHERE item = ?1 AND needs = ?2", params![item, needs])?;
         }
-        event(&tx, Some(&item), verb, &by, Value::object([("needs", needs.as_str().into())]), context.now)?;
+        event(&tx, Some(&item), verb, &by, json!({"needs": needs.as_str()}), context.now)?;
         tx.commit()?;
     } else {
         let owner = &CATALOG.owner;
@@ -107,7 +107,7 @@ fn dependency(argv: &[String], context: &Context, need: bool) -> Outcome {
         }
         db.execute("DELETE FROM gh_cache WHERE repo = ?1", [&repo])?;
         let tx = immediate(&mut db)?;
-        event(&tx, Some(&item), verb, &by, Value::object([("needs", needs.as_str().into())]), context.now)?;
+        event(&tx, Some(&item), verb, &by, json!({"needs": needs.as_str()}), context.now)?;
         tx.commit()?;
     }
     Ok(match (need, local) {
@@ -154,7 +154,7 @@ fn new(argv: &[String], context: &Context, stdin: &mut dyn Read) -> Outcome {
     let number: i64 = tx.query_row("SELECT coalesce(max(number), 0) + 1 FROM items WHERE ns = ?1", [ns], |row| row.get(0))?;
     tx.execute("INSERT INTO items(ns, number, title, body, created, due) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![ns, number, title, body, context.now.iso(), args.get("--due")])?;
     let item = format!("{ns}#{number}");
-    event(&tx, Some(&item), "capture", &context.by(&args), Value::Object(Vec::new()), context.now)?;
+    event(&tx, Some(&item), "capture", &context.by(&args), json!({}), context.now)?;
     tx.commit()?;
     Ok(format!("{item}\n"))
 }
@@ -168,7 +168,7 @@ fn note(argv: &[String], context: &Context) -> Outcome {
     context.outside.scan(&text)?;
     let item = format!("{ns}#{number}");
     let tx = immediate(&mut db)?;
-    event(&tx, Some(&item), "note", &context.by(&args), Value::object([("text", text.into())]), context.now)?;
+    event(&tx, Some(&item), "note", &context.by(&args), json!({"text": text}), context.now)?;
     tx.commit()?;
     Ok(format!("noted on {item}\n"))
 }
@@ -182,7 +182,7 @@ fn set_state(argv: &[String], context: &Context, state: &str) -> Outcome {
     let closed = (state == "closed").then(|| context.now.iso());
     let tx = immediate(&mut db)?;
     tx.execute("UPDATE items SET state = ?1, closed = ?2 WHERE ns = ?3 AND number = ?4", params![state, closed, ns, number as i64])?;
-    event(&tx, Some(&item), if state == "closed" { "close" } else { "reopen" }, &context.by(&args), Value::Object(Vec::new()), context.now)?;
+    event(&tx, Some(&item), if state == "closed" { "close" } else { "reopen" }, &context.by(&args), json!({}), context.now)?;
     tx.commit()?;
     Ok(format!("{item} {state}\n"))
 }
@@ -197,14 +197,14 @@ fn block(argv: &[String], context: &Context) -> Outcome {
     let tx = immediate(&mut db)?;
     let printed = if args.has("--clear") {
         tx.execute("DELETE FROM blocks WHERE item = ?1", [&item])?;
-        event(&tx, Some(&item), "note", &by, Value::object([("unblock", Value::Bool(true))]), context.now)?;
+        event(&tx, Some(&item), "note", &by, json!({"unblock": Value::Bool(true)}), context.now)?;
         format!("{item} unblocked\n")
     } else {
         if reason.is_empty() {
             return Err(Failure::Refused("block needs a reason".into()));
         }
         tx.execute("INSERT OR REPLACE INTO blocks(item, reason, since, by) VALUES (?1, ?2, ?3, ?4)", params![item, reason, context.now.iso(), by])?;
-        event(&tx, Some(&item), "note", &by, Value::object([("block", reason.as_str().into())]), context.now)?;
+        event(&tx, Some(&item), "note", &by, json!({"block": reason.as_str()}), context.now)?;
         format!("{item} blocked: {reason}\n")
     };
     tx.commit()?;

@@ -190,7 +190,7 @@ fn refusal(world: &impl World, input: &HookInput) -> Option<String> {
             (!SUBAGENTS.contains(&kind)).then(|| format!("spawn a `{kind}` subagent (only Explore and Plan are open to it)"))
         }
         name if name.ends_with("spawn_agent") => Some("spawn a native subagent".into()),
-        _ if input.is_shell() => input.command().and_then(|command| shell_refusal(world, input, &command.lossy())),
+        _ if input.is_shell() => input.command().and_then(|command| shell_refusal(world, input, command)),
         _ => None,
     }
 }

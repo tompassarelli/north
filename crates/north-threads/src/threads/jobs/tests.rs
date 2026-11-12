@@ -79,8 +79,8 @@ fn two_concurrent_takes_claim_the_one_job_once_and_a_successful_result_posts_no_
         let handles: Vec<_> = (0..2).map(|_| scope.spawn(move || ledger_take(path))).collect();
         handles.into_iter().map(|handle| handle.join().unwrap()).collect()
     });
-    let wanted = format!("{{\"id\": {id}, \"placement\": \"laptop\", \"item\": \"makgora#3\", \"cmd\": [\"echo\", \"hi\"]}}\n");
-    assert_eq!(takes.iter().filter(|out| **out == wanted).count(), 1, "{takes:?}");
+    let wanted = serde_json::json!({"id": id.parse::<i64>().unwrap(), "placement": "laptop", "item": "makgora#3", "cmd": ["echo", "hi"]});
+    assert_eq!(takes.iter().filter(|out| serde_json::from_str::<serde_json::Value>(out).ok().as_ref() == Some(&wanted)).count(), 1, "{takes:?}");
     assert!(takes.iter().any(String::is_empty), "{takes:?}");
     assert_eq!(rig.out(&format!("queue msg {id} done said hi")), format!("job {id} done\n"));
     let (code, _, err) = rig.run(&format!("queue msg {id} done again"));

@@ -2,7 +2,6 @@ use super::case::Case;
 use super::state::{self, sha256_hex, with_shared, with_state};
 use super::{Ctx, PEER_LINE, asked_keyword, log_override, pattern};
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::pyjson::{self, Value as Py};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -152,19 +151,19 @@ pub(super) fn pre_justify(ctx: &Ctx, input: &HookInput, event: &Value, command: 
 
 fn tool_input_text(input: &HookInput) -> String {
     match input.data.get("tool_input") {
-        Some(Py::String(text)) => text.lossy().into_owned(),
-        Some(value) if py_truthy(value) => pyjson::dumps(value),
+        Some(Value::String(text)) => text.clone(),
+        Some(value) if py_truthy(value) => value.to_string(),
         _ => "{}".into(),
     }
 }
 
-fn py_truthy(value: &Py) -> bool {
+fn py_truthy(value: &Value) -> bool {
     match value {
-        Py::Null => false,
-        Py::Bool(flag) => *flag,
-        Py::String(text) => !text.lossy().is_empty(),
-        Py::Array(items) => !items.is_empty(),
-        Py::Object(entries) => !entries.is_empty(),
+        Value::Null => false,
+        Value::Bool(flag) => *flag,
+        Value::String(text) => !text.is_empty(),
+        Value::Array(items) => !items.is_empty(),
+        Value::Object(entries) => !entries.is_empty(),
         other => other.as_f64().is_none_or(|n| n != 0.0),
     }
 }
@@ -186,7 +185,7 @@ pub(super) fn joined_words(input: &HookInput, brief: bool) -> Option<String> {
 
 fn codex_box_denial(input: &HookInput) -> Option<String> {
     let message = match input.data.get("tool_input") {
-        Some(Py::Object(_)) => match input.data["tool_input"].get("message") {
+        Some(Value::Object(_)) => match input.data["tool_input"].get("message") {
             None => "",
             Some(value) => value.as_str()?,
         },

@@ -17,7 +17,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 
-type Hold = dyn Fn(std::time::Instant, &str, &str, &[String]) -> Option<String>;
+pub(crate) type Hold = dyn Fn(std::time::Instant, &str, &str, &[String]) -> Option<String>;
 const OVERRIDE: &str = "deliberate path: `north config agents off north-hook`, run it, `north config agents on north-hook`";
 const SHELLS: &[&str] = &["bash", "sh", "zsh", "dash", "ksh", "source", ".", "eval"];
 static VARIABLE: LazyLock<Regex> = LazyLock::new(|| {
@@ -121,7 +121,7 @@ impl<'a> State<'a> {
             let got = get(key);
             if got.is_empty() { value } else { got }
         };
-        let cmd = input.command().and_then(|c| c.as_str()).unwrap_or("");
+        let cmd = input.command().unwrap_or("");
         let tokens = tripwire_tokens(&heredoc::strip_data_bodies(cmd));
         let mut prev = "";
         let mut secret_hit = false;
@@ -306,7 +306,7 @@ impl<'a> State<'a> {
 
 const PUSH_NOTE: &str = "tripwire: rewrote a raw `git push` to the equivalent `safe-push`, which betterleaks-scans the outgoing commits first. Write safe-push directly next time.";
 
-fn pushed(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Option<crate::platform::pyjson::Value> {
+fn pushed(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Option<serde_json::Value> {
     if input.data["tool_name"] != "Bash" {
         return None;
     }
@@ -317,7 +317,7 @@ fn pushed(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Opti
     updated["command"] = candidate.as_str().into();
     let mut data = input.data.clone();
     data["tool_input"] = updated.clone();
-    let rewritten = HookInput::parse(crate::platform::pyjson::dumps(&data).as_bytes())?;
+    let rewritten = HookInput::parse(data.to_string().as_bytes())?;
     matches!(decide(&rewritten, get, hold), Verdict::Allow).then_some(updated)
 }
 
@@ -325,11 +325,10 @@ pub fn check(input: &HookInput) -> Verdict {
     decide(input, &env, &crate::autoland_status::origin_branches_hold)
 }
 
-fn decide(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Verdict {
+pub(crate) fn decide(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Verdict {
     let present = |key: &str| Some(get(key)).filter(|s| !s.is_empty());
     if input
         .command()
-        .and_then(|c| c.as_str())
         .is_none_or(str::is_empty)
         || crate::guard::activation::guards_off_in("north-hook", &present)
     {

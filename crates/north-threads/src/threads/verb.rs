@@ -9,7 +9,7 @@ use regex::Regex;
 use rusqlite::{Connection, OpenFlags, ToSql, TransactionBehavior, params};
 
 use crate::foundation::clock::Timestamp;
-use crate::platform::pyjson::Value;
+use serde_json::Value;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::issues::Issues;
 
@@ -172,11 +172,11 @@ pub fn event(db: &Connection, item: Option<&str>, kind: &str, actor: &str, data:
 
 /// One ledger event by an actor of a tier, as a worker run records it.
 pub fn event_as(db: &Connection, item: Option<&str>, kind: &str, actor: &dyn ToSql, tier: &dyn ToSql, data: Value, now: Timestamp) -> rusqlite::Result<usize> {
-    db.execute("INSERT INTO events(ts, item, kind, actor, tier, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![now.iso(), item, kind, actor, tier, crate::platform::pyjson::dumps(&data)])
+    db.execute("INSERT INTO events(ts, item, kind, actor, tier, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![now.iso(), item, kind, actor, tier, data.to_string()])
 }
 
 pub fn integer(value: i64) -> Value {
-    Value::Number { raw: value.to_string(), output: value.to_string() }
+    Value::from(value)
 }
 
 pub fn text_or_null(value: Option<String>) -> Value {

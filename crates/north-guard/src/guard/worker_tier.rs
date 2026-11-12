@@ -1,6 +1,6 @@
 use crate::hook_input::{HookInput, Verdict};
 use crate::router::tier::Tier;
-use crate::platform::pyjson::Value;
+use serde_json::Value;
 use regex::Regex;
 use std::sync::LazyLock;
 

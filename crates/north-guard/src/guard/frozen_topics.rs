@@ -39,7 +39,7 @@ pub(super) fn decide_with(
     let Some(text) = input.command() else {
         return Verdict::Allow;
     };
-    let Ok(tokens) = operator_tokens(&strip_heredocs(&text.lossy())) else {
+    let Ok(tokens) = operator_tokens(&strip_heredocs(text)) else {
         return Verdict::Allow;
     };
     let mut segment = Vec::new();

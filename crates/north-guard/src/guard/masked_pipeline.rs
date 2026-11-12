@@ -14,11 +14,11 @@ pub fn decide(input: &HookInput) -> Verdict {
     if !input.is_shell() {
         return Verdict::Allow;
     }
-    let Some(command) = input.command().map(|command| command.lossy()) else {
+    let Some(command) = input.command() else {
         return Verdict::Allow;
     };
-    match masked_publish(&command) {
-        Some((check, publish)) => Verdict::Deny(denial(&command, &check, &publish)),
+    match masked_publish(command) {
+        Some((check, publish)) => Verdict::Deny(denial(command, &check, &publish)),
         None => Verdict::Allow,
     }
 }

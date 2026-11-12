@@ -65,7 +65,7 @@ fn blind_commit(word: &str) -> bool {
 const UNTRACKED_SHOWN: usize = 20;
 const COMMIT_NOTE: &str = "north-hook: rewrote `git commit -a` to `git commit -m MSG -- PATHS` naming the tracked modified files, since nothing else was staged. Name the paths yourself next time.";
 
-fn committed(input: &HookInput) -> Option<crate::platform::pyjson::Value> {
+fn committed(input: &HookInput) -> Option<serde_json::Value> {
     if input.data["tool_name"] != "Bash" {
         return None;
     }

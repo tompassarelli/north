@@ -1,4 +1,4 @@
-use crate::platform::pyjson::{self, Value};
+use serde_json::Value;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -110,8 +110,8 @@ fn truthy(value: Option<&Value>) -> Option<&Value> {
     let on = match value {
         Value::Null => false,
         Value::Bool(on) => *on,
-        Value::Number { raw, .. } => raw.parse::<f64>() != Ok(0.0),
-        Value::String(text) => !text.codepoints.is_empty(),
+        Value::Number(number) => number.as_f64() != Some(0.0),
+        Value::String(text) => !text.is_empty(),
         Value::Array(items) => !items.is_empty(),
         Value::Object(items) => !items.is_empty(),
     };
@@ -121,17 +121,17 @@ fn truthy(value: Option<&Value>) -> Option<&Value> {
 fn py_str(value: Option<&Value>) -> String {
     match truthy(value) {
         None => String::new(),
-        Some(Value::String(text)) => text.lossy().into_owned(),
-        Some(Value::Number { output, .. }) => output.clone(),
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Number(number)) => number.to_string(),
         Some(Value::Bool(_)) => "True".into(),
-        Some(other) => pyjson::dumps(other),
+        Some(other) => other.to_string(),
     }
 }
 
 fn limit_of(value: Option<&Value>) -> f64 {
     match value {
         Some(Value::Bool(on)) => f64::from(u8::from(*on)),
-        Some(Value::Number { raw, .. }) => raw.parse().unwrap_or(DEFAULT_MONITOR_MS),
+        Some(Value::Number(number)) => number.as_f64().unwrap_or(DEFAULT_MONITOR_MS),
         _ => DEFAULT_MONITOR_MS,
     }
 }
@@ -183,7 +183,7 @@ impl Scan {
         {
             return;
         }
-        let Ok(entry) = pyjson::loads(raw) else {
+        let Some(entry) = crate::hook_input::read_json(raw) else {
             return;
         };
         let Some(blocks) = entry
@@ -212,8 +212,8 @@ impl Scan {
             match block.get("type").and_then(Value::as_str) {
                 Some("text") => {
                     said = true;
-                    if let Some(part) = block.get("text").and_then(Value::as_string) {
-                        text.push_str(&part.lossy());
+                    if let Some(part) = block.get("text").and_then(Value::as_str) {
+                        text.push_str(part);
                     }
                 }
                 Some("tool_use") => said = true,
@@ -311,11 +311,10 @@ impl Scan {
 
 fn text_of(content: Option<&Value>) -> String {
     match content {
-        Some(Value::String(text)) => text.lossy().into_owned(),
+        Some(Value::String(text)) => text.clone(),
         Some(Value::Array(blocks)) => blocks
             .iter()
-            .filter_map(|block| block.get("text").and_then(|text| text.as_string()))
-            .map(|text| text.lossy())
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
             .collect(),
         _ => String::new(),
     }

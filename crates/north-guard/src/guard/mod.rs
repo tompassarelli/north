@@ -66,6 +66,7 @@ pub mod quiet_phrase;
 pub mod permission_offer;
 pub mod recommendation_grounding;
 mod recommendation_grounding_tests;
+mod json_readings_tests;
 mod clipboard_tests;
 mod trigger_matrix;
 pub mod corpus_scan;

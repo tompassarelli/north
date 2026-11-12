@@ -3,7 +3,6 @@ use super::case::parse_case;
 use super::state::{self, count, head_commit, tree_state, truthy, unlanded, with_shared, with_state};
 use super::{Ctx, PEER_LINE, pattern};
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::pyjson::{self, Value as Py};
 use serde_json::{Map, Value, json};
 
 const READ_ONLY_WORDS: [&str; 24] = [
@@ -38,8 +37,8 @@ fn read_only(command: &str) -> bool {
 
 fn response_text(input: &HookInput) -> String {
     match input.data.get("tool_response") {
-        Some(Py::String(text)) => text.lossy().into_owned(),
-        Some(value) => pyjson::dumps(value),
+        Some(Value::String(text)) => text.clone(),
+        Some(value) => value.to_string(),
         None => "null".into(),
     }
 }
@@ -106,7 +105,7 @@ fn ticked_issue(input: &HookInput, run: &Run, action: &str, words: &[String]) ->
 
 fn response_text_or_empty(input: &HookInput) -> String {
     match input.data.get("tool_response") {
-        Some(value) if !matches!(value, Py::Null | Py::Bool(false)) && value.as_str() != Some("") => response_text(input),
+        Some(value) if !matches!(value, Value::Null | Value::Bool(false)) && value.as_str() != Some("") => response_text(input),
         _ => String::new(),
     }
 }

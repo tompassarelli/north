@@ -279,7 +279,7 @@ pub(super) fn is_dir(path: &str) -> bool {
 }
 
 pub(super) fn bash_call(input: &crate::hook_input::HookInput) -> Option<(&str, String)> {
-    use crate::platform::pyjson::Value;
+    use serde_json::Value;
     if input.data["tool_name"] != "Bash" {
         return None;
     }
@@ -287,7 +287,7 @@ pub(super) fn bash_call(input: &crate::hook_input::HookInput) -> Option<(&str, S
         .as_str()
         .filter(|c| !c.is_empty())?;
     let cwd = match &input.data["cwd"] {
-        Value::String(cwd) => match cwd.as_str()? {
+        Value::String(cwd) => match cwd.as_str() {
             "" => current_dir()?,
             text => text.to_owned(),
         },

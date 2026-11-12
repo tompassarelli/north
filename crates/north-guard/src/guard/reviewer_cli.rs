@@ -34,10 +34,10 @@ pub(super) fn refused_tool(command: &str) -> Option<String> {
 }
 
 pub fn decide(input: &HookInput) -> Verdict {
-    let Some(command) = input.command().map(|command| command.lossy()) else {
+    let Some(command) = input.command() else {
         return Verdict::Allow;
     };
-    match refused_tool(&command).as_deref() {
+    match refused_tool(command).as_deref() {
         None => Verdict::Allow,
         Some(tool @ ("opencode" | "pi")) => Verdict::Deny(format!(
             "No. {tool} runs only through `north fleet launch --provider {tool}`, which fixes its model and confines it to one lane; started here it would send repo data to a model nobody routed it to."

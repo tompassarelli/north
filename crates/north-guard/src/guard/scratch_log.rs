@@ -7,7 +7,7 @@ static GENERIC_LOG: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    let Some(command) = input.command().and_then(|command| command.as_str()) else {
+    let Some(command) = input.command() else {
         return Verdict::Allow;
     };
     match GENERIC_LOG.captures(command) {

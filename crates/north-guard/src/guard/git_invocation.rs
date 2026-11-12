@@ -26,8 +26,8 @@ pub fn bash_command(input: &HookInput) -> Option<String> {
     {
         return None;
     }
-    let command = input.command()?.lossy();
-    (!command.is_empty()).then(|| strip_quotes(&strip_heredocs(&command)))
+    let command = input.command()?;
+    (!command.is_empty()).then(|| strip_quotes(&strip_heredocs(command)))
 }
 
 pub fn argument_spans<'a>(text: &'a str, invocation: &Regex) -> Vec<&'a str> {

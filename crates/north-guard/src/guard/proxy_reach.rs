@@ -2,7 +2,7 @@
 //! host, a file under a repository checkout, or another host past the fleet's status verbs.
 use crate::guard::paths::{expanduser, join, normpath};
 use north_base::shell::{basename, command, heredoc_bodies, is_separator, shell_substitutions, strip_heredocs, words};
-use crate::platform::pyjson::Value;
+use serde_json::Value;
 
 const MAX_DEPTH: usize = 3;
 const PREFIXES: &[&str] = &["env", "exec", "time", "nice", "ionice", "timeout", "builtin", "nohup", "setsid", "stdbuf"];

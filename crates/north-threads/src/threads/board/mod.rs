@@ -13,7 +13,6 @@ use self::issues::Board;
 use super::claims::{self, Claim, Standing};
 use super::verb::{Args, Context, Failure, Outcome, item_ref, report};
 use crate::foundation::clock::Timestamp;
-use crate::platform::pyjson;
 use crate::threads::catalog::CATALOG;
 
 pub const VERBS: [&str; 2] = ["show", "ready"];
@@ -122,9 +121,9 @@ struct Run {
 
 /// One field of an event's JSON data, printed the way Python's `print` shows it.
 fn printed(data: &str, key: &str) -> String {
-    let Ok(value) = pyjson::loads(data.as_bytes()) else { return String::new() };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else { return String::new() };
     match value.get(key) {
-        Some(field) => field.as_string().map_or_else(|| pyjson::dumps(field), |text| text.lossy().into_owned()),
+        Some(field) => field.as_str().map_or_else(|| field.to_string(), str::to_owned),
         None => String::new(),
     }
 }

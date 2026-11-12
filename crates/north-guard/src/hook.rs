@@ -1,4 +1,4 @@
-use crate::platform::pyjson::{self, Value};
+use serde_json::{Value, json};
 use std::io::{self, Read, Write};
 use crate::hook_input::{HookInput, INPUT_LIMIT, Verdict};
 use crate::fleet::runtime::Binding;
@@ -160,17 +160,11 @@ impl HookKind {
 }
 
 fn permission_decision(behavior: &str, message: Option<String>) -> Value {
-    let mut decision = Value::object([("behavior", behavior.into())]);
+    let mut decision = json!({"behavior": behavior});
     if let Some(message) = message {
         decision["message"] = message.into();
     }
-    Value::object([(
-        "hookSpecificOutput",
-        Value::object([
-            ("hookEventName", "PermissionRequest".into()),
-            ("decision", decision),
-        ]),
-    )])
+    json!({"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}})
 }
 
 pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Value> {
@@ -193,41 +187,31 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
             }
             Verdict::Deny(reason) if matches!(event, "Stop" | "SubagentStop") => blocks.push(reason),
             Verdict::Deny(reason) if event == "PostToolUse" => {
-                return Some(Value::object([("decision", "block".into()), ("reason", reason.clone().into()), ("continue", Value::Bool(false)), ("stopReason", reason.into())]));
+                return Some(json!({"decision": "block", "reason": reason, "continue": false, "stopReason": reason}));
             }
             Verdict::Deny(reason) => {
-                return Some(Value::object([(
-                    "hookSpecificOutput",
-                    Value::object([
-                        ("hookEventName", event.into()),
-                        ("permissionDecision", "deny".into()),
-                        ("permissionDecisionReason", reason.into()),
-                    ]),
-                )]));
+                return Some(json!({"hookSpecificOutput": {"hookEventName": event, "permissionDecision": "deny", "permissionDecisionReason": reason}}));
             }
             Verdict::End(reason) => {
-                return Some(Value::object([("continue", Value::Bool(false)), ("stopReason", reason.into())]));
+                return Some(json!({"continue": false, "stopReason": reason}));
             }
             Verdict::Advise(text) => context.push(text),
             Verdict::Rewrite(updated, text) => {
                 let mut data = input.data.clone();
                 data["tool_input"] = updated.clone();
-                rewritten = HookInput::parse(pyjson::dumps(&data).as_bytes());
+                rewritten = HookInput::parse(data.to_string().as_bytes());
                 updated_input = Some(updated);
                 context.push(text);
             }
         }
     }
     if !blocks.is_empty() {
-        return Some(Value::object([
-            ("decision", "block".into()),
-            ("reason", blocks.join("\n\n").into()),
-        ]));
+        return Some(json!({"decision": "block", "reason": blocks.join("\n\n")}));
     }
     if matches!(event, "Stop" | "SubagentStop") {
-        return (!context.is_empty()).then(|| Value::object([("systemMessage", context.join("\n").into())]));
+        return (!context.is_empty()).then(|| json!({"systemMessage": context.join("\n")}));
     }
-    let mut output = Value::object([("hookEventName", event.into())]);
+    let mut output = json!({"hookEventName": event});
     if let Some(updated) = updated_input {
         output["permissionDecision"] = "allow".into();
         output["updatedInput"] = updated;
@@ -235,14 +219,13 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
     if !context.is_empty() {
         output["additionalContext"] = context.join("\n").into();
     }
-    (output.as_object()?.len() > 1).then(|| Value::object([("hookSpecificOutput", output)]))
+    (output.as_object()?.len() > 1).then(|| json!({"hookSpecificOutput": output}))
 }
 
 /// The refusal north's Bash hook gives `command` run in `cwd`, for a session whose harness binds no hook: the worker sandbox screens each shell command of such a session with it, so a Pi or OpenCode worker meets the deciders a Claude worker's hook applies (north#1041).
 pub fn command_refusal(command: &str, cwd: &std::path::Path) -> Option<String> {
-    let tool_input = Value::object([("command", command.into())]);
-    let data = Value::object([("hook_event_name", "PreToolUse".into()), ("tool_name", "Bash".into()), ("cwd", cwd.display().to_string().into()), ("tool_input", tool_input)]);
-    let input = HookInput::parse(pyjson::dumps(&data).as_bytes())?;
+    let data = json!({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": cwd.display().to_string(), "tool_input": {"command": command}});
+    let input = HookInput::parse(data.to_string().as_bytes())?;
     let output = evaluate(&input, HookKind::PreBash.guards(), HookKind::PreBash.event())?;
     let decision = &output["hookSpecificOutput"];
     (decision["permissionDecision"].as_str() == Some("deny")).then(|| decision["permissionDecisionReason"].as_str().unwrap_or("north hook refused this command").to_owned())
@@ -274,7 +257,7 @@ pub(crate) fn process(
         let event = if event == "*" { input.data["hook_event_name"].as_str().unwrap_or("") } else { event };
         let guards = spare_guards(guards, event, crate::fleet::runtime::binding(), || first_prompt(&input));
         if let Some(output) = evaluate(&input, &guards, event) {
-            writer.write_all(pyjson::dumps(&output).as_bytes())?;
+            writer.write_all(output.to_string().as_bytes())?;
             writer.write_all(b"\n")?;
         }
     } else if bytes.len() as u64 <= INPUT_LIMIT && (event == "PreToolUse" || event.is_empty()) {

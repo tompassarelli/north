@@ -8,13 +8,12 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 use rusqlite::params;
-use serde_json::Value as Json;
 
 use self::branches::{Failed, names_issue};
 use super::board::held;
 use super::verb::{Args, Context, Failure, Outcome, event, immediate, open, report};
 use crate::foundation::clock::Timestamp;
-use crate::platform::pyjson::Value;
+use serde_json::{Value, json};
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::lifecycle::{self, Moved};
 use crate::threads::withheld::withheld;
@@ -60,7 +59,7 @@ fn unowned(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
     let mut scanned = Vec::new();
     for repo in STAFFED {
         let listed = context.gh(&["issue", "list", "-R", &format!("{}/{repo}", CATALOG.owner), "--state", "open", "--limit", "500", "--json", "number,title,labels,body,comments"])?;
-        let issues: Vec<Json> = serde_json::from_str(&listed).map_err(|_| Failure::Refused("gh issue list: unreadable reply".into()))?;
+        let issues: Vec<Value> = serde_json::from_str(&listed).map_err(|_| Failure::Refused("gh issue list: unreadable reply".into()))?;
         scanned.push((repo, issues, branches::lanes(context, repo, err)?));
     }
     let (mut rows, mut stale) = (Vec::new(), Vec::new());
@@ -101,12 +100,7 @@ fn release(stale: &[Stale], context: &Context) -> Result<(), Failure> {
     let tx = immediate(&mut db)?;
     for released in stale {
         tx.execute("DELETE FROM claims WHERE item = ?1 AND owner = ?2", params![released.item, released.owner])?;
-        let data = Value::object([
-            ("owner", released.owner.as_str().into()),
-            ("lane_failed", released.branch.into()),
-            ("reason", released.failed.reason.as_str().into()),
-            ("failed_at", released.failed.at.as_str().into()),
-        ]);
+        let data = json!({"owner": released.owner.as_str(), "lane_failed": released.branch, "reason": released.failed.reason.as_str(), "failed_at": released.failed.at.as_str()});
         event(&tx, Some(&released.item), "release", "threads", data, context.now)?;
     }
     tx.commit()?;

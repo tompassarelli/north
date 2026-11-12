@@ -40,7 +40,7 @@ impl Policy {
         {
             return Some(reason);
         }
-        let command_text = input.command()?.as_str().filter(|s| !s.is_empty())?;
+        let command_text = input.command().filter(|s| !s.is_empty())?;
         static CD: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r#"(?:^|[;&|]|&&)[\s\x1c-\x1f]*cd[\s\x1c-\x1f]+("[^"]+"|'[^']+'|[^\s\x1c-\x1f;&|]+)"#).unwrap()
         });

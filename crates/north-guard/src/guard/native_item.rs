@@ -15,7 +15,7 @@ static NATIVE_REF: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:life|accounts|travel|ops)#\d+\b").unwrap());
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    let Some(command) = input.command().and_then(|s| s.as_str()) else {
+    let Some(command) = input.command() else {
         return Verdict::Allow;
     };
     if !writes_to_github(command) {

@@ -1,5 +1,5 @@
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::pyjson::Value;
+use serde_json::Value;
 use crate::shell;
 use regex::Regex;
 use std::sync::LazyLock;
@@ -71,11 +71,11 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
     {
         return None;
     }
-    if is_hand_in(input.command()?.as_str()?) {
+    if is_hand_in(input.command()?) {
         return None;
     }
     let reason = blocking(
-        input.command()?.as_str()?,
+        input.command()?,
         timeout_seconds(&input.tool_input["timeout"]),
     )?;
     Some(format!(
@@ -92,7 +92,7 @@ fn is_hand_in(command: &str) -> bool {
 
 fn timeout_seconds(timeout: &Value) -> Option<f64> {
     match timeout {
-        Value::Number { raw, .. } => raw.parse::<f64>().ok().map(|ms| ms / 1000.0),
+        Value::Number(number) => number.as_f64().map(|ms| ms / 1000.0),
         _ => None,
     }
 }

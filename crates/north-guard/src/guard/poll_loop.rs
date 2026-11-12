@@ -27,7 +27,7 @@ pub fn verdict(input: &HookInput) -> Verdict {
     if input.runs_in_background() {
         return Verdict::Allow;
     }
-    let Some(command) = input.command().and_then(|s| s.as_str()) else {
+    let Some(command) = input.command() else {
         return Verdict::Allow;
     };
     if polls_task_output(command) {

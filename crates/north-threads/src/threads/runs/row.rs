@@ -3,16 +3,16 @@ use std::collections::BTreeMap;
 
 use rusqlite::types::Value as Sql;
 
-use crate::platform::pyjson::{self, Value};
+use serde_json::Value;
 use crate::threads::verb::{Failure, integer};
 
 pub struct Row(BTreeMap<String, Value>);
 
 impl Row {
     pub fn parse(line: &[u8]) -> Result<Self, Failure> {
-        let value = pyjson::loads(line).map_err(|_| Failure::Refused(format!("unreadable ingest row: {}", String::from_utf8_lossy(line).trim())))?;
-        let Some(fields) = value.as_object() else { return Err(Failure::Refused("an ingest row is not a JSON object".into())) };
-        Ok(Self(fields.iter().map(|(key, value)| (key.lossy().into_owned(), value.clone())).collect()))
+        let value: Value = serde_json::from_slice(line).map_err(|_| Failure::Refused(format!("unreadable ingest row: {}", String::from_utf8_lossy(line).trim())))?;
+        let Value::Object(fields) = value else { return Err(Failure::Refused("an ingest row is not a JSON object".into())) };
+        Ok(Self(fields.into_iter().collect()))
     }
 
     /// `r.get(key)`: None when absent or null.
@@ -65,7 +65,7 @@ impl Row {
     /// The skills the run loaded as the JSON list the ledger keeps, or NULL when the row names none.
     pub fn skills(&self) -> Sql {
         match self.get("skills") {
-            Some(skills @ Value::Array(_)) => Sql::Text(pyjson::dumps(skills)),
+            Some(skills @ Value::Array(_)) => Sql::Text(skills.to_string()),
             _ => Sql::Null,
         }
     }
@@ -88,25 +88,21 @@ pub fn truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
         Value::Bool(value) => *value,
-        Value::Number { raw, .. } => raw.parse::<f64>() != Ok(0.0),
-        Value::String(text) => !text.codepoints.is_empty(),
+        Value::Number(number) => number.as_f64() != Some(0.0),
+        Value::String(text) => !text.is_empty(),
         Value::Array(values) => !values.is_empty(),
         Value::Object(fields) => !fields.is_empty(),
     }
-}
-
-fn is_float(raw: &str) -> bool {
-    raw.contains(['.', 'e', 'E', 'N', 'I'])
 }
 
 pub fn bind(value: Option<&Value>) -> Result<Sql, Failure> {
     Ok(match value {
         None | Some(Value::Null) => Sql::Null,
         Some(Value::Bool(value)) => Sql::Integer(i64::from(*value)),
-        Some(Value::Number { raw, .. }) if is_float(raw) => Sql::Real(raw.parse().map_err(|_| unbindable(raw))?),
-        Some(Value::Number { raw, .. }) => Sql::Integer(raw.parse().map_err(|_| unbindable(raw))?),
-        Some(Value::String(text)) => Sql::Text(text.lossy().into_owned()),
-        Some(other) => return Err(unbindable(&pyjson::dumps(other))),
+        Some(Value::Number(number)) if number.is_f64() => Sql::Real(number.as_f64().unwrap_or_default()),
+        Some(Value::Number(number)) => Sql::Integer(number.as_i64().ok_or_else(|| unbindable(&number.to_string()))?),
+        Some(Value::String(text)) => Sql::Text(text.clone()),
+        Some(other) => return Err(unbindable(&other.to_string())),
     })
 }
 
@@ -119,12 +115,9 @@ pub fn text(value: Option<&str>) -> Sql {
 fn round(value: &Value) -> Result<Sql, Failure> {
     match value {
         Value::Bool(value) => Ok(Sql::Integer(i64::from(*value))),
-        Value::Number { raw, .. } if is_float(raw) => {
-            let number = raw.parse::<f64>().ok().filter(|number| number.is_finite()).ok_or_else(|| unbindable(raw))?;
-            Ok(Sql::Integer(number.round_ties_even() as i64))
-        }
-        Value::Number { .. } => bind(Some(value)),
-        other => Err(Failure::Refused(format!("an ingest row's ETA is not a number: {}", pyjson::dumps(other)))),
+        Value::Number(number) if number.is_f64() => Ok(Sql::Integer(number.as_f64().unwrap_or_default().round_ties_even() as i64)),
+        Value::Number(_) => bind(Some(value)),
+        other => Err(Failure::Refused(format!("an ingest row's ETA is not a number: {other}"))),
     }
 }
 
@@ -137,7 +130,7 @@ pub fn value(sql: &Sql) -> Value {
     match sql {
         Sql::Null | Sql::Blob(_) => Value::Null,
         Sql::Integer(number) => integer(*number),
-        Sql::Real(number) => Value::float(*number),
+        Sql::Real(number) => Value::from(*number),
         Sql::Text(text) => Value::from(text.as_str()),
     }
 }
@@ -146,7 +139,6 @@ pub fn value(sql: &Sql) -> Value {
 pub fn python_repr(value: &Value) -> String {
     match value {
         Value::String(text) => {
-            let text = text.lossy();
             let quote = if text.contains('\'') && !text.contains('"') { '"' } else { '\'' };
             let escaped: String = text.chars().map(|c| escape(c, quote)).collect();
             format!("{quote}{escaped}{quote}")
@@ -154,7 +146,7 @@ pub fn python_repr(value: &Value) -> String {
         Value::Bool(true) => "True".into(),
         Value::Bool(false) => "False".into(),
         Value::Null => "None".into(),
-        other => pyjson::dumps(other),
+        other => other.to_string(),
     }
 }
 

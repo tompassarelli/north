@@ -1,6 +1,5 @@
 use crate::foundation::clock::Timestamp;
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::pyjson;
 use crate::shell;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -411,8 +410,7 @@ pub fn decide(input: &HookInput) -> Verdict {
     let Some(text) = input.command() else {
         return Verdict::Allow;
     };
-    let scan = text.lossy();
-    if !dangerous(&scan, &BTreeMap::new()) {
+    if !dangerous(text, &BTreeMap::new()) {
         return Verdict::Allow;
     }
     if !seat_idle() {
@@ -420,23 +418,9 @@ pub fn decide(input: &HookInput) -> Verdict {
     }
     let field = if input.tool_input["command"].is_null() { "cmd" } else { "command" };
     let mut updated = input.tool_input.clone();
-    let wrapper = restore_command("\0");
-    let (prefix, suffix) = wrapper.split_once('\0').unwrap();
-    let parts = [
-        pyjson::Value::from(prefix),
-        pyjson::Value::String(text.clone()),
-        pyjson::Value::from(suffix),
-    ]
-    .map(|value| pyjson::dumps(&value));
-    let encoded = format!(
-        "\"{}{}{}\"",
-        &parts[0][1..parts[0].len() - 1],
-        &parts[1][1..parts[1].len() - 1],
-        &parts[2][1..parts[2].len() - 1]
-    );
-    let wrapped = pyjson::loads(encoded.as_bytes()).unwrap();
+    let wrapped = Value::from(restore_command(text));
     updated[field] = if updated[field].as_array().is_some() {
-        pyjson::Value::Array(vec!["bash".into(), "-lc".into(), wrapped])
+        Value::Array(vec!["bash".into(), "-lc".into(), wrapped])
     } else {
         wrapped
     };

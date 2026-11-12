@@ -3,9 +3,8 @@
 use std::cell::RefCell;
 
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::Value as Json;
 
-use crate::platform::pyjson::{self, Value};
+use serde_json::{Map, Value, json};
 use crate::threads::catalog::CATALOG;
 use crate::threads::withheld::withheld;
 use crate::threads::verb::{Context, Failure, is_native_ref, item_ref};
@@ -114,7 +113,7 @@ impl<'a> Board<'a> {
             cursor = Some(page["pageInfo"]["endCursor"].as_str().ok_or_else(|| unreadable("open issues"))?.to_owned());
         }
         let fetched = self.context.now.unix_seconds_f64();
-        self.db().execute("INSERT OR REPLACE INTO gh_cache(repo, fetched, issues) VALUES (?1, ?2, ?3)", params![repo, fetched, pyjson::dumps(&cache_value(&issues))])?;
+        self.db().execute("INSERT OR REPLACE INTO gh_cache(repo, fetched, issues) VALUES (?1, ?2, ?3)", params![repo, fetched, cache_value(&issues).to_string()])?;
         Ok(issues)
     }
 
@@ -181,7 +180,7 @@ impl<'a> Board<'a> {
     fn cached(&self, repo: &str) -> Result<Option<Vec<Issue>>, Failure> {
         let row: Option<(f64, String)> = self.db().query_row("SELECT fetched, issues FROM gh_cache WHERE repo = ?1", [repo], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
         let Some((_, issues)) = row.filter(|(fetched, _)| self.context.now.unix_seconds_f64() - fetched < CACHE_SECONDS) else { return Ok(None) };
-        let cached = pyjson::loads(issues.as_bytes()).map_err(|_| unreadable("gh_cache"))?;
+        let cached: Value = serde_json::from_str(&issues).map_err(|_| unreadable("gh_cache"))?;
         let entries = cached.as_object().ok_or_else(|| unreadable("gh_cache"))?;
         if entries.iter().any(|(_, issue)| issue.get("withheld").is_none()) {
             return Ok(None);
@@ -189,9 +188,9 @@ impl<'a> Board<'a> {
         entries
             .iter()
             .map(|(number, issue)| {
-                let number = number.as_str().and_then(|number| number.parse().ok()).ok_or_else(|| unreadable("gh_cache"))?;
-                let blockers = issue["blockers"].as_array().unwrap_or_default().iter().map(|blocker| Blocker { reference: text(&blocker["ref"]), state: text(&blocker["state"]) }).collect();
-                let withheld = issue["withheld"].as_string().map(|reason| reason.lossy().into_owned());
+                let number = number.parse().map_err(|_| unreadable("gh_cache"))?;
+                let blockers = issue["blockers"].as_array().into_iter().flatten().map(|blocker| Blocker { reference: text(&blocker["ref"]), state: text(&blocker["state"]) }).collect();
+                let withheld = issue["withheld"].as_str().map(str::to_owned);
                 Ok(Issue { number, title: text(&issue["title"]), state: "OPEN".into(), blockers, withheld })
             })
             .collect::<Result<_, Failure>>()
@@ -200,18 +199,18 @@ impl<'a> Board<'a> {
 }
 
 fn text(value: &Value) -> String {
-    value.as_string().map(|text| text.lossy().into_owned()).unwrap_or_default()
+    value.as_str().unwrap_or_default().to_owned()
 }
 
 fn unreadable(what: &str) -> Failure {
     Failure::Refused(format!("gh api graphql: unreadable {what}"))
 }
 
-fn parsed(reply: &str) -> Result<Json, Failure> {
+fn parsed(reply: &str) -> Result<Value, Failure> {
     serde_json::from_str(reply).map_err(|_| unreadable("reply"))
 }
 
-fn issue_of(node: &Json, state: &str, now: f64) -> Result<Issue, Failure> {
+fn issue_of(node: &Value, state: &str, now: f64) -> Result<Issue, Failure> {
     let number = node["number"].as_u64().ok_or_else(|| unreadable("issue"))?;
     let blockers = node["blockedBy"]["nodes"]
         .as_array()
@@ -228,15 +227,15 @@ fn issue_of(node: &Json, state: &str, now: f64) -> Result<Issue, Failure> {
     Ok(Issue { number, title: node["title"].as_str().unwrap_or_default().to_owned(), state: state.to_owned(), blockers, withheld })
 }
 
-/// The cache row bin/threads also reads: `{"N": {"title": ..., "blockers": [{"ref": ..., "state": ...}]}}`.
+/// The cache row the work-item grounding also reads: `{"N": {"title": ..., "blockers": [{"ref": ..., "state": ...}]}}`.
 fn cache_value(issues: &[Issue]) -> Value {
     Value::Object(
         issues
             .iter()
             .map(|issue| {
-                let blockers = issue.blockers.iter().map(|blocker| Value::object([("ref", blocker.reference.as_str().into()), ("state", blocker.state.as_str().into())])).collect();
-                (issue.number.to_string().as_str().into(), Value::object([("title", issue.title.as_str().into()), ("blockers", Value::Array(blockers)), ("withheld", issue.withheld.as_deref().map_or(Value::Null, Value::from))]))
+                let blockers = issue.blockers.iter().map(|blocker| json!({"ref": blocker.reference.as_str(), "state": blocker.state.as_str()})).collect();
+                (issue.number.to_string(), json!({"title": issue.title.as_str(), "blockers": Value::Array(blockers), "withheld": issue.withheld.as_deref().map_or(Value::Null, Value::from)}))
             })
-            .collect(),
+            .collect::<Map<_, _>>(),
     )
 }

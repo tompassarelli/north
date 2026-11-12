@@ -38,7 +38,7 @@ fn refuse_close(input: &HookInput, world: &mut impl World) -> Verdict {
         return Verdict::Allow;
     };
     let mut edited: Vec<String> = Vec::new();
-    for write in gh_write::writes(&text.lossy(), input.cwd()) {
+    for write in gh_write::writes(text, input.cwd()) {
         let closes = write.closes_issue.as_deref().map(|target| target.trim_start_matches('#').rsplit('/').next().unwrap_or_default().to_owned());
         if let Some(reason) = closes.as_ref().filter(|number| !edited.contains(number)).and_then(|_| unticked(&write, world)) {
             return Verdict::Deny(reason);

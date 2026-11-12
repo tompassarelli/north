@@ -10,7 +10,7 @@ use super::costs::Touched;
 use crate::foundation::clock::Timestamp;
 use crate::router::brief::CATEGORIES;
 use super::row::{Row, bind, python_repr, text, truthy, value};
-use crate::platform::pyjson::Value;
+use serde_json::{Value, json};
 use crate::platform::run_roles;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::lifecycle::Moved as ClaimMoved;
@@ -226,14 +226,14 @@ impl Ingest<'_> {
 
     fn telemetry(&mut self, r: &Row) -> Result<(), Failure> {
         match r.get("unpriced_models") {
-            Some(Value::Array(models)) => self.tally.unpriced.extend(models.iter().map(|model| model.as_string().map_or_else(|| crate::platform::pyjson::dumps(model), |text| text.lossy().into_owned()))),
-            Some(Value::String(models)) => self.tally.unpriced.extend(models.lossy().chars().map(String::from)),
+            Some(Value::Array(models)) => self.tally.unpriced.extend(models.iter().map(|model| model.as_str().map_or_else(|| model.to_string(), str::to_owned))),
+            Some(Value::String(models)) => self.tally.unpriced.extend(models.chars().map(String::from)),
             _ => {}
         }
         if !r.truthy("account") {
             return Ok(());
         }
-        for sample in r.get("usage_samples").and_then(Value::as_array).unwrap_or_default() {
+        for sample in r.get("usage_samples").and_then(Value::as_array).into_iter().flatten() {
             let field = |key: &str| bind(Some(sample.get(key).ok_or_else(|| Failure::Refused(format!("a usage sample has no {key}")))?));
             let (agent, request) = (r.required("id")?, field("request")?);
             let before: Option<(String, String)> = self.db.query_row("SELECT account, ts FROM run_usage WHERE agent = ? AND request = ?", params![agent, request], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
@@ -372,7 +372,7 @@ impl Ingest<'_> {
         }
         if let (Some(item), Some(held)) = (item.as_deref(), held.as_deref().filter(|_| mine)) {
             self.db.execute("DELETE FROM claims WHERE item = ?", [held])?;
-            self.event(item, "release", run, Value::object([("why", run.status.clone())]))?;
+            self.event(item, "release", run, json!({"why": run.status.clone()}))?;
             self.tally.claims.push(ClaimMoved::released(held, format!("released by {}: its run {}", run.id.as_str().unwrap_or_default(), run.status.as_str().unwrap_or_default())));
         }
         if run.status != "finished" && run.worker() {
@@ -388,10 +388,10 @@ impl Ingest<'_> {
         let since = bind(Some(&r.or("started", Value::from(self.context.now.iso()))))?;
         self.db.execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?,?,?,?)", params![held, run.agent()?, since, r.rounded("eta_min")?])?;
         let boxed = text_or_null(run.box_text().as_deref().and_then(box_slug));
-        self.event(item, "claim", run, Value::object([("eta_min", r.get_or("eta_min", Value::Null)), ("box", boxed)]))?;
+        self.event(item, "claim", run, json!({"eta_min": r.get_or("eta_min", Value::Null), "box": boxed}))?;
         self.tally.claims.push(ClaimMoved::held(held, format!("claimed by {} for its running run", run.id.as_str().unwrap_or_default())));
         if truthy(follows) && *follows != run.id {
-            self.event(item, "handoff", run, Value::object([("from", follows.clone()), ("to", run.id.clone())]))?;
+            self.event(item, "handoff", run, json!({"from": follows.clone(), "to": run.id.clone()}))?;
         }
         Ok(())
     }
@@ -439,7 +439,7 @@ impl Ingest<'_> {
             params![r.sql("brief_text")?, r.sql("brief_origin")?, r.sql("brief_path")?, r.sql("brief_sha256")?, run.agent()?],
         )?;
         if let Some(item) = item.filter(|_| run.worker() && truthy(&prev) && prev != run.id) {
-            self.event(item, "handoff", run, Value::object([("from", prev), ("to", run.id.clone())]))?;
+            self.event(item, "handoff", run, json!({"from": prev, "to": run.id.clone()}))?;
         }
         self.tally.added += 1;
         self.tally.touched.run(run.agent()?);

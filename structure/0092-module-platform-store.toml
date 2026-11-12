@@ -1,6 +1,6 @@
 [[module]]
 name = "platform.store"
-paths = ["crates/north-base/src/platform/sqlite.rs", "crates/north-base/src/platform/usage_table.rs", "crates/north-base/src/platform/run_roles.rs", "crates/north-base/src/platform/pyjson.rs", "crates/north-base/src/platform/pystats.rs", "crates/north-base/src/platform/toml_json.rs"]
+paths = ["crates/north-base/src/platform/sqlite.rs", "crates/north-base/src/platform/usage_table.rs", "crates/north-base/src/platform/run_roles.rs", "crates/north-base/src/platform/pystats.rs", "crates/north-base/src/platform/toml_json.rs"]
 responsibility = "The SQLite adapter and its tables, and the JSON and TOML value codecs."
 may_use = ["strategy_types", "foundation", "platform"]
 

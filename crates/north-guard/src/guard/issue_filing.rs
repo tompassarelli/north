@@ -191,7 +191,7 @@ pub(super) fn link_with(input: &HookInput, world: &mut impl Filed) -> Verdict {
     };
     let new: Ref = (url[1].to_owned(), url[2].parse().unwrap_or(0));
     let mut notes = Vec::new();
-    let writes = gh_write::writes(&text.lossy(), input.cwd());
+    let writes = gh_write::writes(text, input.cwd());
     let [write] = writes.iter().filter(|write| write.creates_issue).collect::<Vec<_>>()[..] else {
         return Verdict::Allow;
     };
@@ -223,9 +223,9 @@ pub(super) fn decide_with(input: &HookInput, world: &mut impl World) -> Verdict 
     let Some(text) = input.command() else {
         return Verdict::Allow;
     };
-    for mut write in gh_write::writes(&text.lossy(), input.cwd()).into_iter().filter(|write| write.creates_issue) {
+    for mut write in gh_write::writes(text, input.cwd()).into_iter().filter(|write| write.creates_issue) {
         if write.opaque || write.unread {
-            write.bodies.push(text.lossy().replace("\\n", "\n"));
+            write.bodies.push(text.replace("\\n", "\n"));
         }
         if let Some(reason) = refusal(&write, world) {
             return Verdict::Deny(reason);

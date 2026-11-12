@@ -1,7 +1,7 @@
 pub mod transcript;
 
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::pyjson::Value;
+use serde_json::Value;
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -35,7 +35,6 @@ fn transcript_path(input: &HookInput) -> Option<&str> {
     }
     match input.data["agent_transcript_path"].as_str() {
         Some(path) => Some(path),
-        None if input.data["agent_transcript_path"].as_string().is_some() => None,
         None => input.data["transcript_path"]
             .as_str()
             .filter(|path| path.contains("/subagents/")),

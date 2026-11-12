@@ -94,10 +94,10 @@ fn seen_root() -> PathBuf {
 pub(super) fn decide(input: &HookInput, seen: &Path) -> Verdict {
     let cards = cards();
     let hits: Vec<&Card> = if input.is_shell() {
-        let Some(command) = input.command().map(|c| c.lossy()) else {
+        let Some(command) = input.command() else {
             return Verdict::Allow;
         };
-        let runs = runs(&command, 0);
+        let runs = runs(command, 0);
         for card in &cards {
             for (deny, at) in card.deny.iter().filter_map(|deny| refusing_run(deny, &runs).map(|at| (deny, at))) {
                 if !deny.dev_shell {

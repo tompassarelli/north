@@ -36,7 +36,6 @@ impl State<'_> {
     fn head(&self) -> String {
         self.input
             .command()
-            .and_then(|c| c.as_str())
             .unwrap_or("")
             .replace('\n', " ")
             .chars()
