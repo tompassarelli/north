@@ -28,6 +28,12 @@ pub struct Attempt {
 
 pub fn launch_words(record: &SessionRecord, brief: &str, second: &Rung, reply: &str, failed: (&Finished, Option<&Attempt>), main: &Path) -> Vec<String> {
     let mut words = vec!["--provider".to_owned(), record.provider.label().to_owned(), "--cwd".to_owned(), main.display().to_string(), "--name".to_owned(), format!("{}-r2", record.name)];
+    if record.verification {
+        words.push("--test".to_owned());
+    }
+    if !record.account.is_empty() {
+        words.extend(["--account".to_owned(), record.account.clone()]);
+    }
     for (flag, value) in [("--parent", &record.parent), ("--task", &record.task_ref), ("--box", &record.claim_box)] {
         if let Some(value) = value {
             words.extend([flag.to_owned(), value.clone()]);

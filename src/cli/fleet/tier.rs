@@ -15,10 +15,16 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
             Err(why) => eprintln!("north fleet: {item} unread, so its Done-when box is not checked: {why}"),
         }
     }
-    if request.provider.label() != "claude" || request.verification {
+    if request.provider.label() != "claude" {
         return Ok(None);
     }
     let routed = Routed::of(request)?;
+    if request.verification {
+        if let Some(routed) = routed {
+            routed.pin(request)?;
+        }
+        return Ok(None);
+    }
     let mut brief = placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
     brief.extend(request.named_brief());
     let reason = tier_reason(&brief, overrides.tier.as_deref());
@@ -62,7 +68,7 @@ struct Routed {
 impl Routed {
     fn of(request: &LaunchRequest) -> NorthResult<Option<Self>> {
         let Some(route) = request.route.as_deref().and_then(Route::parse) else { return Ok(None) };
-        if request.task().is_none() {
+        if request.task().is_none() && !request.verification {
             return Err(NorthError::Refused("--route starts a box, so the launch names its issue (--task or a first `Item:` line)".to_owned()));
         }
         let rung = route.rung();
@@ -73,6 +79,15 @@ impl Routed {
             Route::Second { after, .. } => (false, format!("the route's second rung after {after}'s attempt stopped short")),
         };
         Ok(Some(Self { model, effort: rung.effort.map_or(effort, |effort| effort.label().to_owned()), pinned: rung.effort.is_some(), first, why }))
+    }
+
+    fn pin(&self, request: &mut LaunchRequest) -> NorthResult<()> {
+        request.model = Some(self.model.clone());
+        request.effort = Some(Effort::parse(&self.effort)?);
+        if self.first {
+            request.prompt.push_str(NOTE);
+        }
+        Ok(())
     }
 }
 

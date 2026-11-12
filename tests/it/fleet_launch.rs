@@ -198,6 +198,45 @@ fn a_launch_starts_while_the_ledger_host_is_too_loaded_to_say_who_holds_its_task
 }
 
 #[test]
+fn a_test_launch_on_a_two_rung_route_runs_its_first_rung_and_carries_the_end_your_turn_note() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+
+    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--test", "--route", "haiku:medium,opus:medium", "start the box"]);
+    let session = fs::read_to_string(root.join(".local/state/north/fleet/narrow/session.json"));
+    north(root, &["fleet", "forget", "narrow"]);
+
+    assert!(launched.status.success(), "{}", text(&launched.stderr));
+    let session: serde_json::Value = serde_json::from_str(&session.unwrap()).unwrap();
+    assert_eq!(session["model"], "claude-haiku-5-5", "{session}");
+    assert_eq!(session["effort"], "medium", "{session}");
+    assert!(session["first_attempt"].as_str().is_some_and(|brief| brief.contains("do not retry: end your turn at once")), "{session}");
+}
+
+#[test]
+fn a_second_rung_launch_the_route_refuses_is_told_to_the_parent_that_started_the_first_rung() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let orchestration = root.join("op/orchestration.toml");
+    let tiers = fs::read_to_string(&orchestration).unwrap();
+    fs::write(&orchestration, tiers.replace("[tiers.\"claude:opus-medium\"]\nmodel = \"claude-opus-5-5\"\neffort = \"medium\"\n", "")).unwrap();
+    north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "lead", "--parent", "none", "--test", "start the lead"]);
+
+    let refused = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow-r2", "--parent", "lead", "--test", "--route", "after:narrow:opus", "start the box"]);
+    let mut shown = String::new();
+    north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
+        shown = text(&north(root, &["fleet", "show", "lead"]).stdout);
+        shown.contains("the second rung did not start")
+    });
+    north(root, &["fleet", "forget", "lead"]);
+
+    assert!(!refused.status.success(), "{}", text(&refused.stdout));
+    assert!(shown.contains("[from narrow-r2] route: the second rung did not start"), "the refused second rung never reached its parent: {shown}");
+}
+
+#[test]
 fn a_test_launch_without_a_declared_fixture_root_refuses_before_it_writes_a_session() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();

@@ -193,6 +193,10 @@ fn a_finished_session_retires_at_close_or_at_its_idle_limit_though_its_cli_still
         assert!(second.contains(part), "the second attempt lacks {part:?}: {second}");
     }
     assert!(second.contains("--cwd\n") && second.contains("/main\n") && !second.contains(crate::fleet::route::NOTE), "the second attempt starts outside the main checkout or routes again: {second}");
+    assert!(second.contains("--account\nb\n") && !second.contains("--test"), "the second attempt of a real box lost the first rung's account or became a test launch: {second}");
+    let (tested, _) = escalations_of(Some(false), true, Some("haiku:medium,opus:medium"), true, true);
+    let [second] = &tested[..] else { panic!("a test launch's failed check did not start one second attempt") };
+    assert!(second.contains("--test\n") && second.contains("--account\nb\n") && second.contains("--route\nafter:worker:opus:medium\n"), "the second attempt of a test launch lost --test or the first rung's account: {second}");
     let (cleared, _) = escalations(Some(false), false, Some("small-first"), true);
     assert!(cleared.len() == 1 && cleared[0].contains("kept no output or diff"), "a lane that cleared its own record stopped the escalation: {cleared:?}");
     let (same_model, _) = escalations(Some(false), true, Some("opus:low,opus:medium"), true);
@@ -321,6 +325,10 @@ fn git(dir: &Path, arguments: &[&str]) -> String {
 }
 
 fn escalations(finished: Option<bool>, lane_record: bool, route: Option<&str>, checkout: bool) -> (Vec<String>, Vec<String>) {
+    escalations_of(finished, lane_record, route, checkout, false)
+}
+
+fn escalations_of(finished: Option<bool>, lane_record: bool, route: Option<&str>, checkout: bool, test: bool) -> (Vec<String>, Vec<String>) {
     let root = tempfile::tempdir().unwrap();
     let (host, main, plain) = (root.path().join("worker"), root.path().join("main"), root.path().join("plain"));
     for dir in [&host, &main, &plain] {
@@ -343,7 +351,7 @@ fn escalations(finished: Option<bool>, lane_record: bool, route: Option<&str>, c
     }
     let brief = format!("Item: north#1 (dates parse)\nGoal: parse dates{}", crate::fleet::route::NOTE);
     let cwd = if checkout { &main } else { &plain };
-    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": cwd, "model": "claude-haiku-5-5", "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead", "task_ref": "north#1", "route": route, "first_attempt": route.map(|_| brief)})).unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "b", "verification": test, "cwd": cwd, "model": "claude-haiku-5-5", "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead", "task_ref": "north#1", "route": route, "first_attempt": route.map(|_| brief)})).unwrap();
     write_record(&host, &record).unwrap();
     let courier = Arc::new(Told::default());
     let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), courier.clone(), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host).reading_verdicts(verdicts);

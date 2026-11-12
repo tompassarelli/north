@@ -5,7 +5,8 @@ use crate::error::{NorthError, NorthResult};
 use crate::platform::attribution::{self, Cause, Harness};
 use super::claims::{self, SWEEP_VERB, ThreadsCli, release_exited_claims};
 use crate::fleet::hops;
-use crate::fleet::model::{ProviderName, Role, SessionRecord};
+use crate::fleet::model::{Delivery, ProviderName, Role, SessionRecord};
+use crate::fleet::route::Route;
 use crate::fleet::registry::{self, Controlled, Fleet};
 use crate::fleet::store::ControlVerb;
 use crate::fleet::roster::Roster;
@@ -201,12 +202,23 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
     let parts = launch_parts(&fleet.providers(), words, caller.clone(), proxy)?;
+    let second = parts.request.route.as_deref().and_then(Route::parse).is_some_and(|route| matches!(route, Route::Second { .. })).then(|| (parts.request.name.clone(), parts.request.parent.clone()));
     let queued = std::env::var(super::tick::QUEUE_ENTRY).ok().filter(|name| !name.is_empty());
     let result = launch_prepared(fleet, parts, caller, queued.as_deref());
+    if let (Err(error), Some((name, parent))) = (&result, second) {
+        second_rung_refused(fleet, &name, parent.as_deref(), &error.user_message());
+    }
     if let Some(name) = queued.filter(|_| !matches!(&result, Err(NorthError::Saturated(_)))) {
         let _ = fleet.remove_queued(&name);
     }
     result
+}
+
+fn second_rung_refused(fleet: &Fleet, name: &str, parent: Option<&str>, why: &str) {
+    attribution::record(name, "launch", Cause::Harness(Harness::LaunchRefusal), why);
+    if let Some(parent) = parent {
+        fleet.tell(parent, &format!("[from {name}] route: the second rung did not start: {why}"), Delivery::Queued);
+    }
 }
 
 fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, queued: Option<&str>) -> NorthResult<()> {
