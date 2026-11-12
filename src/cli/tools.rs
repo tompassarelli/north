@@ -206,7 +206,6 @@ const CHECK: &[(&str, Run)] = &[
     ("citations", citation_check),
     ("harness", agent_config_check::run),
     ("privacy", |arguments| crate::privacy::run(arguments, &super::agents::claude_access())),
-    ("oneshot", |arguments| crate::timers::ask::run(arguments, &super::agents::claude_access())),
     ("experiments", crate::experiments::run),
     ("issue-boxes", issue_box_lint::run),
     ("machines", super::machines::run),

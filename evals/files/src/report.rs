@@ -87,11 +87,13 @@ fn cost(results: &[TaskResult], name: &str) -> String {
     let number = |key: &'static str| replies.iter().map(move |reply| reply[key].as_f64().unwrap_or(0.0)).collect::<Vec<f64>>();
     let invented: usize = results.iter().map(|r| by_name(r, name).invented).sum();
     format!(
-        "- {name}: wall {:.1} s median, {:.1} s mean; {:.0} input and {:.0} output tokens per task; {invented} invented paths over {} tasks",
+        "- {name}: wall {:.1} s median, {:.1} s mean (model time {:.1} s mean); {:.0} input and {:.0} output tokens per task; ${:.4} per task; {invented} invented paths over {} tasks",
         median(number("wall_ms")) / 1000.0,
         mean(number("wall_ms").into_iter()) / 1000.0,
+        mean(number("api_ms").into_iter()) / 1000.0,
         mean(number("input_tokens").into_iter()),
         mean(number("output_tokens").into_iter()),
+        mean(number("cost_usd").into_iter()),
         results.len()
     )
 }

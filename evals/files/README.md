@@ -16,8 +16,8 @@ Pickers, all reading the base commit's tree only (no landed diff, no later commi
 - classifier on candidates: the brief and the top 30 text-search and top 15 graph files, with their names, to choose from;
 - unions of those under the same caps.
 
-The classifier is `north check oneshot`, the harness's own one-shot call (no tools, no settings, no session, API-billing environment unset,
-fast mode off; the harness picks the account, so this code touches no login), on `claude-haiku-5-5` at low effort, asked for at most 10 paths. The summary gives wall time and the tokens the call reports.
+The classifier is one `claude -p` call as the harness's one-shot ask makes it (`timers/oneshot.rs`: no tools, no settings, no
+session, API-billing environment unset, fast mode off), on `claude-haiku-5-5` at low effort, asked for at most 10 paths.
 It is given the brief and paths of the repository the task starts in, nothing else; the graph's session and ledger text is
 never sent. Run it only on public repositories.
 
@@ -25,7 +25,7 @@ never sent. Run it only on public repositories.
 
 ```
 cd evals/files && cargo build --offline
-target/debug/eval-files --tasks TASKS-19.json --work /tmp/eval-files [--north PROGRAM]
+target/debug/eval-files --tasks TASKS-19.json --work /tmp/eval-files
 ```
 
 `--work` keeps the graph output and each classifier reply under `raw/`; a rerun reuses them, so delete `raw/` to ask again.

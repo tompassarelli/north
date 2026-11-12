@@ -1,1 +1,0 @@
-- One-shot question (north#1234): `north check oneshot --model M --system TEXT < INPUT` makes the harness's one-shot call (no tools, no settings, no session, token billing unset) on the subscription accounts the privacy judge uses and prints the answer, so a measurement or a script asks a small model without handling an account's login itself.
