@@ -102,7 +102,7 @@ fn strings(item: &Item) -> Option<Vec<String>> {
     item.as_array()?.iter().map(|value| value.as_str().map(str::to_owned)).collect()
 }
 
-fn rank(level: &str) -> usize {
+pub fn rank(level: &str) -> usize {
     LEVELS.iter().position(|known| *known == level).unwrap_or(usize::MAX)
 }
 

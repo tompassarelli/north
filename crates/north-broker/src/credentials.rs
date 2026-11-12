@@ -14,7 +14,7 @@ pub const DIGITALOCEAN_FILE: &str = "digitalocean.yaml";
 pub const HETZNER_FILE: &str = "hetzner-cloud.yaml";
 pub const CLOUDFLARE_FILE: &str = "cloudflare.yaml";
 pub const GITHUB_USER_FILE: &str = "github-user.yaml";
-pub const INSTALLATION_TOKEN_FILE: &str = "github-installation-token.yaml";
+pub const INSTALLATION_TOKEN_FILE: &str = "github-installation-token";
 pub const LEDGER_KEY_FILE: &str = "threads-ledger.key";
 
 pub enum Source {

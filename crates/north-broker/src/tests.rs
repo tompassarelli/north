@@ -146,10 +146,39 @@ fn a_scoped_token_is_minted_with_its_scope_and_inspected_back_through_the_socket
     assert_eq!(inspected["repositories"], json!(["north"]));
     assert_eq!(inspected["permissions"], json!({ "contents": "read", "metadata": "read" }));
     assert!(client.inspect("ghs_never_granted").is_err());
-    std::fs::write(keep.path().join(INSTALLATION_TOKEN_FILE), "token: ghs_preminted\nexpires_at: 2099-01-01T00:00:00Z\n").unwrap();
+    std::fs::write(keep.path().join(INSTALLATION_TOKEN_FILE), "token: ghs_preminted\nexpires_at: 2099-01-01T00:00:00Z\nrepositories: north\npermissions: contents:write,metadata:read\n").unwrap();
     let south = BTreeMap::from([("contents".to_owned(), "read".to_owned())]);
-    assert_eq!(client.github_token("agent", &["south".to_owned()], &south, 0).unwrap().token, "ghs_preminted");
+    assert!(client.github_token("agent", &["south".to_owned()], &south, 0).is_err(), "a token held for north answered for south");
+    let held = client.github_token("agent", &["north".to_owned()], &south, 0).unwrap();
+    assert_eq!(held.token, "ghs_preminted");
+    assert_eq!(held.repositories, Some(vec!["north".to_owned()]));
+    assert_eq!(held.permissions, BTreeMap::from([("contents".to_owned(), "write".to_owned()), ("metadata".to_owned(), "read".to_owned())]));
     assert_eq!(seen.lock().unwrap().len(), 1, "a present installation token still reached the app exchange");
+}
+
+#[test]
+fn a_held_installation_token_is_served_within_its_file_scope_and_never_with_under_a_minute_left() {
+    let (github, seen) = fake_upstream(github_reply);
+    let (keep, broker) = broker(&github, "http://127.0.0.1:9", 1001);
+    let file = keep.path().join(INSTALLATION_TOKEN_FILE);
+    let held = |expires: i64| format!("token: ghs_held\nexpires_at: {}\nrepositories: north\npermissions: contents:write,metadata:read\n", Timestamp::from_unix_seconds(expires).iso());
+    let ask = |body: Value| call(&broker, 1001, "POST", "/github/token", &[], &body);
+
+    std::fs::write(&file, held(NOW + 1000)).unwrap();
+    let (status, answer) = ask(json!({ "app": "agent", "repositories": ["north"], "permissions": { "contents": "read" } }));
+    assert_eq!(status, 200);
+    assert_eq!(answer["token"], "ghs_held");
+    assert_eq!(answer["repositories"], json!(["north"]));
+    assert_eq!(answer["permissions"], json!({ "contents": "write", "metadata": "read" }), "the reply reported the asked scope, not what the token holds");
+    assert_eq!(ask(json!({ "app": "agent", "repositories": ["south"] })).0, 403);
+    assert_eq!(ask(json!({ "app": "agent", "repositories": ["north"], "permissions": { "issues": "read" } })).0, 403);
+    assert_eq!(ask(json!({ "app": "agent", "repositories": ["north"], "valid_for": 1001 })).0, 403);
+
+    std::fs::write(&file, held(NOW + 59)).unwrap();
+    let (status, answer) = ask(json!({ "app": "agent", "repositories": ["north"] }));
+    assert_eq!(status, 502);
+    assert!(answer["error"].as_str().unwrap().contains(INSTALLATION_TOKEN_FILE), "{answer}");
+    assert!(seen.lock().unwrap().is_empty(), "a held token reached the app exchange");
 }
 
 #[test]

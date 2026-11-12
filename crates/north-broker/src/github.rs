@@ -10,9 +10,10 @@ use serde_json::{Value, json};
 
 use crate::curl;
 use crate::credentials::{AGENT_APP_FILE, INSTALLATION_TOKEN_FILE, LANDER_APP_FILE, Source};
-use crate::policy::{Permissions, Scope};
+use crate::policy::{Permissions, Scope, rank};
 
 const EXCHANGE_LIMIT: Duration = Duration::from_secs(30);
+const INSTALLATION_TOKEN_MARGIN: i64 = 60;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct App {
@@ -46,10 +47,18 @@ impl Minter {
         Self { api: "https://api.github.com".to_owned(), source }
     }
 
-    pub fn mint(&self, app: App, scope: &Scope, now: i64) -> Result<Minted, String> {
-        if app.file == AGENT_APP_FILE && let Some(minted) = self.installation_token(scope, now)? {
-            return Ok(minted);
+    pub fn holds_installation_token(&self) -> bool {
+        self.source.path(INSTALLATION_TOKEN_FILE).is_some()
+    }
+
+    pub fn mint(&self, app: App, scope: &Scope, valid_for: i64, now: i64) -> Result<Minted, (u16, String)> {
+        if app.file == AGENT_APP_FILE && self.holds_installation_token() {
+            return self.installation_token(scope, valid_for, now);
         }
+        self.exchange_app(app, scope, now).map_err(|why| (502, why))
+    }
+
+    fn exchange_app(&self, app: App, scope: &Scope, now: i64) -> Result<Minted, String> {
         let creds = self.source.fields(app.file)?;
         let (app_id, installation_id) = (creds.get("app_id").cloned().unwrap_or_default(), creds.get("installation_id").cloned().unwrap_or_default());
         let private_key = creds.get(app.pem).map(String::as_str).unwrap_or_default();
@@ -66,19 +75,32 @@ impl Minter {
         Ok(Minted { token: token.to_owned(), expires_at: expires_at.to_owned(), repositories, permissions })
     }
 
-    fn installation_token(&self, scope: &Scope, now: i64) -> Result<Option<Minted>, String> {
-        if self.source.path(INSTALLATION_TOKEN_FILE).is_none() {
-            return Ok(None);
+    fn installation_token(&self, scope: &Scope, valid_for: i64, now: i64) -> Result<Minted, (u16, String)> {
+        let unavailable = |why: String| (502, why);
+        let fields = self.source.fields(INSTALLATION_TOKEN_FILE).map_err(unavailable)?;
+        let token = fields.get("token").filter(|token| !token.is_empty()).ok_or_else(|| unavailable(format!("{INSTALLATION_TOKEN_FILE} holds no token")))?;
+        let expires_at = fields.get("expires_at").ok_or_else(|| unavailable(format!("{INSTALLATION_TOKEN_FILE} holds no expires_at")))?;
+        let expiry = Timestamp::parse_rfc3339(expires_at).ok_or_else(|| unavailable(format!("{INSTALLATION_TOKEN_FILE} expires_at is not RFC 3339")))?;
+        let left = expiry.unix_seconds() - now;
+        if left <= 0 {
+            return Err(unavailable(format!("{INSTALLATION_TOKEN_FILE} expired at {expires_at}")));
         }
-        let fields = self.source.fields(INSTALLATION_TOKEN_FILE)?;
-        let token = fields.get("token").filter(|token| !token.is_empty()).ok_or_else(|| format!("{INSTALLATION_TOKEN_FILE} holds no token"))?;
-        let expires_at = fields.get("expires_at").ok_or_else(|| format!("{INSTALLATION_TOKEN_FILE} holds no expires_at"))?;
-        let expiry = Timestamp::parse_rfc3339(expires_at).ok_or_else(|| format!("{INSTALLATION_TOKEN_FILE} expires_at is not RFC 3339"))?;
-        if expiry.unix_seconds() <= now {
-            return Err(format!("{INSTALLATION_TOKEN_FILE} expired at {expires_at}"));
+        if left < INSTALLATION_TOKEN_MARGIN {
+            return Err(unavailable(format!("{INSTALLATION_TOKEN_FILE} has {left} s left, under the {INSTALLATION_TOKEN_MARGIN} s a token must keep")));
         }
-        let repositories = (!scope.repositories.is_empty()).then(|| scope.repositories.clone());
-        Ok(Some(Minted { token: token.clone(), expires_at: expires_at.clone(), repositories, permissions: scope.permissions.clone() }))
+        let (repositories, permissions) = held_scope(&fields).map_err(unavailable)?;
+        if let Some(outside) = scope.repositories.iter().find(|name| !repositories.contains(name)) {
+            return Err((403, format!("repository {outside} is outside the scope {INSTALLATION_TOKEN_FILE} holds ({})", repositories.join(", "))));
+        }
+        for (name, level) in &scope.permissions {
+            if permissions.get(name).is_none_or(|most| rank(level) > rank(most)) {
+                return Err((403, format!("permission {name}:{level} is outside the scope {INSTALLATION_TOKEN_FILE} holds")));
+            }
+        }
+        if valid_for > left {
+            return Err((403, format!("valid_for {valid_for} s runs past the {left} s {INSTALLATION_TOKEN_FILE} has left")));
+        }
+        Ok(Minted { token: token.clone(), expires_at: expires_at.clone(), repositories: Some(repositories), permissions })
     }
 
     fn exchange(&self, installation_id: &str, jwt: &str, scope: &Scope) -> Result<Value, String> {
@@ -115,6 +137,15 @@ impl Minter {
             return Err(format!("token exchange failed: HTTP {status}{message}"));
         }
         Ok(data)
+    }
+}
+
+fn held_scope(fields: &BTreeMap<String, String>) -> Result<(Vec<String>, Permissions), String> {
+    let repositories: Vec<String> = fields.get("repositories").map(|list| list.split(',').map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned).collect()).unwrap_or_default();
+    let permissions: Option<Permissions> = fields.get("permissions").map(|list| list.split(',').map(str::trim).filter(|pair| !pair.is_empty()).map(|pair| pair.split_once(':').map(|(name, level)| (name.trim().to_owned(), level.trim().to_owned()))).collect()).unwrap_or_default();
+    match (repositories.is_empty(), permissions.filter(|permissions| !permissions.is_empty())) {
+        (false, Some(permissions)) => Ok((repositories, permissions)),
+        _ => Err(format!("{INSTALLATION_TOKEN_FILE} names no repositories or permissions, so the scope it holds is unknown")),
     }
 }
 

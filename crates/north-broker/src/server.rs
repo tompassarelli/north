@@ -179,7 +179,7 @@ impl Broker {
             if let Some(minted) = self.reuse(&key, now, valid_for) {
                 return Ok(minted);
             }
-            let minted = self.minter.mint(application, &scope, now).map_err(|why| (502, why))?;
+            let minted = self.minter.mint(application, &scope, valid_for, now)?;
             self.remember(&key, peer.uid, app_name, &minted, now);
             Ok(minted)
         })();
@@ -198,6 +198,9 @@ impl Broker {
     }
 
     fn reuse(&self, key: &str, now: i64, valid_for: i64) -> Option<Minted> {
+        if self.minter.holds_installation_token() {
+            return None;
+        }
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let minted = &state.held.get(&digest(state.reused.get(key)?))?.minted;
         (Timestamp::parse_rfc3339(&minted.expires_at)?.unix_seconds() - now > REUSE_MARGIN.max(valid_for)).then(|| minted.clone())
