@@ -1,0 +1,10 @@
+#!/bin/sh
+# north's containment sweep freezes a container scope outside agent.slice, so every Eval X container starts in this slice.
+case ${1:-} in
+  run | create)
+    verb=$1
+    shift
+    exec "${EVAL_X_PODMAN:?}" "$verb" --cgroup-parent agent-capacity-evalx.slice "$@"
+    ;;
+esac
+exec "${EVAL_X_PODMAN:?}" "$@"

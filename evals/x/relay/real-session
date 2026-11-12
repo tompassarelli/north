@@ -3,7 +3,8 @@ set -euo pipefail
 here=$(dirname "$(readlink -f "$0")")
 [ -n "${EVAL_X_SHELL:-}" ] || exec env EVAL_X_SHELL=1 north capacity dev-shell run --dir "${here%/relay}" -- "$0" "$@"
 # Rootless podman maps the subordinate ids with the setuid newuidmap wrapper, which must come before the store's copy.
-export PATH=/run/wrappers/bin:$PATH
+EVAL_X_PODMAN=${EVAL_X_PODMAN:-$(command -v podman)}
+export EVAL_X_PODMAN PATH=${here%/relay}/slice:/run/wrappers/bin:$PATH
 token=${1:?usage: evals/x/relay/real-session TOKEN-FILE [MODEL]}
 model=${2:-claude-opus-5-5}
 name=eval-x-relay-check

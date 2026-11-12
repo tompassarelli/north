@@ -16,7 +16,9 @@ container tasks run and graded by the benchmark's own harness, [Harbor](https://
   task's own grader, and prints one graded row, the digests of the images pulled and the disk they take: it proves
   a host can run the benchmark before any agent is involved. `host caps IMAGE` starts one container with a cap of
   one CPU and 2 GB and prints the limits the kernel applied, `cpu.max 100000 100000` and `memory.max 2147483648`
-  when the user's cgroup delegation lets a task's caps hold. `host harbor ARGS...` runs Harbor with the same pins.
+  when the user's cgroup delegation lets a task's caps hold. `host hold IMAGE` keeps one capped container alive for
+  four minutes and prints its cgroup and, at each of three minutes, `frozen 0` while north's containment sweep leaves
+  it running. `host harbor ARGS...` runs Harbor with the same pins.
   Harbor's telemetry is off in every call and nothing is uploaded.
 
 ## Where it runs
@@ -40,3 +42,8 @@ its own directory and README:
 - `workspace/`: copies a task's working directory out of its image to the host and prints the mounts for it.
 - `relay/`: the shell both arms give Claude Code, and the broker that runs its commands in the container.
 - `arm`: runs one turn of one arm on the host for one trial and writes the trial's result.
+- `slice/podman`: stands in front of podman on the path of `host` and `relay/real-session` and gives every container
+  they or Harbor start the cgroup parent `agent-capacity-evalx.slice`. north's containment sweep
+  (`north agent-contain sweep`, each minute) freezes a container scope anywhere else under the user manager, which
+  stalls a trial at its next exec; under `agent.slice` it leaves containers alone, and their load counts as agent
+  load. A task's own CPU and memory caps are set on the container as before.
