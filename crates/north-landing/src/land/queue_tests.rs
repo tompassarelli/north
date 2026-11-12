@@ -34,3 +34,21 @@ fn a_ticket_written_back_into_the_queue_after_its_withdrawal_is_never_pending_ag
     let order: Vec<String> = collect(directory.path()).unwrap().into_iter().map(|(_, ticket)| ticket.branch).collect();
     assert_eq!(order, ["other"], "a withdrawn ticket a later writer put back (the doctor's rerun, a lander rewrite) never lands");
 }
+
+#[test]
+fn two_threads_finishing_one_ticket_leave_it_whole() {
+    let directory = tempfile::tempdir().unwrap();
+    let done = directory.path().join(file_name(1_790_000_000_000_003, "c"));
+    let long = Ticket { branch: "c".into(), verdict: Some(format!("landed {}", "f".repeat(4_000))), ..Default::default() };
+    let short = Ticket { branch: "c".into(), verdict: Some("landed dcf56504d04a".into()), ..Default::default() };
+    for _ in 0..200 {
+        std::thread::scope(|scope| {
+            let writers = [&long, &short].map(|ticket| scope.spawn(|| write(&done, ticket)));
+            for writer in writers {
+                writer.join().unwrap().unwrap_or_else(|error| panic!("on 2026-11-12 the recovery and the round both finished one done ticket through a shared temporary file: {error}"));
+            }
+        });
+        let verdict = read(&done).unwrap_or_else(|error| panic!("on 2026-11-12 the recovery and the round both finished one done ticket and left trailing characters: {error}")).verdict;
+        assert!(verdict == long.verdict || verdict == short.verdict);
+    }
+}
