@@ -8,6 +8,7 @@ use super::exec;
 pub const PREFIX: &str = "verify-north-";
 pub const BRANCH: &str = "worker";
 const QUERY_WAIT: Duration = Duration::from_secs(30);
+const USAGE_GATE: &str = "agents/usage-gate.json";
 const IDENTITY: [(&str, &str); 3] = [("user.name", "verify-north"), ("user.email", "verify-north@example.invalid"), ("commit.gpgsign", "false")];
 
 pub struct Scratch {
@@ -21,7 +22,28 @@ pub struct Scratch {
 
 pub fn state_root() -> Result<PathBuf, String> {
     let directory = tempfile::Builder::new().prefix(PREFIX).tempdir().map_err(|error| format!("state directory: {error}"))?;
-    directory.keep().canonicalize().map_err(|error| format!("state directory: {error}"))
+    let state = directory.keep().canonicalize().map_err(|error| format!("state directory: {error}"))?;
+    seed_usage_gate(&live_state()?, &state)?;
+    Ok(state)
+}
+
+/// Copies the host's live usage gate into the walk's state, so its worker is placed on the plan account the host would pick: with no gate there every plan account read as held for want of a usage sample, and the walk sat in placement past the canary's limit (north#1273). A copy, so nothing the walk writes reaches the host's state.
+fn seed_usage_gate(live: &Path, state: &Path) -> Result<(), String> {
+    let from = live.join(USAGE_GATE);
+    if !from.is_file() {
+        return Ok(());
+    }
+    let agents = state.join("agents");
+    fs::create_dir_all(&agents).map_err(|error| format!("{}: {error}", agents.display()))?;
+    fs::copy(&from, state.join(USAGE_GATE)).map(drop).map_err(|error| format!("{}: {error}", from.display()))
+}
+
+fn live_state() -> Result<PathBuf, String> {
+    std::env::var_os("XDG_STATE_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
+        .ok_or_else(|| "no state directory".to_owned())
 }
 
 impl Scratch {
@@ -61,11 +83,7 @@ impl Scratch {
 }
 
 pub fn keep_ledger(root: &Path, stamp: u64) -> Result<PathBuf, String> {
-    let state = std::env::var_os("XDG_STATE_HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
-        .ok_or("no state directory")?;
+    let state = live_state()?;
     let kept = state.join("north/verify-north/failed").join(stamp.to_string());
     fs::create_dir_all(&kept).map_err(|error| format!("{}: {error}", kept.display()))?;
     for name in ["threads.db", "threads.db-wal", "threads.db-shm", "pushes.tsv"] {
@@ -99,4 +117,18 @@ fn git(directory: &Path, arguments: &[&str]) -> Result<String, String> {
     let mut command = Command::new("git");
     command.arg("-C").arg(directory).args(arguments);
     Ok(exec::stdout(command, QUERY_WAIT, None)?.trim().to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_walk_state_carries_the_live_usage_gate_where_placement_reads_it() {
+        let (live, state) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        fs::create_dir_all(live.path().join("agents")).unwrap();
+        fs::write(live.path().join(USAGE_GATE), "{\"claude\":{}}\n").unwrap();
+        seed_usage_gate(live.path(), state.path()).unwrap();
+        assert_eq!(fs::read_to_string(state.path().join("agents/usage-gate.json")).unwrap(), "{\"claude\":{}}\n", "placement reads XDG_STATE_HOME/agents/usage-gate.json; without it every plan account reads as held");
+    }
 }
