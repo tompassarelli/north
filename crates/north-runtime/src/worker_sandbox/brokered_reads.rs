@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use north_base::foundation::carry;
 use north_base::platform::session_scope;
 
 use super::Context;
@@ -43,6 +44,26 @@ pub(super) fn named_file_readable(arguments: &[String], directory: &Path, enviro
     }
 }
 
+pub(super) fn readable_host_inputs(arguments: &[String], directory: &Path, environment: Vec<(String, String)>, cgroup: Option<&str>) -> Vec<(String, String)> {
+    let context = Context::from_request(&arguments.join(" "), directory, &environment);
+    let roots = if cgroup.is_none_or(session_scope::lane_only_cgroup) { readable_in_lane(&context, &[]) } else { readable(&context) };
+    environment
+        .into_iter()
+        .map(|(name, value)| {
+            if name != carry::LAND_HOST_INPUTS {
+                return (name, value);
+            }
+            let kept: Vec<String> = value
+                .split_whitespace()
+                .map(|input| input.strip_prefix("~/").map_or_else(|| PathBuf::from(input), |below| context.home.join(below)))
+                .filter(|entry| entry.canonicalize().is_ok_and(|real| roots.iter().any(|root| real.starts_with(root))))
+                .map(|entry| entry.display().to_string())
+                .collect();
+            (name, kept.join(" "))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,5 +85,12 @@ mod tests {
         let ask = |plan: &Path| named_file_readable(&["home".to_owned(), "move".to_owned(), plan.display().to_string()], &lane, &environment, None);
         assert!(ask(&lane.join("plan.tsv")).is_ok(), "a plan inside the client's own lane is read");
         assert!(ask(&other.join("secret")).is_err(), "a lane-only client's plan beside it is refused");
+        let entry = home.join(".local/share/makgora-build-inputs/store/base").join("a".repeat(64));
+        std::fs::create_dir_all(&entry).unwrap();
+        let declared = vec![("HOME".to_owned(), home.display().to_string()), (carry::LAND_HOST_INPUTS.to_owned(), format!("~/.local/share/makgora-build-inputs/store/base/{}", "a".repeat(64)))];
+        let depbox = ["depbox".to_owned(), "run".to_owned(), "--".to_owned(), "bun".to_owned()];
+        let bound = |cgroup: Option<&str>| readable_host_inputs(&depbox, &lane, declared.clone(), cgroup).into_iter().find(|(name, _)| name == carry::LAND_HOST_INPUTS).map(|(_, value)| value);
+        assert_eq!(bound(None).as_deref(), Some(""), "a lane-only client's sandbox binds no store entry its own domain cannot read");
+        assert_eq!(bound(Some("0::/user.slice/north-worker-n1.scope")), Some(entry.display().to_string()), "a client whose domain reads the store keeps the entry its land check declares");
     }
 }

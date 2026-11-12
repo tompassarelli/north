@@ -64,7 +64,7 @@ fn blob_values(repo: &Path, head: &str, key: &str) -> Vec<String> {
 }
 
 /// Expands one `STORE@PINS` host input into the store root and the entries the check's head pins:
-/// `PINS` names a directory at `head` with one file per input family, and each file's content is the
+/// `PINS` names a directory at `head` with one file, or one directory of shard files, per input family, and each file's content is the
 /// 64-hex name of the store entry that family's build reads, so a host whose store exists but lacks
 /// one of those entries takes no check that reads it (north#892). A declaration that resolves to no
 /// entry stays whole, so the probe reports it missing instead of silently dropping the store.
@@ -79,19 +79,23 @@ fn expand_store_input(repo: &Path, head: &str, input: &str) -> Vec<String> {
 }
 
 /// Each `FAMILY/ENTRY` the pins directory names at `head`, where an entry is the first 64-hex name in the
-/// family file; a family file that names none is left out so the probe reports the store entry missing.
+/// family file, or in each shard file of a sharded family, whose pin is a directory of them; a pin file that
+/// names none is left out so the probe reports the store entry missing.
 fn pinned_entries(repo: &Path, head: &str, pins: &str) -> Vec<String> {
-    git_lines(repo, &["ls-tree", "--name-only", &format!("{head}:{pins}")])
-        .into_iter()
-        .filter_map(|family| {
-            if family.is_empty() || !family.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)) {
-                return None;
-            }
-            let text = git_lines(repo, &["show", &format!("{head}:{pins}/{family}")]).join("\n");
-            let entry = text.split(|character: char| !character.is_ascii_alphanumeric()).find(|word| word.len() == ENTRY_LEN && word.bytes().all(|byte| byte.is_ascii_hexdigit()))?;
-            Some(format!("{family}/{entry}"))
-        })
-        .collect()
+    let mut entries: Vec<String> = Vec::new();
+    for pin in git_lines(repo, &["ls-tree", "-r", "--name-only", &format!("{head}:{pins}")]) {
+        let family = pin.split('/').next().unwrap_or_default();
+        if family.is_empty() || !family.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)) {
+            continue;
+        }
+        let text = git_lines(repo, &["show", &format!("{head}:{pins}/{pin}")]).join("\n");
+        let Some(entry) = text.split(|character: char| !character.is_ascii_alphanumeric()).find(|word| word.len() == ENTRY_LEN && word.bytes().all(|byte| byte.is_ascii_hexdigit())) else { continue };
+        let named = format!("{family}/{entry}");
+        if !entries.contains(&named) {
+            entries.push(named);
+        }
+    }
+    entries
 }
 
 fn expand_host_inputs(repo: &Path, head: &str, line: String) -> String {

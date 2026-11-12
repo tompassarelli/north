@@ -22,11 +22,13 @@ pub const LANDING: &str = "SAFE_PUSH_LANDING";
 pub const LAND_BASE: &str = "SAFE_PUSH_LAND_BASE";
 pub const LAND_HEAD: &str = "SAFE_PUSH_LAND_HEAD";
 pub const REMOTE_MARK: &str = "NORTH_BUILD_OFFLOADED";
+pub const LAND_HOST_INPUTS: &str = "SAFE_PUSH_LAND_HOST_INPUTS";
 
-const CARRY: [(&str, Reach); 36] = [
+const CARRY: [(&str, Reach); 37] = [
     (LANDING, Reach::Landing),
     (LAND_BASE, Reach::Landing),
     (LAND_HEAD, Reach::Landing),
+    (LAND_HOST_INPUTS, Reach::Landing),
     ("SAFE_PUSH_LAND_RUNTIME_HEAD", Reach::Landing),
     ("SAFE_PUSH_LAND_REF", Reach::Landing),
     ("SAFE_PUSH_LAND_PACKAGES", Reach::Landing),
