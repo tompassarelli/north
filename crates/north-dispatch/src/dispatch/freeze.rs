@@ -1,11 +1,12 @@
 //! The launch freeze alarm: while dispatch runs find ready boxes and free slots and launch none for
-//! `dispatch_freeze_alarm_min` minutes, the proxy gets one urgent message naming the guards that refuse.
+//! `dispatch_freeze_alarm_min` minutes, the proxy gets one urgent message naming the guards that refuse, spend guards and closed hosts alike.
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use super::Outcome;
 use super::record;
+use super::slots::Host;
 use super::survey::Survey;
 use crate::platform::process::run_within;
 use crate::spend::Starter;
@@ -20,14 +21,14 @@ pub struct Stretch {
     pub told: bool,
 }
 
-/// Why this run is frozen: ready boxes and free slots and no launch (`stopped` is why each planned launch did not happen: the guard that skipped it, or its failure), with the spend guards refusing each account and the first refusal; None when it launched or had nothing to do.
+/// Why this run is frozen: ready boxes and free slots and no launch (`stopped` is why each planned launch did not happen: the guard that skipped it, or its failure), with the spend guards refusing each account, the closed hosts and the first refusal; None when it launched or had nothing to do.
 pub fn frozen(outcome: &Outcome, stopped: &[String], guards: &[String]) -> Option<String> {
     let launched = outcome.launches.len() - stopped.len().min(outcome.launches.len());
     if outcome.ready.is_empty() || outcome.free == 0 || launched > 0 {
         return None;
     }
     let first = stopped.first().cloned().or_else(|| outcome.skipped.iter().find(|(_, why)| why.starts_with("ready, not placed")).map(|(item, why)| format!("{item} {why}")));
-    let guards = if guards.is_empty() { "no spend guard refuses an account".to_owned() } else { format!("refusing guards: {}", guards.join("; ")) };
+    let guards = if guards.is_empty() { "no spend guard refuses an account and no host is closed".to_owned() } else { format!("refusing guards: {}", guards.join("; ")) };
     Some(format!("{} ready, {} free slots and no launch; {guards}; first refusal: {}", outcome.ready.len(), outcome.free, first.unwrap_or_else(|| "none recorded".into())))
 }
 
@@ -45,9 +46,15 @@ pub fn step(previous: Option<Stretch>, frozen: Option<String>, at: f64, limit_mi
     (Some(stretch), Some(text))
 }
 
-/// The refusal of each account the spend rule keeps a worker off, with the rule it is.
+/// The refusal of each account the spend rule keeps a worker off, with the rule it is, then why each closed host takes no session.
 pub fn guards(survey: &Survey) -> Vec<String> {
-    survey.accounts.iter().filter_map(|account| survey.spend.admit(&account.name, Starter::Worker).err().map(|refusal| format!("{refusal} ({})", account.name))).collect()
+    let accounts = survey.accounts.iter().filter_map(|account| survey.spend.admit(&account.name, Starter::Worker).err().map(|refusal| format!("{refusal} ({})", account.name)));
+    accounts.chain(closed(&survey.hosts)).collect()
+}
+
+/// Why each host takes no session, such as a root disk under its disk bound, so a ready box no host takes names the guard that closed it.
+pub fn closed(hosts: &[Host]) -> Vec<String> {
+    hosts.iter().filter_map(|host| host.running.as_ref().err().map(|why| if why.starts_with(&host.name) { why.clone() } else { format!("{}: {why}", host.name) })).collect()
 }
 
 /// Keeps the stretch in `FILE` across runs and tells the proxy once it passes the limit; a failed send is retried on the next frozen run. Returns false when a page due this run did not go out.

@@ -22,6 +22,13 @@ fn the_spend_freeze_of_2026_11_08_tells_the_proxy_once_on_the_first_dispatch_run
     let launched = Outcome { launches: Vec::new(), ready: Vec::new(), ..Outcome::default() };
     assert_eq!(step(stretch, frozen(&launched, &[], &[]), start + 30.0 * 60.0, 15.0), (None, None));
 
+    let reading = crate::capacity::saturation::Saturation { memory_total_mib: 98_304.0, memory_available_mib: 61_000.0, disk_free_gib: 149.0, disk_total_gib: 936.0, backlog: None, token_age_s: None, disk_bound_gib: Some(150.0) };
+    let closed = super::freeze::closed(&[super::tests::host("gex45", 24, Ok(0)).read(Some(&reading)), super::tests::host("nexus", 4, Ok(1))]);
+    let deepseek = IssueRef { repo: "north".into(), number: 1232 };
+    let no_host = Outcome { ready: vec![deepseek.clone()], free: 3, skipped: vec![(deepseek, "ready, not placed: no DeepSeek host (gex45) serves this box with a free slot".into())], ..Outcome::default() };
+    let basis = frozen(&no_host, &[], &closed).unwrap();
+    assert!(basis.contains("refusing guards: gex45 skipped: 149.0 GiB free on the root disk, under its 150 GiB disk bound;"), "the 2026-11-12 freeze names the disk bound that closed the only DeepSeek host: {basis}");
+
     let mut alerts = Vec::new();
     let delivery = super::effects::deliver("dispatch alert", &mut |_| Err("no token".to_owned()), &mut |line| {
         alerts.push(line.to_owned());

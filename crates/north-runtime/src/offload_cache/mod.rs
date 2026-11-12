@@ -58,11 +58,18 @@ pub struct Lines {
 }
 
 impl Lines {
-    /// A cleanup pass trims caches to the low watermark; between passes they keep only their caps. Warm stores go only in an `evicting`
-    /// pass, one that started under the eviction line, and then until the disk is back over the eviction stop line.
-    pub fn pass(cleanup: bool, evicting: bool) -> Self {
-        Self { trim: if cleanup { Line::low_watermark() } else { Line::NEVER }, evict: if evicting { Line::eviction_stop() } else { Line::NEVER } }
+    /// A cleanup pass trims caches to the low watermark; between passes they keep only their caps. Warm stores go only in an evicting
+    /// pass, one that started with the host closed to dispatch for disk, and then until the disk is back over `reopened`.
+    pub fn pass(cleanup: bool, reopened: Option<Line>) -> Self {
+        Self { trim: if cleanup { Line::low_watermark() } else { Line::NEVER }, evict: reopened.unwrap_or(Line::NEVER) }
     }
+}
+
+/// The line `budget`'s host is closed to dispatch under on `disk`, and the one an evicting pass reclaims back over.
+pub fn closing(budget: &DiskBudget, disk: Option<Disk>) -> (Line, Line) {
+    let size_gib = disk.map_or(0.0, |disk| disk.size_bytes as f64 / GIB);
+    let bound = budget.dispatch_bound_gib();
+    (Line::closed(bound, size_gib), Line::reopened(bound, size_gib))
 }
 
 /// Which slots of a root a `Store::Slots` pass may remove.
@@ -299,12 +306,13 @@ fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from)
 }
 
-/// One eviction pass over this home's stores under `budget`, a cleanup pass when `cleanup` is set or the disk reads past the eviction
-/// line, which alone lets the pass take warm stores past their caps.
+/// One eviction pass over this home's stores under `budget`, a cleanup pass when `cleanup` is set or the host reads closed to dispatch
+/// for disk, which alone lets the pass take warm stores past their caps, oldest first, until the host is open again with a margin.
 fn evict_here(home: &Path, budget: &DiskBudget, disk: &mut dyn FnMut() -> Option<Disk>, cleanup: bool) -> (Vec<Evicted>, Option<Disk>) {
     let first = disk();
-    let evicting = first.is_some_and(|disk| disk.past(Line::eviction()));
-    let evicted = evict(&stores(home, first, budget, &Ledger::shipped(), Lines::pass(cleanup || evicting, evicting)), disk);
+    let (closed, reopened) = closing(budget, first);
+    let evicting = first.is_some_and(|disk| disk.past(closed));
+    let evicted = evict(&stores(home, first, budget, &Ledger::shipped(), Lines::pass(cleanup || evicting, evicting.then_some(reopened))), disk);
     for gone in &evicted {
         eprintln!("north capacity: evicted {} {} ({} MiB), least recently used", gone.what, gone.path.display(), gone.bytes >> 20);
     }
@@ -335,9 +343,10 @@ pub fn tend() {
     }
 }
 
-/// `north capacity disk keep`, the disk pass. A disk passing its high watermark, or the eviction line, with no host-disk episode open
-/// starts one cleanup pass down to the low watermark, records the episode and pages the proxy once with what the pass took; the episode
-/// closes once the disk is back over both lines, so the next pass waits for the next crossing. Between passes only caps are kept.
+/// `north capacity disk keep`, the disk pass. A disk passing its high watermark, or the line its host is closed to dispatch under, with
+/// no host-disk episode open starts one cleanup pass down to the low watermark, records the episode and pages the proxy once with what the
+/// pass took and, when the host stays closed, what holds the space; every pass that reads the host closed reclaims warm stores too. The
+/// episode closes once the disk is back over both lines, so the next pass waits for the next crossing. Between passes only caps are kept.
 pub fn keep() {
     if fixture() {
         return;
@@ -349,15 +358,17 @@ pub fn keep() {
     let marker = crate::capacity::agent_load::capacity_root().join(EPISODE_FILE);
     let open = marker.exists();
     let Some(before) = disk_of(&home) else { return };
-    let passed = |disk: Disk| disk.past(Line::high_watermark()) || disk.past(Line::eviction());
+    let budget = DiskBudget::local();
+    let (closed, _) = closing(&budget, Some(before));
+    let passed = |disk: Disk| disk.past(Line::high_watermark()) || disk.past(closed);
     let starts = !open && passed(before);
-    let (evicted, Some(after)) = evict_here(&home, &DiskBudget::local(), &mut || disk_of(&home), starts) else { return };
+    let (evicted, Some(after)) = evict_here(&home, &budget, &mut || disk_of(&home), starts) else { return };
     if starts {
         let host = crate::platform::host::name();
         let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
         let key = format!("{INCIDENT_CLASS}:{host}@{now}");
         let largest = disk_ledger::local().map(|account| largest(&account)).unwrap_or_default();
-        let detail = alarm(&host, before, after, &evicted, &largest);
+        let detail = alarm(&host, before, after, closed, &evicted, &largest);
         let recorded = record(&key, &host, &detail);
         if page(&detail) || recorded {
             let _ = marker.parent().map(fs::create_dir_all);
@@ -377,12 +388,23 @@ fn largest(account: &disk_ledger::Account) -> String {
     format!("{}; {:.0} GiB unaccounted", stores.join(", "), account.unaccounted() as f64 / GIB)
 }
 
-pub fn alarm(host: &str, before: Disk, after: Disk, evicted: &[Evicted], largest: &str) -> String {
+/// The one page of a pass that `before` started: what it took, and when `after` still reads under `closed`, that the host stays closed to
+/// dispatch with nothing more the rules may reclaim and which stores hold the space.
+pub fn alarm(host: &str, before: Disk, after: Disk, closed: Line, evicted: &[Evicted], largest: &str) -> String {
     let freed = evicted.iter().map(|gone| gone.bytes).sum::<u64>() as f64 / GIB;
-    let target = Line::low_watermark().floor_gib(after.size_bytes as f64 / GIB);
-    let short = if after.free_gib < target { ", short of it with nothing regenerable left, so the rest sits in the stores below" } else { "" };
+    let size_gib = after.size_bytes as f64 / GIB;
+    let target = Line::low_watermark().floor_gib(size_gib);
+    let bound = closed.floor_gib(size_gib);
+    let crossed = if before.past(closed) { format!("the {bound:.0} GiB free it is closed to dispatch under") } else { "its high watermark".to_owned() };
+    let short = if after.past(closed) {
+        format!(", so it stays closed to dispatch under its {bound:.0} GiB disk bound with nothing more its rules may reclaim; what holds the space")
+    } else if after.free_gib < target {
+        ", short of it with nothing regenerable left, so the rest sits in the stores below; largest stores".to_owned()
+    } else {
+        "; largest stores".to_owned()
+    };
     format!(
-        "{host} root disk passed its high watermark at {:.0}% ({:.0} GiB free); one cleanup pass trimmed {} cache entries ({freed:.0} GiB) toward the low watermark of {target:.0} GiB free and left {:.0} GiB free{short}; largest stores: {largest}",
+        "{host} root disk passed {crossed} at {:.0}% ({:.0} GiB free); one cleanup pass took {} entries ({freed:.0} GiB) toward the low watermark of {target:.0} GiB free and left {:.0} GiB free{short}: {largest}",
         before.used_percent,
         before.free_gib,
         evicted.len(),

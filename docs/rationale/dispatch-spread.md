@@ -24,7 +24,10 @@ gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
   bound is `[hosts.NAME] disk_free_gib`, else the eviction line; under it the host takes nothing and the refusal names the
   host, its free GiB and the bound, and above it the host's room is the smaller of its memory room and the free space
   over the bound divided by `dispatch_cold_build_gib` (8), so each placement in a round takes a cold build from the disk
-  and the host takes work again in the first round after free space is back over the bound.
+  and the host takes work again in the first round after free space is back over the bound. On 2026-11-12 a 150 GiB
+  host bound sat over the reaper's lines, so a host at 149 GiB free stayed closed with nothing reclaiming it and the freeze
+  alarm named an unrelated guard; the reaper now reads the same bound as the line it evicts under, and the alarm names each
+  closed host's refusal (north#1232).
 - **A host whose GitHub token had gone stale was still given boxes.** A host without the App key trusts the token it was
   handed for 55 minutes. Two workers launched on such a host after that trust lapsed stopped with nothing done because
   they could not read their issue (north#818). The saturation probe now also prints the age of that token (empty on a

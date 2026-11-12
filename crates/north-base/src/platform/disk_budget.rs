@@ -31,7 +31,7 @@ impl Share {
     }
 }
 
-/// One host's `[hosts.NAME.disk_budget_gib]` in orchestration.toml: the GiB each store on the shared root disk may hold.
+/// One host's disk settings in orchestration.toml: `[hosts.NAME.disk_budget_gib]`, the GiB each store on the shared root disk may hold, and its dispatch bound.
 #[derive(Default)]
 pub struct DiskBudget {
     policy: Option<DocumentMut>,
@@ -55,6 +55,12 @@ impl DiskBudget {
     /// The budget of the store `harness/disk-ledger.toml` names `name`, which for a `Share` is its key.
     pub fn named_gib(&self, name: &str) -> Option<f64> {
         let value = self.policy.as_ref()?.get("hosts")?.get(&self.host)?.get("disk_budget_gib")?.get(name)?;
+        value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).filter(|gib| *gib > 0.0)
+    }
+
+    /// The host's `disk_free_gib`: the free GiB under which dispatch and fleet placement send it no new session.
+    pub fn dispatch_bound_gib(&self) -> Option<f64> {
+        let value = self.policy.as_ref()?.get("hosts")?.get(&self.host)?.get("disk_free_gib")?;
         value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).filter(|gib| *gib > 0.0)
     }
 

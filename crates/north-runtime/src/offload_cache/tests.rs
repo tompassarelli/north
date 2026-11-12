@@ -155,7 +155,7 @@ fn a_large_disk_evicts_at_the_same_free_headroom_as_a_small_one_so_a_roomy_host_
     let land = home.path().join(".cache/land-offload");
     slot(&land, "code-north-main-3", 8, 40);
     slot(&land, "code-north-main", 8, 50);
-    let evicted = evict(&stores(home.path(), Some(disk(936.0, 81.0)), &DiskBudget::default(), &Ledger::shipped(), Lines::pass(true, false)), &mut || Some(disk(936.0, 81.0)));
+    let evicted = evict(&stores(home.path(), Some(disk(936.0, 81.0)), &DiskBudget::default(), &Ledger::shipped(), Lines::pass(true, None)), &mut || Some(disk(936.0, 81.0)));
     assert!(evicted.is_empty() && land.join("code-north-main-3/target/blob").exists() && land.join("code-north-main/target/blob").exists());
 }
 
@@ -198,11 +198,24 @@ fn the_first_pass_under_the_eviction_line_takes_land_slots_back_over_the_stop_li
     assert_eq!(land_passes, 1, "one pass takes land slots, not one every 30 s");
 
     let home = lay_out();
+    let closed_at = DiskBudget::parse("[hosts.h]\ndisk_free_gib = 150\n", "h");
+    let room = 140.0 + scaled(home.path());
+    let mut reading = || Some(Disk { used_percent: 85.0, free_gib: room - scaled(home.path()), size_bytes });
+    let (closed, reopened) = closing(&closed_at, reading());
+    let (evicted, after) = evict_here(home.path(), &closed_at, &mut reading, false);
+    let after = after.unwrap();
+    assert!(!after.past(reopened) && after.free_gib >= 186.0, "a host at 140 GiB free, closed to dispatch under its 150 GiB bound and over every other line, is reclaimed back over the bound with a slot of margin; it left {:.1}", after.free_gib);
+    assert_eq!(names(&evicted), ["lane-a", "lane-b", "code-north-main-3", "code-north-main-1"], "caches first, then the oldest idle land slots");
+    let stuck = Disk { free_gib: 140.0, ..after };
+    let page = alarm("h", stuck, stuck, closed, &[], "land_offload (warm, 160 GiB, trim: land-slots)");
+    assert!(page.contains("passed the 150 GiB free it is closed to dispatch under") && page.contains("stays closed to dispatch under its 150 GiB disk bound with nothing more its rules may reclaim; what holds the space: land_offload"), "{page}");
+
+    let home = lay_out();
     let land = home.path().join(".cache/land-offload");
     let budget = DiskBudget::parse("[hosts.h.disk_budget_gib]\nland_offload = 0.01\n", "h");
     let cap = (budget.named_gib("land_offload").unwrap() * GIB) as u64;
     let roomy = Disk { used_percent: 50.0, free_gib: 400.0, size_bytes };
-    let stores = stores(home.path(), Some(roomy), &budget, &Ledger::shipped(), Lines::pass(false, false));
+    let stores = stores(home.path(), Some(roomy), &budget, &Ledger::shipped(), Lines::pass(false, None));
     let evicted = evict(&stores, &mut || Some(roomy));
     let held: u64 = slots(&land).iter().map(|slot| slot.bytes).sum();
     assert!(held <= cap, "the budget holds every land slot together, the lander's included, to the cap on a calm pass: {held} > {cap}");

@@ -42,6 +42,17 @@ impl Line {
         Self { free_share: EVICT_STOP_FREE_SHARE, free_gib: default_number("offload_evict_stop_free_gib") }
     }
 
+    /// The line dispatch closes a host of `size_gib` under: its `disk_free_gib` dispatch bound `bound_gib` when that lies over the eviction line, else the eviction line.
+    pub fn closed(bound_gib: Option<f64>, size_gib: f64) -> Self {
+        bound_gib.filter(|bound| *bound > Self::eviction().floor_gib(size_gib)).map_or_else(Self::eviction, |bound| Self { free_share: 1.0, free_gib: bound })
+    }
+
+    /// The line a pass that starts under `closed` takes warm stores back over: the closing line plus the margin the eviction stop line keeps over the eviction line.
+    pub fn reopened(bound_gib: Option<f64>, size_gib: f64) -> Self {
+        let margin = Self::eviction_stop().floor_gib(size_gib) - Self::eviction().floor_gib(size_gib);
+        bound_gib.filter(|bound| *bound > Self::eviction().floor_gib(size_gib)).map_or_else(Self::eviction_stop, |bound| Self { free_share: 1.0, free_gib: bound + margin })
+    }
+
     /// The free GiB under which a disk of `size_gib` passes this line; 0 for a disk of unknown size.
     pub fn floor_gib(self, size_gib: f64) -> f64 {
         (size_gib * self.free_share).min(self.free_gib)

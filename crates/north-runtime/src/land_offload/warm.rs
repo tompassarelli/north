@@ -18,7 +18,8 @@ use rustix::fs::{FlockOperation, flock};
 
 use super::ship::{SLOTS, is_lander_slot, slot_ports};
 use super::slot_lock;
-use crate::offload_cache::{Disk, Line, disk_of, land_slots_take};
+use crate::offload_cache::{Disk, closing, disk_of, land_slots_take};
+use crate::platform::disk_budget::DiskBudget;
 
 pub(super) const LOCK: &str = "warm.lock";
 const LOG: &str = "warm.log";
@@ -140,7 +141,8 @@ fn slots(root: &Path) -> Vec<Slot> {
 fn room_for_a_cold_slot(root: &Path, slots: &[Slot]) -> bool {
     let largest = slots.iter().filter(|slot| !slot.cold).filter_map(|slot| north_base::platform::shared_target::allocated_tree(&root.join(&slot.name).join("target"), &mut HashSet::new()).ok()).map(|(bytes, _)| bytes).max();
     let (Some(largest), Some(disk)) = (largest, disk_of(root)) else { return false };
-    land_slots_take(root, largest) && !Disk { free_gib: disk.free_gib - largest as f64 / GIB, ..disk }.past(Line::eviction())
+    let (closed, _) = closing(&DiskBudget::local(), Some(disk));
+    land_slots_take(root, largest) && !Disk { free_gib: disk.free_gib - largest as f64 / GIB, ..disk }.past(closed)
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> Option<String> {
