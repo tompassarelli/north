@@ -25,7 +25,7 @@ Turns triggered only by completion reports and landing notices: 21 + 48 = 69 of 
 
 - Transcript turns are the only per-turn record. The ledger holds one coordinator run for the day, because the proxy is an adopted interactive window and not a headless run, so north#1235's turns-per-landing count and the ledger run count cannot cross-check this total.
 - From 01:41 to 09:10 UTC the coordinator was a different provider and left no Claude transcript; its turns are not in the 499.
-- Night-watch sessions relay events to the coordinator, so many turns open on a relay that bundles a report with other findings; the strict reading counts those as other reports.
+- Commit-reviewer sessions relay events to the coordinator, so many turns open on a relay that bundles a report with other findings; the strict reading counts those as other reports.
 
 ## Consequence
 
