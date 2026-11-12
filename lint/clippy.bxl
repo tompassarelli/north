@@ -11,17 +11,22 @@ def _clippy_impl(ctx: bxl.Context):
     universe = ctx.target_universe([label for expression in ctx.cli_args.targets for label in expression]).target_set()
     targets = [target for target in ctx.cquery().kind(_RUST_RULES, universe) if _first_party(target)]
     actions = ctx.bxl_actions().actions
-    verdicts = []
+    verdicts = {}
     for label, analysis in ctx.analysis(targets).items():
+        raw = label.raw_target()
+
+        # Buck2 analyses a target once per configuration: the case runner is built for the execution platform too, and one verdict path serves both.
+        if str(raw) in verdicts:
+            continue
         diagnostics = analysis.providers()[RustcExtraOutputsInfo].clippy.compile_output.diag_txt
-        verdict = actions.declare_output("clippy/{}/{}.ok".format(label.raw_target().package, label.raw_target().name))
+        verdict = actions.declare_output("/".join([part for part in ["clippy", raw.package, raw.name + ".ok"] if part]))
         actions.run(
             cmd_args("/bin/sh", "-c", _VERDICT, "clippy", diagnostics, verdict.as_output()),
             category = "clippy_verdict",
-            identifier = str(label.raw_target()),
+            identifier = str(raw),
         )
-        verdicts.append(verdict)
-    ctx.output.ensure_multiple(verdicts)
+        verdicts[str(raw)] = verdict
+    ctx.output.ensure_multiple(verdicts.values())
     ctx.output.print("clippy: {} targets clean".format(len(verdicts)))
 
 clippy = bxl_main(

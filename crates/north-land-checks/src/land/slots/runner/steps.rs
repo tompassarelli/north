@@ -61,7 +61,7 @@ pub(super) fn ran(command: &str, started_at: f64, ended_at: f64) {
     if !RECORDING.load(Ordering::Relaxed) {
         return;
     }
-    let what = if command.contains("cargo clippy") { "clippy" } else if command.contains("nextest run") || command.contains("cargo test") { "tests" } else { "check" };
+    let what = if north_build_system::lints(command) { "clippy" } else if command.contains("nextest run") || command.contains("cargo test") || north_build_system::test_record(command).is_some() { "tests" } else { "check" };
     let mut windows = WINDOWS.lock().unwrap_or_else(PoisonError::into_inner);
     let began = windows.0;
     windows.1.push((what, started_at - began, ended_at - began));

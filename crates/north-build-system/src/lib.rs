@@ -17,6 +17,8 @@ use std::time::SystemTime;
 use buck2::Buck2;
 use cargo::Cargo;
 
+const TEST_SWITCH: &str = "buck2_tests";
+
 pub trait BuildSystem {
     /// Whether `root` is a workspace this build system builds.
     fn governs(&self, root: &Path) -> bool;
@@ -38,13 +40,27 @@ pub trait BuildSystem {
     fn listing(&self, printed: &str) -> Result<Vec<TestBinary>, String>;
     /// Type-checks one package and every target in it, printing its diagnostics as JSON lines.
     fn check(&self, root: &Path, package: &str, output: Option<&Path>) -> Invocation;
+    /// Lints every target of the selection and fails on any warning.
+    fn lint(&self, request: &Lint) -> Invocation;
+    /// The line this side runs for `declared`, a land check line of `.safe-push`, which names Cargo until the removal rewrites it (north#1115 box 8): this side's own lint or test run behind the declared line's shell, else the line as declared.
+    fn land_line(&self, declared: &str) -> String;
     fn mutants(&self, request: &Mutants) -> Result<Invocation, String>;
 }
 
-/// The build system this host runs: `[hosts.NAME] build_system` in the orchestration policy, Cargo when unset or unreadable.
+/// The build system this host runs: Buck2 when `[hosts.NAME] build_system` in the orchestration policy says `buck2`, with its test run once `buck2_tests` is set too, and Cargo when the key is unset or the policy unreadable.
 pub fn here() -> Box<dyn BuildSystem> {
-    use north_base::platform::{host, orchestration};
-    if orchestration::read().is_ok_and(|policy| orchestration::builds_with_buck2(&policy, &host::name())) { Box::new(Buck2) } else { Box::new(Cargo) }
+    let host = north_base::platform::host::name();
+    let Ok(policy) = north_base::platform::orchestration::read() else { return Box::new(Cargo) };
+    let tests = policy.get("hosts").and_then(|hosts| hosts.get(host.as_str())?.get(TEST_SWITCH)?.as_bool()) == Some(true);
+    match north_base::platform::orchestration::builds_with_buck2(&policy, &host) {
+        true => Box::new(Buck2 { tests }),
+        false => Box::new(Cargo),
+    }
+}
+
+/// Whether `command` is the lint line of either side.
+pub fn lints(command: &str) -> bool {
+    cargo::lints(command) || buck2::lints(command)
 }
 
 /// The workspace's packages with their dependency graph resolved for `platform`, read from the Cargo manifests whichever side this host builds with, since the Buck2 targets are generated from those manifests.
@@ -132,6 +148,13 @@ pub struct Tests<'a> {
     /// Bypasses every compile cache, so the run measures the compiler itself.
     pub uncached: bool,
     pub coverage: Option<Coverage<'a>>,
+}
+
+pub struct Lint<'a> {
+    pub root: &'a Path,
+    pub selection: Selection,
+    pub resolution: Resolution,
+    pub shell: Shell,
 }
 
 /// One test binary's run as the build system itself recorded it.

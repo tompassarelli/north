@@ -42,6 +42,14 @@ fn git_output(repo: &Path, arguments: &[&str]) -> Result<Vec<String>, String> {
 
 struct Blob(Vec<(String, String)>);
 
+/// One `.safe-push` entry with its command as the build system this host runs issues it, so every list that names a check line names the same one.
+fn issued(side: &dyn north_build_system::BuildSystem, entry: &str) -> String {
+    match entry.split_once(SEPARATOR) {
+        Some((lead, command)) => format!("{lead}{SEPARATOR}{}", side.land_line(command)),
+        None => entry.to_owned(),
+    }
+}
+
 impl Blob {
     fn read(repo: &Path, head: &str) -> Self {
         let blob = format!("{head}:.safe-push");
@@ -52,7 +60,9 @@ impl Blob {
             return Self(Vec::new());
         }
         let text = String::from_utf8_lossy(&output.stdout);
-        Self(text.split('\0').filter_map(|entry| entry.split_once('\n')).flat_map(|(key, value)| value.lines().map(move |line| (key.to_owned(), line.to_owned()))).collect())
+        let side = north_build_system::here();
+        let side = side.as_ref();
+        Self(text.split('\0').filter_map(|entry| entry.split_once('\n')).flat_map(|(key, value)| value.lines().map(move |line| (key.to_owned(), issued(side, line)))).collect())
     }
 
     fn values(&self, key: &str) -> Vec<String> {

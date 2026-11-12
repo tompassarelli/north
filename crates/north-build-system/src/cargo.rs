@@ -5,7 +5,14 @@ use std::time::SystemTime;
 
 use serde::Deserialize;
 
-use super::{Build, BuildSystem, Invocation, MutantStep, Mutants, Profile, Resolution, Selection, Shell, Step, TestBinary, Tests};
+use super::{Build, BuildSystem, Invocation, Lint, MutantStep, Mutants, Profile, Resolution, Selection, Shell, Step, TestBinary, Tests};
+
+const CLIPPY: &str = "cargo clippy";
+
+/// Whether `command` runs this side's clippy.
+pub(crate) fn lints(command: &str) -> bool {
+    command.contains(CLIPPY)
+}
 
 /// Cargo, with cargo-nextest for listing and running tests and cargo-mutants for mutants.
 pub struct Cargo;
@@ -147,6 +154,18 @@ impl BuildSystem for Cargo {
     fn check(&self, root: &Path, package: &str, output: Option<&Path>) -> Invocation {
         let words = words(&["check", "-p", package, "--all-targets", "--keep-going", "--offline", "--message-format=json"]);
         targeted(Invocation::new(root, Shell::Inherited, words), output)
+    }
+
+    fn lint(&self, request: &Lint) -> Invocation {
+        let mut words = words(&["clippy", "--all-targets"]);
+        selected(&mut words, &request.selection);
+        resolved(&mut words, request.resolution);
+        words.extend(["--", "-D", "warnings"].map(str::to_owned));
+        Invocation::new(request.root, request.shell, words)
+    }
+
+    fn land_line(&self, declared: &str) -> String {
+        declared.to_owned()
     }
 
     fn mutants(&self, request: &Mutants) -> Result<Invocation, String> {

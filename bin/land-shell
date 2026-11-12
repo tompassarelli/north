@@ -4,13 +4,15 @@ dev=0
 [ "${1:-}" != --dev ] || { dev=1; shift; }
 [ "${1:-}" = -- ] || { printf 'usage: land-shell [--dev] -- COMMAND...\n' >&2; exit 2; }
 shift
+mode=run
+[ "$(basename -- "${1:-}")" != buck2 ] || mode=fetch
 if [ "${GITHUB_ACTIONS:-}" = true ]; then exec "$@"; fi
 hermetic=(env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL -u EMAIL GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
 depbox=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/depbox
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=.
 if [ -z "${DEPBOX:-}" ] && [ -f "$top/Cargo.lock" ] && command -v cargo >/dev/null && [ ! -e "$HOME/.local/state/depbox/cargo-fetched/$(sha256sum "$top/Cargo.lock" | cut -c1-16)" ]; then "$depbox" fetch -- cargo fetch --locked >&2 || true; fi
-[ "$dev" -eq 1 ] || exec "$depbox" run -- "${hermetic[@]}" "$@"
+[ "$dev" -eq 1 ] || exec "$depbox" "$mode" -- "${hermetic[@]}" "$@"
 north=$(command -v north) || north=
 [ -z "$north" ] || [ -z "${DEPBOX:-}" ] || exec "$north" capacity dev-shell run -- "${hermetic[@]}" "$@"
-if [ -n "$north" ] && "$north" capacity dev-shell run --prepare; then exec "$depbox" run -- "$north" capacity dev-shell run -- "${hermetic[@]}" "$@"; fi
-exec "$depbox" run -- nix develop --offline --no-update-lock-file -c "${hermetic[@]}" "$@"
+if [ -n "$north" ] && "$north" capacity dev-shell run --prepare; then exec "$depbox" "$mode" -- "$north" capacity dev-shell run -- "${hermetic[@]}" "$@"; fi
+exec "$depbox" "$mode" -- nix develop --offline --no-update-lock-file -c "${hermetic[@]}" "$@"
