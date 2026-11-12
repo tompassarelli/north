@@ -17,6 +17,9 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
     for seed in north_lanes::lanes::reclaim_dead_seeds(&inputs.code, &inputs.proc_root, inputs.now, policy.dry_run) {
         removals.push(Removal { path: seed.path, reason: "cargo target seed left by a process that died, over an hour old; the next seed copies again".to_owned(), bytes: seed.bytes });
     }
+    for daemon in north_lanes::lanes::reclaim_dead_daemons(&inputs.buck_daemons, Path::new("/"), policy.dry_run) {
+        removals.push(Removal { path: daemon.path, reason: "Buck2 daemon state of a checkout that is gone; its daemon stops within a minute of losing it".to_owned(), bytes: daemon.bytes });
+    }
     for target in north_lanes::lanes::release_landed_targets(&inputs.code, &inputs.state, &inputs.proc_root, policy.dry_run) {
         removals.push(Removal { path: target.path, reason: "cargo target of a lane its ticket records as landed, held by no process".to_owned(), bytes: target.bytes });
     }

@@ -43,23 +43,13 @@ pub trait BuildSystem {
 
 /// The build system this host runs: `[hosts.NAME] build_system` in the orchestration policy, Cargo when unset or unreadable.
 pub fn here() -> Box<dyn BuildSystem> {
-    let chosen = north_base::platform::orchestration::read().ok().and_then(|policy| {
-        let host = north_base::platform::host::name();
-        policy.get("hosts").and_then(|hosts| hosts.get(&host)).and_then(|table| table.get("build_system")).and_then(toml_edit::Item::as_str).map(str::to_owned)
-    });
-    chosen_by(chosen.as_deref())
+    use north_base::platform::{host, orchestration};
+    if orchestration::read().is_ok_and(|policy| orchestration::builds_with_buck2(&policy, &host::name())) { Box::new(Buck2) } else { Box::new(Cargo) }
 }
 
 /// The workspace's packages with their dependency graph resolved for `platform`, read from the Cargo manifests whichever side this host builds with, since the Buck2 targets are generated from those manifests.
 pub fn manifest_graph(root: &Path, platform: &str) -> Result<String, String> {
     cargo_metadata::resolved_for(root, platform)
-}
-
-fn chosen_by(setting: Option<&str>) -> Box<dyn BuildSystem> {
-    match setting {
-        Some("buck2") => Box::new(Buck2),
-        _ => Box::new(Cargo),
-    }
 }
 
 /// The environment a command runs in: as inherited, through the tree's `bin/land-shell --dev` when it has one, or `nix develop`.

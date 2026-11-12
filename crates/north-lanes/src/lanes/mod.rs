@@ -1,3 +1,4 @@
+mod buck_daemons;
 mod exec;
 mod gc;
 pub use gc::USAGE as GC_USAGE;
@@ -41,6 +42,7 @@ pub use reap::run as wt_reap;
 pub use remove::run as remove;
 pub use rescue::run as wt_rescue;
 pub use stray::run as stray;
+pub use buck_daemons::{DeadDaemon, reclaim_dead_daemons};
 pub use target_seed::{DeadSeed, reclaim_dead_seeds, run as target_seed};
 pub use unlock::run as unlock;
 

@@ -48,6 +48,7 @@ impl Machine {
             tmp: self.path("tmp"),
             proc_root: self.path("proc"),
             code: self.path("code"),
+            buck_daemons: self.path("buckd"),
             state: self.path("state"),
             cache: self.path("cache"),
             lan_clients: self.path("clients"),

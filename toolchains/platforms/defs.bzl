@@ -10,9 +10,8 @@ def _execution_platform_impl(ctx):
         label = ctx.label.raw_target(),
         configuration = cfg,
         executor_config = CommandExecutorConfig(
-            local_enabled = True,
+            local_enabled = not remote,
             remote_enabled = remote,
-            use_limited_hybrid = remote,
             remote_execution_properties = ctx.attrs.remote_execution_properties,
             remote_execution_use_case = "buck2-default",
             remote_output_paths = "output_paths",

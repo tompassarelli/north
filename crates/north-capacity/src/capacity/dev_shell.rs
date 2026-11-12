@@ -115,9 +115,18 @@ fn evaluate(nix: &Path, flake: &Path) -> Result<String, String> {
     Err(format!("{} has no devShells.{}.default ({reason})", flake.display(), system()))
 }
 
-/// The dev shell this process runs in only when north entered that very derivation; a stray `IN_NIX_SHELL` from another shell does not count.
-fn inside(identity: &str) -> bool {
-    std::env::var(MARK).is_ok_and(|entered| entered == identity)
+/// Whether the checkout at `flake` holds what the shell's hook leaves in it: the link to the Buck2 toolchain file (flake.nix), which a Buck2 checkout made after this process entered the shell lacks.
+fn hooked(flake: &Path) -> bool {
+    !flake.join(".buckconfig").is_file() || flake.join(".buckconfig.flake").exists()
+}
+
+/// The dev shell this process runs in only when north entered that very derivation (`entered`, the mark) and its hook has run for the checkout at `flake`; a stray `IN_NIX_SHELL` from another shell does not count.
+fn inside(entered: Option<&str>, identity: &str, flake: &Path) -> bool {
+    entered == Some(identity) && hooked(flake)
+}
+
+fn entered() -> Option<String> {
+    std::env::var(MARK).ok()
 }
 
 /// `command` as a lease runs it from the current directory: inside its project's flake dev shell through `north capacity dev-shell run`, unless it has no flake or the command is itself a `nix` invocation.
@@ -141,7 +150,7 @@ fn entered_by(command: &[String]) -> Option<(PathBuf, PathBuf, String)> {
     let flake = (!runs_nix(command)).then(|| flake_root(&directory)).flatten()?;
     let nix = nix()?;
     let identity = derivation(&nix, &flake).ok()?;
-    (!inside(&identity)).then_some((nix, flake, identity))
+    (!inside(entered().as_deref(), &identity, &flake)).then_some((nix, flake, identity))
 }
 
 /// Makes the root of the dev shell `command` would enter from the current directory, from where the roots directory can be written, so a sandbox that binds it read-only finds the root there; 0 when the command enters no dev shell.
@@ -400,7 +409,7 @@ pub fn command(arguments: &[String], gated: &dyn Fn(&[String]) -> bool) -> u8 {
         Ok(identity) => identity,
         Err(reason) => return bare(reason),
     };
-    if !invocation.prepare_only && inside(&identity) {
+    if !invocation.prepare_only && inside(entered().as_deref(), &identity, &flake) {
         trace(&format!("direct {identity}"));
         return run_directly("north capacity dev-shell", &invocation.command);
     }

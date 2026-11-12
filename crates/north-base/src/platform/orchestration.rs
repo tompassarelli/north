@@ -80,9 +80,9 @@ pub fn build_hosts(cfg: &DocumentMut) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Whether `[hosts.HOST]` builds north with Buck2 (`build_tool = "buck2"`); a host without the key builds with Cargo.
+/// Whether `[hosts.HOST]` builds north with Buck2 (`build_system = "buck2"`, the key the build seam reads); a host without the key builds with Cargo.
 pub fn builds_with_buck2(cfg: &DocumentMut, host: &str) -> bool {
-    cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get("build_tool")?.as_str()) == Some("buck2")
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get("build_system")?.as_str()) == Some("buck2")
 }
 
 /// Every repo of a project with `paused = true`, its `repos` and `dispatch_repos` both.

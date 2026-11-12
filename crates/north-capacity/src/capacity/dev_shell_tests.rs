@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::{Invocation, placed};
+use super::{Invocation, inside, placed};
 
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_owned).collect()
@@ -25,4 +25,18 @@ fn a_fleet_session_cargo_test_on_the_laptop_is_leased_through_remote_admission()
     );
     assert_eq!(placed("north", &run("/lane", "cargo fmt"), true, &|_| false), None, "a run the gate leases nothing for, or one already inside its lease, enters the dev shell here");
     assert_eq!(placed("north", &Invocation { directory: PathBuf::from("/lane"), prepare_only: true, command: Vec::new() }, true, &fleet_compile), None);
+}
+
+#[test]
+fn a_buck2_lane_made_after_the_shell_was_entered_enters_it_again_for_its_toolchain_link() {
+    let lane = tempfile::tempdir().unwrap();
+    assert!(inside(Some("/nix/store/shell.drv"), "/nix/store/shell.drv", lane.path()), "a checkout with no Buck2 project runs directly in the shell it is in");
+    std::fs::write(lane.path().join(".buckconfig"), "").unwrap();
+    assert!(
+        !inside(Some("/nix/store/shell.drv"), "/nix/store/shell.drv", lane.path()),
+        "a fresh lane whose command started inside another checkout's identical dev shell ran directly, so the hook never linked .buckconfig.flake and buck2 stopped at `buckconfig [nix] clippy_driver is unset` (north#1116, live run on gex45 2026-11-12)"
+    );
+    std::os::unix::fs::symlink(lane.path().join(".buckconfig"), lane.path().join(".buckconfig.flake")).unwrap();
+    assert!(inside(Some("/nix/store/shell.drv"), "/nix/store/shell.drv", lane.path()));
+    assert!(!inside(None, "/nix/store/shell.drv", lane.path()));
 }
