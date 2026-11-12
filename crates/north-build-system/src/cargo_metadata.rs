@@ -5,6 +5,8 @@ use std::process::{Command, Stdio};
 use sha2::{Digest, Sha256};
 
 const ROOT: &str = "\u{1}checkout\u{1}";
+const INFRASTRUCTURE: &str = "(infrastructure, exit 75)";
+const OFFLINE_MISS: &str = "but --offline was specified";
 
 fn memo_dir() -> PathBuf {
     let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"));
@@ -35,9 +37,11 @@ pub fn resolved_for(root: &Path, platform: &str) -> Result<String, String> {
         .args(["metadata", "--format-version", "1", "--locked", "--offline", "--filter-platform", platform])
         .current_dir(root)
         .output()
-        .map_err(|why| format!("cargo metadata: {why}"))?;
+        .map_err(|why| format!("cargo metadata did not start {INFRASTRUCTURE}: {why}"))?;
     if !output.status.success() {
-        return Err(format!("cargo metadata failed: {}", String::from_utf8_lossy(&output.stderr).trim_end()));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let mark = if matches!(output.status.code(), Some(75 | 127) | None) || stderr.contains(OFFLINE_MISS) { format!(" {INFRASTRUCTURE}") } else { String::new() };
+        return Err(format!("cargo metadata failed{mark}: {}", stderr.trim_end()));
     }
     String::from_utf8(output.stdout).map_err(|why| format!("cargo metadata printed non-UTF-8: {why}"))
 }

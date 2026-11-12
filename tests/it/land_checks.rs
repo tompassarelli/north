@@ -723,3 +723,20 @@ fn clippy_and_the_tests_under_one_lease_run_side_by_side_on_a_host_with_the_core
     let output = failing.command().env("AGENT_CAPACITY_CORES", "16").output().unwrap();
     assert_ne!(output.status.code(), Some(0), "a failing check beside a passing one did not refuse: {}", text(&output));
 }
+
+#[test]
+fn the_lock_and_buck_check_answers_infrastructure_when_cargo_cannot_run_and_refuses_only_cargos_own_lock_answer() {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
+    let check = |path: &Path| Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["buck", "targets", "--check", "--root"]).arg(&fixture.repo).env("PATH", path).output().unwrap();
+    let empty = fixture.path("no-cargo");
+    fs::create_dir_all(&empty).unwrap();
+    let missing = check(&empty);
+    assert_eq!(missing.status.code(), Some(75), "a host without cargo was blamed on the lane: {}", text(&missing));
+
+    let stale = fixture.path("stale-lock");
+    fs::create_dir_all(&stale).unwrap();
+    script(&stale.join("cargo"), "echo 'error: cannot update the lock file Cargo.lock because --locked was passed to prevent this' >&2\nexit 101\n");
+    let refused = check(Path::new(&format!("{}:{}", stale.display(), std::env::var("PATH").unwrap_or_default())));
+    assert_eq!(refused.status.code(), Some(1), "cargo's own lock answer did not refuse: {}", text(&refused));
+    assert!(text(&refused).contains("cannot update the lock file"), "{}", text(&refused));
+}

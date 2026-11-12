@@ -18,6 +18,9 @@ const USAGE: &str = "usage: north buck targets [--check] [--root DIR]";
 pub type Manifests = fn(&Path, &str) -> Result<String, String>;
 
 const PLATFORM: &str = "x86_64-unknown-linux-gnu";
+// The mark north-build-system and the capacity shim print when cargo itself could not run.
+const INFRASTRUCTURE: &str = "(infrastructure, exit 75)";
+const INFRASTRUCTURE_STATUS: u8 = 75;
 
 pub fn run(arguments: &[String], manifests: Manifests) -> u8 {
     let Some(("targets", rest)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) else {
@@ -41,7 +44,7 @@ pub fn run(arguments: &[String], manifests: Manifests) -> u8 {
         Ok(code) => code,
         Err(why) => {
             eprintln!("north buck targets: {why}");
-            1
+            if why.contains(INFRASTRUCTURE) { INFRASTRUCTURE_STATUS } else { 1 }
         }
     }
 }
