@@ -1412,7 +1412,7 @@ fallback = "the box is not filed"
 consumers = ["crates/north-flow/src/detectors/mod.rs"]
 
 [detector_skill_review_owner]
-value = "north#1012"
+value = "north#1276"
 allowed = { prefix = "north#" }
 unit = "issue a skill's review box is filed on by the skill-review detector"
 source = "tom: reviews fire on a signal in place of a calendar, and a skill changed, corrected or drifted since its last review gets one box (north#1059, 2026-11-10)"
@@ -1420,7 +1420,7 @@ fallback = "the box is not filed"
 consumers = ["crates/north-flow/src/detectors/mod.rs", "crates/north-flow/src/detectors/gather/skills.rs"]
 
 [detector_followed_source_owner]
-value = "north#1012"
+value = "north#1276"
 allowed = { prefix = "north#" }
 unit = "issue a followed source's review box is filed on by the followed-source detector"
 source = "tom: reviews fire on a signal in place of a calendar, and a followed source due under watching.md gets one box naming the record its review starts from (north#1059, 2026-11-10)"

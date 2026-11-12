@@ -102,7 +102,7 @@ budget = "0"
 guard_kind = "test"
 guard = "checker_verified_reads_the_stamp_on_the_box_a_runs_brief_named_and_the_whole_issue_only_without_one"
 state = "live"
-incidents = "north#872"
+incidents = "north#1239"
 
 [[hold]]
 id = "H10"

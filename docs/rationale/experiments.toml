@@ -516,7 +516,7 @@ box = "shows no start timeout for a day after it lands"
 command = "journalctl --user -u fleet-tick.service --since -24h | rg -c 'start operation timed out' || echo 0"
 expect = "0"
 review = "2026-11-07"
-owner = "tompassarelli/north#637"
+owner = "tompassarelli/north#1275"
 
 [[check]]
 id = "n638-mirror-main-caller"
@@ -612,7 +612,7 @@ box = "shows no start timeout for a day after it lands"
 command = "journalctl --user -u fleet-tick.service --since '2026-11-09 17:30' --until '2026-11-10 17:30' | rg -c 'start operation timed out' || echo 0"
 expect = "0"
 review = "2026-11-11"
-owner = "tompassarelli/north#637"
+owner = "tompassarelli/north#1275"
 
 [[experiment]]
 id = "absolute-paths-to-tom"
