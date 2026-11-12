@@ -22,8 +22,8 @@ pub(super) fn repositories(code: &Path) -> Vec<(String, PathBuf)> {
 pub(super) fn maintenance_argv(name: &str, repo: &Path) -> Vec<String> {
     let repo = repo.to_string_lossy();
     [
-        "capacity", "host", "run", "--class", "moderate", "--owner", &format!("git-maintenance:{name}"), "--timeout-seconds", "3600",
-        "--", "git", "-C", repo.as_ref(), "-c", "pack.threads=2", "maintenance", "run",
+        "capacity", "host", "run", "--class", "moderate", "--owner", &format!("git-maintenance:{name}"), "--timeout-seconds", "10800",
+        "--", "git", "-C", repo.as_ref(), "-c", "pack.threads=2", "-c", "core.filesRefLockTimeout=10000", "maintenance", "run",
     ]
     .map(str::to_owned)
     .to_vec()
