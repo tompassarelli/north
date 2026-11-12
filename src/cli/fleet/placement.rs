@@ -93,7 +93,7 @@ pub(super) fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthRes
 pub(super) fn home_path_refusal(request: &LaunchRequest, machine: Option<&Machine>) -> Option<String> {
     let machine = machine.filter(|machine| machine.name != crate::platform::host::name())?;
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
-    let paths = unreadable_paths(&request.prompt, &request.cwd, Path::new(&home));
+    let paths = crate::platform::home_paths::outside(&request.prompt, Path::new(&home), &request.cwd);
     (!paths.is_empty()).then(|| {
         let named: Vec<String> = paths.iter().map(|path| path.display().to_string()).collect();
         format!(
@@ -104,12 +104,6 @@ pub(super) fn home_path_refusal(request: &LaunchRequest, machine: Option<&Machin
             machine.name,
         )
     })
-}
-
-/// The paths under `home` that `prompt` names outside `cwd`, the directory the session starts in.
-fn unreadable_paths(prompt: &str, cwd: &Path, home: &Path) -> Vec<PathBuf> {
-    let started_in = |path: &Path| cwd != home && cwd.starts_with(home) && path.starts_with(cwd);
-    crate::platform::home_paths::home_paths(prompt, home).into_iter().filter(|path| !started_in(path)).collect()
 }
 
 /// Why placement does not start a launch: a saturated host may take it once its admission queue,

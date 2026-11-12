@@ -13,6 +13,12 @@ pub fn home_paths(prompt: &str, home: &Path) -> Vec<PathBuf> {
     paths
 }
 
+/// The paths `home_paths` finds in `prompt` other than those inside `started_in`, the directory a session starts in, which the machine it is placed on has.
+pub fn outside(prompt: &str, home: &Path, started_in: &Path) -> Vec<PathBuf> {
+    let exempt = started_in != home && started_in.starts_with(home);
+    home_paths(prompt, home).into_iter().filter(|path| !(exempt && path.starts_with(started_in))).collect()
+}
+
 pub fn expand(word: &str, home: &Path) -> PathBuf {
     if let Some(rest) = word.strip_prefix("~/").or_else(|| word.strip_prefix("$HOME/")) {
         return home.join(rest);

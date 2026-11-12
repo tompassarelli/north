@@ -248,15 +248,7 @@ pub fn queue(found: &Found, here: &str, laptop: Option<&str>, remote: &Remote<'_
         if dry_run {
             return format!("would {line}");
         }
-        let ran = if laptop == Some(done.host.as_str()) {
-            let mut queued = ["threads", "queue", "add", "laptop", &done.item.to_string(), "--", "north"].map(str::to_owned).to_vec();
-            queued.extend(job(done));
-            run(&north, &queued)
-        } else if done.host == here {
-            run(&north, &job(done))
-        } else {
-            remote(&done.host, &job(done))
-        };
+        let ran = start(done, &north, here, laptop, remote);
         match ran.and_then(|()| mark(&directory, &done.name, placement::now(), None, None)) {
             Ok(()) => line,
             Err(why) => match mark(&directory, &done.name, placement::now(), None, Some(&why)) {
@@ -270,6 +262,19 @@ pub fn queue(found: &Found, here: &str, laptop: Option<&str>, remote: &Remote<'_
         lines.push(format!("review: {would}queue {queued} of {} waiting, {} left for later runs at {PER_RUN} a run; {would}leave {}", found.done.len(), found.done.len() - queued, found.left.len()));
     }
     lines
+}
+
+/// Starts `done`'s review job on the host that holds it: through the laptop's job queue, here, or over ssh.
+fn start(done: &Done, north: &str, here: &str, laptop: Option<&str>, remote: &Remote<'_>) -> Result<(), String> {
+    if laptop == Some(done.host.as_str()) {
+        let mut queued = ["threads", "queue", "add", "laptop", &done.item.to_string(), "--", "north"].map(str::to_owned).to_vec();
+        queued.extend(job(done));
+        run(north, &queued)
+    } else if done.host == here {
+        run(north, &job(done))
+    } else {
+        remote(&done.host, &job(done))
+    }
 }
 
 fn run(north: &str, words: &[String]) -> Result<(), String> {
