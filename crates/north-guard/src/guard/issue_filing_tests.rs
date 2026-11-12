@@ -96,6 +96,36 @@ impl World for Repo {
     fn worker_brief(&mut self) -> Option<String> {
         None
     }
+
+    fn children_filed(&mut self) -> usize {
+        0
+    }
+}
+
+struct Worker {
+    filed: usize,
+}
+
+impl World for Worker {
+    fn repo(&mut self, named: Option<&str>) -> Option<String> {
+        named.map(str::to_owned)
+    }
+
+    fn claimed(&mut self) -> Vec<String> {
+        vec!["north#1137".to_owned()]
+    }
+
+    fn open(&mut self, _: &str) -> Vec<(u64, String)> {
+        Vec::new()
+    }
+
+    fn worker_brief(&mut self) -> Option<String> {
+        Some("Item: tompassarelli/north#1137\nDone when: `cargo nextest run -p north-guard` exits 0".to_owned())
+    }
+
+    fn children_filed(&mut self) -> usize {
+        self.filed
+    }
 }
 
 fn creating(command: &str) -> HookInput {
@@ -133,4 +163,20 @@ fn a_body_file_named_by_a_variable_the_command_assigns_is_judged_by_its_boxes_no
     }
     let missing = format!("F={path}/empty.md && gh issue create -R tompassarelli/north --label enhancement --title 'Check a body file' --body-file $F");
     assert!(matches!(decide_with(&creating(&missing), &mut Repo), Verdict::Deny(reason) if reason.contains("no `- [ ]` box")));
+}
+
+#[test]
+fn a_worker_files_a_child_of_its_own_issue_and_is_refused_an_issue_with_no_parent() {
+    let create = |parent: &str| {
+        creating(&format!(
+            "gh issue create -R tompassarelli/north --label enhancement --title 'Read the leaf row' --body 'Category: feature\n{parent}Done when: `cargo nextest run -p north-guard` exits 0\n'"
+        ))
+    };
+    assert_eq!(decide_with(&create("Parent: north#1137\n"), &mut Worker { filed: 0 }), Verdict::Allow);
+    assert!(matches!(decide_with(&create(""), &mut Worker { filed: 0 }), Verdict::Deny(_)));
+    assert!(matches!(decide_with(&create("Parent: north#900\n"), &mut Worker { filed: 0 }), Verdict::Deny(reason) if reason.contains("do not hold")));
+    let limit = north_base::platform::harness::default_number("worker_children_per_session") as usize;
+    assert!(matches!(decide_with(&create("Parent: north#1137\n"), &mut Worker { filed: limit }), Verdict::Deny(reason) if reason.contains("at most")));
+    let unrunnable = creating("gh issue create -R tompassarelli/north --label enhancement --title 'Read the leaf row' --body 'Category: feature\nParent: north#1137\nDone when: it works\n'");
+    assert!(matches!(decide_with(&unrunnable, &mut Worker { filed: 0 }), Verdict::Deny(reason) if reason.contains("runnable")));
 }

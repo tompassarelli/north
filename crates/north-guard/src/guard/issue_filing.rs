@@ -23,6 +23,9 @@ static CATEGORY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[ \t>*-]*
 static CLASS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[ \t>*-]*\**Class\**:[ \t*_`]*\S").unwrap());
 static FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][\w -]*:").unwrap());
 static MARKER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t>*-]*(?:\[[ xX]\][ \t]*)?").unwrap());
+static PARENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Parent:[ \t*_]*((?:[\w.-]+/)?[\w.-]*)#(\d+)").unwrap());
+static RUNNABLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Done when:[ \t*_]*[^\n]*`[^`\n]+`").unwrap());
+const CHILD_LIMIT: &str = "worker_children_per_session";
 const BRIEF_LINES: usize = 64;
 const BUG_CATEGORIES: [&str; 2] = ["bug-known-cause", "debugging-unknown-cause"];
 const CATEGORY_LABELS: [(&str, &str); 3] = [("enhancement", "feature"), ("bug", "debugging-unknown-cause"), ("documentation", "docs-policy")];
@@ -33,6 +36,7 @@ pub(super) trait World {
     fn claimed(&mut self) -> Vec<String>;
     fn open(&mut self, repo: &str) -> Vec<(u64, String)>;
     fn worker_brief(&mut self) -> Option<String>;
+    fn children_filed(&mut self) -> usize;
 }
 
 struct Live {
@@ -82,6 +86,21 @@ impl World for Live {
                 Some((number.parse().ok()?, title.to_owned()))
             })
             .collect()
+    }
+
+    fn children_filed(&mut self) -> usize {
+        let Some(file) = self.transcript.as_ref().and_then(|path| std::fs::File::open(path).ok()) else {
+            return 0;
+        };
+        std::io::BufRead::lines(std::io::BufReader::new(file))
+            .map_while(Result::ok)
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
+            .filter(|entry| entry["type"] == "assistant")
+            .flat_map(|entry| entry["message"]["content"].as_array().cloned().unwrap_or_default())
+            .filter_map(|part| part["input"]["command"].as_str().map(str::to_owned))
+            .flat_map(|command| gh_write::writes(&command, None))
+            .filter(|write| write.creates_issue && PARENT.is_match(&body(write)))
+            .count()
     }
 
     fn worker_brief(&mut self) -> Option<String> {
@@ -293,6 +312,10 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
             }
         }
     }
+    if let Some(parent) = PARENT.captures(&body) {
+        reasons.extend(child_refusals(write, &body, &(qualified(&parent, &repo), parent[2].to_owned()), &repo, world));
+        return (!reasons.is_empty()).then(|| reasons.join("\n"));
+    }
     reasons.extend(shape(write, &body));
     if let Some(brief) = world.worker_brief()
         && !BLOCKS.is_match(&body)
@@ -309,6 +332,28 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
         ));
     }
     (!reasons.is_empty()).then(|| reasons.join("\n"))
+}
+
+fn child_refusals(write: &GhWrite, body: &str, parent: &(String, String), repo: &str, world: &mut impl World) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if !parent.0.eq_ignore_ascii_case(repo) {
+        reasons.push(format!("No. The parent {}#{} is in another repository than the child; a child lives beside its parent.", parent.0, parent.1));
+    }
+    if !RUNNABLE.is_match(body) {
+        reasons.push("No. A child issue needs a runnable `Done when: `COMMAND`` line: the command that closes it when it passes.".to_owned());
+    }
+    reasons.extend(shape(write, body).into_iter().filter(|reason| reason != NO_BOX));
+    if world.worker_brief().is_some() {
+        let held: Vec<String> = world.claimed().iter().map(|item| claim_key(item)).collect();
+        if !held.contains(&key(&parent.0, &parent.1)) {
+            reasons.push(format!("No. A worker files a child only of the issue it holds, and you do not hold {}#{}. An issue with no parent is the owner's to authorize.", parent.0, parent.1));
+        }
+        let limit = north_base::platform::harness::default_number(CHILD_LIMIT) as usize;
+        if world.children_filed() >= limit {
+            reasons.push(format!("No. A session files at most {limit} child issues; put the rest under `Ideas:` in your final report."));
+        }
+    }
+    reasons
 }
 
 const NO_BOX: &str = "No. The body has no `- [ ]` box, and north fleet dispatch staffs only issues with an unticked box. Write each check as a `- [ ]` line under a `## Done when` heading, one per guarantee, each naming the command or observation that proves it.";

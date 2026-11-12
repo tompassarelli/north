@@ -1834,3 +1834,11 @@ unit = "API-equivalent dollars all drafts of a rolling 24 hours may hold before 
 source = "prior: 40 drafts at the small model's p90 of $0.034 per band run (runs ledger 2026-11-05 to 2026-11-12) is $1.36, rounded up (north#1240 plan)"
 fallback = "none: the pass starts no draft past it"
 consumers = ["crates/north-dispatch/src/dispatch/drafting.rs"]
+
+[worker_children_per_session]
+value = 5
+allowed = { min = 1, max = 100 }
+unit = "child issues one worker session may file under the issue it holds"
+source = "prior: a worker splits its own item into a few leaves; a handful bounds a flood (north#1137 2j)"
+fallback = "none: the filing guard refuses a sixth child"
+consumers = ["crates/north-guard/src/guard/issue_filing.rs"]
