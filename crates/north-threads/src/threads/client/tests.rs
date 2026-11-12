@@ -77,7 +77,7 @@ fn log(rig: &Rig, name: &str) -> Vec<String> {
 /// How long a fake ssh that stalls has to log its call before the client gives up on it; a stall always ends at this bound, so only a start slower than it fails a test.
 const STALL_BOUND: Duration = Duration::from_secs(5);
 
-const PREFIX: &str = "-o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host";
+const PREFIX: &str = "-o ControlPath=none -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host";
 
 #[test]
 fn threads_client_spools_unreachable_writes_and_flushes_them_in_order() {
@@ -100,7 +100,7 @@ fn threads_client_spools_unreachable_writes_and_flushes_them_in_order() {
         format!("{PREFIX} north threads job-run nightly --host laptop"),
         format!("{PREFIX} north threads ingest"),
         format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads list"),
-        "-o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET -o ControlPath=none ledger-host north threads snapshot-pages".to_owned(),
+        "-o ControlPath=none -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host north threads snapshot-pages".to_owned(),
     ]);
     assert_eq!(log(&rig, "ingest.log"), ["{\"type\": \"run\"}"]);
     let left: Vec<_> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().file_name()).collect();
