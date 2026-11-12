@@ -209,37 +209,6 @@ pub fn running_memory_charge(kind: &str, charged_mib: f64, age_seconds: f64, pea
     }
 }
 
-/// One run of a landing command as the day's usage log recorded it: its time, the CPU-seconds it used, the cores its scope was held to, and whether it passed.
-#[derive(Clone, Copy, Debug)]
-pub struct ChargedRun {
-    pub wall_seconds: f64,
-    pub cpu_seconds: f64,
-    pub charged_cpus: f64,
-    pub passed: bool,
-}
-
-impl ChargedRun {
-    /// The longest the run could have taken held to `cpus`: its own time when held to no fewer, else the lesser of its time stretched by the cut and its time plus its CPU-seconds spread over `cpus`, Brent's bound with the whole run as its critical path.
-    pub fn wall_at(self, cpus: f64) -> f64 {
-        if cpus >= self.charged_cpus { self.wall_seconds } else { (self.wall_seconds * self.charged_cpus / cpus).min(self.wall_seconds + self.cpu_seconds / cpus) }
-    }
-
-    fn measured(&self) -> bool {
-        [self.wall_seconds, self.cpu_seconds].iter().all(|value| value.is_finite() && *value >= 0.0) && self.charged_cpus.is_finite() && self.charged_cpus > 0.0
-    }
-}
-
-/// The cores a landing command is charged from its runs of the day: the fewest whole cores below `heavy` at which the slowest of them would finish inside `deadline_seconds` with `land_charge_deadline_margin`, else `heavy`; None, so the heavy charge stands, until `land_charge_runs` of them passed.
-pub fn landing_charge(runs: &[ChargedRun], heavy: f64, deadline_seconds: f64) -> Option<f64> {
-    let runs: Vec<ChargedRun> = runs.iter().filter(|run| run.measured()).copied().collect();
-    if runs.iter().filter(|run| run.passed).count() < default_number("land_charge_runs") as usize || !(deadline_seconds > 0.0 && heavy >= 1.0) {
-        return None;
-    }
-    let within = deadline_seconds / default_number("land_charge_deadline_margin");
-    let lighter = (1..heavy.ceil() as u32).map(f64::from).find(|&cpus| runs.iter().all(|run| run.wall_at(cpus) <= within));
-    Some(lighter.unwrap_or(heavy))
-}
-
 pub fn owner_prefix(owner: &str) -> &str {
     let end = owner.find(|character: char| !character.is_ascii_alphabetic()).unwrap_or(owner.len());
     &owner[..end]

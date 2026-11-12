@@ -368,15 +368,12 @@ fn lander_owner(owner: &str) -> bool {
     }
 }
 
-/// A landing run's cores, which are its scope's quota too: what the day's records of its command show it needs (`policy::landing_charge`), else the caller's share of the heavy charge.
-fn size_landing(request: &mut request::Request, cores: f64, cap: Option<f64>, heavy_charge: f64, measured: impl FnOnce(f64) -> Option<f64>) {
+fn size_landing(request: &mut request::Request, cores: f64, cap: Option<f64>, charge: impl FnOnce() -> f64) {
     if request.landing {
         let ceiling = policy::landing_check(cores);
-        let heavy = ceiling.cpus.min(heavy_charge);
-        let share = cap.filter(|cap| cap.is_finite() && *cap >= 1.0).map_or(heavy, f64::ceil);
-        let cpus = measured(heavy).unwrap_or(share.min(heavy));
-        request.resources = Some(policy::Resources { cpus, ..request.resources() });
-        request.declared = Some(policy::Resources { cpus, ..ceiling });
+        let share = cap.filter(|cap| cap.is_finite() && *cap >= 1.0).map_or(ceiling.cpus, f64::ceil);
+        request.resources = Some(policy::Resources { cpus: ceiling.cpus.min(share).min(charge()), ..request.resources() });
+        request.declared = Some(policy::Resources { cpus: request.resources().cpus, ..ceiling });
     }
 }
 
@@ -417,9 +414,7 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
         request.latency = true;
     }
     request.landing = landing_run(operation, owner, &request.name, machine::env("SAFE_PUSH_LAND_HEAD").as_deref(), machine::env("SAFE_PUSH_LANDING").as_deref());
-    let deadline = options.get("--timeout-seconds").and_then(|text| text.parse::<f64>().ok());
-    let records = |heavy| deadline.and_then(|deadline| policy::landing_charge(&sizing::landing_runs(command), heavy, deadline));
-    size_landing(&mut request, cores, machine::env(LAND_CPUS).and_then(|text| text.parse().ok()), land_check_cpus(), records);
+    size_landing(&mut request, cores, machine::env(LAND_CPUS).and_then(|text| text.parse().ok()), land_check_cpus);
     if let Some(asked) = options.get("--priority") {
         if let Some(message) = priority::priority_refusal(asked, &request.name) {
             fail(&message, 2);
@@ -441,9 +436,7 @@ fn run_or_session(root: &Path, argv: &[String], host: &Host) -> u8 {
         fail("session requires --class", 2);
     }
     let owner = options.owner("--owner");
-    let subject = shape::script_subject(command, machine::env(crate::foundation::offload::SUBJECT_ENV).as_deref(), |script| std::fs::read_to_string(script).ok());
-    let mut request = requested(&options, operation, &owner, subject.as_deref().unwrap_or(command), signals.cores);
-    request.subject = subject;
+    let request = requested(&options, operation, &owner, command, signals.cores);
     // A session without one takes its class's default deadline; native sessions have none.
     let timeout_seconds = if options.has("--timeout-seconds") || operation == "run" {
         Some(args::positive_integer(options.required("--timeout-seconds"), "--timeout-seconds", Some(policy::maximum_seconds(&request.name))))

@@ -220,22 +220,6 @@ source = "measured: the last 40 land-check heavy runs on the laptop (2026-11-05)
 fallback = "fewer runs, or any run without a measured peak, keep the declared heavy size"
 consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 
-[land_charge_runs]
-value = 5
-allowed = { min = 1, max = 100000 }
-unit = "passing runs of one landing command on one host in the last day below which it keeps the heavy charge (land_offload_cpus); at or above it the command is charged the fewest whole cores at which every one of its day's runs, passing or not, would still finish within its deadline less land_charge_deadline_margin"
-source = "measured: on 2026-11-12 every offloaded run was charged 8 CPUs, and 3,039 of 7,092 leases never passed 1.5 cores (charged 1,908,000 core-seconds against 1,013,000 used, north#1247); five passing runs in a day are the fewest that show how a command usually runs on that host; the slowest run of the day sets the charge, not a percentile, so a cold-cache run among them raises the charge instead of being outvoted, and more runs only make it safer"
-fallback = "fewer passing runs, an unmeasured run or no deadline keep the heavy charge"
-consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
-
-[land_charge_deadline_margin]
-value = 1.5
-allowed = { min = 1, max = 100 }
-unit = "factor the deadline of a landing command is divided by before its day's runs, scaled to fewer cores, must fit it: 1.5 leaves a third of the deadline spare"
-source = "derived: from land_offload_cpus (north#1247): the 8-CPU heavy charge was set so the whole suite needs 59% of its 300 s deadline floor; a lighter charge keeps every run within 67% of its deadline, and the scaling assumes the run's work spreads over at most the cores it was charged, so the spare third covers a cold cache or a slower host than the day's slowest run"
-fallback = "a command that fits no lighter charge keeps the heavy charge"
-consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
-
 [plan_meter_weighting]
 value = "price"
 allowed = { one_of = ["price", "tokens"] }

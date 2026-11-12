@@ -1,18 +1,14 @@
 use serde_json::{Value, json};
 
-use super::database::{capacity_database, capacity_history, failure_status, recent_usage, usage_log_path};
+use super::database::{capacity_database, capacity_history, failure_status, recent_usage};
 use super::estimate::{CapacityQuery, CapacityRun, estimate_capacity, task_signature};
 use super::fail;
 use super::json::{field, num, round2, text};
-use super::machine::read_text;
 use super::model::{Forecast, Prediction, Subject, current_cache_state, forecast};
 use crate::capacity::local_machine::host_name;
-use crate::foundation::clock::Timestamp;
-use super::policy::{ChargedRun, Resources, charged_resources, heavy_peak_charge, learned_minimum_runs, memory_margin, owner_prefix, percentile, sized_class};
+use super::policy::{Resources, charged_resources, heavy_peak_charge, learned_minimum_runs, memory_margin, owner_prefix, percentile, sized_class};
 use super::request::Request;
-use super::shape::{command_shape, recorded_command};
-
-const DAY_MILLISECONDS: i64 = 86_400_000;
+use super::shape::command_shape;
 
 fn cwd() -> Option<String> {
     std::env::current_dir().ok().map(|cwd| cwd.to_string_lossy().into_owned())
@@ -98,31 +94,6 @@ pub fn charge_from_usage(mut request: Request, owner: &str, command: &[String], 
     }));
     request.forecast = Some(forecast.json(memory_mib.ceil()));
     request
-}
-
-/// The runs of `command` the lander's owners ran on this host in the last day, as a landing charge reads them: a row of another command or of a worker's own owner never lowers this one's charge.
-pub fn landing_runs(command: &[String]) -> Vec<ChargedRun> {
-    let recorded = Value::from(recorded_command(command));
-    let needle = format!("\"command\":{recorded}");
-    let since = Timestamp::from_unix_millis(Timestamp::now().unix_millis() - DAY_MILLISECONDS).iso_millis();
-    let host = host_name();
-    let log = read_text(usage_log_path()).unwrap_or_default();
-    log.lines()
-        .filter(|line| line.contains(&needle))
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|row| {
-            row.get("command") == Some(&recorded)
-                && text(row, "at").is_some_and(|at| at >= since.as_str())
-                && text(row, "owner").is_some_and(super::lander_owner)
-                && text(row, "host").is_none_or(|ran_on| ran_on == host)
-        })
-        .map(|row| ChargedRun {
-            wall_seconds: field(&row, "wallSeconds").unwrap_or(f64::NAN),
-            cpu_seconds: field(&row, "cpuSeconds").unwrap_or(f64::NAN),
-            charged_cpus: field(&row, "chargedCpus").or_else(|| field(&row, "reservedCpus")).unwrap_or(f64::NAN),
-            passed: field(&row, "exitCode") == Some(0.0),
-        })
-        .collect()
 }
 
 fn forecast_of(owner: &str, command: &[String]) -> Forecast {

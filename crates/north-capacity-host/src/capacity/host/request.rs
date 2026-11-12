@@ -30,7 +30,6 @@ pub struct Request {
     pub forecast: Option<Value>,
     pub memory_from_model: bool,
     pub memory_declared: bool,
-    pub subject: Option<Vec<String>>,
 }
 
 impl Request {
