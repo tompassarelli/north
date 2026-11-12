@@ -4,7 +4,7 @@
 //! the build host a session placed there ran on, and by `sampling` either launches a Sonnet reviewer on the lane and hands
 //! the lane to it, or forgets the session and lands the lane through safe-push. A reviewer records its verdict with
 //! `north fleet dispatch verdict`, which sampling and the DeepSeek overlay read.
-use super::super::issues::{Issue, IssueRef, references};
+use super::super::issues::{self, Issue, IssueRef, references};
 use super::super::record::{self, Record};
 use super::super::{facets, fleets};
 use super::mechanical;
@@ -83,12 +83,33 @@ pub struct Done {
     pub landing: bool,
     /// The Done-when tests of the box, named by their `test(/NAME/)` filters.
     pub oracle: Vec<String>,
+    /// When its last turn ended, which orders the oldest report first.
+    pub at_ms: u64,
+}
+
+/// A DeepSeek session that reported Done whose work no review job takes, and why.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Left {
+    pub name: String,
+    pub host: String,
+    pub why: String,
+    /// Whether the fleet retired it, so the review record keeps it left for good.
+    pub retired: bool,
+}
+
+/// The sessions that reported Done, oldest first, and those left alone.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Found {
+    pub done: Vec<Done>,
+    pub left: Vec<Left>,
 }
 
 #[derive(Deserialize, Serialize)]
 struct Queued {
     at: f64,
     name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    left: Option<String>,
 }
 
 /// The sessions the review record names: within `REQUEUE_S`, so one Done report queues one job, and ever.
@@ -105,10 +126,10 @@ pub fn queued(directory: &Path, at: f64) -> Marked {
     Marked { recent: marks.iter().filter(|queued| at - queued.at < REQUEUE_S).map(|queued| queued.name.clone()).collect(), ever: marks.into_iter().map(|queued| queued.name).collect() }
 }
 
-fn mark(directory: &Path, name: &str, at: f64) -> Result<(), String> {
+fn mark(directory: &Path, name: &str, at: f64, left: Option<&str>) -> Result<(), String> {
     std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let mut file = std::fs::OpenOptions::new().create(true).append(true).open(directory.join(QUEUED)).map_err(|error| error.to_string())?;
-    let line = format!("{}\n", serde_json::to_string(&Queued { at, name: name.to_owned() }).map_err(|error| error.to_string())?);
+    let line = format!("{}\n", serde_json::to_string(&Queued { at, name: name.to_owned(), left: left.map(str::to_owned) }).map_err(|error| error.to_string())?);
     file.write_all(line.as_bytes()).map_err(|error| error.to_string())
 }
 
@@ -129,10 +150,21 @@ pub fn has_waiting(listing: &Value, marked: &Marked) -> bool {
     listing.as_array().into_iter().flatten().any(|session| waits(session, marked))
 }
 
-/// The DeepSeek sessions in each host's listing that wait for their review job and whose last report starts `Done:`; a
-/// retired one only while its issue is open.
-pub fn done(lists: &[(String, Value)], reports: &[(String, Value)], records: &[Record], issues: &[Issue], marked: &Marked) -> Vec<Done> {
-    let mut found = Vec::new();
+/// Why the work of a session on `issue`'s box `box_text` is left alone, or `None` while that box is open.
+fn left_because(issue: Option<&Issue>, box_text: Option<&str>) -> Option<&'static str> {
+    let Some(issue) = issue else { return Some("its issue is not among the open issues dispatch reads") };
+    match box_text {
+        Some(text) if issues::box_ticked(&issue.body, text) => Some("its box is ticked"),
+        Some(text) if !issue.body.contains(text.trim()) => Some("its box is no longer in its issue"),
+        None if issue.unticked() == 0 => Some("its issue has no open box"),
+        _ => None,
+    }
+}
+
+/// The DeepSeek sessions in each host's listing that wait for their review job and whose last report starts `Done:`,
+/// oldest first, apart from those whose issue is not open or whose box is not, which are left alone.
+pub fn done(lists: &[(String, Value)], reports: &[(String, Value)], records: &[Record], issues: &[Issue], marked: &Marked) -> Found {
+    let mut found = Found::default();
     for (host, listing) in lists {
         let Some(report) = reports.iter().find(|(name, _)| name == host).map(|(_, report)| report) else { continue };
         for session in listing.as_array().into_iter().flatten().filter(|session| waits(session, marked)) {
@@ -143,14 +175,18 @@ pub fn done(lists: &[(String, Value)], reports: &[(String, Value)], records: &[R
             let tasks = session["tasks"].as_array().map_or_else(|| session["task_ref"].as_str().unwrap_or_default().to_owned(), |tasks| tasks.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "));
             let Some(item) = references(&tasks, "").into_iter().find(|item| !item.repo.is_empty()).or_else(|| fleets::named_items(name).into_iter().next()) else { continue };
             let issue = issues.iter().find(|issue| issue.reference() == item);
-            if issue.is_none() && session["past"] == true {
+            let box_text = session["box"].as_str();
+            if let Some(why) = left_because(issue, box_text) {
+                found.left.push(Left { name: name.to_owned(), host: host.clone(), why: format!("{item}: {why}"), retired: session["past"] == true });
                 continue;
             }
             let category = records.iter().rev().find(|record| record.name == name).and_then(|record| record.category.clone()).or_else(|| issue.and_then(|issue| facets::declared_in(&issue.body, "Category")).map(str::to_owned)).unwrap_or_else(|| "unknown".into());
             let landing = issue.is_some_and(|issue| issue.labels.iter().any(|label| label == LANDING_LABEL));
-            found.push(Done { name: name.to_owned(), host: host.clone(), item, box_text: session["box"].as_str().map(str::to_owned), category, landing, oracle: issue.map(|issue| oracle_tests(&issue.body, session["box"].as_str())).unwrap_or_default() });
+            let at_ms = report[name]["turns"].as_array().and_then(|turns| turns.iter().filter_map(|turn| turn["ended_ms"].as_u64()).max()).or_else(|| session["created_ms"].as_u64()).unwrap_or_default();
+            found.done.push(Done { name: name.to_owned(), host: host.clone(), item, box_text: box_text.map(str::to_owned), category, landing, oracle: issue.map(|issue| oracle_tests(&issue.body, box_text)).unwrap_or_default(), at_ms });
         }
     }
+    found.done.sort_by_key(|done| done.at_ms);
     found
 }
 
@@ -178,32 +214,54 @@ pub fn job(done: &Done) -> Vec<String> {
 /// Runs `north WORDS` on a host other than this one and the laptop.
 pub type Remote<'a> = dyn Fn(&str, &[String]) -> Result<(), String> + 'a;
 
-/// Queues the review job of each session in `dones`: on the laptop through its job queue, here by running it, on any other host by running it there over ssh; prints one line each.
-pub fn queue(dones: &[Done], here: &str, laptop: Option<&str>, remote: &Remote<'_>, dry_run: bool) -> Vec<String> {
+/// How many review jobs one dispatch run queues, the oldest Done report first, so a backlog reaches the build hosts a few at a time.
+pub const PER_RUN: usize = 3;
+
+/// Queues the review job of the `PER_RUN` oldest sessions in `found`: on the laptop through its job queue, here by running
+/// it, on any other host by running it there over ssh; records each retired session it leaves alone; prints one line each
+/// and the counts.
+pub fn queue(found: &Found, here: &str, laptop: Option<&str>, remote: &Remote<'_>, dry_run: bool) -> Vec<String> {
     let north = std::env::current_exe().map_or_else(|_| "north".into(), |path| path.to_string_lossy().into_owned());
     let directory = record::directory();
-    dones
+    let would = if dry_run { "would " } else { "" };
+    let mut lines: Vec<String> = found
+        .left
         .iter()
-        .map(|done| {
-            let line = format!("review {} on {} ({}, {})", done.name, done.host, done.item, done.category);
-            if dry_run {
-                return format!("would {line}");
+        .map(|left| {
+            let line = format!("{would}leave {} on {}: {}", left.name, left.host, left.why);
+            if dry_run || !left.retired {
+                return line;
             }
-            let ran = if laptop == Some(done.host.as_str()) {
-                let mut queued = ["threads", "queue", "add", "laptop", &done.item.to_string(), "--", "north"].map(str::to_owned).to_vec();
-                queued.extend(job(done));
-                run(&north, &queued)
-            } else if done.host == here {
-                run(&north, &job(done))
-            } else {
-                remote(&done.host, &job(done))
-            };
-            match ran.and_then(|()| mark(&directory, &done.name, placement::now())) {
+            match mark(&directory, &left.name, placement::now(), Some(&left.why)) {
                 Ok(()) => line,
-                Err(why) => format!("{line} failed: {why}"),
+                Err(why) => format!("{line}; not recorded: {why}"),
             }
         })
-        .collect()
+        .collect();
+    lines.extend(found.done.iter().take(PER_RUN).map(|done| {
+        let line = format!("review {} on {} ({}, {})", done.name, done.host, done.item, done.category);
+        if dry_run {
+            return format!("would {line}");
+        }
+        let ran = if laptop == Some(done.host.as_str()) {
+            let mut queued = ["threads", "queue", "add", "laptop", &done.item.to_string(), "--", "north"].map(str::to_owned).to_vec();
+            queued.extend(job(done));
+            run(&north, &queued)
+        } else if done.host == here {
+            run(&north, &job(done))
+        } else {
+            remote(&done.host, &job(done))
+        };
+        match ran.and_then(|()| mark(&directory, &done.name, placement::now(), None)) {
+            Ok(()) => line,
+            Err(why) => format!("{line} failed: {why}"),
+        }
+    }));
+    if !found.done.is_empty() || !found.left.is_empty() {
+        let queued = found.done.len().min(PER_RUN);
+        lines.push(format!("review: {would}queue {queued} of {} waiting, {} left for later runs at {PER_RUN} a run; {would}leave {}", found.done.len(), found.done.len() - queued, found.left.len()));
+    }
+    lines
 }
 
 fn run(north: &str, words: &[String]) -> Result<(), String> {

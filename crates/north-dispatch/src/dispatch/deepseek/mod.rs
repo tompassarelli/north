@@ -59,7 +59,7 @@ impl Settings {
 pub struct Seen {
     pub settings: Settings,
     pub tried: BTreeSet<String>,
-    pub done: Vec<review::Done>,
+    pub review: review::Found,
     /// The opencode sessions running on every host now.
     pub running: usize,
 }
@@ -166,7 +166,7 @@ impl Seen {
         let lists = with_retired(cfg, here, laptop, fleet_lists, notes);
         let reports = reports(here, laptop, laptop_reports, &lists, &marked, &read, notes);
         let done = review::done(&lists, &reports, records, issues, &marked);
-        Self { tried: tried(records), done, running: counted(fleet_lists, &marked.recent), settings }
+        Self { tried: tried(records), review: done, running: counted(fleet_lists, &marked.recent), settings }
     }
 
     /// Places `ready` on DeepSeek when it takes the box, else on Claude through `claude`.

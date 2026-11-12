@@ -407,7 +407,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
     let stopped = execute(&survey, &outcome, dry_run);
-    for line in deepseek::review::queue(&survey.deepseek.done, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run) {
+    for line in deepseek::review::queue(&survey.deepseek.review, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run) {
         println!("{line}");
     }
     let now = placement::now();

@@ -31,7 +31,7 @@ fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_
         issue("north", 6, "- [ ] a third column", &[]),
     ];
     let mut planned = survey(boxes, Cloud::Closed("no credit".into()), hosts, accounts);
-    planned.deepseek = Seen { settings: settings(), tried: BTreeSet::from([key(&IssueRef::new("north", 4), Some("retry it"))]), done: Vec::new(), running: 0 };
+    planned.deepseek = Seen { settings: settings(), tried: BTreeSet::from([key(&IssueRef::new("north", 4), Some("retry it"))]), review: super::review::Found::default(), running: 0 };
 
     let outcome = decide(&planned, "test");
 
@@ -107,9 +107,9 @@ fn an_idle_deepseek_session_whose_last_report_is_done_queues_one_review_job_and_
     let landing = issue("north", 7, "- [ ] the box", &["area:landing"]);
     let queued = review::Marked { recent: BTreeSet::from(["ds-queued".to_owned()]), ever: BTreeSet::from(["ds-queued".to_owned()]) };
 
-    let found = review::done(&lists, &reports, &[], &[landing], &queued);
+    let found = review::done(&lists, &reports, &[], &[landing], &queued).done;
 
-    let resting = |name: &str| Done { name: name.into(), host: "whiterabbit".into(), item: IssueRef::new("north", 7), box_text: Some("the box".into()), category: "feature".into(), landing: true, oracle: Vec::new() };
+    let resting = |name: &str| Done { name: name.into(), host: "whiterabbit".into(), item: IssueRef::new("north", 7), box_text: Some("the box".into()), category: "feature".into(), landing: true, oracle: Vec::new(), at_ms: 0 };
     assert_eq!(found, [resting("ds-done"), resting("ds-parked")]);
     assert_eq!(review::job(&found[0]), ["fleet", "dispatch", "review", "ds-done", "--item", "north#7", "--category", "feature", "--box", "the box", "--landing"]);
 }
@@ -227,26 +227,40 @@ fn a_deepseek_run_whose_lane_the_broker_landed_before_its_report_is_recorded_lan
 #[test]
 fn a_resting_session_on_a_build_host_that_reported_done_gets_a_review_job_and_one_that_has_not_gets_none() {
     let session = |name: &str, status: &str| json!({"name": name, "provider": "opencode", "status": status, "tasks": ["north#7"], "box": "the box"});
-    let held = |name: &str, status: &str, past: bool| json!({"name": name, "provider": "opencode", "status": status, "machine": "cpx62b", "past": past, "ended": if past { "retired" } else { "" }, "tasks": ["north#7"], "box": "the box"});
-    let said = |text: &str| json!({"entries": [{"kind": "assistant", "text": text}]});
+    let held = |name: &str, status: &str, past: bool, item: &str| json!({"name": name, "provider": "opencode", "status": status, "machine": "cpx62b", "past": past, "ended": if past { "retired" } else { "" }, "tasks": [item], "box": "the box"});
+    let said = |text: &str, ended_ms: u64| json!({"entries": [{"kind": "assistant", "text": text}], "turns": [{"ended_ms": ended_ms}]});
     let lists = vec![
-        ("nexus".to_owned(), json!([held("held-done", "parked", false), held("retired-done", "exited", true), held("retired-reviewed", "exited", true)])),
+        ("nexus".to_owned(), json!([held("held-done", "parked", false, "north#7"), held("held-later", "idle", false, "north#7"), held("retired-done", "exited", true, "north#7"), held("retired-reviewed", "exited", true, "north#7"), held("retired-closed", "exited", true, "north#8"), held("retired-ticked", "exited", true, "north#9")])),
         ("gex45".to_owned(), json!([session("on-here", "working")])),
         ("cpx62".to_owned(), json!([session("remote-done", "idle"), session("remote-busy", "idle")])),
     ];
     let read = |host: Option<&str>| match host {
-        None => Ok(json!({"held-done": said("Done: h"), "retired-done": said("Done: r"), "retired-reviewed": said("Done: q")})),
-        Some("cpx62") => Ok(json!({"remote-done": said("Done: x"), "remote-busy": said("Not done: y")})),
+        None => Ok(json!({"held-done": said("Done: h", 300), "held-later": said("Done: l", 400), "retired-done": said("Done: r", 100), "retired-reviewed": said("Done: q", 50), "retired-closed": said("Done: c", 60), "retired-ticked": said("Done: t", 70)})),
+        Some("cpx62") => Ok(json!({"remote-done": said("Done: x", 200), "remote-busy": said("Not done: y", 10)})),
         _ => Err("unreached".to_owned()),
     };
     let marked = review::Marked { recent: BTreeSet::new(), ever: BTreeSet::from(["retired-reviewed".to_owned()]) };
     let mut notes = Vec::new();
 
     let reports = super::reports("nexus", None, &json!(null), &lists, &marked, &read, &mut notes);
-    let found = review::done(&lists, &reports, &[], &[issue("north", 7, "- [ ] the box", &[])], &marked);
+    let found = review::done(&lists, &reports, &[], &[issue("north", 7, "- [ ] the box", &[]), issue("north", 9, "- [x] the box", &[])], &marked);
 
-    assert_eq!(found.iter().map(|done| (done.name.as_str(), done.host.as_str())).collect::<Vec<_>>(), [("held-done", "nexus"), ("retired-done", "nexus"), ("remote-done", "cpx62")], "a session the control host holds for a build host is reviewed where it is held, once even after the fleet retired it");
+    assert_eq!(found.done.iter().map(|done| (done.name.as_str(), done.host.as_str())).collect::<Vec<_>>(), [("retired-done", "nexus"), ("remote-done", "cpx62"), ("held-done", "nexus"), ("held-later", "nexus")], "a session the control host holds for a build host is reviewed where it is held, once even after the fleet retired it, oldest Done first");
+    assert_eq!(found.left.iter().map(|left| (left.name.as_str(), left.why.as_str(), left.retired)).collect::<Vec<_>>(), [("retired-closed", "north#8: its issue is not among the open issues dispatch reads", true), ("retired-ticked", "north#9: its box is ticked", true)]);
     assert!(notes.is_empty(), "{notes:?}");
+    let lines = review::queue(&found, "nexus", None, &|_, _| Err("no remote run in a dry run".to_owned()), true);
+    assert_eq!(
+        lines,
+        [
+            "would leave retired-closed on nexus: north#8: its issue is not among the open issues dispatch reads",
+            "would leave retired-ticked on nexus: north#9: its box is ticked",
+            "would review retired-done on nexus (north#7, feature)",
+            "would review remote-done on cpx62 (north#7, feature)",
+            "would review held-done on nexus (north#7, feature)",
+            "review: would queue 3 of 4 waiting, 1 left for later runs at 3 a run; would leave 2",
+        ],
+        "one run queues the three oldest and names the rest"
+    );
 }
 
 #[test]
