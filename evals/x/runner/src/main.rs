@@ -3,6 +3,7 @@ mod error;
 mod gate;
 mod images;
 mod manifest;
+mod plain_end;
 mod plan;
 mod proc;
 mod rng;
@@ -42,6 +43,11 @@ fn run(args: &[String]) -> Result<bool> {
         && verb == "session-end"
     {
         return session_end::run(rest);
+    }
+    if let [verb, rest @ ..] = args
+        && verb == "plain-end"
+    {
+        return plain_end::run(rest);
     }
     let settings = Settings::parse(args)?;
     match settings.command.clone() {

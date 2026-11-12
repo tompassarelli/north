@@ -42,8 +42,9 @@ its own directory and README:
   waits for the arm to end the trial.
 - `workspace/`: copies a task's working directory out of its image to the host and prints the mounts for it.
 - `relay/`: the shell both arms give Claude Code, and the broker that runs its commands in the container.
-- `arm`: runs one arm on the host for one trial and writes the trial's result. The plain arm ends at the end of T3
-  Code's turn. The north arm runs its session as a north host does, to its report (see below).
+- `arm`: runs one arm on the host for one trial and writes the trial's result. The plain arm runs T3 Code to the end
+  of its last run with no command of the session running; the north arm runs its session as a north host does, to its
+  report (see below).
 - `runner/`, `run`: plan and run the trials, one row per attempt; `run` builds the runner and starts it.
 - `slice/podman`: stands in front of podman on the path of `host` and `relay/real-session` and gives every container
   they or Harbor start the cgroup parent `agent-capacity-evalx.slice`. north's containment sweep
@@ -68,4 +69,22 @@ seconds, reads the session host's stream and decides:
 The wait is bounded by the task's agent timeout (`--limit`); a session still going then ends as `limit`. The arm
 stops the session before it writes `done.json`, so no command of the session runs beside the grader. `arm.json` holds
 the outcome under `session_end`: `ended`, `turns` (one per invocation of the session), `nudges` (0 or 1) and
-`open_tasks`. The plain arm is unchanged and has no `session_end`.
+`open_tasks`.
+
+## When the plain T3 Code arm ends a trial
+
+T3 Code keeps the Claude Code session open after a run completes and starts a run of its own when a background command
+of the session ends (`apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts:5240`, `:8504`;
+`ProviderSessionManager.ts:1186`), but `thread start --wait` returns when the first run is terminal
+(`apps/server/src/cli/thread.ts:446`, `:665`; T3 Code v0.1.9). So the plain arm does not end a trial there.
+`eval-x-runner plain-end`, which the arm polls every three seconds, reads `thread show --json` and the Claude Code
+session file:
+
+- a run is executing, or a background command of the session has not ended (`toolUseResult.backgroundTaskId` without a
+  `<task-notification>` for it): wait;
+- the thread asks for an answer and no run is executing: the trial ends (`asking`);
+- no run is executing, no command is open and the thread and session file are unchanged for two polls: the trial ends
+  (`idle`).
+
+Nothing is sent into the session: T3 Code has no lead that nudges it. The wait is bounded by `--limit`; a session still
+going then ends as `limit`. `session_end` holds `ended`, `turns` (T3 Code runs), `nudges` (always 0) and `open_tasks`.

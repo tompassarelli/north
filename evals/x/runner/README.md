@@ -62,7 +62,8 @@ to both arms, because `claude` on a north host's path is a launcher that needs t
 
 `arm_result.session_end` says how the north arm's session ended (`report`, `no_report`, `stopped` or `limit`), in how
 many turns (one per invocation of the session) and whether it was nudged; the arm asks `eval-x-runner session-end
---state DIR NAME` for that every three seconds (see `evals/x/README.md`). The plain arm has none.
+--state DIR NAME` for that every three seconds (see `evals/x/README.md`). The plain arm records the same fields
+(`idle`, `asking` or `limit`; `turns` counts T3 Code runs) from `eval-x-runner plain-end --state DIR`.
 
 `container_calls` counts the shell-tool commands the relay ran in the task's container for this trial (one directory
 each under `WORK/exec/JOB`); a trial whose session ran commands but shows none here ran them on the host.

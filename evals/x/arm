@@ -36,10 +36,11 @@ jq -j "$prompt" "$trial/prompt.json" > "$state/prompt.txt" 2> /dev/null \
   || { echo "eval-x arm $arm: no hand-off in $trial/prompt.json" >&2; exit 1; }
 ln -sfn "$cwd" "$state/repo"
 runner=${EVAL_X_RUNNER:-$here/runner/target/debug/eval-x-runner}
-rm -f "$state/end.json" "$state/nudged"
+rm -f "$state/end.json" "$state/nudged" "$state/quiet"
 start=$(date +%s) rc=0
+case $arm in north) settled="$runner session-end --state $state" ;; *) settled="$runner plain-end --state $state" ;; esac
 SHELL=$relay EVAL_X_TRIAL=$trial EVAL_T_ACCOUNT=$account EVAL_T_MODEL=$model EVAL_T_EFFORT=$effort EVAL_T_LIMIT_S=$limit \
-  EVAL_T_SETTLED="$runner session-end --state $state" "$here/../t/arm" "$arm" "$state" > "$state/arm.log" 2>&1 || rc=$?
+  EVAL_T_SETTLED=$settled "$here/../t/arm" "$arm" "$state" > "$state/arm.log" 2>&1 || rc=$?
 end=$(date +%s)
 session_end=$(cat "$state/end.json" 2> /dev/null) || session_end=null
 jq -n --arg arm "$arm" --arg cwd "$cwd" --arg account "$account" --arg model "$model" --arg effort "$effort" \

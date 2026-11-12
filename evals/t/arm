@@ -83,6 +83,7 @@ case $arm in
     "${cli[@]}" project add "$ROOT" --base-dir "$state" > "$W/project.log" 2>&1 || fail "project add failed; see $W/project.log"
     opening=$(cat "$W/prompt.txt")
     [ -f "$W/turns.json" ] && opening=$SEED
+    deadline=$((SECONDS + LIMIT))
     printf '%s' "$opening" | timeout "$LIMIT" "${cli[@]}" thread start "$ROOT" - --provider claudeAgent --model "$MODEL" --wait --json --base-dir "$state" \
       > "$W/turn.json" 2> "$W/turn.err" || echo "eval-t arm t3: thread start exited $?; see $W/turn.err" >&2
     if [ -f "$W/turns.json" ]; then
@@ -96,6 +97,15 @@ case $arm in
       serve
       timeout "$LIMIT" "${cli[@]}" thread send "$thread" "$(cat "$W/prompt.txt")" --wait --json --base-dir "$state" \
         > "$W/turn.json" 2> "$W/turn.err" || echo "eval-t arm t3: thread send exited $?; see $W/turn.err" >&2
+    fi
+    if [ -n "${EVAL_T_SETTLED:-}" ] && thread=$(jq -r '.threadId // empty' "$W/turn.json" 2> /dev/null) && [ -n "$thread" ]; then
+      settled_plain() {
+        "${cli[@]}" thread show "$thread" --json --base-dir "$state" > "$W/show.json" 2> /dev/null
+        cat "$cfg"/projects/*/*.jsonl > "$W/transcript.jsonl" 2> /dev/null
+        $EVAL_T_SETTLED
+      }
+      until settled_plain || [ "$SECONDS" -ge "$deadline" ]; do sleep 3; done
+      settled_plain || echo "eval-t arm t3: not idle after $LIMIT s" >&2
     fi
     cat "$cfg"/projects/*/*.jsonl > "$W/transcript.jsonl" 2> /dev/null ;;
   *) fail "the arms are north, t3 and bare" ;;
