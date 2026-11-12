@@ -22,6 +22,18 @@ north_tree = rule(
     },
 )
 
+def _test_executor():
+    if not read_root_config("buck2_re_client", "engine_address"):
+        return None
+    return CommandExecutorConfig(
+        local_enabled = False,
+        remote_enabled = True,
+        remote_execution_properties = {"OSFamily": "linux"},
+        remote_execution_use_case = "buck2-default",
+        remote_output_paths = "output_paths",
+        use_windows_path_separators = False,
+    )
+
 def _runner_command(ctx: AnalysisContext) -> cmd_args:
     resources = [resource[DefaultInfo].default_outputs for resource in ctx.attrs.resources]
     selection = [flag for name in ctx.attrs.skip for flag in ["--skip", name]] + [flag for name in ctx.attrs.only for flag in ["--case", name]]
@@ -48,6 +60,7 @@ def _north_test_impl(ctx: AnalysisContext) -> list[Provider]:
             run_from_project_root = True,
             use_project_relative_paths = True,
             supports_test_execution_caching = True,
+            default_executor = _test_executor(),
         ),
     ]
 
