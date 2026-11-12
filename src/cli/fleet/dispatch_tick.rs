@@ -1,6 +1,9 @@
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use toml_edit::DocumentMut;
+
+use crate::fleet::stage::detach;
 
 const RECORD: &str = "dispatch-tick";
 const RESIDENT: &str = "dispatch-resident";
@@ -13,6 +16,10 @@ pub(super) enum Pass {
     Recent,
     Paused(String),
     Elsewhere(String),
+}
+
+pub(super) fn within(budget: Duration, run: impl FnOnce() -> Pass + Send + 'static) -> Result<Pass, String> {
+    detach("dispatch", run).by(Instant::now() + budget).map_err(|late| format!("deferred dispatch to the next tick: {}", late.why(budget)))
 }
 
 pub(super) fn pass(host: &str, cfg: Option<&DocumentMut>, paused: Option<&str>, directory: &Path, now: f64, resident: impl Fn() -> Option<i64>, dispatch: impl FnOnce() -> u8) -> Pass {

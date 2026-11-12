@@ -37,9 +37,15 @@ fn dispatch_pass(fleet: &Fleet) -> dispatch_tick::Pass {
     dispatch_tick::pass(fleet.host(), cfg.as_ref(), paused.as_deref(), &crate::dispatch::launch_directory(), now_ms() as f64 / 1000.0, || crate::pacing::placement::resident_clis(fleet.host(), ""), || crate::dispatch::run(&[], super::router::roster))
 }
 
-fn dispatch_line(dispatched: &dispatch_tick::Pass) -> Option<String> {
+fn dispatch_beside(fleet: &Fleet, began: Instant) -> Result<dispatch_tick::Pass, String> {
+    let fleet = fleet.clone();
+    dispatch_tick::within(Budgets::TICK.worst().saturating_sub(began.elapsed()), move || dispatch_pass(&fleet))
+}
+
+fn dispatch_line(dispatched: &Result<dispatch_tick::Pass, String>) -> Option<String> {
     match dispatched {
-        dispatch_tick::Pass::Ran(code) if *code != 0 => Some(format!("dispatch exited {code}")),
+        Ok(dispatch_tick::Pass::Ran(code)) if *code != 0 => Some(format!("dispatch exited {code}")),
+        Err(deferred) => Some(deferred.clone()),
         _ => None,
     }
 }
@@ -58,7 +64,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         drain_queue(fleet, began)?.iter().for_each(|line| println!("{line}"));
         kept_fresh(fleet, &refreshing, began).0.iter().for_each(|line| println!("{line}"));
         println!("{}", ticked.timing());
-        if let Some(line) = dispatch_line(&dispatch_pass(fleet)) {
+        if let Some(line) = dispatch_line(&dispatch_beside(fleet, began)) {
             println!("{line}");
         }
         return Ok(());
@@ -105,7 +111,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let (refreshed, ended) = kept_fresh(fleet, &refreshing, began);
     ticked.steps.push(Step { name: "shared_config", began: Duration::ZERO, took: ended - began });
     let dispatching = Instant::now();
-    let dispatched = dispatch_pass(fleet);
+    let dispatched = dispatch_beside(fleet, began);
     ticked.steps.push(Step { name: "dispatch", began: dispatching - began, took: dispatching.elapsed() });
     ticked.wall = began.elapsed();
     ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).chain(&expired).chain(&refreshed).for_each(|line| println!("{line}"));

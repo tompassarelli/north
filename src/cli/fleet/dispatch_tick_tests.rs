@@ -63,3 +63,15 @@ fn a_session_that_frees_a_slot_runs_dispatch_on_the_next_tick_not_the_next_five_
     assert!(before.iter().copied().fold(0.0, f64::max) >= 200.0);
     assert!(after.iter().all(|wait| *wait <= 60.0), "{after:?}");
 }
+
+#[test]
+fn a_dispatch_pass_past_the_budget_is_deferred_and_the_tick_ends_within_it() {
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let blocked = within(Duration::from_secs(1), move || {
+        let _ = held.recv();
+        Pass::Ran(0)
+    });
+    assert_eq!(blocked, Err("deferred dispatch to the next tick: still running after its 1000ms budget".into()), "a pass blocked past the budget must not hold the tick");
+    drop(release);
+    assert_eq!(within(Duration::from_secs(5), || Pass::Ran(0)), Ok(Pass::Ran(0)));
+}
