@@ -267,6 +267,7 @@ fn settle(
     let until = |org: &Org| next_credits.get(&org.id).map(String::as_str);
     let dir = home.join(".local/state/north/api-exhausted");
     let mut lines = Vec::new();
+    let reserve = crate::fleet::registry::reserve::declared(policy);
     let sessions = fleet.sessions().unwrap_or_default().into_iter().filter(|record| !matches!(record.phase(), Some(Phase::Stopped | Phase::Retired | Phase::Adopted)));
     for record in sessions.filter(|record| if record.ended() { recent_within(record, ENDED_RECENT) } else { recent(record) }) {
         let Some((_, name)) = record.account.split_once(':') else { continue };
@@ -284,7 +285,9 @@ fn settle(
             None => Ok(false),
         };
         lines.extend(marked_line(org, &record.name, &marked));
-        let next = match moved_to(&record.account, &orgs, today, |org| exhausted(&dir, org)) {
+        let kept_off = crate::fleet::registry::reserve::kept_off(record.role(), record.parent.as_deref());
+        let reserved = |org: &Org| kept_off && reserve.iter().any(|held| held.split_once(':').is_some_and(|(_, held)| held == org.name));
+        let next = match moved_to(&record.account, &orgs, today, |org| exhausted(&dir, org) || reserved(org)) {
             Some(to) => Some((to, None)),
             None if failed => subscription(&record, &machine),
             None => None,

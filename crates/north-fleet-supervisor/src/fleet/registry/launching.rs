@@ -12,6 +12,7 @@ use crate::fleet::model::{Account, Effort, LaunchRequest, Role, SessionRecord, S
 use crate::fleet::runtime::{Opening, new_uuid, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
+use super::reserve;
 use super::stopping::Halt;
 use super::takeover::Predecessor;
 use super::{Fleet, OpenedHost, efforts, session_running};
@@ -54,6 +55,7 @@ impl Fleet {
     fn launch_into(&self, request: &LaunchRequest, claim: Claim, session_dir: &Path) -> NorthResult<SessionRecord> {
         let verification = self.admitted(request, claim)?;
         let account = self.account(request)?;
+        self.refuse_reserve(request, &account)?;
         let runtime = self.runtimes.get(&request.provider)?;
         let hooks = HooksCheck::start(runtime.clone(), &account, request.machine.as_ref());
         if let Some(model) = request.model.as_deref().filter(|model| !runtime.models().contains(model)) {
@@ -185,12 +187,16 @@ impl Fleet {
         let on_limit = self.recent(self.runtime(&record)?.as_ref(), &record).is_ok_and(|transcript| stopped_on_limit(&transcript, !session_running(&record) && !record.ended()));
         let onto = account.map(|to| self.account(&LaunchRequest { account: to.to_owned(), ..record.relaunch_request() })).transpose()?.filter(|onto| onto.recorded_label() != record.account);
         let Some(onto) = onto else {
+            if reserve::on_reserve(&reserve::declared(&self.policy), &record) {
+                return Err(NorthError::Refused(format!("{name} is recorded on {}, the operational reserve no worker or subagent continues on; revive it with --account naming another account", record.account)));
+            }
             let revived = self.wake_placed(name, system_prompt, placement, effort)?;
             if on_limit {
                 self.carry_on(name, "this session was revived after its usage limit ended its turn")?;
             }
             return Ok(revived);
         };
+        self.refuse_reserve(&record.relaunch_request(), &onto)?;
         let conversation = record.conversation.clone().ok_or_else(|| NorthError::State(format!("{name} never started a conversation, so it has none to carry onto {}", onto.label)))?;
         self.refuse_beside_interactive(&record)?;
         let cut_short = self.halt_cut_short(name, self.ordered_by(self.caller().as_deref(), Halt::MovedAccount))?;

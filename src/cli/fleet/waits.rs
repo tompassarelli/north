@@ -118,6 +118,7 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.waits", own: None, run: Box::new(|fleet| settle_waits(&fleet)) },
             ProbeJob { name: "probes.settle.park_limited", own: None, run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
             ProbeJob { name: "probes.settle.api_spent", own: Some(API_SPENT), run: Box::new(|fleet| said(api_spent(&fleet))) },
+            ProbeJob { name: "probes.settle.reserve", own: None, run: Box::new(|fleet| said(fleet.park_on_reserve())) },
             ProbeJob { name: "probes.settle.api_reading", own: Some(API_READING), run: Box::new(|_| said(super::accounts::poll_tick())) },
             ProbeJob { name: "probes.settle.budget_notices", own: None, run: Box::new(|fleet| said(super::budget_notices::watch(&fleet, &tell_tom, now_ms()))) },
             ProbeJob { name: "probes.settle.promises", own: None, run: Box::new(|fleet| said(super::promises::watch(&fleet, now_ms()))) },

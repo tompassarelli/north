@@ -31,6 +31,8 @@ pub enum Halt {
     Retired,
     /// A proxy-role session ordered the stop, forget or relaunch.
     ByProxy,
+    /// A worker or subagent was found on the operational reserve.
+    Reserve,
 }
 
 impl Halt {
@@ -54,6 +56,7 @@ impl Halt {
             Self::TakenOver => (Cause::Harness(Harness::Halted), "a launch took over its name mid-turn"),
             Self::Retired => (Cause::Harness(Harness::Halted), "retired mid-turn"),
             Self::ByProxy => (Cause::Proxy, "a proxy session stopped it mid-turn"),
+            Self::Reserve => (Cause::Harness(Harness::Capacity), "stopped on the operational reserve mid-turn"),
         }
     }
 }
