@@ -77,7 +77,9 @@ Measurement gap (2026-10-15): single-turn policy replay cannot detect the rule t
 agree. Four scenarios showed no difference between the full and minus arms and were deleted; the behaviour came from
 multi-turn momentum. The fix is a multi-turn replay built from real fleet transcripts.
 
-The 2026-10-27 follow-up review of the same source is [watch/2026-10-27-pstack.md](watch/2026-10-27-pstack.md).
+The 2026-10-27 follow-up review of the same source is [watch/2026-10-27-pstack.md](watch/2026-10-27-pstack.md). The
+2026-11-12 review of the author's lead-role bot against North's coordinator is
+[watch/2026-11-12-pstack-lead-bot.md](watch/2026-11-12-pstack-lead-bot.md).
 
 Evidence: [references.md#pstack](../references.md#pstack); the full reviews, per-skill verdict tables and the
 decision record are private (south `agents/decisions/harness/rebuild-pstack-*.md`).
