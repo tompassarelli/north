@@ -9,7 +9,7 @@ use super::lander::{Lander, state_home};
 use super::after;
 use super::credential;
 use super::post_land;
-use super::push_refusal::{self, Backoff, Refusal};
+use super::push_refusal::{self, Backoff, Pause, Refusal};
 use super::hold::{self, Hold};
 use super::watch::Watch;
 use super::heartbeat::{self, Step};
@@ -108,8 +108,7 @@ impl Serve for Lander {
     }
 }
 
-fn back_off(lander: &Lander, backoff: &mut Backoff, reason: &str, retire: &AtomicBool) {
-    let pause = backoff.after(reason);
+fn back_off(lander: &Lander, pause: Pause, reason: &str, retire: &AtomicBool) {
     println!("north land: waiting {:?}: {reason}", pause.wait);
     if pause.alarm && !after::send("proxy", &format!("north land: {}: {reason}; the lander keeps retrying every {} minutes", lander.repo.display(), pause.wait.as_secs() / 60)) {
         eprintln!("north land: could not alarm the proxy about {}", lander.repo.display());
@@ -173,7 +172,7 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
                 return NO_VERDICT;
             }
             Ok(Round::PushRefused(reason)) => {
-                back_off(lander, &mut backoff, &reason, retire);
+                back_off(lander, backoff.after_push_refusal(), &reason, retire);
                 continue;
             }
             Ok(Round::Idle) if once => return 0,
@@ -189,7 +188,7 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
             }
             Err(error) => {
                 eprintln!("north land serve: {}: {error}", lander.repo.display());
-                back_off(lander, &mut backoff, &error, retire);
+                back_off(lander, backoff.after_store_error(&error), &error, retire);
                 continue;
             }
         }

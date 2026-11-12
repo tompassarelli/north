@@ -38,10 +38,14 @@ pub struct Pause {
 }
 
 impl Backoff {
-    pub fn after(&mut self, reason: &str) -> Pause {
-        if reason.contains(LOCKED) {
+    pub fn after_store_error(&mut self, error: &str) -> Pause {
+        if error.contains(LOCKED) {
             return Pause { wait: LOCKED_RETRY, alarm: false };
         }
+        self.after_push_refusal()
+    }
+
+    pub fn after_push_refusal(&mut self) -> Pause {
         self.strikes = self.strikes.saturating_add(1);
         Pause { wait: Duration::from_secs(60 << (self.strikes - 1).min(2)), alarm: self.strikes == ALARM_AT }
     }
@@ -94,13 +98,15 @@ mod tests {
     #[test]
     fn a_lander_serves_the_next_ticket_within_two_seconds_of_the_lifecycle_store_unlocking() {
         let mut backoff = Backoff::default();
-        let locked = backoff.after("Incomplete North state: lifecycle store: database is locked");
+        let locked = backoff.after_store_error("Incomplete North state: lifecycle store: database is locked");
         assert!(locked.naps().eq([LOCKED_RETRY]) && !locked.alarm, "a locked store held the lander {locked:?}, as the 60 s pause held the next lane 83 s on 2026-11-12");
         assert_eq!(Pause { wait: Duration::from_secs(5), alarm: false }.naps().collect::<Vec<_>>(), [RETIRE_POLL, RETIRE_POLL, Duration::from_secs(1)]);
-        assert_eq!(backoff.after("git push gave no answer").wait, Duration::from_secs(60));
-        assert_eq!(backoff.after("lifecycle store: database is locked").wait, LOCKED_RETRY);
-        assert_eq!(backoff.after("git push gave no answer").wait, Duration::from_secs(120));
+        assert_eq!(backoff.after_push_refusal().wait, Duration::from_secs(60));
+        assert_eq!(backoff.after_store_error("lifecycle store: database is locked").wait, LOCKED_RETRY);
+        assert_eq!(backoff.after_push_refusal().wait, Duration::from_secs(120));
+        let echoed = backoff.after_push_refusal();
+        assert_eq!((echoed.wait, echoed.alarm), (Duration::from_secs(240), true), "a push refusal reading {LOCKED:?} took {echoed:?}, not the 240 s rung with its alarm");
         backoff.clear();
-        assert_eq!(backoff.after("git push gave no answer").wait, Duration::from_secs(60));
+        assert_eq!(backoff.after_push_refusal().wait, Duration::from_secs(60));
     }
 }
