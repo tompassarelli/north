@@ -35,5 +35,7 @@ mod tests {
         assert!(refused(&[(REMOTE_MARK, "1")]).ends_with("not for an offloaded job; runtime unchanged"));
         let shipping: Environment = &[(ROLE, "proxy")];
         assert!(ships_as("north runtime update --sha", said(shipping)).is_ok() && ships_as("north runtime update --sha", said(&[])).is_ok(), "the shipping host's shell and the operator's carry neither mark");
+        let coordinator: Environment = &[(ROLE, "proxy"), ("NORTH_WORKER_SANDBOXED", "1"), ("NORTH_FLEET_SESSION", "proxy"), ("NORTH_FLEET_SCOPE", "proxy"), (REMOTE_MARK, "")];
+        assert!(ships_as("north runtime update --sha --ordered", said(coordinator)).is_ok(), "a fleet session that is no worker, such as the coordinator's, orders runtimes whatever else its shell carries");
     }
 }
