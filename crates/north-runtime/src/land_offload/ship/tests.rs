@@ -879,11 +879,12 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
     assert!(all_ended && statuses.iter().all(std::process::ExitStatus::success), "six 8 s land checks queued at once on an idle host did not run side by side within 20 s, inside one 30 s settle window: {statuses:?}");
 }
 
-fn slot_run(slot: &Path, head: &str, command: &str) -> Output {
+fn slot_run(slot: &Path, (base, head): (&str, &str), command: &str) -> Output {
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let home = tempfile::tempdir().unwrap();
-    let generated = super::generated::paths(slot, head);
+    let land = Land { ssh: "", checkout: slot, base: Some(CommitId(base.to_owned())), head: CommitId(head.to_owned()), timeout_seconds: 10, command, class: super::SlotClass::LandCheck };
+    let generated = super::generated::paths(&land);
     let script = format!("set -eu\nslot={} head={} command={} limit=10 generated={}\n{}{}", shell(slot), super::quote(head), super::quote(command), super::quote(&generated), VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string()), run_part());
     Command::new("sh")
         .args(["-c", &script])
@@ -901,23 +902,29 @@ fn a_run_keeps_its_verdict_when_its_build_rewrites_a_declared_generated_file_and
     fs::create_dir_all(dir.path().join("harness")).unwrap();
     let declared = "[[set]]\npath = \"listed.rs\"\nkind = \"lines\"\n\n[[set]]\npath = \"registry.txt\"\nkind = \"regenerate\"\ncommand = \"north docs index\"\nsources = [\"registry/\"]\n";
     fs::write(dir.path().join("harness/merge-sets.toml"), declared).unwrap();
-    for file in ["registry.txt", "listed.rs", "tracked.rs"] {
+    for file in ["registry.txt", "listed.rs", "tracked.rs", "source.rs"] {
         fs::write(dir.path().join(file), "committed\n").unwrap();
     }
-    git(dir.path(), &["add", "harness/merge-sets.toml", "registry.txt", "listed.rs", "tracked.rs"]);
-    git(dir.path(), &["commit", "-q", "-m", "third"]);
+    git(dir.path(), &["add", "harness/merge-sets.toml", "registry.txt", "listed.rs", "tracked.rs", "source.rs"]);
+    git(dir.path(), &["commit", "-q", "-m", "main declares its registry"]);
+    let base = git(dir.path(), &["rev-parse", "HEAD"]);
+    fs::write(dir.path().join("harness/merge-sets.toml"), format!("{declared}\n[[set]]\npath = \"source.rs\"\nkind = \"regenerate\"\ncommand = \"north docs index\"\nsources = [\"sources/\"]\n")).unwrap();
+    git(dir.path(), &["commit", "-q", "-m", "a lane declares a source file regenerated", "harness/merge-sets.toml"]);
     let head = git(dir.path(), &["rev-parse", "HEAD"]);
+    let lane = (base.as_str(), head.as_str());
 
-    let built = slot_run(dir.path(), &head, "echo built >registry.txt; echo checked");
-    assert_eq!(built.status.code(), Some(0), "a build that rewrites the registry its commit declares as regenerated keeps its verdict: {}", String::from_utf8_lossy(&built.stderr));
+    let built = slot_run(dir.path(), lane, "echo built >registry.txt; echo checked");
+    assert_eq!(built.status.code(), Some(0), "a build that rewrites the registry its base declares as regenerated keeps its verdict: {}", String::from_utf8_lossy(&built.stderr));
     assert!(String::from_utf8_lossy(&built.stdout).contains("checked"));
-    let failed = slot_run(dir.path(), &head, "echo built >registry.txt; exit 3");
+    let failed = slot_run(dir.path(), lane, "echo built >registry.txt; exit 3");
     assert_eq!(failed.status.code(), Some(3), "a failing command keeps its own status beside a rewritten registry: {}", String::from_utf8_lossy(&failed.stderr));
 
-    for file in ["tracked.rs", "listed.rs"] {
-        let void = slot_run(dir.path(), &head, &format!("echo another >{file}"));
+    for (file, why_void) in [("tracked.rs", "which no entry declares"), ("listed.rs", "which is declared, but not as regenerated"), ("source.rs", "which only the lane's own commit declares as regenerated")] {
+        let void = slot_run(dir.path(), lane, &format!("echo another >{file}"));
         let why = String::from_utf8_lossy(&void.stderr);
-        assert_eq!(void.status.code(), Some(i32::from(WRONG_TREE)), "a run that changes {file}, which no regenerate entry declares, reaches no verdict: {why}");
+        assert_eq!(void.status.code(), Some(i32::from(WRONG_TREE)), "a run that changes {file}, {why_void}, reaches no verdict: {why}");
         assert!(why.contains("the run's verdict is void, its tree changed under it") && why.contains(&format!("M {file}")), "{why}");
     }
+    let own = slot_run(dir.path(), (head.as_str(), head.as_str()), "echo built >source.rs");
+    assert_eq!(own.status.code(), Some(i32::from(WRONG_TREE)), "a run that names its own head as its base is excused nothing its head declares: {}", String::from_utf8_lossy(&own.stderr));
 }

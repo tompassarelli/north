@@ -203,7 +203,7 @@ fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Re
     let secret = proof::secret().map_err(|why| unreached(&why))?;
     let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret);
     let spilled = header.len().to_string();
-    let generated = generated::paths(land.checkout, land.head.as_str());
+    let generated = generated::paths(land);
     let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled, &generated];
     let mut waiting = crate::capacity::deadline::SlotWait::begin(&crate::capacity::local_machine::runtime_root());
     let master = master::options(land.ssh);
