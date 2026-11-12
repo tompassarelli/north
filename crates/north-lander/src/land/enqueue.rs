@@ -14,6 +14,7 @@ use super::queue::{self, HandIn, RedFix, Ticket, rfc3339};
 use super::repositories;
 use super::setting;
 use north_base::land_ticket::{self, HAND_IN_WAIT};
+use north_base::platform::finish_record::FinishRecords;
 mod arguments;
 mod facts;
 mod refuse;
@@ -283,7 +284,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             let (gate, ran, answered) = asked??;
             Ok::<_, String>(((gate, ran, answered), gated_from, marks))
         })?;
-        let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits, judge: ran };
+        let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits, judge: ran, check: environment.session.and_then(|session| super::after::leaf::passed(&FinishRecords::here(), session, &root, &head)) };
         let queued_micros = micros();
         let ticket = Ticket {
             origin: origin.clone(),

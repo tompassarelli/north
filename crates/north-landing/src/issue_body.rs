@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::issue_box_lint;
+use crate::land::after::leaf::{self, Settled};
 use crate::land::after::tick as landing;
 use crate::land::queue;
 use crate::platform::process;
@@ -17,6 +18,7 @@ pub const REFUSED: &str = "refused";
 pub const CALL_LIMIT: Duration = Duration::from_secs(30);
 pub const DRAIN_LIMIT: Duration = Duration::from_secs(120);
 const ATTEMPTS: usize = 4;
+const STANDING: &str = "[.state, (.subIssuesSummary.total - .subIssuesSummary.completed)] | @tsv";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Issue {
@@ -51,6 +53,11 @@ pub enum Edit {
     Tick { box_text: String },
     Land { box_text: String, sha: String },
     Untick { box_text: String, sha: String },
+    Close {
+        sha: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        check: Option<String>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -80,6 +87,10 @@ fn unticked(line: &str) -> Option<&str> {
     line.strip_prefix("- [ ]").or_else(|| line.strip_prefix("* [ ]")).map(str::trim)
 }
 
+pub fn has_checkbox(body: &str) -> bool {
+    body.lines().any(|line| ticked(line).is_some() || unticked(line).is_some())
+}
+
 impl Edit {
     pub fn apply(&self, body: &str) -> Change {
         match self {
@@ -91,6 +102,7 @@ impl Edit {
                 refused => Change::Refused(refused.to_string()),
             },
             Edit::Untick { box_text, sha } => untick(body, box_text, sha),
+            Edit::Close { .. } => Change::Refused("a close edits no body".to_owned()),
         }
     }
 }
@@ -175,6 +187,14 @@ pub trait Tracker {
     fn body(&self, issue: &Issue) -> Result<String, String>;
     fn set_body(&self, issue: &Issue, body: &str) -> Result<(), String>;
     fn close(&self, issue: &Issue, comment: &str) -> Result<(), String>;
+    fn standing(&self, issue: &Issue) -> Result<Standing, String>;
+    fn label(&self, issue: &Issue, label: &str) -> Result<(), String>;
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Standing {
+    pub open: bool,
+    pub open_children: u64,
 }
 
 pub trait Ledger {
@@ -218,6 +238,19 @@ impl Tracker for Gh {
     fn close(&self, issue: &Issue, comment: &str) -> Result<(), String> {
         let number = issue.number.to_string();
         self.run(&["issue", "close", &number, "--repo", &issue.repo, "--comment", comment], None).map(|_| ())
+    }
+
+    fn standing(&self, issue: &Issue) -> Result<Standing, String> {
+        let number = issue.number.to_string();
+        let stdout = self.run(&["issue", "view", &number, "--repo", &issue.repo, "--json", "state,subIssuesSummary", "--jq", STANDING], None)?;
+        let text = String::from_utf8(stdout).map_err(|error| error.to_string())?;
+        let read = text.trim().split_once('\t').and_then(|(state, open)| Some(Standing { open: state == "OPEN", open_children: open.parse().ok()? }));
+        read.ok_or_else(|| format!("{issue}: gh issue view printed {:?}, not its state and open children", text.trim()))
+    }
+
+    fn label(&self, issue: &Issue, label: &str) -> Result<(), String> {
+        let number = issue.number.to_string();
+        self.run(&["issue", "edit", &number, "--repo", &issue.repo, "--add-label", label], None).map(|_| ())
     }
 }
 
@@ -317,6 +350,7 @@ pub struct Drained {
     pub failure: Option<String>,
     pub recorded: usize,
     pub unrecorded: Vec<String>,
+    pub leaves: Vec<String>,
 }
 
 pub fn drain(directory: &Path, github: &dyn Tracker, ledger: &dyn Ledger, limit: Duration) -> io::Result<Drained> {
@@ -328,6 +362,21 @@ pub fn drain(directory: &Path, github: &dyn Tracker, ledger: &dyn Ledger, limit:
         if Instant::now() >= deadline {
             drained.waiting = entries.len() - position;
             break;
+        }
+        if let Edit::Close { sha, check } = &entry.edit {
+            match leaf::settle(github, &entry.issue, sha, check.as_deref()) {
+                Ok(settled) => {
+                    drained.closed += usize::from(settled == Settled::Closed);
+                    drained.leaves.push(format!("{} {settled}", entry.issue));
+                    fs::remove_file(path)?;
+                }
+                Err(why) => {
+                    drained.waiting = entries.len() - position;
+                    drained.failure = Some(format!("{}: {why}", entry.issue));
+                    break;
+                }
+            }
+            continue;
         }
         let outcome = write(github, &entry.issue, &entry.edit, deadline);
         if outcome.is_ok() && !matches!(entry.edit, Edit::Append { .. }) && !ticked.contains(&&entry.issue) {

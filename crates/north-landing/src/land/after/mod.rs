@@ -4,6 +4,7 @@ pub mod follow;
 pub use follow::{send, send_condition};
 pub mod gates;
 pub mod concerns;
+pub mod leaf;
 pub mod owner;
 pub mod route;
 pub mod tick;
@@ -129,6 +130,10 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
             println!("north land: could not record stages of {}: {error}", ticket.branch);
         }
         records::write(lander, &path, &ticket, &Candidate { head, batch_size, stages }, &Decision::Landed { sha: &tip });
+        let check = ticket.hand_in.as_ref().and_then(|hand_in| hand_in.check.as_deref());
+        for line in leaf::queue(&lander.queue, &leaf::Landed { repo: &lander.worktree, tip: &tip, main: LANDED_MAIN, check }) {
+            println!("north land: {}: {line}", ticket.branch);
+        }
         notify(lander, &name, &ticket, &tip);
         cleanup::report(lander, &path, &ticket);
         println!("north land: {} ({}): landed {tip} in {head}", ticket.branch, ticket.head);

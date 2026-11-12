@@ -17,6 +17,14 @@ impl Tracker for Tracked {
     fn close(&self, _: &Issue, _: &str) -> Result<(), String> {
         Ok(())
     }
+
+    fn standing(&self, _: &Issue) -> Result<Standing, String> {
+        Ok(Standing { open: true, open_children: 0 })
+    }
+
+    fn label(&self, _: &Issue, _: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Default)]

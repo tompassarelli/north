@@ -173,7 +173,7 @@ fn drained(outbox: &Path, ledger: &dyn Ledger) -> String {
     let github = crate::issue_body::Gh::new(crate::issue_body::CALL_LIMIT);
     match crate::issue_body::drain(outbox, &github, ledger, crate::issue_body::DRAIN_LIMIT) {
         Ok(drained) => format!(
-            "issue bodies: {} written, {} already, {} refused, {} closed, {} waiting{}; {} recorded for the ledger{}",
+            "issue bodies: {} written, {} already, {} refused, {} closed, {} waiting{}; {} recorded for the ledger{}{}",
             drained.written,
             drained.already,
             drained.refused,
@@ -181,7 +181,8 @@ fn drained(outbox: &Path, ledger: &dyn Ledger) -> String {
             drained.waiting,
             drained.failure.map_or_else(String::new, |why| format!(" ({why})")),
             drained.recorded,
-            if drained.unrecorded.is_empty() { String::new() } else { format!(" ({})", drained.unrecorded.join("; ")) }
+            if drained.unrecorded.is_empty() { String::new() } else { format!(" ({})", drained.unrecorded.join("; ")) },
+            drained.leaves.iter().map(|leaf| format!("; {leaf}")).collect::<String>()
         ),
         Err(error) => format!("issue bodies: cannot drain {}: {error}", outbox.display()),
     }
