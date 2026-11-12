@@ -156,3 +156,13 @@ fn north_reads_none_of_the_variables_its_check_keys_ignore() {
         .collect();
     assert!(readers.is_empty(), "these sources name a variable the verdict key leaves out of every north check, so a reuse could skip a check whose verdict depends on it: {readers:?}");
 }
+
+#[test]
+fn a_check_selected_by_the_whole_tree_misses_when_any_file_changes() {
+    let (repo, first) = repository();
+    let whole = "cargo check --workspace";
+    commit(repo.path(), &[(".safe-push", &format!("{SAFE_PUSH}\tcheck = . :: {whole}\n"))], "select the whole tree");
+    let before = key_of(repo.path(), "HEAD", whole);
+    let docs = commit(repo.path(), &[("docs/a.md", "changed")], "a file outside every named path");
+    assert_ne!(key_of(repo.path(), &docs, whole), before, "{first}");
+}

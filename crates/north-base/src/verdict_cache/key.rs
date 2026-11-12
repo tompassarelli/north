@@ -91,7 +91,7 @@ fn object_specs(tree: &str, paths: &BTreeSet<String>) -> Vec<String> {
         .iter()
         .map(|path| {
             let path = path.trim_end_matches('/');
-            if path.contains(['*', '?', '[']) || path.is_empty() { format!("{tree}^{{tree}}") } else { format!("{tree}:{path}") }
+            if path.contains(['*', '?', '[']) || path.is_empty() || path == "." { format!("{tree}^{{tree}}") } else { format!("{tree}:{path}") }
         })
         .collect()
 }
