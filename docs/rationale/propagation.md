@@ -202,7 +202,7 @@ cadence keeps that: each promotion still goes live everywhere within the 2-minut
 | north#1022 planted-token probe | now a prerequisite | lands before the cadence goes live |
 | north#1022 this box | `rg -c 'north runtime promoted:'` ≤ 6 after one day of slots | none |
 | north#1081 processes move within 60 s | read 2 min after a promotion, up to 4 h to the next one; 6 re-execs a day instead of about 200 | none |
-| north#1081 `north runtime lag` < 300 s | fails by design against origin/main (up to 4 h behind) | lag is measured against the settling host's pin; the code half in flight (north-1081-d2101) takes the pin as its reference |
+| north#1081 `north runtime lag` < 300 s | fails by design against origin/main (up to 4 h behind) | lag is measured against the settling host's pin, which `north runtime lag` now takes as its reference (north#1022) |
 | north#1081 runtime landing to live p90 < 2 min | not met for ordinary landings (p50 about 2 h, p90 about 3.6 h) | becomes pin to live on every host p90 < 2 min; firn half unchanged |
 | north#902 lander fix within one landing round | an ordinary lander change waits up to 4 h | a lander fix carries `Live-fix:` and takes the fast path |
 

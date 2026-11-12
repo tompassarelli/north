@@ -1,8 +1,7 @@
-//! How far behind origin/main each process runs: the seconds since the first landing that changed a runtime input
-//! which the runtime it runs lacks, 0 when it holds every one.
+//! How far behind the settling host's pin each process runs: the seconds since the promotion that made the pin live,
+//! 0 when the process runs the pin or a runtime built on it (docs/rationale/propagation.md, Promotion cadence).
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub(super) struct Process {
@@ -18,31 +17,28 @@ pub(super) struct Seen {
     pub(super) processes: Result<Vec<Process>, String>,
 }
 
-/// A landing that changed a runtime input, as the pin journal timed it, oldest first.
-pub(super) struct Landing {
+/// The runtime the settling host pinned, and when its promotion made it live.
+pub(super) struct Pin {
     pub(super) at: i64,
     pub(super) sha: String,
 }
 
 /// One object per process of every host, and one per host that could not be read, with `seconds` null for it.
-pub(super) fn objects(seen: &[Seen], landings: &[Landing], now: i64, holds: impl Fn(&str, &str) -> bool) -> Vec<Value> {
-    let mut known: BTreeMap<Option<String>, i64> = BTreeMap::new();
-    let mut lag = |runtime: Option<&str>| *known.entry(runtime.map(str::to_owned)).or_insert_with(|| seconds(landings, runtime, now, &holds));
+pub(super) fn objects(seen: &[Seen], pin: Option<&Pin>, now: i64, holds: impl Fn(&str, &str) -> bool) -> Vec<Value> {
     seen.iter()
         .flat_map(|seen| match &seen.processes {
-            Ok(processes) => processes.iter().map(|process| json!({"host": seen.host, "kind": process.kind, "process": process.process, "runtime": process.runtime, "seconds": lag(process.runtime.as_deref())})).collect(),
+            Ok(processes) => processes.iter().map(|process| json!({"host": seen.host, "kind": process.kind, "process": process.process, "runtime": process.runtime, "seconds": seconds(pin, process.runtime.as_deref(), now, &holds)})).collect(),
             Err(why) => vec![json!({"host": seen.host, "process": null, "runtime": null, "seconds": null, "unread": why})],
         })
         .collect()
 }
 
-/// A runtime that cannot be named is older than the one its link names, so it is timed from the newest landing.
-fn seconds(landings: &[Landing], runtime: Option<&str>, now: i64, holds: &impl Fn(&str, &str) -> bool) -> i64 {
-    let missed = match runtime {
-        Some(runtime) => landings.iter().rev().take_while(|landing| !holds(&landing.sha, runtime)).last(),
-        None => landings.last(),
-    };
-    missed.map_or(0, |landing| (now - landing.at).max(0))
+/// A runtime that cannot be named is older than the one its link names, so it is older than the pin.
+fn seconds(pin: Option<&Pin>, runtime: Option<&str>, now: i64, holds: &impl Fn(&str, &str) -> bool) -> i64 {
+    match pin {
+        Some(pin) if !runtime.is_some_and(|runtime| holds(&pin.sha, runtime)) => (now - pin.at).max(0),
+        _ => 0,
+    }
 }
 
 /// The worst lag of the readable processes, with the object that has it.

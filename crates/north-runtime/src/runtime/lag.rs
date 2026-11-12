@@ -1,6 +1,6 @@
 //! `north runtime lag --processes`: each long-lived north process on this host, the runtime it runs and whether that
 //! is the runtime its link names (docs/rationale/runtime-follow.md); `--json`: for every declared host and process, the
-//! seconds it has run behind the newest landing that changed a runtime input (docs/rationale/propagation.md).
+//! seconds it has run older than the runtime the settling host pinned (docs/rationale/propagation.md).
 mod ask;
 mod behind;
 mod page;

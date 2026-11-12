@@ -1,5 +1,5 @@
-//! Each declared host's long-lived processes and the landings that changed a runtime input, as this host can read them.
-use super::behind::{Landing, Process, Seen};
+//! Each declared host's long-lived processes and the runtime the settling host pinned, as this host can read them.
+use super::behind::{Pin, Process, Seen};
 use crate::land_offload;
 use crate::platform::host;
 use crate::runtime::layout::Layout;
@@ -29,12 +29,11 @@ fn remote(destination: String, probed: &[Value]) -> Seen {
     Seen { host: destination, processes: processes.map_err(|why| why.chars().take(WHY_SHOWN).collect()) }
 }
 
-pub(super) fn landings(layout: &Layout) -> Vec<Landing> {
-    pin::events_here_or_mirrored(&layout.state, "north runtime lag")
-        .into_iter()
-        .filter_map(|event| match event {
-            Event::Landed { sha, at } => Some(Landing { at, sha }),
-            _ => None,
-        })
-        .collect()
+pub(super) fn pin(layout: &Layout) -> Option<Pin> {
+    let sha = layout.live_sha()?;
+    let promoted = pin::events_here_or_mirrored(&layout.state, "north runtime lag").into_iter().rev().find_map(|event| match event {
+        Event::Promoted { sha: promoted, at } if promoted == sha => Some(at),
+        _ => None,
+    });
+    promoted.map(|at| Pin { at, sha })
 }

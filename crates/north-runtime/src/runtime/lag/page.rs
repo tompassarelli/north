@@ -83,7 +83,7 @@ fn send(key: &str, text: &str, cleared: bool) -> bool {
 
 pub(super) fn objects(layout: &Layout, probed: &[Value]) -> Vec<Value> {
     let checkout = update::checkout();
-    behind::objects(&super::ask::seen(layout, probed), &super::ask::landings(layout), pin::now(), |landed, runtime| landed == runtime || crate::runtime::settle::ancestor(&checkout, landed, runtime))
+    behind::objects(&super::ask::seen(layout, probed), super::ask::pin(layout).as_ref(), pin::now(), |landed, runtime| landed == runtime || crate::runtime::settle::ancestor(&checkout, landed, runtime))
 }
 
 fn over(object: &Value) -> bool {
@@ -152,7 +152,7 @@ fn service_text(object: &Value) -> String {
 
 fn reading(object: &Value) -> String {
     let runtime = object["runtime"].as_str().map_or_else(|| "an older runtime".to_owned(), |sha| layout::short(sha).to_owned());
-    format!("north runtime lag: {} on {} runs {runtime}, {}s behind the newest landing that changed a runtime input", object["process"].as_str().unwrap_or_default(), object["host"].as_str().unwrap_or_default(), object["seconds"])
+    format!("north runtime lag: {} on {} runs {runtime}, {}s older than the pinned runtime", object["process"].as_str().unwrap_or_default(), object["host"].as_str().unwrap_or_default(), object["seconds"])
 }
 
 /// One sample of the lag and its pages, run by the settling host's fleet tick in a scope of its own.
