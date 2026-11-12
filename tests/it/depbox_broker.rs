@@ -53,4 +53,39 @@ fn dependency_code_in_depbox_cannot_connect_to_the_broker_socket() {
         .output()
         .unwrap();
     assert!(!handed_off.status.success() && victim.exists(), "depbox removed a path outside the roots the broker handed it: {}", String::from_utf8_lossy(&handed_off.stderr));
+    let store = scratch.path().join("home/.local/share/makgora-build-inputs/store/base");
+    let (pinned, unpinned, missing) = ("a".repeat(64), "b".repeat(64), "c".repeat(64));
+    for entry in [&pinned, &unpinned] {
+        std::fs::create_dir_all(store.join(entry)).unwrap();
+    }
+    let pin = |hash: &str| {
+        std::fs::create_dir_all(checkout.join("pins")).unwrap();
+        std::fs::write(checkout.join("pins/base"), hash).unwrap();
+        std::fs::write(checkout.join(".safe-push"), "[land]\n\thost-input = ~/.local/share/makgora-build-inputs/store@pins :: bun test\n").unwrap();
+        for step in [&["add", "pins", ".safe-push"][..], &["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "pin"]] {
+            assert!(Command::new("git").args(step).current_dir(&checkout).status().unwrap().success());
+        }
+    };
+    let viewed = |entry: &str| {
+        Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
+            .args(["depbox", "run", "--", "ls"])
+            .arg(store.join(entry))
+            .current_dir(&checkout)
+            .env("HOME", scratch.path().join("home"))
+            .env("DEPBOX_ADMITTED", "1")
+            .env("SAFE_PUSH_LAND_STORE_VIEW", "pinned")
+            .env("SAFE_PUSH_LAND_HOST_INPUTS", store.join(&unpinned))
+            .env_remove("DEPBOX")
+            .env_remove("NORTH_WORKER_SANDBOXED")
+            .output()
+            .unwrap()
+    };
+    pin(&pinned);
+    let seen = viewed(&pinned);
+    assert!(seen.status.success(), "the store entry the checkout's head pins is not in the sandbox: {}", String::from_utf8_lossy(&seen.stderr));
+    let unseen = viewed(&unpinned);
+    assert!(!unseen.status.success(), "a store entry the head does not pin reached the sandbox through the environment");
+    pin(&missing);
+    let refused = viewed(&pinned);
+    assert!(!refused.status.success() && String::from_utf8_lossy(&refused.stderr).contains(&missing), "a pinned store entry the host lacks did not refuse the run: {}", String::from_utf8_lossy(&refused.stderr));
 }

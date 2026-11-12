@@ -4,12 +4,11 @@ use std::process::Command;
 use super::infer::infer;
 use north_base::foundation::exit::SLOTS_BUSY_STATUS;
 use north_base::build_inputs::{ENQUEUE_PATTERN, rust_build_input};
+use north_base::store_pins::{pinned_entries, store_input};
 
 const SEPARATOR: &str = " :: ";
 const RUST_INPUT: &str = "@rust-input";
 const REF_SHORT: usize = 12;
-const STORE_ENTRY: char = '@';
-const ENTRY_LEN: usize = 64;
 
 #[derive(Clone, Debug, Default)]
 pub struct Config {
@@ -66,34 +65,15 @@ fn blob_values(repo: &Path, head: &str, key: &str) -> Vec<String> {
 }
 
 /// Expands one `STORE@PINS` host input into the store root and the entries the check's head pins:
-/// `PINS` names a directory at `head` with one file per input family, and each file's content is the
+/// `PINS` names a directory at `head` with one file, or one directory of shard files, per input family, and each file's content is the
 /// 64-hex name of the store entry that family's build reads, so a host whose store exists but lacks
 /// one of those entries takes no check that reads it (north#892). A declaration that resolves to no
 /// entry stays whole, so the probe reports it missing instead of silently dropping the store.
 fn expand_store_input(repo: &Path, head: &str, input: &str) -> Vec<String> {
-    let Some((store, pins)) = input.split_once(STORE_ENTRY) else { return vec![input.to_owned()] };
-    if store.is_empty() || pins.is_empty() || pins.starts_with('/') {
-        return vec![input.to_owned()];
-    }
+    let Some((store, pins)) = store_input(input) else { return vec![input.to_owned()] };
     let mut expanded = vec![store.to_owned()];
     expanded.extend(pinned_entries(repo, head, pins).into_iter().map(|entry| format!("{store}/{entry}")));
     if expanded.len() == 1 { vec![input.to_owned()] } else { expanded }
-}
-
-/// Each `FAMILY/ENTRY` the pins directory names at `head`, where an entry is the first 64-hex name in the
-/// family file; a family file that names none is left out so the probe reports the store entry missing.
-fn pinned_entries(repo: &Path, head: &str, pins: &str) -> Vec<String> {
-    git_lines(repo, &["ls-tree", "--name-only", &format!("{head}:{pins}")])
-        .into_iter()
-        .filter_map(|family| {
-            if family.is_empty() || !family.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)) {
-                return None;
-            }
-            let text = git_lines(repo, &["show", &format!("{head}:{pins}/{family}")]).join("\n");
-            let entry = text.split(|character: char| !character.is_ascii_alphanumeric()).find(|word| word.len() == ENTRY_LEN && word.bytes().all(|byte| byte.is_ascii_hexdigit()))?;
-            Some(format!("{family}/{entry}"))
-        })
-        .collect()
 }
 
 fn expand_host_inputs(repo: &Path, head: &str, line: String) -> String {

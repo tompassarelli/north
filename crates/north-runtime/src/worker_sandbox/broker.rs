@@ -297,6 +297,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         return Err(format!("{} is not a request the broker runs", request.arguments.join(" ")));
     }
     super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, cgroup)?;
+    super::brokered_reads::pinned_entries_readable(&request.arguments, &request.directory, &request.environment, cgroup)?;
     let [stdin, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     if !request.directory.is_absolute() {
         return Err(format!("working directory {} is not absolute", request.directory.display()));

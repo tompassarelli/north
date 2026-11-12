@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use north_base::platform::session_scope::REMOVAL_ROOTS;
+use north_base::store_pins;
 use sha2::{Digest, Sha256};
 
 use super::carry::{self, Boundary};
@@ -144,6 +145,12 @@ impl Sandbox {
         }
         for path in READS.iter().map(|path| home.join(path)).filter(|path| path.exists()) {
             box_.read(path);
+        }
+        if mode == Mode::Run && std::env::var_os(carry::LAND_STORE_VIEW).is_some_and(|view| !view.is_empty()) {
+            for entry in store_entries(&box_.top, &home)? {
+                box_.bind("--ro-bind", &entry, &entry);
+                box_.binds.push(entry);
+            }
         }
         let live = home.join(".local/state/north/current");
         if let Ok(target) = std::fs::read_link(&live) {
@@ -288,6 +295,20 @@ fn aliases(home: &Path) -> Vec<PathBuf> {
     let identity = |path: &Path| std::fs::metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()));
     let Some(own) = identity(home) else { return Vec::new() };
     ["/nix", "/home", "/mnt", "/srv", "/var", "/media"].iter().flat_map(|root| std::fs::read_dir(root).into_iter().flatten().flatten().map(|entry| entry.path())).filter(|path| path != home && !path.is_symlink() && identity(path) == Some(own)).collect()
+}
+
+/// The store entries the checkout's own HEAD pins, each a link-free directory below a `*-build-inputs` folder of home's `.local/share`, or the refusal naming the first entry that is not.
+fn store_entries(top: &Path, home: &Path) -> Result<Vec<PathBuf>, (u8, String)> {
+    let data = home.join(".local/share");
+    let entries = store_pins::pinned_store_entries(top, "HEAD", home);
+    for entry in &entries {
+        let folder = entry.strip_prefix(&data).ok().and_then(|below| below.components().next()).and_then(|first| first.as_os_str().to_str()).is_some_and(|first| first.ends_with("-build-inputs"));
+        let linked = std::fs::canonicalize(entry).ok().as_ref() != Some(entry);
+        if !folder || linked || !entry.is_dir() {
+            return Err((1, format!("refusing the run: {} pins store entry {}, which is not a link-free directory below a *-build-inputs folder of {}", top.display(), entry.display(), data.display())));
+        }
+    }
+    Ok(entries)
 }
 
 /// The project a git common directory belongs to: `code/<project>/<checkout>/.git` names `<project>`, a bare common directory its own name.

@@ -10,4 +10,5 @@ pub mod nix_command;
 pub mod platform;
 pub mod run_time_data;
 pub mod shell;
+pub mod store_pins;
 pub mod verdict_cache;
