@@ -30,7 +30,8 @@ fn operational_callers_try_the_reserve_before_shared_capacity() {
 }
 
 /// 2026-11-12 (south#124): with every API organization meant to be held, the judge still fell back to the API pool,
-/// a canary could start on the reserve organization from its own unit, and the proxy was never refused there.
+/// a canary could start on the reserve organization from its own unit, and the proxy was never refused there;
+/// then an unreadable policy read as no hold, and a fleet session's own plan profile settings went unchecked.
 #[test]
 fn every_caller_is_refused_on_a_held_api_organization_before_a_request_leaves_and_a_plan_account_serves_it() {
     use crate::fleet::model::{Account as Login, ApiKey, ProviderName, Role};
@@ -66,4 +67,17 @@ fn every_caller_is_refused_on_a_held_api_organization_before_a_request_leaves_an
     let view = crate::spend::view_from_config(&policy, dir.path(), &crate::spend::Rules { charge: 0.0, reading_max_h: 1.0 }, 0, NOW, |_| true);
     assert!(view.admit("claude:api:fixture-org", Starter::Reserved).is_err_and(|refusal| refusal.line.contains("is held")), "an operational caller is refused too");
     assert_eq!(view.admit("claude:a", Starter::Reserved), Ok(()));
+
+    let unparseable = dir.path().join("unparseable.toml");
+    std::fs::write(&unparseable, "[accounts.claude\n").unwrap();
+    for broken in [unparseable, dir.path().join("missing.toml")] {
+        let line = reserve::refusal(&reserve::declared(&broken), &login("api", true), Role::Proxy, None, None);
+        assert!(line.as_deref().is_some_and(|line| line.contains("cannot be read")), "a policy that cannot be read holds every API organization: {line:?}");
+    }
+
+    let billed = tempfile::tempdir().unwrap();
+    std::fs::write(billed.path().join("settings.json"), r#"{"env":{"ANTHROPIC_BASE_URL":"https://fixture.invalid"}}"#).unwrap();
+    let plan = Login { home: billed.path().to_owned(), ..login("b", false) };
+    let line = reserve::refusal(&rules, &plan, Role::Worker, None, None);
+    assert!(line.as_deref().is_some_and(|line| line.contains("ANTHROPIC_BASE_URL")), "a fleet session's own plan profile settings are checked like a one-shot ask's: {line:?}");
 }

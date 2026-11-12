@@ -2,10 +2,8 @@
 //! (docs/rationale/spend-rule.md): the owner's hold on every API organization refuses it to every caller of every
 //! role; the operational reserve the policy declares (`[accounts.claude] reserve`) is drawn only by the proxy, a
 //! scheduled routine, the owner's own sessions, the privacy judge, the lander and canaries, so a worker or subagent
-//! neither starts on it nor continues on it.
+//! neither starts on it nor continues on it; and a plan profile whose settings would bill by token starts no session.
 use std::path::Path;
-
-use toml_edit::DocumentMut;
 
 use super::Fleet;
 use super::stopping::Halt;
@@ -29,10 +27,12 @@ impl Reserve {
     }
 }
 
-/// What the policy at `policy` declares.
+/// What the policy at `policy` declares; a policy that cannot be read holds every API organization.
 pub fn declared(policy: &Path) -> Reserve {
-    let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    Reserve { labels: crate::spend::operational::declared(&document), held: hold::declared(&document) }
+    match hold::read(policy) {
+        Ok(document) => Reserve { labels: crate::spend::operational::declared(&document), held: hold::declared(&document) },
+        Err(held) => Reserve { labels: Vec::new(), held: Some(held) },
+    }
 }
 
 /// Whether a session of `role` under `parent` is a worker or subagent: anything but the proxy that a parent started or that holds a task.
@@ -40,11 +40,14 @@ pub fn kept_off(role: Role, parent: Option<&str>) -> bool {
     role != Role::Proxy && (role == Role::Worker || parent.is_some())
 }
 
-/// The one-line refusal of a start on `account`, or none: under the hold, an API organization for every role and caller; else a worker or subagent whose account resolves to a declared reserve, unless a reserve caller's service unit launched it (`caller`).
+/// The one-line refusal of a start on `account`, or none: under the hold, an API organization for every role and caller; a plan profile whose settings would bill by token; else a worker or subagent whose account resolves to a declared reserve, unless a reserve caller's service unit launched it (`caller`).
 pub fn refusal(reserve: &Reserve, account: &Account, role: Role, parent: Option<&str>, caller: Option<&str>) -> Option<String> {
     let resolved = account.recorded_label();
     if let Some(held) = reserve.held.as_ref().filter(|_| account.api.is_some() || hold::api(&resolved)) {
         return Some(held.line(&resolved));
+    }
+    if account.api.is_none() && account.provider.label() == "claude" && let Some(why) = crate::spend::billing::settings_refusal(&account.home) {
+        return Some(format!("{resolved} is refused: {why}"));
     }
     (caller.is_none() && kept_off(role, parent) && reserve.labels.iter().any(|held| *held == resolved || *held == account.label))
         .then(|| format!("{resolved} is the operational reserve: no worker or subagent starts on it, whatever account it was launched under; only the proxy, scheduled routines, the privacy judge, the lander and canaries draw it"))

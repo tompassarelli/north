@@ -1,21 +1,20 @@
 //! The owner's hold on every API organization (`[accounts.claude] api_hold` in the orchestration policy,
-//! docs/rationale/spend-rule.md): while the policy records it, no caller of any role draws an `api` account,
-//! operational callers included. Nothing in north writes or lifts it; only an edit of that record does.
+//! docs/rationale/spend-rule.md): while the policy records it, or while the policy cannot be read, no caller of any
+//! role draws an `api` account, operational callers included. Nothing in north writes or lifts it; only an edit of that record does.
 use std::path::Path;
 
 use toml_edit::{DocumentMut, Item};
 
-/// The recorded hold: the day it was set and why.
+/// The hold that stands: why every API organization is held.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hold {
-    pub since: String,
-    pub reason: String,
+    pub why: String,
 }
 
 impl Hold {
     /// The one line that refuses `account` while the hold stands.
     pub fn line(&self, account: &str) -> String {
-        format!("{account} is held: every API organization is held since {} ({}); no caller of any role draws it, and only the policy's api_hold record lifts it", self.since, self.reason)
+        format!("{account} is held: {}", self.why)
     }
 
     /// The refusal of `account` under the hold, or none for an account that is no API organization.
@@ -28,12 +27,20 @@ impl Hold {
 pub fn declared(cfg: &DocumentMut) -> Option<Hold> {
     let held = cfg.get("accounts")?.get("claude")?.get("api_hold")?;
     let field = |name: &str, missing: &str| held.get(name).and_then(Item::as_str).unwrap_or(missing).to_owned();
-    Some(Hold { since: field("since", "an unrecorded day"), reason: field("reason", "no reason recorded") })
+    let why = format!("every API organization is held since {} ({}); no caller of any role draws it, and only the policy's api_hold record lifts it", field("since", "an unrecorded day"), field("reason", "no reason recorded"));
+    Some(Hold { why })
 }
 
-/// The hold the policy file at `policy` records, or none.
+/// The policy at `policy`, or the hold that stands because it cannot be read or parsed.
+pub fn read(policy: &Path) -> Result<DocumentMut, Hold> {
+    let text = std::fs::read_to_string(policy).map_err(|error| error.to_string());
+    text.and_then(|text| text.parse::<DocumentMut>().map_err(|error| error.to_string()))
+        .map_err(|error| Hold { why: format!("the policy at {} cannot be read ({}), so every API organization counts as held until it reads again", policy.display(), error.trim()) })
+}
+
+/// The hold that stands under the policy file at `policy`: the one it records, or one because it cannot be read.
 pub fn at(policy: &Path) -> Option<Hold> {
-    std::fs::read_to_string(policy).ok().and_then(|text| text.parse::<DocumentMut>().ok()).as_ref().and_then(declared)
+    read(policy).map_or_else(Some, |cfg| declared(&cfg))
 }
 
 /// Whether `account` names an API organization: the pooled `api` account or `api:ORG`, with or without its `claude:` provider.

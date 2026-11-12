@@ -7,9 +7,8 @@ use crate::fleet::model::Account;
 use crate::platform::process;
 use crate::fleet::runtime::Invocation;
 use crate::runtime_access::RuntimeAccess;
+use crate::spend::billing;
 
-/// Environment that routes `claude` to billing outside the subscription; a one-shot ask unsets all of it.
-pub(crate) const EXTERNAL_BILLING: [&str; 6] = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"];
 pub(crate) const QUIET: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC";
 const QUIET_WORD: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1";
 
@@ -88,7 +87,7 @@ pub(crate) fn lean_flags<'a>(ask: &Ask<'a>) -> [&'a str; 14] {
 
 pub(crate) fn once_args<'a>(program: &'a str, words: &'a [String], ask: &Ask<'a>, extra: &[&'a str]) -> Vec<&'a str> {
     let unset = words.chunks(2).take_while(|pair| pair.len() == 2 && pair[0] == "-u").count() * 2;
-    let mut args: Vec<&str> = EXTERNAL_BILLING.iter().flat_map(|name| ["-u", *name]).chain(words[..unset].iter().map(String::as_str)).chain([QUIET_WORD]).chain(words[unset..].iter().map(String::as_str)).collect();
+    let mut args: Vec<&str> = billing::EXTERNAL.iter().flat_map(|name| ["-u", *name]).chain(words[..unset].iter().map(String::as_str)).chain([QUIET_WORD]).chain(words[unset..].iter().map(String::as_str)).collect();
     args.push(program);
     args.extend(lean_flags(ask));
     args.extend(extra);
@@ -109,26 +108,10 @@ fn ambient_billing_refusal() -> Option<String> {
         return Some(format!("{name} is set, so the default login would bill by token"));
     }
     let dir = env_or("CLAUDE_CONFIG_DIR", || home().join(".claude"));
-    if let Some(why) = settings_billing_refusal(&dir) {
+    if let Some(why) = billing::settings_refusal(&dir) {
         return Some(why);
     }
-    read_json(&dir, ".credentials.json").is_none_or(|credentials| credentials.get("claudeAiOauth").is_none()).then(|| "the default login is not a claude.ai subscription login".to_owned())
-}
-
-fn read_json(dir: &Path, file: &str) -> Option<serde_json::Value> {
-    std::fs::read_to_string(dir.join(file)).ok().and_then(|held| serde_json::from_str(&held).ok())
-}
-
-/// Why the Claude config directory `dir` would bill by token or reach another endpoint, if it would: an apiKeyHelper, or an env block naming an API key, token or endpoint variable, in its settings.
-fn settings_billing_refusal(dir: &Path) -> Option<String> {
-    ["settings.json", "settings.local.json"].into_iter().filter_map(|file| read_json(dir, file)).find_map(|settings| {
-        let named = EXTERNAL_BILLING.into_iter().find(|name| settings.get("env").and_then(|env| env.get(name)).is_some());
-        match (settings.get("apiKeyHelper"), named) {
-            (Some(_), _) => Some(format!("an apiKeyHelper is configured in {}, so it would bill by token", dir.display())),
-            (None, Some(name)) => Some(format!("{name} is set in the settings of {}, so it would bill by token", dir.display())),
-            (None, None) => None,
-        }
-    })
+    billing::read_json(&dir, ".credentials.json").is_none_or(|credentials| credentials.get("claudeAiOauth").is_none()).then(|| "the default login is not a claude.ai subscription login".to_owned())
 }
 
 fn answered_record() -> std::path::PathBuf {
@@ -169,7 +152,7 @@ fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &Run
     let reserve = crate::platform::orchestration::read().map(|policy| crate::spend::operational::declared(&policy)).unwrap_or_default();
     let answered = std::fs::read_to_string(answered_record()).ok();
     let subscription = answered_first(crate::spend::operational::order(&reserve, shared), &reserve, answered.as_deref().map(str::trim));
-    ask(&profiles, &subscription, &mut |dir| match dir.map_or_else(ambient_billing_refusal, settings_billing_refusal) {
+    ask(&profiles, &subscription, &mut |dir| match dir.map_or_else(ambient_billing_refusal, billing::settings_refusal) {
         Some(why) => Reply { code: Some(1), stdout: String::new(), stderr: why },
         None => {
             let reply = claude_once(&account_words(dir, &accounts, access.invocation), question, extra, limit);

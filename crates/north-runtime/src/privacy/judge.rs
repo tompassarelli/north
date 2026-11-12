@@ -212,7 +212,7 @@ fn ask_api_pool(tier: &Tier, prompt: &str) -> Result<String, String> {
             }
         };
         let mut command = std::process::Command::new("claude");
-        for name in oneshot::EXTERNAL_BILLING {
+        for name in crate::spend::billing::EXTERNAL {
             command.env_remove(name);
         }
         command.env("ANTHROPIC_API_KEY", secret).env("CLAUDE_CONFIG_DIR", &profile).env("CLAUDE_CODE_DISABLE_FAST_MODE", "1").env(oneshot::QUIET, "1");

@@ -23,7 +23,10 @@ refusal names which: `api hold`, `provider limit` or `operational reserve`.
    organization) and the judge's API step all ask it, the park step stops any session found on a held
    organization, and `north accounts` lists every grant as held. Callers then use plan accounts, and DeepSeek or
    Gemini where they already do. North writes no hold and lifts none; only removing that record on the owner's
-   word lifts it, so an organization becomes drawable again by an edit the owner ordered, never by a code path.
+   word lifts it, so an organization becomes drawable again by an edit the owner ordered, never by a code path. A
+   policy that cannot be read or parsed holds every organization too, with one line naming why, so a broken
+   file never reads as no hold. A plan session whose own profile settings name an API key helper or a billing
+   variable is refused at start, by the same check (`spend::billing`) a one-shot ask makes.
 
 2. **The provider's own limit.** An account at 100 percent of its five-hour or week window cannot run
    anything, so placement skips it and a launch that named it waits in the launch queue for the reset. A

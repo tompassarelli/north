@@ -5,6 +5,7 @@
 mod read;
 #[cfg(test)]
 mod tests;
+pub mod billing;
 pub mod hold;
 pub mod operational;
 
