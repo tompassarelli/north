@@ -286,11 +286,20 @@ pub fn first_item_issue(text: &str) -> Option<String> {
 }
 
 /// What a launch predicted for a brief that named no files: the files the classifier named, as the write set, and those of them the
-/// first prompt carries, as the read set.
+/// first prompt carries, as the read set. `missed` is set when the classifier did not answer within its deadline, so the launch went
+/// without a prediction.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Predicted {
     pub writes: Vec<String>,
     pub reads: Vec<String>,
+    #[serde(default)]
+    pub missed: bool,
+}
+
+impl Predicted {
+    pub fn missed() -> Self {
+        Self { missed: true, ..Self::default() }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

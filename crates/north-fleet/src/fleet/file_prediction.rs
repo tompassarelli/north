@@ -4,8 +4,9 @@
 //! brief and the tracked files' paths with the names each declares. The files it names go in the first prompt under the
 //! caps `brief_files` applies, and the launch records them.
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::time::Duration;
 
 use north_base::platform::process::try_run_command_within;
@@ -21,22 +22,32 @@ const SOURCE: &[&str] = &["ts", "tsx", "mts", "mjs", "js", "cjs", "rs", "py", "s
 const VENDORED: &[&str] = &["repos/", "node_modules/", "vendor/", "third_party/", "third-party/"];
 const SYMBOL_LIMIT: usize = 6;
 const MAP_BYTES: usize = 240 * 1024;
-const ASK_WAIT: Duration = Duration::from_secs(120);
+const DEADLINE: Duration = Duration::from_secs(1);
 const BASE: &str = "base=$(git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' || git rev-parse -q --verify 'refs/heads/main^{commit}')";
 const DECLARATION: &str = r"^[[:space:]]*((pub(\([a-z]+\))?|export|async|default|declare)[[:space:]]+)*(function\*?|class|const|interface|type|enum|fn|struct|trait|impl|def)[[:space:]]+[A-Za-z0-9_$]+|^# ";
 
 /// The first-prompt section for the files `brief` does not name, with what was predicted; `None` when the brief names files, or
-/// `cwd` holds no repository with a base to map.
+/// `cwd` holds no repository with a base to map. Past `DEADLINE` the answer is `Predicted::missed`, and the launch goes on without it.
 pub fn section(brief: &str, cwd: &Path, machine: Option<&Machine>, north: &Path) -> Option<(Option<String>, Predicted)> {
     if !brief_files::named(brief, cwd).is_empty() {
         return None;
     }
+    let (sender, received) = mpsc::channel();
+    let (brief, cwd, machine, north): (String, PathBuf, Option<Machine>, PathBuf) = (brief.to_owned(), cwd.to_owned(), machine.cloned(), north.to_owned());
+    std::thread::spawn(move || sender.send(predict(&brief, &cwd, machine.as_ref(), &north)));
+    received.recv_timeout(DEADLINE).unwrap_or(Some((None, Predicted::missed())))
+}
+
+fn predict(brief: &str, cwd: &Path, machine: Option<&Machine>, north: &Path) -> Option<(Option<String>, Predicted)> {
     let (tree, symbols) = (tree(cwd, machine)?, symbols(cwd, machine)?);
     let map = repository_map(&tree, &symbols);
-    let writes = parse(&ask(north, &format!("Task:\n{brief}\n\nThe repository's files at the task's base commit, each with the names it declares:\n{map}\n"))?, &tree);
+    let Some(answer) = ask(north, &format!("Task:\n{brief}\n\nThe repository's files at the task's base commit, each with the names it declares:\n{map}\n")) else {
+        return Some((None, Predicted::missed()));
+    };
+    let writes = parse(&answer, &tree);
     let read = brief_files::read(&writes, cwd, machine, HEADING);
     let reads = read.as_ref().map(|(_, carried)| carried.clone()).unwrap_or_default();
-    Some((read.map(|(section, _)| section), Predicted { writes, reads }))
+    Some((read.map(|(section, _)| section), Predicted { writes, reads, missed: false }))
 }
 
 fn tree(cwd: &Path, machine: Option<&Machine>) -> Option<BTreeMap<String, u64>> {
@@ -118,7 +129,7 @@ fn repository_map(tree: &BTreeMap<String, u64>, symbols: &BTreeMap<String, Vec<S
 fn ask(north: &Path, input: &str) -> Option<String> {
     let mut command = Command::new(north);
     command.args(["check", "oneshot", "--model", MODEL, "--effort", "low", "--system", SYSTEM, "--json"]).stderr(Stdio::null());
-    let output = try_run_command_within(command, Some(input.as_bytes()), ASK_WAIT).ok().flatten()?;
+    let output = try_run_command_within(command, Some(input.as_bytes()), DEADLINE).ok().flatten()?;
     let reply: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
     reply["text"].as_str().map(str::to_owned)
 }
@@ -133,3 +144,7 @@ fn parse(answer: &str, tree: &BTreeMap<String, u64>) -> Vec<String> {
     }
     files
 }
+
+#[cfg(test)]
+#[path = "file_prediction_tests.rs"]
+mod tests;

@@ -102,11 +102,14 @@ constants = [
 
 [[loop]]
 name = "predicted-files"
-decision = "the files put into a first prompt for a brief that names none: the classifier's picks from the repository map, recorded on the launch as its predicted read and write sets"
+decision = "the files put into a first prompt for a brief that names none: the classifier's picks from the repository map, recorded on the launch as its predicted read and write sets, or a miss when the classifier has not answered within the one-second deadline"
 sites = ["crates/north-fleet/src/fleet/file_prediction.rs", "crates/north-fleet/src/fleet/brief_files.rs", "crates/north-fleet-supervisor/src/fleet/registry/launching.rs"]
-updated_by = "experiment G1 and G2 of north#1147 on the launch path; the model, the map's size and the caps are set by hand until the live draw settles them"
+updated_by = "experiment G1 and G2 of north#1147 on the launch path; the model, the map's size, the caps and the deadline are set by hand until the live draw settles them"
 cadence_hours = 24
 owner = "north#1147 A fleet worker's brief carries graph grounding as of its base commit"
+constants = [
+  "crates/north-fleet/src/fleet/file_prediction.rs::DEADLINE",
+]
 
 [[loop]]
 name = "capacity-estimate"
