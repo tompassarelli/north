@@ -65,6 +65,7 @@ pub trait Courier: Send + Sync {
     fn hold(&self, _parent: &str, _text: String) {}
     /// Starts `north fleet launch WORDS`, as a two-rung route's second attempt.
     fn launch(&self, _words: Vec<String>) {}
+    fn resume(&self, _session: &str, _text: String) {}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -142,6 +142,15 @@ impl Courier for Fleet {
         std::thread::spawn(move || reply(&host_dir, frame));
     }
 
+    fn resume(&self, session: &str, text: String) {
+        let (fleet, session) = (self.clone(), session.to_owned());
+        std::thread::spawn(move || {
+            if let Err(error) = fleet.send_spooled(&Sender::fleet(), &session, &text, Delivery::Queued) {
+                eprintln!("north fleet: {session} was not asked to check its held Done: {}", error.user_message());
+            }
+        });
+    }
+
     fn launch(&self, words: Vec<String>) {
         let unit = format!("route-second-{}", unit_word(words.iter().skip_while(|word| *word != "--name").nth(1).map_or("launch", String::as_str)));
         let arguments: Vec<&str> = ["fleet", "launch"].into_iter().chain(words.iter().map(String::as_str)).collect();
@@ -168,6 +177,10 @@ impl Courier for Inline<'_> {
 
     fn answer(&self, host_dir: &Path, frame: String) {
         reply(host_dir, frame);
+    }
+
+    fn resume(&self, session: &str, text: String) {
+        Courier::resume(self.0, session, text);
     }
 
     fn launch(&self, words: Vec<String>) {

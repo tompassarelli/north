@@ -32,6 +32,7 @@ fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     session["active_turn"] = json!(transcript.active_turn);
     session["entries"] = Value::Array(entries);
     session["turns"] = transcript.turns.iter().map(turn_json).collect();
+    session["done_hold"] = json!(crate::fleet::done_hold::state(&fleet.session_dir(name)?, follower.record()));
     println!("{session}");
     Ok(())
 }

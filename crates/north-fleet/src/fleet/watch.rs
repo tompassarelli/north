@@ -15,6 +15,7 @@ use super::books::WatchBooks;
 use super::claims::{self, Claims};
 use super::host::Host;
 use super::detached::{NoScope, Scope};
+use super::done_hold;
 use super::gates::Question;
 use super::checkpoint::{self, Checkpoints};
 use super::idle::{self, Step};
@@ -374,6 +375,12 @@ impl TurnWatch {
         let lines = self.views.get(&run.turn.conversation).map(|view| view.transcript.entries.clone()).unwrap_or_default();
         let Some(record) = session else { return };
         self.observe_landing(&record);
+        if run.turn.exit == TurnExit::Completed && done_hold::holds(&record, &reply) && done_hold::claim(&self.root.join(&record.name)) {
+            self.finished.insert(run.turn.conversation.clone(), false);
+            self.views.remove(&run.turn.conversation);
+            self.courier.resume(&record.name, done_hold::MESSAGE.to_owned());
+            return;
+        }
         rungs::escalate(self.ledger.as_ref(), self.courier.as_ref(), &record, (run.turn.exit == TurnExit::Completed).then_some(reply.as_str()), &self.verdicts, now_ms());
         if let Some(number) = number {
             if matches!(run.turn.exit, TurnExit::Completed | TurnExit::Interrupted) {

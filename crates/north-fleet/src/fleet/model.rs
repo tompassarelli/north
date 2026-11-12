@@ -402,6 +402,8 @@ pub struct SessionRecord {
     /// The brief of a two-rung route's first attempt, which a turn that stops short hands the second rung with what it tried.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_attempt: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bare_task: bool,
     /// The phase this host's lifecycle store gave the launch when the record was read; session.json never holds it.
     #[serde(skip)]
     pub phase: Option<Phase>,
@@ -460,6 +462,7 @@ impl SessionRecord {
             reserve_caller: None,
             route: request.route.clone(),
             first_attempt: super::route::first(request.route.as_deref()).then(|| request.prompt.clone()),
+            bare_task: super::done_hold::bare(request),
             phase: None,
         }
     }

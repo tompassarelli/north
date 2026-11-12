@@ -6,6 +6,7 @@ pub mod file_prediction;
 pub mod builds;
 pub mod claims;
 pub mod detached;
+pub mod done_hold;
 pub mod digest_report;
 pub mod effort;
 pub mod compaction;
