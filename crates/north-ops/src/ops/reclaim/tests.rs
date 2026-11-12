@@ -43,6 +43,22 @@ impl Machine {
         path
     }
 
+    fn session(&self, provider: &str, name: &str, state: Session) {
+        let (stopped, ended, host_pid) = match state {
+            Ended => (true, Some("host-ended"), None),
+            Live => (false, None, Some(std::process::id())),
+        };
+        let record = serde_json::json!({"name": name, "provider": provider, "account": "a", "cwd": "/x", "model": null, "created_ms": 1, "host_pid": host_pid, "conversation": null, "stopped": stopped, "ended": ended});
+        let directory = self.path(&format!("state/north/fleet/{name}"));
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("session.json"), record.to_string()).unwrap();
+    }
+
+    fn scratch(&self, provider: &str, name: &str, state: Session, age: Duration) -> PathBuf {
+        self.session(provider, name, state);
+        self.dir(&format!("tmp/north-{provider}-{name}"), age)
+    }
+
     pub(super) fn inputs(&self) -> Inputs {
         Inputs {
             tmp: self.path("tmp"),
@@ -64,42 +80,60 @@ impl Machine {
     }
 
     fn reclaim(&self, dry_run: bool) -> Vec<PathBuf> {
-        let removals = reclaim(&self.inputs(), &Policy { dry_run, ..Policy::everything(DAY) }).unwrap();
-        let mut paths = removals.into_iter().map(|removal| removal.path).collect::<Vec<_>>();
+        let reclaimed = reclaim(&self.inputs(), &Policy { dry_run, ..Policy::everything(DAY) }).unwrap();
+        let mut paths = reclaimed.removals.into_iter().map(|removal| removal.path).collect::<Vec<_>>();
         paths.sort();
         paths
     }
 }
+
+#[derive(Clone, Copy)]
+enum Session {
+    Ended,
+    Live,
+}
+use Session::{Ended, Live};
 
 pub(super) fn touch(path: &Path, at: SystemTime) {
     File::open(path).unwrap().set_modified(at).unwrap();
 }
 
 #[test]
-fn scratch_goes_once_idle_past_the_limit_and_held_by_no_process() {
+fn scratch_of_an_ended_session_goes_once_idle_past_the_limit_and_held_by_no_process() {
     let machine = Machine::new();
-    let abandoned = machine.dir("tmp/sc420", 3 * DAY);
-    let abandoned_file = machine.file("tmp/sc50-native.png", 3 * DAY);
-    let fresh = machine.dir("tmp/sc509", Duration::from_secs(600));
-    let working = machine.dir("tmp/sc363", 3 * DAY);
-    machine.file("tmp/sc363/frame.png", Duration::from_secs(60));
+    let abandoned = machine.scratch("opencode", "abandoned", Ended, 3 * DAY);
+    let fresh = machine.scratch("opencode", "fresh", Ended, Duration::from_secs(600));
+    let working = machine.scratch("opencode", "working", Ended, 3 * DAY);
+    machine.file("tmp/north-opencode-working/frame.png", Duration::from_secs(60));
     touch(&working, machine.now - 3 * DAY);
-    let held = machine.dir("tmp/sc434", 3 * DAY);
+    let held = machine.scratch("opencode", "held", Ended, 3 * DAY);
     machine.dir("proc/4242/fd", DAY);
     symlink(held.join("out.log"), machine.path("proc/4242/fd/3")).unwrap();
-    let display = machine.file("tmp/.X1-lock", 3 * DAY);
-    let multiplexer = machine.dir("tmp/tmux-1000", 3 * DAY);
-    let _listener = std::os::unix::net::UnixListener::bind(multiplexer.join("default")).unwrap();
-    touch(&multiplexer, machine.now - 3 * DAY);
-    let stale = machine.dir("tmp/north-opencode-ended", 3 * DAY);
+    let stale = machine.scratch("claude", "stale", Ended, 3 * DAY);
     drop(std::os::unix::net::UnixListener::bind(stale.join("broker.sock")).unwrap());
     touch(&stale, machine.now - 3 * DAY);
-    fs::create_dir_all(machine.path("proc/net")).unwrap();
-    fs::write(machine.path("proc/net/unix"), format!("Num RefCount Protocol Flags Type St Inode Path\n0000: 00000002 00000000 00010000 0001 01 7 {}\n", multiplexer.join("default").display())).unwrap();
 
-    assert_eq!(machine.reclaim(false), vec![stale.clone(), abandoned.clone(), abandoned_file.clone()]);
-    assert!(!abandoned.exists() && !abandoned_file.exists() && !stale.exists());
-    assert!(fresh.exists() && working.exists() && held.exists() && display.exists() && multiplexer.exists());
+    assert_eq!(machine.reclaim(false), vec![stale.clone(), abandoned.clone()]);
+    assert!(!abandoned.exists() && !stale.exists());
+    assert!(fresh.exists() && working.exists() && held.exists());
+}
+
+#[test]
+fn scratch_of_a_live_session_is_left_however_long_it_rested() {
+    let machine = Machine::new();
+    let live = machine.scratch("opencode", "live", Live, 3 * DAY);
+    assert_eq!(machine.reclaim(false), Vec::<PathBuf>::new());
+    assert!(live.exists());
+}
+
+#[test]
+fn a_recorded_scratch_that_is_a_link_out_of_the_temporary_root_is_left() {
+    let machine = Machine::new();
+    let outside = machine.dir("elsewhere/results", 3 * DAY);
+    machine.session("opencode", "linked", Ended);
+    symlink(&outside, machine.path("tmp/north-opencode-linked")).unwrap();
+    assert_eq!(machine.reclaim(false), Vec::<PathBuf>::new());
+    assert!(outside.exists());
 }
 
 #[test]
@@ -122,7 +156,7 @@ fn lan_pair_copies_a_pool_json_names_stay_however_long_the_pair_sat_idle() {
 #[test]
 fn scratch_is_reclaimed_alone_and_the_evidence_budget_runs_only_on_its_host() {
     let machine = Machine::new();
-    let scratch = machine.dir("tmp/north-opencode-9", 4 * HOUR);
+    let scratch = machine.scratch("opencode", "9", Ended, 4 * HOUR);
     let evidence = machine.dir("evidence/old-run", 3 * DAY);
     fs::write(evidence.join("frame.png"), vec![7u8; 256 << 10]).unwrap();
     touch(&evidence, machine.now - 3 * DAY);
@@ -132,7 +166,7 @@ fn scratch_is_reclaimed_alone_and_the_evidence_budget_runs_only_on_its_host() {
         Inputs { disk_budget: DiskBudget::parse(text, host), ..machine.inputs() }
     };
     let policy = |scope| Policy { scope, ..Policy::everything(3 * HOUR) };
-    let reclaimed = |inputs: &Inputs, scope| reclaim(inputs, &policy(scope)).unwrap().into_iter().map(|removal| removal.path).collect::<Vec<_>>();
+    let reclaimed = |inputs: &Inputs, scope| reclaim(inputs, &policy(scope)).unwrap().removals.into_iter().map(|removal| removal.path).collect::<Vec<_>>();
 
     assert_eq!(reclaimed(&configured("gex45"), Scope::Scratch), vec![scratch]);
     assert!(evidence.exists() && build.exists());
@@ -147,4 +181,16 @@ fn scratch_is_reclaimed_alone_and_the_evidence_budget_runs_only_on_its_host() {
     let arguments = |words: &[&str]| words.iter().map(ToString::to_string).collect::<Vec<_>>();
     assert!(super::policy(&arguments(&["--only", "scratch", "--idle-hours", "3"])).is_some_and(|parsed| parsed.scope == Scope::Scratch));
     assert!(super::policy(&arguments(&["--only", "evidence"])).is_none());
+}
+
+#[test]
+fn a_scratch_root_no_session_record_names_is_left_in_place() {
+    let machine = Machine::new();
+    let evaluation = machine.dir("tmp/eval-run-7", 3 * DAY);
+    machine.file("tmp/eval-run-7/results.jsonl", 3 * DAY);
+    touch(&evaluation, machine.now - 3 * DAY);
+    let download = machine.file("tmp/sc50-native.png", 3 * DAY);
+
+    assert_eq!(machine.reclaim(false), Vec::<PathBuf>::new());
+    assert!(evaluation.join("results.jsonl").exists() && download.exists());
 }

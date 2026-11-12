@@ -97,6 +97,17 @@ impl Policy {
     }
 }
 
+pub(super) struct Left {
+    pub(super) path: PathBuf,
+    pub(super) why: String,
+}
+
+#[derive(Default)]
+pub(super) struct Reclaimed {
+    pub(super) removals: Vec<Removal>,
+    pub(super) left: Vec<Left>,
+}
+
 pub(super) struct Removal {
     pub(super) path: PathBuf,
     pub(super) reason: String,
@@ -109,8 +120,8 @@ pub fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     let inputs = Inputs::from_env();
-    let removals = match reclaim(&inputs, &policy) {
-        Ok(removals) => removals,
+    let Reclaimed { removals, left } = match reclaim(&inputs, &policy) {
+        Ok(reclaimed) => reclaimed,
         Err(error) => {
             eprintln!("north lane reclaim: {error}");
             return 1;
@@ -119,6 +130,9 @@ pub fn run(arguments: &[String]) -> u8 {
     let verb = if policy.dry_run { "would remove" } else { "removed" };
     for removal in &removals {
         println!("{verb} {}: {}", removal.path.display(), removal.reason);
+    }
+    for left in &left {
+        println!("left: {} ({})", left.path.display(), left.why);
     }
     println!("{}", summary(&removals, policy.dry_run));
     0
@@ -138,11 +152,11 @@ fn policy(arguments: &[String]) -> Option<Policy> {
     Some(policy)
 }
 
-pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Vec<Removal>> {
+pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Reclaimed> {
     let held = held::paths(&inputs.proc_root);
-    let mut removals = scratch::sweep(inputs, policy, &held)?;
+    let Reclaimed { mut removals, left } = scratch::sweep(inputs, policy, &held)?;
     if policy.scope == Scope::Scratch {
-        return Ok(removals);
+        return Ok(Reclaimed { removals, left });
     }
     removals.extend(lan_clients::sweep(inputs, policy, &held)?);
     removals.extend(lan_residue::sweep(inputs, policy, &held)?);
@@ -152,7 +166,7 @@ pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Vec<Remova
         removals.extend(evidence_budget::sweep(inputs, policy, &held, &budget, 0)?);
     }
     removals.extend(capture_batches::sweep(inputs, policy, &held)?);
-    Ok(removals)
+    Ok(Reclaimed { removals, left })
 }
 
 /// `north evidence start RUN`: brings the evidence store under its budget, then creates and prints the run's folder.
@@ -201,7 +215,7 @@ fn before_disk_defer(stamp: &Path, free_gib: fn() -> Option<f64>) -> Option<f64>
     fs::write(stamp, b"").ok()?;
     let policy = Policy::everything(Duration::from_secs(DEFAULT_IDLE_HOURS * 3600));
     match reclaim(&Inputs::from_env(), &policy) {
-        Ok(removals) => eprintln!("north capacity: disk under the floor, so reclaimed first: {}", summary(&removals, false)),
+        Ok(reclaimed) => eprintln!("north capacity: disk under the floor, so reclaimed first: {}", summary(&reclaimed.removals, false)),
         Err(error) => eprintln!("north capacity: disk under the floor; reclaim failed: {error}"),
     }
     free_gib()

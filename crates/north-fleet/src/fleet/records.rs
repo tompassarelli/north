@@ -51,6 +51,28 @@ fn records_in<const N: usize>(root: &Path, directories: [PathBuf; N]) -> impl It
     directories.into_iter().flat_map(|directory| fs::read_dir(directory).into_iter().flatten().flatten()).filter_map(move |entry| read_phased(phases.as_mut(), &entry.path()).ok())
 }
 
+/// A session the fleet at some root has a record of, with the record file that names it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecordedSession {
+    pub name: String,
+    pub provider: String,
+    pub file: PathBuf,
+    pub ended: bool,
+}
+
+/// Every session of the fleet at `root`, current or archived, whether it has ended: an archived one has, a current one has when its lifecycle phase says so.
+pub fn recorded_sessions(root: &Path) -> Vec<RecordedSession> {
+    let mut phases = Phases::reading(root);
+    let mut sessions = Vec::new();
+    for (directory, archived) in [(root.to_path_buf(), false), (root.join(ARCHIVE), true)] {
+        for entry in fs::read_dir(directory).into_iter().flatten().flatten() {
+            let Ok(record) = read_phased(phases.as_mut(), &entry.path()) else { continue };
+            sessions.push(RecordedSession { ended: archived || record.ended(), file: record_file(&entry.path()), provider: record.provider.label().to_owned(), name: record.name });
+        }
+    }
+    sessions
+}
+
 pub fn find_session(root: &Path, host_dir: &Path, conversation: &str) -> Option<SessionRecord> {
     records_in(root, [root.to_path_buf(), root.join(ARCHIVE)]).find(|record| record.host_dir == host_dir && record.conversation.as_deref() == Some(conversation))
 }
