@@ -250,7 +250,7 @@ pub(super) fn scope_command(root: &Path, request: &Request, admitted: &Obj, time
         child.env("AGENT_CAPACITY_PAIR", pair.to_string());
     }
     if request.name != "native" {
-        child.env("CARGO_BUILD_JOBS", &jobs).env("RUST_TEST_THREADS", &jobs).env("NEXTEST_TEST_THREADS", &jobs);
+        child.env("CARGO_BUILD_JOBS", &jobs).env("RUST_TEST_THREADS", &jobs);
         let socket = cache_server_socket(root, &lease);
         if let Some(directory) = socket.parent() {
             let _ = std::fs::create_dir_all(directory);

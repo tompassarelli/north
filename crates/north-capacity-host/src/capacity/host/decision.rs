@@ -401,8 +401,7 @@ mod tests {
         assert_eq!(admit(&cpx62_15_07, |_| None).reason, Reason::Run);
         assert_eq!(admit(&Facts { build_host: false, ..cpx62_15_07.clone() }, |_| None).reason, Reason::DeferMemoryCapacity);
         let land_check = Facts { class: Class::Critical, ..cpx62_15_07 };
-        assert_eq!(admit(&Facts { requested_cpus: 4.0, ..land_check.clone() }, |_| None).reason, Reason::Run);
-        assert_eq!(admit(&land_check, |_| None).reason, Reason::DeferCpuCapacity);
+        assert_eq!(admit(&land_check, |_| None).reason, Reason::Run);
         assert_eq!(admit(&Facts { build_host: false, ..land_check.clone() }, |_| None).reason, Reason::DeferMemoryCapacity);
         assert_eq!(admit(&Facts { build_host: false, leased_memory_mib: 0.0, ..land_check }, |_| None).reason, Reason::DeferCpuCapacity);
         let moderate = Facts { class: Class::Moderate, ..cpx62 };

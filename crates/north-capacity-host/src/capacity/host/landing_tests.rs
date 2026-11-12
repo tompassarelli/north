@@ -2,11 +2,11 @@ use super::landing_run;
 use super::request::Request;
 
 #[test]
-fn three_land_checks_fit_a_twenty_core_host_and_each_scope_is_held_to_its_charge() {
+fn three_land_checks_charged_their_learned_cores_fit_a_twenty_core_host_that_one_ceiling_charge_filled() {
     let mut request = Request { name: "heavy".to_owned(), resources: super::policy::resource_class("heavy", 20.0), landing: landing_run("run", "gate:session-1", "heavy", Some("abc"), Some("1")), ..Request::default() };
     super::size_landing(&mut request, 20.0, Some(4.0), || 4.81);
     assert!(3.0 * request.resources().cpus <= 16.0);
-    assert_eq!(request.declared.unwrap().cpus, request.resources().cpus, "on 2026-11-12 a land check charged 4 CPUs ran in a 16-CPU scope");
+    assert!(2.0 * request.declared.unwrap().cpus > 16.0);
 }
 
 #[test]

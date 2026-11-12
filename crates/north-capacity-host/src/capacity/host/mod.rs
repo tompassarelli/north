@@ -73,9 +73,9 @@ const USAGE: &str = "usage: offload-cost [--last N]|admit-job|estimate [--json] 
 pub use actions_pull::run as actions_pull;
 pub use fleet_pull::run as pull;
 
-/// The cores a land check asks of a check host and its scope may use: `land_offload_cpus`.
+/// The cores a land check asks of a check host: its highest measured peak once enough newest land-check runs all peaked under the heavy class, else `land_offload_cpus`.
 pub fn land_check_cpus() -> f64 {
-    admission_default("land_offload_cpus")
+    land_check_charge(admission_default("land_offload_cpus"), &database::recent_usage(5000, |entry| entry["owner"].as_str() == Some("land-check") && entry["class"].as_str() == Some("heavy") && entry["wallSeconds"].as_f64().is_some_and(|wall| wall > 0.0)))
 }
 
 /// The MiB one offloaded job peaks at on this host: the 90th percentile of the newest measured lander runs' peaks once `heavy_peak_charge_runs` of them are recorded, else `dispatch_heavy_memory_mib`.
@@ -108,6 +108,12 @@ fn admit_job(argv: &[String]) -> u8 {
             75
         }
     }
+}
+
+pub(super) fn land_check_charge(declared: f64, runs: &[Value]) -> f64 {
+    let newest = &runs[runs.len().saturating_sub(2 * policy::default_number("heavy_peak_charge_runs") as usize)..];
+    let peaks: Vec<f64> = newest.iter().map(|run| run["peakCores"].as_f64().unwrap_or(f64::NAN)).collect();
+    policy::heavy_peak_charge(declared, &peaks).unwrap_or(declared)
 }
 
 fn admission_default(name: &str) -> f64 {
@@ -354,7 +360,7 @@ fn size_landing(request: &mut request::Request, cores: f64, cap: Option<f64>, ch
         let ceiling = policy::landing_check(cores);
         let share = cap.filter(|cap| cap.is_finite() && *cap >= 1.0).map_or(ceiling.cpus, f64::ceil);
         request.resources = Some(policy::Resources { cpus: ceiling.cpus.min(share).min(charge()), ..request.resources() });
-        request.declared = Some(policy::Resources { cpus: request.resources().cpus, ..ceiling });
+        request.declared = Some(ceiling);
     }
 }
 

@@ -216,7 +216,7 @@ consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 value = 20
 allowed = { min = 1, max = 100000 }
 unit = "runs of one owner prefix and command shape, every one measured, below which a heavy request keeps its declared cores; at or above it a shape whose every peak stayed under the declared cores is charged its highest peak"
-source = "measured: the last 40 land-check heavy runs on the laptop (2026-11-05) peaked at most 4.0 cores, p90 of per-run p90 2.8, mean wall 121 s, yet each was charged 6, so 3 of 5 lander check slots ran while 64 lanes waited and the laptop sat 31% busy; the 6-core floor (8f9546838) stays for shapes that peaked at or above it, because seven rust-port builds charged their 3.49-core p90 reached load 129 on 2026-10-15; since 2026-11-12 a land check is charged land_offload_cpus with its scope held to that charge, so its capped peaks no longer feed this rule (north#1247)"
+source = "measured: the last 40 land-check heavy runs on the laptop (2026-11-05) peaked at most 4.0 cores, p90 of per-run p90 2.8, mean wall 121 s, yet each was charged 6, so 3 of 5 lander check slots ran while 64 lanes waited and the laptop sat 31% busy; the 6-core floor (8f9546838) stays for shapes that peaked at or above it, because seven rust-port builds charged their 3.49-core p90 reached load 129 on 2026-10-15"
 fallback = "fewer runs, or any run without a measured peak, keep the declared heavy size"
 consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 
@@ -560,10 +560,10 @@ consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 [land_offload_cpus]
 value = 4
 allowed = { min = 1, max = 1024 }
-unit = "cores a land check is charged and its scope may use (CPUQuota and the build and test thread counts), and the free cores (the admission limit less the CPUs committed to batch runs) a host needs to take an offloaded land check"
-source = "measured: 300 land-check commands on the 16-thread build host on 2026-11-12 used at most 761 CPU-seconds (wall p90 130 s, max 270 s, mean cores 2 to 5 while their 12-CPU scopes let them peak at 10.7), so at 4 CPUs the longest needs at least 190 s against the 300 s deadline floor, and none needs over 200 s; at 3 eight would. Before: measured: the newest 856 land-check heavy runs on the laptop (2026-11-05 to 2026-11-06) averaged 2.3 cores, 75% of runs meaned 4.0 or less, p90 of run means 5.7; at 6 the laptop (14-core attended limit) took one land check beside the 9-core charge of a running one while the GPU host sat full, and the CPU pressure gate (admit_psi_attended_high) and the 4 reserved cores still bound it"
+unit = "free cores (the admission limit less the CPUs committed to batch runs) a host needs to take an offloaded land check"
+source = "measured: the newest 856 land-check heavy runs on the laptop (2026-11-05 to 2026-11-06) averaged 2.3 cores, 75% of runs meaned 4.0 or less, p90 of run means 5.7; at 6 the laptop (14-core attended limit) took one land check beside the 9-core charge of a running one while the GPU host sat full, and the CPU pressure gate (admit_psi_attended_high) and the 4 reserved cores still bound it"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
-consumers = ["crates/north-capacity/src/capacity/admission.rs", "crates/north-capacity-host/src/capacity/host/mod.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [land_check_cpu_weight]
 value = 1000

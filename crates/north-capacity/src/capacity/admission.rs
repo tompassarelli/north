@@ -485,7 +485,7 @@ fn batch(facts: &Facts) -> Reason {
     if facts.peer_exclusive_runs > 0 {
         return Reason::DeferExclusive;
     }
-    if facts.class == Class::Critical && landing_cpus_full(facts) {
+    if facts.class == Class::Critical && super::pressure_target::host_pressure(facts).is_none() && landing_cpus_full(facts) {
         return Reason::DeferCpuCapacity;
     }
     if matches!(facts.class, Class::Critical | Class::Tom | Class::Runtime) {
