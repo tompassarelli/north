@@ -26,8 +26,25 @@ pub struct Fixture {
     units: Vec<(String, std::process::Child)>,
 }
 
+const LOGIN_WITHIN: Duration = Duration::from_secs(8);
+
+pub fn login_name() -> String {
+    let uid = rustix::process::getuid().as_raw().to_string();
+    let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+    let name = passwd.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        let name = fields.next()?;
+        (fields.nth(1) == Some(uid.as_str())).then(|| name.to_owned())
+    });
+    name.unwrap_or_else(|| panic!("uid {uid} has no entry in /etc/passwd, so sshd has no login to accept"))
+}
+
 impl Fixture {
     pub fn new() -> Self {
+        Self::logging_in_as(&login_name()).unwrap()
+    }
+
+    fn logging_in_as(user: &str) -> Result<Self, String> {
         let dir = tempfile::tempdir().unwrap();
         let runtime = tempfile::Builder::new().prefix("ns").tempdir_in("/tmp").unwrap();
         let path = dir.path();
@@ -42,7 +59,6 @@ impl Fixture {
             host = path.join("host").display(), keys = path.join("authorized_keys").display(), pid = path.join("sshd.pid").display(),
         );
         std::fs::write(path.join("sshd_config"), sshd_config).unwrap();
-        let user = std::env::var("USER").unwrap_or_else(|_| "tom".to_owned());
         let client_config = format!(
             "Host testhost\n  HostName 127.0.0.1\n  Port {port}\n  User {user}\n  IdentityFile {key}\n  IdentitiesOnly yes\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n  ControlMaster no\n  ControlPath {control}/north-ssh-%C\n",
             key = path.join("client").display(), control = runtime.path().display(),
@@ -51,7 +67,17 @@ impl Fixture {
         let sshd = daemon(&which("sshd")).args(["-D", "-f"]).arg(path.join("sshd_config")).spawn().unwrap();
         let fixture = Self { dir, runtime, sshd, units: Vec::new() };
         assert!(wait::until(Duration::from_secs(120), || std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()), "sshd did not listen");
-        fixture
+        fixture.login(user)?;
+        Ok(fixture)
+    }
+
+    fn login(&self, user: &str) -> Result<(), String> {
+        let words = self.client(&["-o", "BatchMode=yes", "-o", &format!("ConnectTimeout={}", LOGIN_WITHIN.as_secs()), "testhost", "true"]);
+        let output = Command::new(&words[0]).args(&words[1..]).stdin(Stdio::null()).output().unwrap();
+        if output.status.success() {
+            return Ok(());
+        }
+        Err(format!("the fixture's sshd refused a login as {user}: {}", String::from_utf8_lossy(&output.stderr).trim()))
     }
 
     pub fn env(&self) -> BTreeMap<String, String> {
