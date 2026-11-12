@@ -40,7 +40,7 @@ fn handed_in(queue_dir: &Path, root: &Path, branch: &str, micros: u128) -> (Path
 fn verdict_watch() {
     let (Ok(queue_dir), Ok(ready)) = (std::env::var(WATCHED_QUEUE), std::env::var(READY)) else { return };
     let repo = PathBuf::from(&queue_dir).join("repo");
-    let lander = Lander { repo: repo.clone(), worktree: repo, offload_owner: String::new(), queue: PathBuf::from(queue_dir), checker: Vec::new(), app_token: Vec::new(), round: AtomicU64::new(0), chores: Chores::default(), heartbeat: Heartbeat::default() };
+    let lander = Lander { repo: repo.clone(), worktree: repo, offload_owner: String::new(), queue: PathBuf::from(queue_dir), checker: Vec::new(), app_token: Vec::new(), round: AtomicU64::new(0), chores: Chores::default(), heartbeat: Heartbeat::default(), wake: std::sync::Arc::default() };
     let _watching = north_lander::land::serve::verdicts::watch(&lander);
     fs::write(&ready, "").unwrap();
     let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut Vec::new());

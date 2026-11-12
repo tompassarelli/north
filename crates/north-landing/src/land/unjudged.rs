@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::land::bisect;
@@ -10,6 +9,7 @@ use crate::land::queue::{self, HandIn, Ticket};
 use crate::land::records::{self, Candidate, Decision};
 use crate::land::scans::outgoing::denylist::{DenylistVerdict, Stand};
 use crate::land::telemetry::Stages;
+use crate::land::wake::{Task, Wake};
 
 pub type Lanes = Vec<(PathBuf, Ticket)>;
 
@@ -20,7 +20,7 @@ const REASK: Duration = Duration::from_secs(2);
 
 struct Ask {
     head: String,
-    answer: JoinHandle<DenylistVerdict>,
+    answer: Task<DenylistVerdict>,
 }
 
 #[derive(Default)]
@@ -43,7 +43,7 @@ impl Asks {
                 settled.push((path, ticket));
                 continue;
             };
-            let Some(found) = self.answer(&path, &ticket, now, verdict) else { continue };
+            let Some(found) = self.answer(&lander.wake, &path, &ticket, now, verdict) else { continue };
             if let Some(lane) = judged(lander, path, ticket, &base, found, now)? {
                 settled.push(lane);
             }
@@ -51,7 +51,7 @@ impl Asks {
         Ok(settled)
     }
 
-    fn answer(&mut self, path: &Path, ticket: &Ticket, now: Duration, verdict: &Arc<Verdict>) -> Option<DenylistVerdict> {
+    fn answer(&mut self, wake: &Arc<Wake>, path: &Path, ticket: &Ticket, now: Duration, verdict: &Arc<Verdict>) -> Option<DenylistVerdict> {
         let found = match self.asking.remove(path) {
             Some(ask) if ask.head == ticket.head && !ask.answer.is_finished() => {
                 self.asking.insert(path.to_owned(), ask);
@@ -61,7 +61,7 @@ impl Asks {
             _ => {
                 if self.resting.get(path).is_none_or(|until| Instant::now() >= *until) {
                     self.resting.remove(path);
-                    self.ask(path, ticket, now, verdict);
+                    self.ask(wake, path, ticket, now, verdict);
                 }
                 return None;
             }
@@ -72,9 +72,9 @@ impl Asks {
         Some(found)
     }
 
-    fn ask(&mut self, path: &Path, ticket: &Ticket, now: Duration, verdict: &Arc<Verdict>) {
+    fn ask(&mut self, wake: &Arc<Wake>, path: &Path, ticket: &Ticket, now: Duration, verdict: &Arc<Verdict>) {
         let (asked, verdict, wait) = (ticket.clone(), Arc::clone(verdict), PATIENCE.saturating_sub(age(ticket, now)));
-        let answer = std::thread::spawn(move || verdict(&asked, asked.unjudged_on.as_deref().unwrap_or_default(), Some(wait)));
+        let answer = Task::spawn(wake, move || verdict(&asked, asked.unjudged_on.as_deref().unwrap_or_default(), Some(wait)));
         self.asking.insert(path.to_owned(), Ask { head: ticket.head.clone(), answer });
     }
 }

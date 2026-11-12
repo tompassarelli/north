@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use rustix::fs::inotify::{self, CreateFlags, ReadFlags, Reader, WatchFlags};
 use rustix::io::Errno;
 
-use super::outbox::Wake;
+use super::super::wake::Wake;
 
 pub struct Watcher {
     stop: Arc<AtomicBool>,

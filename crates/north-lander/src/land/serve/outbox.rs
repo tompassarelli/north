@@ -1,38 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::thread::JoinHandle;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::super::lander::{Lander, plain};
+use super::super::wake::Wake;
 
 const WAIT: Duration = Duration::from_secs(10);
 const REST: Duration = Duration::from_secs(5);
 const DISCOVERY: Duration = Duration::from_secs(30);
 const STEP: Duration = Duration::from_millis(250);
-
-#[derive(Default)]
-pub struct Wake {
-    rung: Mutex<bool>,
-    bell: Condvar,
-}
-
-impl Wake {
-    pub fn ring(&self) {
-        if let Ok(mut rung) = self.rung.lock() {
-            *rung = true;
-            self.bell.notify_all();
-        }
-    }
-
-    pub fn wait(&self, timeout: Duration) -> bool {
-        let Ok(rung) = self.rung.lock() else {
-            std::thread::sleep(timeout);
-            return false;
-        };
-        self.bell.wait_timeout_while(rung, timeout, |rung| !*rung).is_ok_and(|(mut rung, _)| std::mem::take(&mut *rung))
-    }
-}
 
 pub struct Watchers {
     stop: Arc<AtomicBool>,

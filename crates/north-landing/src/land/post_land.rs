@@ -17,6 +17,7 @@ use super::checks::Verdict;
 use super::lander::{Lander, state_home};
 use super::setting;
 use super::telemetry;
+use super::wake::{Task, Wake};
 
 const ALARMED: &str = "proxy";
 const POLL: Duration = Duration::from_millis(50);
@@ -213,9 +214,9 @@ fn after_run(lander: &Lander, landed: &Landed, host: Option<String>, cancel: Arc
     .at(head, head)
 }
 
-pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Arc<AtomicBool>) -> std::thread::JoinHandle<Outcome> {
+pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Arc<AtomicBool>) -> Task<Outcome> {
     let run = after_run(lander, &landed, host, cancel, deadline(&lander.repo, &ledger_path(), &landed.repository, &landed.head));
-    std::thread::spawn(move || {
+    Task::spawn(&lander.wake, move || {
         let verdict = settle(&landed, &run, send);
         outcome(landed, run, verdict)
     })
@@ -231,8 +232,8 @@ fn outcome(landed: Landed, run: Run, verdict: Verdict) -> Outcome {
     Outcome { verdict, search: Some(Search { landed, run, failing: failing.clone() }), failing, log, superseded }
 }
 
-pub fn search(search: Search) -> std::thread::JoinHandle<Found> {
-    std::thread::spawn(move || {
+pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
+    Task::spawn(wake, move || {
         let Search { landed, run, failing } = search;
         let started = telemetry::epoch();
         let culprits = locate(&landed, &run, &failing);

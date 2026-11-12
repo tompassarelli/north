@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -11,6 +12,7 @@ use super::heartbeat::Heartbeat;
 use super::jobs::Chores;
 use super::queue::{self, Ticket};
 use super::setting;
+use super::wake::Wake;
 use north_base::land_ticket::Records;
 use north_base::land_ticket::{self, Phase};
 
@@ -29,6 +31,7 @@ pub struct Lander {
     pub round: std::sync::atomic::AtomicU64,
     pub chores: Chores,
     pub heartbeat: Heartbeat,
+    pub wake: Arc<Wake>,
 }
 
 pub fn state_home() -> PathBuf {
@@ -78,6 +81,7 @@ impl Lander {
             round: std::sync::atomic::AtomicU64::new(0),
             chores: Chores::default(),
             heartbeat: Heartbeat::default(),
+            wake: Arc::default(),
         })
     }
 
@@ -92,6 +96,7 @@ impl Lander {
             round: std::sync::atomic::AtomicU64::new(self.round.load(std::sync::atomic::Ordering::Relaxed)),
             chores: self.chores,
             heartbeat: Heartbeat::default(),
+            wake: Arc::clone(&self.wake),
         }
     }
 

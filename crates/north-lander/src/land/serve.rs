@@ -121,19 +121,19 @@ fn back_off(lander: &Lander, backoff: &mut Backoff, reason: &str, retire: &Atomi
 }
 
 fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
-    let wake = Arc::new(outbox::Wake::default());
+    let wake = &lander.wake;
     let _watchers = if once {
         for reason in lander.pull_remote() {
             println!("north land: waiting: {reason}");
         }
         None
     } else {
-        Some((outbox::watch(lander, &wake), tickets::watch(&lander.queue, &wake), verdicts::watch(lander)))
+        Some((outbox::watch(lander, wake), tickets::watch(&lander.queue, wake), verdicts::watch(lander)))
     };
-    heartbeat::watched(lander, || serve_loop(lander, once, retire, &wake))
+    heartbeat::watched(lander, || serve_loop(lander, once, retire))
 }
 
-fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, wake: &outbox::Wake) -> u8 {
+fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     match super::queue::adopt(&lander.queue) {
         Ok(0) => {}
@@ -168,7 +168,7 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, wake: &outbox::W
         match round {
             Ok(Round::Progress) => continue,
             Ok(Round::Checking) => {
-                std::thread::sleep(TICK);
+                lander.wake.wait(POLL);
                 continue;
             }
             Ok(Round::PushRefused(reason)) if once => {
@@ -196,7 +196,7 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, wake: &outbox::W
                 continue;
             }
         }
-        wake.wait(POLL);
+        lander.wake.wait(POLL);
     }
 }
 

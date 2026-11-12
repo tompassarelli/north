@@ -328,10 +328,14 @@ fn a_candidate_is_pushed_while_an_alone_check_is_in_flight() {
     north.lane("unchecked");
     let (path, ticket) = queue::pending(&north.queue).unwrap().pop().unwrap();
     queue::write(&path, &queue::Ticket { alone_green: None, alone_base: None, ..ticket }).unwrap();
+    north.lane("passed");
+    let (passed, _) = queue::pending(&north.queue).unwrap().into_iter().find(|(_, ticket)| ticket.branch == "passed").unwrap();
+    let unannounced = world.path().join("passed-ticket.json");
+    fs::rename(&passed, &unannounced).unwrap();
     let (checker, token) = (world.path().join("bin/checker"), world.path().join("bin/token"));
     let mut first = world.land(&["serve", "--repo", north.checkout.to_str().unwrap(), "--checker", checker.to_str().unwrap(), "--app-token", token.to_str().unwrap()]).spawn().unwrap();
     wait_for("the alone check of the lane with no pass to start", || world.path().join("alone-started").exists());
-    north.lane("passed");
+    fs::hard_link(&unannounced, &passed).unwrap();
     let landed = |file: &str| git(&north.origin, &["ls-tree", "--name-only", "main"]).lines().any(|name| name == file);
     let pushed = north_base::platform::wait::until(std::time::Duration::from_secs(60), || landed("passed.txt"));
     fs::remove_file(world.path().join("lander")).unwrap();
@@ -341,7 +345,7 @@ fn a_candidate_is_pushed_while_an_alone_check_is_in_flight() {
         let _ = first.kill();
     }
     let handover = report(&first.wait_with_output().unwrap());
-    assert!(pushed, "the lane with a pass waited for the alone check in flight instead of landing beside it:\n{handover}");
+    assert!(pushed, "the lane with a pass, queued with no event the lander could see, waited for the alone check in flight instead of landing beside it on the backstop round:\n{handover}");
     assert!(exited, "{handover}");
     let second = world.lander(&north, None);
     drop(release);

@@ -58,6 +58,7 @@ pub fn start(lander: &Lander, check: Check<'_>) -> Result<Flight, Verdict> {
     let owner = owner(lander);
     let launch = Launch { offload_owner: &owner, ..Launch::of(lander) };
     let started = checks::start(&launch, check.worktree, check.base, &check.log, true, Some(&status_path(&check.log)))?;
+    lander.wake.ring_on_exit(started.id());
     let record = Record {
         ticket: check.path.to_owned(),
         branch: check.ticket.branch.clone(),
@@ -75,11 +76,12 @@ pub fn start(lander: &Lander, check: Check<'_>) -> Result<Flight, Verdict> {
     Ok(Flight { record, started: Some(started) })
 }
 
-pub fn adopt(queue: &Path) -> Option<Flight> {
-    let path = record_path(queue);
+pub fn adopt(lander: &Lander) -> Option<Flight> {
+    let path = record_path(&lander.queue);
     let record: Record = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok())?;
     if status_path(&record.log).exists() || outlive::alive(record.group) {
         println!("north land: adopting the alone check of {} on main@{} that a stopped lander started", record.branch, record.base);
+        lander.wake.ring_on_exit(record.group.cast_unsigned());
         return Some(Flight { record, started: None });
     }
     let _ = fs::remove_file(&path);

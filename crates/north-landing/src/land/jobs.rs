@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use super::after::{self, Recovered};
 use super::lander::Lander;
 use super::sheriff;
+use super::wake::Task;
 
 #[derive(Clone, Copy)]
 pub struct Chores {
@@ -41,7 +41,7 @@ impl Kind {
 struct Job {
     kind: Kind,
     started: Instant,
-    run: JoinHandle<Result<Done, String>>,
+    run: Task<Result<Done, String>>,
 }
 
 const REST: Duration = Duration::from_secs(5);
@@ -59,7 +59,7 @@ impl Jobs {
             return;
         }
         let owned = lander.detached();
-        match std::thread::Builder::new().name(format!("land {}", kind.name())).spawn(move || chore(&owned)) {
+        match Task::named(format!("land {}", kind.name()), &lander.wake, move || chore(&owned)) {
             Ok(run) => self.running.push(Job { kind, started: Instant::now(), run }),
             Err(error) => println!("north land: could not start the {}: {error}", kind.name()),
         }

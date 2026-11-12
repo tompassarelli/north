@@ -21,7 +21,7 @@ fn outbox_puller() {
     let checkout = PathBuf::from(checkout);
     let origin = git(&checkout, &["remote", "get-url", "--push", "origin"]);
     let queue = queue::directory(&PathBuf::from(std::env::var("XDG_STATE_HOME").unwrap()), &origin);
-    let lander = Lander { repo: checkout.clone(), worktree: checkout, offload_owner: String::new(), queue, checker: Vec::new(), app_token: Vec::new(), round: AtomicU64::new(0), chores: Chores::default(), heartbeat: Heartbeat::default() };
+    let lander = Lander { repo: checkout.clone(), worktree: checkout, offload_owner: String::new(), queue, checker: Vec::new(), app_token: Vec::new(), round: AtomicU64::new(0), chores: Chores::default(), heartbeat: Heartbeat::default(), wake: std::sync::Arc::default() };
     for waiting in lander.pull_remote() {
         println!("waiting: {waiting}");
     }
@@ -136,7 +136,7 @@ fn verdict_sender() {
     let checkout = PathBuf::from(checkout);
     let origin = git(&checkout, &["remote", "get-url", "--push", "origin"]);
     let queue = queue::directory(&PathBuf::from(std::env::var("XDG_STATE_HOME").unwrap()), &origin);
-    let lander = Lander { repo: checkout.clone(), worktree: checkout, offload_owner: String::new(), queue, checker: Vec::new(), app_token: Vec::new(), round: AtomicU64::new(0), chores: Chores::default(), heartbeat: Heartbeat::default() };
+    let lander = Lander { repo: checkout.clone(), worktree: checkout, offload_owner: String::new(), queue, checker: Vec::new(), app_token: Vec::new(), round: AtomicU64::new(0), chores: Chores::default(), heartbeat: Heartbeat::default(), wake: std::sync::Arc::default() };
     let _sending = north_lander::land::serve::verdicts::watch(&lander);
     std::fs::write(&ready, "").unwrap();
     let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut Vec::new());

@@ -16,7 +16,7 @@ const QUEUED_MICROS: u128 = 1_794_396_818_000_000;
 const NOW: Duration = Duration::from_micros(1_794_396_819_000_000);
 
 fn lander(dir: &std::path::Path) -> Lander {
-    Lander { repo: dir.to_owned(), worktree: dir.to_owned(), queue: dir.join("queue"), checker: Vec::new(), app_token: Vec::new(), offload_owner: String::new(), round: AtomicU64::new(0), chores: Chores::default(), heartbeat: Heartbeat::default() }
+    Lander { repo: dir.to_owned(), worktree: dir.to_owned(), queue: dir.join("queue"), checker: Vec::new(), app_token: Vec::new(), offload_owner: String::new(), round: AtomicU64::new(0), chores: Chores::default(), heartbeat: Heartbeat::default(), wake: std::sync::Arc::default() }
 }
 
 fn queued(dir: &std::path::Path, head: &str) -> Lanes {

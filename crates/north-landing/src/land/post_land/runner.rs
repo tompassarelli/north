@@ -18,6 +18,7 @@ use super::super::candidate::change_worktrees_alone;
 use super::super::outlive;
 use super::super::queue;
 use super::super::telemetry::epoch;
+use super::super::wake::Task;
 
 const RECORD: &str = "runner";
 const STATUS: &str = "status";
@@ -107,10 +108,10 @@ pub(super) fn adopted(landed: &Landed, run: &Run, record: &Record) -> Checked {
     checked
 }
 
-pub fn adopt(lander: &Lander, landed: Landed, record: Record, cancel: Arc<AtomicBool>) -> std::thread::JoinHandle<Outcome> {
+pub fn adopt(lander: &Lander, landed: Landed, record: Record, cancel: Arc<AtomicBool>) -> Task<Outcome> {
     println!("north land: adopting the after-landing run of {} that a stopped lander started; its runner is still alive or ended with a status", landed.head);
     let run = super::after_run(lander, &landed, record.host.clone(), cancel, Duration::from_secs(record.deadline));
-    std::thread::spawn(move || {
+    Task::spawn(&lander.wake, move || {
         let checked = adopted(&landed, &run, &record);
         let verdict = super::settle_from(&landed, &run, started(&record), checked, send, |command| super::offload_rerun(&landed, &run, command));
         super::outcome(landed, run, verdict)

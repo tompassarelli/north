@@ -2,7 +2,6 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 mod hand_off;
@@ -27,6 +26,7 @@ use super::setting;
 use super::slots::select::Config;
 use super::sheriff;
 use super::telemetry::epoch;
+use super::wake::Task;
 use super::trace::{self, AFTER, COVERED_BY, Category, PHASE, Span, VERDICT};
 
 const WORKTREE: &str = "lander-revert";
@@ -68,7 +68,7 @@ impl Batch {
 
 struct Running {
     batch: Batch,
-    run: JoinHandle<Outcome>,
+    run: Task<Outcome>,
     host: Option<String>,
     cancel: Arc<AtomicBool>,
 }
@@ -76,7 +76,7 @@ struct Running {
 struct Searching {
     batch: Batch,
     outcome: Outcome,
-    search: JoinHandle<Found>,
+    search: Task<Found>,
     host: Option<String>,
     cancel: Arc<AtomicBool>,
 }
@@ -161,7 +161,7 @@ impl Watch {
     pub fn resume(lander: &Lander) -> Self {
         let mut watch = Self::default();
         watch.queue.clone_from(&lander.queue);
-        watch.alone = alone_flight::adopt(&lander.queue);
+        watch.alone = alone_flight::adopt(lander);
         adopt_journal_files(lander);
         let mut journaled: Vec<Journaled> = match take_journaled(lander) {
             Ok(taken) => taken,
@@ -319,7 +319,7 @@ impl Watch {
         settled
     }
 
-    fn finish(&mut self, lander: &Lander, mut batch: Batch, run: JoinHandle<Outcome>, host: Option<String>, cancel: Arc<AtomicBool>) {
+    fn finish(&mut self, lander: &Lander, mut batch: Batch, run: Task<Outcome>, host: Option<String>, cancel: Arc<AtomicBool>) {
         let mut outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), search: None, log: PathBuf::new(), failing: BTreeSet::new(), superseded: false });
         let ended = epoch();
         let release = |hosts: &mut Hosts, host: &Option<String>| host.iter().for_each(|host| hosts.release(host));
@@ -358,7 +358,7 @@ impl Watch {
         match outcome.search.take() {
             Some(search) if !outcome.superseded => {
                 moved(heads(&batch), Run::Searching, &format!("verdict {class}, searching for the culprit lane"));
-                self.searching.push(Searching { batch, outcome, search: post_land::search(search), host, cancel });
+                self.searching.push(Searching { batch, outcome, search: post_land::search(&lander.wake, search), host, cancel });
                 return;
             }
             _ => release(&mut self.hosts, &host),
