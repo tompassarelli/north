@@ -1,14 +1,19 @@
 //! What the outside broker starts for a worker command's `capacity offload` request, which runs as the operator outside the worker's domain with the keys and master sockets that domain hides: nothing of the worker's but the typed words of the request (south#118). Its environment is the broker's own, never the client's, so the `PATH` that finds every program it starts is the broker's and no variable the client set claims an owner or a slot class; ssh and git are the absolute programs the broker resolved from that `PATH`; git runs no hook and no command a repository's configuration names; its working directory is the top of the lane or main checkout the client asked from, under the broker's own home; and its run ends by the longest deadline a land check has.
 
+use std::fs::File;
+use std::io::Write;
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 
 use north_base::foundation::offload::{GIT_ENV, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV, RUN_SECONDS_CEILING, SSH_ENV};
 use north_base::platform::git_credential;
 use north_base::platform::session_scope::REMOVAL_ROOTS;
 
 use super::lane_grant::GIT_HARDENING;
-use super::removable::{lane, project};
+use super::removable::{common_git_dir, lane, project};
 use super::{HOSTS_HIDDEN, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDDEN};
 
 const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
@@ -20,6 +25,37 @@ pub(super) struct Offload {
     pub directory: PathBuf,
     pub environment: Vec<(String, String)>,
     pub note: Option<String>,
+}
+
+impl Offload {
+    /// Starts the process as the command `command` makes of the request's words, with the request's standard streams, telling the caller on its standard error when its run was shortened.
+    pub(super) fn start(self, command: impl FnOnce(Vec<String>) -> Command, [stdin, stdout, stderr]: [OwnedFd; 3]) -> std::io::Result<Child> {
+        if let (Some(note), Ok(told)) = (&self.note, stderr.try_clone()) {
+            let _ = writeln!(File::from(told), "north worker-sandbox broker: {note}");
+        }
+        command(self.arguments)
+            .current_dir(&self.directory)
+            .env_clear()
+            .envs(self.environment)
+            .stdin(Stdio::from(stdin))
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .process_group(0)
+            .spawn()
+    }
+}
+
+/// Why an offload request is refused, if it is: a lane-only session sends none, and the host it names is another host `reaches` holds, never the caller's word alone, since these verbs are the one way a worker command runs anything on another host.
+pub(super) fn offload_refusal(arguments: &[String], lane_only: bool, reaches: impl Fn(&str) -> bool) -> Option<String> {
+    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let ["capacity", "offload", rest @ ..] = words.as_slice() else { return None };
+    if lane_only {
+        return Some("a lane-only session's command reaches no build host through the broker".to_owned());
+    }
+    match crate::land_offload::worker_request(rest) {
+        Some(Some(host)) if !reaches(host) => Some(format!("{host} is not another host this one declares with an ssh destination")),
+        _ => None,
+    }
 }
 
 /// The process that serves the offload request `arguments` asked from `directory`, on a host whose home is `home` and whose broker runs with `own`, `runtime` and `homes`; `None` for any other request, and why an offload request is refused.
@@ -39,7 +75,7 @@ fn checkout(home: &Path, directory: &Path) -> Result<PathBuf, String> {
         let main = project(&home, &real).map(|project| project.join("main")).filter(|main| real.starts_with(main));
         lane(&home, &real).or(main)
     });
-    found.filter(|top| top.join(".git").exists()).ok_or_else(|| format!("{} is in no lane (~/code/PROJECT/worktrees/NAME) and no main checkout (~/code/PROJECT/main) of this host, and an offload ships only from one; run it from your lane", directory.display()))
+    found.filter(|top| common_git_dir(top).is_some()).ok_or_else(|| format!("{} is in no lane (~/code/PROJECT/worktrees/NAME) and no main checkout (~/code/PROJECT/main) of this host, and an offload ships only from one; run it from your lane", directory.display()))
 }
 
 /// `arguments` with a `run`'s `--timeout` no longer than the ceiling, and the seconds asked when they were more.

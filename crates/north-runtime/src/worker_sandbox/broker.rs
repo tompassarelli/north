@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use super::lane_grant::{self, Host};
 use super::offload_request;
+pub(super) use super::offload_request::offload_refusal;
 use super::session_join;
 use super::request_env::{environment, landing, landing_choices, own_homes, request_homes};
 use super::{Context, FLAG, MAKER, removable};
@@ -78,19 +79,6 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
         ["capacity", "host", "run", rest @ ..] => payload(rest).is_some(),
         ["capacity", "offload", rest @ ..] => crate::land_offload::worker_request(rest).is_some(),
         _ => lane_grant::privileged(arguments),
-    }
-}
-
-/// Why an offload request is refused, if it is: a lane-only session sends none, and the host it names is another host `reaches` holds, never the caller's word alone, since these verbs are the one way a worker command runs anything on another host.
-pub(super) fn offload_refusal(arguments: &[String], lane_only: bool, reaches: impl Fn(&str) -> bool) -> Option<String> {
-    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    let ["capacity", "offload", rest @ ..] = words.as_slice() else { return None };
-    if lane_only {
-        return Some("a lane-only session's command reaches no build host through the broker".to_owned());
-    }
-    match crate::land_offload::worker_request(rest) {
-        Some(Some(host)) if !reaches(host) => Some(format!("{host} is not another host this one declares with an ssh destination")),
-        _ => None,
     }
 }
 
@@ -327,7 +315,8 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         return run_granted(north, &request, [stdout, stderr], stream, cgroup, host);
     }
     if let Some(offload) = offload {
-        return run_offload(north, offload, [stdin, stdout, stderr], stream, cgroup);
+        let started = offload.start(|arguments| brokered(north, arguments, cgroup), [stdin, stdout, stderr]);
+        return wait(started.map_err(|error| format!("{}: {error}", north.display()))?, stream);
     }
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
     let homes = request_homes(&request.arguments, cgroup, &request.environment, own_homes());
@@ -360,24 +349,6 @@ fn refuse(streams: Vec<OwnedFd>, why: String) -> String {
         let _ = writeln!(File::from(stderr), "north worker-sandbox broker: refused: {why}");
     }
     why
-}
-
-/// Runs an offload request as `offload_request` grants it: with the environment, working directory and words it names and nothing else of the client's, telling the client when its run was shortened.
-fn run_offload(north: &Path, offload: offload_request::Offload, [stdin, stdout, stderr]: [OwnedFd; STDIO], stream: &UnixStream, cgroup: Option<&str>) -> Result<u8, String> {
-    if let (Some(note), Ok(told)) = (&offload.note, stderr.try_clone()) {
-        let _ = writeln!(File::from(told), "north worker-sandbox broker: {note}");
-    }
-    let child = brokered(north, offload.arguments, cgroup)
-        .current_dir(&offload.directory)
-        .env_clear()
-        .envs(offload.environment)
-        .stdin(Stdio::from(stdin))
-        .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr))
-        .process_group(0)
-        .spawn()
-        .map_err(|error| format!("{}: {error}", north.display()))?;
-    wait(child, stream)
 }
 
 /// The command that starts `north ARGUMENTS` for a caller whose `/proc/PID/cgroup` reads `cgroup`: inside the caller's capacity lease scope when it runs in one, so a leased build's depbox and the compiles it forks count against that lease and its host's admission. Started in the broker's own service, a leased land check's clippy and a session's depbox compiles ran outside every lease, and admission read 0.05 cores for a lease whose compiles held 7 (gex45, 2026-11-10, north#1036).
