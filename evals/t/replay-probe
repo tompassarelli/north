@@ -10,7 +10,7 @@ SEED='Reply with OK only.' ASK='What is the code word I gave you? Reply with the
 tool() { cargo run -q --locked --offline -- "$@"; }
 stop() {
   [ -f "$W/server.pid" ] && kill -- "-$(cat "$W/server.pid")" 2> /dev/null
-  while read -r name; do north fleet stop "$name" > /dev/null 2>&1; north fleet forget "$name" > /dev/null 2>&1; done < "$W/names" 2> /dev/null
+  if [ -f "$W/names" ]; then while read -r name; do north fleet stop "$name" > /dev/null 2>&1; north fleet forget "$name" > /dev/null 2>&1; done < "$W/names"; fi
   return 0
 }
 fail() { echo "FAIL replay $arm: $1" >&2; exit 1; }
@@ -28,11 +28,11 @@ case $arm in
     mkdir -p "$XDG_STATE_HOME"; north threads list > /dev/null 2>&1
     name=evalT-probe-$$; trap stop EXIT; echo "$name" >> "$W/names"
     north fleet launch --provider claude --account "$EVAL_T_ACCOUNT" --model "$MODEL" --effort "$EFFORT" --name "$name" --parent none --role worker --prompt north --test --cwd "$ROOT" --no-wait "$SEED" > "$W/launch.log" 2>&1 || fail "launch refused; see $W/launch.log"
-    for _ in $(seq $((LIMIT / 3))); do sleep 3; north fleet show "$name" --json 2> /dev/null | jq -e '.status != "working" and (.conversation // "") != ""' > /dev/null && break; done
-    conv=$(north fleet show "$name" --json 2> /dev/null | jq -r '.conversation // empty')
+    for _ in $(seq $((LIMIT / 3))); do sleep 3; conv=$(north fleet show "$name" --json 2> /dev/null | jq -r '.conversation // empty'); file=$(find "$XDG_STATE_HOME" "$HOME/.local/state/north/profiles" -name "$conv.jsonl" 2> /dev/null | head -1); [ -n "$file" ] && [ "$(assistants "$file")" -ge 1 ] 2> /dev/null && break; done
+    [ -n "$file" ] && [ "$(assistants "$file")" -ge 1 ] 2> /dev/null || fail "the seed turn left no reply; see $W/launch.log"
+    north fleet stop "$name" >> "$W/launch.log" 2>&1
     file=$(find "$XDG_STATE_HOME" "$HOME/.local/state/north/profiles" -name "$conv.jsonl" 2> /dev/null | head -1)
     [ -n "$file" ] || fail "no transcript for conversation $conv"
-    north fleet stop "$name" >> "$W/launch.log" 2>&1
     tool plant --turns "$turns" --session "$conv" --cwd "$ROOT" --out "$file" || fail "planting failed"
     north fleet revive "$name" >> "$W/launch.log" 2>&1 || fail "revive refused; see $W/launch.log"
     before=$(assistants "$file")
@@ -42,7 +42,7 @@ case $arm in
   t3)
     : "${EVAL_T_TOKEN_FILE:?names a file holding the subscription OAuth token}"
     T3=${T3_RUNTIME:-$HOME/.local/lib/t3/versions/0.1.9/t3}
-    claude=$(readlink -f "$(command -v claude)")
+    claude=$(readlink -f "${EVAL_T_CLAUDE:-$(command -v claude)}")
     tools=$(dirname "$claude"):$(dirname "$(command -v git)"):$(dirname "$(command -v bash)")
     cfg=$W/cfg state=$W/t3-base; mkdir -p "$cfg" "$state"; printf '{"effortLevel": "%s"}\n' "$EFFORT" > "$cfg/settings.json"
     cli=(env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 "$T3")
