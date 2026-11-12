@@ -1,7 +1,7 @@
 use super::gh_write::{self, GhWrite};
 use super::issue_labels::gh;
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::{box_oracles, cleanup};
+use crate::platform::{box_oracles, issue_scope};
 
 const OWNER: &str = "tompassarelli/";
 struct Live {
@@ -59,7 +59,7 @@ fn unticked(write: &GhWrite, world: &mut impl World) -> Option<String> {
     }
     let number: u64 = target.rsplit('/').next()?.trim_start_matches('#').parse().ok()?;
     let repo = world.repo(write.repo.as_deref())?;
-    if !repo.to_lowercase().starts_with(OWNER) || !cleanup::covers(&repo) {
+    if !repo.to_lowercase().starts_with(OWNER) || !issue_scope::covers(&repo) {
         return None;
     }
     let body = world.body(&repo, number)?;

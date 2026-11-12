@@ -317,9 +317,7 @@ its label and rank order; boxes of issues with no rank come last among equals. `
 so `north graph ask "$(north graph ready --query ready)"` prints the same rows as tab-separated terms.
 
 `north fleet dispatch` reads the same set (`crates/north-graph-ground/src/backlog.rs`): it orders issues as `north graph ready` lists their
-ready boxes, issues with no ready box after them by priority label and rank, and skips an issue whose every unticked product box is held with `no box is ready: box "..." waits on ...`. A box is
-ready for this purpose when at least one product box is ready, so a ready Clean-up box never frees an issue whose product
-boxes wait. The graph is as fresh as the last ingest, which `north land follow` runs after each landing; when the graph cannot
+ready boxes, issues with no ready box after them by priority label and rank, and skips an issue whose every unticked box is held with `no box is ready: box "..." waits on ...`. The graph is as fresh as the last ingest, which `north land follow` runs after each landing; when the graph cannot
 be read dispatch prints a `note:` and falls back to label and age order and the issue-level waits it reads from text.
 
 A proxy-role session launches a worker only on one of the first five issues of that order, or on an issue it created or

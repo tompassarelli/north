@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::{Call, TITLE, gh, gh_json};
 use crate::platform::ci_environment::failed_only_in_environment;
-use crate::platform::cleanup::{MAIN_RED, MAIN_RED_BODY};
+use crate::platform::issue_scope::{MAIN_RED, MAIN_RED_BODY};
 
 const USAGE: &str = "usage: north main-red RUN_ID";
 const BODY_LIMIT: usize = 60_000;

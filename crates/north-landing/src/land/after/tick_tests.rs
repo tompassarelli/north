@@ -9,9 +9,6 @@ fn an_issue_closes_only_when_every_box_is_ticked_and_a_landed_box_naming_its_own
     assert!(!closable(PLAN));
     assert!(!closable("- [x] done\n- [ ] (observed) waits on a week\n"));
     assert!(closable("- [x] done. Evidence: `true` exited 0 on main 1a2b3c4d5e6f on 2026-11-06.\n  - [X] nested, split to north#900\n* [x] star done. Evidence: `true` passed on 2026-11-06: ok\n"));
-    let landed = "- [x] Ship it. Evidence: `true` exited 0 on main 1a2b3c4d5e6f on 2026-11-06.\n\n**Clean-up before closing**\n- [ ] Clean-up: scaffolding removed.\n";
-    assert!(closable(landed), "a retired Clean-up line keeps no landed issue open");
-    assert!(!closable(&landed.replace("\n\n", "\n- [ ] Wire it into dispatch\n\n")), "a real box still open keeps it open");
     let body = "- [ ] Parent\n  - [ ] Shares. Done when: `cargo test -p north-dispatch shares` passes.\n  - [ ] Prose. Done when the dry run shows it.\n";
     assert_eq!(tick(body, "Shares", Some("1a2b3c4d5e6f7")), Tick::NeedsChecker);
     let Tick::Ticked(edited) = tick(body, "Prose", Some("1a2b3c4d5e6f7")) else { panic!() };

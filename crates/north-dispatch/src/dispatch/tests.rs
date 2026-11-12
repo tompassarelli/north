@@ -197,7 +197,7 @@ fn a_project_with_paused_true_gets_no_launch_and_each_of_its_issues_prints_as_pa
 #[test]
 fn the_main_red_workflows_boxless_issue_is_not_named_for_a_box() {
     let (hosts, accounts) = fleet();
-    let main_red = ["bug", "priority:now", "evidence:code", crate::platform::cleanup::MAIN_RED];
+    let main_red = ["bug", "priority:now", "evidence:code", crate::platform::issue_scope::MAIN_RED];
     let boxes = vec![issue("makgora", 912, "Run 1 failed", &main_red), issue("makgora", 913, "Nobody boxed this", &["bug"])];
     let survey = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
     let outcome = decide(&survey, "test");

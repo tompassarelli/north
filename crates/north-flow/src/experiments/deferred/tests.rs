@@ -260,5 +260,4 @@ fn an_issue_closes_only_once_every_open_box_waits_on_a_registered_check() {
     assert!(judge(&format!("{landed}- [ ] Not before 2026-11-09, a day of logs <!-- check n637-unlisted@2026-11-09 -->\n")), "a marked box the registry does not hold keeps it open");
     assert!(judge(&deferred_body(&proven(BODY.to_owned()), &registered).unwrap()), "a box that is still work keeps it open");
     assert!(judge(&deferred_body(BODY.replace("- [ ] Another box that is still work", "- [x] Another box that is done").as_str(), &registered).unwrap()), "an unproven ticked box keeps it open");
-    assert!(judge(&landed.replace("- [x] Landed on origin/main as abc1234", "- [x] Landed on origin/main as abc1234\n- [ ] Clean-up: scaffolding removed.")), "an unticked Clean-up box keeps it open");
 }

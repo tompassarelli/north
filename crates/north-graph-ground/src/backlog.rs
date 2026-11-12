@@ -131,10 +131,6 @@ pub fn read_from_at(graph: &Graph, now: i64) -> Result<Backlog, String> {
     Ok(backlog)
 }
 
-fn product(text: &str) -> bool {
-    !text.starts_with("Clean-up:")
-}
-
 impl Backlog {
     pub fn rank(&self, issue: &str) -> Option<i64> {
         self.ranks.get(issue).copied()
@@ -155,12 +151,10 @@ impl Backlog {
     }
 
     pub fn verdict(&self, issue: &str) -> Verdict {
-        let ready: Vec<&Entry> = self.ready.iter().filter(|entry| entry.issue == issue).collect();
-        let held: Vec<&Held> = self.held.iter().filter(|held| held.entry.issue == issue).collect();
-        if ready.iter().any(|entry| product(&entry.text)) || (held.iter().all(|held| !product(&held.entry.text)) && !ready.is_empty()) {
+        if self.ready.iter().any(|entry| entry.issue == issue) {
             return Verdict::Ready;
         }
-        match held.iter().find(|held| product(&held.entry.text)).or_else(|| held.first()) {
+        match self.held.iter().find(|held| held.entry.issue == issue) {
             Some(held) => Verdict::Held(format!("box \"{}\" waits on {} \"{}\"", cut(&held.entry.text, 60), held.edge, cut(&held.edge_text, 60))),
             None => Verdict::Unknown,
         }
@@ -174,15 +168,10 @@ impl Backlog {
         format!("{measured}, {rank}")
     }
 
-    fn shown(&self, entry: &Entry) -> bool {
-        let same_issue_product = |other: &Entry| other.issue == entry.issue && product(&other.text);
-        product(&entry.text) || !self.ready.iter().chain(self.held.iter().map(|held| &held.entry)).any(same_issue_product)
-    }
-
     /// The issues with a ready box, in the order their boxes run.
     pub fn leaders(&self) -> Vec<&str> {
         let mut issues: Vec<&str> = Vec::new();
-        for entry in self.ready.iter().filter(|entry| self.shown(entry)) {
+        for entry in self.ready.iter() {
             if !issues.contains(&entry.issue.as_str()) {
                 issues.push(&entry.issue);
             }
@@ -190,10 +179,10 @@ impl Backlog {
         issues
     }
 
-    /// The ready boxes in measured order, then each held box with its edge; a Clean-up box is listed only for an issue with no other box open.
+    /// The ready boxes in measured order, then each held box with its edge.
     pub fn lines(&self) -> Vec<String> {
-        let ready = self.ready.iter().filter(|entry| self.shown(entry)).enumerate().map(|(place, entry)| format!("ready {}\t{}\t{}\t{}", place + 1, entry.issue, self.standing(&entry.issue), cut(&entry.text, 100)));
-        let held = self.held.iter().filter(|held| self.shown(&held.entry)).map(|held| format!("held\t{}\t{}\t{}\twaits on {} \"{}\"", held.entry.issue, self.standing(&held.entry.issue), cut(&held.entry.text, 100), held.edge, cut(&held.edge_text, 60)));
+        let ready = self.ready.iter().enumerate().map(|(place, entry)| format!("ready {}\t{}\t{}\t{}", place + 1, entry.issue, self.standing(&entry.issue), cut(&entry.text, 100)));
+        let held = self.held.iter().map(|held| format!("held\t{}\t{}\t{}\twaits on {} \"{}\"", held.entry.issue, self.standing(&held.entry.issue), cut(&held.entry.text, 100), held.edge, cut(&held.edge_text, 60)));
         ready.chain(held).collect()
     }
 }

@@ -1,7 +1,7 @@
 //! Which open issues are ready: unticked Done-when boxes, nobody holding them, no label or open gate handing them to
 //! Tom, no `(not before ...)` stamp ahead, and every predecessor closed. A box waits only on records: its stamp, the fact
 //! graph's box edges, a gate, a claim or a registered wait; its prose and the newest report hold nothing (north#872).
-use crate::platform::{box_oracles, cleanup};
+use crate::platform::box_oracles;
 use north_graph_ground::{Backlog, Verdict};
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
@@ -86,13 +86,13 @@ impl Issue {
 
     /// An issue with no box, ticked or not, that no label hands to Tom, its children, a running native job or the workflow that owns it.
     pub fn needs_box(&self) -> bool {
-        !self.body.lines().any(|line| ANY_BOX.is_match(line) && !cleanup::is_box(line)) && [&TOM_LABELS[..], &ROOT_LABELS, &RUNNING_LABELS, &cleanup::WORKFLOW_OWNED].iter().all(|names| self.labelled(names).is_none())
+        !self.body.lines().any(|line| ANY_BOX.is_match(line)) && [&TOM_LABELS[..], &ROOT_LABELS, &RUNNING_LABELS, &crate::platform::issue_scope::WORKFLOW_OWNED].iter().all(|names| self.labelled(names).is_none())
     }
 
     /// The live sessions that own every unticked box, or none when some unticked box names no live owner.
     pub fn owned_by(&self, live: &BTreeSet<String>) -> Option<BTreeSet<String>> {
         let mut owners = BTreeSet::new();
-        for line in self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line)) {
+        for line in self.body.lines().filter(|line| UNTICKED.is_match(line)) {
             let named: Vec<String> = box_owners(line).into_iter().filter(|owner| live.contains(owner)).collect();
             if named.is_empty() {
                 return None;
@@ -128,7 +128,7 @@ impl Issue {
     /// Whether a missed check reopened the box a launch staffs: its own box when the brief names one, else
     /// any unticked box of the issue.
     pub fn reopened(&self, box_text: Option<&str>) -> bool {
-        let mut unticked = self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line));
+        let mut unticked = self.body.lines().filter(|line| UNTICKED.is_match(line));
         match box_text.map(str::trim).filter(|text| !text.is_empty()) {
             Some(text) => unticked.filter(|line| line.contains(text)).any(|line| MISSED.is_match(line)),
             None => unticked.any(|line| MISSED.is_match(line)),
@@ -188,7 +188,7 @@ impl Issue {
     }
 
     fn product_lines(&self) -> impl Iterator<Item = &str> {
-        self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line))
+        self.body.lines().filter(|line| UNTICKED.is_match(line))
     }
 
     pub fn labelled(&self, names: &[&str]) -> Option<&str> {
@@ -246,7 +246,7 @@ pub fn unticked_boxes(body: &str) -> usize {
 
 /// The unticked Done-when boxes in `body`, not counting the clean-up group every product issue carries.
 pub fn product_boxes(body: &str) -> usize {
-    body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line)).count()
+    body.lines().filter(|line| UNTICKED.is_match(line)).count()
 }
 
 /// Why a worker launch on `item` cannot proceed when its body holds no open Done-when box: a worker works a box.

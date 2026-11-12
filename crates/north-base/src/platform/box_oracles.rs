@@ -1,8 +1,6 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-use super::cleanup;
-
 static TICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[ \t>]*[-*][ \t]+\[[xX]\][ \t]+(.*)$").expect("ticked box pattern"));
 static PASSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Evidence: `[^`]+` (?:exited 0|passed) on ").expect("oracle evidence pattern"));
 static STAMP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Evidence: `(?P<command>[^`]+)` (?:(?:passed|exited 0) on main )[^,]+?(?:, exit (?P<exit>[0-9]+))?\.").expect("checker stamp pattern"));
@@ -13,7 +11,6 @@ static DEFERRED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<!-- check (?P<
 
 pub fn unproven(body: &str) -> Vec<&str> {
     body.lines()
-        .filter(|line| !cleanup::is_box(line))
         .filter_map(|line| TICKED.captures(line)?.get(1).map(|text| text.as_str().trim()))
         .filter(|text| !LANDED.is_match(text) && !passed(text) && !SPLIT.is_match(text))
         .collect()
