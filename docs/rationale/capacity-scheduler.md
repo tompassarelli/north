@@ -281,8 +281,8 @@ One model, one placement function, one enforcer per host.
    killed or frozen (freezing frees no memory); the miss is recorded and lowers that key's coverage, which widens
    its next estimate. The bound is on the head's delay, not its age: `backfill_seconds` (300) becomes the most a
    head's start may slip past its reservation because of passed tickets; once the head has slipped that far,
-   nothing more passes it. Today `backfill_seconds` in `queued_ahead.rs` is how long a head has waited before
-   passing stops, which wastes backfill for a head whose reservation is far off and bounds nothing for one that is
+   nothing more passes it. Today a head is passable while admission would defer it on its own, and
+   `backfill_seconds` in `queued_ahead.rs` is how long a head has waited before passing stops, which wastes backfill for a head whose reservation is far off and bounds nothing for one that is
    near. This is EASY backfill with system predictions instead of user estimates.
 5. **Never twice (Wave 0 plus W3).** Land-check verdicts by tree and tool identity per host; runtime binary reuse;
    lane `north lane seed` plus the per-host sccache disk cache; skip a queued runtime build only while a newer queued

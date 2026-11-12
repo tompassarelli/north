@@ -77,8 +77,8 @@ fn a_24_core_attended_host_at_load_13_and_psi_7_percent_admits_heavy_and_defers_
 
 #[test]
 fn a_heavy_ticket_that_does_not_fit_lets_a_fitting_one_behind_it_pass_until_it_has_waited_past_the_bound() {
-    let head = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(6.0), queued_seconds };
-    let guard = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(2.0), queued_seconds };
+    let head = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(6.0), queued_seconds, ..AheadTicket::default() };
+    let guard = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(2.0), queued_seconds, ..AheadTicket::default() };
     let bound = super::admission::default_mib("backfill_seconds");
     assert_eq!(decide(&whiterabbit_on_2026_10_31(6.0, 12.5, &[])), Reason::Run);
     assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 7.89, &[head(21.0)])), Reason::Run);
@@ -89,6 +89,12 @@ fn a_heavy_ticket_that_does_not_fit_lets_a_fitting_one_behind_it_pass_until_it_h
     let moderate = |ahead: &[AheadTicket]| Facts { class: Class::Moderate, ..whiterabbit_on_2026_10_31(2.0, 7.89, ahead) };
     assert_eq!(decide(&moderate(&[head(21.0)])), Reason::Run, "moderate work passes a heavy ticket the free share cannot fit");
     assert_eq!(decide(&moderate(&[head(bound)])), Reason::DeferQueued);
+    let short_of_memory = |class, requested_memory_mib, memory_available_mib, ahead: &[AheadTicket]| Facts { class, requested_memory_mib, memory_available_mib, ..whiterabbit_on_2026_10_31(2.0, 0.0, ahead) };
+    let blocked = |queued_seconds| AheadTicket { requested_memory_mib: Some(8192.0), ..head(queued_seconds) };
+    assert_eq!(decide(&short_of_memory(Class::Heavy, 8192.0, 26000.0, &[])), Reason::DeferMemoryHeadroom, "the heavy head fits the free CPUs but not the memory headroom");
+    assert_eq!(decide(&short_of_memory(Class::Moderate, 2048.0, 26000.0, &[blocked(21.0)])), Reason::Run, "a moderate request that fits is admitted past the heavy head blocked on its own");
+    assert_eq!(decide(&short_of_memory(Class::Moderate, 2048.0, 26000.0, &[blocked(bound)])), Reason::DeferQueued, "past its bound the heavy head holds its place");
+    assert_eq!(decide(&short_of_memory(Class::Heavy, 8192.0, 40000.0, &[])), Reason::Run, "the heavy head is admitted once the memory room exists");
 }
 
 #[test]

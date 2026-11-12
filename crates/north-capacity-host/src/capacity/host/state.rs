@@ -223,6 +223,16 @@ pub fn dequeue(root: &Path, ticket: &str) {
     let _ = fs::remove_file(root.join("queue").join(ticket));
 }
 
+/// Stamps `passedAt` on each waiting ticket a later request was just admitted past, the first time it is passed.
+pub fn mark_passed(root: &Path, passed: &[Value], now: f64) {
+    for name in passed.iter().filter(|entry| entry.get("passedAt").is_none()).filter_map(|entry| entry.get("name").and_then(Value::as_str)) {
+        let path = root.join("queue").join(name);
+        let Some(Value::Object(mut entry)) = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()) else { continue };
+        entry.insert("passedAt".to_owned(), num(now));
+        let _ = write_private(&path, &format!("{}\n", Value::Object(entry)), false);
+    }
+}
+
 /// Waiting tickets in arrival order; a ticket whose wrapper died is dropped.
 pub fn read_queue(root: &Path) -> Vec<Value> {
     let directory = root.join("queue");

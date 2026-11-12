@@ -71,6 +71,7 @@ fn queued(queue: &[Value], open: bool, draining: &[Value], now: f64) -> Vec<Obj>
                 .put_some("priority", ticket.get("priority").cloned())
                 .put("reason", get("reason"))
                 .put("waitingSeconds", seconds(now - field(ticket, "queuedAt").unwrap_or(f64::NAN)))
+                .put("passedOverSeconds", field(ticket, "passedAt").map_or(Value::Null, |passed| seconds(now - passed)))
                 .put_some("newClients", ticket.get("newClients").cloned())
                 .put_some("newDesktops", ticket.get("newDesktops").cloned())
                 .put_some("waitingFor", (class(ticket) == "exclusive").then(|| Value::Array(draining.to_vec())))

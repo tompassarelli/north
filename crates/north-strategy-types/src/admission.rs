@@ -144,6 +144,8 @@ pub struct PairLease {
 pub struct AheadTicket {
     pub requested_class: Option<Class>,
     pub requested_cpus: Option<f64>,
+    #[serde(rename = "requestedMemoryMiB")]
+    pub requested_memory_mib: Option<f64>,
     pub queued_seconds: f64,
 }
 

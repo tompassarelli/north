@@ -69,7 +69,6 @@ pub(super) fn queued_ahead(queue: &[Value], request: &Request, ticket: Option<&s
                 && (entry_class == "gpu") == (request.name == "gpu")
                 && (entry_class == "native") == (request.name == "native")
                 && entry_class != "exclusive"
-                && (matches!(request.name.as_str(), "heavy" | "exclusive") || text(entry, "reason") != Some("DEFER_RUN_QUEUE"))
                 && (exclusive_waiting == 0 || entry_class != "heavy" || before_drain(field(entry, "timeoutSeconds")))
         })
         .cloned()
@@ -131,11 +130,12 @@ fn facts(root: &Path, request: &Request, create: Option<&Create>, ticket: Option
         .put_some("ticket", ticket.map(|ticket| root.join("queue").join(ticket).to_string_lossy().into_owned()))
 }
 
-/// The class, CPUs and seconds waited of a ticket queued ahead, by which admission decides whether a smaller request may pass it.
+/// The class, CPUs, memory and seconds waited of a ticket queued ahead, by which admission decides whether a smaller request may pass it.
 fn ahead_ticket(entry: &Value, now: f64) -> Value {
     json!({
         "requestedClass": entry.get("requestedClass").cloned().unwrap_or(Value::Null),
         "requestedCpus": entry.get("requestedCpus").cloned().unwrap_or(Value::Null),
+        "requestedMemoryMiB": entry.get("requestedMemoryMiB").cloned().unwrap_or(Value::Null),
         "queuedSeconds": num(round2((now - field(entry, "queuedAt").unwrap_or(now)) / 1000.0)),
     })
 }
@@ -315,6 +315,9 @@ pub fn decision(root: &Path, request: &Request, create: Option<&Create>, ticket:
             .put("committedBatchCpus", num(context.committed_batch_cpus))
             .put("committedNativeCpus", num(context.committed_native_cpus))
             .put("reclaimed", observed.reclaimed);
+        if create.is_some() && code == "RUN" && matches!(request.name.as_str(), "moderate" | "heavy") {
+            super::state::mark_passed(root, &context.queued.ahead, observed.now);
+        }
         match create.filter(|_| code == "RUN") {
             Some(create) => create_lease(root, request, create, ticket, &granted, requester_lease(&runs(&observed)), outcome),
             None => outcome,
