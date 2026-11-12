@@ -15,6 +15,7 @@ use crate::ledger::outcome::{self, read::Places};
 mod audit;
 mod cause;
 mod chain;
+mod graded;
 mod landing;
 mod lanes;
 mod losses;
@@ -190,6 +191,7 @@ fn measure(sources: &Sources, now: i64) -> Result<Weekly, String> {
     let outcome = outcome::read::read_weeks(&sources.places, tom.typed(), now)?;
     let spend = std::array::from_fn(|week| outcome.get(week).map_or(0.0, |week| week.total.usd));
     measures.extend(work::per_verified(&outcome));
+    measures.push(graded::graded(crate::ledger::closed_report_and_previous("7d").ok().as_ref()));
     measures.extend(product::product_share(&threads, weeks).map_err(|why| format!("{}: {why}", sources.threads.display()))?);
     Ok(Weekly { measures, spend })
 }

@@ -1,0 +1,13 @@
+use super::{Better, Figure, Measure};
+use crate::ledger::ClosedReport;
+
+const SOURCE: &str = "boxes closed in each window that a worker run closed, counted graded when the graph holds their own Done-when command passed by the checker on a commit that landed on main (north#872's bar: machine-verified boxes at least as many as self-ticked ones); a window the ledger could not read shows no record (ledger closed-box report, graph corroborated rule)";
+
+fn figure(report: Option<&ClosedReport>) -> Figure {
+    let closed = report.map_or_else(Vec::new, |report| report.arms.iter().filter(|arm| arm.closed).collect());
+    Figure::Share { hits: closed.iter().filter(|arm| arm.verified).count(), of: closed.len(), pending: 0, pending_label: "" }
+}
+
+pub fn graded(reports: Option<&(ClosedReport, ClosedReport)>) -> Measure {
+    Measure { name: "boxes graded by their own check".into(), better: Better::Higher, source: SOURCE, weeks: [figure(reports.map(|pair| &pair.0)), figure(reports.map(|pair| &pair.1))] }
+}
