@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use super::{BOUND_SECONDS, current, fresh, refresh, south};
+use super::{BOUND_SECONDS, current, fresh, overdue, refresh, south, warned};
 
 fn git(dir: &Path, args: &[&str]) {
     let output = Command::new("git")
@@ -41,7 +41,20 @@ fn a_host_refuses_configuration_older_than_main_by_more_than_the_bound() {
     assert!(!checkout.contains("cpx62"));
     assert!(read.contains("[hosts.cpx62]"));
     assert!(!current(home.path()).join("kept-out.md").exists());
-    assert_eq!(fresh(home.path(), 1_000 + BOUND_SECONDS), Ok(stamp));
+    assert_eq!(fresh(home.path(), 1_000 + BOUND_SECONDS), Ok(stamp.clone()));
     let stale = fresh(home.path(), 1_001 + BOUND_SECONDS).unwrap_err();
-    assert!(stale.contains("past the 60 min bound"), "{stale}");
+    assert!(stale.contains("past the 60 min bound, though the fleet tick (north fleet tick) refreshes it every 5 min"), "{stale}");
+
+    let late = 1_001 + BOUND_SECONDS * 3 / 4;
+    assert_eq!(overdue(home.path(), late - 1), None, "a snapshot under three quarters of its bound was reported late");
+    fs::rename(&origin, home.path().join("gone")).unwrap();
+    let failed = refresh(home.path(), &south(home.path()), late).unwrap_err();
+    assert!(failed.contains("git fetch"), "{failed}");
+    assert_eq!(fresh(home.path(), late), Ok(stamp.clone()), "a failed fetch replaced the snapshot or its stamp");
+    assert_eq!(overdue(home.path(), late), Some(stamp.clone()), "a snapshot whose fetch is failing went unreported past three quarters of its bound");
+    warned(home.path(), &stamp).unwrap();
+    assert_eq!(overdue(home.path(), late + 600), None, "one late episode was reported twice");
+    fs::rename(home.path().join("gone"), &origin).unwrap();
+    let refreshed = refresh(home.path(), &south(home.path()), late + 600).unwrap();
+    assert_eq!(overdue(home.path(), late + 600 + BOUND_SECONDS * 3 / 4 + 1), Some(refreshed), "the next late episode after a fetch went unreported");
 }

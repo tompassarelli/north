@@ -66,7 +66,6 @@ pub(super) fn update(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Fl
     slot::page_overdue(layout);
     let flown = flight(layout, after_flip);
     host_facts::record_if_stale(layout);
-    refresh_shared_config();
     flown
 }
 
@@ -455,15 +454,3 @@ pub(super) fn fetch(checkout: &Path) -> Result<(), Failure> {
 mod policy_hold_tests;
 #[cfg(test)]
 mod tests;
-
-fn refresh_shared_config() {
-    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let now = crate::platform::records_mirror::now() as u64;
-    let Some(refreshed) = crate::platform::shared_config::refresh_if_due(&home, now) else { return };
-    if let Err(error) = refreshed {
-        eprintln!("north runtime update: {error}");
-    }
-    if let Err(stale) = crate::platform::shared_config::fresh(&home, now) {
-        eprintln!("north runtime update: {stale}");
-    }
-}

@@ -5,14 +5,21 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The longest a host may run on shared configuration after its last successful fetch of south's origin/main.
 pub const BOUND_SECONDS: u64 = 60 * 60;
-/// How long the runtime update tick waits between fetches of south's origin/main.
+/// How long the fleet tick waits between fetches of south's origin/main.
 pub const REFRESH_SECONDS: u64 = 5 * 60;
+/// The longest one fetch of south may run before it is stopped, inside the fleet tick's wait for the refresh.
+pub const FETCH_LIMIT: Duration = Duration::from_secs(15);
+/// What keeps the snapshot fresh, named whenever a read finds it stale.
+pub const REFRESHER: &str = "the fleet tick (north fleet tick) refreshes it every 5 min";
 const SOURCE: &str = "origin/main";
+const FETCHED: &str = "refs/north/shared-config";
+const LOCK: &str = "refresh.lock";
+const WARNED: &str = "warned";
 const TREE: &str = "agents";
 const STAMP: &str = "stamp";
 const CURRENT: &str = "current";
@@ -68,12 +75,12 @@ pub fn stamp(home: &Path) -> Option<Stamp> {
 /// The shared configuration's stamp when its last fetch is within the bound, else why this host must not run on it.
 pub fn fresh(home: &Path, now: u64) -> Result<Stamp, String> {
     let Some(stamp) = stamp(home).filter(|_| current(home).is_dir()) else {
-        return Err(format!("shared configuration: no fetched snapshot at {}; run north runtime update", current(home).display()));
+        return Err(format!("shared configuration: no fetched snapshot at {}; {REFRESHER}", current(home).display()));
     };
     let age = now.saturating_sub(stamp.fetched_at);
     if age > BOUND_SECONDS {
         return Err(format!(
-            "shared configuration: last fetch of south {SOURCE} ({}) was {} min ago, past the {} min bound; refusing to run on it until a fetch succeeds",
+            "shared configuration is stale: last fetch of south {SOURCE} ({}) was {} min ago, past the {} min bound, though {REFRESHER}; refusing to run on it until a fetch succeeds",
             &stamp.revision[..stamp.revision.len().min(10)],
             age / 60,
             BOUND_SECONDS / 60
@@ -82,7 +89,10 @@ pub fn fresh(home: &Path, now: u64) -> Result<Stamp, String> {
     Ok(stamp)
 }
 
-/// Fetch south's origin/main into its object store and materialize `agents/`'s top-level files at that revision, never reading the checkout's work tree.
+/// Fetch south's main from its origin, with the checkout's own remote and credential, into a ref only this refresh writes, and
+/// materialize `agents/`'s top-level files at that revision, never reading the checkout's work tree. One refresh runs per host at a
+/// time under `refresh.lock`; the fetch writes neither FETCH_HEAD nor a remote-tracking ref and starts no maintenance, so it takes no
+/// lock another git command in the checkout takes; the snapshot, its `current` link and its stamp each appear by one rename.
 pub fn refresh(home: &Path, repo: &Path, now: u64) -> Result<Stamp, String> {
     let ran = |args: &[&str]| -> Result<Vec<u8>, String> {
         let output = Command::new("git").arg("-C").arg(repo).args(args).output().map_err(|error| format!("git {}: {error}", args.join(" ")))?;
@@ -91,9 +101,14 @@ pub fn refresh(home: &Path, repo: &Path, now: u64) -> Result<Stamp, String> {
             false => Err(format!("git {} in {}: {}", args.join(" "), repo.display(), String::from_utf8_lossy(&output.stderr).trim())),
         }
     };
-    ran(&["fetch", "-q", "origin", "main"])?;
-    let revision = String::from_utf8_lossy(&ran(&["rev-parse", "--verify", SOURCE])?).trim().to_owned();
     let root = directory(home);
+    fs::create_dir_all(&root).map_err(|error| format!("{}: {error}", root.display()))?;
+    let lock = fs::File::create(root.join(LOCK)).map_err(|error| format!("{}: {error}", root.join(LOCK).display()))?;
+    lock.lock().map_err(|error| format!("{}: {error}", root.join(LOCK).display()))?;
+    let left = String::from_utf8_lossy(&ran(&["rev-parse", "--git-path", &format!("{FETCHED}.lock")])?).trim().to_owned();
+    let _ = fs::remove_file(repo.join(left));
+    fetch(repo)?;
+    let revision = String::from_utf8_lossy(&ran(&["rev-parse", "--verify", &format!("{FETCHED}^{{commit}}")])?).trim().to_owned();
     let snapshot = root.join(&revision);
     if !snapshot.is_dir() {
         let listing = ran(&["ls-tree", "-z", &revision, &format!("{TREE}/")])?;
@@ -125,6 +140,54 @@ pub fn refresh(home: &Path, repo: &Path, now: u64) -> Result<Stamp, String> {
 pub fn refresh_if_due(home: &Path, now: u64) -> Option<Result<Stamp, String>> {
     let due = stamp(home).is_none_or(|stamp| now.saturating_sub(stamp.fetched_at) >= REFRESH_SECONDS);
     (due && south(home).is_dir()).then(|| refresh(home, &south(home), now))
+}
+
+/// The line the coordinator gets once the snapshot's last fetch is past three quarters of the bound, once per stamp, so one
+/// stretch of failing fetches raises it once; `warned` records that it went out.
+pub fn overdue(home: &Path, now: u64) -> Option<Stamp> {
+    let stamp = stamp(home)?;
+    let late = now.saturating_sub(stamp.fetched_at) > BOUND_SECONDS * 3 / 4;
+    let told = fs::read_to_string(directory(home).join(WARNED)).is_ok_and(|text| text.trim() == stamp.fetched_at.to_string());
+    (late && !told).then_some(stamp)
+}
+
+pub fn warned(home: &Path, stamp: &Stamp) -> std::io::Result<()> {
+    fs::write(directory(home).join(WARNED), format!("{}\n", stamp.fetched_at))
+}
+
+pub fn overdue_line(stamp: &Stamp, now: u64) -> String {
+    format!(
+        "shared configuration: last fetch of south {SOURCE} ({}) was {} min ago, past three quarters of the {} min bound; {REFRESHER}, so its fetch is failing or not running here",
+        &stamp.revision[..stamp.revision.len().min(10)],
+        now.saturating_sub(stamp.fetched_at) / 60,
+        BOUND_SECONDS / 60
+    )
+}
+
+fn fetch(repo: &Path) -> Result<(), String> {
+    let args = ["fetch", "-q", "--no-write-fetch-head", "--no-auto-maintenance", "--refmap=", "origin", &format!("+refs/heads/main:{FETCHED}")];
+    let said = |why: &str| format!("git {} in {}: {why}", args.join(" "), repo.display());
+    let mut child = Command::new("git").arg("-C").arg(repo).args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().map_err(|error| said(&error.to_string()))?;
+    let until = Instant::now() + FETCH_LIMIT;
+    let status = loop {
+        match child.try_wait().map_err(|error| said(&error.to_string()))? {
+            Some(status) => break status,
+            None if Instant::now() >= until => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(said(&format!("stopped after {} s", FETCH_LIMIT.as_secs())));
+            }
+            None => std::thread::sleep(Duration::from_millis(50)),
+        }
+    };
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut pipe, &mut stderr);
+    }
+    match status.success() {
+        true => Ok(()),
+        false => Err(said(stderr.trim())),
+    }
 }
 
 fn point(root: &Path, revision: &str) -> Result<(), String> {

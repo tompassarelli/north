@@ -17,3 +17,13 @@ pub fn outbox_hosts(repo: &Path, remote_ref: &str) -> Vec<String> {
     }
     hosts
 }
+
+/// Why this host's shared-config snapshot, where the fleet's hosts are read, may not be read: past its bound or never fetched.
+pub fn stale_fleet() -> Option<String> {
+    use north_base::platform::shared_config;
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    if !shared_config::current(&home).is_dir() {
+        return None;
+    }
+    shared_config::fresh(&home, shared_config::now()).err()
+}

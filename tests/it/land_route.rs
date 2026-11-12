@@ -161,6 +161,12 @@ fn a_landing_the_lander_cannot_take_is_refused_naming_why_and_pushes_and_queues_
     fixture.settle("[landing]\n\tqueue = lander\n\tlander-host = another-host\n", "another lander host");
     fixture.work("work from an unnamed host");
     refused(&["--to", "main"], &format!("{host} is neither landing.lander-host nor in landing.remote-hosts nor an ssh table of the fleet orchestration.toml hosts for main, so the lander cannot take this lane; add {host} to landing.remote-hosts"));
+    let snapshot = fixture.top().join("home/.local/state/north/shared-config");
+    fs::create_dir_all(snapshot.join("current")).unwrap();
+    fs::write(snapshot.join("stamp"), format!("{} 1000\n", "a".repeat(40))).unwrap();
+    refused(&["--to", "main"], &format!("{host} is neither landing.lander-host nor in landing.remote-hosts for main, and the fleet orchestration.toml hosts could not be read here: shared configuration is stale: last fetch of south origin/main (aaaaaaaaaa) was "));
+    refused(&["--to", "main"], "past the 60 min bound, though the fleet tick (north fleet tick) refreshes it every 5 min");
+    fs::remove_dir_all(&snapshot).unwrap();
     fixture.settle(&format!("[landing]\n\tqueue = lock\n\tlander-host = {host}\n"), "a lock queue");
     fixture.work("work under the lock queue");
     refused(&["--to", "main"], "landing.queue = lock in .safe-push is no longer served: the lander lands every change to main");

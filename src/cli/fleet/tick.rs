@@ -5,12 +5,15 @@ use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 use crate::dispatch::{IssueRef, work_gone};
 use crate::fleet::launch_queue::{Admission, QueuedLaunch};
+use crate::fleet::model::Delivery;
+use crate::fleet::sender::Sender;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
-use crate::fleet::stage::detach;
+use crate::fleet::stage::{Detached, detach};
 use crate::fleet::store::OverSsh;
 use crate::fleet::tick::{Budgets, FarHost, Pulls, Step, Ticked, open_ledger, probe_pass, tick};
 use crate::pacing::placement::{config, gate, pass};
+use crate::platform::shared_config;
 
 use super::api_spend;
 use super::dispatch_tick;
@@ -45,20 +48,21 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if !words.is_empty() {
         return Err(NorthError::Usage(USAGE.into()));
     }
+    let began = Instant::now();
+    let refreshing = detach("shared_config", || (shared_config::refresh_if_due(&home(), shared_config::now()), Instant::now()));
     let ledger = open_ledger(|| Ok(Ledger));
     let probes = Probes::here(fleet);
     if probes == Probes::Registry {
-        let began = Instant::now();
         let ticked = probe_pass(fleet, &ledger, &probes, Budgets::TICK)?;
         ticked.lines().iter().for_each(|line| println!("{line}"));
         drain_queue(fleet, began)?.iter().for_each(|line| println!("{line}"));
+        kept_fresh(fleet, &refreshing, began).0.iter().for_each(|line| println!("{line}"));
         println!("{}", ticked.timing());
         if let Some(line) = dispatch_line(&dispatch_pass(fleet)) {
             println!("{line}");
         }
         return Ok(());
     }
-    let began = Instant::now();
     let spending = {
         let fleet = fleet.clone();
         detach("api_spend", move || (api_spend::pull(&fleet), Instant::now()))
@@ -95,11 +99,13 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let expiring = Instant::now();
     let expired = crate::cli::machines::expire(Timestamp::now());
     ticked.steps.push(Step { name: "expire", began: expiring - began, took: expiring.elapsed() });
+    let (refreshed, ended) = kept_fresh(fleet, &refreshing, began);
+    ticked.steps.push(Step { name: "shared_config", began: Duration::ZERO, took: ended - began });
     let dispatching = Instant::now();
     let dispatched = dispatch_pass(fleet);
     ticked.steps.push(Step { name: "dispatch", began: dispatching - began, took: dispatching.elapsed() });
     ticked.wall = began.elapsed();
-    ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).chain(&expired).for_each(|line| println!("{line}"));
+    ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).chain(&expired).chain(&refreshed).for_each(|line| println!("{line}"));
     println!("{}", ticked.timing());
     if let Some(line) = dispatch_line(&dispatched) {
         println!("{line}");
@@ -139,4 +145,39 @@ fn start(queued: &QueuedLaunch) -> Result<(), String> {
 fn late_beside(ticked: &mut Ticked, name: &'static str, why: &str, began: Instant) -> Vec<String> {
     ticked.steps.push(Step { name, began: Duration::ZERO, took: began.elapsed() });
     vec![format!("deferred {name} to the next tick: {why}")]
+}
+
+fn home() -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+}
+
+/// The shared-config refresh started beside the tick, waited for only until its deadline, then the coordinator's line once its snapshot is past three quarters of the bound, which goes out whether the fetch failed, ran late or never ran.
+fn kept_fresh(fleet: &Fleet, refreshing: &Detached<(Option<Result<shared_config::Stamp, String>>, Instant)>, began: Instant) -> (Vec<String>, Instant) {
+    let mut lines = Vec::new();
+    let ended = match refreshing.by((began + BESIDE).max(Instant::now())) {
+        Ok((refreshed, ended)) => {
+            if let Some(Err(error)) = refreshed {
+                lines.push(format!("shared_config: {error}"));
+            }
+            ended
+        }
+        Err(late) => {
+            lines.push(format!("shared_config: the refresh is {}; the next tick fetches again", late.why(BESIDE)));
+            Instant::now()
+        }
+    };
+    let (home, now) = (home(), shared_config::now());
+    if let Some(stamp) = shared_config::overdue(&home, now) {
+        let line = format!("{}: {}", fleet.host(), shared_config::overdue_line(&stamp, now));
+        match fleet.send_signed(&Sender::fleet(), "proxy", &line, Delivery::Queued) {
+            Ok(()) => {
+                if let Err(error) = shared_config::warned(&home, &stamp) {
+                    lines.push(format!("shared_config: told the coordinator but could not record it: {error}"));
+                }
+            }
+            Err(error) => lines.push(format!("shared_config: could not tell the coordinator its snapshot is late: {error}")),
+        }
+        lines.push(line);
+    }
+    (lines, ended)
 }
