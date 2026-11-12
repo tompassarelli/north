@@ -37,6 +37,7 @@ use super::waits::Waits;
 use super::transcript::{current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len};
 
 mod adopting;
+pub mod aside_launch;
 mod awaiting;
 use awaiting::{await_conversation, await_reply, await_settled};
 mod claiming;
