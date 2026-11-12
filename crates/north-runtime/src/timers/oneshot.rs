@@ -86,11 +86,17 @@ pub(crate) fn lean_flags<'a>(ask: &Ask<'a>) -> [&'a str; 14] {
     ["-p", "--model", ask.model, "--effort", ask.effort, "--system-prompt", ask.system, "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"]
 }
 
-fn claude_once(words: &[String], ask: &Ask, extra: &[&str], limit: Duration) -> Reply {
-    let mut args: Vec<&str> = EXTERNAL_BILLING.iter().flat_map(|name| ["-u", *name]).chain([QUIET_WORD]).chain(words.iter().map(String::as_str)).collect();
-    args.push("claude");
+pub(crate) fn once_args<'a>(program: &'a str, words: &'a [String], ask: &Ask<'a>, extra: &[&'a str]) -> Vec<&'a str> {
+    let unset = words.chunks(2).take_while(|pair| pair.len() == 2 && pair[0] == "-u").count() * 2;
+    let mut args: Vec<&str> = EXTERNAL_BILLING.iter().flat_map(|name| ["-u", *name]).chain(words[..unset].iter().map(String::as_str)).chain([QUIET_WORD]).chain(words[unset..].iter().map(String::as_str)).collect();
+    args.push(program);
     args.extend(lean_flags(ask));
     args.extend(extra);
+    args
+}
+
+fn claude_once(words: &[String], ask: &Ask, extra: &[&str], limit: Duration) -> Reply {
+    let args = once_args("claude", words, ask, extra);
     match process::run_with_input_within("env", &args, Some(ask.input.as_bytes()), limit) {
         Some(output) => Reply { code: output.status.code(), stdout: text(&output), stderr: String::from_utf8_lossy(&output.stderr).into_owned() },
         None => Reply { code: None, stdout: String::new(), stderr: "claude did not finish".to_owned() },

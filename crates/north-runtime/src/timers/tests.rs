@@ -1,14 +1,22 @@
 #[test]
-fn a_cross_project_scan_starts_a_token_file_account_through_its_credential_reader() {
+fn a_roster_account_ask_reaches_its_program_through_env() {
     let profile = std::path::PathBuf::from("/profiles/claude-b");
-    let token = crate::fleet::model::Account { provider: crate::fleet::model::ProviderName::new("claude"), label: "b".into(), home: profile.clone(), token_file: Some("/tokens/claude-b".into()), api: None };
+    let held = tempfile::tempdir().unwrap();
+    let token_file = held.path().join("claude-b");
+    std::fs::write(&token_file, "secret\n").unwrap();
+    let token = crate::fleet::model::Account { provider: crate::fleet::model::ProviderName::new("claude"), label: "b".into(), home: profile.clone(), token_file: Some(token_file.clone()), api: None };
     let words = super::oneshot::account_words(Some(&profile), &[token], crate::providers::claude::invocation);
     let fast = words.iter().position(|word| word == "CLAUDE_CODE_DISABLE_FAST_MODE=1").unwrap();
     assert!(words[..fast].contains(&"CLAUDE_CONFIG_DIR=/profiles/claude-b".to_owned()), "{words:?}");
     assert_eq!(words[fast + 1..].first().map(String::as_str), Some("/bin/sh"), "{words:?}");
-    assert_eq!(words.last().map(String::as_str), Some("/tokens/claude-b"), "{words:?}");
+    assert_eq!(words.last().map(String::as_str), Some(token_file.to_str().unwrap()), "{words:?}");
     let unlisted = super::oneshot::account_words(Some(std::path::Path::new("/profiles/claude-x")), &[], crate::providers::claude::invocation);
     assert_eq!(unlisted, ["CLAUDE_CONFIG_DIR=/profiles/claude-x", "CLAUDE_CODE_DISABLE_FAST_MODE=1"]);
+    assert!(words.contains(&"-u".to_owned()), "{words:?}");
+    let ask = super::oneshot::Ask { model: "haiku", effort: "low", system: "s", input: "i" };
+    let args = super::oneshot::once_args("true", &words, &ask, &[]);
+    let status = std::process::Command::new("env").args(&args).status().unwrap();
+    assert!(status.success(), "env {args:?}: {status}");
 }
 
 
