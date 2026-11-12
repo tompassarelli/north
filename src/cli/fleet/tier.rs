@@ -3,15 +3,19 @@ use crate::fleet::model::{Effort, LaunchRequest};
 use crate::dispatch::{Ask, Start, Tier, draw_untasked_window, start_hand, tier_reason, untasked};
 use crate::fleet::route::{NOTE, Route};
 
+use super::claim_box::{IssueRead, IssueReads};
 use super::placement::{self, Overrides};
 
-pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> NorthResult<Option<Start>> {
+pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides, issues: &mut IssueReads) -> NorthResult<Option<Start>> {
     if request.provider.label() != "claude" && !request.verification && request.role() == crate::fleet::model::Role::Worker
         && let Some(item) = request.task()
     {
-        match crate::dispatch::boxless_launch_refusal(&item) {
-            Ok(Some(why)) => return Err(NorthError::Refused(why)),
-            Ok(None) => {}
+        match issues.read(&item) {
+            Ok((body, _)) => {
+                if let Some(why) = crate::dispatch::no_box_refusal(&item, &body) {
+                    return Err(NorthError::Refused(why));
+                }
+            }
             Err(why) => eprintln!("north fleet: {item} unread, so its Done-when box is not checked: {why}"),
         }
     }
@@ -42,7 +46,7 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
     };
     let worker = request.role() == crate::fleet::model::Role::Worker;
     let ask = Ask { item: &item, brief: &brief, prompt: &request.prompt, model: request.model.as_deref(), reason: reason.as_deref(), worker, places: true };
-    let start = begin(ask, routed.as_ref())?;
+    let start = begin(ask, routed.as_ref(), issues.read(&item))?;
     request.model = Some(start.model.clone());
     if request.effort.is_none() {
         request.effort = start.effort.as_deref().map(Effort::parse).transpose()?;
@@ -91,9 +95,9 @@ impl Routed {
     }
 }
 
-fn begin(ask: Ask, routed: Option<&Routed>) -> NorthResult<Start> {
-    let Some(routed) = routed else { return start_hand(&ask).map_err(NorthError::Refused) };
-    let mut start = start_hand(&Ask { model: Some(&routed.model), reason: Some(&routed.why), ..ask }).map_err(NorthError::Refused)?;
+fn begin(ask: Ask, routed: Option<&Routed>, issue: IssueRead) -> NorthResult<Start> {
+    let Some(routed) = routed else { return start_hand(&ask, issue).map_err(NorthError::Refused) };
+    let mut start = start_hand(&Ask { model: Some(&routed.model), reason: Some(&routed.why), ..ask }, issue).map_err(NorthError::Refused)?;
     if routed.pinned || start.effort.is_none() {
         start.effort = Some(routed.effort.clone());
     }

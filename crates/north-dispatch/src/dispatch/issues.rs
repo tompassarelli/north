@@ -303,7 +303,7 @@ pub fn product_boxes(body: &str) -> usize {
 }
 
 /// Why a worker launch on `item` cannot proceed when its body holds no open Done-when box: a worker works a box.
-pub(crate) fn no_box_refusal(item: &str, body: &str) -> Option<String> {
+pub fn no_box_refusal(item: &str, body: &str) -> Option<String> {
     (unticked_boxes(body) == 0).then(|| format!("{item} has no open Done-when box, so no worker can take it; add the box the work delivers, or launch a brief that names no issue"))
 }
 

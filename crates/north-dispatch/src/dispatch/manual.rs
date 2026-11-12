@@ -208,13 +208,13 @@ impl Start {
     }
 }
 
-pub fn begin(ask: &Ask) -> Result<Start, String> {
+pub fn begin(ask: &Ask, issue: Result<(String, f64), String>) -> Result<Start, String> {
     let cfg = placement::config()?;
     let history = History::new(&record::read(&record::directory()));
     let (body, created) = if IssueRef::parse(ask.item).is_none() {
         (String::new(), 0.0)
     } else {
-        issue_text(ask.item).unwrap_or_else(|why| {
+        issue.unwrap_or_else(|why| {
             eprintln!("north fleet: {} unread, so its brief carries no Not required lines or prior reports: {why}", ask.item);
             (String::new(), f64::INFINITY)
         })
@@ -231,21 +231,15 @@ pub fn begin(ask: &Ask) -> Result<Start, String> {
 /// The tier route() picks for a worker brief, for a spawn guard that compares it with the tier asked for.
 pub fn picked_tier(brief: &str) -> Result<Tier, String> {
     let item = facets::declared_in(brief, "Item").unwrap_or("agent spawn");
-    begin(&Ask { item, brief, prompt: brief, model: None, reason: None, worker: false, places: false }).map(|start| start.route.tier)
+    begin(&Ask { item, brief, prompt: brief, model: None, reason: None, worker: false, places: false }, issue_text(item)).map(|start| start.route.tier)
 }
 
 /// The issue's body and when it was opened, as unix seconds.
-pub(super) fn issue_text(item: &str) -> Result<(String, f64), String> {
+pub fn issue_text(item: &str) -> Result<(String, f64), String> {
     let item = IssueRef::parse(item).ok_or_else(|| format!("{item} names no issue"))?;
     let json = github::json(&["issue", "view", &item.number.to_string(), "-R", &format!("{OWNER}/{}", item.repo), "--json", "body,createdAt"])?;
     let created = json["createdAt"].as_str().and_then(crate::foundation::clock::rfc3339_seconds).ok_or_else(|| format!("{item} carries no createdAt"))?;
     Ok((json["body"].as_str().unwrap_or_default().to_owned(), created))
-}
-
-/// Why a worker launch on `item` cannot proceed, read from GitHub; an unreadable issue is no reason to hold the launch.
-pub fn boxless_launch_refusal(item: &str) -> Result<Option<String>, String> {
-    let (body, _) = issue_text(item)?;
-    Ok(super::issues::no_box_refusal(item, &body))
 }
 
 pub fn tier_reason(brief: &str, flag: Option<&str>) -> Option<String> {

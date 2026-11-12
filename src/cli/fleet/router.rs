@@ -231,11 +231,12 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     }
     lineage::reader(fleet, &mut request, caller.as_deref())?;
     super::claude_only::admit(&request)?;
-    super::claim_box::admit(&request)?;
+    let mut issues = super::claim_box::IssueReads::github();
+    super::claim_box::admit(&request, &mut issues)?;
     ranked::admit(fleet, &request, caller.as_deref())?;
     tier::admit_class(&request)?;
     let written = request.prompt.clone();
-    let started = tier::apply(&mut request, &mut overrides)?;
+    let started = tier::apply(&mut request, &mut overrides, &mut issues)?;
     let waiting = admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
     let placing_ms = now_ms();
     let settled = admission::admitted(&request.name, waiting, |first| super::placement::placed(fleet, &request, &written, started.as_ref().map_or(&[][..], |start| start.needs.as_slice()), &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
