@@ -1,1 +1,0 @@
-  land dispatch NAME                             Run the land-check command main's .safe-push declares under [dispatch "NAME"], dispatching its workflow once from the inputs it prints, and write the run's state where the check reads it
