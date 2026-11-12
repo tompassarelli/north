@@ -9,7 +9,7 @@ use tui_textarea::{TextArea, WrapMode};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::books::Digest;
 use crate::fleet::gates::Decision;
-use crate::fleet::model::{Account, Delivery, Effort, EntryKind, LaunchRequest, Status, Transcript};
+use crate::fleet::model::{Account, Delivery, Effort, EntryKind, LaunchRequest, Role, Status, Transcript};
 use crate::fleet::registry::Choices;
 use crate::fleet::runtime::SESSION_ENV;
 
@@ -147,8 +147,8 @@ impl Screen {
         self.mark_finished(&sessions);
         self.sessions = sessions;
         if self.selected_session().is_none() {
-            let first = self.sessions.first().map(|session| session.record.name.clone());
-            self.select(first);
+            let home = self.sessions.iter().find(|session| session.record.role() == Role::Proxy).or(self.sessions.first()).map(|session| session.record.name.clone());
+            self.select(home);
         }
     }
 

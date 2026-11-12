@@ -2,8 +2,14 @@ use std::path::PathBuf;
 
 use crate::fleet::model::{ProviderName, SessionRecord, Status, Account};
 
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
+
 use super::desk::SessionSummary;
+use super::help_panel::Tab;
+use super::painter::TranscriptPainter;
 use super::screen::Screen;
+use super::view::draw;
 
 fn family(name: &str, parent: Option<&str>, created_ms: u64, status: Status, since_ms: u64) -> SessionSummary {
     let record: SessionRecord = serde_json::from_value(serde_json::json!({
@@ -64,3 +70,28 @@ fn rows_keep_their_places_as_output_arrives_from_different_sessions() {
     assert_eq!(names(&screen), ["proxy", "gone", "kid-a", "grand", "kid-b", "solo"], "a session leaving the exited state may move");
 }
 
+
+fn lodged(name: &str, account: &str, created_ms: u64, status: Status) -> SessionSummary {
+    let mut session = family(name, None, created_ms, status, 0);
+    session.record.account = account.into();
+    session.record.host_dir = PathBuf::from(format!("/logs/{name}"));
+    session
+}
+
+fn help_fact(screen: &mut Screen, label: &str) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+    let mut painter = TranscriptPainter::default();
+    terminal.draw(|frame| draw(frame, screen, None, &mut painter, 0)).unwrap();
+    let buffer = terminal.backend().buffer();
+    let width = usize::from(buffer.area.width);
+    buffer.content().chunks(width).map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>()).find(|row| row.starts_with(label)).unwrap_or_default().trim_end().to_owned()
+}
+
+#[test]
+fn help_with_the_proxy_focused_shows_the_proxys_account_and_log_path() {
+    let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
+    screen.sync(vec![lodged("lander-precheck", "c", 1, Status::Idle), lodged("proxy", "e", 2, Status::Parked)]);
+    screen.help.open(Tab::General);
+    assert!(help_fact(&mut screen, "Account:").ends_with("e (claude)"));
+    assert!(help_fact(&mut screen, "Session Logs:").ends_with("/logs/proxy"));
+}
