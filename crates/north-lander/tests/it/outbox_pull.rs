@@ -81,12 +81,16 @@ struct Pull {
 
 impl Pull {
     fn new() -> Self {
+        Self::declaring("[hosts.gex45]\nssh = \"gex45\"\n")
+    }
+
+    fn declaring(hosts: &str) -> Self {
         let world = World::new();
         let repository = world.repository("north");
         write_executable(&world.path().join("bin/ssh"), REMOTE_SSH);
         let fleet = world.path().join("code/south/main/agents");
         std::fs::create_dir_all(&fleet).unwrap();
-        std::fs::write(fleet.join("orchestration.toml"), "[hosts.gex45]\nssh = \"gex45\"\n").unwrap();
+        std::fs::write(fleet.join("orchestration.toml"), hosts).unwrap();
         Self { remote: world.path().join("remote-state"), calls: world.path().join("ssh.calls"), key: repository.queue.file_name().unwrap().to_string_lossy().into_owned(), repository, world }
     }
 
@@ -111,6 +115,21 @@ impl Pull {
         command
     }
 
+    fn outbox(&self) -> PathBuf {
+        self.remote.join("north/land-queue").join(&self.key).join(queue::OUTBOX)
+    }
+
+    fn lane_outboxed(&self) -> String {
+        let lane = self.repository.checkout.parent().unwrap().join("worktrees/behind");
+        git(&self.repository.checkout, &["worktree", "add", "-q", "-b", "behind", lane.to_str().unwrap()]);
+        git(&lane, &["commit", "-q", "--allow-empty", "-m", "behind"]);
+        outboxed(&self.outbox(), 1_794_020_900_000_000, &lane, "behind", &git(&lane, &["rev-parse", "HEAD"]))
+    }
+
+    fn logins(&self) -> Vec<String> {
+        std::fs::read_to_string(&self.calls).unwrap_or_default().lines().map(str::to_owned).collect()
+    }
+
     fn pull(&self) -> String {
         let output = self.process("outbox_pull::outbox_puller").output().unwrap();
         format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
@@ -118,12 +137,19 @@ impl Pull {
 }
 
 #[test]
-fn a_pull_from_a_host_with_no_outbox_leaves_no_queue_in_that_hosts_state() {
-    let pull = Pull::new();
-    let transcript = pull.pull();
+fn a_pull_goes_through_the_agent_login_a_host_names_else_by_its_name_and_leaves_no_queue_where_no_outbox_is() {
+    for (hosts, login) in [("[hosts.gex45]\nssh = \"tom@gex45\"\n", "gex45"), ("[hosts.gex45]\nssh = \"tom@gex45\"\nagent_ssh = \"agent@gex45\"\n", "agent@gex45")] {
+        let empty = Pull::declaring(hosts);
+        let transcript = empty.pull();
+        assert!(!empty.logins().is_empty() && empty.logins().iter().all(|asked| asked == login), "{hosts}: {:?}\n{transcript}", empty.logins());
+        assert!(!empty.remote.join("north/land-queue").join(&empty.key).exists(), "a host with no outbox for {} gained its queue:\n{transcript}", empty.key);
 
-    assert!(std::fs::read_to_string(&pull.calls).is_ok_and(|calls| calls.contains("gex45")), "the pull never asked gex45:\n{transcript}");
-    assert!(!pull.remote.join("north/land-queue").join(&pull.key).exists(), "a host with no outbox for {} gained its queue:\n{transcript}", pull.key);
+        let pull = Pull::declaring(hosts);
+        let name = pull.lane_outboxed();
+        let transcript = pull.pull();
+        assert!(pull.repository.queue.join(&name).is_file(), "{hosts}: the ticket was not taken:\n{transcript}");
+        assert!(pull.logins().len() >= 2 && pull.logins().iter().all(|asked| asked == login), "{hosts}: {:?}\n{transcript}", pull.logins());
+    }
 }
 
 const READY: &str = "NORTH_LAND_IT_VERDICTS_READY";

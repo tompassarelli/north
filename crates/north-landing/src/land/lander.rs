@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
+use toml_edit::DocumentMut;
 
 use super::candidate::{self, git};
 use super::heartbeat::Heartbeat;
@@ -15,6 +16,7 @@ use super::setting;
 use super::wake::Wake;
 use north_base::land_ticket::Records;
 use north_base::land_ticket::{self, Phase};
+use north_base::platform::{land_queue, orchestration};
 
 pub const OFFLOAD_OWNER: &str = "north-land";
 use super::after::route::SSH_OPTIONS;
@@ -46,12 +48,23 @@ pub fn plain(text: &str) -> bool {
     !text.is_empty() && !text.starts_with('-') && text.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | '@'))
 }
 
+/// The login the lander reaches `host`'s outbox through: the `agent_ssh` login of `[hosts.HOST]` in the fleet's orchestration.toml, the agent user's; a host that names none is reached by its name, as before.
+pub fn login(host: &str) -> String {
+    let fleet = land_queue::confined(&orchestration::snapshot_path()).ok().and_then(|()| orchestration::snapshot().ok());
+    fleet.and_then(|fleet| agent_login(&fleet, host)).unwrap_or_else(|| host.to_owned())
+}
+
+fn agent_login(fleet: &DocumentMut, host: &str) -> Option<String> {
+    let session = fleet.get("hosts")?.get(host)?.get("agent_ssh")?.as_str()?;
+    plain(session).then(|| session.to_owned())
+}
+
 fn ssh(host: &str, script: &str) -> Result<String, String> {
     ssh_with_input(host, script, b"")
 }
 
 fn ssh_with_input(host: &str, script: &str, input: &[u8]) -> Result<String, String> {
-    let mut child = Command::new("ssh").args(SSH_OPTIONS).args(["-T", host, "--", script]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| format!("ssh {host}: {error}"))?;
+    let mut child = Command::new("ssh").args(SSH_OPTIONS).args(["-T", &login(host), "--", script]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| format!("ssh {host}: {error}"))?;
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(input);
     }
@@ -109,7 +122,7 @@ impl Lander {
     }
 
     fn fetch_lane_once(&self, host: &str, ticket: &Ticket) -> Result<(), String> {
-        let url = format!("ssh://{host}{}", ticket.root.display());
+        let url = format!("ssh://{}{}", login(host), ticket.root.display());
         let target = format!("+refs/heads/{}:refs/land-remote/{host}/{}", ticket.branch, queue::slug(&ticket.branch));
         let ssh_command = std::iter::once("ssh").chain(SSH_OPTIONS.iter().copied()).collect::<Vec<_>>().join(" ");
         let output = Command::new("git").arg("-C").arg(&self.repo).args(["fetch", "-q", "--no-tags", &url, &target]).env("GIT_SSH_COMMAND", ssh_command).output().map_err(|error| format!("git fetch {url}: {error}"))?;
