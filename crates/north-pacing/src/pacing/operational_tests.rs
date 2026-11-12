@@ -73,6 +73,8 @@ fn every_caller_is_refused_on_a_held_api_organization_before_a_request_leaves_an
     for broken in [unparseable, dir.path().join("missing.toml")] {
         let line = reserve::refusal(&reserve::declared(&broken), &login("api", true), Role::Proxy, None, None);
         assert!(line.as_deref().is_some_and(|line| line.contains("cannot be read")), "a policy that cannot be read holds every API organization: {line:?}");
+        let spawn = crate::spend::view_from_policy(&broken, dir.path(), &crate::spend::Rules { charge: 0.0, reading_max_h: 1.0 }, 0, NOW, |_| true);
+        assert!(spawn.admit("claude:api:fixture-org", Starter::Worker).is_err_and(|refusal| refusal.line.contains("cannot be read")), "the subagent spawn view holds it too");
     }
 
     let billed = tempfile::tempdir().unwrap();

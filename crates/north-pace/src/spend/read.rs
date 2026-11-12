@@ -27,6 +27,14 @@ pub fn view_from_config(cfg: &DocumentMut, agents: &Path, rules: &Rules, working
     View { held: super::hold::declared(cfg), ..view(agents, rules, working, at, |name| Size { plan_week: plan_week(cfg, catalog, name) }, signed_in, operational_reserve(cfg)) }
 }
 
+/// The view under the policy file at `policy`; a policy that cannot be read or parsed holds every API organization.
+pub fn view_from_policy(policy: &Path, agents: &Path, rules: &Rules, working: usize, at: f64, signed_in: impl Fn(&str) -> bool) -> View {
+    match super::hold::read(policy) {
+        Ok(cfg) => view_from_config(&cfg, agents, rules, working, at, signed_in),
+        Err(held) => View { held: Some(held), ..view_from_config(&DocumentMut::new(), agents, rules, working, at, signed_in) },
+    }
+}
+
 fn read(path: &Path) -> Value {
     std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or(Value::Null)
 }

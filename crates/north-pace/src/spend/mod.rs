@@ -11,7 +11,7 @@ pub mod operational;
 
 use std::fmt;
 
-pub use read::{operational_reserve, view_from_config};
+pub use read::{operational_reserve, view_from_config, view_from_policy};
 
 /// The view's settings, from harness/defaults.toml.
 #[derive(Clone, Copy, Debug, PartialEq)]

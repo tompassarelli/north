@@ -10,7 +10,6 @@ mod world;
 
 pub use briefs::Event;
 use crate::spend::{self, Rules, Starter, View};
-use toml_edit::DocumentMut;
 pub use world::Live;
 
 const PROTECTED_PRESSURE_LIMIT: f64 = 20.0;
@@ -72,8 +71,7 @@ fn spawn(world: &impl World, event: &Event) -> Result<Vec<String>, String> {
 /// The spend view from this host's state as last sampled; a subagent adds no session, so the active
 /// count is not read.
 fn spend_view(world: &impl World) -> View {
-    let cfg = std::fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse::<DocumentMut>().ok()).unwrap_or_default();
-    spend::view_from_config(&cfg, &state_dir(world).join("agents"), &Rules::configured(), 0, world.now(), |_| true)
+    spend::view_from_policy(&crate::platform::orchestration::path(), &state_dir(world).join("agents"), &Rules::configured(), 0, world.now(), |_| true)
 }
 
 fn flow_refusal(world: &impl World, event: &Event) -> Option<String> {
