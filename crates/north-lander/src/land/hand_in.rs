@@ -222,7 +222,7 @@ fn apply(named: Named, files: &[File]) -> Result<Named, String> {
         fs::write(target, content).map_err(|error| format!("{}: {error}", target.display()))?;
     }
     let paths: Vec<&str> = named.paths.iter().map(String::as_str).collect();
-    if !named.committed && git(&named.lane.root, &[&["status", "--porcelain", "--untracked-files=all", "--"][..], &paths].concat())?.is_empty() {
+    if !named.committed && literal(&named.lane.root, &[&["status", "--porcelain", "--untracked-files=all", "--"][..], &paths].concat())?.is_empty() {
         return Err(format!("no changes in {}", paths.join(" ")));
     }
     Ok(named)
@@ -253,16 +253,20 @@ fn changed(target: &Path, file: &File, earlier: Option<&str>) -> Result<String, 
 fn commit(named: &Named) -> Result<(), String> {
     let message = named.message.as_str();
     let (root, paths) = (&named.lane.root, named.paths.iter().map(String::as_str).collect::<Vec<_>>());
-    git(root, &[&["add", "--all", "--"][..], &paths].concat())?;
-    if git(root, &[&["diff", "--cached", "--name-only", "HEAD", "--"][..], &paths].concat())?.is_empty() {
+    literal(root, &[&["add", "--all", "--"][..], &paths].concat())?;
+    if literal(root, &[&["diff", "--cached", "--name-only", "HEAD", "--"][..], &paths].concat())?.is_empty() {
         return if named.committed { Ok(()) } else { Err(format!("no changes in {}", paths.join(" "))) };
     }
-    git(root, &[&["commit", "--quiet", "--only", "--message", message, "--"][..], &paths].concat()).map(drop)
+    literal(root, &[&["commit", "--quiet", "--only", "--message", message, "--"][..], &paths].concat()).map(drop)
+}
+
+fn literal(root: &Path, arguments: &[&str]) -> Result<String, String> {
+    git(root, &[&["--literal-pathspecs"][..], arguments].concat())
 }
 
 fn in_lane(root: &Path, relative: &str, committed: &[String]) -> bool {
     let under = format!("{}/", relative.trim_end_matches('/'));
-    let known = |arguments: &[&str]| git(root, &[arguments, &["--", relative]].concat()).is_ok_and(|names| !names.is_empty());
+    let known = |arguments: &[&str]| literal(root, &[arguments, &["--", relative]].concat()).is_ok_and(|names| !names.is_empty());
     committed.iter().any(|change| change == relative || change.starts_with(&under)) || known(&["ls-files", "--cached"]) || known(&["ls-tree", "-r", "--name-only", "HEAD"])
 }
 
@@ -368,7 +372,7 @@ fn would_be(root: &Path, message: &str, paths: &[String]) -> Option<String> {
     let staged = |arguments: &[&str], input: Option<&str>| piped(root, Some(&scratch), arguments, input);
     let made = (|| {
         staged(&["read-tree", "HEAD"], None)?;
-        staged(&[&["add", "--all", "--"][..], &paths.iter().map(String::as_str).collect::<Vec<_>>()].concat(), None)?;
+        staged(&[&["--literal-pathspecs", "add", "--all", "--"][..], &paths.iter().map(String::as_str).collect::<Vec<_>>()].concat(), None)?;
         let tree = staged(&["write-tree"], None)?;
         let cleaned = staged(&["stripspace"], Some(message))?;
         staged(&["commit-tree", tree.trim(), "-p", "HEAD", "-F", "-"], Some(&cleaned))

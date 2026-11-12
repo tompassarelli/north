@@ -320,3 +320,28 @@ fn a_hand_in_verb_call_stages_a_deleted_file_or_the_deletions_under_a_named_dire
     assert_eq!(git(&north.origin, &["diff-tree", "--no-commit-id", "--name-status", "-r", "main"]), "D\tREADME\nD\told/a.txt\nD\told/inner/b.txt", "the deletions did not land, or more than the named paths did");
     assert_eq!((git(&lane, &["diff", "--cached", "--name-only"]), git(&lane, &["ls-files", "--deleted"])), (String::new(), "kept.txt".to_owned()), "an unnamed deletion was staged");
 }
+
+#[test]
+fn a_hand_in_verb_call_takes_a_named_path_literally_so_a_glob_or_pathspec_magic_stages_only_that_name() {
+    let (world, north) = scanned_world(JUDGE_PASSES);
+    let lane = worktree(&north, "literal");
+    fs::write(lane.join("*.txt"), "the starred file\n").unwrap();
+    fs::write(lane.join("a.txt"), "the plain file\n").unwrap();
+    let start = git(&lane, &["rev-parse", "HEAD"]);
+
+    for magic in [":/", ":(glob)**"] {
+        let refused = verb(&world, "Stage everything", &[&lane.join(magic)]).wait_with_output().unwrap();
+        let text = report(&refused);
+        assert_eq!(refused.status.code(), Some(1), "{text}");
+        assert!(text.contains(&format!("{}", lane.join(magic.trim_end_matches('/')).display())) && text.contains("not in the lane") && text.contains("NOT committed"), "{text}");
+        assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a refused hand-in committed: {text}");
+    }
+
+    let (output, journal) = decided(&world, &north, verb(&world, "Land the starred file (north#1268)", &[&lane.join("*.txt")]));
+    let text = report(&output);
+    let landed = git(&north.origin, &["rev-parse", "main"]);
+    assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
+    assert!(text.contains(&format!("Done: landed {landed} on main")), "{text}\n{journal}");
+    assert_eq!(git(&north.origin, &["diff-tree", "--no-commit-id", "--name-status", "-r", "main"]), "A\t*.txt", "a glob in a name staged more than that file");
+    assert_eq!((git(&lane, &["diff", "--cached", "--name-only"]), git(&lane, &["ls-files", "--others"])), (String::new(), "a.txt".to_owned()), "the unnamed file was staged");
+}
