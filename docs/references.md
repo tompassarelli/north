@@ -388,6 +388,17 @@ footguns plan and the nix-development skill's regrounding.
   https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html. Outcome: credentials adopted for the
   broker; a dynamic user per session rejected.
 
+<a id="agent-era-security-sources"></a>Each source below informed
+[rationale/agent-era-security.md](rationale/agent-era-security.md) (north#1241), accessed 2026-11-12.
+
+- <a id="ghuntley-security-talk"></a>**Geoffrey Huntley, summary of his November 2026 conference talk on security in
+  agent-driven engineering**, posted on X, https://x.com/i/status/2120602355066659231. Nine claims,
+  from standing defensive review to removing capabilities and property testing. Outcome: reviewed claim by claim;
+  eight actions adopted as experiments (north#1243 to north#1246, south#118 to south#121), none of its tools adopted.
+- <a id="landlock-net"></a>**Linux kernel documentation, Landlock: network rules**,
+  https://docs.kernel.org/userspace-api/landlock.html. TCP bind and connect rights filter by port, not by host
+  (ABI 4). Outcome: prior only, sizing south#120.
+
 ### Scheduling and capacity
 
 Sources behind [docs/rationale/capacity-scheduler.md](rationale/capacity-scheduler.md#prior-art), which states the

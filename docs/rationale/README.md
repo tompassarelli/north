@@ -3,6 +3,7 @@
 Why north is built the way it is, one note per decision. `north docs rationale-index` writes this list from each note's title and first sentence; edit the notes, not this file.
 
 - [Account usage: one reserve, placement that manages work in flight, and a spend breaker](account-capacity.md): Plan of 2026-11-04 (laptop time), revised the same day to Tom's design of 2026-11-05.
+- [Agent-era security: a claim-by-claim review of "security is the new bottleneck"](agent-era-security.md): Review of 2026-11-12 for north#1241: a summary Geoffrey Huntley posted of his November 2026 conference talk on security in agent-driven engineering ([ghuntley-security-talk](../references.md#ghuntley-security-talk)), tested claim by claim against north's, firn's and south's code and records, in the form of the 2026-11-09 review of his Nix post ([nix-leverage.md](nix-leverage.md), north#968), whose verdicts are cited here and not reopened.
 - [Agent push identity: agents push as the North Fleet app, Tom keeps his login](agent-push-identity.md): Tom approved on 2026-11-06 moving agent pushes off his admin login, so that GitHub itself refuses an agent's stray tag instead of safe-push alone (north#619).
 - [Agent user: agents run under a Unix user of their own](agent-user.md): Decided 2026-11-09 under north#977.
 - [Architectural drift: a measured loop, not only a periodic review](architectural-drift.md): Decided 2026-11-06 under north#636, after Tom shared a community skill for untangling a codebase in one pass and a model's rewrite of it, and asked how it should fold into north.
