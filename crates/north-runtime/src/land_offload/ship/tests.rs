@@ -222,18 +222,28 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap(), &head]);
     fs::remove_dir_all(&slot).unwrap();
     let script = super::script::slot_part().replace("@JOBS@", &super::script::jobs_part()).replace("@ADMIT@", super::script::ADMIT).replace("@SETTLE@", "0").replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@SLOT_PORTS@", "");
-    let output = Command::new("sh")
-        .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
-        .env("HOME", home.path())
-        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
-        .env_remove("NORTH_OFFLOAD_ROOT")
-        .stdin(fs::File::open(&bundle).unwrap())
-        .output()
-        .unwrap();
+    let ship = |north: Option<&Path>| {
+        let mut shell = Command::new("sh");
+        shell.args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"]).env("HOME", home.path()).env("NORTH_OFFLOAD_SETTLE_SECONDS", "0").env_remove("NORTH_OFFLOAD_ROOT").stdin(fs::File::open(&bundle).unwrap());
+        north.map(|north| shell.env("AGENT_CAPACITY_NORTH", north));
+        shell.output().unwrap()
+    };
+    let records = home.path().join(north_base::foundation::offload::SLOT_RECORDS);
+    let output = ship(None);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(fs::read_to_string(home.path().join(north_base::foundation::offload::SLOT_RECORDS).join("code-p-main")).unwrap_or_default(), "code/p/main\n", "the script recorded no checkout for the slot it took, so the sandbox broker cannot tell which project a request from it belongs to");
+    assert_eq!(fs::read_to_string(records.join("code-p-main")).unwrap_or_default(), "code/p/main\n", "the script recorded no checkout for the slot it took, so the sandbox broker cannot tell which project a request from it belongs to");
     assert_eq!(git(&home.path().join(".cache/land-offload/code-p-main"), &["rev-parse", "HEAD"]), head);
     assert!(half_made.is_dir(), "a fetch's auto maintenance pruned a worktree entry that has no gitdir yet, as it would one git worktree add is still creating");
+    fs::remove_dir_all(&records).unwrap();
+    fs::write(&records, "").unwrap();
+    let north = home.path().join("north");
+    crate::foundation::shim::write_script(&north, "printf '%s|%s\\n' \"$PWD\" \"$*\" >>\"$HOME/asked\"\n");
+    let output = ship(Some(&north));
+    let told = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{told}");
+    let asked = fs::read_to_string(home.path().join("asked")).unwrap_or_default();
+    assert!(asked.lines().any(|line| line == format!("{}|capacity offload slot record code-p-main", repo.display())), "a script that could not write its slot's record, as one run inside a session's domain cannot, asked north for no record from the main checkout, so the broker refuses every request its job makes: north was asked {asked:?}; {told}");
+    assert!(!told.contains("cannot record"), "{told}");
 }
 
 #[test]

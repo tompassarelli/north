@@ -207,7 +207,7 @@ SCCACHE_BASEDIRS=$slot; export SCCACHE_BASEDIRS SCCACHE_SERVER_PORT
 printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
 printf '%s\n' "$owner" >"$root/$s.owner"
 placed=$HOME/@SLOT_RECORDS@
-{ mkdir -p "$placed" && printf '%s\n' "${repo#"$HOME"/}" >"$placed/$s"; } 2>/dev/null || echo "offload: cannot record $s as a slot of $repo, so the sandbox broker refuses a request this job makes" >&2
+{ mkdir -p "$placed" && printf '%s\n' "${repo#"$HOME"/}" >"$placed/$s"; } 2>/dev/null || { [ -n "${north_bin:-}" ] && (cd "$repo" && "$north_bin" capacity offload slot record "$s") </dev/null >/dev/null; } || echo "offload: cannot record $s as a slot of $repo, so the sandbox broker refuses a request this job makes" >&2
 printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
   [ -z "${exited:-}" ] || [ -e "$exited" ] || echo 143 >"$exited" 2>/dev/null || true

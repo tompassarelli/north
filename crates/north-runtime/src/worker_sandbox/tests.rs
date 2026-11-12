@@ -329,6 +329,10 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     }
     let scratch = state.join("north/land").canonicalize().unwrap();
     assert!(roots.iter().any(|root| root == &scratch), "a worker may no longer remove its own lock files under {}", scratch.display());
+    let records = context.home.join(north_base::foundation::offload::SLOT_RECORDS);
+    std::fs::create_dir_all(&records).unwrap();
+    let written = super::writable(&context, &roots);
+    assert!(!roots.iter().chain(&written).any(|path| records.starts_with(path) || path.starts_with(&records)), "a worker may write or remove a build slot's record under {}, which tells the broker the project a request from that slot is served as", records.display());
 }
 
 #[test]

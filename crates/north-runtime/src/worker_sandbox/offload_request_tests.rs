@@ -249,8 +249,16 @@ fn a_request_from_an_offload_slot_is_served_only_as_the_project_the_offload_reco
     std::fs::write(records.join("lane"), "code/alpha/main
 ").unwrap();
     refused(&named_as_lane, "a recorded slot whose name is a lane of its project");
-    std::fs::write(records.join("code-alpha-main-5"), "code/alpha/main
-").unwrap();
+    let lane = home.join("code/alpha/worktrees/lane");
+    let recorded = |name: &str| (ask(north, host, &format!("capacity offload slot record {name}"), &lane, worker), std::fs::read_to_string(records.join(name)).unwrap_or_default());
+    let ((code, told), record) = recorded("made-up");
+    if code == 0 || !record.is_empty() {
+        failures.push(format!("{CASE}: a session had a name that is no slot of its project recorded as one: exit {code}, record {record:?}: {told}"));
+    }
+    let ((code, told), record) = recorded("code-alpha-main-5");
+    if code != 0 || record != "code/alpha/main\n" {
+        failures.push(format!("{CASE}: the record a job's script asks for from inside a session's domain, where it cannot write it, was not written by the broker's side as the project of the checkout the request was placed in: exit {code}, record {record:?}: {told}"));
+    }
     let (code, told) = ask(north, host, verb, &slot, worker);
     if code != 0 || text("seen").lines().next_back().and_then(|started| started.split('|').next()) != Some(&*slot.to_string_lossy()) {
         failures.push(format!("{CASE}: `{verb}` asked from a job's recorded slot was not served there: exit {code}: {told}"));
@@ -355,7 +363,7 @@ fn offload(root: &Path) {
         let read = Command::new("git").args(["rev-parse", "--path-format=absolute", "--git-common-dir", "--absolute-git-dir"]).output().unwrap();
         std::fs::write(root.join("read"), [read.stdout, read.stderr].concat()).unwrap();
     }
-    let code = if words.get(2).is_some_and(|word| word == "free") || words.last().is_some_and(|word| word == HERE) { crate::land_offload::run(&words[2..]) } else { 0 };
+    let code = if words.get(2).is_some_and(|word| word == "free" || word == "slot") || words.last().is_some_and(|word| word == HERE) { crate::land_offload::run(&words[2..]) } else { 0 };
     std::process::exit(i32::from(code));
 }
 

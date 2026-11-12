@@ -137,6 +137,7 @@ pub(crate) use script::slot_ports;
 use script::remote_script;
 mod bundle;
 mod generated;
+pub(super) mod slot_record;
 #[cfg(test)]
 mod pinned;
 mod relay;
