@@ -97,10 +97,12 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   control; nothing taken yet.
 
 - <a id="impeccable"></a>**Impeccable** (Paul Bakaus, Apache-2.0), https://github.com/pbakaus/impeccable, read at
-  `c3bb418` on 2026-11-06. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
-  Informed: [rationale/watch/2026-11-06-screen.md](rationale/watch/2026-11-06-screen.md) (north#636).
+  `b4bff16` on 2026-11-12 (first read at `c3bb418` on 2026-11-06). A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
+  Informed: [rationale/watch/2026-11-06-screen.md](rationale/watch/2026-11-06-screen.md) (north#636) and
+  [rationale/watch/2026-11-12-impeccable.md](rationale/watch/2026-11-12-impeccable.md) (north#1012).
   Outcome: followed for the Mak'gora client UI and the Wisp and Mak'gora pages (deterministic slop rules,
-  ranked critique and audit); nothing taken yet.
+  ranked critique and audit); the second reading found the rules unchanged across 143 commits, the rest account and
+  installer plumbing; nothing taken yet.
 
 - <a id="superpowers"></a>**Superpowers** (Jesse Vincent, MIT), https://github.com/obra/superpowers, read at
   `22f0b46` on 2026-11-06. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
