@@ -23,6 +23,9 @@ use plan::{STEPS, Verdict};
 use session::{Window, arguments_of, environment_of, name_of, parent_of};
 
 const COOLDOWN: Duration = Duration::from_secs(20 * 60);
+const DECIDE_EVERY: Duration = Duration::from_secs(5 * 60);
+const MOVED: &str = "window-move.stamp";
+const DECIDED: &str = "window-move.decided";
 const STAGE: &str = "NORTH_WINDOW_MOVE";
 const PLAN_UNIT: (&str, Duration) = ("north-window-move", Duration::from_secs(120));
 const SWAP_UNIT: (&str, Duration) = ("north-window-move-swap", Duration::from_secs(10 * 60));
@@ -73,11 +76,12 @@ pub(super) fn auto(fleet: &Fleet) {
 }
 
 fn start_when_due(fleet: &Fleet) -> NorthResult<()> {
-    let Some(record) = fleet.fleet_proxy()? else { return Ok(()) };
-    let Verdict::Move { to, reason } = plan::decide(&record.account, &outlooks()?, None) else { return Ok(()) };
-    if !cooled_down() {
+    if !elapsed(MOVED, COOLDOWN) || !elapsed(DECIDED, DECIDE_EVERY) {
         return Ok(());
     }
+    stamp(DECIDED);
+    let Some(record) = fleet.fleet_proxy()? else { return Ok(()) };
+    let Verdict::Move { to, reason } = plan::decide(&record.account, &outlooks()?, None) else { return Ok(()) };
     println!("north proxy move: account {} to {to}: {reason}", record.account);
     start(SWAP_UNIT, "swap", &["--to", &to], false)
 }
@@ -130,7 +134,7 @@ fn plan(request: &Request) -> NorthResult<()> {
 }
 
 fn swap(request: &Request) -> NorthResult<()> {
-    stamp();
+    stamp(MOVED);
     let fleet = router::open_fleet()?;
     let window = recorded_window(&fleet)?;
     let Some(to) = destination(&window, request.to.as_deref())? else { return Ok(()) };
@@ -171,22 +175,22 @@ fn outlooks() -> NorthResult<Vec<AccountOutlook>> {
     crate::usage::outlook::claude_accounts(&db, &crate::platform::orchestration::path(), Timestamp::now()).map_err(NorthError::State)
 }
 
-fn stamp_path() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state/north/window-move.stamp"))
+fn stamp_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state/north").join(name))
 }
 
 fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs())
 }
 
-fn cooled_down() -> bool {
-    let Some(stamp) = stamp_path() else { return false };
+fn elapsed(name: &str, interval: Duration) -> bool {
+    let Some(stamp) = stamp_path(name) else { return false };
     let last = std::fs::read_to_string(&stamp).ok().and_then(|text| text.trim().parse::<u64>().ok()).unwrap_or(0);
-    now_secs().saturating_sub(last) >= COOLDOWN.as_secs()
+    now_secs().saturating_sub(last) >= interval.as_secs()
 }
 
-fn stamp() {
-    if let Some(stamp) = stamp_path() {
+fn stamp(name: &str) {
+    if let Some(stamp) = stamp_path(name) {
         let _ = std::fs::write(stamp, now_secs().to_string());
     }
 }
