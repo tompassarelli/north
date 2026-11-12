@@ -61,6 +61,7 @@ pub mod session_binding;
 pub mod session_scope;
 pub mod session_host_files;
 pub mod pyjson;
+pub mod ascii_json;
 pub mod pystats;
 pub mod replay_verdict;
 pub mod trials;
