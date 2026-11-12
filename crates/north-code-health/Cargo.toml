@@ -6,6 +6,9 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.96"
 publish = false
 
+[package.metadata.north.buck]
+test-resources = ["//:tree"]
+
 [lib]
 doctest = false
 

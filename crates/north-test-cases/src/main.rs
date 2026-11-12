@@ -44,6 +44,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
 fn test(options: &Options) -> Result<bool, String> {
     let started = Instant::now();
     let listed = cases::list(&options.binary)?;
-    let outcomes = run::all(&options.binary, &listed.run, options.threads)?;
+    let outcomes = run::all(&options.binary, &listed.run, options.threads, &run::Home::new()?)?;
     Ok(report::print(&options.binary_id, &outcomes, listed.ignored, started.elapsed()))
 }

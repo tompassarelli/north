@@ -6,6 +6,9 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.96"
 publish = false
 
+[package.metadata.north.buck]
+test-resources = ["//:tree"]
+
 [dependencies]
 north-runtime-follow = { path = "../north-runtime-follow" }
 north-build-system = { path = "../north-build-system" }

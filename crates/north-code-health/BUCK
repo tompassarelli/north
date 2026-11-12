@@ -45,6 +45,9 @@ north_rust_test(
     crate_root = "src/lib.rs",
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
+    resources = [
+        "//:tree",
+    ],
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-graph-loops:north-graph-loops",
@@ -62,6 +65,6 @@ north_rust_test(
 
 north_files(
     name = "files",
-    srcs = glob(["**"]),
+    srcs = glob(["**", "**/.*", "**/.*/**"]),
     visibility = ["PUBLIC"],
 )

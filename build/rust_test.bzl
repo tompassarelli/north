@@ -11,6 +11,17 @@ north_files = rule(
     },
 )
 
+def _north_tree_impl(ctx: AnalysisContext) -> list[Provider]:
+    return [DefaultInfo(default_outputs = [output for part in ctx.attrs.parts for output in part[DefaultInfo].default_outputs])]
+
+north_tree = rule(
+    impl = _north_tree_impl,
+    doc = "Every package's files as one target, the declared input of a test that reads the whole repository.",
+    attrs = {
+        "parts": attrs.list(attrs.dep(), default = []),
+    },
+)
+
 def _north_test_impl(ctx: AnalysisContext) -> list[Provider]:
     resources = [resource[DefaultInfo].default_outputs for resource in ctx.attrs.resources]
     command = cmd_args(

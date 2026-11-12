@@ -48,6 +48,9 @@ rust-version = "1.96"
 publish = false
 autobins = false
 
+[package.metadata.north.buck]
+test-resources = ["//:tree"]
+
 [dependencies]
 north-core = { path = "crates/north-core" }
 north-base = { path = "crates/north-base" }

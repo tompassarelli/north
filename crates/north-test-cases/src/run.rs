@@ -1,7 +1,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::os::unix::process::ExitStatusExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,7 +20,24 @@ pub struct Outcome {
     pub output: Vec<u8>,
 }
 
-pub fn all(binary: &Path, names: &[String], threads: usize) -> Result<Vec<Outcome>, String> {
+/// A new empty directory every case of one run gets as `HOME`, as the dependency box gives nextest's cases an empty home: a remote worker sets none, and a host's own would let a case read what no target declares.
+pub struct Home(PathBuf);
+
+impl Home {
+    pub fn new() -> Result<Self, String> {
+        let path = std::env::temp_dir().join(format!("north-test-home-{}", std::process::id()));
+        std::fs::create_dir(&path).map_err(|error| format!("cannot make the cases' home {}: {error}", path.display()))?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for Home {
+    fn drop(&mut self) {
+        _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+pub fn all(binary: &Path, names: &[String], threads: usize, home: &Home) -> Result<Vec<Outcome>, String> {
     let next = AtomicUsize::new(0);
     let outcomes = Mutex::new(Vec::with_capacity(names.len()));
     let failure = Mutex::new(None);
@@ -28,7 +45,7 @@ pub fn all(binary: &Path, names: &[String], threads: usize) -> Result<Vec<Outcom
         for _ in 0..threads.min(names.len()) {
             scope.spawn(|| {
                 while let Some(name) = names.get(next.fetch_add(1, Ordering::Relaxed)) {
-                    match one(binary, name) {
+                    match one(binary, name, home) {
                         Ok(outcome) => outcomes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(outcome),
                         Err(error) => _ = failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_or_insert(error),
                     }
@@ -45,12 +62,13 @@ pub fn all(binary: &Path, names: &[String], threads: usize) -> Result<Vec<Outcom
 }
 
 /// A case writes to a file, never a pipe: the case's verdict is its own exit, so a process it leaves behind holding its output cannot keep the runner waiting, and what the case wrote is read whole however busy the host is.
-fn one(binary: &Path, name: &str) -> Result<Outcome, String> {
+fn one(binary: &Path, name: &str, home: &Home) -> Result<Outcome, String> {
     let (written, mut read) = capture().map_err(|error| format!("cannot capture the output of {name}: {error}"))?;
     let both = written.try_clone().map_err(|error| format!("cannot capture the output of {name}: {error}"))?;
     let started = Instant::now();
     let status = Command::new(binary)
         .args(["--exact", name, "--nocapture"])
+        .env("HOME", &home.0)
         .stdin(Stdio::null())
         .stdout(written)
         .stderr(both)

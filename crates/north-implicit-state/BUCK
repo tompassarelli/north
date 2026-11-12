@@ -48,6 +48,6 @@ north_rust_test(
 
 north_files(
     name = "files",
-    srcs = glob(["**"]),
+    srcs = glob(["**", "**/.*", "**/.*/**"]),
     visibility = ["PUBLIC"],
 )

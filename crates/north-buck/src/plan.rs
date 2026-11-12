@@ -21,6 +21,7 @@ pub struct Rule {
     pub edition: String,
     pub env: BTreeMap<String, String>,
     pub run_env: BTreeMap<String, String>,
+    pub resources: Vec<String>,
     pub binary_id: Option<String>,
     pub deps: Vec<String>,
     pub named_deps: BTreeMap<String, String>,
@@ -28,6 +29,7 @@ pub struct Rule {
 
 pub struct Buckfile {
     pub dir: String,
+    pub tree: Vec<String>,
     pub features: Vec<String>,
     pub rustc_flags: Vec<String>,
     pub rules: Vec<Rule>,
@@ -42,7 +44,11 @@ pub fn plan(workspace: &Workspace, lint_flags: &BTreeMap<String, Vec<String>>) -
         let rules = package_rules(workspace, package, &owners, &mut exports)?;
         let mut rustc_flags = lint_flags.get(&package.dir).cloned().unwrap_or_default();
         rustc_flags.extend(check_cfg(package));
-        files.push(Buckfile { dir: package.dir.clone(), features: package.features.clone(), rustc_flags, rules, exports: BTreeSet::new() });
+        files.push(Buckfile { dir: package.dir.clone(), tree: Vec::new(), features: package.features.clone(), rustc_flags, rules, exports: BTreeSet::new() });
+    }
+    let tree: Vec<String> = files.iter().map(|file| if file.dir.is_empty() { ":files".to_owned() } else { format!("//{}:files", file.dir) }).collect();
+    for file in files.iter_mut().filter(|file| file.dir.is_empty()) {
+        file.tree.clone_from(&tree);
     }
     for file in &mut files {
         file.exports = exports.remove(&file.dir).unwrap_or_default();
@@ -143,5 +149,6 @@ fn rule(kind: RuleKind, name: String, binary_id: Option<String>, tree: &Tree, co
         }
     }
     let crate_root = tree.path_of(&target.src_path);
-    Ok(Rule { kind, name, crate_name, crate_root, tree: tree.clone(), edition: target.edition.clone(), env, run_env, binary_id, deps: deps.into_iter().collect(), named_deps })
+    let resources = if kind == RuleKind::Test { context.package.test_resources.clone() } else { Vec::new() };
+    Ok(Rule { kind, name, crate_name, crate_root, tree: tree.clone(), edition: target.edition.clone(), env, run_env, resources, binary_id, deps: deps.into_iter().collect(), named_deps })
 }

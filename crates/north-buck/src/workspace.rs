@@ -26,6 +26,26 @@ struct RawPackage {
     repository: Option<String>,
     homepage: Option<String>,
     rust_version: Option<String>,
+    metadata: Option<RawMetadata>,
+}
+
+#[derive(Deserialize, Default)]
+struct RawMetadata {
+    #[serde(default)]
+    north: NorthMetadata,
+}
+
+#[derive(Deserialize, Default)]
+struct NorthMetadata {
+    #[serde(default)]
+    buck: BuckMetadata,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct BuckMetadata {
+    #[serde(rename = "test-resources", default)]
+    test_resources: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -90,6 +110,7 @@ pub struct Package {
     pub features: Vec<String>,
     pub declared_features: Vec<String>,
     pub deps: Vec<Dep>,
+    pub test_resources: Vec<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -153,6 +174,7 @@ pub fn parse(json: &str) -> Result<Workspace, String> {
             features: node.features.clone(),
             declared_features: raw.features.keys().cloned().collect(),
             deps,
+            test_resources: raw.metadata.as_ref().map(|metadata| metadata.north.buck.test_resources.clone()).unwrap_or_default(),
         });
     }
     packages.sort_by(|left, right| left.dir.cmp(&right.dir));

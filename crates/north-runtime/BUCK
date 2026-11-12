@@ -59,6 +59,9 @@ north_rust_test(
     env = {
         "CARGO_PKG_VERSION": "0.1.0",
     },
+    resources = [
+        "//:tree",
+    ],
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-build-system:north-build-system",
@@ -85,7 +88,7 @@ north_rust_test(
 
 north_files(
     name = "files",
-    srcs = glob(["**"]),
+    srcs = glob(["**", "**/.*", "**/.*/**"]),
     visibility = ["PUBLIC"],
 )
 

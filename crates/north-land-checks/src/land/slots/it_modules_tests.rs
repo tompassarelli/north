@@ -163,10 +163,10 @@ fn git(repo: &Path, arguments: &[&str]) -> String {
 fn replay_of_the_sandbox_move(repo: &Path) -> (String, String) {
     for table in [STRUCTURE, TABLE, tree_wide_units::TABLE, super::super::guard_suites::TABLE] {
         std::fs::create_dir_all(repo.join(table).parent().unwrap()).unwrap();
-        std::fs::copy(root().join(table), repo.join(table)).unwrap();
+        copy(&root().join(table), &repo.join(table));
     }
     for entry in std::fs::read_dir(root().join("tests/it")).unwrap().flatten().filter(|entry| entry.path().is_file()) {
-        std::fs::copy(entry.path(), repo.join("tests/it").join(entry.file_name())).unwrap();
+        copy(&entry.path(), &repo.join("tests/it").join(entry.file_name()));
     }
     let moved = ["except.rs", "executable.rs", "lane_only.rs", "readable.rs", "removable.rs"];
     let kept = ["crates/north-runtime/src/worker_sandbox/broker.rs", "crates/north-runtime/src/worker_sandbox/mod.rs", "crates/north-runtime/src/worker_sandbox/tests.rs", "crates/north-providers/src/providers/opencode/harness.rs", "crates/north-providers/src/providers/opencode/turns.rs", "crates/north-base/src/platform/mod.rs", "crates/north-base/Cargo.toml", "crates/north-land-sandbox/src/lib.rs", "crates/north-runtime/src/privacy/mod.rs", "crates/north-land-scans/src/outgoing/mod.rs", "crates/north-lander/src/lib.rs", "crates/north-land-checks/src/lib.rs", "crates/north-safe-push/src/lib.rs", "Cargo.lock", "docs/rationale/worker-sandbox.md"];
@@ -204,6 +204,11 @@ fn replay_of_the_sandbox_move(repo: &Path) -> (String, String) {
     (base, git(repo, &["rev-parse", "HEAD"]))
 }
 
+/// A file's content without its mode: a remote worker's inputs are read-only, and these fixtures copy one file twice and edit their copies.
+fn copy(from: &Path, to: &Path) {
+    std::fs::write(to, std::fs::read(from).unwrap()).unwrap();
+}
+
 fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap().flatten() {
@@ -211,7 +216,7 @@ fn copy_tree(from: &Path, to: &Path) {
         if entry.file_type().unwrap().is_dir() {
             copy_tree(&entry.path(), &target);
         } else {
-            std::fs::copy(entry.path(), target).unwrap();
+            copy(&entry.path(), &target);
         }
     }
 }
@@ -219,7 +224,7 @@ fn copy_tree(from: &Path, to: &Path) {
 fn harness_data_repo(repo: &Path) -> (String, String) {
     for table in [STRUCTURE, TABLE, tree_wide_units::TABLE, super::super::guard_suites::TABLE, ".safe-push"] {
         std::fs::create_dir_all(repo.join(table).parent().unwrap()).unwrap();
-        std::fs::copy(root().join(table), repo.join(table)).unwrap();
+        copy(&root().join(table), &repo.join(table));
     }
     copy_tree(&root().join("tests/it"), &repo.join("tests/it"));
     std::fs::create_dir_all(repo.join("harness")).unwrap();

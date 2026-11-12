@@ -231,16 +231,25 @@ prints, sorted by name, one nextest-format line per case, `PASS [   0.012s] nort
   stdenv tools by store path, which `flake.lock` fixes, so they are part of the test's key and the same on every host
   with the same lock; then `/run/wrappers/bin` and `/run/current-system/sw/bin` last, as the dev shell has them, for
   host tools such as systemctl that no test should reach on a remote worker.
+- Home: a remote worker sets no `HOME`, and a host's own would let a case read what no target declares. The case
+  runner makes one empty directory per run and gives it to every case as `HOME`, as the dependency box gives
+  nextest's cases an empty home.
 - The working directory is the project root (`run_from_project_root`), which remote execution requires. Paths
   relative to the root, including `CARGO_MANIFEST_DIR` and `$(location)`, resolve there. A test that assumed its
   package directory as the working directory shows up as a failure in the first comparison run, not as a silent
   difference.
-- Declared run-time inputs: each package's `north_files(name = "files", srcs = glob(["**"]))`, and the root
-  package's files outside `crates/`, `target/`, `buck-out/` and `worktrees/`. `north_files` hands on the source
-  artifacts unchanged, so a test finds each file at its repository path, as `harness_root` and the fixture reads
-  expect; `filegroup` would copy them under `buck-out`. A test that reads another crate's files names that crate's
-  `:files` in `resources`. On remote execution an undeclared tree read fails, because the input root holds only
-  declared inputs, so a missing declaration is a red run on the first try, never a stale pass.
+- Declared run-time inputs: each package's `north_files(name = "files", srcs = glob(["**", "**/.*", "**/.*/**"]))`,
+  and the root package's files outside `crates/`, `target/`, `buck-out/`, `worktrees/`, `.git` and
+  `.buckconfig.flake`. Buck2's `**` skips a name that starts with a dot, so the two dot patterns carry `.safe-push`
+  and `.cargo/config.toml`, which tests read. `north_files` hands on the source artifacts unchanged, so a test finds
+  each file at its repository path, as `harness_root` and the fixture reads expect; `filegroup` would copy them under
+  `buck-out`. A package whose tests read files outside it says so in its manifest,
+  `[package.metadata.north.buck] test-resources = [LABEL, ...]`, and the generator writes those labels into each of
+  its test targets' `resources`. `//:tree` is every package's `:files` as one target, for tests that scan the
+  whole repository (the root package, north-code-health, north-land-checks and north-runtime); such a test's key
+  changes with every file, as its verdict can. On remote execution an undeclared tree read fails, because the input
+  root holds only declared inputs, so a missing declaration is a red run on the first try, never a stale pass.
+  Inputs are read-only on a worker, so a fixture that edits a copy of one copies its content, not its mode.
 
 **Verdict reuse reads Buck2's action results.** A cached test target is a reused verdict: its `TestEnd` reports
 `cache_hit`, and its `TestResult` details repeat the case lines of the run that passed. The landing's reuse reader
@@ -301,8 +310,35 @@ sandbox, where nextest itself fails 12 cases, so its differences said nothing ab
   `cannot lock ref ... File exists`, a sibling holding the ref's lock past git's 100 ms wait. The fetch retry now
   takes that for the race it is.
 - So box 5's count holds and its verdicts do not yet. The tests belong on the workers, where an undeclared read
-  fails and a pass is cached; a run on the host is neither fenced nor reused. What remains is to declare the inputs
-  the 51 cases read, and to give the cases that start a sandbox or a fixture service a worker that lets them.
+  fails and a pass is cached; a run on the host is neither fenced nor reused.
+
+### The 51 by cause, 2026-11-12
+
+At origin/main c013d6124c on gex45, tests on the workers: 1813 cases, 1762 passed and 51 failed, in 126 s. Each
+cause is named by what its cases ask of the machine that runs them.
+
+- Other crates' files, 9 cases. A check over the whole tree read sources only its own package and the root declared.
+  Fixed by a declared input, `//:tree`.
+- `HOME` unset, 6 cases. Fixed by the case runner's empty home; one of the 6 then starts a sandbox and joins that
+  cause.
+- Dot names, 4 cases reading `.safe-push` or `.cargo/config.toml`, which `**` skips. Fixed by the dot patterns of
+  `:files`; one of the 4 then edited its read-only copy and joins the next cause.
+- Read-only inputs, 2 cases. A fixture copied an input with `fs::copy`, which keeps the mode, and then edited the
+  copy. The fixtures copy the content.
+- A nested sandbox, 20 cases: 13 `north::it worker_sandbox`, 2 `capacity_agent_compile`, and one each of
+  `agent_build_sandbox`, `carry_matrix`, `depbox_broker`, `land_checks` and `landing_targets`. Each starts the
+  dependency box or a worker sandbox, which fails on a worker with `Can't mount proc on /proc: Operation not
+  permitted`. Open: a worker that lets them.
+- Asks git about the checkout, 5 cases: one in north-code-health and one in north-land-checks list the tree with
+  `git ls-files`, three in north-land-checks run `git diff HEAD HEAD`. A worker's input root has no `.git`. Open.
+- The ssh fixture, 4 north-base cases. The fixture starts its own sshd and logs in to it as the user running the
+  test, which takes a user with a login; each case waits 120 s for a connection that never comes. Open.
+- `openat2`, 3 north-lanes cases: on a worker the call answers `Function not implemented`. Open.
+
+Two cases are counted under two causes, the second hidden behind the first. With the first four fixed, at the same
+commit on cpx62b: 1813 cases, 1781 passed and 32 failed, 247 of 252 targets passing, in 126 s, of which 120 s is
+the ssh cases' wait. None of the 32 is an undeclared read. They are the last four causes, and each needs either a
+worker that can run it or a named class of test that runs on the host inside the dependency box.
 
 Sources: [Buck2 test command](../references.md#buck2-test), [Buck2 test execution](../references.md#buck2-test-execution),
 [nextest environment variables](../references.md#nextest-env).
