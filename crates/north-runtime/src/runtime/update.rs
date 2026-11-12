@@ -171,10 +171,12 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     };
     swap(layout, &layout::link(&previous))?;
     live::note_swap(layout, &layout::link(&previous));
-    agent_link::follow_runtime(&layout.runtime(&previous))?;
     if fs::read_link(layout.lander()).is_ok_and(|lander| lander == layout::link(failed_sha)) {
         relink(&layout.lander(), &layout::link(&previous))?;
         println!("north runtime: lander link rolled back with current to {previous}");
+    }
+    if let Err(failure) = agent_link::follow_runtime(&layout.runtime(&previous)) {
+        eprintln!("north runtime rollback: the agent link stays on {}: {}", layout::short(failed_sha), failure.message);
     }
     lifecycle::move_to::<Promoting>(layout, failed_sha, Promotion::RolledBack, "rolled back on this host after promotion")?;
     lifecycle::move_to::<Promoting>(layout, &previous, Promotion::Live, &format!("rolled back to after {} failed", layout::short(failed_sha)))?;
