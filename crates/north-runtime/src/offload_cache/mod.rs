@@ -43,7 +43,7 @@ const LAND_OFFLOAD: &str = "land_offload";
 
 /// One thing eviction may take from, in the order `stores` lists them, each while the disk passes its own `line`.
 pub enum Store {
-    /// Offload slots under `root` that `take` admits, the oldest unlocked first, while all of `root`'s slots pass `cap_bytes` or the disk passes `line`.
+    /// Offload slots under `root` in `take`'s order, the oldest unlocked first, while all of `root`'s slots pass `cap_bytes` or the disk passes `line`.
     Slots { root: PathBuf, cap_bytes: Option<u64>, take: Take, line: Line },
     /// The shared cargo targets under `cache`, idle build output of the least recently built first, to `cap_bytes` and below it by as much as the disk needs.
     CargoTargets { cache: PathBuf, cap_bytes: u64, line: Line },
@@ -75,22 +75,30 @@ pub fn closing(budget: &DiskBudget, disk: Option<Disk>) -> (Line, Line) {
     (Line::closed(bound, size_gib), Line::held(bound, size_gib))
 }
 
-/// Which slots of a root a `Store::Slots` pass may remove.
+/// Which slots of a root a `Store::Slots` pass may remove: every slot, least recently used first, or the land-check slots past the
+/// `keep` last of that order, other slots before the lander's reserved one.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Take {
     Every,
-    AllButLanders,
-    Landers,
+    Warm { keep: usize },
 }
 
 impl Take {
-    fn admits(self, slot: &str) -> bool {
+    fn order(self, slots: &mut Vec<Slot>) {
         match self {
-            Self::Every => true,
-            Self::AllButLanders => !is_lander_slot(slot),
-            Self::Landers => is_lander_slot(slot),
+            Self::Every => slots.sort_by(|left, right| (left.used, &left.path).cmp(&(right.used, &right.path))),
+            Self::Warm { keep } => {
+                let lander = |slot: &Slot| slot.path.file_name().is_some_and(|name| is_lander_slot(&name.to_string_lossy()));
+                slots.sort_by(|left, right| (lander(left), left.used, &left.path).cmp(&(lander(right), right.used, &right.path)));
+                slots.truncate(slots.len().saturating_sub(keep));
+            }
         }
     }
+}
+
+/// The warm land-check slots the reaper keeps while any other store can still be taken: the land checks this host runs at once.
+pub fn warm_land_slots() -> usize {
+    crate::land_offload::room::checks_at_once(crate::capacity::host::cpu_limit(), crate::capacity::host::land_check_cpus()) as usize
 }
 
 pub struct Evicted {
@@ -120,10 +128,12 @@ struct Slot {
     lock: PathBuf,
 }
 
-/// The stores of this home the ledger gives one of the reaper's own trims, in the ledger's order.
-pub fn stores(home: &Path, disk: Option<Disk>, budget: &DiskBudget, ledger: &Ledger, lines: Lines) -> Vec<Store> {
+/// The stores of this home the ledger gives one of the reaper's own trims, in the ledger's order, then the `warm` land-check slots
+/// each land root keeps until every other store has been taken.
+pub fn stores(home: &Path, disk: Option<Disk>, budget: &DiskBudget, ledger: &Ledger, lines: Lines, warm: usize) -> Vec<Store> {
     let share = disk.map(|disk| (disk.size_bytes as f64 * BUILD_OFFLOAD_DISK_SHARE) as u64);
     let mut stores = Vec::new();
+    let mut last = Vec::new();
     for entry in &ledger.entries {
         let place = if entry.path.starts_with('/') { PathBuf::from(&entry.path) } else { home.join(&entry.path) };
         let line = if entry.kind == Kind::Warm { lines.evict } else { lines.trim };
@@ -134,12 +144,13 @@ pub fn stores(home: &Path, disk: Option<Disk>, budget: &DiskBudget, ledger: &Led
             "compiler-cache" => stores.push(Store::CompilerCache { root: place, cap_bytes: compiler_cache::cap_bytes(budget), line }),
             "oldest-entries" => stores.push(Store::Entries { root: place, line }),
             "land-slots" => {
-                stores.push(Store::Slots { root: place.clone(), cap_bytes: cap, take: Take::AllButLanders, line });
-                stores.push(Store::Slots { root: place, cap_bytes: cap, take: Take::Landers, line });
+                stores.push(Store::Slots { root: place.clone(), cap_bytes: cap, take: Take::Warm { keep: warm }, line });
+                last.push(Store::Slots { root: place, cap_bytes: cap, take: Take::Warm { keep: 0 }, line });
             }
             _ => {}
         }
     }
+    stores.extend(last);
     stores
 }
 
@@ -206,8 +217,8 @@ fn evict_slots(root: &Path, cap_bytes: Option<u64>, take: Take, line: Line, disk
     }
     let every = slots(root);
     let mut held: u64 = every.iter().map(|slot| slot.bytes).sum();
-    let mut slots: Vec<Slot> = every.into_iter().filter(|slot| slot.path.file_name().is_some_and(|name| take.admits(&name.to_string_lossy()))).collect();
-    slots.sort_by_key(|slot| slot.used);
+    let mut slots = every;
+    take.order(&mut slots);
     for slot in slots {
         let over_cap = cap_bytes.is_some_and(|cap| held > cap);
         if !over_cap && !over(line, disk) {
@@ -315,7 +326,7 @@ fn evict_here(home: &Path, budget: &DiskBudget, disk: &mut dyn FnMut() -> Option
     let first = disk();
     let (_, held) = closing(budget, first);
     let under = first.is_some_and(|disk| disk.past(held));
-    let evicted = evict(&stores(home, first, budget, &Ledger::shipped(), Lines::pass(cleanup || under, under.then_some(held))), disk);
+    let evicted = evict(&stores(home, first, budget, &Ledger::shipped(), Lines::pass(cleanup || under, under.then_some(held)), warm_land_slots()), disk);
     for gone in &evicted {
         eprintln!("north capacity: evicted {} {} ({} MiB), least recently used", gone.what, gone.path.display(), gone.bytes >> 20);
     }

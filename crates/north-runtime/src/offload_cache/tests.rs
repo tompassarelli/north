@@ -105,7 +105,7 @@ fn aged(path: &Path, kib: usize, age_hours: u64) {
 }
 
 fn caches_at_their_caps_are_trimmed_below_them_under_the_low_watermark_and_land_slots_wait_for_the_eviction_line() {
-    let lay_out = |lines: Lines| {
+    let lay_out = |lines: Lines, ledger: &Ledger| {
         let home = tempfile::tempdir().unwrap();
         aged(&home.path().join(".cache/cargo-target/north/debug/incremental/north_core-1/blob"), 512, 3);
         aged(&home.path().join(".cache/cargo-target/wisp-window/debug/incremental/wisp-1/blob"), 512, 1);
@@ -116,7 +116,7 @@ fn caches_at_their_caps_are_trimmed_below_them_under_the_low_watermark_and_land_
         slot(&land, "code-north-main", 64, 40);
         slot(&land, "code-north-main-2", 64, 10);
         let budget = DiskBudget::parse("[hosts.h.disk_budget_gib]\ncargo_target = 1.0\nsccache = 1.0\n", "h");
-        let stores: Vec<Store> = stores(home.path(), None, &budget, &Ledger::shipped(), lines)
+        let stores: Vec<Store> = stores(home.path(), None, &budget, ledger, lines, 2)
             .into_iter()
             .map(|store| match store {
                 Store::CompilerCache { cap_bytes, line, .. } => Store::CompilerCache { root: home.path().join("sccache-store"), cap_bytes, line },
@@ -128,19 +128,26 @@ fn caches_at_their_caps_are_trimmed_below_them_under_the_low_watermark_and_land_
     let used_gib = |home: &Path| allocated_tree(home, &mut HashSet::new()).unwrap().0 as f64 / GIB;
     let room = 1000.0;
     let reading = |home: &Path| Some(Disk { used_percent: 0.0, free_gib: room - used_gib(home), size_bytes: u64::MAX });
-    let (home, _) = lay_out(Lines { trim: Line::NEVER, evict: Line::NEVER });
+    let (home, _) = lay_out(Lines { trim: Line::NEVER, evict: Line::NEVER }, &Ledger::shipped());
     let short = 300.0 * KIB as f64 / GIB;
     let lines = Lines { trim: Line { free_share: 1.0, free_gib: room - used_gib(home.path()) + short }, evict: Line { free_share: 1.0, free_gib: room - used_gib(home.path()) - 1.0 } };
     drop(home);
-    let (home, stores) = lay_out(lines);
+    let (home, stores) = lay_out(lines, &Ledger::shipped());
     let evicted = evict(&stores, &mut || reading(home.path()));
     assert_eq!(names(&evicted), ["north"], "the least recently built target goes below the cap by what the disk needs, and no further");
     assert!(home.path().join(".cache/cargo-target/wisp-window/debug/incremental/wisp-1/blob").exists() && home.path().join("sccache-store/a/b/older").exists());
     assert!(["code-north-main-5", "code-north-main", "code-north-main-2"].iter().all(|name| home.path().join(".cache/land-offload").join(name).join("target/blob").exists()), "the disk never passed the eviction line, so every land slot stays");
     let always = Line { free_share: 1.0, free_gib: f64::INFINITY };
-    let (_home, stores) = lay_out(Lines { trim: always, evict: always });
+    let (_home, stores) = lay_out(Lines { trim: always, evict: always }, &Ledger::shipped());
     let evicted = evict(&stores, &mut || Some(Disk { used_percent: 100.0, free_gib: 0.0, size_bytes: 1 << 40 }));
     assert_eq!(names(&evicted), ["north", "wisp-window", "sccache-store", "code-north-main", "code-north-main-2", "code-north-main-5"], "every cache goes before any land slot, and the lander's reserved slot goes last though it was used least recently");
+    let mut land_first = Ledger::shipped();
+    let at = land_first.entries.iter().position(|entry| entry.name == "land_offload").unwrap();
+    let entry = land_first.entries.remove(at);
+    land_first.entries.insert(0, entry);
+    let (_home, stores) = lay_out(Lines { trim: always, evict: always }, &land_first);
+    let evicted = evict(&stores, &mut || Some(Disk { used_percent: 100.0, free_gib: 0.0, size_bytes: 1 << 40 }));
+    assert_eq!(names(&evicted), ["code-north-main", "north", "wisp-window", "sccache-store", "code-north-main-2", "code-north-main-5"], "a land root keeps the two land checks its host runs at once warm until every other store is taken, wherever the ledger lists it");
 }
 
 fn a_large_disk_evicts_at_the_same_free_headroom_as_a_small_one_so_a_roomy_host_keeps_its_land_slots() {
@@ -155,7 +162,7 @@ fn a_large_disk_evicts_at_the_same_free_headroom_as_a_small_one_so_a_roomy_host_
     let land = home.path().join(".cache/land-offload");
     slot(&land, "code-north-main-3", 8, 40);
     slot(&land, "code-north-main", 8, 50);
-    let evicted = evict(&stores(home.path(), Some(disk(936.0, 81.0)), &DiskBudget::default(), &Ledger::shipped(), Lines::pass(true, None)), &mut || Some(disk(936.0, 81.0)));
+    let evicted = evict(&stores(home.path(), Some(disk(936.0, 81.0)), &DiskBudget::default(), &Ledger::shipped(), Lines::pass(true, None), 2), &mut || Some(disk(936.0, 81.0)));
     assert!(evicted.is_empty() && land.join("code-north-main-3/target/blob").exists() && land.join("code-north-main/target/blob").exists());
 }
 
@@ -221,7 +228,7 @@ fn the_first_pass_under_the_eviction_line_takes_land_slots_back_over_the_stop_li
     let budget = DiskBudget::parse("[hosts.h.disk_budget_gib]\nland_offload = 0.01\n", "h");
     let cap = (budget.named_gib("land_offload").unwrap() * GIB) as u64;
     let roomy = Disk { used_percent: 50.0, free_gib: 400.0, size_bytes };
-    let stores = stores(home.path(), Some(roomy), &budget, &Ledger::shipped(), Lines::pass(false, None));
+    let stores = stores(home.path(), Some(roomy), &budget, &Ledger::shipped(), Lines::pass(false, None), 2);
     let evicted = evict(&stores, &mut || Some(roomy));
     let held: u64 = slots(&land).iter().map(|slot| slot.bytes).sum();
     assert!(held <= cap, "the budget holds every land slot together, the lander's included, to the cap on a calm pass: {held} > {cap}");

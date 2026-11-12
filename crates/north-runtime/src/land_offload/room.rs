@@ -54,10 +54,14 @@ impl Room {
         self.slots.map_or(committed, |slots| slots.backlog(self.jobs_at_once(cores), taken).max(committed))
     }
 
-    /// The land checks of `cores` the host runs at once: those its admission's CPU limit holds, at least one and at most the `SLOTS` of one checkout.
     fn jobs_at_once(&self, cores: f64) -> u32 {
-        ((self.admission.limit_cpus.max(0.0) / cores.max(1.0)).floor() as u32).clamp(1, SLOTS)
+        checks_at_once(self.admission.limit_cpus, cores)
     }
+}
+
+/// The land checks of `cores` a host whose admission holds `limit_cpus` runs at once: at least one and at most the `SLOTS` of one checkout.
+pub fn checks_at_once(limit_cpus: f64, cores: f64) -> u32 {
+    ((limit_cpus.max(0.0) / cores.max(1.0)).floor() as u32).clamp(1, SLOTS)
 }
 
 pub(super) fn parse(text: &str) -> Option<Room> {

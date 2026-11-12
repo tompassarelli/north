@@ -78,6 +78,12 @@ pub fn land_check_cpus() -> f64 {
     admission_default("land_offload_cpus")
 }
 
+/// The CPUs this host's leases may hold under its chosen profile: the `aggregateCpuLimit` its status reports.
+pub fn cpu_limit() -> f64 {
+    let (_, profile) = state::active_profile(&runtime_root());
+    aggregate_cpus(profile, machine::host_cores(), machine::agent_slice_cpus())
+}
+
 /// The MiB one offloaded job peaks at on this host: the 90th percentile of the newest measured lander runs' peaks once `heavy_peak_charge_runs` of them are recorded, else `dispatch_heavy_memory_mib`.
 pub fn job_peak_mib() -> f64 {
     let runs = database::recent_usage(5000, |entry| matches!(entry["owner"].as_str(), Some("land-check" | "land-offload")) && entry["class"].as_str() == Some("heavy") && entry["wallSeconds"].as_f64().is_some_and(|wall| wall > 0.0));
