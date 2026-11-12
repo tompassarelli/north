@@ -402,18 +402,7 @@ fn review(job: &Job) -> Result<String, String> {
     }
     let locked = !oracle_files(&lane, &git(&lane, &["merge-base", "origin/main", "HEAD"])?, &job.oracle).is_empty();
     if Lander::of(&sampling::read(&directory), &job.category, job.landing, locked, &sha) == Lander::Reviewer {
-        let reviewer = format!("{}-rv", job.name);
-        let effort = sampling::reviewer_effort(&job.name);
-        let text = brief(&job.name, &job.item, &job.category, job.box_text.as_deref(), &lane.path, &sha, effort);
-        let cwd = lane.launch_cwd();
-        let mut words = vec!["fleet", "launch", "--provider", "claude", "--model", "sonnet", "--effort", effort, "--role", "worker", "--name", &reviewer, "--task", &job.item, "--cwd", &cwd];
-        words.extend(job.box_text.as_deref().map(|text| ["--box", text]).into_iter().flatten());
-        words.extend(["--tier-reason", "north#1020: Sonnet reviews DeepSeek commits by sampling"]);
-        if lane.machine.is_none() {
-            words.extend(["--local", "the DeepSeek lane is on this host"]);
-        }
-        words.push(&text);
-        north(&words)?;
+        let reviewer = launch_reviewer(job, &lane, &sha)?;
         forget(Some(&reviewer))?;
         return Ok(format!("{reviewer} reviews {} ({sha}, {}); {} forgotten", job.item, job.category, job.name));
     }
@@ -426,6 +415,23 @@ fn review(job: &Job) -> Result<String, String> {
     let refusal = String::from_utf8_lossy(&pushed.stderr).lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("safe-push refused").to_owned();
     sampling::append(&directory, &verdict(Kind::Refused, Some(refusal.clone())))?;
     Err(format!("safe-push refused {sha}: {refusal}; the box goes to Claude"))
+}
+
+/// Launches the Sonnet reviewer of `job`'s commit `sha` where `lane` lives, and names it.
+fn launch_reviewer(job: &Job, lane: &Worktree, sha: &str) -> Result<String, String> {
+    let reviewer = format!("{}-rv", job.name);
+    let effort = sampling::reviewer_effort(&job.name);
+    let text = brief(&job.name, &job.item, &job.category, job.box_text.as_deref(), &lane.path, sha, effort);
+    let cwd = lane.launch_cwd();
+    let mut words = vec!["fleet", "launch", "--provider", "claude", "--model", "sonnet", "--effort", effort, "--role", "worker", "--name", &reviewer, "--task", &job.item, "--cwd", &cwd];
+    words.extend(job.box_text.as_deref().map(|text| ["--box", text]).into_iter().flatten());
+    words.extend(["--tier-reason", "north#1020: Sonnet reviews DeepSeek commits by sampling"]);
+    if lane.machine.is_none() {
+        words.extend(["--local", "the DeepSeek lane is on this host"]);
+    }
+    words.push(&text);
+    north(&words)?;
+    Ok(reviewer)
 }
 
 /// `north fleet dispatch verdict --session NAME --category C --sha SHA [--effort medium|high] clean | defect CLASS`: a reviewer's verdict on a
