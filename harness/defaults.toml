@@ -220,6 +220,14 @@ source = "measured: the last 40 land-check heavy runs on the laptop (2026-11-05)
 fallback = "fewer runs, or any run without a measured peak, keep the declared heavy size"
 consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 
+[land_charge_floor_cpus]
+value = 2
+allowed = { min = 1, max = 64 }
+unit = "cores a landing check of a kind with fewer than land_charge_runs passing runs today is charged at least, when the host's land checks of every kind have that many: it is charged the 90th percentile of their mean cores, rounded up, between this floor and land_offload_cpus, while its scope quota stays land_offload_cpus"
+source = "measured: a build host on 2026-11-12, after the charge by kind went live, 46 jobs waited with a slot idle at CPU pressure 17-19 (target 40) because 10 land checks were charged 921 core-seconds and used 236, each new kind still charged 8 of 20 cores"
+fallback = "fewer passing land-check runs on the host today keep land_offload_cpus"
+consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
+
 [land_charge_runs]
 value = 5
 allowed = { min = 1, max = 100000 }

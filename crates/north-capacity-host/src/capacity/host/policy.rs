@@ -240,6 +240,15 @@ pub fn landing_charge(runs: &[ChargedRun], heavy: f64, deadline_seconds: f64) ->
     Some(lighter.unwrap_or(heavy))
 }
 
+/// The cores a landing command is charged while its kind has too few runs today for `landing_charge`: the 90th percentile of the mean cores this host's land checks of every kind used today, rounded up, no fewer than `land_charge_floor_cpus` nor more than `heavy`; None, so the heavy charge stands, until `land_charge_runs` of them passed.
+pub fn host_landing_charge(runs: &[ChargedRun], heavy: f64) -> Option<f64> {
+    let used: Vec<f64> = runs.iter().filter(|run| run.measured() && run.wall_seconds > 0.0).map(|run| run.cpu_seconds / run.wall_seconds).collect();
+    if used.is_empty() || runs.iter().filter(|run| run.passed).count() < default_number("land_charge_runs") as usize {
+        return None;
+    }
+    Some(percentile(&used, 0.9).ceil().max(default_number("land_charge_floor_cpus")).min(heavy))
+}
+
 pub fn owner_prefix(owner: &str) -> &str {
     let end = owner.find(|character: char| !character.is_ascii_alphabetic()).unwrap_or(owner.len());
     &owner[..end]

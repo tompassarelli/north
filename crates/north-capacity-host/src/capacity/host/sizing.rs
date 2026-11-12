@@ -109,6 +109,12 @@ pub fn landing_runs(command: &[String]) -> Vec<ChargedRun> {
     charged_runs(&lander_runs(&since), command, &since, &host_name())
 }
 
+/// Every run the lander's own leases made on this host in the last day, of whatever kind, as `policy::host_landing_charge` reads them.
+pub fn host_landing_runs() -> Vec<ChargedRun> {
+    let since = days_ago(1);
+    day_runs(&lander_runs(&since), &since, &host_name(), |_| true)
+}
+
 /// Keeps `entry`, the usage row of a run a lander's lease made, in the record `landing_runs` reads, and drops the days no charge reads any more.
 pub fn record_landing_run(entry: &str) -> std::io::Result<()> {
     record_lander_run(entry, &days_ago(0), &days_ago(2))
@@ -118,9 +124,13 @@ pub fn record_landing_run(entry: &str) -> std::io::Result<()> {
 pub(super) fn charged_runs(rows: &str, command: &[String], since: &str, host: &str) -> Vec<ChargedRun> {
     let kind = super::shape::check_kind(&recorded_command(command));
     let kind_of = |row: &Value| row.get("command").and_then(Value::as_array).map(|words| super::shape::check_kind(&words.iter().filter_map(|word| word.as_str().map(str::to_owned)).collect::<Vec<_>>()));
+    day_runs(rows, since, host, |row| kind_of(row).as_ref() == Some(&kind))
+}
+
+fn day_runs(rows: &str, since: &str, host: &str, keep: impl Fn(&Value) -> bool) -> Vec<ChargedRun> {
     rows.lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|row| kind_of(row).as_ref() == Some(&kind) && text(row, "at").is_some_and(|at| at >= since) && text(row, "host").is_none_or(|ran_on| ran_on == host))
+        .filter(|row| keep(row) && text(row, "at").is_some_and(|at| at >= since) && text(row, "host").is_none_or(|ran_on| ran_on == host))
         .map(|row| ChargedRun {
             wall_seconds: field(&row, "wallSeconds").unwrap_or(f64::NAN),
             cpu_seconds: field(&row, "cpuSeconds").unwrap_or(f64::NAN),

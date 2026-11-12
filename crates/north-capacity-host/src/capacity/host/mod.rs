@@ -83,6 +83,11 @@ pub fn land_check_cpus() -> f64 {
     admission_default("land_offload_cpus")
 }
 
+/// The cores a land check of a kind without a day of its runs is charged here: what this host's land checks used today (`policy::host_landing_charge`), else `land_check_cpus`.
+fn land_check_charge() -> f64 {
+    policy::host_landing_charge(&sizing::host_landing_runs(), land_check_cpus()).unwrap_or_else(land_check_cpus)
+}
+
 /// The CPUs this host's leases may hold under its chosen profile: the `aggregateCpuLimit` its status reports.
 pub fn cpu_limit() -> f64 {
     let (_, profile) = state::active_profile(&runtime_root());
@@ -117,7 +122,7 @@ fn lease_waiting_under(root: &Path, except: Option<u64>) -> bool {
 
 /// Why this host takes no other land check into an offload slot now: the land checks it leases or queues already charge so many of its cores that another's lease would wait for theirs while holding a slot another job could build in; None while none is charged, so a lone check always starts.
 pub fn landing_refusal() -> Option<String> {
-    landing_refusal_under(&runtime_root(), land_check_cpus(), cpu_limit())
+    landing_refusal_under(&runtime_root(), land_check_charge(), cpu_limit())
 }
 
 fn landing_refusal_under(root: &Path, each: f64, limit: f64) -> Option<String> {
@@ -406,15 +411,15 @@ fn offload_script(path: &Path) -> Option<String> {
     (metadata.is_file() && own(&metadata)).then(|| file.take(LONGEST).read_to_string(&mut text).ok()).flatten().map(|_| text)
 }
 
-/// A landing run's cores, which are its scope's quota too: what the day's records of its command show it needs (`policy::landing_charge`), else the caller's share of the heavy charge.
-fn size_landing(request: &mut request::Request, cores: f64, cap: Option<f64>, heavy_charge: f64, measured: impl FnOnce(f64) -> Option<f64>) {
+/// A landing run's cores: what the day's records of its command show it needs (`policy::landing_charge`), its scope's quota too; else what the host's land checks used today (`day`), no more than the caller's share of the heavy charge, which stays its quota.
+fn size_landing(request: &mut request::Request, cores: f64, cap: Option<f64>, (heavy_charge, day): (f64, Option<f64>), measured: impl FnOnce(f64) -> Option<f64>) {
     if request.landing {
         let ceiling = policy::landing_check(cores);
         let heavy = ceiling.cpus.min(heavy_charge);
         let share = cap.filter(|cap| cap.is_finite() && *cap >= 1.0).map_or(heavy, f64::ceil);
-        let cpus = measured(heavy).unwrap_or(share.min(heavy));
+        let (cpus, quota) = measured(heavy).map_or_else(|| (day.map_or(share.min(heavy), |day| day.min(share.min(heavy))), share.min(heavy)), |cpus| (cpus, cpus));
         request.resources = Some(policy::Resources { cpus, ..request.resources() });
-        request.declared = Some(policy::Resources { cpus, ..ceiling });
+        request.declared = Some(policy::Resources { cpus: quota, ..ceiling });
     }
 }
 
@@ -458,7 +463,8 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
     request.lander = request.landing && lander_lease(owner, machine::env(crate::foundation::offload::OWNER_ENV).as_deref(), std::fs::read_to_string("/proc/self/cgroup").ok().as_deref());
     let deadline = options.get("--timeout-seconds").and_then(|text| text.parse::<f64>().ok());
     let records = |heavy| deadline.and_then(|deadline| policy::landing_charge(&sizing::landing_runs(command), heavy, deadline));
-    size_landing(&mut request, cores, machine::env(LAND_CPUS).and_then(|text| text.parse().ok()), land_check_cpus(), records);
+    let day = request.landing.then(|| policy::host_landing_charge(&sizing::host_landing_runs(), land_check_cpus())).flatten();
+    size_landing(&mut request, cores, machine::env(LAND_CPUS).and_then(|text| text.parse().ok()), (land_check_cpus(), day), records);
     if let Some(asked) = options.get("--priority") {
         if let Some(message) = priority::priority_refusal(asked, &request.name) {
             fail(&message, 2);
