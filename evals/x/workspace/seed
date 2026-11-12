@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+here=$(dirname "$(readlink -f "$0")")
+[ -n "${EVAL_X_SHELL:-}" ] || exec env EVAL_X_SHELL=1 north capacity dev-shell run --dir "$here/.." -- "$0" "$@"
+work=${EVAL_X_WORK:-/tmp/eval-x}
+export PATH=/run/wrappers/bin:$PATH
+task=${1:?usage: evals/x/workspace/seed TASK}
+case $task in ''|*[!a-z0-9-]*) echo "eval-x: bad task name $task" >&2; exit 2 ;; esac
+image=$(sed -n 's/^docker_image = "\(.*\)"/\1/p' "$work/tasks/$task/task.toml" | head -n 1)
+[ -n "$image" ] || { echo "eval-x: no docker_image for $task; run evals/x/host fetch" >&2; exit 1; }
+podman image exists "$image" || podman pull -q "$image" > /dev/null
+workdir=$(podman image inspect --format '{{.Config.WorkingDir}}' "$image")
+case $workdir in /?*) ;; *) echo "eval-x: $image sets no absolute working directory" >&2; exit 1 ;; esac
+top=/$(printf '%s' "$workdir" | cut -d/ -f2)
+root="$work/ws/$task"
+dest="$root$top"
+case $dest in "$work"/ws/?*) ;; *) echo "eval-x: no workspace for $task" >&2; exit 1 ;; esac
+[ ! -e "$dest" ] || podman unshare rm -rf "$dest"
+mkdir -p "$dest"
+cid=$(podman create "$image")
+podman cp "$cid:$top/." "$dest" > /dev/null
+podman rm "$cid" > /dev/null
+mounts=$(jq -cn --arg top "$top" --arg dest "$dest" \
+  '[{type: "bind", source: $dest, target: $top}, {type: "bind", source: $dest, target: $dest}]')
+foreign=$(find "$dest" ! -user "$(id -u)" | jq -Rn '[inputs]')
+jq -cn --arg task "$task" --arg root "$root" --arg top "$top" --arg workdir "$workdir" --arg cwd "$root$workdir" \
+  --argjson mounts "$mounts" --argjson foreign "$foreign" \
+  '{task: $task, root: $root, top: $top, workdir: $workdir, cwd: $cwd, mounts: $mounts, foreign: $foreign}'
