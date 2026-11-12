@@ -1203,6 +1203,48 @@ directory per crate:
   first time (the native build included, 3.4 GB peak growth), 1.02 s the second (290 MB), and the binary's own parser
   answered `error: unrecognized option '--version'` (exit 2), as the real binary does.
 
+### Third run: the workspace case (cpx62b, 13 November)
+
+The second run timed the case where rustc is fast: one crate, where most of the time is the tests. This run times the case
+stage 0's second bar names, one line in `north-foundation` and the unit tests of its dependants. Same host throughout,
+8 cores shared with other jobs (host load average 3 to 96 across the rounds, printed beside each figure). Relax at
+`ce52155e`, a north clone at `87e45eb0e`, `RUSTC_WRAPPER` unset, the real cargo first on `PATH`. Relax side:
+`CARGO_RESOLVER_FEATURE_UNIFICATION=selected MAKEPAD_RUN_ALLOW_C=1`, `CARGO_TARGET_DIR` one directory for all crates, each
+crate run from its own directory by `relax test CRATE`, the crates one after the other. Nextest side: north's own
+config (workspace unification, cranelift dev profile), its own target directory.
+
+The set. The dependants of `north-foundation` among the workspace members are 51 crates (the root package `north`
+left out; edges from `cargo metadata`, dev-dependencies included). `relax test` once on each, 4 at a time, 120 s cap:
+29 crates exit 0 with at least one test, 514 tests, none failed; 18 exit 101 (`north-broker`, `north-dispatch`,
+`north-fleet-supervisor`, `north-guard`, `north-land-checks`, `north-lander-doctor`, `north-lander`, `north-landing-gates`,
+`north-landing`, `north-land-scans`, `north-land-watch`, `north-lanes`, `north-mutants`, `north-pacing`, `north-providers`,
+`north-replay`, `north-runtime`, `north-safe-push`); 2 hit the 120 s cap (`north-land-sandbox`, `north-ops`, under a host
+load average near 30); 2 exit 0 with no test (`north-machine-model`, `north-resume`). Nextest over the same 29 packages
+(`cargo nextest run -p A -p B ... --no-fail-fast`): 514 tests across 29 binaries, 514 passed.
+
+The edit. One line after `fn push_token` in `crates/north-foundation/src/foundation/cause.rs`:
+`let _relax_probe = 111;` (222, then 333). Each round: the edit, `relax test` over the 29, then `cargo nextest run` over
+the 29 with the same edit. Seconds from the edit to the last verdict; `before` is everything but the tests'
+own run (build, JIT compile, link, load, per-crate start), `tests` is from the first `running N tests` line to the
+`test result:` line of each Relax test program summed, and from nextest's `Starting` line to its `Summary` line.
+`cpu` is user plus system seconds of the command's process tree (bash `time`), which load does not inflate as much.
+
+- Round 1 (load 7.6): Relax 449.6 s (before 414.8, tests 34.8; cpu 324.8 + 85.6 = 410.4); nextest 38.3 s (before 14.1,
+  tests 24.2; cpu 46.8 + 33.3 = 80.0).
+- Round 2 (load 5.5 at the Relax start, 15.1 at nextest's): Relax 421.2 s (before 385.7, tests 35.6; cpu 163.8 + 67.8 =
+  231.7); nextest 50.3 s (before 21.9, tests 28.4; cpu 52.5 + 32.8 = 85.4).
+- Round 3 (load 23 at the Relax start, 96 at nextest's): Relax 632.7 s (before 560.8, tests 71.8; cpu 199.6 + 66.1 =
+  265.7); nextest 98.4 s (before 52.7, tests 45.8; cpu 50.4 + 29.4 = 79.8).
+- Medians: Relax 449.6 s against nextest 50.3 s, nextest 8.9 times as fast; by cpu seconds 265.7 against 80.0, 3.3 times
+  as much. All 514 tests passed on every round on both sides. Stage 0's bar was a fifth of nextest's time (about 10 s).
+- Around the edits, same commands, no edit: Relax warm 76.3 s and 71.1 s (tests 33.7 and 33.3), the first run in a
+  fresh target directory 600.5 s (cpu 929.5 + 238.6); nextest warm 17.6 s (0.8 s before the first test, 16.8 s tests), the
+  first run in a fresh target directory 65.3 s (48.4 s before the first test).
+
+What limits it: after an edit to a crate every dependant uses, `relax test` recompiles each of the 29 crates in turn
+and the time before the first test is 92% of the round (414.8 of 449.6 s, 385.7 of 421.2 s, 560.8 of 632.7 s), while
+nextest's rebuild and link of the same 29 crates is 14 to 53 s across the same three rounds.
+
 ### Blockers, in the order they stop north
 
 1. Feature sets, a setting of north's own. `relax test` and `relax check` with `--allow-c` refuse any package whose
