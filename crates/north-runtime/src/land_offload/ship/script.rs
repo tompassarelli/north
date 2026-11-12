@@ -35,10 +35,18 @@ admits() {
   fi
   if [ -n "$north_bin" ]; then
     rc=0
-    why=$("$north_bin" capacity host admit-job 2>/dev/null) || rc=$?
+    flag=
+    [ "${1:-}" != landing ] || flag=--landing
+    why=$("$north_bin" capacity host admit-job $flag 2>/dev/null) || rc=$?
     case $rc in 0) return 0 ;; 75) return 1 ;; esac
   fi
   [ "$(host_jobs)" -eq 0 ] || { why="this host's north answers no admit-job, so it runs one job at a time"; return 1; }
+}
+landing_full() {
+  [ -n "$north_bin" ] || return 1
+  rc=0
+  "$north_bin" capacity host admit-job --landing >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 75 ]
 }
 "#;
 
@@ -139,13 +147,19 @@ turn_order() {
   done | sort -s -k1,1n -k2,2n -k3,3 | cut -d ' ' -f4
 }
 first_in_line() {
-  now=$(date +%s%N)
+  now=$(date +%s%N) passing=
   for t in $(turn_order); do
     f=$queue/$t
     [ "$f" != "$ticket" ] || return 0
     stamp=${t#*-}
     if [ $((now - ${stamp%%-*})) -gt 5000000000 ] && (exec 7>>"$f"; flock -n 7) 2>/dev/null; then rm -f "$f"; continue; fi
     case $t in *@*) [ -n "@BACKGROUND@" ] || [ "${t#*@}" = "$name" ] || [ "$(slot_jobs "${t#*@}")" -lt @SLOTS@ ] || continue ;; esac
+    if [ "${t%%-*}" = 2 ] && [ "$kind" != landing ] && [ -z "@BACKGROUND@" ]; then
+      [ -n "$passing" ] || { passing=no; ! landing_full || passing=yes; }
+      [ "$passing" = no ] || continue
+    fi
+    waiter=${t#*-*-}
+    why="behind the job of waiter ${waiter%@*} for ${t#*@}, in line $(((now - ${stamp%%-*}) / 1000000000))s"
     return 1
   done
   return 1
@@ -170,7 +184,7 @@ while :; do
   fi
   waited=$(( ($(date +%s%N) - started) / 1000000000 ))
   [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: queued behind other jobs for @LOCK_WAIT@ s ($why)" >&2; exit @SLOTS_BUSY@; }
-  [ "$waited" -lt "$noted" ] || { noted=$((waited + 60)); echo "offload: waiting for a slot for ${waited}s, in order; $name runs $(slot_jobs "$name") of its @SLOTS@ slots, the host $(host_jobs) jobs; $why; $(ls "$queue" | grep -c .) queued; held by: $(slot_holders "$name")" >&2; }
+  [ "$waited" -lt "$noted" ] || { noted=$((waited + 60)); held=$(slot_holders "$name"); echo "offload: waiting for a slot for ${waited}s, in order; $name runs $(slot_jobs "$name") of its @SLOTS@ slots, the host $(host_jobs) jobs; $why; $(ls "$queue" | grep -c .) queued; held by: ${held:-no slot of $name}" >&2; }
   polled=1
   sleep @POLL@
 done

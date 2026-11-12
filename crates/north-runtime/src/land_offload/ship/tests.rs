@@ -14,7 +14,7 @@ const FLAKE_WITHOUT_DEV_SHELL: &str = "{ outputs = { checks = 1; }; }";
 const NIX_SHIM: &str = "echo \"nix $*\"\n";
 
 const NORTH_SHIM: &str = r#"case "$1 $2 $3" in
-  "capacity host admit-job") [ ! -e "$HOME/refuse" ] || { echo "refused for the test"; exit 75; }; exit 0 ;;
+  "capacity host admit-job") [ ! -e "$HOME/refuse" ] || { echo "refused for the test"; exit 75; }; [ "${4:-}" != --landing ] || [ ! -e "$HOME/landing-full" ] || { echo "land checks charge the cores for the test"; exit 75; }; exit 0 ;;
 esac
 case "$1 $2" in
   "capacity deadline") shift; while [ "$1" != -- ]; do shift; done; shift; exec "$@" ;;
@@ -706,6 +706,7 @@ fn a_lane_check_waits_while_the_hosts_admission_refuses_and_a_lander_job_queued_
     let order: Vec<String> = fs::read_to_string(&log).unwrap().lines().map(str::to_owned).collect();
     assert_eq!(order.iter().filter(|event| event.contains("lander")).count(), 4, "both lander jobs ran while the admission refused the lane check: {order:?}");
     assert_eq!(order.last().map(String::as_str), Some("end-queued-lane"), "{order:?}");
+    a_worker_build_passes_a_land_check_the_host_cannot_lease_yet_which_waits_out_of_a_slot_naming_the_charge();
 }
 
 #[test]
@@ -974,4 +975,45 @@ fn a_run_keeps_its_verdict_when_its_build_rewrites_a_declared_generated_file_and
     }
     let own = slot_run(dir.path(), (head.as_str(), head.as_str()), "echo built >source.rs");
     assert_eq!(own.status.code(), Some(i32::from(WRONG_TREE)), "a run that names its own head as its base is excused nothing its head declares: {}", String::from_utf8_lossy(&own.stderr));
+}
+
+fn a_worker_build_passes_a_land_check_the_host_cannot_lease_yet_which_waits_out_of_a_slot_naming_the_charge() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let log = home.path().join("order.log");
+    let release = home.path().join("release");
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let spawn = |label: &str, carried: &str, hold: bool| {
+        let gate = if hold { format!("while [ ! -e {} ]; do sleep 0.02; done", release.display()) } else { ":".to_owned() };
+        let command = format!("echo start-{label} >>{log}; {gate}; echo end-{label} >>{log}", log = log.display());
+        Command::new("setsid")
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", carried, "", "", ""])
+            .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+            .env("PATH", &path)
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .stdin(fs::File::open(&bundle).unwrap())
+            .stdout(Stdio::null())
+            .stderr(fs::File::create(home.path().join(format!("{label}.err"))).unwrap())
+            .spawn()
+            .unwrap()
+    };
+    let landing = "SAFE_PUSH_LANDING='1'";
+    let mut leased = spawn("leased", landing, true);
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.contains("start-leased"))), "the lone land check never took its slot");
+    fs::write(home.path().join("landing-full"), "").unwrap();
+    let charged = spawn("charged", landing, false);
+    wait_until_in_line(home.path(), &log, 2);
+    let worker = spawn("worker", "", false).wait().unwrap();
+    assert!(worker.success(), "a worker build queued behind a land check the host cannot lease yet takes a free slot");
+    assert!(!fs::read_to_string(&log).unwrap().contains("start-charged"), "the land check whose charge does not fit waits in line, out of a slot");
+    let waiting = fs::read_to_string(home.path().join("charged.err")).unwrap();
+    assert!(waiting.lines().any(|line| line.starts_with("offload: waiting for a slot") && line.contains("land checks charge the cores for the test")), "the wait line says the charge holds it: {waiting}");
+    fs::remove_file(home.path().join("landing-full")).unwrap();
+    fs::write(&release, "").unwrap();
+    assert!(leased.wait().unwrap().success());
+    assert!(charged.wait_with_output().unwrap().status.success());
+    assert!(fs::read_to_string(&log).unwrap().contains("end-charged"));
 }

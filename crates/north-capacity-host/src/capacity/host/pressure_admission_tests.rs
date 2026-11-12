@@ -31,3 +31,22 @@ fn an_offloaded_heavy_run_waits_only_while_its_host_is_over_the_pressure_target(
     assert_eq!(decide(&gex45(true, 10)), Reason::Run, "gex45 at 10% starts the run though a build started 5 s ago and the running charges pass its batch CPUs");
     assert_ne!(decide(&gex45(true, 40)), Reason::Run, "at the 40% target the run waits");
 }
+
+#[test]
+fn a_land_check_waits_out_of_its_offload_slot_while_the_land_checks_leased_or_queued_fill_the_cores_and_a_lone_check_always_starts() {
+    let root = tempfile::tempdir().unwrap();
+    let write = |directory: &str, name: &str, record: serde_json::Value| {
+        std::fs::create_dir_all(root.path().join(directory)).unwrap();
+        std::fs::write(root.path().join(directory).join(name), record.to_string()).unwrap();
+    };
+    let refusal = || super::landing_refusal_under(root.path(), 8.0, 20.0);
+    assert_eq!(refusal(), None, "a lone land check always starts");
+    write("leases", "worker.json", serde_json::json!({"landing": false, "cpus": 16.0}));
+    write("queue", "worker.json", serde_json::json!({"class": "heavy", "requestedCpus": 16.0}));
+    write("leases", "a.json", serde_json::json!({"landing": true, "cpus": 4.0}));
+    write("queue", "b.json", serde_json::json!({"class": "critical", "requestedCpus": 4.0}));
+    assert_eq!(refusal(), None, "two checks charged 4 leave room for one charged 8 on 20 cores; other work counts not");
+    write("leases", "a.json", serde_json::json!({"landing": true, "cpus": 8.0}));
+    write("queue", "b.json", serde_json::json!({"class": "critical", "requestedCpus": 8.0}));
+    assert_eq!(refusal().as_deref(), Some("land checks leased or queued here charge 16 of its 20 cores, so another's 8 waits for one to end"), "gex45 on 2026-11-12: two checks charged 8 leave no room for a third");
+}

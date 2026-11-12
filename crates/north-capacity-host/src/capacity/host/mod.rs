@@ -73,7 +73,7 @@ mod unleased_native;
 #[cfg(test)]
 mod unleased_native_tests;
 
-const USAGE: &str = "usage: offload-cost [--last N]|admit-job|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|land-waiting|hand-over [--wait-seconds N]|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
+const USAGE: &str = "usage: offload-cost [--last N]|admit-job [--landing]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|land-waiting|hand-over [--wait-seconds N]|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
 
 pub use actions_pull::run as actions_pull;
 pub use fleet_pull::run as pull;
@@ -115,12 +115,28 @@ fn lease_waiting_under(root: &Path, except: Option<u64>) -> bool {
     root.join("queue").is_dir() && state::read_queue(root).iter().any(|ticket| ticket.get("wrapperPid").and_then(Value::as_u64) != except)
 }
 
-/// `admit-job`: exits 0 when this host starts another offloaded job now, else prints why and exits 75, the answer the slot script and the slot warmer act on.
+/// Why this host takes no other land check into an offload slot now: the land checks it leases or queues already charge so many of its cores that another's lease would wait for theirs while holding a slot another job could build in; None while none is charged, so a lone check always starts.
+pub fn landing_refusal() -> Option<String> {
+    landing_refusal_under(&runtime_root(), land_check_cpus(), cpu_limit())
+}
+
+fn landing_refusal_under(root: &Path, each: f64, limit: f64) -> Option<String> {
+    let charged = |directory: &str, keep: fn(&Value) -> bool, cpus: &str| -> f64 {
+        let records = std::fs::read_dir(root.join(directory)).into_iter().flatten().flatten().filter(|entry| entry.file_name().to_string_lossy().ends_with(".json"));
+        records.filter_map(|entry| serde_json::from_str::<Value>(&std::fs::read_to_string(entry.path()).ok()?).ok()).filter(keep).filter_map(|record| record[cpus].as_f64()).sum()
+    };
+    let charge = charged("leases", |lease| lease["landing"].as_bool() == Some(true), "cpus") + charged("queue", |ticket| ticket["class"].as_str() == Some("critical"), "requestedCpus");
+    (charge > 0.0 && charge + each > limit).then(|| format!("land checks leased or queued here charge {charge} of its {limit} cores, so another's {each} waits for one to end"))
+}
+
+/// `admit-job [--landing]`: exits 0 when this host starts another offloaded job now (with `--landing`, another land check), else prints why and exits 75, the answer the slot script and the slot warmer act on.
 fn admit_job(argv: &[String]) -> u8 {
-    if argv.len() != 1 {
-        fail("admit-job accepts no arguments", 2);
-    }
-    match job_refusal() {
+    let landing = match argv {
+        [_] => false,
+        [_, flag] if flag == "--landing" => true,
+        _ => fail("admit-job accepts only --landing", 2),
+    };
+    match job_refusal().or_else(|| if landing { landing_refusal() } else { None }) {
         None => 0,
         Some(why) => {
             println!("{why}");
