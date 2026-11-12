@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use north_graph_loops::{CheckDeadline, check_deadline, check_key, graph_path, tell_check_deadline};
 
-pub const CEILING: u64 = 2100;
+pub const CEILING: u64 = north_base::foundation::offload::RUN_SECONDS_CEILING;
 const FLOOR: u64 = 300;
 const WINDOW: usize = 20;
 const MEASURED: usize = 5;

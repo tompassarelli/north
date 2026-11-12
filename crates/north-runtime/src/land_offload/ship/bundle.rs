@@ -7,7 +7,7 @@ use crate::capacity::carry;
 
 pub(super) fn bundle(land: &Land, reference: &str) -> Result<File, String> {
     let git = || {
-        let mut command = Command::new("git");
+        let mut command = Command::new(north_base::foundation::offload::git());
         command.current_dir(land.checkout);
         command
     };

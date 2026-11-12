@@ -174,7 +174,7 @@ fn cost() -> u8 {
     let mut code = 0;
     for (name, ssh) in hosts {
         println!("{name}");
-        let read = std::process::Command::new("ssh").args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &ssh, "--", remote]).status();
+        let read = std::process::Command::new(north_base::foundation::offload::ssh()).args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &ssh, "--", remote]).status();
         if !read.is_ok_and(|status| status.success()) {
             eprintln!("north capacity offload: could not read {name}'s offload records");
             code = 1;

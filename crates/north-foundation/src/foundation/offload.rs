@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const ROOT_ENV: &str = "NORTH_OFFLOAD_ROOT";
 pub const ROOT_DEFAULT: &str = ".cache/land-offload";
@@ -21,6 +21,25 @@ pub const TIPS_ENV: &str = "SAFE_PUSH_LAND_TIPS";
 pub const ONE_LANE_ENV: &str = "SAFE_PUSH_LAND_ONE_LANE";
 pub const LOCAL_ENV: &str = "NORTH_LAND_CHECKS_LOCAL";
 pub const OFF_HOST_ENV: &str = "NORTH_LAND_CHECKS_OFF_HOST";
+/// The longest a land check runs, the ceiling of its deadline, and so the longest run a worker command may ask the outside broker for.
+pub const RUN_SECONDS_CEILING: u64 = 2100;
+/// The ssh and the git an offload starts, as absolute programs: the outside broker resolves them from its own `PATH` and names them here for the run it starts for a worker command, so no program on a `PATH` the worker wrote runs outside its domain (south#118).
+pub const SSH_ENV: &str = "NORTH_OFFLOAD_SSH";
+pub const GIT_ENV: &str = "NORTH_OFFLOAD_GIT";
+
+/// The ssh an offload starts: the absolute program `SSH_ENV` names, else `ssh` by name.
+pub fn ssh() -> String {
+    program(SSH_ENV, "ssh")
+}
+
+/// The git an offload starts: the absolute program `GIT_ENV` names, else `git` by name.
+pub fn git() -> String {
+    program(GIT_ENV, "git")
+}
+
+fn program(variable: &str, name: &str) -> String {
+    env::var(variable).ok().filter(|program| Path::new(program).is_absolute()).unwrap_or_else(|| name.to_owned())
+}
 
 pub fn root() -> Option<PathBuf> {
     env::var_os(ROOT_ENV)

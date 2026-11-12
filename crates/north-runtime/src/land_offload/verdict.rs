@@ -11,7 +11,7 @@ fn ssh(destination: &str, script: &str) -> Option<String> {
 }
 
 fn remote(destination: &str, script: &str, input: &[u8]) -> std::io::Result<Vec<u8>> {
-    exchange(Command::new("ssh").args(SSH).args([destination, "--", script]), input)
+    exchange(Command::new(north_base::foundation::offload::ssh()).args(SSH).args([destination, "--", script]), input)
 }
 
 struct Remote<'a>(&'a str);

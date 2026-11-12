@@ -15,7 +15,7 @@ use super::{LANE_ONLY, MARK, SOCKETS_HIDDEN};
 const DESTINATION: &str = "main";
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 const SHIM_DIRECTORIES: [&str; 2] = [".local/bin", ".local/share/north/bin"];
-const GIT_HARDENING: [(&str, &str); 3] = [("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"), ("core.sshCommand", "false")];
+pub(super) const GIT_HARDENING: [(&str, &str); 3] = [("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"), ("core.sshCommand", "false")];
 const COMMAND_KEYS: &str = r"^(filter\..+\.(clean|smudge|process)|core\.sshcommand)$";
 const WITHHELD: &str = "[token withheld]";
 static TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}").expect("the token pattern compiles"));

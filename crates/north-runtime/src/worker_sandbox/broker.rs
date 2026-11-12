@@ -16,6 +16,7 @@ use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAnci
 use serde::{Deserialize, Serialize};
 
 use super::lane_grant::{self, Host};
+use super::offload_request;
 use super::session_join;
 use super::request_env::{environment, landing, landing_choices, own_homes, request_homes};
 use super::{Context, FLAG, MAKER, removable};
@@ -53,7 +54,7 @@ fn socket() -> PathBuf {
     std::env::var_os(SOCKET_ENV).filter(|value| !value.is_empty()).map_or_else(|| runtime().join(DIRECTORY).join(SOCKET), PathBuf::from)
 }
 
-/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `threads` reaches a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and is refused to a lane-only caller; `capacity offload` in the words `land_offload::worker_request` reads runs a command on another declared host under that host's lease, the one way a worker command reaches a build host, refused to a lane-only caller and for any host this one does not declare.
+/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `threads` reaches a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and is refused to a lane-only caller; `capacity offload` in the words `land_offload::worker_request` reads runs a command on another declared host under that host's lease, the one way a worker command reaches a build host, refused to a lane-only caller and for any host this one does not declare, and started with nothing of the client's but those words (offload_request.rs).
 /// Where the command begins in the arguments of `capacity host run`: after the first `--`, when a word follows it.
 fn payload(words: &[&str]) -> Option<usize> {
     words.iter().position(|word| *word == "--").map(|at| at + 1).filter(|start| *start < words.len())
@@ -310,12 +311,11 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if request.arguments.first().is_some_and(|verb| verb == "threads") && cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup) {
         return Err("a lane-only session's command does not reach the ledger host through the broker".to_owned());
     }
-    if let Some(why) = offload_refusal(&request.arguments, cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup), crate::land_offload::reaches) {
-        if let Some(stderr) = streams.into_iter().nth(STDIO - 1) {
-            let _ = writeln!(File::from(stderr), "north worker-sandbox broker: refused: {why}");
-        }
-        return Err(why);
-    }
+    let refused = offload_refusal(&request.arguments, cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup), crate::land_offload::reaches);
+    let offload = match refused.map_or_else(|| offload_request::granted(&request.arguments, &request.directory, &host.home, &host.environment, &runtime(), &own_homes()), Err) {
+        Ok(offload) => offload,
+        Err(why) => return Err(refuse(streams, why)),
+    };
     super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, cgroup)?;
     let own_home = own_homes().into_iter().find(|(name, _)| name == "HOME").map(|(_, home)| PathBuf::from(home)).unwrap_or_default();
     let viewed = super::brokered_reads::pinned_entries_readable(&request.arguments, &request.directory, &request.environment, cgroup, &own_home)?;
@@ -325,6 +325,9 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     }
     if lane_grant::granted(&request.arguments, cgroup) {
         return run_granted(north, &request, [stdout, stderr], stream, cgroup, host);
+    }
+    if let Some(offload) = offload {
+        return run_offload(north, offload, [stdin, stdout, stderr], stream, cgroup);
     }
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
     let homes = request_homes(&request.arguments, cgroup, &request.environment, own_homes());
@@ -342,6 +345,32 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         .current_dir(&request.directory)
         .env_clear()
         .envs(variables)
+        .stdin(Stdio::from(stdin))
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
+        .process_group(0)
+        .spawn()
+        .map_err(|error| format!("{}: {error}", north.display()))?;
+    wait(child, stream)
+}
+
+/// Tells the client on its standard error why its request is refused; the reason, for the broker's log.
+fn refuse(streams: Vec<OwnedFd>, why: String) -> String {
+    if let Some(stderr) = streams.into_iter().nth(STDIO - 1) {
+        let _ = writeln!(File::from(stderr), "north worker-sandbox broker: refused: {why}");
+    }
+    why
+}
+
+/// Runs an offload request as `offload_request` grants it: with the environment, working directory and words it names and nothing else of the client's, telling the client when its run was shortened.
+fn run_offload(north: &Path, offload: offload_request::Offload, [stdin, stdout, stderr]: [OwnedFd; STDIO], stream: &UnixStream, cgroup: Option<&str>) -> Result<u8, String> {
+    if let (Some(note), Ok(told)) = (&offload.note, stderr.try_clone()) {
+        let _ = writeln!(File::from(told), "north worker-sandbox broker: {note}");
+    }
+    let child = brokered(north, offload.arguments, cgroup)
+        .current_dir(&offload.directory)
+        .env_clear()
+        .envs(offload.environment)
         .stdin(Stdio::from(stdin))
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))

@@ -91,14 +91,14 @@ fn script() -> String {
 
 pub fn read_within(ssh: &str, limit: Duration) -> Option<Room> {
     let command = format!("sh -c {}", quote(&script()));
-    let output = run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &command], limit)?;
+    let output = run_within(&north_base::foundation::offload::ssh(), &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &command], limit)?;
     output.status.success().then(|| parse(&String::from_utf8_lossy(&output.stdout))).flatten()
 }
 
 /// Claims `ssh`, or this host when None, for a waiting land check, so it admits no new worker build until the claim lapses; a host on an older runtime ignores it.
 pub(super) fn claim(ssh: Option<&str>) {
     let _ = match ssh {
-        Some(ssh) => run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &format!("sh -c {}", quote(CLAIM))], LIMIT),
+        Some(ssh) => run_within(&north_base::foundation::offload::ssh(), &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &format!("sh -c {}", quote(CLAIM))], LIMIT),
         None => run_within("sh", &["-c", CLAIM], LIMIT),
     };
 }

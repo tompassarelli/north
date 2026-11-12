@@ -146,7 +146,7 @@ fn room_for_a_cold_slot(root: &Path, slots: &[Slot]) -> bool {
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> Option<String> {
-    let output = match Command::new("git").arg("-C").arg(directory).args(arguments).stdin(Stdio::null()).stderr(Stdio::null()).output() {
+    let output = match Command::new(offload::git()).arg("-C").arg(directory).args(arguments).stdin(Stdio::null()).stderr(Stdio::null()).output() {
         Ok(output) => output,
         Err(error) => {
             eprintln!("north capacity: the slot warmer could not run git: {error}");

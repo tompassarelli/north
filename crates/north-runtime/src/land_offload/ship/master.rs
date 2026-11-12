@@ -1,12 +1,14 @@
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use north_base::foundation::offload;
+
 const READY_WITHIN: Duration = Duration::from_secs(10);
 const READY_POLL: Duration = Duration::from_millis(100);
 
 fn control_path() -> String {
     let runtime = std::env::var("XDG_RUNTIME_DIR").ok().filter(|directory| !directory.is_empty()).unwrap_or_else(|| format!("/run/user/{}", rustix::process::getuid().as_raw()));
-    format!("{runtime}/{}%C", north_base::foundation::offload::MASTER_SOCKET)
+    format!("{runtime}/{}%C", offload::MASTER_SOCKET)
 }
 
 fn unit_name(ssh: &str) -> String {
@@ -20,14 +22,14 @@ pub(super) fn unit_arguments(ssh: &str, control_path: &str, agent: Option<&str>)
     if let Some(socket) = agent {
         arguments.push(format!("--setenv=SSH_AUTH_SOCK={socket}"));
     }
-    arguments.extend(["--", "ssh", "-M", "-N", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o"].map(str::to_owned));
+    arguments.extend(["--", offload::ssh().as_str(), "-M", "-N", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o"].map(str::to_owned));
     arguments.push(format!("ControlPath={control_path}"));
     arguments.push(ssh.to_owned());
     arguments
 }
 
 fn alive(ssh: &str, control_path: &str) -> bool {
-    Command::new("ssh").args(["-O", "check", "-o", "BatchMode=yes", "-o"]).arg(format!("ControlPath={control_path}")).arg(ssh).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
+    Command::new(offload::ssh()).args(["-O", "check", "-o", "BatchMode=yes", "-o"]).arg(format!("ControlPath={control_path}")).arg(ssh).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
 }
 
 /// The ssh options of an offload client: it rides the host's offload master when one runs, starting it in its own unit first. A client never forks a master itself (`ControlMaster=no`), since a master forked by a client lives in the client's unit; without a master it makes its own connection.

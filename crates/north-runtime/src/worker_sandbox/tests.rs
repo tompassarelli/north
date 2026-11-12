@@ -12,6 +12,9 @@ const LOGINS_ONLY: &str = "NORTH_977_LOGINS_ONLY";
 const HAND_OFF_TARGET: &str = "NORTH_975_HAND_OFF_TARGET";
 const OUTSIDE_MARKER: &str = "NORTH_CAPACITY_LOOP_MARKER";
 
+#[path = "offload_request_tests.rs"]
+mod offload_request;
+
 fn git(directory: &Path, arguments: &[&str]) {
     let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always"]).args(arguments).output().unwrap();
     assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
@@ -221,6 +224,9 @@ fn a_lane_test_binary_run_by_path_outside_depbox_is_refused() {
 
 #[test]
 fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_carries_no_injected_code() {
+    if offload_request::played() {
+        return;
+    }
     use std::io::{Read, Write};
     use std::os::unix::net::{UnixListener, UnixStream};
     let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
@@ -277,6 +283,7 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     let north = Path::new("/n/north");
     let wrapped = super::broker::confined(north, words("capacity host run --class heavy --owner o -- cargo test -p x"));
     assert_eq!(wrapped.join(" "), "capacity host run --class heavy --owner o -- /n/north --worker-sandbox --program -- cargo test -p x");
+    offload_request::an_offload_request_s_process_takes_nothing_of_the_worker_s_but_its_typed_words();
 }
 
 #[test]

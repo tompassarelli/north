@@ -20,7 +20,7 @@ const POLL_SECONDS: &str = "0.2";
 const TARGET_CAP_MIB: u32 = 40 * 1024;
 const TARGET_FLOOR_MIB: u32 = 30 * 1024;
 const TARGET_KEEP_MIB: u32 = 24 * 1024;
-use north_base::foundation::offload::{LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
+use north_base::foundation::offload::{self, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const FREE: &str = r#"set -eu
@@ -65,7 +65,7 @@ pub struct CommitId(String);
 
 impl CommitId {
     pub fn resolve(checkout: &Path, name: &str) -> Result<Self, String> {
-        let output = Command::new("git").current_dir(checkout).args(["rev-parse", "--verify", "--quiet", &format!("{name}^{{commit}}")]).output().map_err(|error| format!("git: {error}"))?;
+        let output = Command::new(offload::git()).current_dir(checkout).args(["rev-parse", "--verify", "--quiet", &format!("{name}^{{commit}}")]).output().map_err(|error| format!("git: {error}"))?;
         let sha = String::from_utf8_lossy(&output.stdout).trim().to_owned();
         if output.status.success() && !sha.is_empty() { Ok(Self(sha)) } else { Err(format!("{name} names no commit in {}", checkout.display())) }
     }
@@ -87,7 +87,7 @@ fn checkout(directory: &Path) -> Result<(String, String), String> {
 
 /// The checkout, relative to `home`, a build host keeps for the repository `directory` is a checkout of.
 pub(super) fn checkout_under(directory: &Path, home: &Path) -> Result<String, String> {
-    let output = Command::new("git").current_dir(directory).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).output().map_err(|error| format!("git: {error}"))?;
+    let output = Command::new(offload::git()).current_dir(directory).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).output().map_err(|error| format!("git: {error}"))?;
     let common = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
     let main = common.parent().ok_or("the repository has no main checkout")?;
     remote_checkout(main, home)
@@ -233,7 +233,7 @@ fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Re
 fn read_back(land: &Land, marker: &str) -> (Option<u8>, Option<u8>) {
     let remote = format!("sh -c {} offload-reattach {} {}", quote(&script::reattach_script()), quote(marker), land.timeout_seconds);
     let master = master::options(land.ssh);
-    let mut command = with_caller("ssh");
+    let mut command = with_caller(&offload::ssh());
     command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"]).args(&master).args([land.ssh, "--", &remote]);
     let Ok(mut child) = command.stdout(Stdio::piped()).spawn() else { return (None, None) };
     let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), marker, "", || {}).ran);
@@ -244,11 +244,11 @@ fn read_back(land: &Land, marker: &str) -> (Option<u8>, Option<u8>) {
 fn on_host(ssh: &str, script: &str, words: &[&str], options: &[&str]) -> Command {
     if ssh.is_empty() {
         let mut command = with_caller("setsid");
-        command.env_remove(north_base::foundation::offload::TREES_ENV).args(["-w", "sh", "-c", script, "offload"]).args(words);
+        command.env_remove(offload::TREES_ENV).args(["-w", "sh", "-c", script, "offload"]).args(words);
         return command;
     }
     let remote = format!("setsid -w sh -c {} offload {}", quote(script), words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));
-    let mut command = with_caller("ssh");
+    let mut command = with_caller(&offload::ssh());
     command.args(["-T", "-o", "BatchMode=yes"]).args(options).args([ssh, "--", &remote]);
     command
 }
@@ -275,7 +275,7 @@ pub(super) fn free_slots(ssh: &str, directory: &Path) -> Result<u32, String> {
     let (counted, host) = if ssh.is_empty() {
         (crate::platform::process::run_within("sh", &["-c", &script, "offload-free", &name], FREE_LIMIT), "this host")
     } else {
-        (crate::platform::process::run_within("ssh", &["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &remote], FREE_LIMIT), ssh)
+        (crate::platform::process::run_within(&offload::ssh(), &["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &remote], FREE_LIMIT), ssh)
     };
     let output = counted.ok_or_else(|| format!("{host} did not count its slots within {} s", FREE_LIMIT.as_secs()))?;
     if !output.status.success() {
@@ -288,7 +288,7 @@ pub(super) fn free_slots(ssh: &str, directory: &Path) -> Result<u32, String> {
 pub(super) fn reap(ssh: &str, owner: &str) -> u8 {
     let script = REAP.replace("@ROOT@", OFFLOAD_ROOT);
     let remote = format!("sh -c {} offload-reap {}", quote(&script), quote(owner));
-    let sent = Command::new("ssh").args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2", ssh, "--", &remote]).status();
+    let sent = Command::new(offload::ssh()).args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2", ssh, "--", &remote]).status();
     match sent {
         Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(TRANSPORT_FAILED),
         Err(error) => fail(&format!("ssh: {error}")),

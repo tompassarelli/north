@@ -85,7 +85,7 @@ fn probe(needs: &Needs, host: &str, ssh: &str) -> Result<Vec<String>, String> {
     if needs.checkouts.is_empty() && needs.aliases.is_empty() && needs.inputs.is_empty() {
         return Ok(Vec::new());
     }
-    let mut command = Command::new("ssh");
+    let mut command = Command::new(north_base::foundation::offload::ssh());
     command.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &format!("sh -c {}", quote(&needs.script(host)))]);
     let output = run_command_within(command, None, LIMIT).ok_or_else(|| format!("its readiness probe ran past {} s", LIMIT.as_secs()))?;
     if !output.status.success() {
