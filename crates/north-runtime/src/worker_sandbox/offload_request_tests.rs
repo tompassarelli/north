@@ -143,6 +143,7 @@ fn serve(root: &Path) {
     git_reads_the_registered_repository_when_the_lane_s_gitfile_is_rewritten_after_the_check(root, &north, &host, &worker, &mut failures);
     a_request_from_a_directory_north_cannot_place_is_refused_for_every_verb(root, &north, &host, &worker, &mut failures);
     a_request_from_an_offload_slot_is_served_only_as_the_project_the_offload_recorded_for_it(root, &north, &host, &worker, &mut failures);
+    a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for_it(root, &north, &worker, &mut failures);
     a_verb_that_starts_no_command_of_the_caller_s_finds_its_programs_on_the_broker_s_path(root, &north, &host, &worker, &mut failures);
     a_new_domain_s_git_grants_are_the_main_checkout_s_whatever_the_lane_s_gitfile_names(root, &mut failures);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -253,6 +254,53 @@ fn a_request_from_an_offload_slot_is_served_only_as_the_project_the_offload_reco
     let (code, told) = ask(north, host, verb, &slot, worker);
     if code != 0 || text("seen").lines().next_back().and_then(|started| started.split('|').next()) != Some(&*slot.to_string_lossy()) {
         failures.push(format!("{CASE}: `{verb}` asked from a job's recorded slot was not served there: exit {code}: {told}"));
+    }
+}
+
+/// The case of the two canary probes that ask for a verb from a scratch project they make under a temporary directory (runtime/canary/probes.rs), run as an order issued from a session's window runs them, inside a domain: each starts a broker of the judged north for its scratch root on a socket there and asks on that socket, and a broker that serves that root serves the request in the probe's directory. The host's own broker refuses it, as it refused both probes of the order of 2026-11-12, which asked it.
+fn a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for_it(root: &Path, north: &Path, worker: &[(String, String)], failures: &mut Vec<String>) {
+    const CASE: &str = "a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for_it";
+    let (stub, temporary, judged) = (root.join("canary"), root.join("canary-tmp"), root.join("judged-north"));
+    for directory in [&stub, &temporary] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    let record = "printf '%s\\n' \"$*\" > \"$stub/words\"; pwd -P > \"$stub/directory\"; : > \"$stub/asked\"";
+    let wait = "waited=0; while [ ! -e \"$stub/answer\" ] && [ \"$waited\" -lt 600 ]; do sleep 0.1; waited=$((waited + 1)); done; exit \"$(cat \"$stub/answer\" 2>/dev/null || echo 99)\"";
+    write_script(
+        &judged,
+        &format!(
+            "stub={}\ncase \"$*\" in\n\"{}\") printf '%s\\n' \"$4\" > \"$stub/code\"; printf '%s\\n' \"${{{}:-}}\" > \"$stub/socket\" ;;\n\"depbox run -- true\" | \"safe-push --to main\") {record}; {wait} ;;\nesac\n",
+            stub.display(),
+            crate::worker_sandbox::broker_for("\"*\"").join(" "),
+            broker::SOCKET_ENV
+        ),
+    );
+    let text = |file: &str| std::fs::read_to_string(root.join(file)).unwrap_or_default();
+    for (script, verb) in crate::runtime::scratch_project_probes(&judged.to_string_lossy()).into_iter().zip(["depbox run -- true", "safe-push --to main"]) {
+        for file in ["code", "socket", "words", "directory", "asked", "answer"] {
+            let _ = std::fs::remove_file(stub.join(file));
+        }
+        let mut probe = Command::new("bash").arg("-c").arg(&script).env(super::super::MARK, "1").env("TMPDIR", &temporary).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+        let asked = north_base::platform::wait::until(std::time::Duration::from_secs(60), || stub.join("asked").exists() || !matches!(probe.try_wait(), Ok(None))) && stub.join("asked").exists();
+        let read = |file: &str| std::fs::read_to_string(stub.join(file)).unwrap_or_default().trim().to_owned();
+        let (words, directory, code, socket) = (read("words"), PathBuf::from(read("directory")), read("code"), read("socket"));
+        let started = !code.is_empty() && Path::new(&socket).parent() == Some(Path::new(&code));
+        let own = Host::own();
+        let (code_of_host, told_by_host) = ask(north, &own, verb, &directory, worker);
+        let serving = Host { code: own.code.iter().cloned().chain(started.then(|| PathBuf::from(&code))).collect(), ..own };
+        let seen = text("seen");
+        let (exit, told) = ask(north, &serving, verb, &directory, worker);
+        let served = text("seen").strip_prefix(&seen).and_then(|new| new.lines().next_back()).and_then(|line| line.split('|').next()) == Some(&*directory.to_string_lossy());
+        std::fs::write(stub.join("answer"), "0").unwrap();
+        let _ = probe.wait();
+        if !asked || words != verb {
+            failures.push(format!("{CASE}: the probe asked for no `{verb}`: it asked {words:?} from {}", directory.display()));
+        } else if exit != 0 || !served {
+            failures.push(format!("{CASE}: the probe's `{verb}`, asked from {} on the socket {socket:?} of {}, was not served there: exit {exit}: {told}", directory.display(), if started { format!("the broker it started for {code}") } else { "no broker of its own, so of the host's".to_owned() }));
+        }
+        if code_of_host != 126 || !told_by_host.contains("refused") {
+            failures.push(format!("{CASE}: the host's own broker served the probe's `{verb}` from the scratch project {}: exit {code_of_host}: {told_by_host}", directory.display()));
+        }
     }
 }
 

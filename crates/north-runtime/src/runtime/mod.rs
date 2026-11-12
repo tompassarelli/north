@@ -31,6 +31,8 @@ mod verdict;
 mod walk;
 mod watch;
 #[cfg(test)]
+pub(crate) use canary::scratch_project_probes;
+#[cfg(test)]
 pub(crate) use update::collect;
 
 use crate::land_offload;

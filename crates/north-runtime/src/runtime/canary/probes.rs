@@ -164,15 +164,29 @@ done
 exec "$CANARY_NORTH" capacity offload free --host __HUB__
 "#;
 
-fn depbox_run(north: &str) -> String {
-    DEPBOX_RUN.replace("__NORTH__", north).replace("__ROOTS__", REMOVAL_ROOTS)
+/// `script`, a probe that makes a scratch project under `$root` and asks for a verb that leaves a command's domain, with a broker of the judged runtime started for that project on a socket in `$root` when the probe runs inside a domain (an order issued from a session's window). The host's own broker serves only the projects the host keeps, so it refuses a scratch project, as it refused both probes of the order of 2026-11-12, and it runs the build being replaced. Outside a domain the verbs run in the probe's own process and no broker is asked.
+fn own_broker(script: &str) -> String {
+    let serving = crate::worker_sandbox::broker_for("\"$root\"").join(" ");
+    let started = OWN_BROKER.replace("__MARK__", north_base::platform::gh_session::SANDBOX_MARK).replace("__HIDDEN__", north_base::platform::session_scope::SOCKETS_HIDDEN).replace("__BROKER__", crate::worker_sandbox::BROKER_SOCKET_ENV).replace("__SERVING__", &serving);
+    script.replace("__OWN_BROKER__", &started)
+}
+
+const OWN_BROKER: &str = r#"if [ -n "${__MARK__:-}${__HIDDEN__:-}" ]; then
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  export __BROKER__="$root/broker.sock"
+  "$north" __SERVING__
+fi
+"#;
+
+pub(super) fn depbox_run(north: &str) -> String {
+    own_broker(DEPBOX_RUN).replace("__NORTH__", north).replace("__ROOTS__", REMOVAL_ROOTS)
 }
 
 const DEPBOX_RUN: &str = r#"set -euo pipefail
 north=__NORTH__
 root=$(mktemp -d "${TMPDIR:-/tmp}/north-canary-depbox.XXXXXX")
 trap 'rm -rf "$root"' EXIT
-git init -q -b main "$root/canary/main"
+__OWN_BROKER__git init -q -b main "$root/canary/main"
 cd "$root/canary/main"
 checkout=$(pwd -P)
 __ROOTS__="[\"$checkout\"]" "$north" depbox run -- true
@@ -201,15 +215,15 @@ __RUNTIME__/verify-north --north "$north" --claude-account "$account"
 /// A scratch repository whose lane queues one commit with the judged runtime and lands it through
 /// that runtime's `land serve`, so a runtime that cannot walk the landing half of the spine fails
 /// here instead of shipping to the other hosts.
-fn scratch_landing(north: &str) -> String {
-    SCRATCH_LANDING.replace("__NORTH__", north)
+pub(super) fn scratch_landing(north: &str) -> String {
+    own_broker(SCRATCH_LANDING).replace("__NORTH__", north)
 }
 
 const SCRATCH_LANDING: &str = r#"set -euo pipefail
 north=__NORTH__
 root=$(mktemp -d "${TMPDIR:-/tmp}/north-canary-landing.XXXXXX")
 trap 'rm -rf "$root"' EXIT
-state="$root/state"
+__OWN_BROKER__state="$root/state"
 mkdir -p "$state"
 export XDG_STATE_HOME="$state"
 export NORTH_TEST_ROOT="$state"

@@ -186,7 +186,7 @@ fn listening(path: &Path) -> bool {
 }
 
 /// Starts `north` as the broker in the transient user service `unit` under `agent.slice`, so the checks and builds it runs for workers count against the agent CPU quota: in the default app.slice a session's brokered safe-push compiled outside the 12-CPU desk bound and held the laptop at load 39 (north#892); whether it started. A broker on a socket of its own follows the runtime link its starter follows, so the one a canary probe starts stays on the build it judges, and a successor serves the projects under `code` when the broker it follows did.
-fn start(north: &Path, unit: &str, code: Option<&Path>) -> bool {
+pub(super) fn start(north: &Path, unit: &str, code: Option<&Path>) -> bool {
     let followed = std::env::var_os(SOCKET_ENV).and_then(|_| std::env::var_os(north_runtime_follow::LINK));
     let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).args(std::env::var_os(SOCKET_ENV).map(|socket| format!("--setenv={SOCKET_ENV}={}", socket.to_string_lossy()))).args(followed.map(|link| format!("--setenv={}={}", north_runtime_follow::LINK, link.to_string_lossy()))).arg(format!("--slice={SLICE}")).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).args(code.into_iter().flat_map(|code| [std::ffi::OsStr::new(CODE), code.as_os_str()])).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     started.is_ok_and(|status| status.success())
