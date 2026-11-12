@@ -111,7 +111,9 @@ N samples each, the arm order per sample drawn from the seed. For each sample an
    else `~/.local/lib/t3/current/t3`) served headless on loopback with telemetry off, a scratch home and a
    configuration directory holding only the effort level, logged in with the subscription OAuth token in the file
    `EVAL_T_TOKEN_FILE` names. Every `ANTHROPIC_*` variable is unset first, so no arm holds an API key. A plain
-   session starts outside the checkout (see Plain arms), and both arms wait at most `EVAL_T_LIMIT_S` seconds.
+   session starts outside the checkout (see Plain arms), and both arms wait at most `EVAL_T_LIMIT_S` seconds. The
+   `north` arm ends at the first turn's end unless `EVAL_T_SETTLED` names a command that decides instead: it gets
+   the session's name and exits 0 once the session is over (Eval X sets it).
 3. turns the session's Claude Code transcript into one row of T3 Code's results shape and grades it
    (`eval-t grade`) by running T3 Code's own `evals/mcp-tool-use/regrade.ts` on it, from a second checkout of the
    pinned commit that carries its installed dependencies. The command refuses a grader checkout that is not at the

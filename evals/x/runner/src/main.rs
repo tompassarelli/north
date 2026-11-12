@@ -7,6 +7,7 @@ mod plan;
 mod proc;
 mod rng;
 mod schedule;
+mod session_end;
 mod stamp;
 mod stop;
 mod transcript;
@@ -37,6 +38,11 @@ fn main() -> ExitCode {
 }
 
 fn run(args: &[String]) -> Result<bool> {
+    if let [verb, rest @ ..] = args
+        && verb == "session-end"
+    {
+        return session_end::run(rest);
+    }
     let settings = Settings::parse(args)?;
     match settings.command.clone() {
         Verb::Plan => {

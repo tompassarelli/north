@@ -26,8 +26,8 @@ case $arm in
     conversation() { north fleet show "$name" --json 2> /dev/null | jq -r '.conversation // empty'; }
     transcript() { find "$XDG_STATE_HOME" "$HOME/.local/state/north/profiles" -name "$(conversation).jsonl" 2> /dev/null | head -1; }
     deadline=$((SECONDS + LIMIT))
-    until settled || [ "$SECONDS" -ge "$deadline" ]; do sleep 3; done
-    settled || echo "eval-t arm north: not settled after $LIMIT s" >&2
+    until ${EVAL_T_SETTLED:-settled} "$name" || [ "$SECONDS" -ge "$deadline" ]; do sleep 3; done
+    ${EVAL_T_SETTLED:-settled} "$name" || echo "eval-t arm north: not settled after $LIMIT s" >&2
     kept=$(transcript)
     if [ -f "$W/turns.json" ]; then
       [ -n "$kept" ] || fail "no transcript for $name; see $W/launch.log"

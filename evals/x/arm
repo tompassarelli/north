@@ -35,15 +35,19 @@ done
 jq -j "$prompt" "$trial/prompt.json" > "$state/prompt.txt" 2> /dev/null \
   || { echo "eval-x arm $arm: no hand-off in $trial/prompt.json" >&2; exit 1; }
 ln -sfn "$cwd" "$state/repo"
+runner=${EVAL_X_RUNNER:-$here/runner/target/debug/eval-x-runner}
+rm -f "$state/end.json" "$state/nudged"
 start=$(date +%s) rc=0
 SHELL=$relay EVAL_X_TRIAL=$trial EVAL_T_ACCOUNT=$account EVAL_T_MODEL=$model EVAL_T_EFFORT=$effort EVAL_T_LIMIT_S=$limit \
-  "$here/../t/arm" "$arm" "$state" > "$state/arm.log" 2>&1 || rc=$?
+  EVAL_T_SETTLED="$runner session-end --state $state" "$here/../t/arm" "$arm" "$state" > "$state/arm.log" 2>&1 || rc=$?
 end=$(date +%s)
+session_end=$(cat "$state/end.json" 2> /dev/null) || session_end=null
 jq -n --arg arm "$arm" --arg cwd "$cwd" --arg account "$account" --arg model "$model" --arg effort "$effort" \
   --arg transcript "$state/transcript.jsonl" --argjson start "$start" --argjson end "$end" --argjson rc "$rc" \
-  --argjson limit "$limit" \
+  --argjson limit "$limit" --argjson session_end "$session_end" \
   '{arm: $arm, cwd: $cwd, account: $account, model: $model, effort_requested: $effort, limit_s: $limit,
-    wall_s: ($end - $start), exit: $rc, transcript: $transcript}' > "$state/arm.json.tmp"
+    wall_s: ($end - $start), exit: $rc, transcript: $transcript,
+    session_end: ($session_end | if . == null then null else . + {ended: (.ended // "limit")} end)}' > "$state/arm.json.tmp"
 mv "$state/arm.json.tmp" "$state/arm.json"
 jq -n --argjson rc "$rc" '{done: true, exit: $rc}' > "$trial/done.json.tmp"
 mv "$trial/done.json.tmp" "$trial/done.json"

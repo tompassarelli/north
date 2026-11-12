@@ -136,4 +136,4 @@ fn number<T: std::str::FromStr>(name: &str, value: &str) -> Result<T> {
         .map_err(|_| RunError::Usage(format!("--{name} takes a number, not {value}")))
 }
 
-pub const USAGE: &str = "usage: eval-x-runner plan | noise LOGIN | full LOGIN | smoke TASK LOGIN | stop\n  LOGIN: --account A --token-file FILE\n  options: --policy FILE --in-flight N --work DIR --seed N --max-load F --min-5h-headroom P --min-week-headroom P --max-reading-age S --max-reruns N";
+pub const USAGE: &str = "usage: eval-x-runner plan | noise LOGIN | full LOGIN | smoke TASK LOGIN | stop | session-end --state DIR NAME\n  LOGIN: --account A --token-file FILE\n  options: --policy FILE --in-flight N --work DIR --seed N --max-load F --min-5h-headroom P --min-week-headroom P --max-reading-age S --max-reruns N";

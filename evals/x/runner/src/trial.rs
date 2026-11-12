@@ -255,6 +255,7 @@ impl Live<'_> {
                 .arg(trial.task.agent_timeout_s.to_string())
                 .env("EVAL_T_TOKEN_FILE", self.token_file)
                 .env("EVAL_T_CLAUDE", self.claude)
+                .env("EVAL_X_RUNNER", std::env::current_exe()?)
                 .process_group(0)
                 .stdin(Stdio::null())
                 .stdout(log)

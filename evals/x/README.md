@@ -39,13 +39,33 @@ mount of it on the host. Model traffic never passes through the container and no
 its own directory and README:
 
 - `handoff/`: the stand-in agent Harbor starts in the container. It passes the task's instruction to the host and
-  waits for the turn to end.
+  waits for the arm to end the trial.
 - `workspace/`: copies a task's working directory out of its image to the host and prints the mounts for it.
 - `relay/`: the shell both arms give Claude Code, and the broker that runs its commands in the container.
-- `arm`: runs one turn of one arm on the host for one trial and writes the trial's result.
+- `arm`: runs one arm on the host for one trial and writes the trial's result. The plain arm ends at the end of T3
+  Code's turn. The north arm runs its session as a north host does, to its report (see below).
 - `runner/`, `run`: plan and run the trials, one row per attempt; `run` builds the runner and starts it.
 - `slice/podman`: stands in front of podman on the path of `host` and `relay/real-session` and gives every container
   they or Harbor start the cgroup parent `agent-capacity-evalx.slice`. north's containment sweep
   (`north agent-contain sweep`, each minute) freezes a container scope anywhere else under the user manager, which
   stalls a trial at its next exec; under `agent.slice` it leaves containers alone, and their load counts as agent
   load. A task's own CPU and memory caps are set on the container as before.
+
+## When the north arm ends a trial
+
+north tells a session to put a command longer than 30 seconds in the background and to read its result when it ends,
+and north's session host keeps the session until then: the end of the command invokes the session again. So the north
+arm does not end a trial at the first turn's end. `eval-x-runner session-end`, which the arm polls every three
+seconds, reads the session host's stream and decides:
+
+- the last turn ended on a report (it opens `Done`, `Not done`, `Split`, `Stop` or `Blocked`): the trial ends
+  (`report`);
+- a turn is running, or a command the session started has not ended: wait;
+- the last turn ended with no report and nothing of the session's is running: send it one message, as the lead a
+  north worker always has would, and wait for that turn. A second such end ends the trial (`no_report`);
+- the session host exited or parked: the trial ends (`stopped`).
+
+The wait is bounded by the task's agent timeout (`--limit`); a session still going then ends as `limit`. The arm
+stops the session before it writes `done.json`, so no command of the session runs beside the grader. `arm.json` holds
+the outcome under `session_end`: `ended`, `turns` (one per invocation of the session), `nudges` (0 or 1) and
+`open_tasks`. The plain arm is unchanged and has no `session_end`.

@@ -2,8 +2,8 @@
 
 The part of an Eval X trial that runs inside the task's container. Harbor's shipped generic agent (`--agent acp`,
 Harbor v0.25.0, `harbor/agents/installed/acp.py`) starts `stub.sh` with `sh` as a local distribution, and the stub
-hands the instruction to the host through the trial directory. The host side (the arm) writes `done.json` at the turn
-end; the stub then answers `end_turn` whatever `done.json` says, so the arm's outcome is read from its own files.
+hands the instruction to the host through the trial directory. The host side (the arm) writes `done.json` when it
+ends the trial; the stub then answers `end_turn` whatever `done.json` says, so the arm's outcome is read from its own files.
 
 ## Files
 
