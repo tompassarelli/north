@@ -1,0 +1,1 @@
+  spare-fill NAME                               Keep spare workers on the build host of the worker NAME for the next launch like it, retiring those whose policy text, settings or runtime changed

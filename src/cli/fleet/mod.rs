@@ -36,6 +36,7 @@ mod router;
 mod row;
 mod show;
 mod spend;
+mod spares;
 mod spend_queue;
 mod spool;
 mod tick;
@@ -53,6 +54,7 @@ mod waits;
 
 pub(super) use router::fleet_load;
 pub(super) use proxy::run as proxy;
+pub(super) use spares::fill as fill_spares;
 pub(super) use router::{account_home, host_watch, open_fleet, roster, run};
 pub(super) use typed::proxy_turn;
 #[cfg(test)]

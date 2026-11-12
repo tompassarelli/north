@@ -25,7 +25,7 @@ impl Fleet {
         spares::release(&Place { ssh: &ssh, machine, home: &home }, taken);
     }
 
-    /// `north fleet spares fill NAME`: keeps spares for launches like the worker `name` on its build host, retiring those whose policy text, settings or runtime are no longer current.
+    /// `north spare-fill NAME`: keeps spares for launches like the worker `name` on its build host, retiring those whose policy text, settings or runtime are no longer current.
     pub fn fill_spares(&self, name: &str) -> NorthResult<String> {
         let record = self.record(name)?;
         let machine = record.machine.clone().filter(|_| record.role() == Role::Worker).ok_or_else(|| NorthError::Usage(format!("{name} is not a worker on a build host, so no spare serves launches like it")))?;
@@ -69,7 +69,7 @@ impl Fleet {
     }
 }
 
-/// Starts `north fleet spares fill NAME` apart from this launch, so the next launch like it finds a spare.
+/// Starts `north spare-fill NAME` apart from this launch, so the next launch like it finds a spare.
 pub(super) fn fill_after(record: &SessionRecord) {
     if record.machine.is_none() || record.role() != Role::Worker {
         return;
@@ -78,7 +78,7 @@ pub(super) fn fill_after(record: &SessionRecord) {
     if program.file_name().is_none_or(|name| name != "north") {
         return;
     }
-    let _ = std::os::unix::process::CommandExt::process_group(std::process::Command::new(program).args(["fleet", "spares", "fill", &record.name]), 0).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+    let _ = std::os::unix::process::CommandExt::process_group(std::process::Command::new(program).args(["spare-fill", &record.name]), 0).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
 }
 
 fn home() -> Option<PathBuf> {

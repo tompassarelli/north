@@ -146,7 +146,6 @@ fn dispatch_session(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
             forget(fleet, name, force, successor)
         }
         [SWEEP_VERB] => claims::sweep(fleet),
-        ["spares", "fill", name] => fleet.fill_spares(name).map(|said| println!("{said}")),
         [verb, name] => session_verb(fleet, verb, name),
         ["revive", name, rest @ ..] => revive::revive_with(fleet, name, rest),
         ["show", name, flag] => show::run(fleet, name, flag),

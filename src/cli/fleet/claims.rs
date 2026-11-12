@@ -48,8 +48,8 @@ fn moved(said: &str, key: &str, session: &str) -> Option<String> {
 /// A verb that only reads leaves the sweep to the mutating verbs, because the hooks that call `fleet list` run on every prompt.
 const READ_VERBS: [&str; 7] = ["list", "stranded", "tree", "spend", "accounts", "show", "hops"];
 
-/// A launch asks the ledger only about the items it names, through [`Fleet::release_exited_claims_on`], so parallel launches never each read every claim, and the spare fill each launch starts asks it nothing.
-const SCOPED_VERBS: [&str; 2] = ["launch", "spares"];
+/// A launch asks the ledger only about the items it names, through [`Fleet::release_exited_claims_on`], so parallel launches never each read every claim.
+const SCOPED_VERBS: [&str; 1] = ["launch"];
 
 /// The verb a mutating verb starts in the background to clear exited sessions' claims.
 pub(super) const SWEEP_VERB: &str = "sweep-claims";
