@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
@@ -12,11 +12,12 @@ use toml_edit::DocumentMut;
 
 use super::detached::{self, Prior, Scope};
 use super::jobs::Lease;
-use super::model::{Entry, EntryKind, Phase, Role, SessionRecord, Status};
+use super::model::{Delivery, Entry, EntryKind, Phase, Role, SessionRecord, Status};
 use super::receipts::is_final;
-use super::registry::Fleet;
+use super::registry::{Fleet, worktree_of};
 use super::resume::{Landing, ended_ms, landing};
 use super::runtime::binary;
+use super::sender::Sender;
 use super::transcript::last_written;
 
 const STALE_KEY: &str = "fleet_stale_hours";
@@ -37,6 +38,14 @@ pub trait Evidence: Sync {
     fn landed(&self, cwd: &Path, sha: &str) -> bool;
     fn running(&self, records: &[&SessionRecord]) -> BTreeMap<String, Work>;
     fn lanes(&self) -> BTreeMap<String, Vec<Lane>>;
+    fn ahead(&self, record: &SessionRecord) -> Option<Ahead>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Ahead {
+    pub path: PathBuf,
+    pub tip: String,
+    pub commits: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,6 +70,7 @@ pub struct Seen {
     pub background: bool,
     pub ended: bool,
     pub lane_holds: bool,
+    pub lane_ahead: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -98,7 +108,7 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
     if !matches!(seen.status, Status::Idle | Status::Parked) {
         return Verdict::Keep;
     }
-    if seen.report.as_ref().is_some_and(|report| report.taken && finishes(&report.text) && report.unlanded.is_empty() && (opens(&report.text, "Done") || !seen.background)) {
+    if seen.report.as_ref().is_some_and(|report| finished(seen, report)) {
         return Verdict::Finished;
     }
     if seen.quiet >= stale && !seen.background { Verdict::Stale } else { Verdict::Keep }
@@ -106,6 +116,14 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
 
 fn finishes(report: &str) -> bool {
     opens(report, "Done") || (opens(report, "Not done") || opens(report, "Split") || opens(report, "Blocked")) && STOP.is_match(report)
+}
+
+fn finished(seen: &Seen, report: &Report) -> bool {
+    report.taken && finishes(&report.text) && !(seen.lane_ahead && waits(&report.text)) && report.unlanded.is_empty() && (opens(&report.text, "Done") || !seen.background)
+}
+
+fn waits(report: &str) -> bool {
+    opens(report, "Not done") || opens(report, "Blocked")
 }
 
 fn owes_landing(lanes: &[Lane], ended_ms: u64) -> bool {
@@ -195,14 +213,15 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             reaped.deferred = candidates.len() - done * LEASE_BATCH;
             break;
         }
-        let mut due: Vec<(&SessionRecord, String, Option<String>)> = Vec::new();
+        let mut due: Vec<(&SessionRecord, String, Option<String>, Option<Ahead>)> = Vec::new();
         for &(record, status, quiet) in batch {
             let (ended, work) = (ended_by_host(record), running.get(&record.name).copied());
             let live = if ended { fleet.live_hold(record, &records, &gated) } else { fleet.live_wait(record, &records, &gated, work == Some(Work::Detached)) };
             let entries = if live.is_some() { Vec::new() } else { fleet.follow_recent(&record.name).map(|follower| follower.transcript().entries.clone()).unwrap_or_default() };
             let report = final_report(&entries).map(|text| Report { text: text.to_owned(), taken: fleet.report_taken(record), unlanded: named_shas(text).into_iter().filter(|sha| !evidence.landed(&record.cwd, sha)).collect() });
+            let ahead = if live.is_some() { None } else { evidence.ahead(record) };
             let lane_holds = lanes.get(&record.name).is_some_and(|held| owes_landing(held, ended_ms(record).unwrap_or(u64::MAX)));
-            let seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended, lane_holds };
+            let seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended, lane_holds, lane_ahead: ahead.is_some() };
             let verdict = verdict(&seen, stale);
             if let Some(label) = told(&verdict, status) {
                 verdicts.insert(record.name.clone(), label.to_owned());
@@ -214,11 +233,11 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
                 continue;
             }
             let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant && is_final(&entry.text)).or_else(|| entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant)).map(|entry| entry.text.chars().take(LAST_CHARS).collect::<String>());
-            due.push((record, verdict.why(stale), last));
+            due.push((record, verdict.why(stale), last, ahead));
         }
-        let leases = fleet.job_leases(&due.iter().map(|(record, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(spent()));
-        for ((record, why, last), lease) in due.into_iter().zip(leases) {
-            retire_unleased(fleet, &mut reaped, apply, (record, why, last), lease);
+        let leases = fleet.job_leases(&due.iter().map(|(record, _, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(spent()));
+        for ((record, why, last, ahead), lease) in due.into_iter().zip(leases) {
+            retire_unleased(fleet, &mut reaped, apply, (record, why, last, ahead), lease);
         }
     }
     if apply && let Err(why) = fleet.tell_retirement(verdicts, now_ms) {
@@ -236,7 +255,7 @@ fn told(verdict: &Verdict, status: Status) -> Option<&'static str> {
     }
 }
 
-fn retire_unleased(fleet: &Fleet, reaped: &mut Reaped, apply: bool, (record, why, last): (&SessionRecord, String, Option<String>), lease: Lease) {
+fn retire_unleased(fleet: &Fleet, reaped: &mut Reaped, apply: bool, (record, why, last, ahead): (&SessionRecord, String, Option<String>, Option<Ahead>), lease: Lease) {
     let name = record.name.clone();
     match lease {
         Lease::Held => reaped.kept.push(Retired { name, why: "a job-run job still holds a lease on it".into() }),
@@ -247,10 +266,22 @@ fn retire_unleased(fleet: &Fleet, reaped: &mut Reaped, apply: bool, (record, why
         Lease::Free => {
             let retired = if apply { fleet.retire(&name, &why, last.as_deref()).map(drop) } else { Ok(()) };
             match retired {
-                Ok(()) => reaped.retired.push(Retired { name, why }),
+                Ok(()) => {
+                    if apply && let (Some(ahead), Some(parent)) = (ahead, record.parent.as_deref()) {
+                        tell_unlanded(fleet, parent, &name, &ahead);
+                    }
+                    reaped.retired.push(Retired { name, why });
+                }
                 Err(error) => reaped.failed.push(Retired { name, why: error.user_message() }),
             }
         }
+    }
+}
+
+fn tell_unlanded(fleet: &Fleet, parent: &str, name: &str, ahead: &Ahead) {
+    let text = format!("[north: {name} is retired, and its lane {} at {} holds {} commits not on origin/main; land it or restaff it]", ahead.path.display(), ahead.tip, ahead.commits);
+    if let Err(error) = fleet.send_signed(&Sender::fleet(), parent, &text, Delivery::Queued) {
+        eprintln!("fleet reaper: {name}'s parent {parent} was not told of its unlanded lane: {}", error.user_message());
     }
 }
 
@@ -271,6 +302,20 @@ impl Evidence for Here {
 
     fn lanes(&self) -> BTreeMap<String, Vec<Lane>> {
         lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default()
+    }
+
+    fn ahead(&self, record: &SessionRecord) -> Option<Ahead> {
+        let parent = record.cwd.parent()?;
+        let path = if parent.file_name().is_some_and(|name| name == "worktrees") { record.cwd.clone() } else { worktree_of(record, &parent.join("worktrees"))? };
+        let probe = format!("git -C '{}' rev-list --count origin/main..HEAD && git -C '{}' rev-parse --short=10 HEAD", path.display(), path.display());
+        let output = match &record.machine {
+            Some(machine) => Command::new(binary("ssh")).args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, &probe]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?,
+            None => Command::new(binary("sh")).args(["-c", &probe]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?,
+        };
+        let text = String::from_utf8(output.stdout).ok().filter(|_| output.status.success())?;
+        let mut lines = text.lines();
+        let commits = lines.next()?.trim().parse::<usize>().ok().filter(|commits| *commits > 0)?;
+        Some(Ahead { path, tip: lines.next()?.trim().to_owned(), commits })
     }
 
     fn running(&self, records: &[&SessionRecord]) -> BTreeMap<String, Work> {

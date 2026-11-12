@@ -26,6 +26,7 @@ struct Sight {
     landed: BTreeSet<String>,
     running: BTreeMap<String, Work>,
     lanes: BTreeMap<String, Vec<north_base::land_ticket::Lane>>,
+    ahead: BTreeMap<String, Ahead>,
 }
 
 impl Evidence for Sight {
@@ -39,6 +40,10 @@ impl Evidence for Sight {
 
     fn lanes(&self) -> BTreeMap<String, Vec<north_base::land_ticket::Lane>> {
         self.lanes.clone()
+    }
+
+    fn ahead(&self, record: &SessionRecord) -> Option<Ahead> {
+        self.ahead.get(&record.name).cloned()
     }
 }
 
@@ -117,6 +122,26 @@ fn a_not_done_or_split_retires_only_when_it_names_a_stop_its_parent_took_and_new
 
     assert_eq!(retired(&reaped), ["stopped"]);
     assert!(fleet.session("unstopped").is_ok() && fleet.session("rehired").is_ok());
+}
+
+/// Eight workers parked under the coordinator's hold were retired on 2026-11-12 after a taken Not done report, lanes ahead of main and their parent untold (north#1235).
+#[test]
+fn a_worker_parked_on_an_unlanded_lane_after_a_not_done_report_stays_and_a_stale_retirement_tells_its_parent_the_lane() {
+    let home = tempfile::tempdir().unwrap();
+    let (fleet, paper) = fleet(home.path());
+    let lead = live(&fleet, "lead");
+    reported(&fleet, "held", Some("lead"), "Not done: the commit is on the lane but the coordinator holds hand-ins.\nStop: landing");
+    paper.claim_receipt("held", "turn:1", now_ms()).unwrap();
+    let lane = Ahead { path: "/home/tom/code/north/worktrees/held-lane".into(), tip: "8ffd6add62".into(), commits: 1 };
+    let evidence = Sight { ahead: [("held".to_owned(), lane)].into(), ..Sight::default() };
+
+    let waiting = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
+    assert!(retired(&waiting).is_empty() && fleet.root.join("held").exists(), "{waiting:?}");
+    let stale = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
+
+    assert_eq!(retired(&stale), ["held"]);
+    let frames = lead.frames.lock().unwrap();
+    assert!(frames.iter().any(|frame| frame.contains("/home/tom/code/north/worktrees/held-lane") && frame.contains("8ffd6add62") && frame.contains("1 commits")), "{frames:?}");
 }
 
 /// north-669-d1955 stopped on `Stop: landing` with its guards lane queued: the reaper keeps it while the lane is open and
