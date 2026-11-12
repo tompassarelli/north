@@ -52,6 +52,31 @@ pub const NOT_RUN: [(&str, &str); 9] = [
     ("codex-same-model-subagents-stay-native", "the case is for the Codex harness only"),
 ];
 
+pub fn moved(files: &serde_json::Map<String, Value>, root: &Path) -> Option<(String, String)> {
+    let parents: Vec<Vec<&str>> = files.keys().filter(|path| !inside(path)).map(|path| path.trim_start_matches('/').split('/').rev().skip(1).collect::<Vec<_>>().into_iter().rev().collect()).collect();
+    let (first, rest) = parents.split_first()?;
+    let shared = rest.iter().fold(first.len(), |len, other| first.iter().zip(other).take(len).take_while(|(a, b)| a == b).count());
+    let from = format!("/{}", first[..shared].join("/"));
+    let to = root.join(from.trim_start_matches('/')).to_string_lossy().into_owned();
+    Some((from, to))
+}
+
+fn relocate(value: &Value, from: &str, to: &str) -> Value {
+    match value {
+        Value::String(text) => Value::String(text.replace(from, to)),
+        Value::Array(items) => Value::Array(items.iter().map(|item| relocate(item, from, to)).collect()),
+        Value::Object(fields) => Value::Object(fields.iter().map(|(key, item)| (key.clone(), relocate(item, from, to))).collect()),
+        other => other.clone(),
+    }
+}
+
+pub fn restore(text: &str, moved: &Value) -> String {
+    match (moved["from"].as_str(), moved["to"].as_str()) {
+        (Some(from), Some(to)) => text.replace(to, from),
+        _ => text.to_owned(),
+    }
+}
+
 pub fn judged(table: &[(&'static str, &'static str)], id: &str) -> Option<&'static str> {
     table.iter().find(|(case, _)| *case == id).map(|(_, why)| *why)
 }
@@ -69,8 +94,11 @@ pub fn build(checkout: &Path, id: &str, into: &Path, seen_at: Option<&str>) -> R
         return Err(format!("{} already exists; pick a new --into", repo.display()));
     }
     fs::create_dir_all(&repo).map_err(|e| format!("{}: {e}", repo.display()))?;
+    let into = &fs::canonicalize(into).map_err(|e| format!("{}: {e}", into.display()))?;
+    let repo = into.join("repo");
     let world = &case["setup"]["world"];
     let files = world["files"].as_object().cloned().unwrap_or_default();
+    let moved = moved(&files, &into.join("root"));
     for (path, content) in &files {
         let target = if inside(path) { repo.join(path) } else { into.join("root").join(path.trim_start_matches('/')) };
         fs::create_dir_all(target.parent().unwrap_or(&repo)).map_err(|e| format!("{path}: {e}"))?;
@@ -84,7 +112,9 @@ pub fn build(checkout: &Path, id: &str, into: &Path, seen_at: Option<&str>) -> R
     }
     let turns = case["setup"]["priorTurns"].as_array().map(|turns| -> Result<PathBuf, String> {
         let file = into.join("turns.json");
-        fs::write(&file, format!("{}\n", Value::Array(turns.clone()))).map_err(|e| format!("{}: {e}", file.display()))?;
+        let turns = Value::Array(turns.clone());
+        let turns = moved.as_ref().map_or(turns.clone(), |(from, to)| relocate(&turns, from, to));
+        fs::write(&file, format!("{turns}\n")).map_err(|e| format!("{}: {e}", file.display()))?;
         Ok(file)
     }).transpose()?;
     let branch = world["branch"].as_str().unwrap_or("main");
@@ -97,7 +127,7 @@ pub fn build(checkout: &Path, id: &str, into: &Path, seen_at: Option<&str>) -> R
     let told = case["setup"]["context"].as_str().filter(|_| given.is_some()).map(|context| context.replace(RUNNER_DIRECTORY, &place));
     let prompt = told.map_or_else(|| prompt.to_owned(), |context| format!("{context}\n\n{prompt}"));
     fs::write(into.join("prompt.txt"), prompt).map_err(|e| e.to_string())?;
-    let manifest = json!({"case": id, "kind": case["kind"], "repo": repo, "prompt": into.join("prompt.txt"), "branch": branch, "files": files.len(), "tree": tree, "given": given, "turns": turns, "root": into.join("root")});
+    let manifest = json!({"case": id, "kind": case["kind"], "repo": repo, "prompt": into.join("prompt.txt"), "branch": branch, "files": files.len(), "tree": tree, "given": given, "turns": turns, "root": into.join("root"), "moved": moved.as_ref().map(|(from, to)| json!({"from": from, "to": to}))});
     fs::write(into.join("world.json"), format!("{manifest:#}\n")).map_err(|e| e.to_string())?;
     Ok(manifest)
 }

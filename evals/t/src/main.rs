@@ -102,8 +102,12 @@ fn grade(flags: &BTreeMap<String, String>) -> Result<(), String> {
         Err(why) if plain => return Err(format!("{arm}: {why}")),
         first => first.unwrap_or(Value::Null),
     };
-    let row = row::row(&case, &text, cwd, &planted_uuids(flags.get("planted"))?);
     let out = fs::canonicalize(need(flags, "out")?).map_err(|e| format!("--out: {e}"))?;
+    let mut row = row::row(&case, &text, cwd, &planted_uuids(flags.get("planted"))?);
+    let world: Value = fs::read_to_string(out.join("world.json")).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or(Value::Null);
+    for field in ["text", "finalText"] {
+        row[field] = json!(world::restore(row[field].as_str().unwrap_or_default(), &world["moved"]));
+    }
     let rows = out.join("row.jsonl");
     fs::write(&rows, format!("{row}\n")).map_err(|e| format!("{}: {e}", rows.display()))?;
     let regrade = proc::run_in(&grader.join("evals"), need(flags, "node")?, &["mcp-tool-use/regrade.ts", &rows.to_string_lossy()]);
