@@ -79,6 +79,29 @@ Rung three starts as a turn a fleet worker runs once a day, not as a crate. On 2
 4. **Choosing the question.** The detector ranks losses in one unit, runs. The two sources are each class of `north dash losses --since 7d` (73 first tries lost to the harness in the week to 2026-11-12, 40 of them provider errors) and each `north dash --weekly` row with a k/n figure in both weeks, counted as n times its move for the worse. A key is taken while a turn of the last 28 days holds it. A turn that finds an open issue already owning its loss records `owned`, which takes the key, and moves on to the next one its box lists. Until rung 0 holds, these sources and the decision log, run rows, git and the lander are all a turn reads.
 5. **Stop rule.** The last `Loop:` box is deferred in the experiment registry to 2026-12-17. The loop is kept if it finished at least 20 turns in 28 days and the registry kept at least one of its mechanisms on a class or repository the mechanism was not built from. If not, the box reopens to delete the detector, the brief, the scan and the loop entry. The turn log stays as the record.
 
+## Census of 2026-11-11 (box one of north#1279)
+
+Frozen day: 11 November 2026, UTC. Read from the laptop's Claude Code transcripts (five account profiles, files modified on 11 or 12 November, decisions timed on 11 November). The laptop's ledger holds no fleet worker run for that day: its 76 runs are DeepSeek canary probes, so the transcripts are the record. Hosts that run their own sessions are not in this count.
+
+A decision is the first tool call of one API message; a message with no tool call is an answer. Classes come from the first line of the command. New tokens are input, output and cache creation; cache reads are shown apart. Machine-graded means the decision's own result carries a verdict (a test or check summary, an exit code, a lander line), or a check ran in the background and a verdict line appears later in its session.
+
+| Class | Decisions | Sessions | New tokens | Cache-read tokens | Machine-graded decisions | Tokens in graded decisions |
+| --- | --- | --- | --- | --- | --- | --- |
+| locate (read, search, inspect) | 1,109 | 61 | 2,650,341 | 100,134,660 | 0 (0%) | 0 |
+| edit (change files) | 244 | 59 | 471,317 | 22,982,712 | 0 (0%) | 0 |
+| coordinate (fleet, gates, issues) | 191 | 20 | 456,368 | 15,644,358 | 0 (0%) | 0 |
+| check (run a build, test or check) | 134 | 23 | 203,497 | 14,188,194 | 76 (57%) | 103,492 |
+| land-finish (finish call, hand-in, safe-push) | 130 | 57 | 124,663 | 9,444,350 | 77 (59%) | 53,268 |
+| wait (monitor, schedule, poll) | 122 | 19 | 131,907 | 14,908,871 | 5 (4%) | 3,583 |
+| answer (no tool call) | 123 | 42 | 97,936 | 11,436,168 | 0 (0%) | 0 |
+| land-git (commit, push, PR) | 52 | 27 | 65,184 | 4,544,411 | 6 (12%) | 5,627 |
+| other shell | 5 | 3 | 7,150 | 143,537 | 0 (0%) | 0 |
+| **All** | **2,110** | **64** | **4,208,363** | **193,427,261** | **164 (8%)** | **165,970 (4%)** |
+
+Ranking. The class with the most new tokens is locate, 63% of all new tokens, and no machine grades any of its decisions: nothing checks whether the next file read was the right one, so no rule can learn from its outcomes. Ranked by tokens a machine graded, the top class is check: 103,492 new tokens in 76 graded decisions across 23 sessions, with 57% of its decisions graded. Land-finish is second with 53,268 tokens in 77 graded decisions, and it grades a larger share (59%) on fewer tokens.
+
+Top class and its cases: check. Its 76 recorded cases (a command, the verdict it drew and its time) are kept in south's agents/decisions as a private record, not here. The next step of this box is a rule for check: which build or test filter a change needs, decided from the paths it touches, replayed on these cases.
+
 ## What north will not do
 
 - **No restored climber.** Its design note stays as the record; rung three takes its scope guard and its reward rule and gives them a reward and a live path first.
