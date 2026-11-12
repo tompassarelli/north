@@ -1,0 +1,1 @@
+  spare-retire HOST DIR                         Retire every spare on build host HOST whose directory is DIR or under it, printing one line for each (name, age, why) and exiting 0 when there is none; spares elsewhere stay

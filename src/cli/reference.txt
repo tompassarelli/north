@@ -324,6 +324,7 @@ Commands:
   placement-survey keep                         Keep every build host's placement survey under 30 s old while launches place work, stopping 5 min after the last one
   ssh-spare hold DESTINATION                    Keep six spare shells open to a build host so a survey question costs one round trip, stopping 10 min after the last one is taken or when the runtime changes
   spare-fill NAME                               Keep spare workers on the build host of the worker NAME for the next launch like it, retiring those whose policy text, settings or runtime changed
+  spare-retire HOST DIR                         Retire every spare on build host HOST whose directory is DIR or under it, printing one line for each (name, age, why) and exiting 0 when there is none; spares elsewhere stay
   lane seed [DIR]                               Seed a lane's cargo target from the shared one
   tool-mine [--days N] [--min-sessions N] [--min-steps N] [--max N] [--owner REPO#N] [--dry-run]  Mine transcripts for repeated tool sequences
   fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Account writers; the account view is `north accounts`

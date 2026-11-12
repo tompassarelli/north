@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::proc::{TOOLPATH, git, must, sh, ssh};
+use crate::proc::{TOOLPATH, git, must, run, sh, ssh};
 
 pub const ROOT: &str = "/tmp/eval-b";
 
@@ -137,6 +137,8 @@ pub fn queue_dir() -> Option<PathBuf> {
 pub fn teardown(hosts: &[String]) {
     for host in hosts {
         let _ = ssh(host, &format!("rm -rf {ROOT}"));
+        let retired = run("north", &["spare-retire", host, ROOT], None);
+        eprint!("{}{}", retired.out, retired.err);
     }
 }
 

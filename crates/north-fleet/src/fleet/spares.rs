@@ -26,6 +26,8 @@ pub const PER_HOST: usize = 6;
 const IDLE: Duration = Duration::from_secs(30 * 60);
 const TAKEN_DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
 const POOL: &str = ".local/state/north/spares";
+const RETIRED_LOG: &str = ".local/state/north/spares-retired.log";
+const IDENTITY: &str = "%d:%i:%W";
 const MEMORY_FLOOR_KB: u64 = 4 * 1024 * 1024;
 const CHANNEL_WAIT: Duration = Duration::from_secs(3);
 const BOUND: [&str; 3] = [SESSION_ENV, ACTOR_ENV, CAPACITY_NEED_ENV];
@@ -107,8 +109,8 @@ done
 for e in "$pool"/*-"$fp"-*; do
   t="$pool/.${{e##*/}}.$$"
   [ -f "$e" ] && mv "$e" "$t" 2>/dev/null || continue
-  read -r unit dir nonce conv spare < "$t"; rm -f "$t"
-  if systemctl --user -q is-active "$unit" && [ "$(cat "$dir/nonce" 2>/dev/null)" = "$nonce" ] && {{ [ ! -d "$spools/$spare" ] || {{ mv -T "$spools/$spare" "$spools/$name" && find "$spools/$name" -mindepth 1 -delete; }}; }} && mkdir -m 700 "$dir/bound" && printf %s "$bound" > "$dir/bound/.binding" && chmod 400 "$dir/bound/.binding" && mv "$dir/bound/.binding" "$dir/bound/binding" && chmod 500 "$dir/bound" && echo {} > "$dir/limit"; then
+  read -r unit dir nonce conv spare ident cwd < "$t"; rm -f "$t"
+  if systemctl --user -q is-active "$unit" && [ "$(cat "$dir/nonce" 2>/dev/null)" = "$nonce" ] && [ "$(stat -c %d:%i:%W "$cwd" 2>/dev/null)" = "$ident" ] && {{ [ ! -d "$spools/$spare" ] || {{ mv -T "$spools/$spare" "$spools/$name" && find "$spools/$name" -mindepth 1 -delete; }}; }} && mkdir -m 700 "$dir/bound" && printf %s "$bound" > "$dir/bound/.binding" && chmod 400 "$dir/bound/.binding" && mv "$dir/bound/.binding" "$dir/bound/binding" && chmod 500 "$dir/bound" && echo {} > "$dir/limit"; then
     echo "$unit $dir $nonce $conv"; exit 0
   fi
   systemctl --user stop --no-block "$unit" 2>/dev/null
@@ -135,18 +137,23 @@ pub fn release(place: &Place, taken: &Taken) {
     let _ = run(place, &format!("systemctl --user stop --no-block {}", quote(&taken.running.unit)));
 }
 
-/// The build host's load and the live spares its pool holds, removing the entries of units that are gone; None when it does not answer.
+/// The build host's load and the live spares its pool holds, removing the entries of units that are gone and retiring at once any spare whose directory is gone or is no longer the one it started in, so its slot counts free; None when it does not answer.
 pub fn survey(place: &Place) -> Option<Pool> {
     let script = format!(
         r#"pool={}
 read -r l _ < /proc/loadavg; echo "${{l%%.*}} $(nproc) $(awk '/^MemAvailable:/ {{print $2}}' /proc/meminfo)"
 [ -d "$pool" ] && [ -O "$pool" ] || exit 0
+{drop}
 for e in "$pool"/*; do
   [ -f "$e" ] || continue
-  read -r unit _ < "$e"
-  if systemctl --user -q is-active "$unit"; then echo "${{e##*/}}"; else rm -f "$e"; fi
+  read -r unit _ _ _ spare ident cwd < "$e"
+  systemctl --user -q is-active "$unit" || {{ rm -f "$e"; continue; }}
+  [ -n "$cwd" ] && [ "$(stat -c {identity} "$cwd" 2>/dev/null)" = "$ident" ] || {{ drop "$e" "$unit" "$spare" "its directory $cwd is gone or is not the one it started in"; continue; }}
+  echo "${{e##*/}}"
 done"#,
-        quote(&pool(place.home))
+        quote(&pool(place.home)),
+        drop = drop_function(place.home),
+        identity = IDENTITY
     );
     let (0, out) = run(place, &script)? else { return None };
     let mut lines = out.lines();
@@ -176,6 +183,38 @@ pub fn retire(place: &Place, entries: &[String]) {
     let _ = run(place, &format!("for e in {}; do read -r unit _ < \"$e\" && systemctl --user stop --no-block \"$unit\"; done", names.join(" ")));
 }
 
+/// The shell function that retires one spare: it appends a line with the spare's name, its age and the reason to the host's retirement log (and prints it when `SPARE_SAY` is set), stops its unit, which ends its whole control group, and removes its entry.
+fn drop_function(home: &Path) -> String {
+    let log = quote(&home.join(RETIRED_LOG).to_string_lossy());
+    format!(
+        r#"drop() {{ now=$(date +%s); age=$((now - $(stat -c %Y "$1" 2>/dev/null || echo "$now"))); line="$(date -u +%Y-%m-%dT%H:%M:%SZ) $3 age ${{age}}s: retired unused, $4"; printf '%s\n' "$line" >> {log}; [ -z "$SPARE_SAY" ] || printf '%s\n' "$line"; systemctl --user stop "$2" 2>/dev/null; rm -f "$1"; }}"#
+    )
+}
+
+/// Retires every spare whose directory is `tree` or under it on the host, whatever its kind, and returns one line for each (its name, its age and why); a spare outside the tree stays. None when the host does not answer or `tree` is not an absolute path.
+pub fn retire_under(place: &Place, tree: &Path) -> Option<Vec<String>> {
+    let tree = tree.to_string_lossy();
+    let tree = tree.trim_end_matches('/');
+    if !tree.starts_with('/') || tree.contains('\n') {
+        return None;
+    }
+    let script = format!(
+        r#"pool={} tree={} SPARE_SAY=1
+{drop}
+[ -d "$pool" ] && [ -O "$pool" ] || exit 0
+for e in "$pool"/*; do
+  [ -f "$e" ] || continue
+  read -r unit _ _ _ spare _ cwd < "$e"
+  case "$cwd" in "$tree"/*|"$tree") drop "$e" "$unit" "$spare" "its directory tree $tree was retired";; esac
+done"#,
+        quote(&pool(place.home)),
+        quote(tree),
+        drop = drop_function(place.home)
+    );
+    let (0, out) = run(place, &script)? else { return None };
+    Some(out.lines().map(str::to_owned).collect())
+}
+
 /// Starts the spare `spare` of `kind` and `fingerprint` from `spec` (see [`spare_spec`]) with `conversation`, and enters it in the pool once its unit runs.
 pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spare: &str, conversation: &str) -> NorthResult<()> {
     let held = place.home.join(".local/state/north/held");
@@ -192,12 +231,15 @@ pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spar
     );
     let nonce = new_uuid()?;
     let launch = remote::launch_script(spec, &held, &unit, &dir, &nonce, IDLE, &[format!("ExecStopPost=/bin/sh {dir}/retire")]);
+    let cwd = quote(&spec.cwd.to_string_lossy());
     let script = format!(
-        "umask 077; mkdir -p {q_dir} {q_pool} && chmod 700 {q_pool} && printf %s {} > {q_dir}/retire && printf %s {} > {q_dir}/conversation && {{ {launch}; }} && printf '%s\\n' {} > {q_pool}/.new-{spare} && mv {q_pool}/.new-{spare} {}",
+        "{drop}\numask 077; ident=$(stat -c {IDENTITY} {cwd}) && mkdir -p {q_dir} {q_pool} && chmod 700 {q_pool} && printf %s {} > {q_dir}/retire && printf %s {} > {q_dir}/conversation && {{ {launch}; }} && printf '%s\\n' {}\" $ident \"{cwd} > {q_pool}/.new-{spare} && mv {q_pool}/.new-{spare} {entry_q} && {{ [ \"$(stat -c {IDENTITY} {cwd})\" = \"$ident\" ] || drop {entry_q} {unit_q} {spare} 'its directory was removed while it started'; }}",
         quote(&retire),
         quote(conversation),
         quote(&format!("{unit} {dir} {nonce} {conversation} {spare}")),
-        quote(&entry),
+        drop = drop_function(place.home),
+        entry_q = quote(&entry),
+        unit_q = quote(&unit),
         q_dir = quote(&dir),
         q_pool = quote(&pool)
     );
