@@ -135,12 +135,23 @@ fn a_live_holder_keeps_its_state_and_one_on_another_host_keeps_it_only_until_its
 }
 
 #[test]
-fn the_host_store_lives_under_the_state_root_a_caller_redirects_and_under_home_only_without_one() {
+fn a_lifecycle_store_opens_in_write_ahead_mode_beside_a_writer_and_the_host_store_lives_under_the_state_root() {
     let path = |state: Option<&str>, home: Option<&str>| super::store::host_path_in(state.map(Into::into), home.map(Into::into)).ok();
     assert_eq!(path(Some("/scratch/state"), Some("/home/tom")), Some("/scratch/state/north/ledger.db".into()));
     assert_eq!(path(Some(""), Some("/home/tom")), Some("/home/tom/.local/state/north/ledger.db".into()));
     assert_eq!(path(None, Some("/home/tom")), Some("/home/tom/.local/state/north/ledger.db".into()));
     assert_eq!(path(None, None), None);
+
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = directory.path().join("ledger.db");
+    drop(Store::open(&ledger).unwrap());
+    let mode: String = rusqlite::Connection::open(&ledger).unwrap().query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
+    assert_eq!(mode, "wal", "a lifecycle store is not in write-ahead mode, so a reader blocks its writer");
+    let writer = rusqlite::Connection::open(&ledger).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let reopened = Store::open(&ledger).is_ok();
+    writer.execute_batch("ROLLBACK").unwrap();
+    assert!(reopened, "opening a ledger whose schema exists waited on, or was refused by, another writer's transaction");
 }
 
 const CRASH: &str = "NORTH_OUTBOX_CRASH";
