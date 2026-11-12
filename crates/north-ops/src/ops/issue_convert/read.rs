@@ -28,7 +28,7 @@ pub struct Repository {
 fn query(closed_too: bool) -> String {
     let states = if closed_too { "[OPEN, CLOSED]" } else { "[OPEN]" };
     format!(
-        "query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ isPrivate labels(first: 100) {{ totalCount nodes {{ name }} }} issues(states: {states}, first: 100, after: $cursor) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ number state title body createdAt labels(first: 30) {{ nodes {{ name }} }} subIssuesSummary {{ total }} }} }} }} }}"
+        "query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ isPrivate labels(first: 100) {{ totalCount nodes {{ name }} }} issues(states: {states}, first: 100, after: $cursor) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ number closed title body createdAt labels(first: 30) {{ nodes {{ name }} }} subIssuesSummary {{ total }} }} }} }} }}"
     )
 }
 
@@ -39,7 +39,7 @@ fn names(nodes: &Value) -> impl Iterator<Item = String> + '_ {
 fn issue(node: &Value) -> Option<Issue> {
     Some(Issue {
         number: node["number"].as_u64()?,
-        open: node["state"] == "OPEN",
+        open: node["closed"].as_bool() == Some(false),
         title: node["title"].as_str().unwrap_or_default().to_owned(),
         body: node["body"].as_str().unwrap_or_default().to_owned(),
         labels: names(&node["labels"]["nodes"]).collect(),

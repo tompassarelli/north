@@ -1,0 +1,1 @@
+  issue convert [OWNER/]REPO --closed-boxes     List every unticked checkbox on a closed issue of the repository with the open issue that holds the same text, or `no copy`; it edits nothing
