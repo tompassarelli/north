@@ -284,3 +284,39 @@ fn a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_writt
     assert_eq!(git(&lane, &["diff-tree", "--no-commit-id", "--name-only", "-r", &queued.head]), ".safe-push\nREADME\ncount.sh\nnotes/new.txt", "the call did not commit exactly its files");
     assert_eq!(git(&lane, &["show", &format!("{}:notes/new.txt", queued.head)]), "the green note");
 }
+
+#[test]
+fn a_hand_in_verb_call_stages_a_deleted_file_or_the_deletions_under_a_named_directory() {
+    if let Ok(arguments) = std::env::var(VERB_ARGUMENTS) {
+        let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
+        let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string(), "--wait".to_owned()]);
+        std::process::exit(i32::from(hand_in::run(&arguments, road)));
+    }
+    let (world, north) = scanned_world(JUDGE_PASSES);
+    fs::create_dir_all(north.checkout.join("old/inner")).unwrap();
+    for file in ["old/a.txt", "old/inner/b.txt", "kept.txt"] {
+        fs::write(north.checkout.join(file), "to be removed\n").unwrap();
+    }
+    git(&north.checkout, &["add", "old", "kept.txt"]);
+    git(&north.checkout, &["commit", "-qm", "Add files to remove"]);
+    git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    let lane = worktree(&north, "removal");
+    fs::remove_file(lane.join("README")).unwrap();
+    fs::remove_dir_all(lane.join("old")).unwrap();
+    fs::remove_file(lane.join("kept.txt")).unwrap();
+    let start = git(&lane, &["rev-parse", "HEAD"]);
+
+    let refused = verb(&world, "Remove what never existed", &[&lane.join("never/existed.txt")]).wait_with_output().unwrap();
+    let text = report(&refused);
+    assert_eq!(refused.status.code(), Some(1), "{text}");
+    assert!(text.contains("never/existed.txt") && text.contains("not in the lane") && text.contains("NOT committed"), "{text}");
+    assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a refused hand-in committed: {text}");
+
+    let (output, journal) = decided(&world, &north, verb(&world, "Remove the old files (north#1268)", &[&lane.join("README"), &lane.join("old")]));
+    let text = report(&output);
+    let landed = git(&north.origin, &["rev-parse", "main"]);
+    assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
+    assert!(text.contains(&format!("Done: landed {landed} on main")), "{text}\n{journal}");
+    assert_eq!(git(&north.origin, &["diff-tree", "--no-commit-id", "--name-status", "-r", "main"]), "D\tREADME\nD\told/a.txt\nD\told/inner/b.txt", "the deletions did not land, or more than the named paths did");
+    assert_eq!((git(&lane, &["diff", "--cached", "--name-only"]), git(&lane, &["ls-files", "--deleted"])), (String::new(), "kept.txt".to_owned()), "an unnamed deletion was staged");
+}

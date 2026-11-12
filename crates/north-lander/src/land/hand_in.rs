@@ -196,6 +196,9 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     let named: Vec<String> = paths.iter().map(|path| path.to_str().map(str::to_owned).ok_or_else(|| "a path is not valid UTF-8".to_owned())).collect::<Result<_, _>>()?;
     let relative: Vec<String> = paths.iter().map(|path| relative_to(&root, path).ok_or_else(|| format!("{} is outside the lane {}", path.display(), root.display()))).collect::<Result<_, _>>()?;
     let committed = lane_changes(&root, &destination)?;
+    if let Some((path, _)) = paths.iter().zip(&relative).find(|(path, name)| !path.exists() && !targets.contains(path) && !in_lane(&root, name, &committed)) {
+        return Err(format!("{} is not in the lane: it is in neither the lane's tree nor its base, so there is no change to stage", path.display()));
+    }
     let unnamed: Vec<&str> = committed.iter().map(String::as_str).filter(|change| !relative.iter().any(|path| path == change)).collect();
     if !unnamed.is_empty() {
         return Err(format!("the lane's commits also change {}, which the hand-in did not name", unnamed.join(" ")));
@@ -253,6 +256,12 @@ fn commit(named: &Named) -> Result<(), String> {
         return if named.committed { Ok(()) } else { Err(format!("no changes in {}", paths.join(" "))) };
     }
     git(root, &[&["commit", "--quiet", "--only", "--message", message, "--"][..], &paths].concat()).map(drop)
+}
+
+fn in_lane(root: &Path, relative: &str, committed: &[String]) -> bool {
+    let under = format!("{}/", relative.trim_end_matches('/'));
+    let known = |arguments: &[&str]| git(root, &[arguments, &["--", relative]].concat()).is_ok_and(|names| !names.is_empty());
+    committed.iter().any(|change| change == relative || change.starts_with(&under)) || known(&["ls-files", "--cached"]) || known(&["ls-tree", "-r", "--name-only", "HEAD"])
 }
 
 fn lane_changes(root: &Path, destination: &str) -> Result<Vec<String>, String> {
