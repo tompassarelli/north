@@ -8,6 +8,7 @@ use super::serve::{Repository, World, git, report, runtime_commit};
 
 const COUNTED: &str = "#!/bin/sh\npwd >> \"$0.calls\"\necho 'safe-push: verdict green'\n";
 const AFTER_RUNNER: &str = r#"#!/bin/sh
+[ "$1" = fleet ] && { printf '%s\n' "$*" >> "$0.sent"; exit 0; }
 [ "$1" = land ] && [ "$2" = checks ] || exit 0
 eval outcome=\${$#}
 tree=; head=; previous=
@@ -20,6 +21,7 @@ done
 failed=
 [ -e bad.txt ] && failed="$failed bad.txt"
 [ -e worse.txt ] && failed="$failed worse.txt"
+case " $* " in *" --fresh "*) ;; *) [ -e flaky.txt ] && failed="$failed flaky.txt" ;; esac
 [ -z "$failed" ] && exit 0
 for file in $failed; do
   printf "event\tafter\tfailed\t%s check\nfailed-step\t%s check\t\n" "$file" "$file" >> "$outcome"
@@ -96,6 +98,11 @@ fn a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts
     let probes = fs::read_to_string(world.path().join("bin/north.probes")).unwrap_or_default();
     let runs = probes.lines().count();
     assert!(runs > 0 && runs <= 6, "two culprits among eight should isolate in at most 2·log2(8) prefix runs, not {runs}: {probes}\n{journal}");
+    north.lane_with("flaky", "origin/main", ("flaky.txt", "flaky\n"), ("flaky (north#1257)", None));
+    let journal = serve(&world, &north);
+    assert!(!self::subjects(&north).iter().any(|subject| subject == "Revert flaky (north#1257)"), "a failure its rerun at the tip did not reproduce reverted a lane: {journal}");
+    let sent = fs::read_to_string(world.path().join("bin/north.sent")).unwrap_or_default();
+    assert_eq!(sent.lines().filter(|line| line.contains("did not fail again when rerun once at the tip") && line.contains("-again.log")).count(), 1, "{sent}\n{journal}");
 }
 
 const HELD_AFTER_RUNNER: &str = r#"#!/bin/sh

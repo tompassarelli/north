@@ -33,6 +33,8 @@ const WORKTREE: &str = "lander-revert";
 const RETRY: Duration = Duration::from_secs(30);
 const UNSETTLED: usize = 3;
 const AFTER_RUNS: &str = "landing.after-runs";
+const FINDING: &str = "finding";
+const UNREPRODUCED: &str = "unreproduced";
 
 pub use super::after::LandedLane;
 
@@ -311,7 +313,7 @@ impl Watch {
             if let Some(host) = host {
                 self.hosts.release(&host);
             }
-            let found = search.join().unwrap_or(Found { culprits: Vec::new(), span: (epoch(), epoch()), superseded: false });
+            let found = search.join().unwrap_or(Found { culprits: Vec::new(), span: (epoch(), epoch()), superseded: false, unreproduced: None });
             conclude(lander, &batch, &outcome, &found);
             settled = true;
         }
@@ -386,10 +388,23 @@ fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {
         println!("north land: the after-landing run of {} is red, but a later landing changed its check lines during the culprit search, so no lane is blamed and the newest landing's run checks the current lines", batch.head);
     } else if let Some(verdict) = north_check_environment::credential::incident(&outcome.log) {
         println!("north land: the post-land checks of {} are red: {verdict}", batch.head);
+    } else if let Some(again) = &found.unreproduced {
+        unreproduced(lander, batch, outcome, again);
     } else if let Verdict::RedMain(detail) = &outcome.verdict {
         blame(lander, batch, &found.culprits, detail, outcome);
     }
     retire(lander, batch, "its culprit search ended");
+}
+
+fn unreproduced(lander: &Lander, batch: &Batch, outcome: &Outcome, again: &std::path::Path) {
+    let failing = sheriff::names(&outcome.failing.iter().cloned().collect::<Vec<_>>());
+    let at = epoch();
+    record(lander, &[Span::new(&batch.head, "failure unreproduced at the tip".to_owned(), Category::Lander, at, at).with(PHASE, AFTER).with(FINDING, UNREPRODUCED).with("log", outcome.log.display().to_string()).with("rerun_log", again.display().to_string())]);
+    let message = format!("north land: the post-land checks of {} failed ({failing}) and did not fail again when rerun once at the tip, so no lane is reverted and main stays unverified; logs {} and {}", short(&batch.head), outcome.log.display(), again.display());
+    println!("{message}");
+    if !after::send("proxy", &message) {
+        println!("north land: could not tell the proxy that the failure of {} was not reproduced", batch.head);
+    }
 }
 
 fn retire(lander: &Lander, batch: &Batch, cause: &str) {

@@ -66,8 +66,10 @@ pub struct Found {
     pub culprits: Vec<usize>,
     pub span: (f64, f64),
     pub superseded: bool,
+    pub unreproduced: Option<PathBuf>,
 }
 
+#[derive(Clone)]
 pub struct Run {
     pub runner: Vec<String>,
     pub worktree: PathBuf,
@@ -136,8 +138,15 @@ pub fn choose_host(repo: &Path, avoid: Option<&str>) -> Option<String> {
 
 impl Run {
     fn at(&self, head: &str, tree: &str) -> Self {
-        let short = |sha: &str| sha[..sha.len().min(12)].to_owned();
         let name = if tree == head { format!("post-land-{}", short(head)) } else { format!("post-land-{}-on-{}", short(head), short(tree)) };
+        self.named(name, tree == head)
+    }
+
+    fn again(&self, head: &str) -> Self {
+        self.named(format!("post-land-{}-again", short(head)), false)
+    }
+
+    fn named(&self, name: String, adoptable: bool) -> Self {
         let beside = |path: &Path, file: String| path.with_file_name(file);
         Self {
             runner: self.runner.clone(),
@@ -151,9 +160,13 @@ impl Run {
             deadline: self.deadline,
             host: self.host.clone(),
             cancel: Arc::clone(&self.cancel),
-            adoptable: self.adoptable && tree == head,
+            adoptable: self.adoptable && adoptable,
         }
     }
+}
+
+fn short(sha: &str) -> String {
+    sha[..sha.len().min(12)].to_owned()
 }
 
 impl Run {
@@ -236,17 +249,43 @@ pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
     Task::spawn(wake, move || {
         let Search { landed, run, failing } = search;
         let started = telemetry::epoch();
+        let reproduced = at_the_tip(&landed, &run, &failing);
+        let stopped = |unreproduced| Found { culprits: Vec::new(), span: (started, telemetry::epoch()), superseded: run.superseded(), unreproduced };
+        if run.superseded() {
+            println!("north land: the culprit search of {} stopped because a later landing changed its check lines", landed.head);
+            return stopped(None);
+        }
+        let failing = match reproduced {
+            Ok(failing) => failing,
+            Err(again) => return stopped(Some(again)),
+        };
         let culprits = locate(&landed, &run, &failing);
         if run.superseded() {
             println!("north land: the culprit search of {} stopped because a later landing changed its check lines", landed.head);
-            return Found { culprits: Vec::new(), span: (started, telemetry::epoch()), superseded: true };
+            return stopped(None);
         }
         for &at in &culprits {
             let probed = run.at(&landed.head, &landed.tips[at]).log;
             judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], if probed.exists() { &probed } else { &run.log });
         }
-        Found { culprits, span: (started, telemetry::epoch()), superseded: false }
+        Found { culprits, span: (started, telemetry::epoch()), superseded: false, unreproduced: None }
     })
+}
+
+fn at_the_tip(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> Result<BTreeSet<Failure>, PathBuf> {
+    let again = run.again(&landed.head);
+    let probe = Probe::of(failing);
+    let rerun = probe::probe(landed, &again, &landed.head, &probe);
+    if !matches!(rerun.verdict, Verdict::RedMain(_)) {
+        println!("north land: the failed checks of {} ended {:?} when rerun at the tip, so no lane is blamed", landed.head, rerun.verdict);
+        return Err(again.log);
+    }
+    let reproduced: BTreeSet<Failure> = failing.iter().filter(|failure| !probe.runs(failure) || rerun.failing.contains(failure.label())).cloned().collect();
+    if failing.iter().any(|failure| probe.runs(failure)) && !reproduced.iter().any(|failure| probe.runs(failure)) {
+        println!("north land: none of the failed checks of {} failed again when rerun at the tip, so no lane is blamed", landed.head);
+        return Err(again.log);
+    }
+    Ok(reproduced)
 }
 
 

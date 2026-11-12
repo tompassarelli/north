@@ -35,6 +35,15 @@ impl Probe {
             .collect();
         if steps.is_empty() { Self::Checks } else { Self::Steps(steps) }
     }
+
+    pub(crate) fn runs(&self, failure: &Failure) -> bool {
+        match (self, failure) {
+            (Self::Tests(tests), failure) => tests.contains(failure),
+            (Self::Steps(steps), Failure::Step(command)) => steps.contains(command),
+            (Self::Steps(_), _) => false,
+            (Self::Checks, _) => true,
+        }
+    }
 }
 
 /// Runs `probe` on `tree`, logging to `run.log`, and reports the failing checks it reached.
@@ -44,7 +53,7 @@ pub(super) fn probe(landed: &Landed, run: &Run, tree: &str, probe: &Probe) -> bl
         Probe::Steps(steps) => {
             let mut runner = vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--fresh".to_owned(), "--dry".to_owned(), "1".to_owned()];
             runner.extend(steps.iter().flat_map(|step| ["--command".to_owned(), step.clone()]));
-            checked(landed, tree, &Run { runner, ..run.at(&landed.head, tree) })
+            checked(landed, tree, &Run { runner, ..run.clone() })
         }
         Probe::Tests(tests) => tested(landed, run, tree, tests),
     }
