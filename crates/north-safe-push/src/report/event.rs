@@ -25,7 +25,7 @@ pub fn event_line(event: &Event) -> String {
         |tenths| format!("{}.{}", tenths / 10, tenths % 10),
     );
     format!(
-        "{{\"time\":{}.{:06},\"repo\":{},\"lane\":{},\"sha\":\"{}\",\"stage\":{},\"status\":\"{}\",\"detail\":{},\"seconds\":{},\"pid\":{},\"session\":{},\"host\":{}}}\n",
+        "{{\"time\":{}.{:06},\"repo\":\"{}\",\"lane\":\"{}\",\"sha\":\"{}\",\"stage\":\"{}\",\"status\":\"{}\",\"detail\":\"{}\",\"seconds\":{},\"pid\":{},\"session\":\"{}\",\"host\":\"{}\"}}\n",
         event.micros / 1_000_000,
         event.micros % 1_000_000,
         json_text(repository(event.origin_url)),
@@ -53,8 +53,14 @@ pub fn emit(shell: &Shell, event: &Event) {
 }
 
 fn json_text(text: &str) -> String {
-    let flat: String = text.chars().map(|character| if matches!(character, '\u{1}'..='\u{1f}') { ' ' } else { character }).collect();
-    serde_json::to_string(&flat).expect("a string encodes")
+    text.chars()
+        .flat_map(|character| match character {
+            '\\' => vec!['\\', '\\'],
+            '"' => vec!['\\', '"'],
+            '\u{1}'..='\u{1f}' => vec![' '],
+            other => vec![other],
+        })
+        .collect()
 }
 
 #[cfg(test)]

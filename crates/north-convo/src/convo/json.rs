@@ -118,7 +118,29 @@ impl<'de> Deserialize<'de> for Json {
 }
 
 pub(super) fn quote(text: &str, ascii: bool) -> String {
-    if ascii { north_base::json_text::ascii_string(text) } else { serde_json::to_string(text).expect("a string encodes") }
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for character in text.chars() {
+        match character {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            c if c < ' ' => out.push_str(&format!("\\u{:04x}", u32::from(c))),
+            c if ascii && !c.is_ascii() => {
+                let mut units = [0u16; 2];
+                for unit in c.encode_utf16(&mut units) {
+                    out.push_str(&format!("\\u{unit:04x}"));
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 pub(super) fn dumps(value: &Json, ascii: bool) -> String {
