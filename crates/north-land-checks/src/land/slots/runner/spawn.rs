@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
-use north_base::foundation::carry;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
@@ -206,7 +205,6 @@ impl Shared {
             .env("SAFE_PUSH_LAND_RUNTIME_HEAD", self.arguments.tree())
             .env("SAFE_PUSH_LAND_REF", &self.arguments.published)
             .env("SAFE_PUSH_LANDING", "1")
-            .env(carry::LAND_HOST_INPUTS, self.config.host_inputs(command).join(" "))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

@@ -25,7 +25,6 @@ const UNSHARE: &str = "/run/current-system/sw/bin/unshare";
 const NORTH_HAND_OFF: &str = "/.north-hand-off";
 const WORKER_SANDBOX: &str = "--worker-sandbox";
 const HAND_OFF: &str = "--hand-off";
-const STORE_ENTRY_HEX: usize = 64;
 const CACHES: [&str; 4] = [".bun/install/cache", ".cargo/registry", ".cargo/git", ".cache/nix"];
 const BUILD_CACHES: [&str; 2] = [".cache/sccache", ".cache/north/head-north"];
 const READS: [&str; 14] = [
@@ -145,12 +144,6 @@ impl Sandbox {
         }
         for path in READS.iter().map(|path| home.join(path)).filter(|path| path.exists()) {
             box_.read(path);
-        }
-        if mode == Mode::Run {
-            for entry in store_entries(&home, &std::env::var(carry::LAND_HOST_INPUTS).unwrap_or_default()) {
-                box_.bind("--ro-bind", &entry, &entry);
-                box_.binds.push(entry);
-            }
         }
         let live = home.join(".local/state/north/current");
         if let Ok(target) = std::fs::read_link(&live) {
@@ -295,26 +288,6 @@ fn aliases(home: &Path) -> Vec<PathBuf> {
     let identity = |path: &Path| std::fs::metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()));
     let Some(own) = identity(home) else { return Vec::new() };
     ["/nix", "/home", "/mnt", "/srv", "/var", "/media"].iter().flat_map(|root| std::fs::read_dir(root).into_iter().flatten().flatten().map(|entry| entry.path())).filter(|path| path != home && !path.is_symlink() && identity(path) == Some(own)).collect()
-}
-
-fn store_entries(home: &Path, inputs: &str) -> Vec<PathBuf> {
-    let data = home.join(".local/share");
-    inputs
-        .split_whitespace()
-        .filter_map(|input| {
-            let entry = input.strip_prefix("~/").map_or_else(|| PathBuf::from(input), |below| home.join(below));
-            let hashed = entry.file_name().and_then(OsStr::to_str).is_some_and(|name| name.len() == STORE_ENTRY_HEX && name.bytes().all(|byte| byte.is_ascii_hexdigit()));
-            let folder = entry.strip_prefix(&data).ok().and_then(|below| below.components().next()).and_then(|first| first.as_os_str().to_str()).is_some_and(|first| first.ends_with("-build-inputs"));
-            let linked = std::fs::canonicalize(&entry).ok().as_ref() != Some(&entry);
-            if hashed && folder && !linked && entry.is_dir() {
-                return Some(entry);
-            }
-            if hashed {
-                eprintln!("depbox: binds no host input {input}: only a link-free store entry directory below a *-build-inputs folder of {} is bound", data.display());
-            }
-            None
-        })
-        .collect()
 }
 
 /// The project a git common directory belongs to: `code/<project>/<checkout>/.git` names `<project>`, a bare common directory its own name.
