@@ -127,6 +127,10 @@ fn a_box_never_goes_to_a_host_that_cannot_push_its_repository() {
     let sent = decide(north, &cfg, &quota, credit, &machines, "laptop");
     assert_eq!(sent.machine.as_ref().map(|machine| machine.name.as_str()), Some("gex45"), "{:?}", sent.machine_lines);
     assert_eq!(gate::lacks(&cfg, "gex45", north), None);
+
+    let slots: DocumentMut = "[hosts.gex45]\ngpu_slots = 4\n[hosts.laptop]\nserves = [\"native\"]\n".parse().unwrap();
+    assert_eq!(gate::gpu_slots(&slots, "gex45"), Some(4));
+    assert_eq!(gate::gpu_slots(&slots, "laptop"), None);
 }
 
 #[test]

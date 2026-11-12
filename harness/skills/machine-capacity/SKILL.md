@@ -24,7 +24,7 @@ metadata:
 
 Choose the smallest sufficient class, because oversized claims queue peers for nothing.
 
-- moderate = 2 CPUs/2 GiB; heavy = 6 CPUs/8 GiB (all cores below 8, 3 at 8); exclusive = all allowed cores, no peer batch, 15 minutes at most; gpu = 1 CPU/2 GiB for headless Chrome and wisp renders (not grim captures), two at a time; native = 2 CPUs/4 GiB for Warcraft clients and private desktops.
+- moderate = 2 CPUs/2 GiB; heavy = 6 CPUs/8 GiB (all cores below 8, 3 at 8); exclusive = all allowed cores, no peer batch, 15 minutes at most; gpu = 1 CPU/2 GiB for headless Chrome and wisp renders (not grim captures), as many at a time as the host's measured `gpu_slots` (two on the laptop) while its free VRAM keeps Warcraft clients room; native = 2 CPUs/4 GiB for Warcraft clients and private desktops.
 - Omit `--class` to size from the usage log (p90 of the last 20 runs plus 25%; moderate until three runs exist), because measured sizing beats guessing.
 - critical only for the landing-train holder or a run with an explicit `--critical` release-blocker diagnostic, because it jumps the queue and ignores pressure.
 - Add `--priority tom-ask` to a moderate, heavy or gpu `run` or `session` whose output Tom is waiting on: it takes the place of the oldest ticket of its class and still obeys pressure, and each use is recorded.

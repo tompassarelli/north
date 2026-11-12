@@ -77,6 +77,8 @@ pub struct Snapshot {
     pub vram_free_mib: Option<f64>,
     #[serde(rename = "hostBar1MarginMiB")]
     pub host_bar1_margin_mib: Option<u32>,
+    #[serde(default)]
+    pub host_gpu_slots: Option<u32>,
     pub gpu_runs: u32,
     pub native_waiting: u32,
     pub land_check_waiting: bool,
@@ -200,6 +202,7 @@ pub enum Reason {
     DeferNativeQuiet,
     DeferNativeWaiting,
     DeferGpuSlots,
+    DeferGpuMemory,
     DeferQueued,
     DeferExclusiveQueued,
     DeferCpuCapacity,

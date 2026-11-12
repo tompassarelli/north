@@ -5,6 +5,7 @@ pub struct Host {
     pub serving: fn(&str) -> Option<String>,
     pub warcraft_clients: fn() -> Option<u32>,
     pub bar1_margin_mib: fn() -> Option<u32>,
+    pub gpu_slots: fn() -> Option<u32>,
     pub offload: fn(&[String]) -> u8,
     pub build_offload: build_offload::Offloader,
     pub hand_over: build_offload::HandOver,

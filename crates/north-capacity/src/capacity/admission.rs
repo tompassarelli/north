@@ -10,7 +10,6 @@ const INTERACTIVE_PRESSURE_BASIS_POINTS: u32 = 1000;
 const BATCH_PRESSURE_BASIS_POINTS: u32 = 3000;
 pub(super) const GPU_BUSY_PERCENT: u32 = 85;
 const ATTENDED_GPU_CLIENTS: u32 = 4;
-const GPU_SLOTS: u32 = 2;
 
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
@@ -83,6 +82,8 @@ pub struct Facts {
     pub vram_free_mib: Option<f64>,
     #[serde(default, rename = "hostBar1MarginMiB")]
     pub host_bar1_margin_mib: Option<u32>,
+    #[serde(default)]
+    pub host_gpu_slots: Option<u32>,
     pub new_clients: u32,
     #[serde(default)]
     pub new_desktops: u32,
@@ -195,6 +196,7 @@ pub enum Reason {
     DeferNativeQuiet,
     DeferNativeWaiting,
     DeferGpuSlots,
+    DeferGpuMemory,
     DeferQueued,
     DeferExclusiveQueued,
     DeferCpuCapacity,
@@ -474,6 +476,19 @@ fn native(facts: &Facts) -> Reason {
     Reason::Run
 }
 
+/// The gpu leases the host runs at once: its measured `gpu_slots` in `[hosts.NAME]`, else the default sized for the laptop.
+pub fn gpu_slots(host_gpu_slots: Option<u32>) -> u32 {
+    host_gpu_slots.unwrap_or_else(|| default_mib("gpu_slots") as u32)
+}
+
+/// Whether one more render, beside the gpu leases still ramping to their VRAM, would leave less free VRAM than the headroom Warcraft clients keep.
+fn gpu_memory_short(facts: &Facts) -> bool {
+    let ramp = default_mib("gpu_vram_ramp_seconds");
+    let ramping = facts.leases.iter().filter(|lease| lease.class == "gpu" && (facts.now - lease.created_at) / 1000.0 < ramp).count();
+    let need = (ramping + 1) as f64 * default_mib("vram_gpu_run_mib");
+    facts.vram_free_mib.is_some_and(|free| free - need < default_mib("vram_gpu_headroom_mib"))
+}
+
 fn interactive_pressure(facts: &Facts) -> bool {
     facts.profile == Profile::Attended && facts.protected_cpu_some_avg10_basis_points >= INTERACTIVE_PRESSURE_BASIS_POINTS
 }
@@ -498,8 +513,11 @@ fn batch(facts: &Facts) -> Reason {
         if facts.native_waiting > 0 {
             return Reason::DeferNativeWaiting;
         }
-        if facts.gpu_runs >= GPU_SLOTS {
+        if facts.gpu_runs >= gpu_slots(facts.host_gpu_slots) {
             return Reason::DeferGpuSlots;
+        }
+        if gpu_memory_short(facts) {
+            return Reason::DeferGpuMemory;
         }
     }
     if facts.class == Class::Exclusive {

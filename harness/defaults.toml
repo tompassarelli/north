@@ -539,6 +539,41 @@ settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity 
 fallback = "bar1_margin_mib in [hosts.NAME] of agents/orchestration.toml replaces it"
 consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
+[gpu_slots]
+value = 2
+allowed = { min = 1, max = 64 }
+unit = "gpu-class leases (Wisp renders, window strips, headless Chrome) a host runs at once"
+source = "prior: set for the laptop's Radeon 890M, which Tom's desktop shares; no figure recorded; a GPU host measures its own count into [hosts.NAME] gpu_slots"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes on the laptop whose gpu leases can be checked against its GPU busy share and Tom's frame times" }
+fallback = "gpu_slots in [hosts.NAME] of agents/orchestration.toml replaces it, set from that host's own measurement"
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+
+[vram_gpu_run_mib]
+value = 2900
+allowed = { min = 0, max = 4194304 }
+unit = "MiB of NVIDIA VRAM one gpu-class Wisp window run holds"
+source = "measured: 2026-11-01 on the GPU host (RTX PRO 4000, 24 GiB), nvidia-smi --query-compute-apps showed three Wisp native-window plays at 2586, 2586 and 2842 MiB, rounded up"
+fallback = "none; admission charges it per gpu run starting and per gpu lease younger than gpu_vram_ramp_seconds"
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+
+[vram_gpu_headroom_mib]
+value = 4096
+allowed = { min = 0, max = 4194304 }
+unit = "MiB of NVIDIA VRAM a gpu run must leave free after its own charge, so Warcraft clients still start beside renders"
+source = "prior: three Warcraft clients at vram_client_mib each, rounded up to 4 GiB (2026-11-01)"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted gpu runs can be checked against FB Used and client starts afterwards" }
+fallback = "none; hosts without an NVIDIA VRAM reading admit gpu runs on gpu_slots alone"
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+
+[gpu_vram_ramp_seconds]
+value = 60
+allowed = { min = 0, max = 3600 }
+unit = "seconds a gpu lease still counts as vram_gpu_run_mib against free VRAM after it starts, before its window has allocated"
+source = "prior: a window strip's private desktop and map load take most of its first minute before the window allocates"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose gpu leases can be checked against the time their window first held VRAM" }
+fallback = "none"
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+
 [vram_client_mib]
 value = 1310
 allowed = { min = 0, max = 4194304 }

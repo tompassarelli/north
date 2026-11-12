@@ -49,6 +49,7 @@ fn reading(land_check_waiting: bool) -> admission::Snapshot {
         bar1_timed_out: false,
         vram_free_mib: None,
         host_bar1_margin_mib: None,
+        host_gpu_slots: None,
         gpu_runs: 0,
         native_waiting: 0,
         land_check_waiting,

@@ -154,7 +154,6 @@ constants = [
   "crates/north-capacity/src/capacity/admission.rs::ATTENDED_GPU_CLIENTS",
   "crates/north-capacity/src/capacity/admission.rs::BATCH_PRESSURE_BASIS_POINTS",
   "crates/north-capacity/src/capacity/admission.rs::GPU_BUSY_PERCENT",
-  "crates/north-capacity/src/capacity/admission.rs::GPU_SLOTS",
   "crates/north-capacity/src/capacity/admission.rs::INTERACTIVE_PRESSURE_BASIS_POINTS",
 ]
 defaults = [
@@ -168,9 +167,13 @@ defaults = [
   "dispatch_agent_memory_mib",
   "dispatch_heavy_memory_mib",
   "game_reserve_headroom_mib",
+  "gpu_slots",
+  "gpu_vram_ramp_seconds",
   "land_offload_disk_free_gib",
   "quiet_idle_seconds",
   "vram_client_mib",
+  "vram_gpu_headroom_mib",
+  "vram_gpu_run_mib",
   "vram_margin_mib",
 ]
 

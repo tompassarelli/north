@@ -528,7 +528,7 @@ pub fn run(argv: &[String], host: &Host) -> u8 {
     match operation {
         "mode" => mode(&root, argv),
         "status" if argv.len() == 1 => {
-            print_to(&status::status(&root, (host.build_host)()), false);
+            print_to(&status::status(&root, (host.build_host)(), (host.gpu_slots)()), false);
             0
         }
         "status" => fail("status accepts no arguments", 2),

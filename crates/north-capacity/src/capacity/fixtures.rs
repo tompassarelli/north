@@ -33,6 +33,7 @@ pub fn facts(class: Class) -> Facts {
         bar1_timed_out: false,
         vram_free_mib: None,
         host_bar1_margin_mib: None,
+        host_gpu_slots: None,
         new_clients: 0,
         new_desktops: 0,
         gpu_runs: 0,

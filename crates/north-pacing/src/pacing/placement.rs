@@ -72,6 +72,9 @@ pub fn local_warcraft_clients() -> Option<u32> {
 pub fn local_bar1_margin_mib() -> Option<u32> {
     gate::bar1_margin_mib(&sampling::config().ok()?, &local())
 }
+pub fn local_gpu_slots() -> Option<u32> {
+    gate::gpu_slots(&sampling::config().ok()?, &local())
+}
 pub fn local_lease_builds() -> bool {
     sampling::config().ok().and_then(|cfg| cfg.get("hosts")?.get(local())?.get("lease_builds")?.as_bool()).unwrap_or(false) || crate::capacity::mode::leases_own_builds()
 }

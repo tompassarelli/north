@@ -393,7 +393,15 @@ pub fn warcraft_clients(cfg: &DocumentMut, here: &str) -> Option<u32> {
 }
 
 pub fn bar1_margin_mib(cfg: &DocumentMut, here: &str) -> Option<u32> {
-    cfg.get("hosts")?.get(here)?.get("bar1_margin_mib")?.as_integer()?.try_into().ok()
+    host_count(cfg, here, "bar1_margin_mib")
+}
+
+pub fn gpu_slots(cfg: &DocumentMut, here: &str) -> Option<u32> {
+    host_count(cfg, here, "gpu_slots")
+}
+
+fn host_count(cfg: &DocumentMut, here: &str, key: &str) -> Option<u32> {
+    cfg.get("hosts")?.get(here)?.get(key)?.as_integer()?.try_into().ok()
 }
 
 pub fn capacity_need(text: &str) -> Option<String> {

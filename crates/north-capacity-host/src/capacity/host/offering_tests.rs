@@ -17,6 +17,7 @@ fn laptop(own_build_refusal: fn() -> Option<String>) -> Host {
         serving: |_| None,
         warcraft_clients: || None,
         bar1_margin_mib: || None,
+        gpu_slots: || None,
         offload: |_| 2,
         build_offload: never_pushed,
         hand_over: never_handed,

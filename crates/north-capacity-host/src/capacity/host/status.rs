@@ -79,7 +79,7 @@ fn queued(queue: &[Value], open: bool, draining: &[Value], now: f64) -> Vec<Obj>
         .collect()
 }
 
-pub fn status(root: &Path, build_host: bool) -> Obj {
+pub fn status(root: &Path, build_host: bool, host_gpu_slots: Option<u32>) -> Obj {
     let gpu = read_gpu(1);
     with_lock(root, || {
         let now = now_ms();
@@ -102,6 +102,7 @@ pub fn status(root: &Path, build_host: bool) -> Obj {
             .put("profile", profile)
             .put("mode", mode)
             .merge(gpu_view(gpu))
+            .put("gpuSlots", crate::capacity::admission::gpu_slots(host_gpu_slots))
             .put("warcraftClients", clients)
             .merge(gpu_busy)
             .put("aggregateCpuLimit", num(aggregate_cpus(profile, signals.cores, signals.slice_cpus)))

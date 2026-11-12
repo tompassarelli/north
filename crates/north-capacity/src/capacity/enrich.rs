@@ -24,6 +24,7 @@ pub fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
     facts.disk_free_gib = facts.disk_free_gib.or_else(root_disk_free_gib);
     facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);
     facts.host_bar1_margin_mib = facts.host_bar1_margin_mib.or_else(host.bar1_margin_mib);
+    facts.host_gpu_slots = facts.host_gpu_slots.or_else(host.gpu_slots);
     if facts.bar1_free_mib.is_none() && !facts.bar1_timed_out && admission::starts_gpu_work(&facts) {
         let memory = aperture::memory();
         facts.vram_free_mib = facts.vram_free_mib.or(memory.vram_free_mib);
