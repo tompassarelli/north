@@ -1,6 +1,10 @@
-# Landing refusals in shadow: only a broken build, failing checks, secrets and privacy refuse a lane
+# Landing refusals in shadow: only a broken build, failing checks, secrets, privacy and test admission refuse a lane
 
-`north land gate-stats --since 7d` on the lander, read on 2026-11-07, showed most landing refusals protecting nothing: test admission refused 136 lanes and 127 of them landed later (20 worker-hours), the debt ceiling 46 (43 later, 33 with the same patch, 31.8 worker-hours), the language gate 46 (42 later), the revert guard 33 (21 unchanged after a rebase), the runtime-floor gate 14 (13 unchanged) and the coverage test 8. A refusal that the same patch later passes costs a worker's turn and the queue wait it repeats, and returns nothing (north#729).
+`north land gate-stats --since 7d` on the lander, read on 2026-11-07, showed most landing refusals protecting nothing: test admission refused 136 lanes and 127 of them landed later (20 worker-hours; that figure stays, and test admission left the shadow switch on 2026-11-13, see below), the debt ceiling 46 (43 later, 33 with the same patch, 31.8 worker-hours), the language gate 46 (42 later), the revert guard 33 (21 unchanged after a rebase), the runtime-floor gate 14 (13 unchanged) and the coverage test 8. A refusal that the same patch later passes costs a worker's turn and the queue wait it repeats, and returns nothing (north#729).
+
+## Test admission refuses on every landing path (2026-11-13)
+
+Test admission is outside the switch and always refuses. The owner's test policy states that the landing refuses an added bug test that passes with the lane's changes reverted, a Test-contract category outside the closed list, and, over the verification budget, a lane adding more tests than it deletes. On 2026-11-13 the coordinator ruled that these three refuse on every landing path (enqueue, pick and candidate), which takes test admission out of the 2026-11-07 shadow switch; commit 407b3dcb5d made the code do so. The 2026-11-07 shadow reasoning above (north#729: 136 refused, 127 landed later) is unchanged history. Since 5:12 AM +07 on 2026-11-13 (22:12Z on 2026-11-12), test admission has refused 2 lanes (the busy-line refusal lane and the stray-files lane of north#1249, both named by the coordinator); the lander's ledger as mirrored to the laptop (`north land gate-stats --since 2h`, read 2026-11-13) shows one test admission enqueue refusal in that window, at 22:37Z.
 
 ## The rule
 
