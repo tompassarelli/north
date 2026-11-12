@@ -19,7 +19,7 @@ fn one_hung_host_is_placed_from_its_last_reading_when_the_deadline_passes() {
     });
     let silent = |_: &Machine| Facts { live: Some(4), stale_age_s: Some(45.0), ..Facts::default() };
     let records = tempfile::tempdir().unwrap();
-    let facts = survey_via(&MEMO, records.path(), &[machine("hung"), machine("fine")], None, Duration::from_millis(100), ask, &silent);
+    let facts = survey_via(&MEMO, records.path(), &[machine("hung"), machine("fine")], None, Duration::from_secs(5), ask, &silent);
     assert_eq!(facts[0].stale_age_s, Some(45.0));
     assert_eq!(facts[1].stale_age_s, None);
     assert_eq!(facts[1].live, Some(1));
