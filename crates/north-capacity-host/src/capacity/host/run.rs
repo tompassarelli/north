@@ -16,6 +16,7 @@ use super::handover::Listening;
 use super::offering::{Admitted, Declines, HELD_HOST, NO_BUILD_HOST, Waiting, agent_session, accepted, offer_first, queue_time_left, try_offload};
 use super::terminations::Terminations;
 use super::quiet_holds::{QuietHolds, quiet_owners};
+use super::overrun::{Overrun, Usual};
 use super::requeue;
 use super::request::{Create, Request, class, id, is_run};
 use super::shape::{command_shape, recorded_command};
@@ -366,9 +367,17 @@ fn record(entry: &Obj, usage: &Usage, command: &[String], request: &Request, lea
     }
 }
 
-async fn supervise(mut child: tokio::process::Child, unit: &str, terminations: &mut Terminations) -> i32 {
+async fn supervise(mut child: tokio::process::Child, unit: &str, terminations: &mut Terminations, mut overrun: Option<Overrun>) -> i32 {
+    let began = tokio::time::Instant::now();
     loop {
+        let due = overrun.as_ref().and_then(Overrun::due);
         tokio::select! {
+            () = tokio::time::sleep_until(began + due.unwrap_or_default()), if due.is_some() => {
+                if let Some((reader, line)) = overrun.as_mut().and_then(|overrun| overrun.next(began.elapsed())) {
+                    let session = overrun.as_ref().map_or_else(String::new, |overrun| overrun.session().to_owned());
+                    tokio::spawn(super::overrun::deliver(north_command(), session, reader, line));
+                }
+            }
             status = child.wait() => {
                 return status.map_or(1, |status| {
                     use std::os::unix::process::ExitStatusExt;
@@ -409,7 +418,9 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
     let exit_code = match scope_command(root, request, admitted, timeout_seconds, command).spawn() {
         Ok(child) => {
             let measurement = measure_scope(root, &lease, scope_cgroup(request.admitted_class(), &unit));
-            let exit = Exit::judge(supervise(child, &unit, terminations).await, &witness);
+            let usual = Usual::of(request.forecast.as_ref(), timeout_seconds);
+            let overrun = Overrun::watch(env(crate::fleet::runtime::SESSION_ENV), command, usual);
+            let exit = Exit::judge(supervise(child, &unit, terminations, overrun).await, &witness);
             let exit_code = exit.code();
             let usage = measurement.finish();
             let entry = usage_entry(owner, request, command, admitted, exit_code, &usage, children_cpu_seconds() - child_cpu_before);

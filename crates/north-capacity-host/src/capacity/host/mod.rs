@@ -51,6 +51,9 @@ mod policy_tests;
 mod priority;
 mod quiet_holds;
 mod request;
+mod overrun;
+#[cfg(test)]
+mod overrun_tests;
 mod requeue;
 mod run;
 #[cfg(test)]

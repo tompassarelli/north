@@ -573,6 +573,54 @@ source = "prior: the maximum systemd weight the game reserve already gives Tom's
 fallback = "none: the scope would run at systemd's default weight of 100 beside worker builds"
 consumers = ["crates/north-capacity-host/src/capacity/host/run.rs", "crates/north-capacity-host/src/capacity/host/systemd.rs", "crates/north-runtime/src/offload_cache/mod.rs"]
 
+[lease_overrun_session_multiple]
+value = 3
+allowed = { min = 1, max = 100 }
+unit = "multiple of a lease signature's median wall time past which the running lease sends one line to the session that started it"
+source = "measured: north#1259, one build host 2026-11-10 to 2026-11-12, 4468 finished leases: 96 ran past 3x predicted and cost 3.9 h past it, and nothing told the waiting session"
+fallback = "none: the key is bundled"
+consumers = ["crates/north-capacity-host/src/capacity/host/overrun.rs"]
+
+[lease_overrun_parent_multiple]
+value = 6
+allowed = { min = 1, max = 1000 }
+unit = "multiple of a lease signature's median wall time past which the running lease sends one line to the parent of the session that started it"
+source = "prior: twice the session multiple, so the parent hears only of a run its own session let go on as long again after its line (north#1259)"
+fallback = "none: the key is bundled"
+consumers = ["crates/north-capacity-host/src/capacity/host/overrun.rs"]
+
+[lease_overrun_minimum_runs]
+value = 5
+allowed = { min = 1, max = 1000 }
+unit = "finished runs a lease signature needs before its median counts as usual; with fewer the lease says the data is thin and measures against its declared deadline"
+source = "prior: the five-call floor per signature of the north#1259 measurement"
+fallback = "none: the key is bundled"
+consumers = ["crates/north-capacity-host/src/capacity/host/overrun.rs"]
+
+[lease_overrun_floor_seconds]
+value = 60
+allowed = { min = 0, max = 3600 }
+unit = "seconds a lease always runs before its session line, however short its signature's median; the parent line keeps the parent-to-session ratio above it"
+source = "measured: the 60 s background threshold of the north#1259 measurement, under which a three-times overrun cost too little to tell"
+fallback = "none: the key is bundled"
+consumers = ["crates/north-capacity-host/src/capacity/host/overrun.rs"]
+
+[lease_overrun_thin_session_share]
+value = 0.5
+allowed = { min = 0.01, max = 1 }
+unit = "share of the declared --timeout-seconds after which a lease whose signature has too few runs sends its session line"
+source = "prior: half the declared deadline, from the north#1259 design, leaves the session half its budget to act before the kill"
+fallback = "a lease with too few runs and no declared deadline sends no line"
+consumers = ["crates/north-capacity-host/src/capacity/host/overrun.rs"]
+
+[lease_overrun_thin_parent_share]
+value = 0.8
+allowed = { min = 0.01, max = 1 }
+unit = "share of the declared --timeout-seconds after which a lease whose signature has too few runs sends its parent line"
+source = "prior: late enough that the session had time to act on its own line, early enough that the parent hears before the deadline kills it (north#1259)"
+fallback = "a lease with too few runs and no declared deadline sends no line"
+consumers = ["crates/north-capacity-host/src/capacity/host/overrun.rs"]
+
 [land_offload_disk_free_gib]
 value = 20
 allowed = { min = 0, max = 65536 }
