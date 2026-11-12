@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::curl;
 use crate::credentials::{AGENT_APP_FILE, INSTALLATION_TOKEN_FILE, LANDER_APP_FILE, Source};
-use crate::policy::{Permissions, Scope, rank};
+use crate::policy::{Ceiling, Permissions, Scope, rank};
 
 const EXCHANGE_LIMIT: Duration = Duration::from_secs(30);
 const INSTALLATION_TOKEN_MARGIN: i64 = 60;
@@ -51,9 +51,9 @@ impl Minter {
         self.source.path(INSTALLATION_TOKEN_FILE).is_some()
     }
 
-    pub fn mint(&self, app: App, scope: &Scope, valid_for: i64, now: i64) -> Result<Minted, (u16, String)> {
+    pub fn mint(&self, app: App, scope: &Scope, ceiling: &Ceiling, valid_for: i64, now: i64) -> Result<Minted, (u16, String)> {
         if app.file == AGENT_APP_FILE && self.holds_installation_token() {
-            return self.installation_token(scope, valid_for, now);
+            return self.installation_token(scope, ceiling, valid_for, now);
         }
         self.exchange_app(app, scope, now).map_err(|why| (502, why))
     }
@@ -75,32 +75,27 @@ impl Minter {
         Ok(Minted { token: token.to_owned(), expires_at: expires_at.to_owned(), repositories, permissions })
     }
 
-    fn installation_token(&self, scope: &Scope, valid_for: i64, now: i64) -> Result<Minted, (u16, String)> {
-        let unavailable = |why: String| (502, why);
-        let fields = self.source.fields(INSTALLATION_TOKEN_FILE).map_err(unavailable)?;
-        let token = fields.get("token").filter(|token| !token.is_empty()).ok_or_else(|| unavailable(format!("{INSTALLATION_TOKEN_FILE} holds no token")))?;
-        let expires_at = fields.get("expires_at").ok_or_else(|| unavailable(format!("{INSTALLATION_TOKEN_FILE} holds no expires_at")))?;
-        let expiry = Timestamp::parse_rfc3339(expires_at).ok_or_else(|| unavailable(format!("{INSTALLATION_TOKEN_FILE} expires_at is not RFC 3339")))?;
+    fn installation_token(&self, scope: &Scope, ceiling: &Ceiling, valid_for: i64, now: i64) -> Result<Minted, (u16, String)> {
+        let held = self.held_token(now).map_err(|why| (502, why))?;
+        held.within_request(scope, valid_for)?;
+        held.within_ceiling(ceiling)?;
+        Ok(Minted { token: held.token, expires_at: held.expires_at, repositories: Some(held.repositories), permissions: held.permissions })
+    }
+
+    fn held_token(&self, now: i64) -> Result<HeldToken, String> {
+        let fields = self.source.fields(INSTALLATION_TOKEN_FILE)?;
+        let token = fields.get("token").filter(|token| !token.is_empty()).ok_or_else(|| format!("{INSTALLATION_TOKEN_FILE} holds no token"))?;
+        let expires_at = fields.get("expires_at").ok_or_else(|| format!("{INSTALLATION_TOKEN_FILE} holds no expires_at"))?;
+        let expiry = Timestamp::parse_rfc3339(expires_at).ok_or_else(|| format!("{INSTALLATION_TOKEN_FILE} expires_at is not RFC 3339"))?;
         let left = expiry.unix_seconds() - now;
         if left <= 0 {
-            return Err(unavailable(format!("{INSTALLATION_TOKEN_FILE} expired at {expires_at}")));
+            return Err(format!("{INSTALLATION_TOKEN_FILE} expired at {expires_at}"));
         }
         if left < INSTALLATION_TOKEN_MARGIN {
-            return Err(unavailable(format!("{INSTALLATION_TOKEN_FILE} has {left} s left, under the {INSTALLATION_TOKEN_MARGIN} s a token must keep")));
+            return Err(format!("{INSTALLATION_TOKEN_FILE} has {left} s left, under the {INSTALLATION_TOKEN_MARGIN} s a token must keep"));
         }
-        let (repositories, permissions) = held_scope(&fields).map_err(unavailable)?;
-        if let Some(outside) = scope.repositories.iter().find(|name| !repositories.contains(name)) {
-            return Err((403, format!("repository {outside} is outside the scope {INSTALLATION_TOKEN_FILE} holds ({})", repositories.join(", "))));
-        }
-        for (name, level) in &scope.permissions {
-            if permissions.get(name).is_none_or(|most| rank(level) > rank(most)) {
-                return Err((403, format!("permission {name}:{level} is outside the scope {INSTALLATION_TOKEN_FILE} holds")));
-            }
-        }
-        if valid_for > left {
-            return Err((403, format!("valid_for {valid_for} s runs past the {left} s {INSTALLATION_TOKEN_FILE} has left")));
-        }
-        Ok(Minted { token: token.clone(), expires_at: expires_at.clone(), repositories: Some(repositories), permissions })
+        let (repositories, permissions) = held_scope(&fields)?;
+        Ok(HeldToken { token: token.clone(), expires_at: expires_at.clone(), left, repositories, permissions })
     }
 
     fn exchange(&self, installation_id: &str, jwt: &str, scope: &Scope) -> Result<Value, String> {
@@ -137,6 +132,52 @@ impl Minter {
             return Err(format!("token exchange failed: HTTP {status}{message}"));
         }
         Ok(data)
+    }
+}
+
+struct HeldToken {
+    token: String,
+    expires_at: String,
+    left: i64,
+    repositories: Vec<String>,
+    permissions: Permissions,
+}
+
+impl HeldToken {
+    fn within_request(&self, scope: &Scope, valid_for: i64) -> Result<(), (u16, String)> {
+        if let Some(outside) = scope.repositories.iter().find(|name| !self.repositories.contains(name)) {
+            return Err((403, format!("repository {outside} is outside the scope {INSTALLATION_TOKEN_FILE} holds ({})", self.repositories.join(", "))));
+        }
+        for (name, level) in &scope.permissions {
+            if self.permissions.get(name).is_none_or(|most| rank(level) > rank(most)) {
+                return Err((403, format!("permission {name}:{level} is outside the scope {INSTALLATION_TOKEN_FILE} holds")));
+            }
+        }
+        if valid_for > self.left {
+            return Err((403, format!("valid_for {valid_for} s runs past the {} s {INSTALLATION_TOKEN_FILE} has left", self.left)));
+        }
+        Ok(())
+    }
+
+    fn within_ceiling(&self, ceiling: &Ceiling) -> Result<(), (u16, String)> {
+        if let Some(allowed) = &ceiling.repositories
+            && let Some(outside) = self.repositories.iter().find(|name| !allowed.contains(name))
+        {
+            return Err((403, format!("repository {outside} is held in {INSTALLATION_TOKEN_FILE} but outside this caller's ceiling")));
+        }
+        for (name, level) in &self.permissions {
+            if name == "metadata" {
+                continue;
+            }
+            let beyond = match &ceiling.permissions {
+                None => name == "workflows",
+                Some(most) => most.get(name).is_none_or(|most| rank(level) > rank(most)),
+            };
+            if beyond {
+                return Err((403, format!("permission {name}:{level} is held in {INSTALLATION_TOKEN_FILE} but outside this caller's ceiling")));
+            }
+        }
+        Ok(())
     }
 }
 

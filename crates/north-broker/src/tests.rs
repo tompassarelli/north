@@ -205,6 +205,28 @@ fn a_caller_outside_the_ceiling_or_the_policy_gets_no_token_and_costs_no_mint() 
 }
 
 #[test]
+fn a_held_installation_token_wider_than_the_callers_ceiling_is_refused_and_the_scope_push_token_writes_is_served() {
+    let (keep, _) = credentials();
+    let broker_under = |policy: &str| {
+        let mut minter = Minter::new(Source::Directory(keep.path().to_path_buf()));
+        minter.api = "http://127.0.0.1:9".to_owned();
+        Broker::with(Policy::parse(policy).unwrap(), minter, providers(), Threads::new(PathBuf::new(), None))
+    };
+    let file = keep.path().join(INSTALLATION_TOKEN_FILE);
+    let held = |scope: &str| format!("token: ghs_held\nexpires_at: {}\n{scope}\n", Timestamp::from_unix_seconds(NOW + 3600).iso());
+    let ask = |broker: &Broker, body: Value| call(broker, 1001, "POST", "/github/token", &[], &body);
+
+    std::fs::write(&file, held("repositories: north,south\npermissions: actions:read,contents:read,issues:write,metadata:read,pull_requests:write")).unwrap();
+    let (status, answer) = ask(&broker_under("[[caller]]\nuid = 1001\n[caller.github.agent]\n"), json!({ "app": "agent", "repositories": ["north"], "permissions": { "contents": "read" } }));
+    assert_eq!(status, 200, "{answer}");
+    assert_eq!(answer["repositories"], json!(["north", "south"]));
+
+    std::fs::write(&file, held("repositories: north\npermissions: contents:write,metadata:read")).unwrap();
+    let narrow = broker_under("[[caller]]\nuid = 1001\n[caller.github.agent]\nrepositories = [\"north\"]\npermissions = { contents = \"read\" }\n");
+    assert_eq!(ask(&narrow, json!({ "app": "agent", "repositories": ["north"], "permissions": { "contents": "read" } })).0, 403, "a file holding contents write answered a caller whose ceiling is contents read");
+}
+
+#[test]
 fn a_glob_in_the_path_is_refused_and_a_brace_in_a_query_never_multiplies_a_call() {
     let (upstream, seen) = fake_upstream(|_, _| (200, json!({})));
     let (_keep, broker) = broker("http://127.0.0.1:9", &upstream, 1001);

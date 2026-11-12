@@ -179,7 +179,7 @@ impl Broker {
             if let Some(minted) = self.reuse(&key, now, valid_for) {
                 return Ok(minted);
             }
-            let minted = self.minter.mint(application, &scope, valid_for, now)?;
+            let minted = self.minter.mint(application, &scope, ceiling, valid_for, now)?;
             self.remember(&key, peer.uid, app_name, &minted, now);
             Ok(minted)
         })();
