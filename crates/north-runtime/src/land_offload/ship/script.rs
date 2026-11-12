@@ -159,9 +159,8 @@ first_in_line() {
       [ "$passing" = no ] || continue
     fi
     waiter=${t#*-*-}
-    age=$(((now - ${stamp%%-*}) / 1000000000))
-    why="behind the job of waiter ${waiter%@*} for ${t#*@}, in line ${age}s"
-    [ "${t#*@}" != "$name" ] && [ "$age" -gt "${NORTH_OFFLOAD_BYPASS_SECONDS:-30}" ] || return 1
+    why="behind the job of waiter ${waiter%@*} for ${t#*@}, in line $(((now - ${stamp%%-*}) / 1000000000))s"
+    return 1
   done
   return 1
 }
@@ -178,7 +177,9 @@ while :; do
     if owned "$reserved"; then s=$reserved; break; fi
   fi
   why="behind earlier jobs in line"
-  if [ -n "$nested" ] || { first_in_line && { [ -n "@BACKGROUND@" ] || admits $kind; }; }; then
+  ahead=1
+  if [ -n "$nested" ] || first_in_line; then ahead=; fi
+  if [ -n "$nested" ] || { [ -z "$ahead" ] && { [ -n "@BACKGROUND@" ] || admits $kind; }; }; then
     for s in $nearest; do
       if owned "$s"; then break 2; fi
     done
@@ -187,7 +188,7 @@ while :; do
   [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: queued behind other jobs for @LOCK_WAIT@ s ($why)" >&2; exit @SLOTS_BUSY@; }
   [ "$waited" -lt "$noted" ] || { noted=$((waited + 60)); held=$(slot_holders "$name"); echo "offload: waiting for a slot for ${waited}s, in order; $name runs $(slot_jobs "$name") of its @SLOTS@ slots, the host $(host_jobs) jobs; $why; $(ls "$queue" | grep -c .) queued; held by: ${held:-no slot of $name}" >&2; }
   polled=1
-  sleep @POLL@
+  if [ -n "$ahead" ]; then sleep 1; else sleep @POLL@; fi
 done
 if [ -n "$polled" ]; then
   waited=$(( ($(date +%s%N) - started) / 1000000 ))

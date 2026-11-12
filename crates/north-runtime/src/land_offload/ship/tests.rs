@@ -263,38 +263,6 @@ fn host_with_a_shipped_bundle() -> (tempfile::TempDir, String, std::path::PathBu
     (home, head, bundle)
 }
 
-#[test]
-fn a_job_runs_past_a_live_head_ticket_of_another_checkout_that_has_waited_without_taking_a_slot() {
-    let (home, head, bundle) = host_with_a_shipped_bundle();
-    let bin = tempfile::tempdir().unwrap();
-    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
-    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
-    let queue = home.path().join(".cache/land-offload/queue");
-    fs::create_dir_all(&queue).unwrap();
-    let stuck = |repo: &str| Command::new("flock").arg(queue.join(format!("3-1-1@{repo}"))).args(["sleep", "300"]).spawn().unwrap();
-    let mut other = stuck("code-q-main");
-    let log = home.path().join("order.log");
-    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
-    let command = format!("echo ran >>{}", log.display());
-    let run = || {
-        Command::new("sh")
-            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "", "", "", ""])
-            .env("HOME", home.path())
-            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
-            .env("NORTH_OFFLOAD_BYPASS_SECONDS", "5")
-            .env("PATH", &path)
-            .env_remove("NORTH_OFFLOAD_ROOT")
-            .stdin(fs::File::open(&bundle).unwrap())
-            .output()
-            .unwrap()
-    };
-    let ran = run();
-    assert!(ran.status.success(), "a stuck head of another checkout holds this job: {}", String::from_utf8_lossy(&ran.stderr));
-    assert!(fs::read_to_string(&log).unwrap().contains("ran"));
-    other.kill().unwrap();
-    other.wait().unwrap();
-}
-
 /// Blocks until `jobs` of the spawned scripts have either a ticket in the host queue or a start line in the order log.
 fn wait_until_in_line(home: &Path, log: &Path, jobs: usize) {
     let counts = || {
