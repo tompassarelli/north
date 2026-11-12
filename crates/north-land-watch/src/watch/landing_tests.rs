@@ -37,7 +37,8 @@ fn a_land_check_with_no_lane_raises_no_alarm_and_a_real_lane_past_its_p90_still_
 
 #[test]
 fn two_hosts_seeing_one_github_event_alarm_only_from_the_lander_host() {
-    use crate::watch::facts::{RepoFacts, defers_to};
+    use crate::watch::facts::RepoFacts;
+    use north_base::platform::harness::defers_to;
     let seen_by = |here: &str| {
         let repo = RepoFacts { name: "wisp".into(), error: Some("gh api: HTTP 502".into()), ..RepoFacts::default() };
         let settle = serde_json::json!({"landing": "abc", "checkedAt": NOW, "hosts": [{"host": "gex45", "problems": ["not live"]}]});

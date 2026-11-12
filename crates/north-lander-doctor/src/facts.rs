@@ -49,6 +49,8 @@ pub struct Facts {
     pub orphaned: Vec<PathBuf>,
     pub unreachable: Vec<String>,
     pub reach_error: Option<String>,
+    /// True on a host that is not the lander's, where the installation token is not held and the reach check does not run.
+    pub reach_deferred: bool,
     /// The stray queues the probe found on the offload hosts, with the host each sits on.
     pub orphaned_remote: Vec<(Place, PathBuf)>,
 }

@@ -69,7 +69,7 @@ pub struct RepoFacts {
 pub fn gather(state: &Path) -> WatchContext {
     let now = super::now();
     let events = read_events(state, now as f64);
-    let defers_fleet_alarms = defers_to_lander();
+    let defers_fleet_alarms = north_base::platform::harness::defers_to_lander();
     let repos: Vec<RepoFacts> = if defers_fleet_alarms { Vec::new() } else { repo_names().iter().filter_map(|name| repo_facts(name, state)).collect() };
     let unavailable = repos.iter().filter(|repo| repo.error.is_some()).map(|repo| format!("gh:{}:", repo.name)).collect();
     let settle: Option<Value> = fs::read_to_string(state.join("north/runtime-settle.json")).ok().and_then(|text| serde_json::from_str(&text).ok());
@@ -173,18 +173,6 @@ pub fn failed_only_in_environment_steps(jobs: &str) -> bool {
     let Ok(body) = serde_json::from_str::<Value>(jobs) else { return false };
     let steps = body["jobs"].as_array().into_iter().flatten().flat_map(|job| job["steps"].as_array().into_iter().flatten());
     north_base::platform::ci_environment::failed_only_in_environment(steps.map(|step| (step["name"].as_str().unwrap_or_default(), step["conclusion"].as_str())))
-}
-
-fn defers_to_lander() -> bool {
-    let Ok(root) = north_base::platform::harness::harness_root() else { return false };
-    let configured = Command::new("git").arg("config").arg("-f").arg(root.join(".safe-push")).args(["--get", "landing.lander-host"]).output().ok().filter(|output| output.status.success());
-    let lander = configured.map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
-    defers_to(lander.as_deref(), &north_base::platform::host::name())
-}
-
-pub fn defers_to(lander: Option<&str>, here: &str) -> bool {
-    let short = |host: &str| host.trim().rsplit('@').next().unwrap_or_default().to_owned();
-    lander.map(short).is_some_and(|lander| !lander.is_empty() && lander != short(here))
 }
 
 const NOT_MODIFIED: &str = "HTTP 304";

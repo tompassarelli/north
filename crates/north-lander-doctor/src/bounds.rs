@@ -189,11 +189,11 @@ pub fn judge(facts: &Facts, book: &Book, now: u64) -> Vec<Finding> {
         let remedy = Remedy::RemoveQueue { queue: queue.clone() };
         findings.push(Finding::over(Bound::OrphanQueues, &subject, "1".to_owned(), known("stray queue", remedy)));
     }
-    for repository in &facts.unreachable {
+    for repository in facts.unreachable.iter().filter(|_| !facts.reach_deferred) {
         let detail = format!("the North Lander installation token cannot reach {repository}; add it to the North Lander App's installation");
         findings.push(Finding::over(Bound::Reach, repository, "unreachable".to_owned(), State::Unknown(detail)));
     }
-    if facts.unreachable.is_empty() {
+    if facts.unreachable.is_empty() && !facts.reach_deferred {
         findings.push(match &facts.reach_error {
             Some(error) => Finding::over(Bound::Reach, "lander", "unchecked".to_owned(), State::Unknown(format!("could not ask GitHub whether a North Lander installation token reaches every repository: {error}"))),
             None => Finding::healthy(Bound::Reach, "lander", "0".to_owned()),

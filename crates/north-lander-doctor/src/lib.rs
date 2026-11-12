@@ -150,7 +150,8 @@ pub fn examine(now: u64) -> Facts {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map_or_else(|| PathBuf::from("/"), PathBuf::from);
     let config = std::env::var_os("XDG_CONFIG_HOME").filter(|config| !config.is_empty()).map_or_else(|| home.join(".config"), PathBuf::from);
     let repositories = facts::lander_repositories(&config, &home.join("code"));
-    let (unreachable, reach_error) = if repositories.is_empty() {
+    let reach_deferred = north_base::platform::harness::defers_to_lander();
+    let (unreachable, reach_error) = if reach_deferred || repositories.is_empty() {
         (Vec::new(), None)
     } else {
         match facts::lander_token() {
@@ -161,7 +162,7 @@ pub fn examine(now: u64) -> Facts {
             Err(error) => (Vec::new(), Some(error)),
         }
     };
-    Facts { queues, link, places, unserved: discovery.unserved, orphaned: discovery.orphaned, orphaned_remote, unreachable, reach_error }
+    Facts { queues, link, places, unserved: discovery.unserved, orphaned: discovery.orphaned, orphaned_remote, unreachable, reach_error, reach_deferred }
 }
 
 fn project(checkout: &Path) -> String {

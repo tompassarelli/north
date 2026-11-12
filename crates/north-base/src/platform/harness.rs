@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{LazyLock, Mutex, PoisonError};
 
 use toml_edit::DocumentMut;
@@ -39,6 +40,18 @@ pub fn harness_root() -> Result<PathBuf, String> {
     let executable = std::env::current_exe().unwrap_or_default();
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     resolve(std::env::var_os("NORTH_HOME").map(PathBuf::from), &executable, &home)
+}
+
+pub fn defers_to_lander() -> bool {
+    let Ok(root) = harness_root() else { return false };
+    let configured = Command::new("git").arg("config").arg("-f").arg(root.join(".safe-push")).args(["--get", "landing.lander-host"]).output().ok().filter(|output| output.status.success());
+    let lander = configured.map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
+    defers_to(lander.as_deref(), &super::host::name())
+}
+
+pub fn defers_to(lander: Option<&str>, here: &str) -> bool {
+    let short = |host: &str| host.trim().rsplit('@').next().unwrap_or_default().to_owned();
+    lander.map(short).is_some_and(|lander| !lander.is_empty() && lander != short(here))
 }
 
 pub fn is_sha(name: &str) -> bool {

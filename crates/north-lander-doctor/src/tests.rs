@@ -171,7 +171,17 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
 }
 
 #[test]
-fn a_repository_with_a_lander_unit_unreachable_by_the_installation_token_fails_the_doctor() {
+fn a_host_that_is_not_the_lander_runs_no_reach_check_and_sends_no_page() {
+    let unchecked = Facts { reach_error: Some("no North Lander App credential on this host".to_owned()), ..Facts::default() };
+    let lander = Fake::default();
+    assert!(render(&cure(&unchecked, &mut Book::default(), &lander, NOW)).contains("bound lander-reach lander: unchecked (limit 0): over: unknown state"));
+    assert_eq!(lander.pages.borrow().len(), 1, "{:?}", lander.pages.borrow());
+
+    let elsewhere = Fake::default();
+    let text = render(&cure(&Facts { reach_deferred: true, ..unchecked }, &mut Book::default(), &elsewhere, NOW));
+    assert!(!text.contains("lander-reach"), "{text}");
+    assert!(elsewhere.pages.borrow().is_empty(), "{:?}", elsewhere.pages.borrow());
+
     let unreachable = Facts { unreachable: vec!["tompassarelli/firn".to_owned()], ..Facts::default() };
     let missing = Fake::default();
     let text = render(&cure(&unreachable, &mut Book::default(), &missing, NOW));
