@@ -23,6 +23,72 @@ The lander, not only the pushing host, judges what enters a lock (south#96). Two
 
 cargo-vet coverage, measured on 2026-11-09 (cargo-vet 0.10.2): `cargo vet init` on north's lock exempted all 265 crates.io crates; importing the audit sets of all nine auditors in cargo-vet's registry (actix, ariel-os, bytecode-alliance, embark-studios, fermyon, google, isrg, mozilla, zcash) and running `cargo vet prune` left 197 exemptions, so the published audits cover 68 of 265 locked crates, 26%. Verdict: not adopted. Under half the lock is vouched for by anyone outside the fleet, so a gate on unaudited crates would rest on exemptions agents write for themselves; cargo-deny and the 7-day floor stay the gates.
 
+## First slice
+
+What changes about git: each project gets a second clone, owned by the agent user and fetched from GitHub, and lanes are worktrees of that clone as they are today. The lander takes a lane's commits from the git bundle safe-push already writes beside each outboxed ticket (crates/north-lander/src/land/enqueue.rs:172), or fetches them over ssh. Two other layouts were weighed: one repository written by both users, which fails because a repository's configuration and hooks name programs git runs; and a clone per lane, which costs a store per lane and breaks the lane verbs, which assume worktrees.
+
+Planned 2026-11-12 under north#1041, and the operator decided the same evening to build it. The slice moves one build host's worker sessions under the agent user and takes nothing else from the fourteen phases in south's plan unless that host needs it. The full per-host plan, with each step's detail and check, is in south (agents/decisions/harness/agent-user-first-slice-2026-11-12.md).
+
+### Host
+
+The first host is a cloud build host whose sessions are all code-only. Hosts that also serve GPU, native or private boxes come later, in the order below.
+
+### Steps, in order, with estimates
+
+1. The agent user on the host: 1.5 h.
+2. Session placement on the agent's login: 2 h.
+3. The checkout root in briefs: 1.5 h (landed as cacc862579).
+4. Lanes and git, as above: 2 h.
+5. Client profiles and credentials: 1 h.
+6. Scratch and caches, seeded once: 1 h.
+7. North's units and the runtime link: 2 h.
+8. Brokers: 2 h.
+9. Hooks and settings: 1 h.
+10. Fleet messages, build offload and Buck2: 1 h.
+11. The replay: 1.5 h.
+
+Total: 16.5 hours of work. Rollback returns the host to the operator's path.
+
+### What gets slower
+
+The first build of each project in the new clone, unless step 6 seeds the caches. Every other host keeps running as it does today until its own turn.
+
+### The proof
+
+The slice is proven on its host by a replay of each class of finding from the 2026-11-12 review, each ending in a refusal from the kernel rather than from north, and then one day of normal placement that keeps the fleet's first-try rate and the landing p90. The replays themselves are in the south record.
+
+### Delete list, once every host has cut over
+
+Whole files under crates/north-runtime/src/worker_sandbox/, 665 lines:
+
+- request_checkout.rs (53);
+- request_env.rs (89);
+- brokered_reads.rs (100);
+- offload_request.rs and its tests (90 + 296);
+- readable.rs (37).
+
+Parts of files, an estimated 430 lines:
+
+- the ssh part of sockets.rs (about 80);
+- the operator-only verbs and gates of broker.rs (about 120);
+- the operator-path entries of writable.rs, state.rs and lane_only.rs (about 30);
+- their test cases (about 200).
+
+Three per-path rules outside the sandbox crate go as well.
+
+Total: about 1,100 lines. The per-session Landlock layer stays, as the plan's own phase 14 keeps it.
+
+### Remaining hosts
+
+1. The other cloud build host of the same shape, once the replay holds on the first.
+2. The 20-thread host's code-only sessions. Its GPU and private boxes wait for an agent path of their own.
+3. The remote-serve host, once remote-serve has its verb set.
+4. The laptop, last.
+
+### A rootless container per session
+
+The 2026-11-09 verdict measured gVisor. A plain namespace container, as depbox is, measured no cost (6.79 s against 6.94 s), so that verdict does not cover it; the verdicts on Docker Sandboxes and a microVM stand. A container per session is not part of this slice and would be measured before it is adopted.
+
 ## Sources
 
 GitHub's scoped installation tokens ([github-installation-token](../references.md#github-installation-token)), rulesets ([github-rulesets](../references.md#github-rulesets)), cargo-deny ([cargo-deny](../references.md#cargo-deny)) and cargo-vet ([cargo-vet](../references.md#cargo-vet)) are the outside pieces the south plan builds on.
