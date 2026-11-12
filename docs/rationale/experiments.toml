@@ -510,6 +510,19 @@ after = ["2026-11-09", "2026-12-09"]
 review = "2026-12-11"
 owner = "tompassarelli/north#873"
 
+[[experiment]]
+id = "grounding-g2"
+change = "Every fresh worker launch on any host draws Grounding: grounded or Grounding: plain in seeded equal shares until 2026-11-26, stamped as the first line of its first prompt (experiment G2 of north#1147); both arms carry today's prompt until the grounded arm's predicted files land on the same step, so the runs before that are the live noise floor"
+landed = "25278a430"
+metric = "none"
+measure = "over the worker sessions of one category stamped Grounding: grounded and Grounding: plain that hold an Edit or Write, read from the prompt the ledger keeps for each run: keep the grounding when the grounded arm's median tool calls before the first Edit or Write is at most 0.75 of the plain arm's and outside the 95% band of the runs drawn before the grounded arm carried anything, its first hand-in passes no less often and its cost per kept box is no higher; at a ratio above 0.9 with 40 per arm, delete the arm, the pack verb and the hook injection in one lane"
+direction = "down"
+bar = 0.75
+min_n = 40
+after = ["2026-11-12", "2026-11-26"]
+review = "2026-11-28"
+owner = "tompassarelli/north#1147"
+
 [[check]]
 id = "n637-day-without-timeouts"
 box = "shows no start timeout for a day after it lands"
