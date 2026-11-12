@@ -148,6 +148,11 @@ pub(super) fn promote_staged(host: &str, target: &str, runtime: &Path) -> Result
     Ok(())
 }
 
+pub(super) fn move_back_to_ordered(host: &str, target: &str) -> Result<(), Failure> {
+    println!("north runtime deploy: {host}: moving back to the ordered {}", layout::short(target));
+    run_reporting(host, &format!("north runtime update --sha {} --ordered", layout::short(target)), ssh(host).args([".local/state/north/current/north", "runtime", "update", "--sha", target, "--ordered"]), PROMOTE)
+}
+
 fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
     stage(host, target, runtime, references)?;
     promote_staged(host, target, runtime)

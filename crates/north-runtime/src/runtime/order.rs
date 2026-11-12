@@ -10,7 +10,7 @@ use crate::land_offload;
 
 mod hold;
 
-const USAGE: &str = "usage: north runtime order --reason REASON [--commit REV]  promote REV (default origin/main's head), a commit already on origin/main, to this host and every deploy host at once: each host builds or fetches that runtime, runs its canary probes against it before it is live, goes live only on a pass and rewrites its stable pin, and one row per host in runtime-pins.jsonl names the commit, who ordered it, the reason and the canary verdict; a host whose canary fails keeps its runtime and the probe that failed is named; run it as the coordinator's step on the host that settles the fleet, since it stops north-stable-hold.service for the run and starts it again";
+const USAGE: &str = "usage: north runtime order --reason REASON [--commit REV]  promote REV (default origin/main's head), a commit already on origin/main, to this host and every deploy host at once: each host builds or fetches that runtime, runs its canary probes against it before it is live, goes live only on a pass and rewrites its stable pin, and one row per host in runtime-pins.jsonl names the commit, who ordered it, the reason and the canary verdict; a host whose canary fails keeps its runtime and the probe that failed is named; every host, this one included, is moved to the commit even back from a newer runtime, and a host that stays on another runtime is named, recorded as not live and fails the order; run it as the coordinator's step on the host that settles the fleet, since it stops north-stable-hold.service for the run and starts it again";
 const PIN: &str = "channel/stable";
 
 pub(super) struct Order {
@@ -25,6 +25,7 @@ pub(super) trait Host: Sync {
     fn acquire(&self, sha: &str) -> Result<(), Failure>;
     fn canary(&self, sha: &str) -> Result<(), String>;
     fn go_live(&self, sha: &str) -> Result<(), Failure>;
+    fn live(&self) -> Option<String>;
     fn write_pin(&self, sha: &str) -> Result<(), Failure>;
     fn settled(&self) {}
 }
@@ -45,8 +46,7 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> 
     }
     let others: Vec<Elsewhere> = deployment.destinations.iter().map(|destination| Elsewhere { layout, shell: Shell::Ssh(destination.clone()) }).collect();
     let others: Vec<&dyn Host> = others.iter().map(|other| other as &dyn Host).collect();
-    let released = hold::release()?;
-    run(layout, &order, &here, &others, || hold::restore(released))
+    run(layout, &order, &here, &others, hold::release, hold::restore)
 }
 
 fn parse(flags: &[String]) -> Result<(Option<String>, String), Failure> {
@@ -79,19 +79,25 @@ fn orderer() -> String {
     ["NORTH_FLEET_SESSION", "USER"].iter().find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty())).unwrap_or_else(|| "unknown".to_owned())
 }
 
-/// The order holds the promotion lock from before the build until `finish` has put the hold unit back, which queues on that lock and takes it the moment it is released, so no automatic promotion runs between the hold's stop and its return.
-pub(super) fn run(layout: &Layout, order: &Order, settling: &dyn Host, others: &[&dyn Host], finish: impl FnOnce() -> Result<(), Failure>) -> Result<(), Failure> {
+/// The order marks itself in runtime-order.lock before `release` stops the hold unit, so a promotion that takes the promotion lock in the moment between that stop and the order's own take leaves it to the order (north#1171); the order then holds the promotion lock from before the build until `restore` has put the hold unit back, which queues on that lock, and keeps its mark until that unit is seen holding it.
+pub(super) fn run<Held>(layout: &Layout, order: &Order, settling: &dyn Host, others: &[&dyn Host], release: impl FnOnce() -> Result<Held, Failure>, restore: impl FnOnce(Held) -> Result<bool, Failure>) -> Result<(), Failure> {
+    let ordering = update::order_marked(layout)?;
+    let released = release()?;
     let promoting = match update::order_waiting(layout) {
         Ok(promoting) => promoting,
         Err(failure) => {
-            let _ = finish();
+            let _ = restore(released);
             return Err(failure);
         }
     };
     let ordered = promote_everywhere(layout, order, settling, others);
-    let restored = finish();
+    let restored = restore(released);
     drop(promoting);
-    ordered.and(restored)
+    if matches!(restored, Ok(true)) {
+        update::order_handed_over(layout);
+    }
+    drop(ordering);
+    ordered.and(restored.map(|_| ()))
 }
 
 /// The settling host builds, judges and goes live first, since every other host is shipped what it built and takes it only once its canary passed there; then every other host judges and promotes on its own while the settling host's lander follows, so a failed canary on one remote host leaves only that host on its old runtime and none waits on the lander's replay.
@@ -150,6 +156,12 @@ fn live_on(layout: &Layout, order: &Order, host: &dyn Host) -> Result<bool, Fail
         record(layout, order, name, &format!("passed; not live: {}", failure.message), false);
         return Err(failed(1, format!("{name}: {short} passed its canary but did not go live: {}", failure.message)));
     }
+    let live = host.live();
+    if live.as_deref() != Some(order.sha.as_str()) {
+        let runs = live.as_deref().map_or("a runtime it did not name".to_owned(), |live| layout::short(live).to_owned());
+        record(layout, order, name, &format!("passed; not live: {name} runs {runs}"), false);
+        return Err(failed(1, format!("{name}: {short} passed its canary but is not live: {name} was kept on {runs}")));
+    }
     record(layout, order, name, "passed", true);
     println!("north runtime order: {name}: {short} passed its canary and is live");
     Ok(pinned)
@@ -205,6 +217,10 @@ impl Host for Here<'_> {
         update::go_live_ordered(self.layout, sha)
     }
 
+    fn live(&self) -> Option<String> {
+        self.layout.live_sha()
+    }
+
     fn write_pin(&self, sha: &str) -> Result<(), Failure> {
         write_pin(&self.shell, sha)
     }
@@ -233,8 +249,17 @@ impl Host for Elsewhere<'_> {
         canary::preflight(self.layout, self.name(), sha, &canary::Live { layout: self.layout, host: &self.shell })
     }
 
+    /// A ship leaves a host on a runtime newer than the one shipped, so an order that finds the host still off its commit has the runtime live there move it, as the settling host moves itself.
     fn go_live(&self, sha: &str) -> Result<(), Failure> {
-        deploy::promote_staged(self.name(), sha, &self.layout.runtime(sha))
+        deploy::promote_staged(self.name(), sha, &self.layout.runtime(sha))?;
+        match self.live().as_deref() == Some(sha) {
+            true => Ok(()),
+            false => deploy::move_back_to_ordered(self.name(), sha),
+        }
+    }
+
+    fn live(&self) -> Option<String> {
+        super::probe::live_runtime(&self.shell)
     }
 
     fn write_pin(&self, sha: &str) -> Result<(), Failure> {

@@ -29,15 +29,16 @@ pub(super) fn release() -> Result<Released, Failure> {
     Ok(Released(was))
 }
 
-pub(super) fn restore(released: Released) -> Result<(), Failure> {
+/// Says whether the unit was started again, which queues it on the promotion lock the order still holds.
+pub(super) fn restore(released: Released) -> Result<bool, Failure> {
     if !released.0 {
-        return Ok(());
+        return Ok(false);
     }
     systemctl("systemctl start", &["start", UNIT])?;
     match active()? {
         true => {
-            println!("north runtime order: {UNIT} is holding the promotion lock again");
-            Ok(())
+            println!("north runtime order: {UNIT} is started again and takes the promotion lock as the order lets go of it");
+            Ok(true)
         }
         false => Err(failed(1, format!("{UNIT} did not start again: its condition, the stable pin file, is missing here"))),
     }
