@@ -1,4 +1,4 @@
-//! The cases of the process the outside broker starts for a worker command's offload request (south#118). The test that runs them starts itself again as a broker with a home, a `PATH` and a host declaration of its own, and that broker starts it once more as the `north` of each request, which records what it was started with and, for `free`, runs the offload verb itself.
+//! The cases of the process the outside broker starts for a worker command's offload request (south#118). The test that runs them starts itself again as a broker with a home, a `PATH` and a host declaration of its own, and that broker starts it once more as the `north` of each request, which records what it was started with and, for `free` and the `choose` that leaves this host out, runs the offload verb itself.
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -19,6 +19,7 @@ const SCRATCH: &str = "NORTH_118_OFFLOAD_SCRATCH";
 const WORDS: &str = "NORTH_118_OFFLOAD_WORDS";
 const TEST: &str = "worker_sandbox::tests::the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_carries_no_injected_code";
 const BUILD_HOST: &str = "n118-build";
+const HERE: &str = "n118-here";
 const CLAIMS: [&str; 3] = [OWNER_ENV, RED_FIX_ENV, LANDER_SLOT_ENV];
 const LAND_CHECK_CEILING: &str = "2100";
 const GIT_PLACES: [&str; 3] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE"];
@@ -65,11 +66,11 @@ pub(super) fn an_offload_request_s_process_takes_nothing_of_the_worker_s_but_its
     git(&main, &["commit", "-q", "--allow-empty", "-m", "one"]);
     git(&main, &["worktree", "add", "-q", "../worktrees/lane", "-b", "lane"]);
     git(&root.join("elsewhere"), &["init", "-q", "-b", "main"]);
-    std::fs::write(policy.join("orchestration.toml"), format!("[hosts.{BUILD_HOST}]\nssh = \"{BUILD_HOST}.invalid\"\n")).unwrap();
+    std::fs::write(policy.join("orchestration.toml"), format!("[hosts.{HERE}]\nreaches = [\"{BUILD_HOST}\"]\n\n[hosts.{BUILD_HOST}]\nssh = \"{BUILD_HOST}.invalid\"\n")).unwrap();
     let path = std::env::var("PATH").unwrap();
     let real_git = std::env::split_paths(&path).map(|directory| directory.join("git")).find(|git| git.is_file()).unwrap();
     let ran = root.join("ran");
-    write_script(&root.join("trusted/ssh"), &format!("echo 'trusted ssh' >> {}\necho 3\n", ran.display()));
+    write_script(&root.join("trusted/ssh"), &format!("echo 'trusted ssh' >> {}\ncase \"$*\" in *land-waiting*) echo \"$*\" >> {} ;; esac\necho 3\n", ran.display(), root.join("claimed").display()));
     write_script(&root.join("fakes/ssh"), &format!("echo 'fake ssh' >> {}\necho 3\n", ran.display()));
     write_script(&root.join("fakes/git"), &format!("echo 'fake git' >> {}\nexec {} \"$@\"\n", ran.display(), real_git.display()));
     let output = Command::new(std::env::current_exe().unwrap())
@@ -78,6 +79,7 @@ pub(super) fn an_offload_request_s_process_takes_nothing_of_the_worker_s_but_its
         .env("PATH", format!("{}:{path}", root.join("trusted").display()))
         .env("HOME", home)
         .env("XDG_RUNTIME_DIR", root.join("runtime"))
+        .env("RESIDENT_CAP_HOST", HERE)
         .env(ROLE, "broker")
         .env(SCRATCH, root)
         .output()
@@ -108,6 +110,13 @@ fn serve(root: &Path) {
         if code != 0 || text("seen").lines().next_back().and_then(|started| started.split('|').nth(2)) != Some(chosen) {
             failures.push(format!("`{chosen}`, which reads each build host's room over ssh, was not started outside the caller's domain: exit {code}: {told}"));
         }
+    }
+
+    let asked = text("ran").lines().count();
+    let (code, told) = ask(&format!("capacity offload choose --any --avoid {HERE}"), &lane);
+    let claimed = text("claimed");
+    if code != 1 || !told.contains("no host has room") || text("ran").lines().count() == asked || !claimed.is_empty() {
+        failures.push(format!("a worker command's choose, asked when no build host has room, did not read the build host's room and leave it unclaimed: exit {code}: {told}; claims sent: {claimed:?}"));
     }
 
     let (code, told) = ask(&format!("capacity offload run --host {BUILD_HOST} --base HEAD --head HEAD --timeout 999999 -- true"), &lane);
@@ -173,7 +182,7 @@ fn offload(root: &Path) {
     let claims: Vec<&str> = CLAIMS.into_iter().chain(GIT_PLACES).filter(|name| std::env::var_os(name).is_some()).collect();
     let started = format!("{}|{}|{}\n", std::env::current_dir().unwrap().display(), claims.join(","), words.join(" "));
     std::fs::OpenOptions::new().append(true).create(true).open(root.join("seen")).unwrap().write_all(started.as_bytes()).unwrap();
-    let code = if words.get(2).is_some_and(|word| word == "free") { crate::land_offload::run(&words[2..]) } else { 0 };
+    let code = if words.get(2).is_some_and(|word| word == "free") || words.last().is_some_and(|word| word == HERE) { crate::land_offload::run(&words[2..]) } else { 0 };
     std::process::exit(i32::from(code));
 }
 

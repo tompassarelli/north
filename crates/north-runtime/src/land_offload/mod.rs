@@ -14,6 +14,9 @@ pub(crate) mod slot_lock;
 
 const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--needs PATH]... [--prefer HOST] [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, each --avoid leaves HOST out, and each --needs names a host input the land check reads, a path such as ~/.local/state/north/graph.db that a host must hold to take it, and --prefer prints HOST itself when it answers and holds every input; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | slots (prints the free then total land checks the reachable build hosts take at once, each host's free cores over the cores one check uses) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | trim-target TARGET KEEP_MIB (trims a slot's cargo target that no build holds to KEEP_MIB, least recently used build output first) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail) | verdict sync [--host NAME]...";
 
+/// Set by the outside broker in the process it starts for a worker command's offload request: its `choose` only reads each host's room and claims no host for a waiting land check, since none is behind it and a claim stops every other worker's builds there until it lapses (south#118).
+pub(crate) const WORKER_REQUEST_ENV: &str = "NORTH_OFFLOAD_WORKER_REQUEST";
+
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     if worker_request(&words).is_some_and(|host| host.is_none_or(reaches))
@@ -251,6 +254,7 @@ fn choose(any: bool, placement: &Placement) -> u8 {
         return 1;
     }
     let Survey { here, reserved, holds_here, standing, others, remotes } = survey(in_reserve, placement);
+    let claims = std::env::var_os(WORKER_REQUEST_ENV).is_none();
     if let Some(preferred) = placement.prefer.as_ref().filter(|preferred| if **preferred == here { holds_here } else { remotes.iter().any(|(name, room)| name == *preferred && room.is_some()) }) {
         println!("{preferred}");
         return 0;
@@ -272,19 +276,20 @@ fn choose(any: bool, placement: &Placement) -> u8 {
             0
         }
         Ok(room::Chosen::Queued(name)) => {
-            if let Some(machine) = others.iter().find(|machine| machine.name == name) {
+            if let Some(machine) = others.iter().find(|machine| claims && machine.name == name) {
                 room::claim(Some(&machine.ssh));
             }
-            eprintln!("north capacity offload: no build host has room, so the land check queues on {name}, which admits no new worker build until it starts");
+            eprintln!("north capacity offload: no build host has room, so the land check queues on {name}{}", if claims { ", which admits no new worker build until it starts" } else { "" });
             println!("{name}");
             0
         }
         Err(refused) => {
+            let claimed = if claims { others.as_slice() } else { &[] };
             std::thread::scope(|scope| {
-                for machine in &others {
+                for machine in claimed {
                     scope.spawn(|| room::claim(Some(&machine.ssh)));
                 }
-                if !reserved {
+                if claims && !reserved {
                     scope.spawn(|| room::claim(None));
                 }
             });
@@ -356,7 +361,7 @@ fn spread(standing: room::Standing, here: &str, remotes: Vec<(String, Option<roo
     0
 }
 
-/// The host an offload request names, when it is one the outside broker runs for a command whose domain reaches no other host (south#118): `hosts`, `slots` and `choose` bare, `choose --any` with the words `Placement::parse` reads apart from `--needs`, whose path would be read as the operator, `free --host NAME`, and `run` in exactly the words `run_job` reads with a base and head that are no option. Every other verb, word or option stays in the caller's domain, so a worker command picks no ssh option and no remote command beside the one the offload script runs under its lease.
+/// The host an offload request names, when it is one the outside broker runs for a command whose domain reaches no other host (south#118): `hosts`, `slots` and `choose` bare, `choose --any` with the words `Placement::parse` reads apart from `--needs`, whose path would be read as the operator, each `choose` a read that claims no host (`WORKER_REQUEST_ENV`), `free --host NAME`, and `run` in exactly the words `run_job` reads with a base and head that are no option. Every other verb, word or option stays in the caller's domain, so a worker command picks no ssh option and no remote command beside the one the offload script runs under its lease.
 pub(crate) fn worker_request<'a>(words: &[&'a str]) -> Option<Option<&'a str>> {
     let commit = |name: &str| !name.starts_with('-');
     match words {
