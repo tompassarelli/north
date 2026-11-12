@@ -1268,6 +1268,61 @@ What limits it: after an edit to a crate every dependant uses, `relax test` reco
 and the time before the first test is 92% of the round (414.8 of 449.6 s, 385.7 of 421.2 s, 560.8 of 632.7 s), while
 nextest's rebuild and link of the same 29 crates is 14 to 53 s across the same three rounds.
 
+### Fourth run: `relax test --live` and the run case (cpx62b, 13 November)
+
+Same host, clone (`87e45eb0e`), Relax pin and environment as the third run, same 29 crates and same edit (`let _relax_probe = N;`
+after `fn push_token` in `north-foundation`, a different N each time). The host's load average (1 minute) is printed beside
+each figure; it was 12 to 130 on 8 cores, other land checks and workers running throughout. `cpu` is user plus system
+seconds from the job cgroup's `cpu.stat` over the timed window.
+
+`relax test --live` across the crates. One `relax test --live CRATE` per crate, all 29 started at once in each crate's own
+directory with one shared `CARGO_TARGET_DIR`, each left running until it printed its first verdict; then the edit, and the
+time from the edit to the last of the 29 new `test result` lines. Nextest, same edit and round, `cargo nextest run` over the
+same 29 packages (514 tests, 514 passed on every round):
+
+- Round 1: live 12.25 s (cpu 80.3, load at the edit 73.9); nextest 40.20 s (cpu 89.4, load at the start 12.1; 16.1 s before the
+  first test).
+- Round 2: live 12.89 s (cpu 58.7, load 67.6); nextest 41.51 s (cpu 88.2, load 57.3; 17.2 s before the first test).
+- Round 3: live 12.61 s (cpu 65.0, load 130.9); nextest 49.20 s (cpu 97.4, load 71.0; 21.1 s before the first test).
+- Medians: live 12.61 s against nextest 41.51 s, 3.3 times as fast; cpu 65.0 against 89.4. Stage 0's bar, a fifth of nextest's
+  time, is 8.3 s, so `--live` misses it by 4 s. Against the non-live `relax test` of the third run (449.6 s) it is 36 times as fast.
+- The standing cost: starting the 29 processes took 192, 148 and 119 s to their first verdicts, and the job cgroup held 13.4 to
+  15.5 GiB while they ran (peak 14.4 to 16.2 GiB in the window; page cache included; the cgroup's limit is 23 GiB).
+- Issue 33 did not stop it at any of the 29 crates: in round 1 every crate printed a new verdict after the edit, and the later
+  rounds waited for a new verdict from all 29 as well, but round 2's report line for `north-base` is missing (its count may
+  have taken an earlier line) and `north-capacity`'s lines in rounds 2 and 3 are lost to a binary byte in its log, so those are
+  not quoted per crate. The slowest edit-to-verdict were `north-threads` (12.2, 12.7, 12.6 s; its 50 tests take 11.9 s) and
+  `north-base` (11.6 s and 9.7 s; 69 tests, 8 to 14 s); the rest came in under 5.6 s, 13 of them under 1 s in round 1.
+- What it reran: the edited function is entered by no dependant's test, so 27 of 29 crates reran every test (`reached by no
+  test here: north_foundation::foundation::cause::push_token`); `north-fleet` and `north-fleet-store` reran only the tests
+  Relax selected (8 of 38 and 1 of 20). The case where a test enters the edited function, and live reruns only the tests that
+  did, was not measured.
+- Verdicts: 27 crates passed every test on every rerun. `north-capacity-host` failed 2 of 55 on each round
+  (`handover_tests::capacity_a_waiting_run_prints_the_takers_stream_and_exits_with_its_code_and_a_taker_that_dies_gives_it_back`
+  and an `offering_tests` case; one panic showed `Compiling northrunning 3 tests` in a captured stream) and `north-fleet` failed 1 of
+  38 in a rerun (`fleet::watch::tests::a_turn_is_charged_to_the_account_its_host_started_with_not_the_one_the_record_holds_when_it_ends`),
+  where nextest passed all 514 on all three rounds. Whether the host's load or the live harness causes the three is not isolated.
+
+What limits it: the wait after the edit tracks the slowest dependant's own test run under the JIT (`north-threads` 12.2 s from
+edit to verdict for 11.9 s of tests, `north-base` 9.7 to 11.6 s), so a crate's tests are the floor again; the price is 29
+resident processes and up to three minutes to start them.
+
+The run case. `relax run --quiet north --bin north -- capacity offload choose` against `cargo build --bin north` then
+`target/debug/north capacity offload choose`, the edit being a word added to a message in
+`crates/north-runtime/src/land_offload/mod.rs`; seconds from the edit to the changed text on screen, one warm-up edit
+of each first (relax 5.06 s; cargo 38.50 s, cpu 100.7), then three rounds:
+
+- Round 1 (load 18.6): relax 4.30 s (exit at 6.07 s, cpu 15.1); cargo 7.27 s (cpu 7.1).
+- Round 2 (load 18.3): relax 2.42 s (exit at 3.86 s, cpu 11.4); cargo 6.21 s (cpu 6.9).
+- Round 3 (load 17.6): relax 2.33 s (exit at 3.36 s, cpu 11.6); cargo 5.76 s (cpu 6.9).
+- Medians: relax 2.42 s against cargo 6.21 s, 2.6 times as fast, at 11.6 against 6.9 cpu seconds, 1.7 times as much.
+
+What limits it: cargo's 5.8 to 7.3 s are all in `cargo build` (running the binary took 0.02 s); Relax's 2.3 to 4.3 s are its own
+compile and load of the edit, and it spends more cpu to get there.
+
+The single-crate split (north-base's tests against the rest, and JIT against native test-body time) was not measured:
+cpx62b closed for another eval before its job could start (2026-11-13, 4:08 AM).
+
 ### Blockers, in the order they stop north
 
 1. Feature sets, a setting of north's own. `relax test` and `relax check` with `--allow-c` refuse any package whose
