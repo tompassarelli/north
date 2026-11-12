@@ -111,7 +111,7 @@ fn git_dirs(checkout: &Path) -> Result<BTreeSet<PathBuf>, String> {
 }
 
 fn locks_in(dir: &Path) -> Vec<PathBuf> {
-    let mut locks: Vec<PathBuf> = entries(dir).filter(|path| path.is_file() && owned_by_git(path)).collect();
+    let mut locks: Vec<PathBuf> = entries(dir).chain(entries(&dir.join("packed"))).filter(|path| path.is_file() && owned_by_git(path)).collect();
     let mut pending = vec![dir.join("refs")];
     while let Some(next) = pending.pop() {
         for path in entries(&next) {

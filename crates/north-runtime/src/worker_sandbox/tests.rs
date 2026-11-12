@@ -37,7 +37,7 @@ fn a_confined_command_child() {
     let command = command.to_string_lossy().into_owned();
     let context = Context::from_env(&command);
     let roots = std::env::var_os(LOGINS_ONLY).is_none().then(|| removable(&context));
-    assert!(matches!(confine(roots.as_deref(), &readable(&context), Some(&executable(&context)), None), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    assert!(matches!(confine(roots.as_deref(), &readable(&context), Some(&executable(&context)), None, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let output = Command::new("bash").arg("-c").arg(&command).output().unwrap();
     assert!(output.status.success(), "{command}: {}", String::from_utf8_lossy(&output.stderr));
 }
@@ -450,7 +450,7 @@ fn a_confined_lane_rescue_child() {
     };
     let context = Context::from_env("north lane rescue");
     let roots = removable(&context);
-    assert!(matches!(confine(Some(&roots), &readable(&context), Some(&executable(&context)), None), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    assert!(matches!(confine(Some(&roots), &readable(&context), Some(&executable(&context)), None, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let _ = north_lanes::lanes::wt_rescue(&[main.to_string_lossy().into_owned()]);
 }
 

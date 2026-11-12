@@ -9,7 +9,7 @@ use crate::fleet::sender::Sender;
 use crate::fleet::store::Spool;
 use crate::fleet::transcript::stream_len;
 
-use super::{Fleet, await_reply};
+use super::{Fleet, Sent, await_reply};
 
 const RIVAL_WINDOW_MS: u64 = 30 * 60 * 1000;
 
@@ -41,19 +41,30 @@ impl Fleet {
     }
 
     pub fn send_signed(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
+        self.hand_in_signed(from, name, text, delivery).map(drop)
+    }
+
+    /// Spools the message and hands it in, withdrawing the row when the hand-in fails. A process that may not journal the hand-in, such as a worker sandbox's command, leaves the row in the spool for this host's fleet tick to hand in.
+    pub(super) fn hand_in_signed(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
         self.record(name)?;
         let row = self.spool_message(from, name, text, delivery)?;
-        self.hand_in(&row).map(drop).inspect_err(|_| {
+        if !self.journals_deliveries() {
+            return Ok(Sent::Queued { id: row.id });
+        }
+        self.hand_in(&row).map(|_| Sent::HandedIn).inspect_err(|_| {
             if let Err(error) = Spool::at(&self.root).withdraw(&row.id) {
                 eprintln!("north fleet: row {} was not withdrawn from the spool: {}", row.id, error.user_message());
             }
         })
     }
 
-    /// Spools the message and hands it in; a hand-in that fails leaves the row in the spool, which the next tick delivers.
+    /// Spools the message and hands it in; a hand-in that fails, or that this process may not journal, leaves the row in the spool, which the next tick delivers.
     pub fn send_spooled(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
         self.record(name)?;
         let row = self.spool_message(from, name, text, delivery)?;
+        if !self.journals_deliveries() {
+            return Ok(());
+        }
         if let Err(error) = self.hand_in(&row) {
             eprintln!("north fleet: row {} for {name} stays in the spool for the next tick: {}", row.id, error.user_message());
         }

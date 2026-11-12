@@ -12,6 +12,7 @@ use super::Fleet;
 pub enum Sent {
     HandedIn,
     Spooled { id: String, host: String },
+    Queued { id: String },
     Retired { heir: String },
     Unreached,
     Held,
@@ -64,7 +65,7 @@ impl Fleet {
 
     fn deliver_message(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
         if self.session_dir(name)?.exists() {
-            return self.send_signed(from, name, text, delivery).map(|()| Sent::HandedIn);
+            return self.hand_in_signed(from, name, text, delivery);
         }
         if let Some(heir) = self.heir(name)? {
             self.deliver_message(from, &heir, &self.dead_letter(name, &heir, text), delivery)?;

@@ -90,12 +90,31 @@ fn git_common_dirs(context: &Context) -> Vec<PathBuf> {
     commons
 }
 
-/// The directories of the git common directory `common` a worker's git writes create, rename and remove files in: objects, refs, logs, every checkout's own git directory under `worktrees` and north's records, and not `hooks`, whose files git runs for every checkout and every process, nor the top level, where `config` sits and is replaced by renaming `config.lock` over it, so a right there would reach both. `worktrees`, `logs` and `north` are made first where missing, since a Landlock rule holds an inode.
+/// The git common directories of the projects a command run from `context` works in, each once, read only from their main checkouts, whose `.git` a worker may not write: a lane's gitfile and a worktree's `commondir` lie where a worker writes, so a common directory read through them is whichever one the worker names.
+pub(super) fn project_git_common_dirs(context: &Context) -> Vec<PathBuf> {
+    let mut commons: Vec<PathBuf> = projects(context).iter().filter_map(|project| main_common_dir(&project.join("main"))).collect();
+    commons.sort();
+    commons.dedup();
+    commons
+}
+
+/// The common directory of the main checkout `main`: its `.git` directory, or for a `.git` gitfile the directory holding the `worktrees` directory its git directory lies in, never one a writable `commondir` names elsewhere.
+fn main_common_dir(main: &Path) -> Option<PathBuf> {
+    let (git_dir, common) = git_dirs(main)?;
+    let own = main.join(".git").is_dir() && git_dir == common;
+    let worktree = git_dir.parent().is_some_and(|worktrees| worktrees.file_name().is_some_and(|name| name == "worktrees") && worktrees.parent() == Some(common.as_path()));
+    (own || worktree).then_some(common)
+}
+
+/// The directory of a git common directory that `packed-refs` links into, so a worker's git takes its lock there (packed_refs.rs).
+pub(super) const PACKED: &str = "packed";
+
+/// The directories of the git common directory `common` a worker's git writes create, rename and remove files in: objects, refs, logs, every checkout's own git directory under `worktrees` and north's records, and not `hooks`, whose files git runs for every checkout and every process, nor the top level, where `config` sits and is replaced by renaming `config.lock` over it, so a right there would reach both, nor `packed`, whose narrower rule packed_refs.rs gives. `worktrees`, `logs` and `north` are made first where missing, since a Landlock rule holds an inode.
 fn git_removable(common: &Path) -> Vec<PathBuf> {
     for directory in ["worktrees", "logs", "north"] {
         let _ = std::fs::create_dir_all(common.join(directory));
     }
-    beneath_except(common, &[common.join("hooks")], Entries::Directories)
+    beneath_except(common, &[common.join("hooks"), common.join(PACKED)], Entries::Directories)
 }
 
 /// The files at the top of each git common directory a command run from `context` works in that it writes in place: `FETCH_HEAD`, which `git fetch` in a main checkout truncates and rewrites and which is made empty where missing.

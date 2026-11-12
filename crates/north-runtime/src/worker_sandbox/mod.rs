@@ -7,6 +7,7 @@ mod lane_grant;
 mod session_join;
 mod lane_only;
 mod lane_session;
+mod packed_refs;
 mod readable;
 mod removable;
 mod hook_screen;
@@ -67,8 +68,8 @@ fn removal() -> BitFlags<AccessFs> {
     AccessFs::RemoveDir | AccessFs::RemoveFile | AccessFs::Refer
 }
 
-/// Restricts this process, and everything it starts, to reading only files beneath `readable`, given `executable` to executing only files beneath it, given `roots` to removing and renaming away only beneath them, and given `writable` to opening files for writing and creating entries only beneath it. Refer is handled either way, so a file cannot be linked or moved to where it would become readable or executable.
-pub fn confine(roots: Option<&[PathBuf]>, readable: &[PathBuf], executable: Option<&[PathBuf]>, writable: Option<&[PathBuf]>) -> Result<RulesetStatus, String> {
+/// Restricts this process, and everything it starts, to reading only files beneath `readable`, given `executable` to executing only files beneath it, given `roots` to removing and renaming away only beneath them, and given `writable` to opening files for writing and creating entries only beneath it, apart from the `replaced` directories, whose regular files it may write, make and replace and where it may make nothing else. Refer is handled either way, so a file cannot be linked or moved to where it would become readable, writable or executable.
+pub fn confine(roots: Option<&[PathBuf]>, readable: &[PathBuf], executable: Option<&[PathBuf]>, writable: Option<&[PathBuf]>, replaced: &[PathBuf]) -> Result<RulesetStatus, String> {
     let handled = if roots.is_some() { removal() } else { BitFlags::from(AccessFs::Refer) };
     let handled = if executable.is_some() { handled | AccessFs::Execute } else { handled };
     let handled = if writable.is_some() { handled | writing() } else { handled };
@@ -79,6 +80,9 @@ pub fn confine(roots: Option<&[PathBuf]>, readable: &[PathBuf], executable: Opti
     let ruleset = ruleset.add_rules(path_beneath_rules(readable, AccessFs::ReadFile)).map_err(|error| error.to_string())?;
     let ruleset = ruleset.add_rules(path_beneath_rules(executable.unwrap_or_default(), AccessFs::Execute)).map_err(|error| error.to_string())?;
     let ruleset = ruleset.add_rules(path_beneath_rules(writable.unwrap_or_default().iter().filter(|root| root.exists()), writing())).map_err(|error| error.to_string())?;
+    let replacing = (AccessFs::WriteFile | AccessFs::Truncate | AccessFs::MakeReg | AccessFs::RemoveFile) & handled;
+    let replaced = if replacing.is_empty() { &[][..] } else { replaced };
+    let ruleset = ruleset.add_rules(path_beneath_rules(replaced, replacing)).map_err(|error| error.to_string())?;
     let ruleset = ruleset.set_compatibility(CompatLevel::BestEffort).log_new_exec(true).map_err(|error| error.to_string())?;
     ruleset.restrict_self().map(|status| status.ruleset).map_err(|error| error.to_string())
 }
@@ -151,7 +155,8 @@ fn shell(command: &str, screen: Screen) -> std::process::ExitCode {
     let hidden = confined && hide_sockets(&context);
     let roots = confined.then(|| removable(&context));
     let writable = roots.as_deref().map(|roots| writable(&context, roots));
-    report(confine(roots.as_deref(), &readable(&context), Some(&executable(&context)), writable.as_deref()));
+    let replaced = if writable.is_some() { packed_refs::directories(&context) } else { Vec::new() };
+    report(confine(roots.as_deref(), &readable(&context), Some(&executable(&context)), writable.as_deref(), &replaced));
     let shell = std::env::var_os("SHELL").filter(|shell| !shell.is_empty()).unwrap_or_else(|| OsString::from("bash"));
     let error = Command::new(shell).arg("-c").arg(command).envs(git_env(writable.is_some())).env_remove(SWEPT).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {error}");
@@ -171,7 +176,8 @@ fn program(program: &[String], lift: bool, screen: Screen) -> std::process::Exit
     let executable = (!lift).then(|| executable(&context));
     let readable = if fenced { lane_only::readable_in_lane(&context, &[]) } else { readable(&context) };
     let writable = roots.as_deref().map(|roots| if fenced { lane_only::writable_in_lane(roots) } else { writable(&context, roots) });
-    report(confine(roots.as_deref(), &readable, executable.as_deref(), writable.as_deref()));
+    let replaced = if writable.is_some() { packed_refs::directories(&context) } else { Vec::new() };
+    report(confine(roots.as_deref(), &readable, executable.as_deref(), writable.as_deref(), &replaced));
     let error = Command::new(&program[0]).args(&program[1..]).envs(git_env(writable.is_some())).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
@@ -207,7 +213,7 @@ fn in_lane(program: &[String], screen: Screen) -> std::process::ExitCode {
 /// Restricts this process, and everything it starts, to the lane-only domain of `context`: removal and writing only in its lane, scratch and caches, no build output run by its path, and reading only what `lane_only::readable_in_lane` keeps, with the `fresh` lanes a fresh domain adds.
 pub fn confine_to_lane(context: &Context, fresh: &[PathBuf]) -> Result<RulesetStatus, String> {
     let roots = removable(context);
-    confine(Some(&roots), &lane_only::readable_in_lane(context, fresh), Some(&executable(context)), Some(&lane_only::writable_in_lane(&roots)))
+    confine(Some(&roots), &lane_only::readable_in_lane(context, fresh), Some(&executable(context)), Some(&lane_only::writable_in_lane(&roots)), &packed_refs::directories(context))
 }
 
 /// Hides the sockets that start processes outside the domain, before the domain is applied: a kernel before Landlock ABI 9 cannot limit which Unix sockets a command connects through, and Landlock refuses mount(2), so a session that already runs inside a domain (one launched from a confined command) joins the namespaces the broker laid, and one that does not lays them itself. Whether they are hidden.

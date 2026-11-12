@@ -236,6 +236,31 @@ fn a_worker_command_cannot_write_a_projects_git_config_and_still_fetches_and_bra
     assert_eq!(std::fs::read_to_string(&config).unwrap(), before, "a worker command wrote the git config: {stderr}");
     assert!(stdout.contains("branched"), "a worker command could not fetch in main or branch a lane from origin/main: {stderr}");
 }
+
+#[test]
+fn a_worker_opens_a_lane_commits_and_quits_a_cherry_pick_when_the_shared_refs_are_packed_north_1225() {
+    let worker = Worker::new();
+    let main = worker.root().join("code/p/main");
+    git(&main, &["pack-refs", "--all"]);
+    let fresh = worker.root().join("code/p/worktrees/packed");
+    let (stdout, stderr) = worker.run(&format!("git -C {m} worktree add -q {f} -b packed && cd {f} && printf x >> new.txt && git add new.txt && git -c user.name=t -c user.email=t@t commit -qm new && git cherry-pick --quit && echo all-done", m = main.display(), f = fresh.display()));
+    assert!(stdout.contains("all-done") && !stderr.contains("packed-refs"), "a worker could not open a lane, commit in it or quit a cherry-pick with the refs packed: {stderr}");
+}
+
+#[test]
+fn a_worker_send_to_a_session_on_its_host_or_another_exits_0_with_no_error_and_leaves_the_row_for_the_fleet_tick_north_1219() {
+    let worker = Worker::new();
+    let fleet = worker.fleet();
+    let session = fleet.join("lead");
+    std::fs::create_dir_all(&session).unwrap();
+    let record = serde_json::json!({"name": "lead", "provider": "claude", "account": "a", "cwd": worker.root(), "model": null, "created_ms": 1, "host_pid": null, "conversation": null, "host_dir": session, "role": "worker", "stopped": false});
+    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let row = serde_json::json!([{"name": "far", "host": "far-control-host", "status": "live", "created": "2026-11-12T00:00:00Z", "updated": "2026-11-12T00:00:00Z"}]);
+    std::fs::write(fleet.join(".fleet-sessions.json"), row.to_string()).unwrap();
+    worker.sends_to(&fleet, "lead");
+    worker.sends_to(&fleet, "far");
+}
+
 #[test]
 fn a_worker_command_meets_a_null_device_at_every_runtime_socket_north_does_not_name_south_86() {
     let scratch = tempfile::Builder::new().prefix("s86").tempdir_in("/tmp").unwrap();
@@ -480,6 +505,25 @@ impl Worker {
         let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
         let output = Command::new(north).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", self.runtime.path()).current_dir(self.home.lane()).output().unwrap();
         (String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
+    }
+
+    fn fleet(&self) -> PathBuf {
+        let fleet = self.root().join(".local/state/north/fleet");
+        for made in [".start-locks", "spool"] {
+            std::fs::create_dir_all(fleet.join(made)).unwrap();
+        }
+        fleet
+    }
+
+    fn sends_to(&self, fleet: &Path, recipient: &str) {
+        let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
+        let listed = Command::new(north).args(["fleet", "list"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("XDG_RUNTIME_DIR", self.runtime.path()).output().unwrap();
+        assert!(listed.status.success(), "the fleet outside the sandbox did not list: {}", String::from_utf8_lossy(&listed.stderr));
+        let (stdout, stderr) = self.run(&format!("NORTH_FLEET_SESSION=w-sender {north} fleet send {recipient} ready to land; echo exit=$?"));
+        assert!(stdout.contains("exit=0"), "a worker's send failed: {stdout}{stderr}");
+        assert!(!stderr.to_lowercase().contains("denied") && !stderr.to_lowercase().contains("fail") && !stderr.contains("not withdrawn"), "a worker's send printed an error: {stderr}");
+        let spooled = north_core::fleet::store::Spool::at(fleet).pending().unwrap();
+        assert!(spooled.iter().any(|row| row.to == recipient && row.text == "ready to land"), "the send left no row for the fleet tick: {spooled:?} {stderr}");
     }
 
     fn refuses(&self, relative: &str) {

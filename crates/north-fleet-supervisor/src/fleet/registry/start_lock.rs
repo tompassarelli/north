@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use rustix::fs::{FlockOperation, flock};
 
@@ -43,8 +44,7 @@ impl Fleet {
         if HELD.with_borrow(|held| held.contains(&path)) {
             return Ok(Some(StartLock(None)));
         }
-        fs::create_dir_all(&locks)?;
-        let file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let Some(file) = lock_file(&locks, &path)? else { return Ok(Some(StartLock(None))) };
         match flock(&file, operation) {
             Ok(()) => {}
             Err(rustix::io::Errno::WOULDBLOCK) => return Ok(None),
@@ -52,5 +52,18 @@ impl Fleet {
         }
         HELD.with_borrow_mut(|held| held.insert(path.clone()));
         Ok(Some(StartLock(Some((path, file)))))
+    }
+}
+
+/// The lock file at `path` in `locks`, made where missing. A process that may not write the fleet's state, such as a worker sandbox's send that looks up a recipient's heir, opens an existing one to read, which flock locks all the same, and finds none where no start, stop or take-over of the name ever ran here, so no process holds it.
+fn lock_file(locks: &Path, path: &Path) -> NorthResult<Option<File>> {
+    match fs::create_dir_all(locks).and_then(|()| OpenOptions::new().create(true).append(true).open(path)) {
+        Ok(file) => Ok(Some(file)),
+        Err(refused) if refused.kind() == io::ErrorKind::PermissionDenied => match File::open(path) {
+            Ok(file) => Ok(Some(file)),
+            Err(missing) if missing.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(refused.into()),
+        },
+        Err(error) => Err(error.into()),
     }
 }

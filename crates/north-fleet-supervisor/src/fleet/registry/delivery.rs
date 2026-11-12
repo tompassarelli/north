@@ -1,3 +1,6 @@
+use std::fs::OpenOptions;
+use std::io;
+
 use north_base::lifecycle::{Refusal, Store};
 use north_session_host::row_delivery::{Phase, RowDelivery, adopt, instance};
 
@@ -8,6 +11,11 @@ use crate::foundation::clock::Timestamp;
 use super::Fleet;
 
 impl Fleet {
+    /// Whether this process may write the delivery journal: a worker sandbox reads the ledger but may not write it, so its rows wait in the spool for this host's fleet tick.
+    pub(super) fn journals_deliveries(&self) -> bool {
+        !matches!(OpenOptions::new().write(true).open(self.state.join("ledger.db")), Err(error) if error.kind() == io::ErrorKind::PermissionDenied)
+    }
+
     pub(super) fn deliveries(&self) -> NorthResult<Store> {
         Store::open(&self.state.join("ledger.db"))
     }

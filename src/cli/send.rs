@@ -48,6 +48,7 @@ fn send(fleet: &Fleet, from: Option<&str>, name: &str, text: &str, condition: Op
     let from = signer(fleet, from, name)?;
     match fleet.send_condition(&from, name, text, condition, delivery)? {
         Sent::Spooled { id, host } => eprintln!("north fleet: {name} runs on {host}; spooled {id} for the fleet tick to deliver"),
+        Sent::Queued { id } => eprintln!("north fleet: spooled {id}; this host's fleet tick hands it to {name}"),
         Sent::Retired { heir } => eprintln!("north fleet: {name} is retired; the message went to {heir}"),
         Sent::Unreached => eprintln!("north fleet: no live or parked session is named {name}; the message went to the proxy"),
         Sent::Held => eprintln!("north fleet: held for `north work`: {name} already has this alarm or condition open, or it cleared"),
