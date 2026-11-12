@@ -13,7 +13,14 @@ fn a_graph_loop_is_judged_from_its_writer_s_newest_tick_and_fails_once_that_tick
     let judged = |hours: u64| check(&loops, &|_: Role| true, &|store| match store {
         Store::Graph { writer } => graph_reading(&ticks, writer),
         Store::Record(_) => Reading::Never,
-    }, &|_: &str| None, Vec::new(), SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000 + hours * 3_600)).failing;
+    }, &|_: &str| None, &|_: &str| false, Vec::new(), SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000 + hours * 3_600)).failing;
     assert_eq!((judged(47), judged(49)), (Vec::<String>::new(), vec!["eta".to_owned()]));
     assert_eq!(graph_reading(&ticks, "flow"), Reading::Never);
+}
+
+#[test]
+fn an_open_loop_fails_when_its_owner_issue_is_closed_and_passes_while_it_is_open() {
+    let registry = |owner: &str| format!("[[loop]]\nname = \"pressure\"\ndecision = \"d\"\nsites = [\"s\"]\nupdated_by = \"by hand\"\ncadence_hours = 168\nowner = \"{owner} A title\"\n");
+    let judged = |owner: &str| check(&parse(&registry(owner)).unwrap(), &|_: Role| true, &|_| Reading::Never, &|_: &str| None, &|issue: &str| issue == "north#112", Vec::new(), SystemTime::UNIX_EPOCH).failing;
+    assert_eq!((judged("north#112"), judged("north#1221")), (vec!["pressure".to_owned()], Vec::<String>::new()));
 }

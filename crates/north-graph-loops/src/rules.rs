@@ -8,6 +8,7 @@ use crate::cells::{self, Cells, Learned, Measure, TICK_AT};
 
 pub(crate) const PATIENCE: Duration = Duration::from_millis(400);
 const TICKED: &str = "harness/graph-rules/ticked.json";
+const CLOSED: &str = "harness/graph-rules/issue-closed.json";
 
 pub(crate) fn ask(graph: &Graph, rule: &'static str) -> Result<Vec<Vec<Term>>, String> {
     let query = parse_query(north_base::platform::harness::table(rule)).map_err(|why| format!("{rule}: {why}"))?;
@@ -40,6 +41,15 @@ pub fn ticks_from(graph: &Graph) -> Result<BTreeMap<String, i64>, String> {
 
 pub fn ticks(db: &Path) -> Result<BTreeMap<String, i64>, String> {
     ticks_from(&open_read_only(db)?)
+}
+
+/// The issues the mirror's facts hold as closed, as `repo#number`, through harness/graph-rules/issue-closed.json.
+pub fn closed_issues_from(graph: &Graph) -> Result<BTreeSet<String>, String> {
+    Ok(ask(graph, CLOSED)?.iter().filter_map(|row| cells::text(row.first()?).map(str::to_owned)).collect())
+}
+
+pub fn closed_issues(db: &Path) -> Result<BTreeSet<String>, String> {
+    closed_issues_from(&open_read_only(db)?)
 }
 
 /// The cells `writer` last told, each read through its measure's rule, and the instant it ticked.

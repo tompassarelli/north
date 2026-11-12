@@ -79,7 +79,7 @@ decision = "the reasoning effort a launch runs at"
 sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-dispatch/src/dispatch/cells.rs", "crates/north-dispatch/src/dispatch/manual.rs", "src/cli/fleet/tier.rs"]
 updated_by = "north fleet dispatch draws the category's model and effort cell in the shares its closed boxes settle"
 cadence_hours = 24
-owner = "north#939 The cell draw learns model and effort together"
+owner = "hand-set by decision, docs/rationale/learning-loops.md"
 
 [[loop]]
 name = "context-window"
@@ -87,7 +87,7 @@ decision = "the auto-compact window a dispatched Claude box with no tier or effo
 sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-fleet/src/fleet/compaction.rs", "crates/north-providers/src/providers/claude/session_env.rs"]
 updated_by = "north fleet dispatch draws the arms in equal seeded shares, and its dry run prints each arm's boxes, kept boxes and cost per kept box from the ledger"
 cadence_hours = 24
-owner = "north#636 The policy loop owns experiment design end to end"
+owner = "north#1221 A decision model for the harness closed choices"
 
 [[loop]]
 name = "capacity-estimate"
@@ -126,7 +126,7 @@ decision = "the CPU pressure under which capacity admission starts a heavy build
 sites = ["crates/north-capacity/src/capacity/admission.rs", "crates/north-capacity/src/capacity/agent_load.rs", "crates/north-capacity/src/capacity/run_queue.rs"]
 updated_by = "harness/defaults.toml by hand"
 cadence_hours = 168
-owner = "north#112 Staffing governor"
+owner = "hand-set by decision, docs/rationale/learning-loops.md"
 
 constants = [
   "crates/north-capacity/src/capacity/admission.rs::ATTENDED_GPU_CLIENTS",
@@ -191,7 +191,7 @@ sites = [
 ]
 updated_by = "agents/orchestration.toml by hand"
 cadence_hours = 168
-owner = "north#112 (no box yet: placement learns nothing from cost per kept box)"
+owner = "hand-set by decision, docs/rationale/learning-loops.md"
 
 constants = [
   "crates/north-pacing/src/pacing/placement/hosts.rs::SATURATION_CACHE_SECONDS",
@@ -203,7 +203,7 @@ decision = "how many workers dispatch launches on a host"
 sites = ["crates/north-dispatch/src/dispatch/slots.rs", "crates/north-dispatch/src/dispatch/survey.rs"]
 updated_by = "resident_cap by hand"
 cadence_hours = 168
-owner = "north#112 Staffing governor"
+owner = "hand-set by decision, docs/rationale/learning-loops.md"
 
 [[loop]]
 name = "landing-batch"
@@ -231,7 +231,7 @@ decision = "which skills a session loads"
 sites = ["crates/north-guard/src/hook.rs"]
 updated_by = "skill frontmatter by hand"
 cadence_hours = 168
-owner = "north#112 Skill effect"
+owner = "hand-set by decision, docs/rationale/learning-loops.md"
 
 [[loop]]
 name = "corrections"

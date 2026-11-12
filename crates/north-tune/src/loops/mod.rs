@@ -124,6 +124,8 @@ pub fn here(role: Option<Role>) -> Result<Checked, String> {
         Store::Graph { writer } => graph_reading(ticks.get_or_init(|| north_graph_loops::ticks(&north_graph_loops::graph_path())), writer),
     };
     let score = |record: &str| std::fs::read_to_string(state.join(record)).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty());
+    let closed_issues = north_graph_loops::closed_issues(&north_graph_loops::graph_path()).unwrap_or_default();
+    let closed = |owner: &str| closed_issues.contains(owner);
     let held: Box<dyn Fn(Role) -> bool> = match role {
         Some(role) => Box::new(move |found| found == role),
         None => {
@@ -133,7 +135,7 @@ pub fn here(role: Option<Role>) -> Result<Checked, String> {
         }
     };
     let watched = held(Role::Lander).then(|| red_main::finding(&state, SystemTime::now()));
-    Ok(check(&loops, &*held, &read, &score, watched.into_iter().collect(), SystemTime::now()))
+    Ok(check(&loops, &*held, &read, &score, &closed, watched.into_iter().collect(), SystemTime::now()))
 }
 
 pub fn run(arguments: &[String]) -> u8 {

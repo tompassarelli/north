@@ -59,7 +59,7 @@ A loop that learns tells its learned values to north's graph (`~/.local/state/no
 ### Named exceptions
 
 - **remote-branches** and **credentials** stay on their record files: each records that a sweep or an expiry check ran, not a value learned from an outcome, so the graph would hold only a tick. They move if they start learning (a sweep age or a renewal lead time set from outcomes).
-- **effort**, **pressure-band**, **placement**, **worker-concurrency** and **skill-routing** are set by hand (orchestration.toml, defaults.toml, `resident_cap`, skill frontmatter) and learn from no outcome; **context-window**, **landing-batch** and **policy-climber** are open loops whose owners have not closed them. Each moves to the graph in the lane that gives it a signal, telling its first learned value as above.
+- **effort**, **pressure-band**, **placement**, **worker-concurrency** and **skill-routing** are set by hand (the effort cell was retired under north#1035, orchestration.toml, defaults.toml, `resident_cap`, skill frontmatter) and learn from no outcome. They are hand-set by decision: decided 2026-11-12 under north#1279, because no open issue gives any of them a signal, and the registry names no owner for them instead of a closed issue that would never supply one (the staffing governor north#112, the policy loop north#636 and the cell draw north#939 are closed). `north loops check` fails an open loop whose owner issue the graph holds as closed. **context-window** is owned by north#1221, whose switch scores arm shares against equal shares; **landing-batch** is an open loop whose owner has not closed it. Each moves to the graph in the lane that gives it a signal, telling its first learned value as above.
 
 ### The machine-review wait, 2026-11-10
 

@@ -26,4 +26,4 @@ pub use check_deadline::{CheckDeadline, WRITER as CHECK_WRITER, check_deadline, 
 pub use fleet::{Retirement, WRITER as FLEET_WRITER, retirement, retirement_from, tell_retirement, tell_retirement_to};
 pub use lander_doctor::{DOCTOR_WRITER, Held, Remembered, remembered, remembered_from, tell_remembered, tell_remembered_to};
 pub use north_graph::default_path as graph_path;
-pub use rules::{read, read_from, tell, tell_to, ticks, ticks_from};
+pub use rules::{closed_issues, closed_issues_from, read, read_from, tell, tell_to, ticks, ticks_from};

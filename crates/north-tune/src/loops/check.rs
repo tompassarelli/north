@@ -15,11 +15,11 @@ pub struct Finding {
     pub failed: bool,
 }
 
-pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&Store) -> Reading, score: &dyn Fn(&str) -> Option<String>, extra: Vec<Finding>, now: SystemTime) -> Checked {
+pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&Store) -> Reading, score: &dyn Fn(&str) -> Option<String>, closed: &dyn Fn(&str) -> bool, extra: Vec<Finding>, now: SystemTime) -> Checked {
     let mut lines = Vec::new();
     let mut failing = Vec::new();
     for found in loops {
-        let (verdict, failed) = verdict(found, held, read, now);
+        let (verdict, failed) = verdict(found, held, read, closed, now);
         if failed {
             failing.push(found.name.clone());
         }
@@ -36,9 +36,10 @@ pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&Store) 
     Checked { lines, failing }
 }
 
-fn verdict(found: &Loop, held: &dyn Fn(Role) -> bool, read: &dyn Fn(&Store) -> Reading, now: SystemTime) -> (String, bool) {
+fn verdict(found: &Loop, held: &dyn Fn(Role) -> bool, read: &dyn Fn(&Store) -> Reading, closed: &dyn Fn(&str) -> bool, now: SystemTime) -> (String, bool) {
     let (Some(signal), Some(store)) = (&found.signal, &found.store) else {
         return match &found.owner {
+            Some(owner) if owner.split_whitespace().next().is_some_and(closed) => (format!("FAIL owner {owner} is closed, so nothing will close this loop; name an open issue or record it as hand-set by decision"), true),
             Some(owner) => (format!("open; {} sets it; owner {owner}", found.updated_by), false),
             None => (format!("FAIL no outcome signal and no owner; {} sets it", found.updated_by), true),
         };

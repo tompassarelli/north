@@ -1,0 +1,3 @@
+{"find": "closed", "rules": [
+  {"head": {"rel": "closed", "args": [{"var": "issue"}]},
+   "body": [{"rel": "assertion", "args": ["mirror", {"var": "issue"}, ["keyword", "state"], ["keyword", "closed"]]}]}]}
