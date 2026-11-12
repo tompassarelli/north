@@ -25,7 +25,7 @@ struct Rig {
 
 const FAKE_SSH: &str = r#"for a; do last=$a; done
 printf '%s\n' "$*" >> "$ROOT/ssh.log"
-[ -f "$ROOT/sleep" ] && exec sleep "$(cat "$ROOT/sleep")"
+[ -f "$ROOT/stall" ] && { : > "$ROOT/stalled"; exec sleep 30; }
 [ -f "$ROOT/refusal" ] && case "$last" in *"threads $(awk '{print $6}' "$ROOT/refusal")"*) cat "$ROOT/refusal" >&2; exit 126 ;; esac
 case "$last" in
   *ingest) cat >> "$ROOT/ingest.log"; [ -f "$ROOT/ingest-code" ] && exit "$(cat "$ROOT/ingest-code")" ;;
@@ -74,8 +74,36 @@ fn log(rig: &Rig, name: &str) -> Vec<String> {
     fs::read_to_string(rig.root.join(name)).unwrap_or_default().lines().map(str::to_owned).collect()
 }
 
-/// How long a fake ssh that stalls has to log its call before the client gives up on it; a stall always ends at this bound, so only a start slower than it fails a test.
-const STALL_BOUND: Duration = Duration::from_secs(5);
+const STALL_BOUND: Duration = Duration::from_secs(7);
+
+fn stall_on_event(root: PathBuf, bounds: Arc<std::sync::Mutex<Vec<Duration>>>) -> Await {
+    Arc::new(move |child: &mut std::process::Child, bound: Duration| -> io::Result<Option<std::process::ExitStatus>> {
+        bounds.lock().unwrap().push(bound);
+        let mut exited = None;
+        crate::platform::wait::until(Duration::from_secs(3600), || {
+            exited = child.try_wait().transpose();
+            exited.is_some() || fs::remove_file(root.join("stalled")).is_ok()
+        });
+        if let Some(result) = exited {
+            return result.map(Some);
+        }
+        child.kill()?;
+        child.wait()?;
+        Ok(None)
+    })
+}
+
+fn stall(rig: &mut Rig) -> Arc<std::sync::Mutex<Vec<Duration>>> {
+    let bounds = Arc::default();
+    rig.client.ssh_wait = STALL_BOUND;
+    rig.client.await_child = stall_on_event(rig.root.clone(), Arc::clone(&bounds));
+    fs::write(rig.root.join("stall"), "").unwrap();
+    bounds
+}
+
+fn unstall(rig: &Rig) {
+    fs::remove_file(rig.root.join("stall")).unwrap();
+}
 
 const PREFIX: &str = "-o ControlPath=none -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host";
 
@@ -117,10 +145,10 @@ fn threads_client_spools_unreachable_writes_and_flushes_them_in_order() {
 #[test]
 fn a_stalled_ledger_host_returns_a_claim_as_outcome_unknown_within_its_bound_and_never_replays_it() {
     let mut rig = rig(&[]);
-    rig.client.ssh_wait = STALL_BOUND;
-    fs::write(rig.root.join("sleep"), "30").unwrap();
+    let bounds = stall(&mut rig);
     assert_eq!(call(&rig, &["claim", "wisp#99", "--by", "stall"], b""), (TIMED_OUT_STATUS, "NorthThreads: ledger-host timed out; remote outcome unknown\n".to_owned()));
     assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'wisp#99' --by stall")]);
+    assert_eq!(*bounds.lock().unwrap(), [STALL_BOUND], "the call was not bounded by the client's ssh wait");
     assert!(!rig.client.spool.exists(), "a timed-out claim was queued for replay");
 }
 
@@ -133,13 +161,12 @@ fn spooled(rig: &Rig) -> Vec<String> {
 #[test]
 fn a_spooled_batch_whose_flush_times_out_stays_spooled_and_is_sent_again_once_the_host_answers() {
     let mut rig = rig(&[]);
-    rig.client.ssh_wait = STALL_BOUND;
     let kept = rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
-    fs::write(rig.root.join("sleep"), "30").unwrap();
+    stall(&mut rig);
     let (_, err) = call(&rig, &["claim", "north#63"], b"");
     assert!(!err.contains("refused"), "{err}");
     assert_eq!(spooled(&rig), [kept.file_name().unwrap().to_string_lossy().into_owned()], "a timed-out flush is neither .failed nor dropped");
-    fs::remove_file(rig.root.join("sleep")).unwrap();
+    unstall(&rig);
     assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
     assert!(spooled(&rig).is_empty());
     assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 1}"]);
@@ -155,7 +182,10 @@ fn a_claim_leaves_the_spool_to_a_detached_flush_and_that_flush_sends_it() {
     rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
     assert_eq!(call(&rig, &["claim", "north#63", "--by", "s"], b"").0, 0);
     assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'north#63' --by s")], "the claim sent the spool before itself");
-    let flush = fs::read_to_string(&started).unwrap();
+    let mut flush = String::new();
+    while !(flush.contains("spool-flush ledger-host") && flush.contains("snapshot-pull")) {
+        flush += &fs::read_to_string(&started).unwrap();
+    }
     assert!(flush.contains("spool-flush ledger-host"), "the detached start was not a spool-flush: {flush:?}");
     assert_eq!(spooled(&rig).len(), 1);
     assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
@@ -176,8 +206,7 @@ fn a_second_usage_ingest_inside_five_minutes_pulls_no_second_snapshot() {
 
 fn stalled_rig() -> Rig {
     let mut rig = rig(&[]);
-    rig.client.ssh_wait = STALL_BOUND;
-    fs::write(rig.root.join("sleep"), "30").unwrap();
+    stall(&mut rig);
     rig
 }
 
@@ -188,7 +217,7 @@ fn an_ingest_or_agent_event_that_times_out_is_spooled_not_refused_and_sent_again
     assert_eq!(code, 0, "{err}");
     assert!(err.contains("ledger-host timed out; spooled ingest to ") && !err.contains("refused"), "{err}");
     assert_eq!(spooled(&rig).iter().filter(|name| name.ends_with(".jsonl")).count(), 1);
-    fs::remove_file(rig.root.join("sleep")).unwrap();
+    unstall(&rig);
     assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
     assert!(spooled(&rig).is_empty());
     assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 1}"]);
@@ -198,7 +227,7 @@ fn an_ingest_or_agent_event_that_times_out_is_spooled_not_refused_and_sent_again
     let (code, err) = call(&rig, &event, b"");
     assert_eq!(code, 0, "{err}");
     assert_eq!(spooled(&rig).iter().filter(|name| name.ends_with(".argv")).count(), 1, "a timed-out agent-event is kept for replay");
-    fs::remove_file(rig.root.join("sleep")).unwrap();
+    unstall(&rig);
     assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
     assert!(spooled(&rig).is_empty());
     assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.ends_with("north threads agent-event --session s --kind note --key k1")).count(), 2);
@@ -364,6 +393,8 @@ fn a_peer_sends_a_recording_free_recommend_nowhere_and_only_writes_to_the_ledger
     assert_eq!(sent.join("\n"), format!("{PREFIX} north threads recommend 'Item: north#63\nCategory: feature'\n{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'north#63'"));
 }
 
+const LOCK_PATIENCE: Duration = Duration::from_secs(3600);
+
 fn ledger_host(wait: Duration) -> (tempfile::TempDir, Client) {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
@@ -390,7 +421,7 @@ fn recorded(root: &Path) -> Vec<String> {
 
 #[test]
 fn two_ingests_started_together_run_one_after_the_other_and_each_batch_is_recorded_once() {
-    let (directory, client) = ledger_host(Duration::from_secs(30));
+    let (directory, client) = ledger_host(LOCK_PATIENCE);
     let ingest = |id: &'static str| {
         let client = &client;
         move || {
@@ -414,19 +445,19 @@ fn two_ingests_started_together_run_one_after_the_other_and_each_batch_is_record
 
 #[test]
 fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_code_and_its_retry_records_each_row_once() {
-    let (directory, mut client) = ledger_host(Duration::from_secs(60));
-    client.ingest_hold = Duration::from_secs(3);
+    let (directory, mut client) = ledger_host(LOCK_PATIENCE);
+    client.ingest_hold = Duration::from_secs(1);
     let writer = rusqlite::Connection::open(directory.path().join("threads.db")).unwrap();
     writer.execute_batch("PRAGMA journal_mode = WAL; BEGIN IMMEDIATE").unwrap();
     let mut err = Vec::new();
     let code = client.main(&["ingest".to_owned()], &mut &[batch("one"), batch("two")].concat()[..], &mut err).unwrap();
     assert_eq!(code, ingest_lock::RETRY, "{}", String::from_utf8_lossy(&err));
-    assert_eq!(String::from_utf8(err).unwrap(), "NorthThreads: ingest held the ledger past 3 s; stopped it uncommitted, retry\n");
+    assert_eq!(String::from_utf8(err).unwrap(), "NorthThreads: ingest held the ledger past 1 s; stopped it uncommitted, retry\n");
     assert!(ingest_lock::acquire(&directory.path().join("ingest.lock"), Duration::ZERO).unwrap().is_some());
     writer.execute_batch("ROLLBACK").unwrap();
     drop(writer);
     let lines = logged(directory.path());
-    assert_eq!((lines[0]["exit"].as_i64(), lines[0]["held_ms"].as_i64().is_some_and(|held| held >= 3000)), (Some(i64::from(ingest_lock::RETRY)), true), "{lines:?}");
+    assert_eq!((lines[0]["exit"].as_i64(), lines[0]["held_ms"].as_i64().is_some_and(|held| held >= 1000)), (Some(i64::from(ingest_lock::RETRY)), true), "{lines:?}");
     for _ in 0..2 {
         assert_eq!(client.main(&["ingest".to_owned()], &mut &[batch("one"), batch("two")].concat()[..], &mut Vec::new()).unwrap(), 0);
     }
@@ -435,7 +466,7 @@ fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_cod
 
 #[test]
 fn a_batch_past_the_chunk_size_is_committed_in_chunks_each_under_its_own_lock_and_logged_apart() {
-    let (directory, mut client) = ledger_host(Duration::from_secs(60));
+    let (directory, mut client) = ledger_host(LOCK_PATIENCE);
     client.ingest_chunk_rows = 2;
     let batches: Vec<u8> = ["a", "b", "c", "d", "e"].iter().flat_map(|id| batch(id)).collect();
     assert_eq!(client.main(&["ingest".to_owned()], &mut &batches[..], &mut Vec::new()).unwrap(), 0);

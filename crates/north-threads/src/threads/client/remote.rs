@@ -4,7 +4,7 @@ use std::io::{self, Read, Seek, Write};
 use std::process::Stdio;
 
 use super::process::{Input, code_of, execute, execute_capturing_stderr, python_json};
-use super::{Client, FORWARDED, SSH_TIMEOUT, shell_quote};
+use super::{Client, FORWARDED, shell_quote};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::exit::TIMED_OUT_STATUS;
 use crate::platform::ssh_retry::{Link, Reply, Rerun, retried};
@@ -42,7 +42,7 @@ impl Client {
         let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
         let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
         let wait = if args.first().map(String::as_str) == Some("job-run") { self.record_wait } else { self.ssh_wait };
-        match execute(&argv, input, stdout, wait)? {
+        match execute(&argv, input, stdout, (wait, &self.await_child))? {
             Some(status) => Ok(code_of(status)),
             None => {
                 writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
@@ -56,7 +56,7 @@ impl Client {
         let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
         let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
         let wait = if args.first().map(String::as_str) == Some("job-run") { self.record_wait } else { self.ssh_wait };
-        let (status, stderr) = execute_capturing_stderr(&argv, input, stdout, wait)?;
+        let (status, stderr) = execute_capturing_stderr(&argv, input, stdout, (wait, &self.await_child))?;
         err.write_all(stderr.as_bytes())?;
         match status {
             Some(status) => Ok((code_of(status), stderr)),
@@ -94,7 +94,7 @@ impl Client {
         let Some(dest) = self.ledger_remote()? else { return Ok(None) };
         let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
         let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
-        match execute(&argv, Input::Bytes(input.to_vec()), Stdio::inherit(), SSH_TIMEOUT)? {
+        match execute(&argv, Input::Bytes(input.to_vec()), Stdio::inherit(), (self.ssh_wait, &self.await_child))? {
             Some(status) => Ok(Some(code_of(status))),
             None => {
                 writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
@@ -115,7 +115,7 @@ impl Client {
         let argv = self.ssh_argv(&options);
         let answered = (|| {
             let mut output = tempfile::tempfile()?;
-            let status = execute(&argv, Input::Bytes(input.to_vec()), Stdio::from(output.try_clone()?), SSH_TIMEOUT)?;
+            let status = execute(&argv, Input::Bytes(input.to_vec()), Stdio::from(output.try_clone()?), (self.ssh_wait, &self.await_child))?;
             let mut answer = Vec::new();
             if status.is_some_and(|status| status.success()) {
                 output.seek(io::SeekFrom::Start(0))?;

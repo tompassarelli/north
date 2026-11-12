@@ -16,7 +16,7 @@ mod remote;
 mod snapshot_pull;
 pub mod spool;
 pub use process::shell_quote;
-use process::{Input, agent_event_checks, detach, has_usage};
+use process::{Await, Input, agent_event_checks, clocked, detach, has_usage};
 
 const READS: [&str; 11] = [
     "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate", "opencode",
@@ -110,6 +110,7 @@ pub struct Client {
     fleet: Arc<dyn outside::FleetView>,
     record_wait: Duration,
     ssh_wait: Duration,
+    await_child: Await,
     ingest_wait: Duration,
     ingest_hold: Duration,
     ingest_chunk_rows: usize,
@@ -261,6 +262,7 @@ impl Client {
             fleet,
             record_wait: RECORD_WAIT,
             ssh_wait: SSH_TIMEOUT,
+            await_child: clocked(),
             ingest_wait: INGEST_WAIT,
             ingest_hold: INGEST_HOLD,
             ingest_chunk_rows: INGEST_CHUNK_ROWS,

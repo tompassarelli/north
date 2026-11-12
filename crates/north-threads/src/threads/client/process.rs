@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -10,6 +11,13 @@ use serde_json::Value;
 use crate::error::NorthResult;
 use crate::platform::process::child_within;
 use crate::threads::outside;
+
+/// Waits on a child for up to a limit, `None` once it outlasted it and was killed; a stalled-host test swaps the clock for an event.
+pub(super) type Await = Arc<dyn Fn(&mut Child, Duration) -> std::io::Result<Option<ExitStatus>> + Send + Sync>;
+
+pub(super) fn clocked() -> Await {
+    Arc::new(child_within)
+}
 
 pub(super) enum Input {
     Inherit,
@@ -72,7 +80,7 @@ fn feed(mut child: Child, bytes: Option<Vec<u8>>) -> Child {
     child
 }
 
-pub(super) fn execute(argv: &[OsString], input: Input, stdout: Stdio, wait: Duration) -> NorthResult<Option<ExitStatus>> {
+pub(super) fn execute(argv: &[OsString], input: Input, stdout: Stdio, wait: (Duration, &Await)) -> NorthResult<Option<ExitStatus>> {
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]).stdout(stdout);
     let bytes = match input {
@@ -91,10 +99,10 @@ pub(super) fn execute(argv: &[OsString], input: Input, stdout: Stdio, wait: Dura
         }
     };
     let mut child = feed(command.spawn()?, bytes);
-    Ok(child_within(&mut child, wait)?)
+    Ok(wait.1(&mut child, wait.0)?)
 }
 
-pub(super) fn execute_capturing_stderr(argv: &[OsString], input: Input, stdout: Stdio, wait: Duration) -> NorthResult<(Option<ExitStatus>, String)> {
+pub(super) fn execute_capturing_stderr(argv: &[OsString], input: Input, stdout: Stdio, wait: (Duration, &Await)) -> NorthResult<(Option<ExitStatus>, String)> {
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]).stdout(stdout).stderr(Stdio::piped());
     let bytes = match input {
@@ -120,7 +128,7 @@ pub(super) fn execute_capturing_stderr(argv: &[OsString], input: Input, stdout: 
             text
         })
     });
-    let status = child_within(&mut child, wait)?;
+    let status = wait.1(&mut child, wait.0)?;
     let text = stderr.and_then(|handle| handle.join().ok()).unwrap_or_default();
     Ok((status, text))
 }
