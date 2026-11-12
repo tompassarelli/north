@@ -45,6 +45,16 @@ fn an_unreachable_deny_list_holds_the_push_as_no_verdict_and_a_scan_failure_stil
     assert_eq!(scanned(Err(Fault::Unavailable("no network".to_owned()))), Stand::NoVerdict);
     assert_eq!(scanned(Err(Fault::Failed("the deny-list is missing".to_owned()))), Stand::Refuse);
     assert_eq!(scanned(Ok(BTreeSet::from(["fake-private-term in notes.txt".to_owned()]))), Stand::Refuse, "a matched private value still refuses");
+    let asked = std::sync::atomic::AtomicBool::new(false);
+    let hit = denylist.verdict(
+        || "PUBLIC".to_owned(),
+        || Ok(BTreeSet::from(["fake-private-term in notes.txt".to_owned()])),
+        || {
+            asked.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(Some(Vec::new()))
+        },
+    );
+    assert_eq!((hit.stand, asked.into_inner()), (Stand::Refuse, false), "text the deny-list refuses never reaches the private-kind judge");
 }
 
 #[test]
