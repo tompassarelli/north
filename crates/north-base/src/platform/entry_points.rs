@@ -56,13 +56,15 @@ pub fn link(runtime: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// The link to `north` for `point` in north's own directory, made when absent. A candidate runtime has no tree until its install, yet its canary launches a worker first, so a launch names this link rather than one in the tree (north#1172).
+/// The link to `north` for `point` in north's own directory, made when absent or left dangling by a binary since removed. A candidate runtime has no tree until its install, yet its canary launches a worker first, so a launch names this link rather than one in the tree (north#1172).
 pub fn linked_beside(north: &Path, point: EntryPoint) -> io::Result<PathBuf> {
     let target = north.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, format!("{} names no file", north.display())))?;
     let path = north.with_file_name(point.name());
-    match symlink(target, &path) {
-        Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
-        _ => {}
+    if !path.is_file() {
+        let staged = path.with_file_name(format!(".{}-{}", point.name(), std::process::id()));
+        let _ = fs::remove_file(&staged);
+        symlink(target, &staged)?;
+        fs::rename(&staged, &path)?;
     }
     if path.is_file() { Ok(path) } else { Err(io::Error::new(io::ErrorKind::NotFound, format!("{} leads to no file", path.display()))) }
 }
@@ -93,5 +95,10 @@ mod tests {
         let tracked = runtime_with(&["safe-push"]);
         link(tracked.path()).unwrap();
         assert!(fs::symlink_metadata(tracked.path().join(TREE).join("bin/safe-push")).unwrap().file_type().is_file());
+
+        let stale = runtime_with(&[]);
+        symlink("north_providers-removed", stale.path().join("worker-sandbox")).unwrap();
+        let relinked = linked_beside(&stale.path().join("north"), EntryPoint::WorkerSandbox).expect("a worker-sandbox link a removed binary left dangling is made again");
+        assert_eq!(fs::read_link(relinked).unwrap(), Path::new("north"));
     }
 }
