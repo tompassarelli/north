@@ -159,8 +159,9 @@ first_in_line() {
       [ "$passing" = no ] || continue
     fi
     waiter=${t#*-*-}
-    why="behind the job of waiter ${waiter%@*} for ${t#*@}, in line $(((now - ${stamp%%-*}) / 1000000000))s"
-    return 1
+    age=$(((now - ${stamp%%-*}) / 1000000000))
+    why="behind the job of waiter ${waiter%@*} for ${t#*@}, in line ${age}s"
+    [ "${t#*@}" != "$name" ] && [ "$age" -gt "${NORTH_OFFLOAD_BYPASS_SECONDS:-30}" ] || return 1
   done
   return 1
 }
