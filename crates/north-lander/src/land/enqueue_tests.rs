@@ -79,17 +79,9 @@ impl Lane {
     }
 
     fn try_enqueue_from(&self, host: &str, shape: super::Shape) -> Result<super::Queued, String> {
-        self.try_enqueue_with(host, shape, None)
-    }
-
-    fn try_enqueue_with(&self, host: &str, shape: super::Shape, facts: Option<super::Facts>) -> Result<super::Queued, String> {
         let (state, denylist) = (self.dir.path().join("state"), without_south(self.dir.path()));
         let environment = super::Environment { called_micros: 0, state_home: &state, host, session: None, waits: false, denylist: &denylist };
-        super::enqueue(&self.repo, shape, false, &environment, facts)
-    }
-
-    fn lose_origin(&self) {
-        fs::rename(self.dir.path().join("origin.git"), self.dir.path().join("gone.git")).unwrap();
+        super::enqueue(&self.repo, shape, false, &environment)
     }
 
     fn enqueue(&self, shape: super::Shape) -> super::Queued {
@@ -112,21 +104,6 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     let message = run(&lane.repo, &["show", "-s", "--format=%B", "HEAD"]);
     assert_eq!(message.lines().next(), Some("add the second lane line"), "{message}");
     assert_eq!(run(&lane.repo, &["show", "-s", "--format=%(trailers:only,unfold)", "HEAD"]), "Refs: #7\nLane-note: first\nLane-note: second");
-
-    let lane = Lane::new();
-    lane.commit("a line handed in after the route fetched main", &[]);
-    let facts = super::Facts::start(&lane.repo, "main", &without_south(lane.dir.path())).unwrap();
-    facts.base().unwrap();
-    let moved = run(&lane.repo, &["commit-tree", "-p", &lane.base, "-m", "main moves on", &format!("{}^{{tree}}", lane.base)]);
-    run(&lane.repo, &["push", "-q", "origin", &format!("{moved}:refs/heads/main")]);
-    run(&lane.repo, &["update-ref", "refs/remotes/origin/main", &lane.base]);
-    lane.try_enqueue_with("fixture-host", super::Shape::OneCommit { message: None }, Some(facts)).unwrap();
-    assert_eq!(run(&lane.repo, &["rev-parse", "refs/remotes/origin/main"]), lane.base, "the enqueue fetched main again although the route had fetched it for this hand-in");
-    let lane = Lane::new();
-    lane.commit("a line handed in with no fetch before it", &[]);
-    lane.lose_origin();
-    let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).err().unwrap_or_default();
-    assert!(refused.contains("could not fetch origin/main"), "{refused}");
 
     let lane = Lane::new();
     run(&lane.repo, &["push", "-q", "origin", "HEAD:refs/heads/shared"]);
@@ -246,7 +223,7 @@ fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queue
     let (state, denylist) = (lane.dir.path().join("state"), without_south(lane.dir.path()));
     let enqueue_as = |session: &str| {
         let environment = super::Environment { called_micros: 0, state_home: &state, host: "fixture-host", session: Some(session), waits: false, denylist: &denylist };
-        super::enqueue(&lane.repo, super::Shape::OneCommit { message: None }, false, &environment, None)
+        super::enqueue(&lane.repo, super::Shape::OneCommit { message: None }, false, &environment)
     };
     let queued = enqueue_as("worker-1").unwrap();
     let queue = super::queue::directory(&state, &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));

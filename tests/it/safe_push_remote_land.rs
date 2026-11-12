@@ -38,7 +38,7 @@ impl Gex45 {
         shim::write_script(&tools.join("ssh"), &format!("printf 'ssh %s\\n' \"$*\" >>'{}'\ncat >'{}'\necho {LANDED}\n", trace.display(), root.join("received.mbox").display()));
         shim::write_script(&tools.join("git"), &format!("for word in \"$@\"; do [ \"$word\" != push ] || {{ printf 'git %s\\n' \"$*\" >>'{}'; break; }}; done\nexec '{}' \"$@\"\n", trace.display(), real_git()));
         shim::write_script(&tools.join("betterleaks"), "exit 0\n");
-        shim::write_script(&tools.join("gh"), "case \"$1\" in repo) case \"$*\" in *isArchived*) echo false PUBLIC;; *) echo PUBLIC;; esac;; run) echo '[]';; api) printf 'pending\\tAutoland workflow queued\\thttps://example.test/run\\n';; *) exit 1;; esac\n");
+        shim::write_script(&tools.join("gh"), "case \"$1\" in repo) echo PUBLIC;; run) echo '[]';; api) printf 'pending\\tAutoland workflow queued\\thttps://example.test/run\\n';; *) exit 1;; esac\n");
         Gex45 { _fixture: fixture, root }
     }
 

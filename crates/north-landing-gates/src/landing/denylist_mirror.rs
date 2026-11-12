@@ -15,7 +15,7 @@ const STALE_LOCK: Duration = Duration::from_secs(180);
 const LOCK: &str = "north-fetch.lock";
 const STAMP: &str = "north-last-fetch";
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Fault {
     Unavailable(String),
     Failed(String),
