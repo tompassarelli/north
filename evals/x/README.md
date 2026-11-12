@@ -24,6 +24,8 @@ container tasks run and graded by the benchmark's own harness, [Harbor](https://
 
 ## Where it runs
 
+The arm scripts come from the live runtime's own tree (`~/.local/state/north/current/tree`): `evals/x/run` re-executes itself there, and a runtime whose tree lacks one of them stops the run before its first trial.
+
 A container needs the full range of subordinate user ids, which a worker's sandbox cannot map, so `host oracle` and
 `host harbor` are started as a user unit outside a worker session, from a checkout of main:
 

@@ -140,6 +140,7 @@ struct Session {
     disk_kb: Value,
     container_calls: usize,
     session_roots: [String; 2],
+    arm_last_line: Option<String>,
 }
 
 impl Session {
@@ -160,18 +161,35 @@ impl Session {
         (row, plain)
     }
 
-    fn invalid_reason(&self, plain_arm_with_policy: bool) -> Option<&'static str> {
+    fn invalid_reason(&self, plain_arm_with_policy: bool) -> Option<String> {
+        self.missing_result()
+            .or_else(|| self.arm_failure())
+            .or_else(|| plain_arm_with_policy.then(|| "policy_in_plain_arm".to_owned()))
+    }
+
+    fn missing_result(&self) -> Option<String> {
         if self.reading.rate_limited {
-            Some("rate_limited")
+            Some("rate_limited".to_owned())
         } else if self.harbor.is_none() {
-            Some("no_harbor_result")
+            Some("no_harbor_result".to_owned())
         } else if self.arm.is_none() {
-            Some("no_arm_result")
-        } else if plain_arm_with_policy {
-            Some("policy_in_plain_arm")
+            Some("no_arm_result".to_owned())
         } else {
             None
         }
+    }
+
+    fn arm_failure(&self) -> Option<String> {
+        let code = self
+            .arm
+            .as_ref()?
+            .get("exit")?
+            .as_i64()
+            .filter(|code| *code != 0)?;
+        Some(match &self.arm_last_line {
+            Some(line) => format!("arm_exit_{code}: {line}"),
+            None => format!("arm_exit_{code}"),
+        })
     }
 }
 
@@ -227,6 +245,8 @@ impl Live<'_> {
                 workspace.host_top,
                 arm_dir.join("repo").display().to_string(),
             ],
+            arm_last_line: last_line(&arm_dir.join("arm.log"))
+                .or_else(|| last_line(&arm_dir.join("driver.log"))),
         })
     }
 
@@ -444,6 +464,15 @@ fn disk_kb(path: &Path) -> Option<u64> {
         .ok()
 }
 
+fn last_line(path: &Path) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()?
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(str::to_owned)
+}
+
 fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
 }
@@ -461,4 +490,28 @@ fn harbor_result(job_dir: &Path) -> Option<Value> {
         "agent_started": result.pointer("/agent_execution/started_at").cloned(),
         "agent_finished": result.pointer("/agent_execution/finished_at").cloned(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_north_arm_refused_at_launch_is_an_invalid_row() {
+        let refusal = "eval-t arm north: launch refused; see /tmp/eval-x/arms/JOB/launch.log";
+        let session = Session {
+            harbor_status: json!(0),
+            arm: Some(json!({"exit": 1})),
+            harbor: Some(json!({"reward": 0.0})),
+            reading: Reading::default(),
+            disk_kb: json!({}),
+            container_calls: 0,
+            session_roots: [String::new(), String::new()],
+            arm_last_line: Some(refusal.to_owned()),
+        };
+        assert_eq!(
+            session.invalid_reason(false),
+            Some(format!("arm_exit_1: {refusal}"))
+        );
+    }
 }

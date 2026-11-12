@@ -24,10 +24,14 @@ pub fn claude_binary() -> Option<PathBuf> {
     fs::canonicalize(found).ok()
 }
 
-pub fn stamps(checkout: &Path, claude: &Path) -> Value {
+pub fn runtime_sha() -> Option<String> {
+    shell(NORTH_RUNTIME)
+}
+
+pub fn stamps(tree: &Path, claude: &Path) -> Value {
     json!({
-        "north_checkout": said(Command::new("git").arg("-C").arg(checkout).args(["rev-parse", "HEAD"])),
-        "north_runtime": shell(NORTH_RUNTIME),
+        "north_tree": tree.display().to_string(),
+        "north_runtime": runtime_sha(),
         "t3_version": shell(&format!(r#"{T3}; "$t3" --version"#)),
         "t3_sha256": sha256(&format!(r#"{T3}; sha256sum "$t3""#)),
         "claude_version": said(Command::new(claude).arg("--version")),

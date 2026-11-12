@@ -8,6 +8,7 @@ mod plan;
 mod proc;
 mod rng;
 mod schedule;
+mod scripts;
 mod session_end;
 mod stamp;
 mod stop;
@@ -79,6 +80,7 @@ where
     gate::refuse_environment(std::env::vars().map(|(name, _)| name))?;
     let account = settings.require_account()?;
     let token_file = settings.require_token_file()?;
+    scripts::require(&proc::eval_x(), stamp::runtime_sha().as_deref())?;
     let claude = stamp::claude_binary().ok_or_else(|| {
         error::RunError::Refused("no Claude Code binary is installed for this user".to_owned())
     })?;
@@ -97,7 +99,7 @@ where
         claude: &claude,
         run_id: &run_id,
         host: host_name()?,
-        stamps: stamp::stamps(&proc::eval_x().join("../.."), &claude),
+        stamps: stamp::stamps(&proc::tree(), &claude),
         images: Images::open(settings.work.join("images.tsv"))?,
         rows: Mutex::new(rows),
     };

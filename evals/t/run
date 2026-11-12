@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -uo pipefail
 cd "$(dirname "$(readlink -f "$0")")" || exit 1
+if [ -z "${EVAL_T_TREE:-}" ]; then
+  runtime=$(readlink -f "$HOME/.local/state/north/current" 2> /dev/null) || runtime=
+  [ -n "$runtime" ] || { echo "eval-t: no live north runtime at ~/.local/state/north/current; the run stops before its first trial" >&2; exit 1; }
+  for path in evals/t/run evals/t/arm evals/t/Cargo.toml evals/t/cases.json; do
+    [ -f "$runtime/tree/$path" ] || { echo "eval-t: the live runtime $runtime has no $runtime/tree/$path; the run stops before its first trial" >&2; exit 1; }
+  done
+  exec env EVAL_T_TREE="$runtime/tree" EVAL_T_WORK="$(readlink -m "${EVAL_T_WORK:-work}")" "$runtime/tree/evals/t/run" "$@"
+fi
 usage="usage: evals/t/run --smoke | --list NAME [--samples N] [--label NAME] [--seed N]
   NAME is a key of cases.json's lists; the environment names the logins: EVAL_T_ACCOUNT, EVAL_T_TOKEN_FILE"
 list='' samples=1 label=$(date +%Y%m%d-%H%M%S) seed=1
@@ -33,7 +41,7 @@ version=$("$T3" --version)
 stamp() {
   jq -cn --arg label "$label" --argjson sample "$1" --argjson seed "$seed" --arg model "${EVAL_T_MODEL:-claude-opus-5-5}" \
     --arg effort "${EVAL_T_EFFORT:-medium}" --arg t3 "$version" --arg t3_sha256 "$(sha256sum "$T3" | cut -d' ' -f1)" \
-    --arg claude "$("${EVAL_T_CLAUDE:-claude}" --version 2> /dev/null)" --arg north "$north" --arg row REAL-HARNESS \
+    --arg claude "$("${EVAL_T_CLAUDE:-claude}" --version 2> /dev/null)" --arg north "$north" --arg tree "$EVAL_T_TREE" --arg row REAL-HARNESS \
     --arg host "$(hostname)" --arg started "$2" --arg load_1m "$3" '$ARGS.named'
 }
 north=$(readlink -f "$(command -v north)" | sed -n 's|.*/runtimes/\([0-9a-f]\{40\}\)/.*|\1|p')

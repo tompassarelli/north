@@ -1,5 +1,5 @@
 use std::env;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output};
@@ -10,7 +10,16 @@ const BUILT_IN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 
 /// The build can run where the checkout is mounted at another path, so `evals/x/run` names evals/x at run time.
 pub fn eval_x() -> PathBuf {
-    env::var_os("EVAL_X_DIR").map_or_else(|| PathBuf::from(BUILT_IN), PathBuf::from)
+    let dir = env::var_os("EVAL_X_DIR").map_or_else(|| PathBuf::from(BUILT_IN), PathBuf::from);
+    fs::canonicalize(&dir).unwrap_or(dir)
+}
+
+pub fn tree() -> PathBuf {
+    let dir = eval_x();
+    dir.parent()
+        .and_then(Path::parent)
+        .unwrap_or(&dir)
+        .to_path_buf()
 }
 
 /// podman is installed only in the dev shell of evals/x, which `host` enters.
