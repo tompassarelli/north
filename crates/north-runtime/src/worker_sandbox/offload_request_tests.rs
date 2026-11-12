@@ -103,6 +103,13 @@ fn serve(root: &Path) {
         failures.push(format!("the offload did not run the broker's own ssh and git alone, with the worker's PATH holding a fake of each: ran {ran:?}, exit {code}: {told}"));
     }
 
+    for chosen in ["capacity offload choose", "capacity offload choose --any --taken a --avoid b --prefer c --count 2"] {
+        let (code, told) = ask(chosen, &lane);
+        if code != 0 || text("seen").lines().next_back().and_then(|started| started.split('|').nth(2)) != Some(chosen) {
+            failures.push(format!("`{chosen}`, which reads each build host's room over ssh, was not started outside the caller's domain: exit {code}: {told}"));
+        }
+    }
+
     let (code, told) = ask(&format!("capacity offload run --host {BUILD_HOST} --base HEAD --head HEAD --timeout 999999 -- true"), &lane);
     let seen = text("seen");
     let started: Vec<&str> = seen.lines().next_back().unwrap_or_default().split('|').collect();

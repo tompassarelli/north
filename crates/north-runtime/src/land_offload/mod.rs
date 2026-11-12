@@ -356,11 +356,12 @@ fn spread(standing: room::Standing, here: &str, remotes: Vec<(String, Option<roo
     0
 }
 
-/// The host an offload request names, when it is one the outside broker runs for a command whose domain reaches no other host (south#118): `hosts` and `slots` bare, `free --host NAME`, and `run` in exactly the words `run_job` reads with a base and head that are no option. Every other verb, word or option stays in the caller's domain, so a worker command picks no ssh option and no remote command beside the one the offload script runs under its lease.
+/// The host an offload request names, when it is one the outside broker runs for a command whose domain reaches no other host (south#118): `hosts`, `slots` and `choose` bare, `choose --any` with the words `Placement::parse` reads apart from `--needs`, whose path would be read as the operator, `free --host NAME`, and `run` in exactly the words `run_job` reads with a base and head that are no option. Every other verb, word or option stays in the caller's domain, so a worker command picks no ssh option and no remote command beside the one the offload script runs under its lease.
 pub(crate) fn worker_request<'a>(words: &[&'a str]) -> Option<Option<&'a str>> {
     let commit = |name: &str| !name.starts_with('-');
     match words {
-        ["hosts"] | ["slots"] => Some(None),
+        ["hosts"] | ["slots"] | ["choose"] => Some(None),
+        ["choose", "--any", rest @ ..] => Placement::parse(rest).filter(|placement| placement.needs.is_empty()).map(|_| None),
         ["free", "--host", host] => Some(Some(host)),
         ["run", "--background", rest @ ..] | ["run", rest @ ..] => match rest {
             ["--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", _] if commit(base) && commit(head) && seconds.parse::<u64>().is_ok() => Some(Some(host)),
