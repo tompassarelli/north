@@ -18,10 +18,11 @@ use serde_json::Value;
 use task::{Task, Tree};
 use variants::Ranked;
 
-const USAGE: &str = "usage: eval-files --tasks TASKS.json --work DIR [--wisp DIR] [--model M] [--accounts a,d,e]
+const USAGE: &str = "usage: eval-files --tasks TASKS.json --work DIR [--wisp DIR] [--model M] [--north PROGRAM]
   Scores five file pickers on the recorded tasks: the graph, text search, a fast-model classifier on the brief and a repository map,
   the classifier on the brief and the top search and graph candidates, and unions of them. Raw classifier replies are kept in DIR/raw
   and reused on a rerun; delete DIR/raw to ask again. The summary goes to DIR/summary.md and to stdout.";
+const WORKERS: usize = 1;
 const CANDIDATE_GREP: usize = 30;
 const CANDIDATE_GRAPH: usize = 15;
 
@@ -68,19 +69,19 @@ struct Job {
     input: String,
 }
 
-fn run_jobs(jobs: Vec<Job>, accounts: &[classify::Account], model: &str, raw: &Path, ids: &[String]) -> Result<(), String> {
+fn run_jobs(jobs: Vec<Job>, north: &str, model: &str, raw: &Path, ids: &[String]) -> Result<(), String> {
     let queue = Mutex::new(jobs.into_iter().enumerate().collect::<Vec<_>>());
     let failures = Mutex::new(Vec::new());
     std::thread::scope(|scope| {
-        for worker in 0..accounts.len() {
+        for _ in 0..WORKERS {
             let (queue, failures) = (&queue, &failures);
             scope.spawn(move || {
-                while let Some((number, job)) = queue.lock().unwrap().pop() {
+                while let Some((_, job)) = queue.lock().unwrap().pop() {
                     let file = raw.join(format!("{}.{}.json", ids[job.task], job.kind));
                     if file.exists() {
                         continue;
                     }
-                    match classify::ask(accounts, worker + number, model, &job.input) {
+                    match classify::ask(north, model, &job.input) {
                         Ok(reply) => {
                             let _ = fs::write(&file, reply.to_string());
                             eprintln!("{} {}: {} ms, {} tokens in", ids[job.task], job.kind, reply["wall_ms"], reply["input_tokens"]);
@@ -128,7 +129,7 @@ fn run(flags: &BTreeMap<String, String>) -> Result<(), String> {
     fs::create_dir_all(&raw).map_err(|e| e.to_string())?;
     let wisp = flags.get("wisp").map_or_else(|| PathBuf::from(&home).join("code/wisp/main"), PathBuf::from);
     let model = flags.get("model").map_or("claude-haiku-5-5", String::as_str);
-    let accounts = classify::accounts(flags.get("accounts").map_or("a,d,e", String::as_str), &home)?;
+    let north = flags.get("north").map_or("north", String::as_str);
     let tasks = task::load(Path::new(need("tasks")?))?;
     let prepared: Vec<Prepared> = tasks.iter().map(|task| prepare(task, &wisp, &raw)).collect::<Result<_, _>>()?;
     let mut jobs = Vec::new();
@@ -137,7 +138,7 @@ fn run(flags: &BTreeMap<String, String>) -> Result<(), String> {
         jobs.push(Job { task: index, kind: "candidates", input: classify::candidates_input(&task.text, &data.candidates) });
     }
     let ids: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
-    run_jobs(jobs, &accounts, model, &raw, &ids)?;
+    run_jobs(jobs, north, model, &raw, &ids)?;
     let mut results = Vec::new();
     for (task, data) in tasks.iter().zip(&prepared) {
         let (sources, unions) = assemble(task, data, &raw)?;

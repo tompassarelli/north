@@ -21,6 +21,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("cause", Bookkeeping),
     ("check experiments", Bookkeeping),
     ("check harness", Diagnosis),
+    ("check oneshot", Diagnosis),
     ("check privacy", Diagnosis),
     ("check", Diagnosis),
     ("ci-diagnose", Diagnosis),

@@ -1,0 +1,1 @@
+  check oneshot --model M [--effort E] --system TEXT [--seconds N] [--json]  Ask one fast-model question on the subscription accounts as the privacy judge does: reads the question on stdin, prints the answer (with --json, the answer and its token counts), exits 3 when every account is at its limit and 2 when the call fails
