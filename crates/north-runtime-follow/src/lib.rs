@@ -85,10 +85,15 @@ impl Follow {
     }
 }
 
-/// `NORTH_RUNTIME_LINK` when set, else `$XDG_STATE_HOME/north/current`.
+/// `NORTH_RUNTIME_LINK` when set, else the host's `current` link.
 pub fn link() -> PathBuf {
+    std::env::var_os(LINK).filter(|value| !value.is_empty()).map_or_else(host_link, PathBuf::from)
+}
+
+/// The host's `current` link, `$XDG_STATE_HOME/north/current`, whatever `NORTH_RUNTIME_LINK` names.
+pub fn host_link() -> PathBuf {
     let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"), PathBuf::from);
-    std::env::var_os(LINK).filter(|value| !value.is_empty()).map_or_else(|| state.join("north/current"), PathBuf::from)
+    state.join("north/current")
 }
 
 /// The runtime a link names: the last component of its target.
