@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::collect::{default_hosts, fleet, health, hosts, landing, rollout};
-use crate::snapshot::{Host, HostState, Reading, Snapshot, Trends};
+use crate::snapshot::{Host, HostState, Ladder, Reading, Snapshot, Trends};
 
 const NOT_KEPT: &str = "not kept in history";
 
@@ -13,7 +13,7 @@ pub fn snapshots(state: &Path, from: u64, to: u64, step: u64) -> Result<Vec<Snap
     let mut cache = landing::Cache::default();
     let mut trends = Trends::default();
     let mut out = Vec::new();
-    let ladder = if state.join("ladder-level").exists() { None } else { Some(0) };
+    let ladder = if state.join("ladder-level").exists() { None } else { Some(Ladder::default()) };
     let mut at = from;
     while at <= to {
         let fleet = fleet::as_of(&runs, &machines, at);
@@ -39,7 +39,7 @@ pub fn snapshots(state: &Path, from: u64, to: u64, step: u64) -> Result<Vec<Snap
             rollout: Reading::ok(at, rollout::read(state, at)?),
             health: Reading::failed(at, NOT_KEPT),
             builds: Reading::ok(at, health::builds_of(&spans, at as f64)),
-            ladder: ladder.map_or_else(|| Reading::failed(at, NOT_KEPT), |level| Reading::ok(at, level)),
+            ladder: ladder.as_ref().map_or_else(|| Reading::failed(at, NOT_KEPT), |ladder| Reading::ok(at, ladder.clone())),
             holds: Reading::failed(at, NOT_KEPT),
             trends: trends.clone(),
         });

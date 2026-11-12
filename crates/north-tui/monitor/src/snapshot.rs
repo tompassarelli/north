@@ -49,9 +49,15 @@ pub struct Snapshot {
     pub rollout: Reading<Rollout>,
     pub health: Reading<Health>,
     pub builds: Reading<Builds>,
-    pub ladder: Reading<u8>,
+    pub ladder: Reading<Ladder>,
     pub holds: Reading<Holds>,
     pub trends: Trends,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Ladder {
+    pub level: u8,
+    pub checked: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

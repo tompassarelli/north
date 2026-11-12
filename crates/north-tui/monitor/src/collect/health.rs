@@ -6,7 +6,7 @@ use std::time::UNIX_EPOCH;
 
 use serde::Deserialize;
 
-use crate::snapshot::{Builds, Health, Holds};
+use crate::snapshot::{Builds, Health, Holds, Ladder};
 
 const TAIL_BYTES: u64 = 3_000_000;
 const NEW_FAILURE_S: u64 = 600;
@@ -40,14 +40,20 @@ pub fn checks(state: &Path) -> Result<Health, String> {
     Ok(health)
 }
 
-pub fn ladder(state: &Path) -> Result<u8, String> {
+fn level(text: &str) -> Result<u8, String> {
+    let word = text.split_whitespace().next().unwrap_or_default();
+    word.trim_start_matches(['L', 'l']).parse::<u8>().ok().filter(|level| *level <= 4).ok_or_else(|| format!("ladder-level starts {word:?}, not L0 to L4"))
+}
+
+pub fn ladder(state: &Path) -> Result<Ladder, String> {
     let path = state.join("ladder-level");
     match fs::read_to_string(&path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Ladder::default()),
         Err(error) => Err(format!("{}: {error}", path.display())),
         Ok(text) => {
-            let word = text.trim().trim_start_matches(['L', 'l']);
-            word.parse::<u8>().ok().filter(|level| *level <= 4).ok_or_else(|| format!("ladder-level holds {:?}, not L0 to L4", text.trim()))
+            let level = level(&text)?;
+            let checked = fs::metadata(&path).ok().and_then(|meta| meta.modified().ok()).and_then(|time| time.duration_since(UNIX_EPOCH).ok()).map(|since| since.as_secs());
+            Ok(Ladder { level, checked })
         }
     }
 }
@@ -130,4 +136,18 @@ pub fn builds_of(spans: &[SpanLite], until: f64) -> Builds {
 pub fn holds() -> Result<Holds, String> {
     let text = super::run("north", &["holds", "list", "--json"], std::time::Duration::from_secs(40))?;
     serde_json::from_str(&text).map_err(|error| format!("holds list --json: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_ladder_reads_the_level_from_the_line_mayday_status_writes() {
+        let state = std::env::temp_dir().join(format!("north-monitor-ladder-{}", std::process::id()));
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join("ladder-level"), "L2 since=unrecorded checked=2026-11-11T17:23:41+07:00 host=whiterabbit drift=0\n").unwrap();
+        let ladder = super::ladder(&state);
+        std::fs::remove_dir_all(&state).unwrap();
+        let ladder = ladder.expect("mayday-status writes the level word followed by key=value fields");
+        assert_eq!((ladder.level, ladder.checked.is_some()), (2, true));
+    }
 }

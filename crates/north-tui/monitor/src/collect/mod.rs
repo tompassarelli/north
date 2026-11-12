@@ -12,7 +12,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::snapshot::{Builds, Fleet, Health, Holds, Host, HostState, Lander, Landing, Reading, Rollout, Snapshot};
+use crate::snapshot::{Builds, Fleet, Health, Holds, Host, HostState, Ladder, Lander, Landing, Reading, Rollout, Snapshot};
 
 pub enum Update {
     Fleet(Result<Fleet, String>),
@@ -23,7 +23,7 @@ pub enum Update {
     Rollout(Result<Rollout, String>),
     Health(Result<Health, String>),
     Builds(Result<Builds, String>),
-    Ladder(Result<u8, String>),
+    Ladder(Result<Ladder, String>),
     Holds(Result<Holds, String>),
 }
 

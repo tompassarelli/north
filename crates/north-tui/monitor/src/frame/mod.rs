@@ -31,7 +31,7 @@ fn joined(alerts: &[(Tone, String)], tone: Tone) -> Vec<String> {
 }
 
 fn status_line(view: &View, alerts: &[(Tone, String)]) -> Line<'static> {
-    let level = view.snapshot.ladder.value.map_or_else(|| " L? ".to_owned(), |level| format!(" L{level} "));
+    let level = view.snapshot.ladder.value.as_ref().map_or_else(|| " L? ".to_owned(), |ladder| format!(" L{} ", ladder.level));
     let reds = joined(alerts, Tone::Red);
     let ambers = joined(alerts, Tone::Amber);
     let mut spans = vec![badge(level, Color::Black, Color::White), Span::styled(format!(" {} {} ", view.mode, clock(view.snapshot.at, view.offset_s)), dim())];

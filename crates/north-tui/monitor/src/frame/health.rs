@@ -16,12 +16,14 @@ const HOLDS_BOUND: u64 = 90;
 fn ladder_line(painter: &mut Painter, snapshot: &Snapshot) -> Line<'static> {
     let fresh = painter.fresh("ladder", &snapshot.ladder, LADDER_BOUND);
     let mut spans = vec![label("LADDER ")];
-    match snapshot.ladder.value {
-        Some(level) => {
-            spans.push(painter.metric("ladder", f64::from(level), format!(" L{level} ")).add_modifier(Modifier::BOLD | Modifier::REVERSED));
-            if level == 0 {
+    match &snapshot.ladder.value {
+        Some(ladder) => {
+            spans.push(painter.metric("ladder", f64::from(ladder.level), format!(" L{} ", ladder.level)).add_modifier(Modifier::BOLD | Modifier::REVERSED));
+            if ladder.level == 0 {
                 spans.push(Span::styled("  full north", dim()));
             }
+            let checked = ladder.checked.map_or_else(|| "  never checked".to_owned(), |checked| format!("  checked {} ago", painter.ago(checked)));
+            spans.push(Span::styled(checked, dim()));
         }
         None => spans.push(Span::styled("UNKNOWN", style(Tone::Red))),
     }
