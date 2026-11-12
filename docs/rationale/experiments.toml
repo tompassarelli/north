@@ -687,3 +687,11 @@ command = "north loops check 2>&1 | rg -q '^mechanism-discovery: ok.*score: turn
 review = "2026-12-17"
 owner = "tompassarelli/north#1279"
 lead = "f-loop-brief"
+
+[[check]]
+id = "n1276-allowances-only-fall"
+box = "Standing habit and implicit-state allowances in structure.toml stay at 38 (17 and 21) or fewer at every landing"
+command = "test $(grep -cE '^\\[\\[(rust_habits|implicit_state)\\.allow\\]\\]' structure.toml) -le 38"
+review = "2026-11-26"
+owner = "tompassarelli/north#1276"
+lead = "proxy"

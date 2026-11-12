@@ -146,7 +146,7 @@ fn an_aged_time_in_test_code_is_suggested_as_a_fixed_moment_and_a_poll_loop_is_l
 }
 
 #[test]
-fn an_allowlist_count_raised_above_the_base_revision_is_refused_and_a_lowered_one_is_not() {
+fn allowances_only_fall() {
     use super::habits::{findings_new, grown};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -179,5 +179,29 @@ fn an_allowlist_count_raised_above_the_base_revision_is_refused_and_a_lowered_on
     assert_eq!(findings_new(root, "HEAD").unwrap().len(), 2, "a lane that raises an allowlist count meets the grown line");
 
     std::fs::write(root.join("clocks.tsv"), "tests/kept.rs\t0\n").unwrap();
+    assert!(grown(root, "HEAD").unwrap().is_empty());
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(root).args(args).status().unwrap().success());
+    git(&["init", "-q"]);
+    git(&["config", "user.name", "Test"]);
+    git(&["config", "user.email", "test@example.invalid"]);
+    git(&["config", "commit.gpgsign", "false"]);
+    let habit = "[[rust_habits.allow]]\nrule = \"shared-mutability\"\npath = \"src/a.rs\"\nreason = \"fixture\"\n";
+    let implicit = "[[implicit_state.allow]]\nshape = \"status-string\"\npath = \"src/b.rs\"\nreason = \"fixture\"\n";
+    std::fs::write(root.join("structure.toml"), format!("[rust_habits]\nchecks = []\n{habit}{implicit}")).unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-qm", "base"]);
+
+    std::fs::write(root.join("structure.toml"), format!("[rust_habits]\nchecks = []\n{habit}{habit}{implicit}")).unwrap();
+    let raised = grown(root, "HEAD").unwrap();
+    assert_eq!(raised.len(), 1, "{raised:?}");
+    assert!(raised[0].contains("[[rust_habits.allow]] 1 -> 2") && raised[0].contains("[[implicit_state.allow]] 1 -> 1"), "{raised:?}");
+    std::fs::write(root.join("structure.toml"), format!("[rust_habits]\nchecks = []\n{habit}{implicit}{implicit}")).unwrap();
+    let raised = grown(root, "HEAD").unwrap();
+    assert_eq!(raised.len(), 1, "{raised:?}");
+    assert!(raised[0].contains("[[implicit_state.allow]] 1 -> 2"), "{raised:?}");
+    std::fs::write(root.join("structure.toml"), format!("[rust_habits]\nchecks = []\n{habit}{implicit}")).unwrap();
     assert!(grown(root, "HEAD").unwrap().is_empty());
 }

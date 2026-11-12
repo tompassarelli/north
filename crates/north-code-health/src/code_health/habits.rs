@@ -283,15 +283,33 @@ fn at_rev(root: &Path, rev: &str, path: &str) -> Result<String, String> {
     Ok(if output.status.success() { String::from_utf8_lossy(&output.stdout).into_owned() } else { String::new() })
 }
 
+struct Allowances {
+    habit: usize,
+    implicit: usize,
+}
+
+fn allowances(config: &str) -> Result<Allowances, String> {
+    let document = config.parse::<DocumentMut>().map_err(|error| format!("structure.toml: {error}"))?;
+    let count = |table: &str| document.get(table).and_then(|table| table.get("allow")).and_then(Item::as_array_of_tables).map_or(0, toml_edit::ArrayOfTables::len);
+    Ok(Allowances { habit: count("rust_habits"), implicit: count("implicit_state") })
+}
+
 pub fn grown(root: &Path, rev: &str) -> Result<Vec<String>, String> {
     let Some(config) = super::config::structure_text(root) else {
         return Ok(Vec::new());
     };
+    let (base, head) = (allowances(&at_rev(root, rev, "structure.toml")?)?, allowances(&config)?);
+    let mut out = Vec::new();
+    if head.habit > base.habit || head.implicit > base.implicit {
+        out.push(format!(
+            "structure.toml lists [[rust_habits.allow]] {} -> {} and [[implicit_state.allow]] {} -> {} at {rev} — the allowances only fall",
+            base.habit, head.habit, base.implicit, head.implicit
+        ));
+    }
     let Some(mut habits) = Habits::parse(&config)? else {
-        return Ok(Vec::new());
+        return Ok(out);
     };
     habits.read_ambient(|allowlist| std::fs::read_to_string(root.join(allowlist)).map_err(|error| format!("{allowlist}: {error}")))?;
-    let mut out = Vec::new();
     for ambient in &habits.ambient {
         let before = ambient::counts(&ambient.allowlist, &at_rev(root, rev, &ambient.allowlist)?)?;
         for (path, count) in &ambient.allowed {
