@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::Deserialize;
 
@@ -123,18 +122,6 @@ pub struct Dep {
     pub first_party_dir: Option<String>,
     pub lib_crate: String,
     pub kinds: BTreeSet<DepKind>,
-}
-
-pub fn cargo_metadata(dir: &Path) -> Result<String, String> {
-    let output = Command::new("cargo")
-        .args(["metadata", "--format-version", "1", "--locked", "--offline", "--filter-platform", "x86_64-unknown-linux-gnu"])
-        .current_dir(dir)
-        .output()
-        .map_err(|why| format!("cargo metadata: {why}"))?;
-    if !output.status.success() {
-        return Err(format!("cargo metadata failed: {}", String::from_utf8_lossy(&output.stderr).trim_end()));
-    }
-    String::from_utf8(output.stdout).map_err(|why| format!("cargo metadata printed non-UTF-8: {why}"))
 }
 
 pub fn parse(json: &str) -> Result<Workspace, String> {

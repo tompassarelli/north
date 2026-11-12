@@ -30,6 +30,18 @@ pub fn no_deps(root: &Path) -> Result<String, String> {
     no_deps_in(root, &memo_dir())
 }
 
+pub fn resolved_for(root: &Path, platform: &str) -> Result<String, String> {
+    let output = Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--locked", "--offline", "--filter-platform", platform])
+        .current_dir(root)
+        .output()
+        .map_err(|why| format!("cargo metadata: {why}"))?;
+    if !output.status.success() {
+        return Err(format!("cargo metadata failed: {}", String::from_utf8_lossy(&output.stderr).trim_end()));
+    }
+    String::from_utf8(output.stdout).map_err(|why| format!("cargo metadata printed non-UTF-8: {why}"))
+}
+
 fn quoted(root: &str) -> [(String, String); 3] {
     [(format!("\"{root}\""), format!("\"{ROOT}\"")), (format!("\"{root}/"), format!("\"{ROOT}/")), (format!("file://{root}/"), format!("file://{ROOT}/"))]
 }

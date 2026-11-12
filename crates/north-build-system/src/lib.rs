@@ -49,6 +49,11 @@ pub fn here() -> Box<dyn BuildSystem> {
     chosen_by(chosen.as_deref())
 }
 
+/// The workspace's packages with their dependency graph resolved for `platform`, read from the Cargo manifests whichever side this host builds with, since the Buck2 targets are generated from those manifests.
+pub fn manifest_graph(root: &Path, platform: &str) -> Result<String, String> {
+    cargo_metadata::resolved_for(root, platform)
+}
+
 fn chosen_by(setting: Option<&str>) -> Box<dyn BuildSystem> {
     match setting {
         Some("buck2") => Box::new(Buck2),

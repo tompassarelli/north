@@ -1,6 +1,6 @@
 //! `north buck targets`: writes the Buck2 target of every workspace crate, binary, test and example from the
 //! Cargo manifests, so the two build graphs cannot drift while both exist (docs/rationale/compile-reuse.md).
-//! Reads `cargo metadata` and the manifests' lint tables; depends on no other north crate.
+//! Reads the resolved manifests through the reader its caller passes and the manifests' lint tables; depends on no other north crate.
 mod env;
 mod lints;
 mod plan;
@@ -14,7 +14,12 @@ use std::path::{Path, PathBuf};
 
 const USAGE: &str = "usage: north buck targets [--check] [--root DIR]";
 
-pub fn run(arguments: &[String]) -> u8 {
+/// Reads a workspace's packages with their dependency graph resolved for one platform, in `cargo metadata --format-version 1` form.
+pub type Manifests = fn(&Path, &str) -> Result<String, String>;
+
+const PLATFORM: &str = "x86_64-unknown-linux-gnu";
+
+pub fn run(arguments: &[String], manifests: Manifests) -> u8 {
     let Some(("targets", rest)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) else {
         eprintln!("{USAGE}");
         return 2;
@@ -32,7 +37,7 @@ pub fn run(arguments: &[String]) -> u8 {
             }
         }
     }
-    match generate(&root).and_then(|files| if check { report_drift(&files) } else { write(&files) }) {
+    match generate(&root, manifests).and_then(|files| if check { report_drift(&files) } else { write(&files) }) {
         Ok(code) => code,
         Err(why) => {
             eprintln!("north buck targets: {why}");
@@ -46,8 +51,8 @@ pub struct Generated {
     pub content: Option<String>,
 }
 
-pub fn generate(dir: &Path) -> Result<Vec<Generated>, String> {
-    let workspace = workspace::parse(&workspace::cargo_metadata(dir)?)?;
+pub fn generate(dir: &Path, manifests: Manifests) -> Result<Vec<Generated>, String> {
+    let workspace = workspace::parse(&manifests(dir, PLATFORM)?)?;
     let workspace_lints = lints::workspace_table(&workspace.root)?;
     let mut lint_flags = BTreeMap::new();
     for package in &workspace.packages {
