@@ -47,15 +47,21 @@ pub(super) fn shims(runtime: &Path) -> Result<(), Failure> {
             std::os::unix::fs::symlink("cargo", staging.join("bin").join(entry.file_name()))?;
         }
     }
-    let added = Command::new("nix-store").arg("--add").arg(&staging).stderr(Stdio::inherit()).output().map_err(|error| failed(1, format!("nix-store did not run: {error}")))?;
+    let added = add_rooted(&staging, &runtime.join("shims"), "the capacity-gate shims");
     fs::remove_dir_all(&staging)?;
+    added.map(|_| ())
+}
+
+/// Adds `staging` to the Nix store as one path and roots it at `root`, so the store keeps it while the runtime stands.
+pub(super) fn add_rooted(staging: &Path, root: &Path, what: &str) -> Result<std::path::PathBuf, Failure> {
+    let added = Command::new("nix-store").arg("--add").arg(staging).stderr(Stdio::inherit()).output().map_err(|error| failed(1, format!("nix-store did not run: {error}")))?;
     let path = String::from_utf8_lossy(&added.stdout).trim().to_owned();
     if !added.status.success() || path.is_empty() {
-        return Err(failed(1, format!("adding the capacity-gate shims to the store failed: {}", added.status)));
+        return Err(failed(1, format!("adding {what} to the store failed: {}", added.status)));
     }
-    let rooted = Command::new("nix-store").arg("--add-root").arg(runtime.join("shims")).args(["--indirect", "--realise", &path]).stdout(Stdio::null()).status().map_err(|error| failed(1, format!("nix-store did not run: {error}")))?;
+    let rooted = Command::new("nix-store").arg("--add-root").arg(root).args(["--indirect", "--realise", &path]).stdout(Stdio::null()).status().map_err(|error| failed(1, format!("nix-store did not run: {error}")))?;
     if !rooted.success() {
         return Err(failed(1, format!("rooting {path} failed: {rooted}")));
     }
-    Ok(())
+    Ok(path.into())
 }

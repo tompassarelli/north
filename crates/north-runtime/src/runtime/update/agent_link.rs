@@ -1,0 +1,62 @@
+use super::super::failure::{Failure, failed};
+use super::super::layout::PROGRAMS;
+use super::super::store;
+use super::sync::relink;
+use rustix::fs::{Access, access};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+pub(crate) const ENV: &str = "NORTH_AGENT_RUNTIME_LINK";
+const ROOT: &str = "agent-runtime";
+const STAGING: &str = "agent-runtime-staging";
+
+/// The operator-owned link the agent user follows to the live runtime's store path; a host that names none keeps every runtime path as it was.
+pub(super) fn configured() -> Option<PathBuf> {
+    std::env::var_os(ENV).filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
+/// Refuses a caller that could not move the agent's link, so an update never swaps `current` and leaves the agent on the runtime it replaced.
+pub(crate) fn require_writable(link: &Path) -> Result<(), Failure> {
+    let directory = link.parent().unwrap_or(Path::new("."));
+    if access(directory, Access::WRITE_OK).is_err() {
+        return Err(failed(1, format!("this user cannot write the agent runtime link {}; only its owner updates the runtime here", link.display())));
+    }
+    if fs::symlink_metadata(link).is_ok_and(|meta| !meta.file_type().is_symlink()) {
+        return Err(failed(1, format!("{} is not a link; the agent runtime link is left as it is", link.display())));
+    }
+    Ok(())
+}
+
+pub(crate) fn guard() -> Result<(), Failure> {
+    configured().map_or(Ok(()), |link| require_writable(&link))
+}
+
+/// Adds the runtime's programs to the Nix store as one path rooted at `agent-runtime` in the runtime, so the agent runs a copy no one can change in place.
+pub(super) fn publish(runtime: &Path) -> Result<Option<PathBuf>, Failure> {
+    if configured().is_none() {
+        return Ok(None);
+    }
+    let staging = runtime.join(STAGING);
+    let _ = fs::remove_dir_all(&staging);
+    fs::create_dir_all(&staging)?;
+    for program in PROGRAMS {
+        fs::copy(runtime.join(program), staging.join(program))?;
+    }
+    let added = store::add_rooted(&staging, &runtime.join(ROOT), "the agent runtime");
+    fs::remove_dir_all(&staging)?;
+    added.map(Some)
+}
+
+pub(super) fn follow(published: Option<&Path>) -> Result<(), Failure> {
+    let (Some(link), Some(path)) = (configured(), published) else { return Ok(()) };
+    relink(&link, path).map_err(Into::into)
+}
+
+/// Moves the link back to a runtime already published, as a rollback moves `current`.
+pub(super) fn follow_runtime(runtime: &Path) -> Result<(), Failure> {
+    if configured().is_none() {
+        return Ok(());
+    }
+    let published = fs::read_link(runtime.join(ROOT)).map_err(|error| failed(1, format!("{} was never published for the agent: {error}", runtime.display())))?;
+    follow(Some(&published))
+}

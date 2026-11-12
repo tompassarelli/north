@@ -93,6 +93,9 @@ pub fn run(arguments: &[String]) -> u8 {
 }
 
 fn update_command(layout: &layout::Layout, flags: &[String]) -> Option<Result<(), failure::Failure>> {
+    if let Err(refused) = update::agent_link::guard() {
+        return Some(Err(refused));
+    }
     match flags {
         [] if land_offload::settles_fleet_here() => Some(settle::settle(layout)),
         [] => {

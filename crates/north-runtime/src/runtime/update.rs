@@ -34,6 +34,7 @@ const CHECKOUT: &str = "code/north/main";
 const BUILD_FOR_PEER_LOCK: &str = "runtime-build.lock";
 const BUILD_FOR_PEER_WAIT: Duration = Duration::from_secs(30 * 60);
 
+pub(super) mod agent_link;
 pub(super) mod hold;
 mod ahead;
 pub(super) use ahead::run as build_ahead;
@@ -170,6 +171,7 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     };
     swap(layout, &layout::link(&previous))?;
     live::note_swap(layout, &layout::link(&previous));
+    agent_link::follow_runtime(&layout.runtime(&previous))?;
     if fs::read_link(layout.lander()).is_ok_and(|lander| lander == layout::link(failed_sha)) {
         relink(&layout.lander(), &layout::link(&previous))?;
         println!("north runtime: lander link rolled back with current to {previous}");
@@ -345,11 +347,13 @@ fn install(layout: &Layout, target: &str, runtime: &Path, previous: Option<&Path
     layout::built_from_own_commit(runtime).map_err(|why| failed(1, why))?;
     north_base::platform::entry_points::link(runtime)?;
     store::root(runtime)?;
+    let published = agent_link::publish(runtime)?;
     if let Err(failure) = store::shims(runtime) {
         eprintln!("north runtime update: the operator terminal keeps its previous shims: {}", failure.message);
     }
     super::deploy::stage_for_lander(layout, target, runtime);
     let synced = sync(layout, previous, target, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))?;
+    agent_link::follow(published.as_deref())?;
     Ok(synced)
 }
 

@@ -200,3 +200,26 @@ fn a_runtime_taken_from_a_build_host_has_its_tree_although_the_main_checkout_mov
     let taken = built(&layout, &checkout, &shas[0]).unwrap();
     assert_eq!(fs::read_to_string(taken.join(TREE).join("file")).unwrap(), "promoted", "the tree is the promoted commit's, not the checkout's");
 }
+
+#[test]
+fn an_update_by_a_caller_who_cannot_write_the_agent_link_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let link = directory.path().join("agent");
+    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o500)).unwrap();
+    let refused = agent_link::require_writable(&link);
+    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(refused.unwrap_err().message.contains("cannot write the agent runtime link"));
+    assert!(agent_link::require_writable(&link).is_ok());
+}
+
+#[test]
+fn a_host_naming_no_agent_link_publishes_and_follows_nothing() {
+    assert!(std::env::var_os(agent_link::ENV).is_none());
+    let state = tempfile::tempdir().unwrap();
+    assert!(agent_link::guard().is_ok());
+    assert_eq!(agent_link::publish(state.path()).unwrap(), None);
+    assert!(agent_link::follow(None).is_ok());
+    assert!(agent_link::follow_runtime(state.path()).is_ok());
+    assert_eq!(fs::read_dir(state.path()).unwrap().count(), 0);
+}
