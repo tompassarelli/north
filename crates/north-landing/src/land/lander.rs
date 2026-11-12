@@ -173,7 +173,7 @@ impl Lander {
         let ticks = wait.as_millis() / WAIT_TICK.as_millis();
         let settle = settle_script(taken);
         let asks = format!("for f in \"$d\"/{}/*.json; do [ -f \"$f\" ] || continue; printf '?%s\\n\\000' \"${{f##*/}}\"; rm -f -- \"$f\"; done; ", queue::ASKS);
-        let bundle = format!("b=\"${{f%.json}}.{}\"; [ -f \"$b\" ] && [ \"$(wc -c < \"$b\")\" -le {} ] && {{ printf '=%s\\n' \"${{f##*/}}\"; base64 -w0 \"$b\"; printf '\\000'; }}; ", queue::BUNDLE, BUNDLE_LIMIT);
+        let bundle = format!("b=\"${{f%.json}}.{}\"; [ -f \"$b\" ] && {{ printf '=%s\\n' \"${{f##*/}}\"; head -c {} \"$b\" | base64 -w0; printf '\\000'; }}; ", queue::BUNDLE, BUNDLE_LIMIT + 1);
         let listing = ssh_with_input(host, &format!("d={outbox}; {settle}n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json \"$d\"/{0}/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; {asks}set -- \"$d\"/*.json; [ -e \"$1\" ] || exit 0; {mirror} for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; {bundle}printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", queue::ASKS, tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
         taken.clear();
         let mut records = Records::open(&self.queue).map_err(|error| format!("cannot read the records of {}: {error}", self.queue.display()))?;
@@ -240,10 +240,10 @@ impl Lander {
     }
 
     fn unbundle(&self, host: &str, ticket: &Ticket, encoded: &str) -> Result<(), String> {
-        if encoded.len() > BUNDLE_LIMIT.div_ceil(3) * 4 {
+        let bytes = base64::engine::general_purpose::STANDARD.decode(encoded.trim()).map_err(|error| format!("the bundle is not base64: {error}"))?;
+        if bytes.len() > BUNDLE_LIMIT {
             return Err(format!("the bundle is over {BUNDLE_LIMIT} bytes"));
         }
-        let bytes = base64::engine::general_purpose::STANDARD.decode(encoded.trim()).map_err(|error| format!("the bundle is not base64: {error}"))?;
         let mut file = tempfile::Builder::new().suffix(".bundle").tempfile().map_err(|error| format!("cannot hold the bundle: {error}"))?;
         file.write_all(&bytes).map_err(|error| format!("cannot hold the bundle: {error}"))?;
         let path = file.path().to_str().ok_or("the bundle's path is not UTF-8")?.to_owned();
