@@ -57,8 +57,44 @@ mod delivery_lifecycle {
     use super::super::fixtures::{fleet, live};
     use super::*;
     use crate::fleet::model::Delivery;
-    use crate::fleet::registry::HandedIn;
+    use crate::fleet::registry::{HandedIn, Sent};
     use crate::fleet::sender::Sender;
+
+    #[test]
+    fn a_sandboxed_worker_send_to_a_same_host_session_is_prompted_at_once_and_the_tick_then_records_it_without_prompting_again() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        let lead = live(&fleet, "lead");
+        assert!(fleet.record("lead").unwrap().live());
+        drop(fleet.deliveries().unwrap());
+        let ledger = fleet.state.join("ledger.db");
+        std::fs::set_permissions(&ledger, std::fs::Permissions::from_mode(0o444)).unwrap();
+        assert!(!fleet.journals_deliveries(), "the ledger stayed writable, as it does to root, so no sandbox was simulated");
+
+        assert_eq!(fleet.send_message(&Sender::Session("w-sender".into()), "lead", "ready to land", Delivery::Queued).unwrap(), Sent::HandedIn);
+
+        let spooled = fleet.spool().pending().unwrap();
+        assert_eq!(spooled.len(), 1, "{spooled:?}");
+        {
+            let frames = lead.frames.lock().unwrap();
+            assert_eq!(frames.len(), 1, "{frames:?}");
+            assert!(frames[0].contains("[from w-sender] ready to land") && frames[0].contains(&spooled[0].prompt_id()), "{}", frames[0]);
+        }
+
+        let mut stream = std::fs::OpenOptions::new().append(true).open(crate::fleet::transcript::stream_path(&fleet.record("lead").unwrap().host_dir)).unwrap();
+        writeln!(stream, "{{\"uuid\":\"{}\"}}", spooled[0].prompt_id()).unwrap();
+        for file in std::fs::read_dir(&fleet.state).unwrap().flatten().filter(|file| file.file_name().to_string_lossy().starts_with("ledger.db")) {
+            std::fs::set_permissions(file.path(), std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        assert_eq!(fleet.hand_in(&spooled[0]).unwrap(), HandedIn::Already);
+        assert_eq!(lead.frames.lock().unwrap().len(), 1, "the tick prompted a session that already held the row");
+        let store = fleet.deliveries().unwrap();
+        assert_eq!(store.current::<RowDelivery>(&instance("lead", &spooled[0].id)).unwrap().unwrap().state, Phase::Delivered);
+        assert_eq!(fleet.record("lead").unwrap().last_sender.unwrap().name, "w-sender");
+    }
 
     #[test]
     fn an_illegal_move_is_refused_and_a_delivered_row_cannot_be_handed_in_again() {

@@ -10,6 +10,7 @@ use north_session_host::row_delivery::{Phase, RowDelivery, instance};
 use rustix::fs::{FlockOperation, flock};
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::sender::Sender;
 use crate::fleet::store::FleetRow;
 use crate::fleet::transcript::stream_path;
 use crate::fleet::unaccepted::Unaccepted;
@@ -52,7 +53,8 @@ impl Fleet {
         let mut store = self.deliveries()?;
         let handed_in = match store.current::<RowDelivery>(&instance(&row.to, &row.id))?.map(|record| record.state) {
             Some(Phase::Delivered) => return Ok(HandedIn::Already),
-            Some(Phase::HandingIn | Phase::Interrupted) if self.took(&row.to, &row.id)? => {
+            None | Some(Phase::HandingIn | Phase::Interrupted) if self.took(&row.to, &row.id)? => {
+                self.note_signer(row);
                 self.advance(&mut store, &row.to, &row.id, Phase::Delivered, "the session's stream already holds the row")?;
                 return Ok(HandedIn::Already);
             }
@@ -109,11 +111,16 @@ impl Fleet {
     }
 
     fn deliver(&self, row: &FleetRow) -> NorthResult<()> {
+        let signer = self.note_signer(row);
+        self.prompt(&row.to, &row.prompt_id(), &signer.sign(&row.text), row.delivery())
+    }
+
+    fn note_signer(&self, row: &FleetRow) -> Sender {
         let signer = if row.from == self.host { row.sender.clone() } else { row.signer() };
         if let Err(error) = self.note_sender(&row.to, &signer) {
             eprintln!("north fleet: delivering to {}, but its sender was not recorded: {}", row.to, error.user_message());
         }
-        self.prompt(&row.to, &row.prompt_id(), &signer.sign(&row.text), row.delivery())
+        signer
     }
 }
 
