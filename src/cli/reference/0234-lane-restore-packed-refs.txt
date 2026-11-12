@@ -1,0 +1,1 @@
+  lane restore-packed-refs [CHECKOUT...]           Make packed-refs a regular file again where north linked it into packed/, under git's lock there

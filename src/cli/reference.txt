@@ -243,6 +243,7 @@ Commands:
   pin-retire [--dry-run] (--consumer-main PATH... | --unconsumed) -- PIN  Retire one verified-unused content-addressed pin and its sidecar
   lane reap [--all] [--dry-run]                    Remove spent lanes: clean, two hours old, merged into main or patch-equivalent to it
   lane rescue [path] [--dry-run]                   Move a dirty main checkout's changes into a new rescue lane and clean main; move a clean main's unpushed commits to a keep/ branch and reset it to origin/main
+  lane restore-packed-refs [CHECKOUT...]           Make packed-refs a regular file again where north linked it into packed/, under git's lock there
   lane unlock [CHECKOUT...]                        Remove the git lock files in a checkout's git directory that no process holds and that are older than 60 s
   lane stray PATH...                               Remove an untracked file this session's own tool call created, named in its transcript before the file was born
   lane remove [--rejected VERDICT] LANE...         Remove a finished lane directory under worktrees/ that holds no unlanded or uncommitted work, from outside a worker sandbox, so no unregistered directory is left behind; --rejected bundles a review-rejected lane to ~/archive/lanes with its verdict first

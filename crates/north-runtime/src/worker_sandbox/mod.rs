@@ -8,6 +8,7 @@ mod session_join;
 mod lane_only;
 mod lane_session;
 mod packed_refs;
+pub use packed_refs::restore as restore_packed_refs;
 mod readable;
 mod removable;
 mod hook_screen;

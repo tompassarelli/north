@@ -183,7 +183,7 @@ fn named(home: &Path, command: &str) -> Named {
 }
 
 /// The git common directory of the checkout at `checkout`, the one `git rev-parse --path-format=absolute --git-common-dir` prints there, read from the files git keeps: a `.git` directory is its own common directory, and a `.git` gitfile points at a worktree's git directory, whose `commondir` file names the common one. The grant must be this directory, since git creates its lock files there and renames them away: in a project whose `main/.git` is a gitfile, `main/.git` is a file and grants nothing.
-fn common_git_dir(checkout: &Path) -> Option<PathBuf> {
+pub(super) fn common_git_dir(checkout: &Path) -> Option<PathBuf> {
     git_dirs(checkout).map(|(_, common)| common)
 }
 
