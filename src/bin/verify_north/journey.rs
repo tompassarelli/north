@@ -155,7 +155,7 @@ impl Journey {
 
     fn outside_broker(&self, scratch: &Scratch) -> Result<Process, String> {
         let log = scratch.root.join("broker.log");
-        let broker = self.north.start_with(&["--worker-sandbox", "--broker"], &[(BROKER_SOCKET_ENV, &scratch.broker)], &log)?;
+        let broker = self.north.start_with(&["--worker-sandbox", "--broker", "--code", &scratch.root.to_string_lossy()], &[(BROKER_SOCKET_ENV, &scratch.broker)], &log)?;
         let answers = || UnixStream::connect(&scratch.broker).is_ok();
         exec::poll_until(SERVE_WAIT, POLL, || answers() || !broker.alive());
         if answers() {

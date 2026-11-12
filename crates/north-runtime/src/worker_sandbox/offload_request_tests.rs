@@ -24,6 +24,7 @@ const CLAIMS: [&str; 3] = [OWNER_ENV, RED_FIX_ENV, LANDER_SLOT_ENV];
 const LAND_CHECK_CEILING: &str = "2100";
 const GIT_PLACES: [&str; 3] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE"];
 const FOREIGN: &str = "names another repository";
+const REWRITE: &str = "rewrite";
 const SERVED: [&str; 15] = [
     "safe-push --to main",
     "task check x",
@@ -138,7 +139,52 @@ fn serve(root: &Path) {
         failures.push(format!("a request from a directory in no lane and no main checkout was not refused: exit {code}: {told}"));
     }
     a_request_is_served_only_from_the_checkout_north_made(root, &north, &host, &worker, &mut failures);
+    git_reads_the_registered_repository_when_the_lane_s_gitfile_is_rewritten_after_the_check(root, &north, &host, &worker, &mut failures);
+    a_request_from_a_directory_north_cannot_place_is_refused_for_every_verb(root, &north, &host, &worker, &mut failures);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The case of a lane whose `.git` is rewritten to name another repository after the broker's check, before the git of the process it started reads a repository: the started process rewrites it itself and then runs git.
+fn git_reads_the_registered_repository_when_the_lane_s_gitfile_is_rewritten_after_the_check(root: &Path, north: &Path, host: &Host, worker: &[(String, String)], failures: &mut Vec<String>) {
+    let lane = root.join("home/code/alpha/worktrees/lane");
+    let own = root.join("home/code/alpha/main/.git");
+    let pointer = lane.join(".git");
+    let made = std::fs::read_to_string(&pointer).unwrap();
+    std::fs::write(root.join(REWRITE), format!("gitdir: {}\n", root.join("elsewhere/.git").display())).unwrap();
+    let (code, told) = ask(north, host, &format!("capacity offload run --host {BUILD_HOST} --base HEAD --head HEAD --timeout 9 -- true"), &lane, worker);
+    std::fs::remove_file(root.join(REWRITE)).unwrap();
+    let rewritten = std::fs::read_to_string(&pointer).unwrap();
+    std::fs::write(&pointer, made).unwrap();
+    let read = std::fs::read_to_string(root.join("read")).unwrap_or_default();
+    if code != 0 || !rewritten.contains("elsewhere") || read != format!("{}\n{}\n", own.display(), own.join("worktrees/lane").display()) {
+        failures.push(format!("git_reads_the_registered_repository_when_the_lane_s_gitfile_is_rewritten_after_the_check: the offload's git read {read:?}, not the repository {} keeps for the lane, once the lane's .git said {rewritten:?}: exit {code}: {told}", own.display()));
+    }
+}
+
+/// The cases of a request asked from a directory the broker cannot place in a lane or a main checkout that reads its project's own repository: one in no project, a lane of a project with no main checkout, and a lane whose `.git` leads to no repository.
+fn a_request_from_a_directory_north_cannot_place_is_refused_for_every_verb(root: &Path, north: &Path, host: &Host, worker: &[(String, String)], failures: &mut Vec<String>) {
+    let lane = root.join("home/code/alpha/worktrees/lane");
+    let orphan = root.join("home/code/beta/worktrees/lane");
+    std::fs::create_dir_all(&orphan).unwrap();
+    let text = |file: &str| std::fs::read_to_string(root.join(file)).unwrap_or_default();
+    let seen = text("seen");
+    let offloads = [format!("capacity offload free --host {BUILD_HOST}"), format!("capacity offload run --host {BUILD_HOST} --base HEAD --head HEAD --timeout 9 -- true")];
+    let verbs: Vec<&str> = offloads.iter().map(String::as_str).chain(SERVED).collect();
+    let mut refused = |directory: &Path, place: &str| {
+        for verb in &verbs {
+            let (code, told) = ask(north, host, verb, directory, worker);
+            if code != 126 || !told.contains("refused") || text("seen") != seen {
+                failures.push(format!("a_request_from_a_directory_north_cannot_place_is_refused_for_every_verb: `{verb}` asked from {place} was not refused: exit {code}: {told}"));
+            }
+        }
+    };
+    refused(&root.join("elsewhere"), "a directory in no lane and no main checkout");
+    refused(&orphan, "a lane of a project with no main checkout");
+    let pointer = lane.join(".git");
+    let made = std::fs::read_to_string(&pointer).unwrap();
+    std::fs::write(&pointer, "gitdir: /nonexistent/n118\n").unwrap();
+    refused(&lane, "a lane whose .git leads to no repository");
+    std::fs::write(&pointer, made).unwrap();
 }
 
 /// The cases of a request asked from a lane that reads another repository than its project's own, through its `.git` or its worktree's `commondir`, and of one that names another repository in its environment.
@@ -179,9 +225,16 @@ fn a_request_is_served_only_from_the_checkout_north_made(root: &Path, north: &Pa
 
 fn offload(root: &Path) {
     let words: Vec<String> = std::env::var(WORDS).unwrap().split(' ').map(str::to_owned).collect();
-    let claims: Vec<&str> = CLAIMS.into_iter().chain(GIT_PLACES).filter(|name| std::env::var_os(name).is_some()).collect();
+    let own = root.join("home/code/alpha");
+    let elsewhere = |name: &&str| std::env::var_os(name).is_some_and(|place| !Path::new(&place).starts_with(&own));
+    let claims: Vec<&str> = CLAIMS.into_iter().filter(|name| std::env::var_os(name).is_some()).chain(GIT_PLACES.into_iter().filter(elsewhere)).collect();
     let started = format!("{}|{}|{}\n", std::env::current_dir().unwrap().display(), claims.join(","), words.join(" "));
     std::fs::OpenOptions::new().append(true).create(true).open(root.join("seen")).unwrap().write_all(started.as_bytes()).unwrap();
+    if let Ok(pointer) = std::fs::read_to_string(root.join(REWRITE)) {
+        std::fs::write(".git", pointer).unwrap();
+        let read = Command::new("git").args(["rev-parse", "--path-format=absolute", "--git-common-dir", "--absolute-git-dir"]).output().unwrap();
+        std::fs::write(root.join("read"), [read.stdout, read.stderr].concat()).unwrap();
+    }
     let code = if words.get(2).is_some_and(|word| word == "free") || words.last().is_some_and(|word| word == HERE) { crate::land_offload::run(&words[2..]) } else { 0 };
     std::process::exit(i32::from(code));
 }

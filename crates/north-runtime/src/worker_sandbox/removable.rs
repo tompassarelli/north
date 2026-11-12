@@ -103,12 +103,17 @@ pub(super) fn project_git_common_dirs(context: &Context) -> Vec<PathBuf> {
     commons
 }
 
-/// The common directory of the main checkout `main`: its `.git` directory, or for a `.git` gitfile the directory holding the `worktrees` directory its git directory lies in, never one a writable `commondir` names elsewhere.
+/// The common directory of the main checkout `main`, as `main_git_dirs` reads it.
 fn main_common_dir(main: &Path) -> Option<PathBuf> {
+    main_git_dirs(main).map(|(_, common)| common)
+}
+
+/// The git directory of the main checkout `main` and its common directory: its `.git` directory twice, or for a `.git` gitfile the git directory it names and the directory holding the `worktrees` directory that one lies in, never a common directory a writable `commondir` names elsewhere.
+pub(super) fn main_git_dirs(main: &Path) -> Option<(PathBuf, PathBuf)> {
     let (git_dir, common) = git_dirs(main)?;
     let own = main.join(".git").is_dir() && git_dir == common;
     let worktree = git_dir.parent().is_some_and(|worktrees| worktrees.file_name().is_some_and(|name| name == "worktrees") && worktrees.parent() == Some(common.as_path()));
-    (own || worktree).then_some(common)
+    (own || worktree).then_some((git_dir, common))
 }
 
 /// The directory of a git common directory that `packed-refs` links into, so a worker's git takes its lock there (packed_refs.rs).
@@ -192,13 +197,8 @@ pub(super) fn common_git_dir(checkout: &Path) -> Option<PathBuf> {
     git_dirs(checkout).map(|(_, common)| common)
 }
 
-/// Whether the checkout at `top`, a lane or the main checkout of `project`, reads a repository other than the project's own: its `.git` leads to a common directory that is not the one `project`'s main checkout keeps, as a lane's gitfile and a worktree's `commondir`, both where a worker writes, can be made to. A `top` git reads no repository from, and a project with no main checkout to compare with, are not.
-pub(super) fn foreign(project: &Path, top: &Path) -> bool {
-    main_common_dir(&project.join("main")).zip(common_git_dir(top)).is_some_and(|(own, read)| own != read)
-}
-
-/// The git directory of the checkout at `checkout` and its common directory, both canonical.
-fn git_dirs(checkout: &Path) -> Option<(PathBuf, PathBuf)> {
+/// The git directory of the checkout at `checkout` and its common directory, both canonical, as its `.git` and its worktree's `commondir` name them: for a lane both are files a worker writes.
+pub(super) fn git_dirs(checkout: &Path) -> Option<(PathBuf, PathBuf)> {
     let dot = checkout.join(".git");
     let git_dir = if dot.is_dir() {
         dot

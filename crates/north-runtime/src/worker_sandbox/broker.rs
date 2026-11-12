@@ -21,7 +21,7 @@ pub(super) use super::offload_request::offload_refusal;
 use super::session_join;
 use super::request_checkout;
 use super::request_env::{environment, landing, landing_choices, own_homes, request_homes};
-use super::{Context, FLAG, MAKER, removable};
+use super::{CODE, Context, FLAG, MAKER, removable};
 
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
@@ -56,7 +56,7 @@ fn socket() -> PathBuf {
     std::env::var_os(SOCKET_ENV).filter(|value| !value.is_empty()).map_or_else(|| runtime().join(DIRECTORY).join(SOCKET), PathBuf::from)
 }
 
-/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `threads` reaches a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and is refused to a lane-only caller; `capacity offload` in the words `land_offload::worker_request` reads runs a command on another declared host under that host's lease, the one way a worker command reaches a build host, refused to a lane-only caller and for any host this one does not declare, and started with nothing of the client's but those words (offload_request.rs).
+/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `threads` reaches a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and is refused to a lane-only caller; `capacity offload` in the words `land_offload::worker_request` reads runs a command on another declared host under that host's lease, the one way a worker command reaches a build host, refused to a lane-only caller and for any host this one does not declare, and started with nothing of the client's but those words (offload_request.rs). Each of them is served only from a lane or a main checkout of a project this host keeps, and refused from a directory the broker cannot place in one (request_checkout.rs).
 /// Where the command begins in the arguments of `capacity host run`: after the first `--`, when a word follows it.
 fn payload(words: &[&str]) -> Option<usize> {
     words.iter().position(|word| *word == "--").map(|at| at + 1).filter(|start| *start < words.len())
@@ -151,7 +151,7 @@ pub(super) fn send(stream: &UnixStream, request: Request, streams: [BorrowedFd; 
 /// Starts the broker as a transient user service when nothing answers its socket. Called before a command's domain is applied: afterwards the command cannot start a service, only ask this one. A draining broker still holds the unit name `UNIT`, so when that name is taken the broker starts under a name of its own.
 pub fn ensure() {
     let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
-    ensure_listening(&socket(), |unit| start(&north, unit));
+    ensure_listening(&socket(), |unit| start(&north, unit, None));
 }
 
 pub(super) fn ensure_listening(path: &Path, start: impl Fn(&str) -> bool) {
@@ -176,15 +176,15 @@ fn listening(path: &Path) -> bool {
     false
 }
 
-/// Starts `north` as the broker in the transient user service `unit` under `agent.slice`, so the checks and builds it runs for workers count against the agent CPU quota: in the default app.slice a session's brokered safe-push compiled outside the 12-CPU desk bound and held the laptop at load 39 (north#892); whether it started. A broker on a socket of its own follows the runtime link its starter follows, so the one a canary probe starts stays on the build it judges.
-fn start(north: &Path, unit: &str) -> bool {
+/// Starts `north` as the broker in the transient user service `unit` under `agent.slice`, so the checks and builds it runs for workers count against the agent CPU quota: in the default app.slice a session's brokered safe-push compiled outside the 12-CPU desk bound and held the laptop at load 39 (north#892); whether it started. A broker on a socket of its own follows the runtime link its starter follows, so the one a canary probe starts stays on the build it judges, and a successor serves the projects under `code` when the broker it follows did.
+fn start(north: &Path, unit: &str, code: Option<&Path>) -> bool {
     let followed = std::env::var_os(SOCKET_ENV).and_then(|_| std::env::var_os(north_runtime_follow::LINK));
-    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).args(std::env::var_os(SOCKET_ENV).map(|socket| format!("--setenv={SOCKET_ENV}={}", socket.to_string_lossy()))).args(followed.map(|link| format!("--setenv={}={}", north_runtime_follow::LINK, link.to_string_lossy()))).arg(format!("--slice={SLICE}")).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).args(std::env::var_os(SOCKET_ENV).map(|socket| format!("--setenv={SOCKET_ENV}={}", socket.to_string_lossy()))).args(followed.map(|link| format!("--setenv={}={}", north_runtime_follow::LINK, link.to_string_lossy()))).arg(format!("--slice={SLICE}")).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).args(code.into_iter().flat_map(|code| [std::ffi::OsStr::new(CODE), code.as_os_str()])).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     started.is_ok_and(|status| status.success())
 }
 
-/// Serves requests until its socket is replaced or removed, then exits once the requests it took are done. Once the promoted north is another one it exits when idle, and while requests run it starts the promoted north as its successor in a unit of its own, which takes the socket over: on a busy host the broker was never idle, so on 2026-11-10 it kept running a north three promotions old and new requests never met a landed fix (north#1023).
-pub fn serve() -> std::process::ExitCode {
+/// Serves requests asked from this user's projects, and from those under `code` when one is given (verify-north's scratch project lies outside `~/code`), until its socket is replaced or removed, then exits once the requests it took are done. Once the promoted north is another one it exits when idle, and while requests run it starts the promoted north as its successor in a unit of its own, which takes the socket over: on a busy host the broker was never idle, so on 2026-11-10 it kept running a north three promotions old and new requests never met a landed fix (north#1023).
+pub fn serve(code: Option<PathBuf>) -> std::process::ExitCode {
     let path = socket();
     let Some(directory) = path.parent() else { return std::process::ExitCode::from(2) };
     let north = match std::env::current_exe() {
@@ -217,10 +217,10 @@ pub fn serve() -> std::process::ExitCode {
         }
         match listener.accept() {
             Ok((stream, _)) => {
-                let (north, running) = (north.clone(), running.clone());
+                let (north, running, code) = (north.clone(), running.clone(), code.clone());
                 running.fetch_add(1, Ordering::SeqCst);
                 std::thread::spawn(move || {
-                    if let Err(error) = handle(&north, stream) {
+                    if let Err(error) = handle(&north, stream, code) {
                         eprintln!("north worker-sandbox broker: {error}");
                     }
                     running.fetch_sub(1, Ordering::SeqCst);
@@ -229,7 +229,7 @@ pub fn serve() -> std::process::ExitCode {
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 if !handed_over && follow.replaced().is_some() {
                     handed_over = true;
-                    if !start(&north_base::platform::north_binary::north_binary(), &format!("{UNIT}-{}", std::process::id())) {
+                    if !start(&north_base::platform::north_binary::north_binary(), &format!("{UNIT}-{}", std::process::id()), code.as_deref()) {
                         eprintln!("north worker-sandbox broker: cannot start the promoted north as a successor, so this one serves until it is idle");
                     }
                 }
@@ -268,13 +268,15 @@ fn receive(stream: &UnixStream) -> Result<Option<(Request, Vec<OwnedFd>)>, Strin
     Ok(Some((serde_json::from_slice(&body).map_err(|error| error.to_string())?, streams)))
 }
 
-fn handle(north: &Path, stream: UnixStream) -> Result<(), String> {
+fn handle(north: &Path, stream: UnixStream, code: Option<PathBuf>) -> Result<(), String> {
     let peer = rustix::net::sockopt::get_socket_peercred(&stream).map_err(|error| error.to_string())?;
     if peer.uid.as_raw() != rustix::process::getuid().as_raw() {
         return Err(format!("refused a request from uid {}", peer.uid.as_raw()));
     }
     let cgroup = std::fs::read_to_string(format!("/proc/{}/cgroup", peer.pid.as_raw_nonzero().get())).ok();
-    answer(north, &stream, cgroup.as_deref(), &Host::own())
+    let mut host = Host::own();
+    host.code.extend(code);
+    answer(north, &stream, cgroup.as_deref(), &host)
 }
 
 /// Answers the one request on `stream` from a caller whose `/proc/PID/cgroup` reads `cgroup` (`None` when unreadable), on `host`; a refused or failed request is answered 126 and its reason returned for the broker's log.
@@ -300,8 +302,8 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if request.arguments.first().is_some_and(|verb| verb == "threads") && cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup) {
         return Err("a lane-only session's command does not reach the ledger host through the broker".to_owned());
     }
-    let refused = request_checkout::refusal(&host.home, &request.directory).or_else(|| offload_refusal(&request.arguments, cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup), crate::land_offload::reaches));
-    let offload = match refused.map_or_else(|| offload_request::granted(&request.arguments, &request.directory, &host.home, &host.environment, &runtime(), &own_homes()), Err) {
+    let unrefused = |checkout: request_checkout::Checkout| offload_refusal(&request.arguments, cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup), crate::land_offload::reaches).map_or(Ok(checkout), Err);
+    let offload = match request_checkout::registered(&host.code, &request.directory).and_then(unrefused).and_then(|checkout| offload_request::granted(&request.arguments, &checkout, &host.environment, &runtime(), &own_homes())) {
         Ok(offload) => offload,
         Err(why) => return Err(refuse(streams, why)),
     };

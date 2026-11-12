@@ -42,6 +42,7 @@ use writable::writable;
 pub const FLAG: &str = "--worker-sandbox";
 const OUTSIDE: &str = "--outside";
 const BROKER: &str = "--broker";
+const CODE: &str = "--code";
 const MAKER: &str = "--make-namespaces";
 const BUILT: &str = "--built";
 const SWEPT: &str = "NORTH_WORKER_SWEEP_PARENT";
@@ -99,7 +100,8 @@ pub fn run(arguments: &[String], screen: Screen) -> std::process::ExitCode {
         return bind(arguments, bound);
     }
     match arguments {
-        [broker] if broker == BROKER => broker::serve(),
+        [broker] if broker == BROKER => broker::serve(None),
+        [broker, code, directory] if broker == BROKER && code == CODE => broker::serve(Some(PathBuf::from(directory))),
         [maker, runtime, paths @ ..] if maker == MAKER => sockets::make(Path::new(runtime), &paths.iter().map(PathBuf::from).collect::<Vec<_>>()),
         [outside, separator, north, words @ ..] if outside == OUTSIDE && separator == "--" && !north.is_empty() => self::outside(north, words),
         [built, separator, program @ ..] if built == BUILT && separator == "--" && !program.is_empty() => self::program(program, true, screen),

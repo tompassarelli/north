@@ -35,8 +35,13 @@ impl Fixture {
         let other = home.join("code/wisp/worktrees").join(NAME);
         let shim = home.join(".local/bin");
         let fleet = root.path().join("fleet");
-        for directory in [&main, &lane, &other, &shim, &fleet.join(NAME)] {
+        for directory in [&main, &home.join("code/wisp/main"), &shim, &fleet.join(NAME)] {
             std::fs::create_dir_all(directory).unwrap();
+        }
+        for (main, lane) in [(&main, &lane), (&home.join("code/wisp/main"), &other)] {
+            git(main, &["init", "-q", "-b", "main"]);
+            git(main, &["commit", "-q", "--allow-empty", "-m", "one"]);
+            git(main, &["worktree", "add", "-q", lane.to_str().unwrap(), "-b", NAME]);
         }
         write_executable(&shim.join("gh"), format!("#!/bin/sh\n# {}\n", gh_shim::MARKER));
         std::fs::write(fleet.join(NAME).join("host.scope"), format!("{UNIT}\n")).unwrap();
@@ -46,7 +51,7 @@ impl Fixture {
         write_executable(&north, format!("#!/bin/sh\n[ -z \"$NORTH_WORKER_SESSION_SCOPE\" ] || printf '%s' \"$NORTH_WORKER_SESSION_SCOPE\" > {}\nprintf '%s|%s|%s\\n' \"$PWD\" \"$*\" \"$NORTH_FLEET_SESSION\" >> {}\n[ \"$1\" != safe-push ] || {{ sleep 8 </dev/null >/dev/null 2>&1 & }}\nprintf 'out %s\\n' \"$GH_TOKEN\"\nprintf 'err %s\\n' \"$GH_TOKEN\" >&2\n", root.path().join("scope").display(), log.display()));
         let environment = vec![("HOME".to_owned(), home.display().to_string()), ("PATH".to_owned(), "/run/current-system/sw/bin:/usr/bin:/bin".to_owned()), ("GH_TOKEN".to_owned(), HELD.to_owned())];
         let cgroups = root.path().join("cgroup");
-        Self { host: Host { fleet, home, environment, cgroups }, root, north, lane, other }
+        Self { host: Host { fleet, code: vec![home.join("code")], home, environment, cgroups }, root, north, lane, other }
     }
 
     fn ran(&self) -> Vec<String> {
@@ -93,6 +98,11 @@ impl Asked {
         assert!(self.stderr.contains("refused") && self.stderr.contains(naming), "the client is told the refusal naming {naming}: {}", self.stderr);
         assert!(self.logged.contains("refused") && self.logged.contains(naming), "the broker log names the refusal of {naming}: {}", self.logged);
     }
+}
+
+fn git(directory: &Path, arguments: &[&str]) {
+    let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).output().unwrap();
+    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
 }
 
 fn cgroup() -> String {
