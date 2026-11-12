@@ -1,6 +1,4 @@
-<p align="center"><img src="docs/assets/north-logo.webp" alt="North logo" width="720"></p>
-
-# North
+<p align="center"><img src="docs/assets/north-logo.jpeg" alt="North" width="720"></p>
 
 North is an autonomous software factory. It takes issues that carry runnable Done-when checks and
 turns model budget into verified changes landed on main: it staffs and routes workers across
