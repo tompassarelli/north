@@ -23,7 +23,7 @@ pub const LAND_BASE: &str = "SAFE_PUSH_LAND_BASE";
 pub const LAND_HEAD: &str = "SAFE_PUSH_LAND_HEAD";
 pub const REMOTE_MARK: &str = "NORTH_BUILD_OFFLOADED";
 
-const CARRY: [(&str, Reach); 36] = [
+const CARRY: &[(&str, Reach)] = &[
     (LANDING, Reach::Landing),
     (LAND_BASE, Reach::Landing),
     (LAND_HEAD, Reach::Landing),
@@ -83,11 +83,11 @@ impl Boundary {
 
 /// Every carried name, in list order.
 pub fn every() -> impl Iterator<Item = &'static str> {
-    CARRY.into_iter().map(|(name, _)| name)
+    CARRY.iter().copied().map(|(name, _)| name)
 }
 
 /// The names a run carries across `boundary`, in list order.
 pub fn names(boundary: Boundary) -> impl Iterator<Item = &'static str> {
-    CARRY.into_iter().filter(move |(_, reach)| boundary.carries(*reach)).map(|(name, _)| name)
+    CARRY.iter().copied().filter(move |(_, reach)| boundary.carries(*reach)).map(|(name, _)| name)
 }
 
