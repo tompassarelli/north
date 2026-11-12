@@ -18,10 +18,7 @@ struct Found {
 }
 
 pub(super) fn reject(lane: &Path, verdict: &str, queues: &Path, archive_root: &Path, now_ms: i64) -> Result<String, String> {
-    let verdict = verdict.split_whitespace().collect::<Vec<_>>().join(" ");
-    if verdict.is_empty() {
-        return Err("name the reviewer's verdict after --rejected".to_owned());
-    }
+    let verdict = verdict_text(verdict)?;
     let (container, main) = place(lane)?;
     if !land_queue::waiting_on(queues, &land_queue::local_host(), lane).is_empty() {
         return Err("a land ticket waits on it".to_owned());
@@ -34,17 +31,38 @@ pub(super) fn reject(lane: &Path, verdict: &str, queues: &Path, archive_root: &P
         lane_rejection::record(&main, &found.branch, &verdict)?;
         return Ok(format!("recorded: {} is rejected ({verdict}); a live process works in it, so north lane gc archives it once nothing holds it", lane.display()));
     }
-    let base = BASES.iter().find(|base| git_out(&main, &["rev-parse", "--verify", "-q", base]).is_some()).ok_or("main has no origin/main or main to bundle against")?;
-    let project = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    let own = origin_repo(&main).unwrap_or_else(|| project.clone());
-    let issues = lane_issues(&main, &own, base, &found.branch, &found.tip).unwrap_or_default();
-    let why = format!("rejected: {verdict}");
-    let spec = ArchivedLane { main: &main, base, project: &project, worktree: found.registered.then_some(lane), branch: &found.branch, tip: &found.tip, issues: &issues, why: &why };
-    let bundle = archive(&spec, archive_root, now_ms)?;
+    let worktree = found.registered.then_some(lane);
+    let file = bundle(&container, &main, &found, worktree, &verdict, archive_root, now_ms)?;
     if lane.exists() {
-        orphan::remove(&main, lane, queues).map_err(|reason| format!("bundled to {}, but kept the directory: {reason}", bundle.display()))?;
+        orphan::remove(&main, lane, queues).map_err(|reason| format!("bundled to {}, but kept the directory: {reason}", file.display()))?;
     }
-    Ok(format!("archived: {} to {} ({why})", lane.display(), bundle.display()))
+    Ok(format!("archived: {} to {} (rejected: {verdict})", lane.display(), file.display()))
+}
+
+pub(super) fn reject_branch(container: &Path, branch: &str, verdict: &str, archive_root: &Path, now_ms: i64) -> Result<String, String> {
+    let verdict = verdict_text(verdict)?;
+    let main = container.join("main");
+    let found = find_branch(&main, branch)?;
+    let file = bundle(container, &main, &found, None, &verdict, archive_root, now_ms)?;
+    Ok(format!("archived: branch {branch} to {} (rejected: {verdict})", file.display()))
+}
+
+fn verdict_text(verdict: &str) -> Result<String, String> {
+    let verdict = verdict.split_whitespace().collect::<Vec<_>>().join(" ");
+    if verdict.is_empty() {
+        return Err("name the reviewer's verdict after --rejected".to_owned());
+    }
+    Ok(verdict)
+}
+
+fn bundle(container: &Path, main: &Path, found: &Found, worktree: Option<&Path>, verdict: &str, archive_root: &Path, now_ms: i64) -> Result<PathBuf, String> {
+    let base = BASES.iter().find(|base| git_out(main, &["rev-parse", "--verify", "-q", base]).is_some()).ok_or("main has no origin/main or main to bundle against")?;
+    let project = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let own = origin_repo(main).unwrap_or_else(|| project.clone());
+    let issues = lane_issues(main, &own, base, &found.branch, &found.tip).unwrap_or_default();
+    let why = format!("rejected: {verdict}");
+    let spec = ArchivedLane { main, base, project: &project, worktree, branch: &found.branch, tip: &found.tip, issues: &issues, why: &why };
+    archive(&spec, archive_root, now_ms)
 }
 
 fn place(lane: &Path) -> Result<(PathBuf, PathBuf), String> {
@@ -74,5 +92,16 @@ fn find(main: &Path, lane: &Path) -> Result<Found, String> {
     match git_out(main, &["rev-parse", "--verify", "-q", &format!("refs/heads/{branch}")]) {
         Some(tip) => Ok(Found { registered: false, branch, tip }),
         None => Err("git no longer registers it and no branch carries its name".to_owned()),
+    }
+}
+
+fn find_branch(main: &Path, branch: &str) -> Result<Found, String> {
+    let listing = git_out(main, &["worktree", "list", "--porcelain"]).unwrap_or_default();
+    if listing.lines().any(|line| line.strip_prefix("branch refs/heads/") == Some(branch)) {
+        return Err("a worktree has it checked out, so name that worktree's path instead".to_owned());
+    }
+    match git_out(main, &["rev-parse", "--verify", "-q", &format!("refs/heads/{branch}")]) {
+        Some(tip) => Ok(Found { registered: false, branch: branch.to_owned(), tip }),
+        None => Err("no local branch carries that name".to_owned()),
     }
 }

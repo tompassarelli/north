@@ -1,9 +1,10 @@
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 use super::lane_rejection;
 use super::reap_tests::Container;
-use super::reject::reject;
+use super::reject::{reject, reject_branch};
 use super::remove::remove;
 use super::test_git::git_in;
 
@@ -43,4 +44,16 @@ fn a_rejected_lane_holding_unlanded_work_is_bundled_with_its_verdict_and_removed
     assert!(!orphan.exists());
     assert!(git_in(&container.main(), &["branch", "--list", "half-removed"]).is_empty());
     assert_eq!(fs::read_to_string(archive.join(&project).join("index.tsv")).unwrap().lines().count(), 2);
+
+    git_in(&container.main(), &["checkout", "-q", "-b", "codex/x-1"]);
+    container.commit_in(&container.main(), "x.txt");
+    git_in(&container.main(), &["checkout", "-q", "main"]);
+    let archived = reject_branch(&container.path(), "codex/x-1", "superseded", &archive, 0).unwrap();
+    assert!(archived.starts_with("archived: branch codex/x-1"), "{archived}");
+    assert!(git_in(&container.main(), &["branch", "--list", "codex/x-1"]).is_empty());
+    let branch_index = fs::read_to_string(archive.join(&project).join("index.tsv")).unwrap();
+    assert!(branch_index.contains("\trejected: superseded\t"), "{branch_index}");
+    let bundle = Path::new(branch_index.lines().last().unwrap().rsplit('\t').next().unwrap());
+    assert!(bundle.is_file(), "{}", bundle.display());
+    assert!(bundle.file_name().unwrap().to_string_lossy().starts_with("codex-x-1-"), "{}", bundle.display());
 }

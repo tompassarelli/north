@@ -7,10 +7,11 @@ use north_base::platform::land_queue;
 use super::nested_shell;
 use super::orphan;
 use super::reap::Sweep;
-use super::reject::reject;
+use super::reject::{reject, reject_branch};
 use super::repo::{find_container, git_out, is_lander_tree};
 
 const USAGE: &str = "usage: north lane remove [--rejected VERDICT] LANE...
+       north lane remove --rejected VERDICT --branch NAME...
 
 Removes each LANE, a directory directly under a project's worktrees/ (named by its absolute path),
 only when nothing in it is at risk. A registered worktree must be clean, hold no ignored file
@@ -29,34 +30,64 @@ issue is open: it is bundled to ~/archive/lanes/PROJECT/ with VERDICT in index.t
 archives a lane whose issue closed (uncommitted changes ride as a snapshot commit), and only once
 the bundle verifies are its worktree and branch removed. A directory git no longer registers is
 bundled from the branch named like it. A lane that is locked, waited on by a land ticket or the cwd
-of a live process is kept. This is the command a reviewer runs when it rejects a lane.";
+of a live process is kept. This is the command a reviewer runs when it rejects a lane.
+
+With --branch NAME (repeatable, with --rejected VERDICT), the local branch NAME of the project containing the
+current directory is bundled the same way and deleted once the bundle verifies, when no worktree has it checked out.
+A slashed name such as codex/x-1 bundles to one file, its slashes written as dashes.";
 
 pub fn run(arguments: &[String]) -> u8 {
     if arguments.iter().any(|argument| argument == "-h" || argument == "--help") {
         println!("{USAGE}");
         return 0;
     }
-    let (verdict, lanes) = match arguments {
-        [flag, verdict, lanes @ ..] if flag == "--rejected" => (Some(verdict.as_str()), lanes),
-        lanes => (None, lanes),
-    };
-    if lanes.is_empty() || lanes.iter().any(|argument| argument.starts_with('-')) {
+    let Some(request) = Request::parse(arguments) else {
         eprintln!("{USAGE}");
         return 2;
-    }
+    };
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let state = home.join(".local/state");
     let mut code = 0;
-    for lane in lanes.iter().map(PathBuf::from) {
-        match settle(&lane, verdict, &home, &state) {
-            Ok(message) => println!("{message}"),
-            Err(reason) => {
-                eprintln!("kept {}: {reason}", lane.display());
-                code = 1;
-            }
-        }
+    for lane in &request.lanes {
+        report(lane, settle(Path::new(lane), request.verdict, &home, &state), &mut code);
+    }
+    for branch in &request.branches {
+        report(&format!("branch {branch}"), settle_branch(branch, request.verdict.unwrap_or_default(), &home), &mut code);
     }
     code
+}
+
+struct Request<'a> {
+    verdict: Option<&'a str>,
+    lanes: Vec<&'a str>,
+    branches: Vec<&'a str>,
+}
+
+impl<'a> Request<'a> {
+    fn parse(arguments: &'a [String]) -> Option<Self> {
+        let mut request = Request { verdict: None, lanes: Vec::new(), branches: Vec::new() };
+        let mut words = arguments.iter().map(String::as_str);
+        while let Some(word) = words.next() {
+            match word {
+                "--rejected" => request.verdict = Some(words.next()?),
+                "--branch" => request.branches.push(words.next()?),
+                flag if flag.starts_with('-') => return None,
+                lane => request.lanes.push(lane),
+            }
+        }
+        let valid = if request.branches.is_empty() { !request.lanes.is_empty() } else { request.lanes.is_empty() };
+        valid.then_some(request)
+    }
+}
+
+fn report(subject: &str, outcome: Result<String, String>, code: &mut u8) {
+    match outcome {
+        Ok(message) => println!("{message}"),
+        Err(reason) => {
+            eprintln!("kept {subject}: {reason}");
+            *code = 1;
+        }
+    }
 }
 
 fn settle(lane: &Path, verdict: Option<&str>, home: &Path, state: &Path) -> Result<String, String> {
@@ -64,6 +95,12 @@ fn settle(lane: &Path, verdict: Option<&str>, home: &Path, state: &Path) -> Resu
         Some(verdict) => reject(lane, verdict, &land_queue::queues(state), &home.join("archive/lanes"), Timestamp::now().unix_millis()),
         None => remove(lane, state),
     }
+}
+
+fn settle_branch(branch: &str, verdict: &str, home: &Path) -> Result<String, String> {
+    let current = std::env::current_dir().map_err(|error| error.to_string())?;
+    let container = find_container(&current).ok_or("not inside a project checkout (no main/.git above the current directory)")?;
+    reject_branch(&container, branch, verdict, &home.join("archive/lanes"), Timestamp::now().unix_millis())
 }
 
 pub(super) fn remove(lane: &Path, state: &Path) -> Result<String, String> {
