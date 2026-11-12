@@ -4,7 +4,7 @@ use super::local;
 use crate::capacity::saturation::{self, Saturation};
 use serde_json::{Value, json};
 use super::gate::Machine;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 use std::os::unix::process::CommandExt;
 use std::sync::{Arc, Mutex, mpsc};
@@ -437,7 +437,11 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>, asked: Asked) -> Fact
     facts.saturation_age_s = facts.saturation.and(cached["at"].as_f64()).map(|at| now - at);
     let want_saturation = !fresh && !here;
     let known = recorded_accounts(name, now);
-    let answer = ssh_script(destination, &script(!here, want_saturation, known.is_none(), cwd)).ok().filter(|r| r.code == 0).map(|r| r.out);
+    let reply = ssh_script(destination, &script(!here, want_saturation, known.is_none(), cwd));
+    if let Some(failure) = probe_failure(destination, &reply).filter(|_| !here && announce_once(destination)) {
+        eprintln!("north: {failure}");
+    }
+    let answer = reply.ok().filter(|r| r.code == 0).map(|r| r.out);
     if let Some(sections) = answer.as_deref().map(sections) {
         let section = |label: &str| sections.iter().find(|(name, _)| name == label).map(|(_, body)| body.as_str());
         facts.live = section("live").and_then(live_count);
@@ -491,8 +495,8 @@ fn script(live: bool, saturation: bool, accounts: bool, cwd: Option<&str>) -> St
         parts.push(format!("echo '@@live'; {RESIDENT_BINARY} resident-cap status; echo \"@@rc $?\""));
     }
     if accounts {
-        parts.push("echo '@@accounts'; north fleet accounts; echo \"@@rc $?\"".to_owned());
-        parts.push("echo '@@claude_ai'; north fleet accounts --claude-ai; echo \"@@rc $?\"".to_owned());
+        parts.push("echo '@@accounts'; north fleet accounts 2>&1; echo \"@@rc $?\"".to_owned());
+        parts.push("echo '@@claude_ai'; north fleet accounts --claude-ai 2>&1; echo \"@@rc $?\"".to_owned());
     }
     if saturation {
         parts.push(format!("echo '@@saturation'; {}; echo \"@@rc $?\"", saturation::PROBE));
@@ -503,7 +507,7 @@ fn script(live: bool, saturation: bool, accounts: bool, cwd: Option<&str>) -> St
     parts.join("\n")
 }
 
-fn sections(output: &str) -> Vec<(String, String)> {
+fn blocks(output: &str) -> Vec<(String, i32, String)> {
     let mut found = Vec::new();
     let mut open: Option<(String, String)> = None;
     for line in output.split_inclusive('\n') {
@@ -511,14 +515,33 @@ fn sections(output: &str) -> Vec<(String, String)> {
         if let Some(label) = marker.strip_prefix("@@").filter(|label| !label.starts_with("rc ")) {
             open = Some((label.to_owned(), String::new()));
         } else if let Some(code) = marker.strip_prefix("@@rc ") {
-            if let Some(section) = open.take().filter(|_| code == "0") {
-                found.push(section);
+            if let Some((label, body)) = open.take() {
+                found.push((label, code.parse().unwrap_or(-1), body));
             }
         } else if let Some((_, body)) = open.as_mut() {
             body.push_str(line);
         }
     }
     found
+}
+
+fn announce_once(destination: &str) -> bool {
+    static ANNOUNCED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+    ANNOUNCED.lock().map_or(true, |mut seen| seen.insert(destination.to_owned()))
+}
+
+fn sections(output: &str) -> Vec<(String, String)> {
+    blocks(output).into_iter().filter(|(_, code, _)| *code == 0).map(|(label, _, body)| (label, body)).collect()
+}
+
+/// Why a placement probe of `destination` got no usable answer, quoting the first line the host printed so a control byte cannot reach the terminal.
+fn probe_failure(destination: &str, reply: &Result<process::Output, String>) -> Option<String> {
+    let first = |text: &str| text.lines().next().unwrap_or_default().trim().to_owned();
+    match reply {
+        Err(why) => Some(format!("probe of {destination} failed: {:?}", first(why))),
+        Ok(run) if run.code != 0 => Some(format!("probe of {destination} failed: exit {}: {:?}", run.code, first(&run.err))),
+        Ok(run) => blocks(&run.out).into_iter().find(|(label, code, _)| matches!(label.as_str(), "accounts" | "claude_ai") && *code != 0).map(|(_, code, body)| format!("probe of {destination} failed: exit {code}: {:?}", first(&body))),
+    }
 }
 
 pub(in crate::pacing) fn signed_in(name: &str, destination: &str, claude_ai: bool) -> Vec<String> {

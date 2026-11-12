@@ -78,3 +78,13 @@ fn a_launch_after_an_answer_minutes_old_asks_the_host_again_before_it_places_wor
     let facts = survey_via(&GUARDED, records.path(), &[machine("gex45")], Some("/work"), Duration::from_secs(5), ask, &silent);
     assert_eq!((facts[0].live, facts[0].saturation.map(|now| now.disk_free_gib)), (Some(3), Some(1.0)));
 }
+
+#[test]
+fn a_placement_probe_that_cannot_list_accounts_names_its_destination_exit_code_and_first_line_quoted() {
+    let listed = |code: i32, out: &str| Ok(process::Output { code, out: out.into(), err: String::new() });
+    let missing = listed(0, "@@accounts\n\u{1b}[31msh: 1: north: not found\n@@rc 127\n@@claude_ai\n@@rc 0\n");
+    assert_eq!(probe_failure("agent@cpx62", &missing), Some("probe of agent@cpx62 failed: exit 127: \"\\u{1b}[31msh: 1: north: not found\"".to_owned()), "a listing the host could not run was read as no accounts without a word");
+    let unreached = Ok(process::Output { code: 255, out: String::new(), err: "ssh: connect to cpx62 port 22: Connection refused\n".into() });
+    assert_eq!(probe_failure("agent@cpx62", &unreached), Some("probe of agent@cpx62 failed: exit 255: \"ssh: connect to cpx62 port 22: Connection refused\"".to_owned()));
+    assert_eq!(probe_failure("agent@cpx62", &listed(0, "@@accounts\n@@rc 0\n@@claude_ai\n@@rc 0\n")), None, "a probe that ran and found no accounts is not a failure");
+}
