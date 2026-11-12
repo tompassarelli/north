@@ -200,8 +200,14 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     if picked_count < unlanded.len() {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
         let commits = unlanded.join(" ");
-        case.dropped = Some(commits.clone());
-        return refuse(logs, name, "dropped", &dropped_refusal(base, &commits));
+        let deferred = (picked_onto != base).then(|| Pick::Deferred(format!("deferred: {}: an earlier lane in this candidate already carries its change; it stays queued for the next candidate", ticket.branch)));
+        return deferred.map_or_else(
+            || {
+                case.dropped = Some(commits.clone());
+                refuse(logs, name, "dropped", &dropped_refusal(base, &commits))
+            },
+            Ok,
+        );
     }
     match merge_continue::generator_moved(worktree, &worktree.join(merge_set::DEFAULT_CONFIG), base, &picked_onto) {
         Ok(None) => {}
