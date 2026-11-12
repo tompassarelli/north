@@ -150,6 +150,7 @@ impl HookKind {
                 Guard("north-hook", crate::guard::model_identity::evaluate, Anywhere),
                 Guard("north-hook", crate::guard::file_skill::evaluate, Anywhere),
                 Guard("north-hook", crate::guard::node_modules_write::decide, Host),
+                Guard("north-hook", crate::guard::file_tool_reach::decide, Host),
                 Guard("north-hook", crate::guard::nix_activity::evaluate, Host),
             ],
             Self::PreAgent => &[Guard("north-hook", crate::guard::proxy_role::evaluate, Anywhere), Guard("", crate::guard::agent_cwd::evaluate, Anywhere), Guard("worker-tier-guard", crate::guard::worker_tier::evaluate, Anywhere), Guard("spawn-capacity-guard", crate::guard::spawn_capacity::admission, Anywhere)],

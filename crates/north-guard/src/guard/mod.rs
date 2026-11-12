@@ -13,6 +13,7 @@ pub mod worktree_remove;
 mod worktree_remove_tests;
 pub mod masked_pipeline;
 pub mod node_modules_write;
+pub mod file_tool_reach;
 pub mod handoff_record;
 pub mod file_skill;
 pub mod nix_activity;

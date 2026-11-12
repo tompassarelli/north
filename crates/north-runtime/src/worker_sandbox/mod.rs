@@ -4,6 +4,7 @@ mod brokered_reads;
 mod buck;
 mod except;
 mod executable;
+mod file_tools;
 mod lane_grant;
 mod session_join;
 mod lane_only;
@@ -32,6 +33,7 @@ use north_base::platform::git_credential;
 use north_base::platform::session_scope::REMOVAL_ROOTS;
 
 pub use executable::{build_outputs, executable};
+pub use file_tools::unwritable_by_file_tool;
 pub use readable::{Reader, readable};
 pub use removable::{Context, removable};
 pub use hook_screen::Screen;

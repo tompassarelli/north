@@ -23,8 +23,13 @@ pub struct Context {
 impl Context {
     /// The context of `command`, run from this process's working directory.
     pub fn from_env(command: &str) -> Self {
+        Self::from_env_in(command, &std::env::current_dir().unwrap_or_default())
+    }
+
+    /// The context of `command`, run from `cwd` with this process's environment: the hook of a file tool judges the path it names as a command would be.
+    pub fn from_env_in(command: &str, cwd: &Path) -> Self {
         let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
-        Self::with(command, std::env::current_dir().unwrap_or_default(), set)
+        Self::with(command, cwd.to_path_buf(), set)
     }
 
     /// The context of `command` when another process runs it in `cwd` with `environment`: the broker reads the handoff it starts from the request the worker command sent, not from its own directory and environment.

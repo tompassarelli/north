@@ -1,6 +1,6 @@
 use crate::router::tier::Tier;
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 pub type Pace = fn(&Value) -> Result<Value, String>;
@@ -10,6 +10,7 @@ pub type AccountHome = fn(&str, &str) -> Option<PathBuf>;
 pub type FreeCall = fn(&str, &Value) -> bool;
 pub type ReadStreakOf = fn(&str, &Value, FreeCall) -> ReadStreak;
 pub type StatusVerb = fn(&[&str]) -> bool;
+pub type FileToolRefusal = fn(&[String], &Path) -> Option<String>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MessageReads {
@@ -33,6 +34,7 @@ pub struct Host {
     pub account_home: AccountHome,
     pub read_streak: ReadStreakOf,
     pub status_verb: StatusVerb,
+    pub file_tool_refusal: FileToolRefusal,
 }
 
 static INSTALLED: OnceLock<Host> = OnceLock::new();
@@ -67,4 +69,9 @@ pub fn read_streak(transcript: &str, hook: &Value) -> Option<ReadStreak> {
 
 pub fn status_verb(words: &[&str]) -> bool {
     installed().is_ok_and(|host| (host.status_verb)(words))
+}
+
+/// The first of `paths` a file tool of this session may not write, where this host confines its shell; `None` where no host is installed, which only a test is.
+pub fn file_tool_refusal(paths: &[String], cwd: &Path) -> Option<String> {
+    installed().ok().and_then(|host| (host.file_tool_refusal)(paths, cwd))
 }
