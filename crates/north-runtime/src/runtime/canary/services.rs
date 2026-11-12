@@ -84,7 +84,7 @@ pub(super) fn judge(layout: &Layout, judged: &str, listing: &str, draining: &[u3
     if services.is_empty() {
         let judged_services = processes.iter().filter(|process| !SESSION.contains(&process.kind.as_str())).count();
         let left: String = leaving.iter().map(|(process, runtime)| format!("; `{}` (pid {}) on {} takes no new client and leaves with its last one", process.process, process.pid, layout::short(runtime))).collect();
-        return Ok(format!("none of {judged_services} host services runs a runtime older than {replaces} and still takes a new client; {} session processes behind move with their sessions{left}", sessions.len()));
+        return Ok(format!("none of {judged_services} host services runs a runtime older than {replaces}, and still takes a new client; {} session processes behind move with their sessions{left}", sessions.len()));
     }
     let named: Vec<String> = services.iter().map(|(process, runtime)| format!("`{}` (pid {}) runs {}", process.process, process.pid, layout::short(runtime))).collect();
     Err(failed(HOST_FAULT, format!("host service {}: older than {replaces}, so it follows no promotion", named.join(", "))))
