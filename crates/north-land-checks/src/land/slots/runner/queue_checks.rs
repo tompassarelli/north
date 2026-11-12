@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::super::clippy_first;
 use super::super::verdict_key;
-use super::{Arguments, Config, affected, block_on, run_added_avoiding, say, shared_build, warn};
+use super::{Arguments, Config, affected, block_on, run_added_avoiding, say, shared_build, steps, warn};
 use north_base::foundation::exit::{NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 
 const ATTEMPTS: usize = 3;
@@ -32,9 +32,12 @@ pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>
 }
 
 pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), String> {
-    let config = Config::load(root, head);
-    let clippy = clippy_first::listed(&config.after_set().commands(root, base, head)?, |command| !config.is_inferred(command));
-    let commands = queue_commands(root, base, head)?;
+    steps::begin();
+    let (config, clippy, commands) = steps::timed("commands", || -> Result<_, String> {
+        let config = Config::load(root, head);
+        let clippy = clippy_first::listed(&config.after_set().commands(root, base, head)?, |command| !config.is_inferred(command));
+        Ok((config, clippy, queue_commands(root, base, head)?))
+    })?;
     if commands.is_empty() {
         return Ok(());
     }

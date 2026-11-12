@@ -164,7 +164,9 @@ lanes" entries in [features/04-landing-and-lanes/](features/04-landing-and-lanes
    `landing.lander-host`, nor an ssh host of the fleet's `[hosts]`, nor in `landing.remote-hosts`, and any `landing.queue` other than the
    lander, naming the setting to add; otherwise `north land enqueue` runs the outgoing scans and
    the land checks the lane adds, squashes the lane to one commit unless `--several-commits`, and
-   queues it, printing the seconds each step before queueing took (`safe-push: timings:`); it asks the
+   queues it, printing the seconds each step before queueing took (`safe-push: timings:`, with the queue
+   checks split into their own steps in parentheses: placement, key lookup, the check's capacity lease,
+   its sandbox's start, the command, the release and the result write); it asks the
    private-kind judge about the squashed head once, beside its last gates, and a public lane whose judge is
    still asking a model queues with that verdict outstanding and the hand-in times on its ticket, whatever host
    the lander is on; the lander lands it only once a passing verdict on that head is in, read on the host that

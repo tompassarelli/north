@@ -16,7 +16,7 @@ use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
 use crate::landing::check_timings;
 use super::fail_fast::Plan;
-use super::{ACTIONS_CLASS, RED_MAIN_STATUS, Shared, batch, resolve_runner_host, say, warn};
+use super::{ACTIONS_CLASS, RED_MAIN_STATUS, Shared, batch, resolve_runner_host, say, steps, warn};
 use super::spawn::{exit_code, under_capacity};
 
 async fn forward_cancel(mut cancel: watch::Receiver<bool>, stop: Arc<watch::Sender<bool>>) {
@@ -159,12 +159,12 @@ impl Shared {
     }
 
     pub(super) async fn run_list(self: &Arc<Self>, commands: &[String]) -> Listed {
-        let plan = Plan::of(commands, &self.paths, &Records::at(Records::default_path()).read());
+        let plan = steps::timed("plan", || Plan::of(commands, &self.paths, &Records::at(Records::default_path()).read()));
         if !plan.expensive.is_empty() {
             say(&format!("safe-push: {} expensive land check(s) run in fail-fast order and are cancelled at the first failure: {}", plan.expensive.len(), plan.expensive.join("; ")));
         }
         let ordered: Vec<String> = plan.ordered().cloned().collect();
-        let this = self.spread(&ordered, &plan).await.place_inputs(&ordered).await;
+        let this = steps::awaited("spread", async { self.spread(&ordered, &plan).await.place_inputs(&ordered).await }).await;
         let (stop, stopped) = watch::channel(false);
         let stop = Arc::new(stop);
         tokio::spawn(forward_cancel(this.cancel.clone(), Arc::clone(&stop)));

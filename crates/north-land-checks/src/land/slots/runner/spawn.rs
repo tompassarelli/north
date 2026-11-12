@@ -17,6 +17,7 @@ use crate::land::trace::check_log::{self, Line, Mark};
 use crate::landing::check_timings::Timing;
 use super::{ACTIONS_CLASS, CANCELLED_STATUS, KILLED_STATUS, OFFLOAD_GRACE, REAP, Shared, TIMED_OUT_STATUS, say, warn};
 use super::log::{new_log, Sink, tee};
+use super::steps;
 
 const STORE_SYNC: std::time::Duration = std::time::Duration::from_secs(90);
 
@@ -196,7 +197,7 @@ impl Shared {
     }
 
     pub(super) async fn spawn_argv(&self, command: &str, argv: Vec<String>, tree: &str, timeout: u64, dir: &Path) -> Result<Ran, i32> {
-        let Some(log) = new_log() else {
+        let Some(log) = steps::timed("log open", new_log) else {
             warn("safe-push: could not create a land check log; NOT pushed.");
             return Err(1);
         };
@@ -235,13 +236,13 @@ impl Shared {
         let status = self.wait(&mut child).await;
         let ended_at = epoch();
         let mut marks = Vec::new();
-        let drained = tokio::time::timeout(REAP, async {
+        let drained = steps::awaited("log drain", tokio::time::timeout(REAP, async {
             for reader in &mut readers {
                 if let Ok(read) = reader.await {
                     marks.extend(read);
                 }
             }
-        })
+        }))
         .await;
         if drained.is_err() {
             readers.iter().for_each(tokio::task::JoinHandle::abort);
@@ -289,7 +290,7 @@ impl Shared {
         if !self.workflow.is_empty() && self.offload_host_for(&command).is_none() && let Some(reason) = self.config.off_actions_reason(&command) {
             say(&format!("safe-push: land check runs on this host because it {reason}"));
         }
-        let deadline = self.deadline_of(&command);
+        let deadline = steps::timed("deadline", || self.deadline_of(&command));
         let timeout = deadline.seconds;
         let label = if self.config.is_inferred(&command) { " (inferred)" } else { "" };
         say(&format!("safe-push: land check{label}: {command} ({deadline}; started {})", north_base::foundation::clock::Timestamp::now().iso_millis()));
@@ -300,7 +301,8 @@ impl Shared {
             Err(status) => return status,
         };
         let cpu = before.zip(children_cpu_seconds()).filter(|_| measured).map(|(before, after)| after - before);
-        self.finish_check(&command, Attempt { leased, started, timeout }, &ran, cpu, None).await
+        steps::add_all(steps::split(&ran));
+        steps::awaited("result write", self.finish_check(&command, Attempt { leased, started, timeout }, &ran, cpu, None)).await
     }
 }
 

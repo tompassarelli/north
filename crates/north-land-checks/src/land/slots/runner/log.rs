@@ -69,6 +69,7 @@ pub(super) async fn tee(mut source: impl AsyncRead + Unpin, log: PathBuf, sink: 
     let Ok(mut file) = OpenOptions::new().append(true).open(&log) else { return marks };
     let mut buffer = [0u8; 8192];
     let mut pending = Vec::new();
+    let (mut opened, mut previous) = (true, None::<Mark>);
     while let Ok(count) = source.read(&mut buffer).await {
         if count == 0 {
             break;
@@ -78,8 +79,18 @@ pub(super) async fn tee(mut source: impl AsyncRead + Unpin, log: PathBuf, sink: 
         while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
             let line = String::from_utf8_lossy(&pending[..end]).into_owned();
             pending.drain(..=end);
+            let at = epoch();
             if check_log::is_marker(&line) {
-                marks.push(Mark { at: epoch(), line });
+                if check_log::is_released(&line) {
+                    marks.extend(previous.take());
+                }
+                marks.push(Mark { at, line });
+                opened = true;
+            } else if opened {
+                marks.push(Mark { at, line });
+                opened = false;
+            } else {
+                previous = Some(Mark { at, line });
             }
         }
         match sink {
@@ -95,5 +106,6 @@ pub(super) async fn tee(mut source: impl AsyncRead + Unpin, log: PathBuf, sink: 
             }
         }
     }
+    marks.extend(previous);
     marks
 }

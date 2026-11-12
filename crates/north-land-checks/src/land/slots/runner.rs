@@ -32,9 +32,11 @@ mod offload_job;
 mod queue_checks;
 mod selection;
 mod spawn;
+mod steps;
 mod timeout_row;
 mod verdict;
 pub use queue_checks::{queue_commands, refuse_queue_checks};
+pub use steps::taken as queue_steps;
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
@@ -331,7 +333,7 @@ async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Con
     }
     let wanted = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
     if !wanted.is_empty() {
-        match build_host::placed(&program(), &wanted, &north_base::platform::host::name(), failed).await {
+        match steps::awaited("placement", build_host::placed(&program(), &wanted, &north_base::platform::host::name(), failed)).await {
             build_host::Placed::Host(host) => arguments.runner_host = host,
             build_host::Placed::Here => warn("safe-push: no build host has room, so the checks before queueing run on this host under the land-check capacity lease"),
             build_host::Placed::Unanswered => {
@@ -341,13 +343,12 @@ async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Con
         }
     }
     let host = arguments.runner_host.clone();
-    let commands = { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() };
+    let commands = steps::awaited("coverage", async { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() }).await;
     let (_cancel_sender, cancel) = watch::channel(false);
-    let Selections { scope, it, .. } = selections(&root, &arguments, &commands, None, &arguments.runner_host);
-    let trees = Trees::of(&root, &arguments.base, &arguments.head);
-    let paths = path_class(&root, &arguments.base, &arguments.head);
+    let Selections { scope, it, .. } = steps::timed("selection", || selections(&root, &arguments, &commands, None, &arguments.runner_host));
+    let (trees, paths) = steps::timed("trees", || (Trees::of(&root, &arguments.base, &arguments.head), path_class(&root, &arguments.base, &arguments.head)));
     let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
-    let pending = shared.cached(&commands).await;
+    let pending = steps::awaited("key lookup", shared.cached(&commands)).await;
     let status = if pending.is_empty() { 0 } else { shared.run_list(&pending).await.status() };
     Added { status, host, unanswered: false }
 }

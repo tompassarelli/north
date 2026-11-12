@@ -22,10 +22,23 @@ const TEST_RESULT: &str = "test result: ";
 const OFFLOAD_RUNNING: &str = "offload: running ";
 const WAITED_IN_LINE: &str = "offload: waited ";
 const RESERVED: &str = "\"decision\":\"RESERVED\"";
+const RELEASED: &str = "\"decision\":\"RELEASED\"";
 
 pub fn is_marker(line: &str) -> bool {
     let line = line.trim();
-    line.starts_with(RUNNING) || line.starts_with(DOC_TESTS) || line.starts_with(FINISHED) || line.starts_with(TEST_RESULT) || line.starts_with(OFFLOAD_RUNNING) || line.starts_with(WAITED_IN_LINE) || line.contains(RESERVED)
+    line.starts_with(RUNNING) || line.starts_with(DOC_TESTS) || line.starts_with(FINISHED) || line.starts_with(TEST_RESULT) || line.starts_with(OFFLOAD_RUNNING) || line.starts_with(WAITED_IN_LINE) || is_reserved(line) || is_released(line)
+}
+
+pub fn is_offload_running(line: &str) -> bool {
+    line.trim().starts_with(OFFLOAD_RUNNING)
+}
+
+pub fn is_reserved(line: &str) -> bool {
+    line.contains(RESERVED)
+}
+
+pub fn is_released(line: &str) -> bool {
+    line.contains(RELEASED)
 }
 
 pub fn cargo_seconds(text: &str) -> Option<f64> {
@@ -73,7 +86,7 @@ pub fn children(line: &Line<'_>, marks: &[Mark]) -> Vec<Span> {
                 spans.push(child("offload sync", Category::Offload, line.start, mark.at - waited));
             }
             spans.push(child("offload slot wait", Category::HostWait, mark.at - waited, mark.at));
-        } else if text.contains(RESERVED) {
+        } else if is_reserved(text) {
             if let Some(queued) = queued_seconds(text).filter(|queued| *queued > 0.0) {
                 spans.push(child("capacity lease wait", Category::HostWait, mark.at - queued, mark.at));
             }

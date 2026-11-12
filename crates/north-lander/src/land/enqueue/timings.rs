@@ -16,6 +16,7 @@ struct Stage {
     name: &'static str,
     start: f64,
     took: Duration,
+    steps: Vec<(&'static str, Duration)>,
 }
 
 impl Timings {
@@ -24,14 +25,19 @@ impl Timings {
     }
 
     pub(super) fn stage<T>(&self, name: &'static str, run: impl FnOnce() -> T) -> T {
+        self.stage_in_steps(name, run, Vec::new)
+    }
+
+    pub(super) fn stage_in_steps<T>(&self, name: &'static str, run: impl FnOnce() -> T, steps: impl FnOnce() -> Vec<(&'static str, Duration)>) -> T {
         let (start, began) = (epoch(), Instant::now());
         let result = run();
-        self.stages.lock().unwrap_or_else(PoisonError::into_inner).push(Stage { name, start, took: began.elapsed() });
+        let took = began.elapsed();
+        self.stages.lock().unwrap_or_else(PoisonError::into_inner).push(Stage { name, start, took, steps: steps() });
         result
     }
 
     pub(super) fn line(&self) -> String {
-        let stages: Vec<String> = self.stages.lock().unwrap_or_else(PoisonError::into_inner).iter().map(|stage| format!("{} {}", stage.name, seconds(stage.took))).collect();
+        let stages: Vec<String> = self.stages.lock().unwrap_or_else(PoisonError::into_inner).iter().map(described).collect();
         format!("safe-push: timings: total {}: {}", seconds(self.started.elapsed()), stages.join(", "))
     }
 
@@ -50,6 +56,14 @@ fn category(stage: &str) -> Category {
         "ticket" => Category::Queue,
         _ => Category::Check,
     }
+}
+
+fn described(stage: &Stage) -> String {
+    if stage.steps.is_empty() {
+        return format!("{} {}", stage.name, seconds(stage.took));
+    }
+    let steps: Vec<String> = stage.steps.iter().map(|(name, took)| format!("{name} {}", seconds(*took))).collect();
+    format!("{} {} ({})", stage.name, seconds(stage.took), steps.join(", "))
 }
 
 fn seconds(took: Duration) -> String {
