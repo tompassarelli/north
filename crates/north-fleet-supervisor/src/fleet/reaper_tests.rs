@@ -157,6 +157,41 @@ fn a_worker_parked_on_an_unlanded_lane_after_a_not_done_report_stays_and_stale_r
     assert!(digests[0].contains("3 sessions") && digests[0].contains("held: retired; /home/tom/code/north/worktrees/held-lane at 8ffd6add62, 1 commits") && digests[0].contains("exited: retired; /home/tom/code/north/worktrees/exited-lane at 6d0cecb063, 2 commits") && digests[0].contains("slow: kept; its lane /home/tom/code/north/worktrees/slow-lane did not answer"), "{digests:?}");
 }
 
+/// On 2026-11-13 the stale-session sweep retired a few sessions per reaper tick and the coordinator was woken every few minutes by one-line digests (north#1235).
+#[test]
+fn retirement_digests_reach_a_parent_at_most_once_per_half_hour_the_first_at_once_and_the_rest_accumulated_across_ticks_and_a_restart() {
+    let home = tempfile::tempdir().unwrap();
+    let (before, paper) = fleet(home.path());
+    let lead = live(&before, "lead");
+    let minute = 60_000;
+    let start = now_ms();
+    let lane = |name: &str| (name.to_owned(), Unlanded::Ahead(Ahead { path: format!("/home/tom/code/north/worktrees/{name}-lane").into(), tip: "8ffd6add62".into(), commits: 1 }));
+    let evidence = Sight { lanes_ahead: ["first", "second", "third"].map(lane).into(), ..Sight::default() };
+    let digests = || lead.frames.lock().unwrap().iter().filter(|frame| frame.contains("lanes hold commits not on origin/main")).cloned().collect::<Vec<String>>();
+    let retire = |fleet: &Fleet, paper: &Paper, name: &str, at: u64| {
+        reported(fleet, name, Some("lead"), "Done: nothing to land.");
+        paper.claim_receipt(name, "turn:1", now_ms()).unwrap();
+        assert_eq!(retired(&reap_after(fleet, &evidence, 24 * HOUR, at, true)), [name]);
+    };
+
+    retire(&before, &paper, "first", start);
+    let sent = digests();
+    assert!(sent.len() == 1 && sent[0].contains("1 sessions") && sent[0].contains("first: retired"), "{sent:?}");
+
+    retire(&before, &paper, "second", start + 5 * minute);
+    let (restarted, paper) = fleet(home.path());
+    retire(&restarted, &paper, "third", start + 10 * minute);
+    reap_after(&restarted, &evidence, 24 * HOUR, start + 29 * minute, true);
+    assert_eq!(digests().len(), 1, "nothing more within the half hour");
+
+    reap_after(&restarted, &evidence, 24 * HOUR, start + 31 * minute, true);
+    let sent = digests();
+    assert!(sent.len() == 2 && sent[1].contains("2 sessions") && sent[1].contains("second: retired") && sent[1].contains("third: retired"), "{sent:?}");
+
+    reap_after(&restarted, &evidence, 24 * HOUR, start + 62 * minute, true);
+    assert_eq!(digests().len(), 2, "nothing is sent twice");
+}
+
 /// north-669-d1955 stopped on `Stop: landing` with its guards lane queued: the reaper keeps it while the lane is open and
 /// after the lander decides it until the session is woken, and retires it once the lane is settled (north#790).
 #[test]

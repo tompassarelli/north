@@ -1,5 +1,6 @@
 pub use north_fleet::fleet::*;
 
+pub mod digest;
 pub mod forget;
 pub mod handover;
 pub mod launch_queue;

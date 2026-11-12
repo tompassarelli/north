@@ -1692,6 +1692,14 @@ source = "measured: dry run of north fleet reap on the laptop, 2026-11-06 2:40 P
 fallback = "a session the fleet tick does not retire stays addressable until the proxy forgets it"
 consumers = ["crates/north-fleet-supervisor/src/fleet/reaper.rs"]
 
+[fleet_digest_minutes]
+value = 30
+allowed = { min = 1, max = 1440 }
+unit = "minutes between the digests the reaper sends one parent about its retired sessions' unlanded lanes: the first after a quiet interval goes at once, later ones accumulate into one message sent when the interval since the last send ends"
+source = "measured: on 2026-11-13 the stale-session sweep retired a few old sessions per reaper tick and one-line digests woke the coordinator every few minutes (north#1235); half an hour bounds a parent to at most two such wakes an hour while a lane that needs landing is still told within the half hour"
+fallback = "a parent is told once per reaper tick, as before north#1235"
+consumers = ["crates/north-fleet-supervisor/src/fleet/digest.rs"]
+
 [help_visible_ceiling]
 value = 27
 allowed = { min = 1, max = 200 }

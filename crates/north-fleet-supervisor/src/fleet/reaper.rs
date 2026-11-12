@@ -12,12 +12,11 @@ use toml_edit::DocumentMut;
 
 use super::detached::{self, Prior, Scope};
 use super::jobs::Lease;
-use super::model::{Delivery, Entry, EntryKind, Phase, Role, SessionRecord, Status};
+use super::model::{Entry, EntryKind, Phase, Role, SessionRecord, Status};
 use super::receipts::is_final;
 use super::registry::{Fleet, worktree_of};
 use super::resume::{Landing, ended_ms, landing};
 use super::runtime::binary;
-use super::sender::Sender;
 use super::transcript::last_written;
 
 const STALE_KEY: &str = "fleet_stale_hours";
@@ -266,9 +265,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
         }
     }
     if apply {
-        for (parent, lanes) in &unlanded {
-            tell_unlanded(fleet, parent, lanes);
-        }
+        fleet.tell_retirement_digests(unlanded.iter().map(|(parent, lanes)| (parent.clone(), lanes.iter().map(digest_line).collect())).collect(), now_ms);
     }
     if apply && let Err(why) = fleet.tell_retirement(verdicts, now_ms) {
         eprintln!("fleet reaper: graph tick failed: {why}");
@@ -308,17 +305,10 @@ fn retire_unleased(fleet: &Fleet, (reaped, unlanded): (&mut Reaped, &mut Digests
     }
 }
 
-fn tell_unlanded(fleet: &Fleet, parent: &str, lanes: &[(String, Unlanded)]) {
-    let lines: String = lanes
-        .iter()
-        .map(|(name, lane)| match lane {
-            Unlanded::Ahead(ahead) => format!("\n- {name}: retired; {} at {}, {} commits ahead of origin/main", ahead.path.display(), ahead.tip, ahead.commits),
-            Unlanded::Unread(path) => format!("\n- {name}: kept; its lane {} did not answer within {PROBE_SECS} s", path.display()),
-        })
-        .collect();
-    let text = format!("[north: {} sessions' lanes hold commits not on origin/main or could not be read; land or restaff each]{lines}", lanes.len());
-    if let Err(error) = fleet.send_signed(&Sender::fleet(), parent, &text, Delivery::Queued) {
-        eprintln!("fleet reaper: {parent} was not told of {} unlanded lanes: {}", lanes.len(), error.user_message());
+fn digest_line((name, lane): &(String, Unlanded)) -> String {
+    match lane {
+        Unlanded::Ahead(ahead) => format!("\n- {name}: retired; {} at {}, {} commits ahead of origin/main", ahead.path.display(), ahead.tip, ahead.commits),
+        Unlanded::Unread(path) => format!("\n- {name}: kept; its lane {} did not answer within {PROBE_SECS} s", path.display()),
     }
 }
 
