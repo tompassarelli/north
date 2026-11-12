@@ -63,6 +63,17 @@ writer = "tune"
 host = "ledger"
 
 [[loop]]
+name = "skill-switch"
+decision = "whether each learned value (ETA, budget, cost, tier success, arm shares) drives its decision or its constant does"
+sites = ["crates/north-graph-loops/src/skill.rs", "crates/north-dispatch/src/dispatch/grounds.rs", "crates/north-dispatch/src/dispatch/survey.rs"]
+signal = "each learned value's walk-forward loss on the ledger's last 14 days against the constant it would replace (crates/north-calibration/src/threads/calibration/backtest.rs)"
+updated_by = "north tune"
+cadence_hours = 24
+store = "graph"
+writer = "backtest"
+host = "ledger"
+
+[[loop]]
 name = "effort"
 decision = "the reasoning effort a launch runs at"
 sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-dispatch/src/dispatch/cells.rs", "crates/north-dispatch/src/dispatch/manual.rs", "src/cli/fleet/tier.rs"]

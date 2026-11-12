@@ -1,0 +1,3 @@
+{"find": "skill", "rules": [
+  {"head": {"rel": "skill", "args": [{"var": "subject"}, {"var": "predicate"}, {"var": "value"}]},
+   "body": [{"rel": "assertion", "args": ["backtest", {"var": "subject"}, {"var": "predicate"}, {"var": "value"}]}]}]}

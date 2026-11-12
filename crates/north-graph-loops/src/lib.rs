@@ -12,6 +12,7 @@ mod fleet;
 mod lander_doctor;
 mod rules;
 pub mod scoreboard;
+pub mod skill;
 pub mod slow_test;
 
 #[cfg(test)]

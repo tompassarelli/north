@@ -4,6 +4,7 @@
 //! walk-forward `eta_pred` calibration and the budget never below the window's median closed box.
 use super::tier::{Route, Tier};
 use super::tuned::{Figure, Tuned};
+use north_graph_loops::skill::{self, Decision};
 use crate::ledger::{self, ClosedReport, Figures, PriorReport, RunEnd, RunTime};
 use crate::threads::calibration::scaled;
 use std::collections::BTreeMap;
@@ -29,6 +30,7 @@ pub struct Ledger {
     times: BTreeMap<String, RunTime>,
     ends: BTreeMap<String, RunEnd>,
     tuned: Tuned,
+    set_aside: SetAside,
     eta_scales: BTreeMap<Tier, EtaScale>,
     /// This host's home: a carried report's path under it that is gone here is marked, so no worker is sent to it.
     home: Option<PathBuf>,
@@ -65,7 +67,7 @@ impl Ledger {
             }
         }
         let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from);
-        Self { closed, prior, times, ends, tuned: Tuned::current(), eta_scales, home }
+        Self { closed, prior, times, ends, tuned: Tuned::current(), set_aside: SetAside::current(), eta_scales, home }
     }
 
     #[cfg(test)]
@@ -105,10 +107,36 @@ impl Ledger {
             budget_cell: self.tuned.figure("budget_usd", route),
             eta_scale: self.eta_scales.get(&route.tier).cloned(),
             floor: self.closed.as_ref().and_then(ClosedReport::median_box_usd),
+            set_aside: self.set_aside.clone(),
             prior,
             not_required: not_required(body),
             home: self.home.clone(),
         }
+    }
+}
+
+/// A constant the skill switch puts in place of a learned value, and the one line saying why.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Constant {
+    pub value: f64,
+    pub why: String,
+}
+
+/// The decisions of a brief whose learned value the skill switch set aside, each with the constant it reads instead.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SetAside {
+    pub eta: Option<Constant>,
+    pub budget: Option<Constant>,
+    pub cost: Option<Constant>,
+}
+
+impl SetAside {
+    pub fn current() -> Self {
+        let read = |decision| {
+            let verdict = skill::verdict(decision);
+            Some(Constant { value: verdict.constant()?, why: verdict.line()? })
+        };
+        Self { eta: read(Decision::Eta), budget: read(Decision::Budget), cost: read(Decision::Cost) }
     }
 }
 
@@ -123,6 +151,8 @@ pub struct Grounds {
     /// The median cost of a closed box across every cell of the window, and how many closed: what
     /// one real box needs, however little a cell's own few boxes cost.
     pub floor: Option<(f64, usize)>,
+    /// The constants the skill switch puts in place of a learned ETA, budget or cost that loses to them.
+    pub set_aside: SetAside,
     pub prior: Vec<String>,
     pub not_required: Vec<String>,
     /// This host's home, whose absent paths in a carried report read as `[absent on this host]`.
@@ -145,6 +175,9 @@ impl Grounds {
     /// tier's calibration, else what the issue declares, else the uncalibrated default.
     pub fn eta(&self, declared: Option<&str>, route: &Route) -> String {
         let aside = declared.map_or_else(String::new, |declared| format!("; declared {declared}"));
+        if let Some(constant) = &self.set_aside.eta {
+            return format!("{:.0} min (the p75 of every worker run, ledger 7d; {}{aside})", constant.value, constant.why);
+        }
         let (minutes, source) = match (&self.eta_cell, &self.figures) {
             (Some(tuned), _) => (tuned.value.ceil(), format!("tune cell, {}", tuned.date)),
             (None, Some(figures)) => (eta_minutes(figures), format!("p75 of n={} runs, {}", figures.runs, cell(route))),
@@ -157,6 +190,9 @@ impl Grounds {
     /// The minutes the ETA line gives the box when the tune cell or the ledger measured it, scaled
     /// by the tier's calibration.
     pub fn minutes(&self) -> Option<f64> {
+        if let Some(constant) = &self.set_aside.eta {
+            return Some(constant.value);
+        }
         self.measured_minutes().map(|measured| self.scaled(measured))
     }
 
@@ -169,14 +205,19 @@ impl Grounds {
     }
 
     pub fn measured(&self) -> bool {
-        self.figures.is_some() || self.eta_cell.is_some() || self.budget_cell.is_some()
+        self.figures.is_some() || self.eta_cell.is_some() || self.budget_cell.is_some() || self.set_aside.eta.is_some() || self.set_aside.budget.is_some()
     }
 
     pub fn budget(&self, route: &Route) -> Option<String> {
-        let (p50, p90, source) = match (&self.budget_cell, &self.figures) {
-            (Some(tuned), figures) => (figures.as_ref().map(|figures| figures.median_usd), tuned.value, format!("tune cell, {}", tuned.date)),
-            (None, Some(figures)) => (Some(figures.median_usd), figures.p90_usd, format!("p50 and p90 of n={} closed boxes, {}", figures.closed, cell(route))),
-            (None, None) => return None,
+        let (p50, p90, source) = match (&self.set_aside.budget, &self.budget_cell, &self.figures) {
+            (Some(constant), _, figures) => (figures.as_ref().map(|figures| figures.median_usd), constant.value, format!("the p90 of every worker run, ledger 7d; {}", constant.why)),
+            (None, Some(tuned), figures) => (figures.as_ref().map(|figures| figures.median_usd), tuned.value, format!("tune cell, {}", tuned.date)),
+            (None, None, Some(figures)) => (Some(figures.median_usd), figures.p90_usd, format!("p50 and p90 of n={} closed boxes, {}", figures.closed, cell(route))),
+            (None, None, None) => return None,
+        };
+        let (p50, source) = match &self.set_aside.cost {
+            Some(constant) => (Some(constant.value), format!("{source}; p50 the median of every worker run, {}", constant.why)),
+            None => (p50, source),
         };
         let (p90, source) = match self.floor.filter(|(floor, _)| p90 < *floor) {
             Some((floor, boxes)) => (floor, format!("{source}; the p90 ${p90:.2} is below the median cost of a closed box across every cell (n={boxes} boxes, ledger {WINDOW}), which one real box needs")),

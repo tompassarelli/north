@@ -95,3 +95,23 @@ fn a_recording_of_one_repository_leaves_the_others_reviews_and_replaces_its_own_
     let told = read_from(&graph).unwrap();
     assert_eq!((told.reviews["north"].clone(), told.reviews["wisp"].clone(), told.at), (review(4.0, 0.1, &["hotspot a.rs"]), review(2.0, 0.0, &[]), Some(2_000)));
 }
+
+#[test]
+fn a_learned_value_that_loses_to_its_constant_is_set_aside_and_one_that_wins_drives() {
+    use crate::skill::{Decision, Skill, Verdict, tell_skills_to, verdict_from};
+    let mut graph = Graph::open_in_memory().unwrap();
+    assert_eq!(verdict_from(&graph, Decision::Eta).unwrap(), Verdict::Unjudged);
+    let losing = Skill { decision: Decision::Eta, n: 1_400, learned: 31.0, constant: 27.0, value: Some(48.0) };
+    let winning = Skill { decision: Decision::Budget, n: 1_400, learned: 1.2, constant: 1.9, value: Some(9.0) };
+    let thin = Skill { decision: Decision::ArmShares, n: 12, learned: 9.0, constant: 4.0, value: None };
+    tell_skills_to(&mut graph, &[losing.clone(), winning.clone(), thin], 1_000).unwrap();
+    let eta = verdict_from(&graph, Decision::Eta).unwrap();
+    assert_eq!((eta.drives(), eta.constant()), (false, Some(48.0)));
+    assert!(eta.line().is_some_and(|line| line.contains("set aside")));
+    assert_eq!(verdict_from(&graph, Decision::Budget).unwrap(), Verdict::Drives(winning));
+    assert!(verdict_from(&graph, Decision::ArmShares).unwrap().drives(), "a reading under its minimum runs leaves the value driving");
+    let recovered = Skill { learned: 25.0, ..losing };
+    tell_skills_to(&mut graph, &[recovered], 2_000).unwrap();
+    assert!(verdict_from(&graph, Decision::Eta).unwrap().drives(), "a value set aside drives again once it wins");
+    assert_eq!(verdict_from(&graph, Decision::Budget).unwrap(), Verdict::Unjudged);
+}

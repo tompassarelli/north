@@ -11,6 +11,7 @@ use super::grounds::Ledger;
 use super::fleets::{self, PROBE, Session, remote_json};
 use super::revive::Strand;
 use crate::error::NorthResult;
+use north_graph_loops::skill::{self, Decision};
 use crate::fleet::model::ProviderName;
 use crate::fleet::records::RetiredReport;
 use crate::ledger::ClosedReport;
@@ -376,7 +377,12 @@ pub(super) fn read_closed(report: NorthResult<ClosedReport>, notes: &mut Vec<Str
 
 pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
     let closed = read_closed(crate::ledger::recorded_closed_report(tier::ARM_WINDOW), notes);
-    evidence_from(categories, closed.as_ref())
+    let mut evidence = evidence_from(categories, closed.as_ref());
+    if let Some(line) = skill::verdict(Decision::ArmShares).line() {
+        notes.push(format!("every arm draws an equal share: {line}"));
+        evidence.values_mut().for_each(|evidence| evidence.outcomes.clear());
+    }
+    evidence
 }
 
 pub fn record_closed_reports() -> NorthResult<()> {

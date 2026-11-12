@@ -13,7 +13,8 @@
 //! a category holds enough runs carrying one, and moves an ETA or budget cell at most 2x from its prior value per tick. It prints the share of the last day's finished runs
 //! that recorded each essential field and fails when one is under 98%. It prints each skill's
 //! closed-box rate and cost against matched boxes that did not load it, and flags the installed
-//! skills no run loaded and those whose boxes did worse.
+//! skills no run loaded and those whose boxes did worse. Before the loop check it runs the skill switch's backtest (`switch`) and tells each
+//! decision's reading to the graph; `--backtest` prints that table alone and tells nothing.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, EstimatedRun, rises};
 use crate::dispatch::tuned::{WRITER, directory};
@@ -36,10 +37,11 @@ mod coverage;
 mod dividends;
 mod estimates;
 mod skills;
+pub mod switch;
 #[cfg(test)]
 mod tests;
 
-const USAGE: &str = "usage: north tune [--dry-run]";
+const USAGE: &str = "usage: north tune [--dry-run | --backtest]";
 const REPO: &str = "tompassarelli/north";
 
 /// The north issue tracker a tick reads and files to.
@@ -165,6 +167,10 @@ pub fn run(arguments: &[String]) -> u8 {
     let dry_run = match arguments {
         [] => false,
         [flag] if flag == "--dry-run" => true,
+        [flag] if flag == "--backtest" => {
+            switch::judge(true).iter().for_each(|line| println!("{line}"));
+            return 0;
+        }
         _ => {
             eprintln!("{USAGE}");
             return 2;
@@ -201,6 +207,7 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     let prior = Prior { cells: learned.cells.clone(), costs: files.costs()?, readings: files.readings()?, breaches: files.breaches()? };
     let tick = tick(&ledger, &prior, &dividends::definitions()?, &mut Gh { rolling: rolling_issue::Gh::north() }, &at, dry_run);
     tick.lines.iter().for_each(|line| println!("{line}"));
+    switch::judge(dry_run).iter().for_each(|line| println!("{line}"));
     let loops = crate::loops::here(None);
     match &loops {
         Ok(checked) => checked.lines.iter().for_each(|line| println!("{line}")),
