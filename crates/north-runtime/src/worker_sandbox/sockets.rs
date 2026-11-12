@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use rustix::mount::{MountPropagationFlags, mount_bind, mount_change};
 use rustix::thread::{LinkNameSpaceType, UnshareFlags, move_into_link_name_space, unshare};
 
+use north_base::foundation::offload::MASTER_SOCKET;
+
 use super::Context;
 
 const KEPT: [&str; 6] = ["wayland-", "pipewire-", "pulse", "private-desktop", "cc-socks", "north"];
@@ -25,11 +27,13 @@ pub fn multiplexer(uid: u32, tmpdir: Option<OsString>) -> PathBuf {
     tmpdir.filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from("/tmp"), PathBuf::from).join(format!("tmux-{uid}"))
 }
 
-/// The sockets a worker command may not connect to: every socket in the runtime directory other than those of the display and audio servers, north's own and Claude Code's proxy, the sockets of the terminal multiplexer, and the `ssh` ones through which ssh reaches another host without reading a key. The kernel's Landlock before ABI 9 cannot refuse a connect(2), so `hide` puts a null device over each.
+/// The sockets a worker command may not connect to: every socket in the runtime directory other than those of the display and audio servers, north's own and Claude Code's proxy, the sockets of the terminal multiplexer, and the `ssh` ones through which ssh reaches another host without reading a key, the offload masters among them whatever north's own names keep. The kernel's Landlock before ABI 9 cannot refuse a connect(2), so `hide` puts a null device over each.
 pub fn hidden(runtime: &Path, multiplexer: &Path, ssh: &[PathBuf]) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for entry in std::fs::read_dir(runtime).into_iter().flatten().flatten() {
-        if !KEPT.iter().any(|prefix| entry.file_name().to_string_lossy().starts_with(prefix)) {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(MASTER_SOCKET) || !KEPT.iter().any(|prefix| name.starts_with(prefix)) {
             sockets(&entry.path(), DEPTH, &mut found);
         }
     }

@@ -125,14 +125,14 @@ fn bash_program() -> std::path::PathBuf {
 #[test]
 fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming_the_probe() {
     let host = Host::promoted();
-    let fleet = host.fleet(Some(("ssh gex45 true", exited(255, "ssh: Could not resolve hostname gex45\n"))));
+    let fleet = host.fleet(Some(("reaches gex45 through", exited(255, "ssh: Could not resolve hostname gex45\n"))));
     assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::RolledBack);
-    assert_eq!(fleet.probed.lock().unwrap().len(), 6);
+    assert_eq!(fleet.probed.lock().unwrap().len(), 7);
     assert_eq!(host.current(), layout::link(PREVIOUS));
     assert_eq!(lifecycle::state_of::<Promoting>(&host.layout, PROMOTED).unwrap(), Some(Promotion::RolledBack));
     let alarms = fleet.alarms.lock().unwrap();
     assert_eq!(alarms.len(), 1);
-    assert!(alarms[0].contains("probe `a sandboxed worker shell runs ssh gex45 true` exited 255"), "{}", alarms[0]);
+    assert!(alarms[0].contains("probe `a sandboxed worker shell reaches gex45 through north capacity offload` exited 255"), "{}", alarms[0]);
     assert!(alarms[0].contains("Could not resolve hostname gex45"), "{}", alarms[0]);
     assert!(alarms[0].contains("rolled back to 11111111"), "{}", alarms[0]);
     assert!(matches!(update::hold::verdict(&host.layout, PROMOTED, true).unwrap(), update::hold::Verdict::Held(_)));
@@ -168,7 +168,8 @@ fn the_hub_reached_as_user_at_host_probes_its_fetch_and_never_ssh_to_itself() {
     let fleet = host.fleet(None);
     assert_eq!(check(&host.layout, "tom@gex45", PROMOTED, &fleet), Verdict::Passed);
     let probed = fleet.probed.lock().unwrap();
-    assert!(probed.iter().all(|name| !name.contains("ssh gex45")), "{probed:?}");
+    assert!(probed.iter().all(|name| !name.contains("reaches gex45")), "{probed:?}");
+    assert!(probed.iter().any(|name| name.contains("own ssh reaches no host")), "{probed:?}");
     assert!(probed.iter().any(|name| name.contains("gex45 fetches")), "{probed:?}");
     assert!(probed.iter().all(|name| !name.contains("--test")), "{probed:?}");
 }
@@ -326,7 +327,8 @@ fn a_host_that_launches_no_sessions_is_not_probed_for_a_worker_shell_reaching_th
     fleet.reaches_hub = false;
     assert_eq!(check(&host.layout, "tom@cpx62", PROMOTED, &fleet), Verdict::Passed);
     let probed = fleet.probed.lock().unwrap();
-    assert!(probed.iter().all(|name| !name.contains("ssh gex45")), "{probed:?}");
+    assert!(probed.iter().all(|name| !name.contains("reaches gex45")), "{probed:?}");
+    assert!(probed.iter().any(|name| name.contains("own ssh reaches no host")), "{probed:?}");
     assert!(probed.iter().any(|name| name.contains("claude")), "{probed:?}");
 }
 
@@ -401,7 +403,7 @@ fn a_probe_still_working_at_its_deadline_is_no_verdict() {
 fn a_host_with_no_previous_runtime_holds_a_failing_promotion_instead_of_failing_its_rollback() {
     let host = Host::promoted();
     fs::remove_dir_all(host.layout.runtime(PREVIOUS)).unwrap();
-    let fleet = host.fleet(Some(("ssh gex45 true", exited(255, "ssh: Could not resolve hostname gex45\n"))));
+    let fleet = host.fleet(Some(("reaches gex45 through", exited(255, "ssh: Could not resolve hostname gex45\n"))));
     let verdict = check(&host.layout, "cpx62", PROMOTED, &fleet);
     assert!(matches!(verdict, Verdict::Unrun(ref why) if why.contains("nothing to roll back")), "{verdict:?}");
     assert_eq!(host.current(), layout::link(PROMOTED));

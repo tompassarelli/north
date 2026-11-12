@@ -17,6 +17,9 @@ const SUFFIX_LENGTH: usize = 8;
 const VALUED: &[u8] = b"BbcDEeFIiJLlmOoPpQRSWw";
 const UNSCOPED: &[u8] = b"NOsGV";
 const PROTOCOLS: [&str; 4] = ["north", "threads", "nix-store", "nix-daemon"];
+const HOSTS_HIDDEN: &str = super::session_scope::HOSTS_HIDDEN;
+const REFUSED: u8 = 126;
+const REFUSAL: &str = "north ssh-session: a worker command reaches no other host over ssh, scp or rsync: its sandbox reads no ssh key and hides the agent and master sockets. Run a command on a build host with `north capacity offload run --host HOST --base BASE --head HEAD --timeout SECONDS -- 'COMMAND'` (`north capacity offload hosts` lists the hosts), land with `north finish` or `safe-push`, and reach the ledger with `north threads`.";
 
 pub fn run(arguments: &[String]) -> u8 {
     if matches!(arguments, [word] if word == "-h" || word == "--help") {
@@ -27,11 +30,20 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 1;
     };
+    if let Some(refusal) = refusal(rest, std::env::var_os(HOSTS_HIDDEN).is_some_and(|hidden| hidden == "1")) {
+        eprintln!("{refusal}");
+        return REFUSED;
+    }
     let session = std::env::var(SESSION_ENV).ok().filter(|session| !session.is_empty());
     let words = session.map_or_else(|| rest.to_vec(), |session| scoped(rest, &session, &suffix()));
     let error = Command::new(real).args(words).exec();
     eprintln!("north ssh-session: cannot run {real}: {error}");
     127
+}
+
+/// What a command whose sandbox hides every other host is told in place of ssh's key error, naming the verbs that reach one, unless the call only asks ssh about itself (`-V`, `-G`).
+fn refusal(arguments: &[String], hosts_hidden: bool) -> Option<&'static str> {
+    (hosts_hidden && !arguments.iter().any(|word| word == "-V" || word == "-G")).then_some(REFUSAL)
 }
 
 fn suffix() -> String {

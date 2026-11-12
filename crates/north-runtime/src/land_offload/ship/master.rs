@@ -6,7 +6,7 @@ const READY_POLL: Duration = Duration::from_millis(100);
 
 fn control_path() -> String {
     let runtime = std::env::var("XDG_RUNTIME_DIR").ok().filter(|directory| !directory.is_empty()).unwrap_or_else(|| format!("/run/user/{}", rustix::process::getuid().as_raw()));
-    format!("{runtime}/north-offload-%C")
+    format!("{runtime}/{}%C", north_base::foundation::offload::MASTER_SOCKET)
 }
 
 fn unit_name(ssh: &str) -> String {

@@ -221,8 +221,44 @@ fn a_lane_test_binary_run_by_path_outside_depbox_is_refused() {
 
 #[test]
 fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_carries_no_injected_code() {
+    use std::io::{Read, Write};
+    use std::os::unix::net::{UnixListener, UnixStream};
     let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
-    for refused in ["sh -c id", "depbox run", "depbox exec -- cargo", "lane exec x", "--worker-sandbox -- sh", "capacity host run --class moderate", "capacity host run --class moderate --", "capacity host status"] {
+    let scratch = tempfile::tempdir().unwrap();
+    let master = scratch.path().join(format!("{}0a1b", north_base::foundation::offload::MASTER_SOCKET));
+    let _listening = UnixListener::bind(&master).unwrap();
+    assert_eq!(super::sockets::hidden(scratch.path(), &scratch.path().join("tmux-0"), &[]), [master], "an offload master is hidden although its name begins as north's own sockets do");
+    let declared = |host: &str| host == "gex45";
+    let run = "capacity offload run --host gex45 --base aaa --head bbb --timeout 60 -- true";
+    for allowed in [run, "capacity offload run --background --host gex45 --base aaa --head bbb --timeout 60 -- true", "capacity offload free --host gex45", "capacity offload hosts", "capacity offload slots"] {
+        assert!(super::broker::permitted(&words(allowed)), "{allowed}");
+        assert_eq!(super::broker::offload_refusal(&words(allowed), false, declared), None, "{allowed}");
+    }
+    let undeclared = super::broker::offload_refusal(&words("capacity offload run --host elsewhere --base aaa --head bbb --timeout 60 -- true"), false, declared);
+    assert!(undeclared.as_deref().is_some_and(|why| why.contains("elsewhere")), "a host this one does not declare: {undeclared:?}");
+    assert!(super::broker::offload_refusal(&words("capacity offload free --host here"), false, |host| host != "here").is_some(), "this host's own name, whose run stays in the caller's domain");
+    assert!(super::broker::offload_refusal(&words(run), true, declared).is_some(), "a lane-only session");
+    let north = Path::new("/nonexistent/north");
+    let asked_of = |older: bool| {
+        let (client, server) = UnixStream::pair().unwrap();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                if older {
+                    let mut heard = [0u8; 4096];
+                    let _ = (&server).read(&mut heard).unwrap();
+                    (&server).write_all(&[126]).unwrap();
+                } else {
+                    super::broker::answer(north, &server, None, &super::lane_grant::Host::own()).unwrap();
+                }
+            });
+            super::broker::knows(&client, &words(run))
+        })
+    };
+    let mut brokers = [true, true, false].into_iter();
+    assert!(super::broker::await_knowing(|| asked_of(brokers.next().unwrap()), std::time::Duration::from_secs(5)), "a request the replaced build's broker has never heard waits for the broker that runs it");
+    assert_eq!(brokers.next(), None, "it asked the older broker twice and stopped at the first that runs the request");
+    assert!(!super::broker::await_knowing(|| asked_of(true), std::time::Duration::ZERO), "past the wait it is not sent to a broker that would refuse it");
+    for refused in ["sh -c id", "depbox run", "depbox exec -- cargo", "lane exec x", "--worker-sandbox -- sh", "capacity host run --class moderate", "capacity host run --class moderate --", "capacity host status", "capacity offload reap --owner land", "capacity offload take --once", "capacity offload choose --any --needs /etc/shadow", "capacity offload run --host gex45 -o ProxyCommand=id --base aaa --head bbb --timeout 60 -- true", "capacity offload run --host gex45 --base --upload-pack=id --head bbb --timeout 60 -- true", "capacity offload run --host gex45 --base aaa --head bbb --timeout 60 -- true id", "capacity offload free --host gex45 -F /tmp/config"] {
         assert!(!super::broker::permitted(&words(refused)), "{refused}");
     }
     for allowed in ["depbox run -- cargo check", "depbox fetch -- cargo fetch", "lane unlock x", "lane stray y", "lane remove z", "lane sync /c/main", "home move plan.tsv", "--worker-sandbox --built -- ./t", "--worker-sandbox --lane -- /bin/sh -c true", "capacity host run --class moderate --owner o --timeout-seconds 9 -- cargo check"] {

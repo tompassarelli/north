@@ -7,6 +7,9 @@ use std::process::{Command, Stdio};
 /// Set on a command whose sandbox has hidden the sockets that reach the user manager, so a verb that needs a transient scope asks the outside broker for it.
 pub const SOCKETS_HIDDEN: &str = "NORTH_SOCKETS_HIDDEN";
 
+/// Set on a command whose sandbox keeps it from every other host, reading no ssh key and reaching no agent or master socket (south#118), so `north ssh-session` answers its ssh with the verb that reaches a build host.
+pub const HOSTS_HIDDEN: &str = "NORTH_WORKER_HOSTS_HIDDEN";
+
 /// The trees, as a JSON array of paths, a worker command may remove beneath, for the process the outside broker hands its work to: depbox sets it in the sandbox where its payload applies it, since a mount namespace cannot be built inside the worker's Landlock domain.
 pub const REMOVAL_ROOTS: &str = "NORTH_WORKER_REMOVAL_ROOTS";
 

@@ -26,6 +26,8 @@ pub const SOCKET_ENV: &str = "NORTH_OUTSIDE_BROKER";
 const UNIT: &str = "north-worker-outside";
 const SLICE: &str = "agent.slice";
 const NAMESPACE: &str = "--namespaces";
+const KNOWS: &str = "--knows";
+const HANDOVER_WAIT: Duration = Duration::from_secs(20);
 const LENGTH_BYTES: usize = 8;
 const ANSWER_WAIT: Duration = Duration::from_secs(10);
 const REQUEST_LIMIT: usize = 4 << 20;
@@ -51,7 +53,7 @@ fn socket() -> PathBuf {
     std::env::var_os(SOCKET_ENV).filter(|value| !value.is_empty()).map_or_else(|| runtime().join(DIRECTORY).join(SOCKET), PathBuf::from)
 }
 
-/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `threads` reaches a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and is refused to a lane-only caller.
+/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `threads` reaches a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and is refused to a lane-only caller; `capacity offload` in the words `land_offload::worker_request` reads runs a command on another declared host under that host's lease, the one way a worker command reaches a build host, refused to a lane-only caller and for any host this one does not declare.
 /// Where the command begins in the arguments of `capacity host run`: after the first `--`, when a word follows it.
 fn payload(words: &[&str]) -> Option<usize> {
     words.iter().position(|word| *word == "--").map(|at| at + 1).filter(|start| *start < words.len())
@@ -73,7 +75,21 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
         ["lane", "unlock" | "stray" | "remove" | "gc" | "sync", ..] => true,
         ["home", "move", ..] | ["threads", _, ..] => true,
         ["capacity", "host", "run", rest @ ..] => payload(rest).is_some(),
+        ["capacity", "offload", rest @ ..] => crate::land_offload::worker_request(rest).is_some(),
         _ => lane_grant::privileged(arguments),
+    }
+}
+
+/// Why an offload request is refused, if it is: a lane-only session sends none, and the host it names is another host `reaches` holds, never the caller's word alone, since these verbs are the one way a worker command runs anything on another host.
+pub(super) fn offload_refusal(arguments: &[String], lane_only: bool, reaches: impl Fn(&str) -> bool) -> Option<String> {
+    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let ["capacity", "offload", rest @ ..] = words.as_slice() else { return None };
+    if lane_only {
+        return Some("a lane-only session's command reaches no build host through the broker".to_owned());
+    }
+    match crate::land_offload::worker_request(rest) {
+        Some(Some(host)) if !reaches(host) => Some(format!("{host} is not another host this one declares with an ssh destination")),
+        _ => None,
     }
 }
 
@@ -88,11 +104,44 @@ pub fn request(arguments: &[String]) -> Result<u8, String> {
         return Err(format!("north worker-sandbox: {} is not a request the outside broker runs", arguments.join(" ")));
     }
     let path = socket();
-    let stream = UnixStream::connect(&path).map_err(|error| format!("north worker-sandbox: the outside broker at {} does not answer ({error}); it starts with the next agent command", path.display()))?;
+    let connect = || UnixStream::connect(&path).map_err(|error| format!("north worker-sandbox: the outside broker at {} does not answer ({error}); it starts with the next agent command", path.display()));
+    connect()?;
+    if newer_shape(arguments) && !await_knowing(|| UnixStream::connect(&path).is_ok_and(|asked| knows(&asked, arguments)), HANDOVER_WAIT) {
+        return Err(format!("north worker-sandbox: the outside broker at {} runs a north older than this one and did not hand over within {} s, so `north {}` was not sent", path.display(), HANDOVER_WAIT.as_secs(), arguments.iter().take(3).cloned().collect::<Vec<_>>().join(" ")));
+    }
+    let stream = connect()?;
     let directory = std::env::current_dir().map_err(|error| error.to_string())?;
     let environment = std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect();
     let (stdin, stdout, stderr) = (std::io::stdin(), std::io::stdout(), std::io::stderr());
     send(&stream, Request { arguments: arguments.to_vec(), directory, environment }, [stdin.as_fd(), stdout.as_fd(), stderr.as_fd()])
+}
+
+/// Whether `arguments` have a shape no older than the question `knows` asks, so a broker still serving from a replaced build may never have heard it; every shape older than the question is sent as it always was.
+fn newer_shape(arguments: &[String]) -> bool {
+    matches!(arguments, [noun, verb, ..] if noun == "capacity" && verb == "offload")
+}
+
+/// Whether the broker on `stream` runs requests of the shape `arguments` have. A broker of an older build answers this question as it answers every request it does not run, which reads as no.
+pub(super) fn knows(stream: &UnixStream, arguments: &[String]) -> bool {
+    let asked: Vec<String> = std::iter::once(KNOWS.to_owned()).chain(arguments.iter().cloned()).collect();
+    let Ok(body) = serde_json::to_vec(&Request { arguments: asked, directory: PathBuf::from("/"), environment: Vec::new() }) else { return false };
+    let mut answer = [1u8; 1];
+    let asked = stream.set_read_timeout(Some(ANSWER_WAIT)).and_then(|()| (&*stream).write_all(&(body.len() as u64).to_le_bytes())).and_then(|()| (&*stream).write_all(&body)).and_then(|()| (&*stream).read_exact(&mut answer));
+    asked.is_ok() && answer[0] == 0
+}
+
+/// Waits, up to `wait`, until `knows` says a broker that runs the request listens: for the moment after a promotion the replaced build's broker still holds the socket while its successor starts, and a request it has never heard waits for the successor instead of failing there or running inside the caller's domain.
+pub(super) fn await_knowing(mut knows: impl FnMut() -> bool, wait: Duration) -> bool {
+    let started = std::time::Instant::now();
+    loop {
+        if knows() {
+            return true;
+        }
+        if started.elapsed() >= wait {
+            return false;
+        }
+        std::thread::sleep(SOCKET_CHECK);
+    }
 }
 
 /// Sends `request` with `streams` as its standard streams over `stream` and waits for its exit code.
@@ -137,9 +186,10 @@ fn listening(path: &Path) -> bool {
     false
 }
 
-/// Starts `north` as the broker in the transient user service `unit` under `agent.slice`, so the checks and builds it runs for workers count against the agent CPU quota: in the default app.slice a session's brokered safe-push compiled outside the 12-CPU desk bound and held the laptop at load 39 (north#892); whether it started.
+/// Starts `north` as the broker in the transient user service `unit` under `agent.slice`, so the checks and builds it runs for workers count against the agent CPU quota: in the default app.slice a session's brokered safe-push compiled outside the 12-CPU desk bound and held the laptop at load 39 (north#892); whether it started. A broker on a socket of its own follows the runtime link its starter follows, so the one a canary probe starts stays on the build it judges.
 fn start(north: &Path, unit: &str) -> bool {
-    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).args(std::env::var_os(SOCKET_ENV).map(|socket| format!("--setenv={SOCKET_ENV}={}", socket.to_string_lossy()))).arg(format!("--slice={SLICE}")).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let followed = std::env::var_os(SOCKET_ENV).and_then(|_| std::env::var_os(north_runtime_follow::LINK));
+    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).args(std::env::var_os(SOCKET_ENV).map(|socket| format!("--setenv={SOCKET_ENV}={}", socket.to_string_lossy()))).args(followed.map(|link| format!("--setenv={}={}", north_runtime_follow::LINK, link.to_string_lossy()))).arg(format!("--slice={SLICE}")).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     started.is_ok_and(|status| status.success())
 }
 
@@ -243,6 +293,11 @@ pub(super) fn answer(north: &Path, stream: &UnixStream, cgroup: Option<&str>, ho
     if request.arguments == [NAMESPACE] {
         return answer_namespaces(north, stream, &request);
     }
+    if let [first, asked @ ..] = request.arguments.as_slice()
+        && first == KNOWS
+    {
+        return (&*stream).write_all(&[u8::from(!permitted(asked))]).map_err(|error| error.to_string());
+    }
     let outcome = run(north, request, streams, stream, cgroup, host);
     (&*stream).write_all(&[*outcome.as_ref().unwrap_or(&126)]).map_err(|error| error.to_string())?;
     outcome.map(|_| ())
@@ -254,6 +309,12 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     }
     if request.arguments.first().is_some_and(|verb| verb == "threads") && cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup) {
         return Err("a lane-only session's command does not reach the ledger host through the broker".to_owned());
+    }
+    if let Some(why) = offload_refusal(&request.arguments, cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup), crate::land_offload::reaches) {
+        if let Some(stderr) = streams.into_iter().nth(STDIO - 1) {
+            let _ = writeln!(File::from(stderr), "north worker-sandbox broker: refused: {why}");
+        }
+        return Err(why);
     }
     super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, cgroup)?;
     let own_home = own_homes().into_iter().find(|(name, _)| name == "HOME").map(|(_, home)| PathBuf::from(home)).unwrap_or_default();

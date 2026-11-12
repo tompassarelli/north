@@ -20,6 +20,10 @@ fn logins_control_calls_git_transport_and_north_protocol_pass_through_unchanged(
         let call = words(call);
         assert_eq!(scoped(&call, "n-626", "0a1b2c3d"), call);
     }
+    let call = words(&["-o", "BatchMode=yes", "gex45", "nproc"]);
+    assert_eq!(refusal(&call, false), None, "a session whose sandbox keeps its hosts runs its ssh");
+    assert!(refusal(&call, true).is_some_and(|told| told.contains("north capacity offload run --host HOST")), "a command whose sandbox hides every other host is told the verb that reaches one (south#118)");
+    assert_eq!(refusal(&words(&["-V"]), true), None);
 }
 
 #[test]

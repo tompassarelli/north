@@ -254,7 +254,7 @@ printf '%s\n' "$command" >"$script"
 if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; export PATH; fi
 if [ -n "${runtime:-}" ]; then
   runtime_dir=$HOME/.local/state/north/runtimes/$runtime
-  [ -d "$runtime_dir" ] && command exec 6>>"$runtime_dir/@LEASE@" && flock -s 6 || { echo "offload: the lander runtime $runtime is not on this host" >&2; exit @TRANSPORT_FAILED@; }
+  [ -d "$runtime_dir" ] && { command exec 6>>"$runtime_dir/@LEASE@" || command exec 6<"$runtime_dir/@LEASE@"; } 2>/dev/null && flock -s 6 || { echo "offload: the lander runtime $runtime is not on this host" >&2; exit @TRANSPORT_FAILED@; }
   [ -x "$runtime_dir/north" ] && [ -f "$runtime_dir/@TREE_MARKER@" ] || { echo "offload: the lander runtime $runtime on this host lacks north or @TREE_MARKER@" >&2; exit @TRANSPORT_FAILED@; }
   PATH="$runtime_dir:$PATH"; export PATH
 fi

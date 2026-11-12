@@ -16,6 +16,11 @@ const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST].
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    if worker_request(&words).is_some_and(|host| host.is_none_or(reaches))
+        && let Some(code) = crate::worker_sandbox::reenter_outside(&["capacity", "offload"].into_iter().map(str::to_owned).chain(arguments.iter().cloned()).collect::<Vec<_>>())
+    {
+        return code;
+    }
     match words.as_slice() {
         ["choose"] => choose(false, &Placement::default()),
         ["choose", "--any", rest @ ..] => Placement::parse(rest).map_or_else(usage, |placement| choose(true, &placement)),
@@ -349,6 +354,25 @@ fn spread(standing: room::Standing, here: &str, remotes: Vec<(String, Option<roo
         }
     }
     0
+}
+
+/// The host an offload request names, when it is one the outside broker runs for a command whose domain reaches no other host (south#118): `hosts` and `slots` bare, `free --host NAME`, and `run` in exactly the words `run_job` reads with a base and head that are no option. Every other verb, word or option stays in the caller's domain, so a worker command picks no ssh option and no remote command beside the one the offload script runs under its lease.
+pub(crate) fn worker_request<'a>(words: &[&'a str]) -> Option<Option<&'a str>> {
+    let commit = |name: &str| !name.starts_with('-');
+    match words {
+        ["hosts"] | ["slots"] => Some(None),
+        ["free", "--host", host] => Some(Some(host)),
+        ["run", "--background", rest @ ..] | ["run", rest @ ..] => match rest {
+            ["--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", _] if commit(base) && commit(head) && seconds.parse::<u64>().is_ok() => Some(Some(host)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether `host` is another host this one declares with an ssh destination, the only kind a brokered offload request names: this host's own name runs in its own slots, which a worker command does inside its domain.
+pub(crate) fn reaches(host: &str) -> bool {
+    host != crate::platform::host::name() && machines().iter().any(|machine| machine.name == host)
 }
 
 fn destination(host: &str) -> Option<String> {

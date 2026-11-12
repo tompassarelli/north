@@ -69,18 +69,19 @@ pub(super) fn sessions_reach_hub(config: &toml_edit::DocumentMut, name: &str) ->
 pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hub: bool, settles: bool, landers: Option<&Landers>) -> CoreLoop {
     let runtime = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"");
     let north = format!("{runtime}/north");
-    let mut probes = Vec::new();
+    let reaches_hub = reaches_hub && !is_hub(host);
+    let mut probes = vec![probe("a sandboxed worker shell's own ssh reaches no host", worker_shell(&north, &no_ssh(reaches_hub)), SHELL_LIMIT)];
+    let mut not_applicable = Vec::new();
+    let offload_hop = format!("a sandboxed worker shell reaches {HUB} through north capacity offload");
     match (is_hub(host), reaches_hub) {
-        (true, _) => probes.push(probe(format!("{HUB} fetches each landing repository with its credential"), FETCH.to_owned(), MINT_LIMIT)),
-        (false, true) => probes.push(probe(
-            format!("a sandboxed worker shell runs ssh {HUB} true"),
-            format!("NORTH_FLEET_ROLE=worker NORTH_WORKER_SANDBOX=1 {north} --worker-sandbox 'ssh -o BatchMode=yes -o ConnectTimeout=15 {HUB} true'"),
-            SHELL_LIMIT,
-        )),
-        (false, false) => {}
+        (true, _) => {
+            probes.push(probe(format!("{HUB} fetches each landing repository with its credential"), FETCH.to_owned(), MINT_LIMIT));
+            not_applicable.push(offload_hop);
+        }
+        (false, true) => probes.push(probe(offload_hop, worker_shell(&north, &OFFLOAD_HOP.replace("__HUB__", HUB)), SHELL_LIMIT)),
+        (false, false) => not_applicable.push(offload_hop),
     }
     probes.push(probe("a worker command's depbox run execs the judged north", depbox_run(&north), DEPBOX_LIMIT));
-    let mut not_applicable = Vec::new();
     match landers {
         Some(landers) => {
             not_applicable.extend(landers.unserved.iter().map(|file| format!("no running lander serves {file}")));
@@ -112,6 +113,48 @@ fn judging(sha: &str, probes: Vec<Probe>) -> Vec<Probe> {
     let pinned = format!("link=\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/judged/{sha}\"\nmkdir -p \"${{link%/*}}\" && ln -sfn \"../runtimes/{sha}\" \"$link\"\nexport {}=\"$link\"\n", north_runtime_follow::LINK);
     probes.into_iter().map(|probe| Probe { script: format!("{pinned}{}", probe.script), ..probe }).collect()
 }
+
+/// `command` in a worker shell of the judged runtime, served by a broker that runtime starts on a socket in the probe's scratch directory: the live broker runs the build being replaced, whose namespaces and verbs would otherwise answer for the judged one.
+fn worker_shell(north: &str, command: &str) -> String {
+    WORKER_SHELL.replace("__NORTH__", north).replace("__BROKER__", crate::worker_sandbox::BROKER_SOCKET_ENV).replace("__HIDDEN__", north_base::platform::session_scope::SOCKETS_HIDDEN).replace("__COMMAND__", command)
+}
+
+const WORKER_SHELL: &str = r#"set -uo pipefail
+north=__NORTH__
+root=$(mktemp -d "${TMPDIR:-/tmp}/north-canary-worker.XXXXXX")
+trap 'rm -rf "$root"' EXIT
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export __BROKER__="$root/broker.sock"
+unset __HIDDEN__
+cat > "$root/command" <<'CANARY'
+__COMMAND__CANARY
+NORTH_FLEET_ROLE=worker NORTH_WORKER_SANDBOX=1 CANARY_NORTH="$north" "$north" --worker-sandbox "bash $root/command"
+"#;
+
+/// What a worker command must not hold: a file of the ssh directory it can open, an offload master socket, the agent socket variable, and on a host whose sessions reach the hub, an ssh that gets there.
+fn no_ssh(reaches_hub: bool) -> String {
+    let reached = if reaches_hub { NO_SSH_TO_HUB.replace("__HUB__", HUB) } else { String::new() };
+    format!("{}{reached}", NO_SSH.replace("__MASTER__", north_base::foundation::offload::MASTER_SOCKET))
+}
+
+const NO_SSH: &str = r#"for file in "$HOME"/.ssh/*; do
+  if [ -f "$file" ] && (exec 3<"$file") 2>/dev/null; then echo "a worker command reads $file" >&2; exit 1; fi
+done
+for socket in "$XDG_RUNTIME_DIR"/__MASTER__*; do
+  if [ -S "$socket" ]; then echo "a worker command reaches the offload master socket $socket" >&2; exit 1; fi
+done
+if [ -n "${SSH_AUTH_SOCK:-}" ]; then echo "a worker command holds the ssh agent socket variable" >&2; exit 1; fi
+"#;
+
+const NO_SSH_TO_HUB: &str = r#"if ssh -o BatchMode=yes -o ConnectTimeout=15 __HUB__ true >/dev/null 2>&1; then echo "a worker command ran ssh __HUB__ true" >&2; exit 1; fi
+"#;
+
+/// The hop every worker build takes: the offload verb leaves the worker's domain through the broker and asks the hub for its free slots, taking no lease and no slot.
+const OFFLOAD_HOP: &str = r#"for checkout in "$HOME"/code/*/main; do
+  if [ -e "$checkout/.git" ]; then cd "$checkout" && break; fi
+done
+exec "$CANARY_NORTH" capacity offload free --host __HUB__
+"#;
 
 fn depbox_run(north: &str) -> String {
     DEPBOX_RUN.replace("__NORTH__", north).replace("__ROOTS__", REMOVAL_ROOTS)
