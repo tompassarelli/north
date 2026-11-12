@@ -66,14 +66,14 @@ fn dependency_code_in_depbox_cannot_connect_to_the_broker_socket() {
             assert!(Command::new("git").args(step).current_dir(&checkout).status().unwrap().success());
         }
     };
-    let viewed = |entry: &str| {
+    let viewed = |entry: &str, view: &str| {
         Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .args(["depbox", "run", "--", "ls"])
             .arg(store.join(entry))
             .current_dir(&checkout)
             .env("HOME", scratch.path().join("home"))
             .env("DEPBOX_ADMITTED", "1")
-            .env("SAFE_PUSH_LAND_STORE_VIEW", "pinned")
+            .env("SAFE_PUSH_LAND_STORE_VIEW", view)
             .env("SAFE_PUSH_LAND_HOST_INPUTS", store.join(&unpinned))
             .env_remove("DEPBOX")
             .env_remove("NORTH_WORKER_SANDBOXED")
@@ -81,11 +81,13 @@ fn dependency_code_in_depbox_cannot_connect_to_the_broker_socket() {
             .unwrap()
     };
     pin(&pinned);
-    let seen = viewed(&pinned);
+    let seen = viewed(&pinned, "pinned");
     assert!(seen.status.success(), "the store entry the checkout's head pins is not in the sandbox: {}", String::from_utf8_lossy(&seen.stderr));
-    let unseen = viewed(&unpinned);
+    let unseen = viewed(&unpinned, "pinned");
     assert!(!unseen.status.success(), "a store entry the head does not pin reached the sandbox through the environment");
+    let elsewhere = viewed(&pinned, &"0".repeat(40));
+    assert!(!elsewhere.status.success(), "a store view checked at another commit bound the entries the checkout's head pins now");
     pin(&missing);
-    let refused = viewed(&pinned);
+    let refused = viewed(&pinned, "pinned");
     assert!(!refused.status.success() && String::from_utf8_lossy(&refused.stderr).contains(&missing), "a pinned store entry the host lacks did not refuse the run: {}", String::from_utf8_lossy(&refused.stderr));
 }

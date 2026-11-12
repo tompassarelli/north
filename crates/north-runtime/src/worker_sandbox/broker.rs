@@ -252,7 +252,8 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         return Err(format!("{} is not a request the broker runs", request.arguments.join(" ")));
     }
     super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, cgroup)?;
-    super::brokered_reads::pinned_entries_readable(&request.arguments, &request.directory, &request.environment, cgroup)?;
+    let own_home = own_homes().into_iter().find(|(name, _)| name == "HOME").map(|(_, home)| PathBuf::from(home)).unwrap_or_default();
+    let viewed = super::brokered_reads::pinned_entries_readable(&request.arguments, &request.directory, &request.environment, cgroup, &own_home)?;
     let [stdin, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     if !request.directory.is_absolute() {
         return Err(format!("working directory {} is not absolute", request.directory.display()));
@@ -264,6 +265,10 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     let homes = request_homes(&request.arguments, cgroup, &request.environment, own_homes());
     let chosen = landing_choices(&request.arguments, &host.home, &host.environment, north);
     let mut variables = landing(environment(request.environment, cgroup, &runtime(), &homes), chosen);
+    if let Some(commit) = viewed {
+        variables.retain(|(name, _)| name != north_base::foundation::carry::LAND_STORE_VIEW);
+        variables.push((north_base::foundation::carry::LAND_STORE_VIEW.to_owned(), commit));
+    }
     if let Some(roots) = roots {
         variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));
     }

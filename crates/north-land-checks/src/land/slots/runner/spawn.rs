@@ -211,7 +211,7 @@ impl Shared {
             .env("SAFE_PUSH_LAND_RUNTIME_HEAD", self.arguments.tree())
             .env("SAFE_PUSH_LAND_REF", &self.arguments.published)
             .env("SAFE_PUSH_LANDING", "1")
-            .env(carry::LAND_STORE_VIEW, if self.config.host_inputs(command).is_empty() { "" } else { "pinned" })
+            .env(carry::LAND_STORE_VIEW, if self.config.host_inputs(command).is_empty() { "" } else { north_base::store_pins::AT_HEAD })
             .env(carry::CHECK_ENDS, check_ends(timeout))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

@@ -5,6 +5,7 @@ use std::process::Command;
 pub const ENTRY_LEN: usize = 64;
 const STORE_ENTRY: char = '@';
 const SEPARATOR: &str = " :: ";
+pub const AT_HEAD: &str = "pinned";
 
 fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
     let Ok(output) = Command::new("git").arg("-C").arg(repo).args(arguments).output() else { return Vec::new() };
@@ -52,4 +53,17 @@ pub fn pinned_store_entries(repo: &Path, head: &str, home: &Path) -> Vec<PathBuf
         }
     }
     entries
+}
+
+pub fn commit(repo: &Path, revision: &str) -> Option<String> {
+    git_lines(repo, &["rev-parse", "--verify", &format!("{revision}^{{commit}}")]).into_iter().next().filter(|commit| commit.len() == 40)
+}
+
+/// The commit whose pins a store view of `repo` reads: its HEAD, which must be `view` unless `view` is `AT_HEAD`.
+pub fn viewed_commit(repo: &Path, view: &str) -> Result<String, String> {
+    let head = commit(repo, "HEAD").ok_or_else(|| format!("{} has no HEAD commit", repo.display()))?;
+    if view != AT_HEAD && view != head {
+        return Err(format!("{} is at {head}, not at {view}, the commit its store entries were checked at", repo.display()));
+    }
+    Ok(head)
 }

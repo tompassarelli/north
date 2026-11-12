@@ -146,8 +146,8 @@ impl Sandbox {
         for path in READS.iter().map(|path| home.join(path)).filter(|path| path.exists()) {
             box_.read(path);
         }
-        if mode == Mode::Run && std::env::var_os(carry::LAND_STORE_VIEW).is_some_and(|view| !view.is_empty()) {
-            for entry in store_entries(&box_.top, &home)? {
+        if let Some(view) = std::env::var(carry::LAND_STORE_VIEW).ok().filter(|view| mode == Mode::Run && !view.is_empty()) {
+            for entry in store_entries(&box_.top, &home, &view)? {
                 box_.bind("--ro-bind", &entry, &entry);
                 box_.binds.push(entry);
             }
@@ -298,9 +298,10 @@ fn aliases(home: &Path) -> Vec<PathBuf> {
 }
 
 /// The store entries the checkout's own HEAD pins, each a link-free directory below a `*-build-inputs` folder of home's `.local/share`, or the refusal naming the first entry that is not.
-fn store_entries(top: &Path, home: &Path) -> Result<Vec<PathBuf>, (u8, String)> {
+fn store_entries(top: &Path, home: &Path, view: &str) -> Result<Vec<PathBuf>, (u8, String)> {
     let data = home.join(".local/share");
-    let entries = store_pins::pinned_store_entries(top, "HEAD", home);
+    let head = store_pins::viewed_commit(top, view).map_err(|why| (1, format!("refusing the run: {why}")))?;
+    let entries = store_pins::pinned_store_entries(top, &head, home);
     for entry in &entries {
         let folder = entry.strip_prefix(&data).ok().and_then(|below| below.components().next()).and_then(|first| first.as_os_str().to_str()).is_some_and(|first| first.ends_with("-build-inputs"));
         let linked = std::fs::canonicalize(entry).ok().as_ref() != Some(entry);
