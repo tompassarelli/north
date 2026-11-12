@@ -811,7 +811,7 @@ Decisions, each carried from what Cargo does:
   sources' tokens (string literals and comments skipped); when the file belongs to another package, that package
   exports it (`export_file`, or a `filegroup` for a module directory) and the target maps it in with
   `mapped_srcs`. When a reference leaves the crate's directory, the target's source tree is rooted at the repository
-  root with every file at its repository path, so `include_str!("../../../goals.toml")` resolves unchanged.
+  root with every file at its repository path, so `include_str!("../../../concerns.toml")` resolves unchanged.
 - Build scripts: the root crate's `build.rs` is the only one; it rewrites three committed registries
   (`src/cli/reference.txt`, `src/cli/verbs.rs`, `structure.toml`) from their per-unit trees and emits nothing rustc
   reads, so its targets compile the committed files and the generator says so when it runs. The lander renders the
