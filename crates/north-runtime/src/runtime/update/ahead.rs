@@ -2,7 +2,8 @@
 //! lane's candidate tree, a build host builds it, and the promotion installs it by the tree hash the landed commit
 //! carries instead of building the same tree again after the push. An artifact is kept under
 //! `runtime-artifacts/<tree>`: the runtime programs, the commit and the host they were built from and on, and when.
-//! One request runs at a time, only when no artifact for that tree is ready yet, and none builds on this host.
+//! One request runs at a time, only when no artifact for that tree is ready yet and no newer candidate asked since,
+//! and none builds on this host. Each artifact is about 86 MB and the newest three are kept.
 use super::super::build_host;
 use super::super::failure::{Failure, failed};
 use super::super::layout::{self, BUILT_HERE, BUILT_ON, Layout, PROGRAMS};
@@ -18,8 +19,10 @@ use std::time::Duration;
 
 const BUILT_AT: &str = "built-at";
 const BUILD_LOCK: &str = "build.lock";
+const NEWEST: &str = "newest";
 const KEPT: usize = 3;
 const SEND: Duration = Duration::from_secs(120);
+const AWAIT: Duration = Duration::from_secs(600);
 
 /// The release north kept for the tree `rev` in `checkout` carries, when it is ready: the artifact is the whole
 /// install, so a promotion can copy it and skip the build that would otherwise delay the landing's live runtime.
@@ -42,6 +45,39 @@ pub(super) fn tree_of(checkout: &Path, rev: &str) -> Result<String, Failure> {
 pub(super) fn ready(layout: &Layout, tree: &str) -> Option<PathBuf> {
     let artifact = layout.artifacts().join(tree);
     PROGRAMS.iter().all(|program| artifact.join(program).is_file()).then_some(artifact)
+}
+
+/// Whether the artifact for `tree` is ready, waiting while a build host builds it now: a coordinator orders main's head
+/// minutes after it lands, often while its build ahead still runs, and a second build would cost the order those minutes
+/// again. A request still queued, or one whose holder is gone, is not waited for.
+pub(super) fn awaited(layout: &Layout, tree: &str) -> bool {
+    let started = std::time::Instant::now();
+    let mut announced = false;
+    loop {
+        if ready(layout, tree).is_some() {
+            return true;
+        }
+        if !building(layout, tree) || started.elapsed() >= AWAIT {
+            return false;
+        }
+        if !announced {
+            println!("north runtime: tree {} is being built ahead on a build host; waiting up to {}s for it", layout::short(tree), AWAIT.as_secs());
+            announced = true;
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn building(layout: &Layout, tree: &str) -> bool {
+    let artifacts = layout.artifacts();
+    let held = File::open(artifacts.join(BUILD_LOCK)).is_ok_and(|file| flock(&file, FlockOperation::NonBlockingLockShared).is_err());
+    held && artifacts.join(format!("{tree}.part")).is_dir()
+}
+
+/// Whether a newer candidate asked for its tree after `tree`: only main's newest head is worth the one build slot, so
+/// a request that waited behind a build gives way to the newer one, which bounds the queue and the artifacts kept.
+fn superseded(artifacts: &Path, tree: &str) -> bool {
+    fs::read_to_string(artifacts.join(NEWEST)).is_ok_and(|newest| newest.trim() != tree)
 }
 
 /// Installs the artifact for `tree` as `runtime`, named for the landed commit `target`, when it is ready; whether it did.
@@ -112,6 +148,7 @@ fn request(layout: &Layout, tree: &str, commit: &str, hosts: impl FnOnce() -> Ve
     }
     let artifacts = layout.artifacts();
     fs::create_dir_all(&artifacts)?;
+    fs::write(artifacts.join(NEWEST), format!("{tree}\n"))?;
     let Some(_lock) = take(&artifacts.join(BUILD_LOCK)) else {
         println!("north runtime build-ahead: could not lock {}; leaving tree {} to the next tick", artifacts.display(), layout::short(tree));
         return Ok(());
@@ -120,8 +157,13 @@ fn request(layout: &Layout, tree: &str, commit: &str, hosts: impl FnOnce() -> Ve
         println!("north runtime build-ahead: tree {} is ready already", layout::short(tree));
         return Ok(());
     }
+    if superseded(&artifacts, tree) {
+        println!("north runtime build-ahead: a newer candidate asked after tree {}; building that one instead", layout::short(tree));
+        return Ok(());
+    }
     let staging = artifacts.join(format!("{tree}.part"));
     let _ = fs::remove_dir_all(&staging);
+    fs::create_dir_all(&staging)?;
     let taken = staging.join(commit);
     let kept = build_host::build(commit, &taken, hosts(), build_on).and_then(|built| keep(&taken, &artifacts.join(tree)).map(|()| built).map_err(|error| format!("could not keep the build under {}: {error}", artifacts.display())));
     let _ = fs::remove_dir_all(&staging);
@@ -240,7 +282,7 @@ mod tests {
         let unbuilt = |_: &BuildHost, _: &str, _: &Path| -> Result<(), Failure> { panic!("no build host answered") };
         assert!(request(&layout, &tree, &commit, || vec![host("cpx62", None), host("gex45", None)], unbuilt).is_ok(), "with no build host answering the request ends clean");
         let left: Vec<_> = fs::read_dir(layout.artifacts()).unwrap().flatten().map(|entry| entry.file_name()).collect();
-        assert_eq!(left, [BUILD_LOCK], "and it built nothing here: the promotion has a build host build the tree");
+        assert!(left.iter().all(|name| name == BUILD_LOCK || name == NEWEST), "and it built nothing here: the promotion has a build host build the tree");
 
         let mut asked = Vec::new();
         let built = |host: &BuildHost, commit: &str, into: &Path| -> Result<(), Failure> {

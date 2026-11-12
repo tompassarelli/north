@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
-use north_base::build_inputs::{live_fix, runtime_input};
+use north_base::build_inputs::runtime_input;
 use north_base::platform::store_refs::RUNTIME_PROGRAMS;
 
 use crate::land::candidate::git;
@@ -19,7 +19,7 @@ fn requested() -> &'static Mutex<HashSet<String>> {
 
 /// Asks for the release north of the candidate the lander just built and will push, while its checks run: the landed commit carries this tree, so the promotion that follows the push finds the artifact ready and builds nothing (north#1022). The request runs as a transient unit of its own, so a lander restart neither waits on it nor kills it; the runtime has a build host build it, one at a time, and never builds it on this host.
 pub(super) fn candidate(lander: &Lander, base: &str, head: &str) {
-    if !changes_runtime(lander, base, head) || !fixes_live(lander, base, head) {
+    if !changes_runtime(lander, base, head) {
         return;
     }
     let Ok(tree) = git(&lander.worktree, &["rev-parse", &format!("{head}^{{tree}}")]) else { return };
@@ -31,14 +31,10 @@ pub(super) fn candidate(lander: &Lander, base: &str, head: &str) {
     }
 }
 
-/// Only north's own candidates that change a runtime input and carry `Live-fix:` need an artifact: they are promoted at once, so their promotion waits on a build; any other landing waits for its slot, which builds its head once, or reuses the live runtime.
+/// Every north candidate that changes a runtime input needs an artifact, `Live-fix:` or not: a coordinator's order of main's head otherwise spends most of its minutes building a commit that landed minutes earlier (north#1273), and a newer candidate's request supersedes an older one still waiting, so the builds keep pace with the landings.
 fn changes_runtime(lander: &Lander, base: &str, head: &str) -> bool {
     let north = git(&lander.repo, &["remote", "get-url", "origin"]).is_ok_and(|url| url.trim_end_matches('/').trim_end_matches(".git").rsplit(['/', ':']).next() == Some("north"));
     north && git(&lander.worktree, &["diff", "--name-only", base, head]).is_ok_and(|names| names.lines().any(runtime_input))
-}
-
-fn fixes_live(lander: &Lander, base: &str, head: &str) -> bool {
-    git(&lander.worktree, &["log", "--format=%B", &format!("{base}..{head}")]).is_ok_and(|messages| live_fix(&messages).is_some())
 }
 
 fn ready(tree: &str) -> bool {

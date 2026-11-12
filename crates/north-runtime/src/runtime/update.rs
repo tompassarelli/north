@@ -415,9 +415,9 @@ fn usable(runtime: &Path) -> bool {
     layout::usable(runtime, land_offload::settles_fleet_here())
 }
 
-/// Installs the release north built ahead for the landed commit's tree, when one is ready.
+/// Installs the release north built ahead for the landed commit's tree, when one is ready or a build host is building it now, rather than build the same tree a second time.
 fn adopted(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> bool {
-    ahead::ready_for(layout, checkout, target).is_some_and(|tree| ahead::adopt(layout, runtime, &tree, target))
+    ahead::tree_of(checkout, target).is_ok_and(|tree| ahead::awaited(layout, &tree) && ahead::adopt(layout, runtime, &tree, target))
 }
 
 fn reused(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> bool {
