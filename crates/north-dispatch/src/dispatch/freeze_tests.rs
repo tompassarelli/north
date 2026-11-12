@@ -79,7 +79,6 @@ fn three_launches_failing_with_the_same_cause_within_ten_minutes_page_once() {
         effort: None,
         cell: None,
         cell_role: None,
-        route: None,
     };
     let start = 1_794_077_716.0;
     let capacity = "error: launch refused: no capacity on nexus";

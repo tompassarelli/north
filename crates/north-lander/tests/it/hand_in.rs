@@ -185,11 +185,6 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a failed check committed: {text}");
     assert_eq!(git(&lane, &["diff", "--cached", "--name-only"]), "", "a failed check staged: {text}");
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "a failed check queued: {text}");
-    let kept = text.lines().find_map(|line| line.split("the attempt is kept in ").nth(1)).unwrap_or_else(|| panic!("a failed check named no kept attempt: {text}"));
-    let attempt: serde_json::Value = serde_json::from_str(&fs::read_to_string(kept.trim()).unwrap()).unwrap();
-    assert_eq!(attempt["check"], "echo the box is red; exit 3", "{attempt}");
-    assert_eq!(attempt["output"], "the box is red\n", "the kept attempt lost the check's output: {attempt}");
-    assert!(attempt["diff"].as_str().is_some_and(|diff| diff.contains("+the finished change") && !diff.contains("unnamed")), "the kept attempt does not hold the named change as its diff: {attempt}");
 
     let mut proposing = queueing(&world, FINISH, FINISH_ARGUMENTS, &["--judge-message", "proposer"]).current_dir(&lane).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     proposing.stdin.take().unwrap().write_all(b"Add the proposed note (north#1239)").unwrap();

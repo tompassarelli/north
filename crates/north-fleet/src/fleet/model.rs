@@ -356,9 +356,6 @@ pub struct SessionRecord {
     pub adopted_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revived_mid_task_ms: Option<u64>,
-    /// The brief of a two-rung route's first attempt, which a turn that stops short hands the second rung with what it tried.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub first_attempt: Option<String>,
     /// The phase this host's lifecycle store gave the launch when the record was read; session.json never holds it.
     #[serde(skip)]
     pub phase: Option<Phase>,
@@ -410,7 +407,6 @@ impl SessionRecord {
             brief: request.brief_path(),
             adopted_ms: None,
             revived_mid_task_ms: None,
-            first_attempt: super::rungs::first(&request.prompt).then(|| request.prompt.clone()),
             phase: None,
         }
     }

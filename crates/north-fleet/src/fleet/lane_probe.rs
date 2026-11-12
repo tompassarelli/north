@@ -41,7 +41,7 @@ fn standing(block: &str, tree: &Worktree) -> Option<Lane> {
     Some(Lane { path: tree.path.clone(), branch: tree.branch.clone(), ahead: ahead.parse().ok()?, dirty: changed.parse::<u32>().ok()? > 0, landed: merged == main })
 }
 
-pub(super) fn run(machine: Option<&Machine>, script: &str) -> Option<String> {
+fn run(machine: Option<&Machine>, script: &str) -> Option<String> {
     let output = match machine {
         None => run_within("sh", &["-c", script], LIMIT),
         Some(machine) => run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, script], LIMIT),
@@ -49,6 +49,6 @@ pub(super) fn run(machine: Option<&Machine>, script: &str) -> Option<String> {
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-pub(super) fn quoted(path: &Path) -> String {
+fn quoted(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"))
 }

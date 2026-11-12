@@ -63,8 +63,6 @@ pub trait Courier: Send + Sync {
     fn answer(&self, host_dir: &Path, frame: String);
     /// Keeps a report that opens nothing for `parent` in the digest instead of waking it.
     fn hold(&self, _parent: &str, _text: String) {}
-    /// Starts `north fleet launch WORDS`, as a two-rung route's second attempt.
-    fn launch(&self, _words: Vec<String>) {}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -5,7 +5,6 @@ use crate::fleet::launch_queue::Priority;
 use crate::fleet::model::{Effort, LaunchRequest, ProviderName, Role};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::runtime::{PROXY, new_uuid};
-use crate::fleet::rungs;
 
 use super::usage::usage;
 use super::lineage;
@@ -32,7 +31,6 @@ struct LaunchFlags {
     wait: Option<bool>,
     take_over: bool,
     priority: Priority,
-    route: Option<String>,
 }
 
 impl LaunchFlags {
@@ -53,7 +51,6 @@ impl LaunchFlags {
             "--box" => self.claim_box = Some(value),
             "--role" => self.role = Some(Role::parse(&value)?),
             "--priority" => self.priority = Priority::parse(&value).ok_or_else(usage)?,
-            "--route" if rungs::Route::parse(&value).is_some() => self.route = Some(value),
             _ if self.overrides.set(flag, &value) => {}
             _ => return Err(usage()),
         }
@@ -73,12 +70,6 @@ impl LaunchFlags {
         if prompt.is_empty() {
             return Err(usage());
         }
-        let prompt = match self.route {
-            Some(_) if provider.label() != "claude" => return Err(NorthError::Usage("--route runs a box on the Claude tiers; drop it or launch with --provider claude".to_owned())),
-            Some(_) if self.model.is_some() || self.effort.is_some() => return Err(NorthError::Usage("--route picks each rung's model and effort itself; drop --model and --effort".to_owned())),
-            Some(route) => rungs::routed(&prompt, &route),
-            None => prompt,
-        };
         let (cwd, machine) = placement::working_directory(self.cwd)?;
         let name = match (self.name, self.role) {
             (Some(name), Some(Role::Proxy)) if name != PROXY => return Err(NorthError::Usage(format!("the proxy is named {PROXY}, not {name}"))),

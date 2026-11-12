@@ -26,7 +26,6 @@ use super::promises::{Book, Promise, promised, resolver};
 use super::receipts::{Courier, Report, deliver_report, is_final, retires};
 use super::records::{find_session, host_sessions, parents_live};
 use super::silent::{self, Quiet, Silence, State};
-use super::rungs;
 use super::run_recording::{NoRecording, RunRecording};
 use super::runtime::{Runtime, new_uuid, now_ms};
 use super::sender::Sender;
@@ -367,9 +366,6 @@ impl TurnWatch {
         let lines = self.views.get(&run.turn.conversation).map(|view| view.transcript.entries.clone()).unwrap_or_default();
         let Some(record) = session else { return };
         self.observe_landing(&record);
-        if run.turn.exit == TurnExit::Completed {
-            rungs::escalate(self.ledger.as_ref(), self.courier.as_ref(), &record, &reply, &lines, now_ms());
-        }
         if let Some(number) = number {
             if matches!(run.turn.exit, TurnExit::Completed | TurnExit::Interrupted) {
                 self.quiet.insert(run.turn.conversation.clone(), Quiet::after(number, reply, run.turn.exit == TurnExit::Completed, record.eta_min, self.idle.eta_minute, lines));

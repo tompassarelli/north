@@ -199,12 +199,11 @@ impl Start {
             effort: self.route.effort.filter(|_| !overridden).map(|effort| effort.name().to_owned()),
             cell: super::cells::named(&self.model, self.effort.as_deref().unwrap_or_default()),
             cell_role: self.route.cell_role.filter(|_| !overridden).map(str::to_owned),
-            route: None,
         })
     }
 
-    pub fn record(&self, host: &str, account: &str, name: &str, route: Option<&str>) -> Result<(), String> {
-        self.entry(host, account, name).map_or(Ok(()), |entry| record::append(&record::directory(), &Record { route: route.map(str::to_owned), ..entry }))
+    pub fn record(&self, host: &str, account: &str, name: &str) -> Result<(), String> {
+        self.entry(host, account, name).map_or(Ok(()), |entry| record::append(&record::directory(), &entry))
     }
 }
 

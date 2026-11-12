@@ -141,14 +141,6 @@ impl Courier for Fleet {
         let host_dir = host_dir.to_path_buf();
         std::thread::spawn(move || reply(&host_dir, frame));
     }
-
-    fn launch(&self, words: Vec<String>) {
-        let unit = format!("route-second-{}", unit_word(words.iter().skip_while(|word| *word != "--name").nth(1).map_or("launch", String::as_str)));
-        let arguments: Vec<&str> = ["fleet", "launch"].into_iter().chain(words.iter().map(String::as_str)).collect();
-        if let Err(error) = detach(&unit, &arguments) {
-            eprintln!("north fleet: the route's second attempt did not start: {}", error.user_message());
-        }
-    }
 }
 
 struct Inline<'a>(&'a Fleet);
@@ -168,10 +160,6 @@ impl Courier for Inline<'_> {
 
     fn answer(&self, host_dir: &Path, frame: String) {
         reply(host_dir, frame);
-    }
-
-    fn launch(&self, words: Vec<String>) {
-        Courier::launch(self.0, words);
     }
 }
 
