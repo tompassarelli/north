@@ -39,6 +39,7 @@ fn request(cwd: &Path) -> LaunchRequest {
     LaunchRequest {
         verification: false,
         gates_aside: false,
+        container_shell: false,
         name: "worker".into(),
         provider: Deepseek::live(&PI).provider(),
         account: "go".into(),

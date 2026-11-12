@@ -213,6 +213,7 @@ mod launch_tests {
         LaunchRequest {
             verification: false,
             gates_aside: false,
+            container_shell: false,
             name: "north-1042-d0525".into(),
             provider: ProviderName::new("claude"),
             account: "a".into(),
@@ -270,6 +271,7 @@ mod ghost_tests {
         LaunchRequest {
             verification: false,
             gates_aside: false,
+            container_shell: false,
             name: "safety-lead".into(),
             provider: ProviderName::new("claude"),
             account: "a".into(),
@@ -371,6 +373,7 @@ mod queued_claim_tests {
         LaunchRequest {
             verification: false,
             gates_aside: false,
+            container_shell: false,
             name: name.into(),
             provider: ProviderName::new("claude"),
             account: "a".into(),

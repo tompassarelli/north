@@ -196,6 +196,7 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
     let request = crate::fleet::model::LaunchRequest {
         verification: false,
         gates_aside: false,
+        container_shell: false,
         name: "proxy".into(),
         provider: crate::fleet::model::ProviderName::new("claude"),
         account: "a".into(),

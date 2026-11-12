@@ -21,6 +21,7 @@ use crate::wait;
 
 const EVAL_X_BIN: &str = "/eval-x-bin";
 const TRIAL_MOUNT: &str = "/eval-x";
+const STOOD_DOWN: &str = "state/agents/hooks/container-shell.jsonl";
 const ARM_GRACE: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -211,7 +212,10 @@ impl Live<'_> {
             harbor_status: harbor_status?,
             arm: read_json(&arm_dir.join("arm.json")),
             harbor: harbor_result(&job_dir),
-            reading: transcript::read(&arm_dir.join("transcript.jsonl")),
+            reading: transcript::read(
+                &arm_dir.join("transcript.jsonl"),
+                &arm_dir.join(STOOD_DOWN),
+            ),
             disk_kb: json!({
                 "workspace": disk_kb(Path::new(&workspace.host_top)),
                 "trial": disk_kb(&trial_dir),

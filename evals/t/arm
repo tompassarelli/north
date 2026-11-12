@@ -20,7 +20,7 @@ case $arm in
     opening=$(cat "$W/prompt.txt")
     [ -f "$W/turns.json" ] && opening=$SEED
     north fleet launch --provider claude --account "$EVAL_T_ACCOUNT" --model "$MODEL" --effort "$EFFORT" --name "$name" --parent none \
-      --role worker --prompt north --test --cwd "$ROOT" --no-wait "$opening" > "$W/launch.log" 2>&1 || fail "launch refused; see $W/launch.log"
+      --role worker --prompt north --test ${EVAL_X_TRIAL:+--container-shell} --cwd "$ROOT" --no-wait "$opening" > "$W/launch.log" 2>&1 || fail "launch refused; see $W/launch.log"
     settled() { north fleet show "$name" --json 2> /dev/null | jq -e '.status != "working"
       and ([.entries[] | select(.kind == "user" or .kind == "assistant")] | last | .kind) == "assistant"' > /dev/null; }
     conversation() { north fleet show "$name" --json 2> /dev/null | jq -r '.conversation // empty'; }

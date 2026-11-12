@@ -15,6 +15,7 @@ use super::placement::{self, Overrides};
 struct LaunchFlags {
     verification: bool,
     gates_aside: bool,
+    container_shell: bool,
     provider: Option<ProviderName>,
     account: Option<String>,
     cwd: Option<PathBuf>,
@@ -91,6 +92,7 @@ impl LaunchFlags {
         Ok(LaunchRequest {
             verification: self.verification,
             gates_aside: self.gates_aside,
+            container_shell: self.container_shell,
             name,
             provider,
             account,
@@ -137,6 +139,7 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
         match *flag {
             "--test" => flags.verification = true,
             "--gates-aside" => flags.gates_aside = true,
+            "--container-shell" => flags.container_shell = true,
             "--take-over" => flags.take_over = true,
             "--wait" | "--no-wait" => flags.wait = Some(*flag == "--wait"),
             _ => {

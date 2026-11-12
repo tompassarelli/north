@@ -106,6 +106,7 @@ mod tests {
         let request = LaunchRequest {
             verification: false,
             gates_aside: false,
+            container_shell: false,
             name: name.into(),
             provider: ProviderName::new("claude"),
             account: "a".into(),

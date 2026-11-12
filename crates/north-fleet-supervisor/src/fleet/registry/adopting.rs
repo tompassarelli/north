@@ -54,6 +54,7 @@ impl Fleet {
         let request = LaunchRequest {
             verification: false,
             gates_aside: false,
+            container_shell: false,
             name: name.to_owned(),
             provider: runtime.provider(),
             account: inbox.account,

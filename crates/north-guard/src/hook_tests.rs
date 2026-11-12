@@ -222,3 +222,34 @@ fn an_accepted_finish_call_ends_the_turn_and_a_refused_one_returns_to_the_model(
     assert_eq!(dispatch("PostToolUseFailure", "mcp__north__finish", refused), None, "a refused finish must reach the model");
     assert!(dispatch("PostToolUse", "mcp__north__hand-in", accepted).is_none_or(|output| output["continue"] != false), "only the finish call ends the turn");
 }
+
+#[test]
+fn a_session_launched_with_a_container_shell_starts_a_server_and_searches_a_tree_as_written_and_a_host_session_is_still_refused_or_rewritten() {
+    let fleet = tempfile::tempdir().unwrap();
+    for (session, container_shell) in [("task", true), ("host", false)] {
+        let launch = json!({"verification": true, "name": session, "provider": "claude", "account": "a", "cwd": "/app", "prompt": "Serve the packages.", "prompt_mode": "north", "container_shell": container_shell});
+        let record = crate::fleet::model::SessionRecord::launched(&serde_json::from_value(launch).unwrap(), None, None, true, 1);
+        std::fs::create_dir(fleet.path().join(session)).unwrap();
+        crate::fleet::records::write_record(&fleet.path().join(session), &record).unwrap();
+    }
+    let app = fleet.path().join("app");
+    std::fs::create_dir_all(app.join("john")).unwrap();
+    let host_guards: Vec<Guard> = HookKind::PreBash.guards().iter().filter(|guard| ["session-kill-guard", "modern-search-guard"].contains(&guard.0)).map(|guard| Guard("", guard.1, guard.2)).collect();
+    let guards = [host_guards, vec![guard("", crate::guard::sops_decrypt::evaluate)]].concat();
+    let judged = |session: &str, command: &str| {
+        let call = json!({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": app, "tool_input": {"command": command}});
+        let mut stood_down = Vec::new();
+        let output = judge(&HookInput::parse(call.to_string().as_bytes()).unwrap(), &guards, "PreToolUse", || container_shell::declared_in(fleet.path(), session), &mut stood_down);
+        (output, stood_down)
+    };
+    for command in ["nohup setsid pypi-server run -p 8080 /srv/packages > /tmp/pypi.log 2>&1 &", "find john -iname '*7z*'"] {
+        let (output, stood_down) = judged("task", command);
+        assert_eq!((output, stood_down.len()), (None, 1), "a container session: {command}");
+        let (output, stood_down) = judged("host", command);
+        let decision = output.unwrap_or_default()["hookSpecificOutput"].clone();
+        assert!(decision["permissionDecision"] == "deny" || decision["updatedInput"]["command"].as_str().is_some_and(|run| run != command), "a host session: {command}: {decision}");
+        assert!(stood_down.is_empty(), "a host session: {command}");
+    }
+    let (output, stood_down) = judged("task", "sops --decrypt secrets.yaml");
+    assert_eq!((output.unwrap_or_default()["hookSpecificOutput"]["permissionDecision"].as_str(), stood_down.len()), (Some("deny"), 0), "a credential guard still judges a container session's command");
+}

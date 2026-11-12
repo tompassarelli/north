@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 
 const SHOWN: usize = 300;
 const POLICY_LINE: usize = 60;
+const NOT_APPLIED: &str = "not applied: container shell";
 
 #[derive(Debug, Default)]
 pub struct Reading {
@@ -73,6 +74,22 @@ impl Reading {
             },
             "guards": self.guards,
         })
+    }
+
+    pub fn not_applied(mut self, records: &str) -> Self {
+        for record in records
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        {
+            let field = |key: &str| shown(record[key].as_str().unwrap_or_default());
+            self.guards.push(json!({
+                "kind": NOT_APPLIED,
+                "at": record.get("at"),
+                "call": {"tool": record.get("tool"), "input": field("command")},
+                "said": field("said"),
+            }));
+        }
+        self
     }
 
     fn guard(&mut self, kind: &str, call: Option<&str>, text: &str, frame: &Value) {
@@ -199,8 +216,9 @@ pub fn parse(transcript: &str) -> Reading {
     reading
 }
 
-pub fn read(path: &Path) -> Reading {
-    parse(&fs::read_to_string(path).unwrap_or_default())
+pub fn read(transcript: &Path, stood_down: &Path) -> Reading {
+    parse(&fs::read_to_string(transcript).unwrap_or_default())
+        .not_applied(&fs::read_to_string(stood_down).unwrap_or_default())
 }
 
 #[cfg(test)]
@@ -238,5 +256,9 @@ mod tests {
         );
         assert_eq!(reading.policy_lines_found(POLICY), (1, 1));
         assert_eq!(parse("").policy_lines_found(POLICY), (1, 0));
+        let stood_down = r#"{"at":"2026-11-12T13:00:00Z","tool":"Bash","command":"find john -iname x","said":"modern-search-guard: rewrote a find tree search to fd"}"#;
+        let guards = parse(TRANSCRIPT).not_applied(stood_down).row()["guards"].clone();
+        assert_eq!(guards[1]["kind"], "not applied: container shell");
+        assert_eq!(guards[1]["call"]["input"], "find john -iname x");
     }
 }

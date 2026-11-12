@@ -1,5 +1,5 @@
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::Role;
+use crate::fleet::model::{LaunchRequest, Role};
 use crate::platform::session_host_files;
 
 use super::Fleet;
@@ -7,6 +7,16 @@ use super::Fleet;
 /// The session whose launches may keep their children's gates aside, beside the eval units.
 pub const EVALS_LEAD: &str = "evals-lead";
 const EVAL_UNIT_PREFIX: &str = "eval-";
+
+/// A launch flag only an eval sets: its word, how a launch request shows it, and what it would let any other session do.
+struct EvalFlag {
+    word: &'static str,
+    set: fn(&LaunchRequest) -> bool,
+    misuse: &'static str,
+}
+
+const GATES_ASIDE: EvalFlag = EvalFlag { word: "--gates-aside", set: |request| request.gates_aside, misuse: "hides its children's gates from the owner" };
+const CONTAINER_SHELL: EvalFlag = EvalFlag { word: "--container-shell", set: |request| request.container_shell, misuse: "starts a child whose shell runs on this host past the guards of its processes" };
 
 /// Whether the process whose `/proc/PID/cgroup` reads `cgroup` runs in an eval's own transient unit, which a fleet session's processes cannot leave.
 pub fn in_eval_unit(cgroup: &str) -> bool {
@@ -17,14 +27,23 @@ pub fn in_eval_unit(cgroup: &str) -> bool {
 impl Fleet {
     /// Refuses a launch that asks for `--gates-aside` unless an eval makes it: the process runs in an `eval-*` unit, or it runs in the scope of the live `evals-lead` lead session, or it replays the entry of the launch queue named `name`, the launch being made, that was admitted with the flag. `cgroup` is the launcher's `/proc/self/cgroup`, a fact the launcher cannot change, never its environment or arguments.
     pub fn admit_gates_aside(&self, asked: bool, name: &str, caller: Option<&str>, queued: Option<&str>, cgroup: &str) -> NorthResult<()> {
-        if !asked || in_eval_unit(cgroup) || self.queued_with_gates_aside(name, queued) || self.is_evals_lead(caller, cgroup) {
-            return Ok(());
-        }
-        Err(NorthError::Refused(format!("--gates-aside is only for an eval: launch from an {EVAL_UNIT_PREFIX}* unit or from the {EVALS_LEAD} session, so no other session hides its children's gates from the owner")))
+        self.admit_eval_flag(asked, &GATES_ASIDE, name, caller, queued, cgroup)
     }
 
-    fn queued_with_gates_aside(&self, name: &str, queued: Option<&str>) -> bool {
-        queued == Some(name) && self.queued_launches().is_ok_and(|launches| launches.iter().any(|launch| launch.name == name && launch.request.gates_aside))
+    /// Refuses a launch that asks for `--container-shell` unless an eval makes it, by the test of [`Self::admit_gates_aside`]: the flag stands the guards of this host's processes down for the session, so no session gives it to a child whose shell runs here.
+    pub fn admit_container_shell(&self, asked: bool, name: &str, caller: Option<&str>, queued: Option<&str>, cgroup: &str) -> NorthResult<()> {
+        self.admit_eval_flag(asked, &CONTAINER_SHELL, name, caller, queued, cgroup)
+    }
+
+    fn admit_eval_flag(&self, asked: bool, flag: &EvalFlag, name: &str, caller: Option<&str>, queued: Option<&str>, cgroup: &str) -> NorthResult<()> {
+        if !asked || in_eval_unit(cgroup) || self.queued_with(flag.set, name, queued) || self.is_evals_lead(caller, cgroup) {
+            return Ok(());
+        }
+        Err(NorthError::Refused(format!("{} is only for an eval: launch from an {EVAL_UNIT_PREFIX}* unit or from the {EVALS_LEAD} session, so no other session {}", flag.word, flag.misuse)))
+    }
+
+    fn queued_with(&self, set: fn(&LaunchRequest) -> bool, name: &str, queued: Option<&str>) -> bool {
+        queued == Some(name) && self.queued_launches().is_ok_and(|launches| launches.iter().any(|launch| launch.name == name && set(&launch.request)))
     }
 
     fn is_evals_lead(&self, caller: Option<&str>, cgroup: &str) -> bool {
@@ -59,5 +78,8 @@ mod tests {
         laptop.admit_gates_aside(false, "child", Some("worker"), None, WORKER).unwrap();
         laptop.admit_gates_aside(true, "child", None, None, EVAL).unwrap();
         laptop.admit_gates_aside(true, "child", Some(EVALS_LEAD), None, lead_cgroup).unwrap();
+        let refusal = laptop.admit_container_shell(true, "child", Some("worker"), None, WORKER).unwrap_err();
+        assert!(matches!(refusal, NorthError::Refused(_)) && refusal.to_string().contains("--container-shell"), "{refusal}");
+        laptop.admit_container_shell(true, "child", None, None, EVAL).unwrap();
     }
 }

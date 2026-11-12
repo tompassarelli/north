@@ -67,6 +67,9 @@ pub struct LaunchRequest {
     /// Keeps the decision gates this session opens out of the owner's queue, digest and gate list; `north gate list --aside` shows them (an eval's sessions open gates on purpose).
     #[serde(default)]
     pub gates_aside: bool,
+    /// Declares that the session's shell tool runs its commands in a task container through a relay, never on this host, so the deciders that guard this host's processes let them through; like `--gates-aside`, only an eval's launch sets it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub container_shell: bool,
     pub name: String,
     pub provider: ProviderName,
     pub account: String,
@@ -311,6 +314,9 @@ pub struct SessionRecord {
     pub verification: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub gates_aside: bool,
+    /// Its launch declared that its shell tool runs in a task container, not on this host; nothing after the launch sets it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub container_shell: bool,
     pub name: String,
     pub provider: ProviderName,
     pub account: String,
@@ -411,6 +417,7 @@ impl SessionRecord {
         Self {
             verification,
             gates_aside: request.gates_aside,
+            container_shell: request.container_shell,
             name: request.name.clone(),
             provider: request.provider.clone(),
             account: request.account.clone(),
@@ -530,6 +537,7 @@ impl SessionRecord {
         LaunchRequest {
             verification: self.verification,
             gates_aside: self.gates_aside,
+            container_shell: self.container_shell,
             name: self.name.clone(),
             provider: self.provider.clone(),
             account: self.account.clone(),

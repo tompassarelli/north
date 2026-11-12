@@ -42,6 +42,16 @@ Read from Claude Code 2.1.322 and seen in a live north session:
   not end a command that passes its limit: it moves it to the background, where the loop runs on in the container and
   prints `loop-done`. The kill of a command whose relay dies is shown by `check`.
 
+## What north is told
+
+The north arm launches its session with `--container-shell` (`evals/t/arm` adds it when `EVAL_X_TRIAL` is set), and the
+session's record keeps it; only a launch from an `eval-*` unit may carry the flag. For such a session north's hook
+leaves a shell command as written wherever a guard would rewrite it to a tool only the host has, and does not apply a
+guard that protects the host's own processes, files, desktop or build capacity, because the command touches none of
+them. Guards about what leaves the machine, credentials and the session's own conduct judge it as on the host. Each
+verdict that stood down is appended to `agents/hooks/container-shell.jsonl` under the session's state directory, and
+the runner adds it to the row's `guards` with the kind `not applied: container shell`.
+
 ## Where things live
 
 With `T = W/trials/JOB` (mounted in the container at `/eval-x`): requests go through `W/exec/JOB/`, which no

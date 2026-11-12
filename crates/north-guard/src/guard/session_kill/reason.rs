@@ -25,7 +25,7 @@ fn hit_reason(hit: &Hit) -> String {
             "BLOCKED: cross-session `{tool} {operands}` — a pattern or process name matches every session's processes on this machine, not just yours (bracket form only stops a pattern matching itself), and such a kill already ended the proxy's landing waiter and every session's cargo test. Signal only what you started: `pkill --cgroup CGROUP PATTERN` scoped to your own cgroup from /proc/self/cgroup, `kill PID` with a recorded pid you saved when you started the process, or `pkill -F pidfile` with a pid file you wrote."
         ),
         Hit::Detached(shape) => format!(
-            "BLOCKED: {shape} would detach an agent child from its owner. Use `north capacity bounded <duration> -- <command>`; the wrapper has a 24h maximum, owns a transient cgroup plus PID namespace, reaps every descendant when the owner ends, and gives all background jobs a shared 48G hard ceiling."
+            "BLOCKED: {shape} would detach an agent child from its owner. Use `north capacity bounded <duration> -- <command>`; the wrapper has a 24h maximum, owns a transient cgroup plus PID namespace, reaps every descendant when the owner ends, and gives all background jobs a shared 48G hard ceiling. A bounded or run_in_background job ends with this session; for a command that must outlive it use `north job-run --notify NAME -- <command>`, which runs it in its own unit and messages this session when it exits."
         ),
     }
 }

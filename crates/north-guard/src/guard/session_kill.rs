@@ -22,8 +22,8 @@ const TEARDOWN_PREFIXES: &[&str] = &[
 const LAUNCH_PREFIXES: &[&str] = &["env", "exec", "do", "then", "else", "!", "{"];
 const HOST_RESTART: &str = "firn host restart-user-manager";
 const UNMANAGED: &str = "unmanaged background job";
-const NO_BUS_REASON: &str = "BLOCKED: a background `&` or nohup job would detach an agent child from its owner, and `north capacity bounded` cannot start here because this session has no systemd user bus. Run the command as written, without `&` or nohup, and set run_in_background: true on the Bash call; its completion notification replaces the wait.";
-const REWRITE_NOTE: &str = "session-kill-guard: wrapped the background `&` job in `north capacity bounded 24h --` so the owner reaps it. Write `north capacity bounded <duration> -- <command> &` yourself next time.";
+const NO_BUS_REASON: &str = "BLOCKED: a background `&` or nohup job would detach an agent child from its owner, and `north capacity bounded` cannot start here because this session has no systemd user bus. Run the command as written, without `&` or nohup, and set run_in_background: true on the Bash call; its completion notification replaces the wait. That job ends with this session, so if the command must outlive it, ask your coordinator to start it: nothing in a session without a user bus can hold it.";
+const REWRITE_NOTE: &str = "session-kill-guard: wrapped the background `&` job in `north capacity bounded 24h --` so the owner reaps it, which ends it with this session. Write `north capacity bounded <duration> -- <command> &` yourself next time, or `north job-run --notify NAME -- <command>` for a command that must outlive the session.";
 
 static REDIRECTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\d*(?:<>|>>|<<|>|<|&>)").unwrap());

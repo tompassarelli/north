@@ -33,6 +33,7 @@ fn request(cwd: &Path) -> LaunchRequest {
     LaunchRequest {
         verification: false,
         gates_aside: false,
+        container_shell: false,
         name: "worker".into(),
         provider: Deepseek::opencode().provider(),
         account: "go".into(),

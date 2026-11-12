@@ -204,7 +204,9 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let parts = launch_parts(&fleet.providers(), words, caller.clone(), proxy)?;
     let second = parts.request.route.as_deref().and_then(Route::parse).is_some_and(|route| matches!(route, Route::Second { .. })).then(|| (parts.request.name.clone(), parts.request.parent.clone()));
     let queued = std::env::var(super::tick::QUEUE_ENTRY).ok().filter(|name| *name == parts.request.name);
-    fleet.admit_gates_aside(parts.request.gates_aside, &parts.request.name, caller.as_deref(), queued.as_deref(), &std::fs::read_to_string("/proc/self/cgroup").unwrap_or_default())?;
+    let cgroup = std::fs::read_to_string("/proc/self/cgroup").unwrap_or_default();
+    fleet.admit_gates_aside(parts.request.gates_aside, &parts.request.name, caller.as_deref(), queued.as_deref(), &cgroup)?;
+    fleet.admit_container_shell(parts.request.container_shell, &parts.request.name, caller.as_deref(), queued.as_deref(), &cgroup)?;
     let result = launch_prepared(fleet, parts, caller, queued.as_deref());
     if let (Err(error), Some((name, parent))) = (&result, second) {
         second_rung_refused(fleet, &name, parent.as_deref(), &error.user_message());
