@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/assets/north-logo.png" alt="North logo" width="200"></p>
+<p align="center"><img src="docs/assets/north-logo.webp" alt="North logo" width="720"></p>
 
 # North
 
