@@ -49,6 +49,12 @@ impl Fixture {
         self.top().join("repo")
     }
 
+    fn fleet(&self, text: &str) {
+        let snapshot = self.top().join("home/code/south/main/agents");
+        fs::create_dir_all(&snapshot).unwrap();
+        fs::write(snapshot.join("orchestration.toml"), text).unwrap();
+    }
+
     fn write_config(&self, name: &str, landing: &str) {
         let text = format!("[init]\n\tdefaultBranch = main\n[user]\n\tname = safe-push-test\n\temail = safe-push-test@example.invalid\n{landing}");
         fs::write(self.top().join(name), text).unwrap();
@@ -165,7 +171,7 @@ fn a_lane_that_removes_a_retired_landing_queue_from_dot_safe_push_is_queued_for_
     let fixture = Fixture::new();
     let host = local_host();
     fixture.settle("[landing]\n\tqueue = lock\n\tlander-host = another-host\n", "a retired lock queue");
-    fs::write(fixture.top().join("orchestration.toml"), format!("[hosts.{host}]\nssh = \"tom@{host}\"\n")).unwrap();
+    fixture.fleet(&format!("[hosts.{host}]\nssh = \"tom@{host}\"\n"));
     fs::write(fixture.repo().join(".safe-push"), "[landing]\n\tlander-host = another-host\n").unwrap();
     fixture.git(&["commit", "-qam", "drop the retired queue"]);
     let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::var("PATH").unwrap_or_default());
@@ -183,6 +189,9 @@ fn a_lane_on_a_fleet_ssh_host_the_repository_does_not_list_is_queued_for_the_lan
     assert_ne!(run.status, 0, "{}", run.output);
     assert!(run.output.contains(&format!("{host} is neither landing.lander-host")), "{}", run.output);
     fs::write(fixture.top().join("orchestration.toml"), format!("[hosts.{host}]\nssh = \"tom@{host}\"\n")).unwrap();
+    let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::var("PATH").unwrap_or_default());
+    assert_ne!(run.status, 0, "AGENTS_ORCHESTRATION chose the fleet file the route trusts: {}", run.output);
+    fixture.fleet(&format!("[hosts.{host}]\nssh = \"tom@{host}\"\n"));
     let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::var("PATH").unwrap_or_default());
     assert_eq!(run.status, 0, "{}", run.output);
     assert!(run.output.contains("Done: queued (outbox)"), "{}", run.output);

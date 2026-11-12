@@ -27,8 +27,25 @@ pub fn read() -> Result<DocumentMut, String> {
     if variable("AGENTS_ORCHESTRATION").is_none() && variable("AGENTS_OPERATOR_DIR").is_none() && shared::current(&home).is_dir() {
         shared::fresh(&home, shared::now())?;
     }
-    let path = path();
-    let text = std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    parsed(&path())
+}
+
+/// The orchestration file the shared-config snapshot holds, else on a host with no snapshot yet the south checkout's, whatever the environment names.
+pub fn snapshot_path() -> PathBuf {
+    path_in(&home(), None, None)
+}
+
+/// The orchestration policy a trust decision reads: the shared-config snapshot under the stale-snapshot refusal.
+pub fn snapshot() -> Result<DocumentMut, String> {
+    let home = home();
+    if shared::current(&home).is_dir() {
+        shared::fresh(&home, shared::now())?;
+    }
+    parsed(&snapshot_path())
+}
+
+fn parsed(path: &Path) -> Result<DocumentMut, String> {
+    let text = std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
     text.parse().map_err(|error| format!("{}: {error}", path.display()))
 }
 

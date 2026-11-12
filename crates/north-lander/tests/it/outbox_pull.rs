@@ -77,7 +77,6 @@ struct Pull {
     remote: PathBuf,
     calls: PathBuf,
     key: String,
-    fleet: tempfile::TempDir,
 }
 
 impl Pull {
@@ -85,9 +84,10 @@ impl Pull {
         let world = World::new();
         let repository = world.repository("north");
         write_executable(&world.path().join("bin/ssh"), REMOTE_SSH);
-        let fleet = tempfile::tempdir().unwrap();
-        std::fs::write(fleet.path().join("orchestration.toml"), "[hosts.gex45]\nssh = \"gex45\"\n").unwrap();
-        Self { fleet, remote: world.path().join("remote-state"), calls: world.path().join("ssh.calls"), key: repository.queue.file_name().unwrap().to_string_lossy().into_owned(), repository, world }
+        let fleet = world.path().join("code/south/main/agents");
+        std::fs::create_dir_all(&fleet).unwrap();
+        std::fs::write(fleet.join("orchestration.toml"), "[hosts.gex45]\nssh = \"gex45\"\n").unwrap();
+        Self { remote: world.path().join("remote-state"), calls: world.path().join("ssh.calls"), key: repository.queue.file_name().unwrap().to_string_lossy().into_owned(), repository, world }
     }
 
     fn process(&self, name: &str) -> Command {
@@ -101,7 +101,6 @@ impl Pull {
             .env("XDG_STATE_HOME", self.world.path().join("state"))
             .env("FAKE_REMOTE_STATE", &self.remote)
             .env("FAKE_REMOTE_SSH_LOG", &self.calls)
-            .env("AGENTS_ORCHESTRATION", self.fleet.path().join("orchestration.toml"))
             .env("NORTH_LAND_NORTH", self.world.path().join("bin/north"))
             .env("GIT_CONFIG_GLOBAL", self.world.path().join("gitconfig"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
