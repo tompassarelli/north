@@ -18,6 +18,7 @@ pub struct Caller {
     pub uid: u32,
     pub github: BTreeMap<String, Ceiling>,
     pub proxy: BTreeMap<String, Vec<String>>,
+    pub threads: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -53,7 +54,7 @@ impl Policy {
             ("digitalocean".to_owned(), vec!["GET /v2/customers/my/balance".to_owned()]),
             ("hcloud".to_owned(), ["GET /v1/server_types", "GET /v1/server_types?*", "GET /v1/servers", "GET /v1/servers?*"].map(str::to_owned).to_vec()),
         ]);
-        Self { callers: vec![Caller { uid, github, proxy }] }
+        Self { callers: vec![Caller { uid, github, proxy, threads: Vec::new() }] }
     }
 
     pub fn caller(&self, uid: u32) -> Option<&Caller> {
@@ -71,7 +72,11 @@ fn caller(table: &Table) -> Result<Caller, String> {
     for (provider, rules) in table.get("proxy").and_then(Item::as_table).into_iter().flat_map(Table::iter) {
         proxy.insert(provider.to_owned(), strings(rules).ok_or_else(|| format!("caller {uid}: proxy.{provider} is not a list of \"METHOD /path\" rules"))?);
     }
-    Ok(Caller { uid, github, proxy })
+    let threads = match table.get("threads") {
+        None => Vec::new(),
+        Some(verbs) => strings(verbs).filter(|verbs| verbs.iter().all(|verb| name_ok(verb))).ok_or_else(|| format!("caller {uid}: threads is not a list of verb names"))?,
+    };
+    Ok(Caller { uid, github, proxy, threads })
 }
 
 fn ceiling_of(table: &Table, uid: u32, app: &str) -> Result<Ceiling, String> {

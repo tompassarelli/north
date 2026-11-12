@@ -7,6 +7,7 @@ mod proxy;
 mod repository;
 mod retire;
 mod server;
+mod threads;
 
 pub use cli::run;
 

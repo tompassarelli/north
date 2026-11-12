@@ -10,10 +10,10 @@ use north_base::platform::broker_client::{self, Client, SYSTEM_SOCKET};
 
 use crate::credentials::Source;
 use crate::policy::Policy;
-use crate::server::Broker;
+use crate::server::{Broker, Surface};
 
 const PRINTED_VALIDITY: u64 = 2700;
-const USAGE: &str = "usage: north broker serve [--user | --socket PATH --policy FILE] | north broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]... [--valid-for SECONDS] | north broker inspect [--json]
+const USAGE: &str = "usage: north broker serve [--user | --socket PATH --policy FILE [--agent-socket PATH --agent-gid GID]] | north broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]... [--valid-for SECONDS] | north broker inspect [--json]
 
 The credential broker (south#94): the one process that holds the GitHub App keys and the cloud API tokens.
 serve         run it. As a system service (the default) it listens on /run/north-broker/broker.sock, loads each secret
@@ -21,6 +21,9 @@ serve         run it. As a system service (the default) it listens on /run/north
               (default /etc/north-broker/policy.toml); --user serves the calling user alone from its own sops-decrypted secrets
               at ${XDG_RUNTIME_DIR}/north-broker/broker.sock and exits after 30 idle minutes, which is what the clients start
               when no system broker answers
+              --agent-socket PATH --agent-gid GID also listens there for the agent user: the socket and its directory belong to group GID
+              (mode 0660 and 0750), so a user outside that group gets EACCES; SO_PEERCRED then picks the policy caller, and
+              only typed requests are answered (token, inspect, threads forward); without it nothing listens for an agent
 github-token  print an installation token for the app, limited to the repositories and permissions named (metadata read is
               always added); without --repo or --permission the caller's whole ceiling is granted; --valid-for SECONDS (up to 3300, default 2700)
               returns only a token with at least that long to live, minting a new one when the held one has less, so a token
@@ -99,7 +102,7 @@ fn inspect(arguments: &[&str]) -> Result<(), String> {
 }
 
 fn serve(arguments: &[&str]) -> u8 {
-    let (mut user, mut socket, mut policy) = (false, None, None);
+    let (mut user, mut socket, mut policy, mut agent, mut gid) = (false, None, None, None, None);
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         match (*word, words.clone().next()) {
@@ -112,16 +115,36 @@ fn serve(arguments: &[&str]) -> u8 {
                 policy = Some(PathBuf::from(value));
                 words.next();
             }
+            ("--agent-socket", Some(value)) => {
+                agent = Some(PathBuf::from(value));
+                words.next();
+            }
+            ("--agent-gid", Some(value)) => {
+                let Ok(parsed) = value.parse::<u32>() else {
+                    eprintln!("{USAGE}");
+                    return 2;
+                };
+                gid = Some(parsed);
+                words.next();
+            }
             _ => {
                 eprintln!("{USAGE}");
                 return 2;
             }
         }
     }
-    finish(start(user, socket, policy))
+    let agent = match (agent, gid, user) {
+        (None, None, _) => None,
+        (Some(path), Some(gid), false) => Some((path, gid)),
+        _ => {
+            eprintln!("north broker: --agent-socket and --agent-gid go together and belong to the system broker, not --user");
+            return 2;
+        }
+    };
+    finish(start(user, socket, policy, agent))
 }
 
-fn start(user: bool, socket: Option<PathBuf>, policy: Option<PathBuf>) -> Result<(), String> {
+fn start(user: bool, socket: Option<PathBuf>, policy: Option<PathBuf>, agent: Option<(PathBuf, u32)>) -> Result<(), String> {
     let (socket, broker, idle) = if user {
         let socket = socket.or_else(broker_client::user_socket).ok_or("XDG_RUNTIME_DIR is unset")?;
         let uid = rustix::process::getuid().as_raw();
@@ -139,24 +162,61 @@ fn start(user: bool, socket: Option<PathBuf>, policy: Option<PathBuf>) -> Result
         (socket.unwrap_or_else(|| PathBuf::from(SYSTEM_SOCKET)), Broker::new(policy, Source::systemd()?), None)
     };
     let _ = rustix::process::set_dumpable_behavior(rustix::process::DumpableBehavior::NotDumpable);
-    let Some(listener) = bind(&socket, user)? else { return Ok(()) };
+    if agent.as_ref().is_some_and(|(path, _)| path.parent() == socket.parent()) {
+        return Err("the agent socket needs a directory of its own: its group owns the directory".to_owned());
+    }
+    let Some(listener) = bind(&socket, if user { Mode::User } else { Mode::Group }, None)? else { return Ok(()) };
     let broker = Arc::new(broker);
+    if let Some((path, gid)) = agent
+        && let Some(listener) = bind(&path, Mode::Group, Some(gid))?
+    {
+        let broker = Arc::clone(&broker);
+        std::thread::spawn(move || {
+            eprintln!("north-broker: serving the agent user on {}", path.display());
+            broker.serve(&listener, Surface::Typed);
+        });
+    }
     if let Some(limit) = idle {
         crate::retire::when_idle(&broker, socket.clone(), limit);
     }
     eprintln!("north-broker: serving {}", socket.display());
-    broker.serve(&listener);
+    broker.serve(&listener, Surface::Open);
     Ok(())
 }
 
-fn bind(socket: &Path, user: bool) -> Result<Option<UnixListener>, String> {
+#[derive(Clone, Copy)]
+enum Mode {
+    User,
+    Group,
+}
+
+impl Mode {
+    fn directory(self) -> u32 {
+        match self {
+            Self::User => 0o700,
+            Self::Group => 0o750,
+        }
+    }
+
+    fn socket(self) -> u32 {
+        match self {
+            Self::User => 0o600,
+            Self::Group => 0o660,
+        }
+    }
+}
+
+fn bind(socket: &Path, mode: Mode, group: Option<u32>) -> Result<Option<UnixListener>, String> {
     if UnixStream::connect(socket).is_ok() {
         return Ok(None);
     }
     let parent = socket.parent().ok_or_else(|| format!("{} has no directory", socket.display()))?;
-    std::fs::DirBuilder::new().recursive(true).mode(if user { 0o700 } else { 0o750 }).create(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+    std::fs::DirBuilder::new().recursive(true).mode(mode.directory()).create(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     let _ = std::fs::remove_file(socket);
     let listener = UnixListener::bind(socket).map_err(|error| format!("cannot listen on {}: {error}", socket.display()))?;
-    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(if user { 0o600 } else { 0o660 })).map_err(|error| error.to_string())?;
+    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(mode.socket())).map_err(|error| error.to_string())?;
+    if let Some(gid) = group {
+        std::os::unix::fs::chown(socket, None, Some(gid)).and_then(|()| std::os::unix::fs::chown(parent, None, Some(gid))).map_err(|error| format!("cannot give {} to group {gid}: {error}", socket.display()))?;
+    }
     Ok(Some(listener))
 }

@@ -15,6 +15,7 @@ use crate::credentials::Source;
 use crate::github::{Minted, Minter, app};
 use crate::policy::{Caller, Permissions, Policy, Rules};
 use crate::proxy::{Provider, providers, split};
+use crate::threads::Threads;
 
 const REUSE_MARGIN: i64 = 300;
 const LONGEST_VALIDITY: i64 = 3300;
@@ -28,6 +29,13 @@ pub struct Peer {
     pub uid: u32,
     pub pid: i32,
     pub lane_only: bool,
+}
+
+/// What a listener answers: `Open` the whole broker, `Typed` only the requests whose every field the broker reads as a value (a token ask, an inspect, a ledger forward), never a cloud call forwarded as plain HTTP.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Surface {
+    Open,
+    Typed,
 }
 
 #[derive(Default)]
@@ -46,6 +54,7 @@ pub struct Broker {
     policy: Policy,
     minter: Minter,
     providers: Vec<Provider>,
+    threads: Threads,
     state: Mutex<State>,
     slots: Mutex<HashMap<u32, usize>>,
     active: AtomicUsize,
@@ -54,11 +63,11 @@ pub struct Broker {
 
 impl Broker {
     pub fn new(policy: Policy, source: Source) -> Self {
-        Self::with(policy, Minter::new(source), providers())
+        Self::with(policy, Minter::new(source), providers(), Threads::new(std::env::current_exe().unwrap_or_default()))
     }
 
-    pub fn with(policy: Policy, minter: Minter, providers: Vec<Provider>) -> Self {
-        Self { policy, minter, providers, state: Mutex::default(), slots: Mutex::default(), active: AtomicUsize::new(0), last: Mutex::new(Instant::now()) }
+    pub fn with(policy: Policy, minter: Minter, providers: Vec<Provider>, threads: Threads) -> Self {
+        Self { policy, minter, providers, threads, state: Mutex::default(), slots: Mutex::default(), active: AtomicUsize::new(0), last: Mutex::new(Instant::now()) }
     }
 
     /// How long it has gone without a request, or None while one is in flight.
@@ -66,7 +75,7 @@ impl Broker {
         (self.active.load(Ordering::SeqCst) == 0).then(|| self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).elapsed())
     }
 
-    pub fn serve(self: &Arc<Self>, listener: &UnixListener) {
+    pub fn serve(self: &Arc<Self>, listener: &UnixListener, surface: Surface) {
         for stream in listener.incoming() {
             let Ok(stream) = stream else {
                 std::thread::sleep(Duration::from_millis(50));
@@ -87,7 +96,7 @@ impl Broker {
             }
             let (broker, served) = (Arc::clone(self), stream.try_clone());
             let spawned = std::thread::Builder::new().spawn(move || {
-                broker.connection(&stream, caller);
+                broker.connection(&stream, caller, surface);
                 broker.release(caller.uid);
             });
             if spawned.is_err() {
@@ -119,10 +128,10 @@ impl Broker {
         }
     }
 
-    fn connection(&self, stream: &UnixStream, caller: Peer) {
+    fn connection(&self, stream: &UnixStream, caller: Peer, surface: Surface) {
         self.active.fetch_add(1, Ordering::SeqCst);
         let answer = match read_request(Deadline { stream, until: Instant::now() + REQUEST_DEADLINE }) {
-            Ok(request) => self.handle(caller, &request, Timestamp::now().unix_seconds()),
+            Ok(request) => self.handle_on(surface, caller, &request, Timestamp::now().unix_seconds()),
             Err(error) => Response::refusal(400, &format!("unreadable request: {error}")),
         };
         let _ = write_response(stream, &answer);
@@ -130,7 +139,7 @@ impl Broker {
         self.active.fetch_sub(1, Ordering::SeqCst);
     }
 
-    pub fn handle(&self, peer: Peer, request: &Request, now: i64) -> Response {
+    pub fn handle_on(&self, surface: Surface, peer: Peer, request: &Request, now: i64) -> Response {
         let Some(caller) = self.policy.caller(peer.uid) else {
             log(peer, "-", &format!("{:?}", route(&request.target)), "refused: no policy for this uid");
             return Response::refusal(403, &format!("uid {} has no broker policy", peer.uid));
@@ -143,6 +152,8 @@ impl Broker {
         let (answer, what) = match (request.method.as_str(), request.target.as_str()) {
             ("POST", "/github/token") => self.github_token(peer, caller, &body, now),
             ("POST", "/github/inspect") => (self.inspect(peer, &body), "github inspect".to_owned()),
+            ("POST", "/threads/forward") => self.threads_forward(caller, &body),
+            (_, target) if surface == Surface::Typed => (Response::refusal(404, "this socket answers token, inspect and threads requests only"), format!("{:?}", route(target))),
             (_, target) => self.proxy(caller, request, target),
         };
         let verdict = if answer.status / 100 == 2 { "granted".to_owned() } else { format!("refused: {}", error_of(&answer)) };
@@ -173,6 +184,14 @@ impl Broker {
         })();
         match granted {
             Ok(minted) => (Response::json(200, &grant_json(&minted, true)), what),
+            Err((status, why)) => (Response::refusal(status, &why), what),
+        }
+    }
+
+    fn threads_forward(&self, caller: &Caller, body: &Value) -> (Response, String) {
+        let what = format!("threads {:?}", body["verb"].as_str().unwrap_or_default());
+        match self.threads.forward(caller, body) {
+            Ok(answer) => (Response::json(200, &answer), what),
             Err((status, why)) => (Response::refusal(status, &why), what),
         }
     }
