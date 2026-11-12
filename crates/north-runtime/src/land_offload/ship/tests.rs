@@ -14,7 +14,7 @@ const FLAKE_WITHOUT_DEV_SHELL: &str = "{ outputs = { checks = 1; }; }";
 const NIX_SHIM: &str = "echo \"nix $*\"\n";
 
 const NORTH_SHIM: &str = r#"case "$1 $2 $3" in
-  "capacity host admit-job") [ ! -e "$HOME/refuse" ] || { echo "refused for the test"; exit 75; }; [ "${4:-}" != --landing ] || [ ! -e "$HOME/landing-full" ] || { echo "land checks charge the cores for the test"; exit 75; }; exit 0 ;;
+  "capacity host admit-job") echo "$4" >>"$HOME/admit-calls"; [ ! -e "$HOME/refuse" ] || { echo "refused for the test"; exit 75; }; [ "${4:-}" != --landing ] || [ ! -e "$HOME/landing-full" ] || { echo "land checks charge the cores for the test"; exit 75; }; exit 0 ;;
 esac
 case "$1 $2" in
   "capacity deadline") shift; while [ "$1" != -- ]; do shift; done; shift; exec "$@" ;;
@@ -261,6 +261,41 @@ fn host_with_a_shipped_bundle() -> (tempfile::TempDir, String, std::path::PathBu
     git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), "refs/land-offload/job"]);
     git(&repo, &["update-ref", "-d", "refs/land-offload/job"]);
     (home, head, bundle)
+}
+
+#[test]
+fn jobs_queued_behind_the_head_ticket_ask_the_hosts_admission_about_once_a_second_each() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let queue = home.path().join(".cache/land-offload/queue");
+    fs::create_dir_all(&queue).unwrap();
+    let mut front = Command::new("flock").arg(queue.join("2-1-1@code-p-main")).args(["sleep", "300"]).spawn().unwrap();
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let mut waiters: Vec<std::process::Child> = (0..3)
+        .map(|_| {
+            Command::new("sh")
+                .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", ":", "refs/land-offload/job", "", "", "", "", "", "", ""])
+                .env("HOME", home.path())
+                .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+                .env("PATH", &path)
+                .env_remove("NORTH_OFFLOAD_ROOT")
+                .stdin(fs::File::open(&bundle).unwrap())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    assert!(!north_base::platform::wait::until(std::time::Duration::from_secs(4), || false));
+    let asked = fs::read_to_string(home.path().join("admit-calls")).map(|text| text.lines().count()).unwrap_or(0);
+    for waiter in &mut waiters {
+        waiter.kill().unwrap();
+        waiter.wait().unwrap();
+    }
+    front.kill().unwrap();
+    front.wait().unwrap();
+    assert!(asked > 0 && asked <= 18, "three waiters behind one ticket asked admission {asked} times in 4 s");
 }
 
 /// Blocks until `jobs` of the spawned scripts have either a ticket in the host queue or a start line in the order log.
