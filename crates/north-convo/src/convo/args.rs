@@ -1,8 +1,8 @@
 pub(super) const COMMANDS: [&str; 8] = ["search", "show", "session", "status", "index", "compress", "restore", "corpus"];
 const CLOSED_AFTER_HOURS: f64 = 48.0;
 
-const VALUE_OPTIONS: [&str; 16] = [
-    "-n", "--limit", "-p", "--project", "-r", "--role", "-t", "--tool", "--since", "--until", "-s", "--session", "--provider", "--color", "-C", "--older-than",
+const VALUE_OPTIONS: [&str; 18] = [
+    "-n", "--limit", "-p", "--project", "-r", "--role", "-t", "--tool", "--since", "--until", "-s", "--session", "--provider", "--color", "-C", "--context", "--older-than", "--max-files",
 ];
 
 pub(super) const HELP: &str = "usage: north convo [-h] [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider {claude,codex,corpus}]

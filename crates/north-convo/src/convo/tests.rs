@@ -344,3 +344,10 @@ fn fleet_store(path: &Path, conversation: &str, from_tom: &[&str]) {
     Store::open(path).unwrap().put(&rows).unwrap();
     rusqlite::Connection::open(path).unwrap().execute("INSERT INTO fleet_sessions(name, host, status, created, updated, conversation) VALUES ('fleet', 'laptop', 'idle', '', '', ?1)", [conversation]).unwrap();
 }
+
+#[test]
+fn value_options_named_in_help_take_their_value() {
+    let arguments: Vec<String> = ["compress", "--max-files", "3", "--context", "4"].map(str::to_owned).into();
+    let args = super::args::parse(&arguments).unwrap();
+    assert_eq!((args.max_files, args.context), (3, 4));
+}

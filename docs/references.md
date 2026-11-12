@@ -315,6 +315,29 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   accessed 2026-11-11. Informed: `north buck targets` reads the resolved graph, targets and features from it,
   north#1115. Outcome: adopted.
 
+- <a id="clap"></a>**clap 4.6.7**, https://github.com/clap-rs/clap, MIT OR Apache-2.0; accessed 2026-11-12.
+  Informed: [command-parsing.md](rationale/command-parsing.md), north#1276.
+  Outcome: adopted for north's argument parsing, derive API with help generation off; converted crate by crate.
+
+- <a id="lexopt"></a>**lexopt 0.3.2**, https://github.com/blyxxyz/lexopt, MIT; accessed 2026-11-12.
+  Informed: [command-parsing.md](rationale/command-parsing.md), north#1276.
+  Outcome: tested with no gain; it holds the behaviour but keeps each per-flag `match`, so it removes too few lines.
+
+- <a id="bpaf"></a>**bpaf 0.9.28**, https://github.com/pacak/bpaf, MIT OR Apache-2.0; accessed 2026-11-12.
+  Informed: [command-parsing.md](rationale/command-parsing.md), north#1276.
+  Outcome: rejected; it refuses values that start with a dash and its errors name no flag, so north's usage errors
+  cannot be kept.
+
+- <a id="argh"></a>**argh 0.1.19**, https://github.com/google/argh, BSD-3-Clause; accessed 2026-11-12.
+  Informed: [command-parsing.md](rationale/command-parsing.md), north#1276.
+  Outcome: rejected; no short-flag clusters, no `--flag=value`, and its own error messages.
+
+- <a id="thiserror-anyhow"></a>**thiserror 2.0.21 and anyhow 1.0.104**, https://github.com/dtolnay/thiserror and
+  https://github.com/dtolnay/anyhow, MIT OR Apache-2.0; accessed 2026-11-12.
+  Informed: [command-parsing.md](rationale/command-parsing.md), north#1276.
+  Outcome: thiserror adopted for the hand-written error types; anyhow rejected, since it removes at most about 240
+  lines and changes what every caller prints.
+
 ### Nix
 
 <a id="nix-practice"></a>Each source informed [rationale/nix-current-practice.md](rationale/nix-current-practice.md)
