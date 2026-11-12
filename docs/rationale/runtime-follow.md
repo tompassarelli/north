@@ -72,9 +72,11 @@ its way, and a session host, session link or tool server behind is counted and l
 A unit restarts the service it keeps, but nothing restarts one a client started: the user broker and a GitHub broker
 started on demand exit by themselves only if the runtime they run already knew to. So a promotion retires them: before
 the probe judges, and again once the runtime is live, each such service on a runtime that is neither live nor judged
-loses its socket path, which sends its next client to start one on the live runtime, and gets a TERM once no client is
-connected and its log has been quiet for 5 s. One still serving a client after 15 s keeps running without new clients
-and is asked again by the next promotion; a request is never cut.
+loses its socket path, which sends its next client to start one on the live runtime, and gets a TERM once no client has
+been connected for 5 s. Its log is no witness of that, since the one its next client starts writes to the same file.
+One still serving a client after 15 s keeps running without new clients and is asked again by the next promotion; a
+request is never cut. The probe names such a draining service and passes: holding the host on its old runtime for a
+process no new client reaches only widens the lag. It fails for one that still takes new clients (north#1022).
 
 The code that judges a runtime is that runtime's too. A promotion is run by the runtime that was live before it, so
 its probe list and its walk were one runtime behind what they judged: a probe retired on purpose kept failing the

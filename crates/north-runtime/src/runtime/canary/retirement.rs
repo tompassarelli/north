@@ -1,11 +1,13 @@
 //! A promotion retires the on-demand host services it would otherwise fail on. A client starts one (the user broker, a
 //! GitHub broker no unit keeps) and nothing restarts it, so one left on a runtime that is neither live nor judged here
 //! serves that runtime until it exits. It is asked to exit at its next idle moment: its socket path goes first, so the
-//! next client starts one on the live runtime, and it gets a TERM once no client is connected and its log is quiet.
+//! next client starts one on the live runtime, and it gets a TERM once no client has been connected for a quiet spell.
+//! Its log tells nothing of that: the one its next client starts writes to the same file. One still serving a client is
+//! named as draining, since no new client reaches it, and one whose path could not be taken away as still accepting.
 use super::super::layout;
 use north_runtime_follow::runtime_of;
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
@@ -43,6 +45,13 @@ struct Socket {
     inode: u64,
     listens: bool,
     path: Option<String>,
+}
+
+/// What a promotion asked of the on-demand host services behind it: a line on each, and the ones still running that no new client reaches.
+#[derive(Default)]
+pub(super) struct Asked {
+    pub(super) said: Vec<String>,
+    pub(super) draining: Vec<u32>,
 }
 
 pub(super) struct Host<'a> {
@@ -83,27 +92,27 @@ impl Host<'_> {
         }).collect()
     }
 
-    /// Takes the service's socket path away, so no new client reaches it; a path another listener has bound since is that listener's and stays.
+    /// The paths at which a new client still reaches the service: a name outside the filesystem, or a socket file that is its own; a path another listener has bound since is that listener's.
+    fn reached_at(&self, pid: u32) -> Option<Vec<String>> {
+        let (held, sockets) = (self.held(pid)?, self.sockets());
+        let own = |path: &str| !path.starts_with('/') || (sockets.iter().filter(|socket| socket.listens && socket.path.as_deref() == Some(path)).count() == 1 && fs::symlink_metadata(path).is_ok_and(|file| file.file_type().is_socket()));
+        Some(sockets.iter().filter(|socket| socket.listens && held.contains(&socket.inode)).filter_map(|socket| socket.path.clone()).filter(|path| own(path)).collect())
+    }
+
+    /// Takes the service's socket path away, so no new client reaches it.
     fn close(&self, pid: u32) {
-        let (Some(held), sockets) = (self.held(pid), self.sockets()) else {
-            return;
-        };
-        for path in sockets.iter().filter(|socket| socket.listens && held.contains(&socket.inode)).filter_map(|socket| socket.path.as_deref()).filter(|path| path.starts_with('/')) {
-            let bound_once = sockets.iter().filter(|socket| socket.listens && socket.path.as_deref() == Some(path)).count() == 1;
-            if bound_once && fs::symlink_metadata(path).is_ok_and(|file| file.file_type().is_socket()) {
-                let _ = fs::remove_file(path);
-            }
+        for path in self.reached_at(pid).unwrap_or_default().iter().filter(|path| path.starts_with('/')) {
+            let _ = fs::remove_file(path);
         }
     }
 
-    /// No client is connected and the log it writes each request to has been quiet; a process whose sockets cannot be read is taken as busy.
-    fn idle(&self, pid: u32) -> bool {
-        let Some(held) = self.held(pid) else {
-            return false;
-        };
-        let connected = self.sockets().iter().any(|socket| !socket.listens && held.contains(&socket.inode));
-        let written = fs::metadata(self.proc_root.join(pid.to_string()).join("fd/2")).ok().filter(fs::Metadata::is_file).and_then(|log| log.modified().ok());
-        !connected && written.is_none_or(|at| at.elapsed().is_ok_and(|quiet| quiet >= self.quiet))
+    /// A process whose sockets cannot be read is taken as reachable and as serving a client.
+    fn accepts(&self, pid: u32) -> bool {
+        self.reached_at(pid).is_none_or(|paths| !paths.is_empty())
+    }
+
+    fn connected(&self, pid: u32) -> bool {
+        self.held(pid).is_none_or(|held| self.sockets().iter().any(|socket| !socket.listens && held.contains(&socket.inode)))
     }
 }
 
@@ -113,12 +122,12 @@ fn term(pid: u32) {
     }
 }
 
-pub(super) fn retire_here(live: Option<&str>, judged: &str, listing: &str) -> Vec<String> {
+pub(super) fn retire_here(live: Option<&str>, judged: &str, listing: &str) -> Asked {
     retire(live, judged, listing, &Host { proc_root: Path::new("/proc"), quiet: QUIET, patience: PATIENCE, term: &term })
 }
 
 /// Asks each on-demand host service the listing shows on a runtime other than `live` and `judged` to exit once idle, and says what became of each.
-pub(super) fn retire(live: Option<&str>, judged: &str, listing: &str, host: &Host) -> Vec<String> {
+pub(super) fn retire(live: Option<&str>, judged: &str, listing: &str, host: &Host) -> Asked {
     let listed: Vec<Process> = serde_json::from_str(listing.trim()).unwrap_or_default();
     let older = listed.into_iter().filter_map(|process| {
         let runtime = process.runtime.filter(|runtime| runtime != judged && Some(runtime.as_str()) != live)?;
@@ -126,13 +135,21 @@ pub(super) fn retire(live: Option<&str>, judged: &str, listing: &str, host: &Hos
     });
     let mut serving: Vec<Stale> = older.filter(|stale| host.serves(stale)).collect();
     if serving.is_empty() {
-        return Vec::new();
+        return Asked::default();
     }
     serving.iter().for_each(|stale| host.close(stale.pid));
-    let (started, mut asked, mut said) = (Instant::now(), Vec::new(), Vec::new());
+    let (started, mut clientless, mut asked, mut said) = (Instant::now(), HashMap::new(), Vec::new(), Vec::new());
     loop {
         std::thread::sleep(POLL);
-        let (idle, busy): (Vec<Stale>, Vec<Stale>) = serving.into_iter().filter(|stale| host.serves(stale)).partition(|stale| host.idle(stale.pid));
+        serving.retain(|stale| host.serves(stale));
+        for stale in &serving {
+            if host.connected(stale.pid) {
+                clientless.remove(&stale.pid);
+            } else {
+                clientless.entry(stale.pid).or_insert_with(Instant::now);
+            }
+        }
+        let (idle, busy): (Vec<Stale>, Vec<Stale>) = serving.into_iter().partition(|stale| clientless.get(&stale.pid).is_some_and(|since| since.elapsed() >= host.quiet));
         idle.iter().for_each(|stale| (host.term)(stale.pid));
         asked.extend(idle);
         serving = busy;
@@ -144,12 +161,16 @@ pub(super) fn retire(live: Option<&str>, judged: &str, listing: &str, host: &Hos
         std::thread::sleep(POLL);
     }
     said.extend(asked.iter().map(|stale| format!("asked {} to exit while it served no client; its next client starts it on the live runtime", stale.named())));
-    said.extend(serving.iter().map(|stale| format!("{} is serving a client and takes no new one; the next promotion asks it to exit again", stale.named())));
-    said
+    let (accepting, draining): (Vec<&Stale>, Vec<&Stale>) = serving.iter().chain(asked.iter().filter(|stale| host.serves(stale))).partition(|stale| host.accepts(stale.pid));
+    said.extend(draining.iter().filter(|stale| serving.iter().any(|busy| busy.pid == stale.pid)).map(|stale| format!("{} is serving a client and takes no new one; the next promotion asks it to exit again", stale.named())));
+    said.extend(accepting.iter().map(|stale| format!("{} still takes new clients, since its socket path could not be taken away", stale.named())));
+    Asked { said, draining: draining.iter().map(|stale| stale.pid).collect() }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::layout::{self, Layout};
+    use super::super::services::judge;
     use super::{Host, retire};
     use std::cell::RefCell;
     use std::fs;
@@ -159,6 +180,7 @@ mod tests {
     use std::time::Duration;
 
     const OLDER: &str = "0000000000000000000000000000000000000000";
+    const REPLACED: &str = "1111111111111111111111111111111111111111";
     const LIVE: &str = "2222222222222222222222222222222222222222";
 
     fn process(proc_root: &Path, pid: u32, runtime: &str, words: &[&str], sockets: &[u64]) {
@@ -189,14 +211,43 @@ mod tests {
         };
         let host = Host { proc_root: &proc_root, quiet: Duration::ZERO, patience: Duration::ZERO, term: &exits };
 
-        let said = retire(Some(LIVE), LIVE, &listing, &host);
+        let said = retire(Some(LIVE), LIVE, &listing, &host).said;
         assert!(asked.borrow().is_empty(), "a broker with a client connected was signalled mid-request: {said:?}");
         assert!(!socket.exists(), "the older broker kept its socket path, so its next client would reach it again");
         assert!(said.len() == 1 && said[0].contains("`broker` (pid 7) on 00000000 is serving a client"), "{said:?}");
 
         fs::remove_file(proc_root.join("7/fd/4")).unwrap();
-        let said = retire(Some(LIVE), LIVE, &listing, &host);
+        let said = retire(Some(LIVE), LIVE, &listing, &host).said;
         assert_eq!(*asked.borrow(), [7], "only the idle on-demand broker on the older runtime is asked to exit, not the unit's broker or the live one: {said:?}");
         assert!(said.len() == 1 && said[0].contains("asked `broker` (pid 7) on 00000000 to exit"), "{said:?}");
+    }
+
+    #[test]
+    fn a_stale_broker_no_new_client_reaches_is_named_and_passes_the_probe_and_one_that_still_accepts_fails_it() {
+        let root = tempfile::tempdir().unwrap();
+        let (proc_root, socket) = (root.path().join("proc"), root.path().join("broker.sock"));
+        let _bound = UnixListener::bind(&socket).unwrap();
+        process(&proc_root, 7, OLDER, &["broker", "serve", "--user"], &[100, 101]);
+        process(&proc_root, 8, OLDER, &["broker", "serve", "--user"], &[102, 103]);
+        fs::create_dir_all(proc_root.join("net")).unwrap();
+        let table = format!("Num       RefCount Protocol Flags    Type St Inode Path\n0000000000000000: 00000002 00000000 00010000 0001 01 100 {}\n0000000000000000: 00000003 00000000 00000000 0001 03 101 {}\n0000000000000000: 00000002 00000000 00010000 0001 01 102 @north-broker\n0000000000000000: 00000003 00000000 00000000 0001 03 103 @north-broker\n", socket.display(), socket.display());
+        fs::write(proc_root.join("net/unix"), table).unwrap();
+        let layout = Layout { state: root.path().to_path_buf() };
+        fs::write(layout.swaps(), [OLDER, REPLACED, LIVE].iter().enumerate().map(|(at, runtime)| format!("{{\"runtime\":\"{runtime}\",\"at\":{at}}}\n")).collect::<String>()).unwrap();
+        symlink(layout::link(LIVE), layout.current()).unwrap();
+        let host = Host { proc_root: &proc_root, quiet: Duration::ZERO, patience: Duration::ZERO, term: &|pid| panic!("pid {pid} was signalled while it served a client") };
+        let broker = |pid: u32| serde_json::json!({"pid": pid, "kind": "broker", "process": "broker", "runtime": OLDER});
+
+        let listing = serde_json::json!([broker(7)]).to_string();
+        let asked = retire(Some(LIVE), LIVE, &listing, &host);
+        assert!(asked.said.len() == 1 && asked.said[0].contains("`broker` (pid 7) on 00000000 is serving a client and takes no new one"), "{:?}", asked.said);
+        let passed = judge(&layout, LIVE, &listing, &asked.draining).map_err(|failure| failure.message);
+        assert!(passed.as_ref().is_ok_and(|said| said.contains("`broker` (pid 7) on 00000000 takes no new client and leaves with its last one")), "a broker no new client reaches held the host on its old runtime: {passed:?}");
+
+        let listing = serde_json::json!([broker(7), broker(8)]).to_string();
+        let asked = retire(Some(LIVE), LIVE, &listing, &host);
+        assert!(asked.said.iter().any(|line| line.contains("`broker` (pid 8) on 00000000 still takes new clients")), "{:?}", asked.said);
+        let failed = judge(&layout, LIVE, &listing, &asked.draining).map_err(|failure| failure.message);
+        assert!(failed.as_ref().is_err_and(|why| why.contains("`broker` (pid 8) runs 00000000") && !why.contains("pid 7")), "a stale broker that still takes new clients passed, or the draining one failed with it: {failed:?}");
     }
 }

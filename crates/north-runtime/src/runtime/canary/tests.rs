@@ -33,7 +33,7 @@ impl Machine for Fleet<'_> {
             return classify(output.status.code(), format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
         }
         if let Some(listing) = self.services.as_ref().filter(|_| probe.name.contains("host service")) {
-            return match services::judge(self.layout, PROMOTED, listing) {
+            return match services::judge(self.layout, PROMOTED, listing, &[]) {
                 Ok(said) => Ran::Exited { code: 0, log: said },
                 Err(failure) => classify(Some(i32::from(failure.code)), failure.message),
             };
