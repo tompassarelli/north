@@ -70,13 +70,18 @@ pub(super) fn session(cgroup: &str, fleet: &Path) -> Result<Session, String> {
     let field = |key: &str| record[key].as_str().filter(|value| !value.is_empty()).map(str::to_owned);
     let name = field("name").ok_or_else(|| format!("{} names no session", directory.display()))?;
     let task = field("task_ref").ok_or_else(|| format!("{name} was launched with no --task, so it has no issue of its own"))?;
-    let cwd = PathBuf::from(field("cwd").ok_or_else(|| format!("{name} records no working directory"))?);
-    let lane = if cwd.parent().and_then(Path::file_name).is_some_and(|parent| parent == "worktrees") {
-        cwd
-    } else {
-        cwd.parent().ok_or_else(|| format!("{} is not a checkout of a project", cwd.display()))?.join("worktrees").join(&name)
-    };
+    let lane = own_lane(&name, &record)?;
     Ok(Session { name, task, lane })
+}
+
+/// The lane of the session `name` whose record is `record`: the working directory it launched in when that is a lane, else the lane of its own name beside that directory.
+pub(super) fn own_lane(name: &str, record: &Value) -> Result<PathBuf, String> {
+    let cwd = PathBuf::from(record["cwd"].as_str().filter(|value| !value.is_empty()).ok_or_else(|| format!("{name} records no working directory"))?);
+    if cwd.parent().and_then(Path::file_name).is_some_and(|parent| parent == "worktrees") {
+        Ok(cwd)
+    } else {
+        Ok(cwd.parent().ok_or_else(|| format!("{} is not a checkout of a project", cwd.display()))?.join("worktrees").join(name))
+    }
 }
 
 /// The directory under `fleet` of the session that runs in the scope `unit`, and its record.

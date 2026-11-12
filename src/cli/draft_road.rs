@@ -20,6 +20,14 @@ impl Road for Draft {
         }
     }
 
+    fn check(&self, root: &Path, check: &str, head: Option<&str>) -> Option<Result<(), (String, String)>> {
+        super::remote_land::check_through_broker(root, check, head)
+    }
+
+    fn writes_finish_records(&self) -> bool {
+        !north_runtime::worker_sandbox::confined()
+    }
+
     fn take(self, lane: &Lane) -> u8 {
         let root = lane.root.as_path();
         let files: Vec<String> = git(root, &["diff", "--name-only", &self.mark.base, "HEAD"]).map(|text| text.lines().map(str::to_owned).collect()).unwrap_or_default();

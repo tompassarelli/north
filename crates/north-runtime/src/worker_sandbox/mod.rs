@@ -5,6 +5,7 @@ mod broker_start;
 mod brokered_reads;
 mod buck;
 mod check_request;
+mod finish_request;
 mod except;
 mod executable;
 mod file_tools;
@@ -332,6 +333,12 @@ pub fn ask_check(arguments: &[String]) -> u8 {
         eprintln!("{error}");
         126
     })
+}
+
+/// Has the outside broker run the acceptance command `command` of a finish call in `lane` in a new worker domain, with `log` as its output, and record its verdict for the caller's own session, when called inside a worker sandbox's domain, which keeps the verdict store unwritable and lets a worker name none (finish_request.rs); the command's exit code. `None` outside a sandbox, where the caller runs the command and writes the record itself.
+pub fn finish_check(lane: &Path, command: &str, head: &str, log: &std::fs::File) -> Option<Result<u8, String>> {
+    std::env::var_os(MARK)?;
+    Some(broker::request_finish_check(lane, &finish_request::request_words(command, head), log))
 }
 
 /// The command that runs the program `program` in a new worker domain whatever role starts it, judged by no hook: what the checker the broker starts for a session runs a box's Done-when command as, since the command's text comes from an issue a session may have written.

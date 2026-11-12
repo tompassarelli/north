@@ -71,7 +71,7 @@ pub(super) fn granted(check: &Check, cgroup: &str, host: &Host, runtime: &Path, 
 }
 
 /// `own`, the environment the broker gives an offload's process (offload_request.rs), with its `PATH` behind `home`'s gh shim, so the checker's tick reaches GitHub as the Agent App, under the asking session's `name`.
-fn environment(name: &str, own: Vec<(String, String)>, home: &Path) -> Result<Vec<(String, String)>, String> {
+pub(super) fn environment(name: &str, own: Vec<(String, String)>, home: &Path) -> Result<Vec<(String, String)>, String> {
     let path = lane_grant::shimmed_path(home, own.iter().find(|(variable, _)| variable == "PATH").map_or("", |(_, value)| value.as_str()))?;
     Ok(own.into_iter().filter(|(variable, _)| variable != "PATH" && variable != lane_grant::SESSION_ENV).chain([("PATH".to_owned(), path), (lane_grant::SESSION_ENV.to_owned(), name.to_owned())]).collect())
 }
@@ -88,9 +88,14 @@ fn session(cgroup: &str, fleet: &Path) -> Result<Asking, String> {
 
 /// The one check `asking` runs at a time: an exclusive lock on a file in its fleet directory, held until the returned file is dropped.
 fn turn(asking: &Asking) -> Result<File, String> {
-    let path = asking.directory.join(TURN);
+    turn_in(&asking.directory, &asking.name, TURN)
+}
+
+/// The exclusive lock on the file `lock` in the fleet directory `directory` of the session `name`, held until the returned file is dropped.
+pub(super) fn turn_in(directory: &Path, name: &str, lock: &str) -> Result<File, String> {
+    let path = directory.join(lock);
     let held = File::options().create(true).append(true).open(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-    flock(&held, FlockOperation::NonBlockingLockExclusive).map(|()| held).map_err(|_| format!("{} has a check running, and a session runs one at a time; ask again when it ends", asking.name))
+    flock(&held, FlockOperation::NonBlockingLockExclusive).map(|()| held).map_err(|_| format!("{name} has a check running, and a session runs one at a time; ask again when it ends"))
 }
 
 /// The main checkout of the repository `check` names among the projects under `code` (`CODE/REPO/main`), as the broker places one (request_checkout.rs), whose origin, read from the repository that checkout keeps, is that repository.

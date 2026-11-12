@@ -37,6 +37,16 @@ pub trait Road {
 
     fn failed(&self, _root: &Path, _failure: &str) {}
 
+    /// The verdict of the finish call's check when this road runs it itself and records it: a worker sandbox keeps the finish record unwritable, so its road has the outside broker run the check and write the record from the command's exit code. `None` runs the check here and writes the record here.
+    fn check(&self, _root: &Path, _check: &str, _head: Option<&str>) -> Option<Result<(), (String, String)>> {
+        None
+    }
+
+    /// Whether a finish call run here may write the finish record itself; a road that has none to write for a verdict it did not derive says no.
+    fn writes_finish_records(&self) -> bool {
+        true
+    }
+
     fn take(self, lane: &Lane) -> u8;
 }
 
@@ -147,12 +157,19 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
         ask_early(&named, head.clone(), facts.clone());
     }
     let landed = request.check.zip(head.as_deref()).and_then(|(check, head)| as_land_check(&named.lane, check, head, facts.as_ref()));
+    let mut recorded = false;
     let checked = match (request.check, landed) {
         (_, Some(ran)) => ran.map_err(|refusal| ("failed as a check before queueing".to_owned(), refusal)),
-        (Some(check), None) => passes(&named.lane.root, check),
+        (Some(check), None) => match road.check(&named.lane.root, check, head.as_deref()) {
+            Some(verdict) => {
+                recorded = true;
+                verdict
+            }
+            None => passes(&named.lane.root, check),
+        },
         (None, None) => Ok(()),
     };
-    if let Some(check) = request.check {
+    if let Some(check) = request.check.filter(|_| !recorded && road.writes_finish_records()) {
         record_finished(check, head.as_deref(), checked.is_ok());
     }
     if let (Some(check), Err((failure, output))) = (request.check, checked) {

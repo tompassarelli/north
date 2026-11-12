@@ -17,6 +17,7 @@ use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAnci
 use serde::{Deserialize, Serialize};
 
 use super::check_request;
+use super::finish_request;
 use super::lane_grant::{self, Host};
 use super::offload_request;
 pub(super) use super::offload_request::offload_refusal;
@@ -59,7 +60,7 @@ fn socket() -> PathBuf {
     std::env::var_os(SOCKET_ENV).filter(|value| !value.is_empty()).map_or_else(|| runtime().join(DIRECTORY).join(SOCKET), PathBuf::from)
 }
 
-/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `threads` reaches a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and is refused to a lane-only caller; `capacity offload` in the words `land_offload::worker_request` reads runs a command on another declared host under that host's lease, the one way a worker command reaches a build host, refused to a lane-only caller and for any host this one does not declare, and started with nothing of the client's but those words (offload_request.rs). Each of them is served only from a lane or a main checkout of a project this host keeps, or a slot the build offload recorded as one's, and refused from a directory the broker cannot place in one (request_checkout.rs). Ahead of that, `task check --done-when --box TEXT OWNER/REPO#N` from a session outside every lane-only scope starts the Done-when checker outside the caller's domain, which alone writes the verdict the caller asked for, with nothing of the client's but those words, its directory included (check_request.rs).
+/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `finish-check COMMAND HEAD` is no verb of `north`: the broker runs that acceptance command in the caller's lane in a new worker domain and records the verdict from its exit code for the session whose scope the caller runs in (finish_request.rs); `threads` reaches a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and is refused to a lane-only caller; `capacity offload` in the words `land_offload::worker_request` reads runs a command on another declared host under that host's lease, the one way a worker command reaches a build host, refused to a lane-only caller and for any host this one does not declare, and started with nothing of the client's but those words (offload_request.rs). Each of them is served only from a lane or a main checkout of a project this host keeps, or a slot the build offload recorded as one's, and refused from a directory the broker cannot place in one (request_checkout.rs). Ahead of that, `task check --done-when --box TEXT OWNER/REPO#N` from a session outside every lane-only scope starts the Done-when checker outside the caller's domain, which alone writes the verdict the caller asked for, with nothing of the client's but those words, its directory included (check_request.rs).
 /// Where the command begins in the arguments of `capacity host run`: after the first `--`, when a word follows it.
 fn payload(words: &[&str]) -> Option<usize> {
     words.iter().position(|word| *word == "--").map(|at| at + 1).filter(|start| *start < words.len())
@@ -82,6 +83,7 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
         ["home", "move", ..] | ["threads", _, ..] => true,
         ["capacity", "host", "run", rest @ ..] => payload(rest).is_some(),
         ["capacity", "offload", rest @ ..] => crate::land_offload::worker_request(rest).is_some(),
+        [finish_request::VERB, ..] => true,
         _ => lane_grant::privileged(arguments),
     }
 }
@@ -107,6 +109,14 @@ pub fn request(arguments: &[String]) -> Result<u8, String> {
     let environment = std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect();
     let (stdin, stdout, stderr) = (std::io::stdin(), std::io::stdout(), std::io::stderr());
     send(&stream, Request { arguments: arguments.to_vec(), directory, environment }, [stdin.as_fd(), stdout.as_fd(), stderr.as_fd()])
+}
+
+/// Asks the broker to run the acceptance command of a finish call (finish_request.rs) in `directory`, the caller's lane, with `log` as the command's output and nothing else of this process's: no environment is sent; the command's exit code.
+pub fn request_finish_check(directory: &Path, arguments: &[String], log: &File) -> Result<u8, String> {
+    let path = socket();
+    let stream = UnixStream::connect(&path).map_err(|error| format!("north worker-sandbox: the outside broker at {} does not answer ({error}); it starts with the next agent command", path.display()))?;
+    let stdin = File::open("/dev/null").map_err(|error| error.to_string())?;
+    send(&stream, Request { arguments: arguments.to_vec(), directory: directory.to_owned(), environment: Vec::new() }, [stdin.as_fd(), log.as_fd(), log.as_fd()])
 }
 
 /// Asks the broker for the Done-when check `arguments` name (check_request.rs) with this process's standard streams and nothing else of it: the request holds those words, no working directory and no environment; its exit code.
@@ -325,6 +335,9 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         Ok(placed) => placed,
         Err(why) => return Err(refuse(streams, why)),
     };
+    if let Some(asked) = finish_request::asked(&request.arguments) {
+        return run_finish_check(north, asked, &checkout, streams, stream, cgroup, host);
+    }
     super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, cgroup)?;
     let own_home = own_homes().into_iter().find(|(name, _)| name == "HOME").map(|(_, home)| PathBuf::from(home)).unwrap_or_default();
     let viewed = super::brokered_reads::pinned_entries_readable(&request.arguments, &checkout.top, &request.directory, &request.environment, cgroup, &own_home)?;
@@ -366,6 +379,22 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         .spawn()
         .map_err(|error| format!("{}: {error}", north.display()))?;
     wait(child, stream)
+}
+
+/// Runs the acceptance command `asked` names for the finish call of the caller's own session, in the lane the request was placed in (finish_request.rs), relaying its output to the client; the broker records the verdict from the command's exit code, never from a word of the request. A refusal is told to the client and logged.
+fn run_finish_check(north: &Path, asked: Result<finish_request::Check, String>, checkout: &request_checkout::Checkout, streams: Vec<OwnedFd>, stream: &UnixStream, cgroup: Option<&str>, host: &Host) -> Result<u8, String> {
+    let granted = match asked.and_then(|check| finish_request::granted(check, checkout, cgroup.unwrap_or_default(), host, &runtime(), &own_homes())) {
+        Ok(granted) => granted,
+        Err(why) => return Err(format!("refused a finish check: {}", refuse(streams, why))),
+    };
+    let [_, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
+    eprintln!("north worker-sandbox broker: running the finish check of {}", granted.session);
+    let code = relayed(north, &granted.arguments, &granted.directory, granted.environment.clone(), [stdout, stderr], stream)?;
+    match granted.record(code, &host.environment, &host.home) {
+        Ok(()) => eprintln!("north worker-sandbox broker: recorded the finish verdict of {} (exit {code})", granted.session),
+        Err(why) => eprintln!("north worker-sandbox broker: {why}"),
+    }
+    Ok(code)
 }
 
 /// Tells the client on its standard error why its request is refused; the reason, for the broker's log.

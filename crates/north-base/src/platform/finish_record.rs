@@ -3,7 +3,7 @@
 //! the text of a tool result or a report.
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -28,10 +28,14 @@ fn named(session: &str) -> bool {
 
 impl FinishRecords {
     pub fn here() -> Self {
-        let store = std::env::var_os(STORE_ENV).map(PathBuf::from).unwrap_or_else(|| {
-            let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"));
-            state.join("north/verdict-cache")
-        });
+        let variables: Vec<(String, String)> = [STORE_ENV, "XDG_STATE_HOME"].into_iter().filter_map(|name| Some((name.to_owned(), std::env::var(name).ok()?))).collect();
+        Self::of(&variables, &PathBuf::from(std::env::var_os("HOME").unwrap_or_default()))
+    }
+
+    /// The records of a process whose environment is `environment` and whose home is `home`, as `here` reads them from its own.
+    pub fn of(environment: &[(String, String)], home: &Path) -> Self {
+        let set = |name: &str| environment.iter().find(|(own, value)| own == name && !value.is_empty()).map(|(_, value)| PathBuf::from(value));
+        let store = set(STORE_ENV).unwrap_or_else(|| set("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state")).join("north/verdict-cache"));
         Self(store.join(DIR))
     }
 

@@ -29,6 +29,25 @@ pub fn finish(arguments: &[String]) -> u8 {
     north_lander::land::hand_in::finish(arguments, SafePush { verb: "finish", flags: &[] })
 }
 
+/// The verdict of a finish call's check run by the outside broker when this process runs in a worker sandbox, which keeps the finish record unwritable: the broker runs the command in the lane and writes the record from its exit code. `None` outside a sandbox.
+pub(super) fn check_through_broker(root: &Path, check: &str, head: Option<&str>) -> Option<Result<(), (String, String)>> {
+    if check.trim().is_empty() {
+        return None;
+    }
+    let mut log = tempfile::tempfile().ok()?;
+    let ran = north_runtime::worker_sandbox::finish_check(root, check, head.unwrap_or_default(), &log)?;
+    let mut output = String::new();
+    let _ = std::io::Seek::rewind(&mut log).and_then(|()| std::io::Read::read_to_string(&mut log, &mut output));
+    Some(match ran {
+        Ok(0) => {
+            eprint!("{output}");
+            Ok(())
+        }
+        Ok(code) => Err((format!("exited {code}"), output)),
+        Err(why) => Err((format!("did not start: {why}"), output)),
+    })
+}
+
 struct SafePush {
     verb: &'static str,
     flags: &'static [&'static str],
@@ -37,6 +56,14 @@ struct SafePush {
 impl Road for SafePush {
     fn writable(&self, root: &Path) -> Result<(), String> {
         north_runtime::worker_sandbox::stranded_git_locks(root).map_or(Ok(()), Err)
+    }
+
+    fn check(&self, root: &Path, check: &str, head: Option<&str>) -> Option<Result<(), (String, String)>> {
+        check_through_broker(root, check, head)
+    }
+
+    fn writes_finish_records(&self) -> bool {
+        !north_runtime::worker_sandbox::confined()
     }
 
     fn take(self, lane: &Lane) -> u8 {
