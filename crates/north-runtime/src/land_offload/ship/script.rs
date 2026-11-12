@@ -83,6 +83,8 @@ const NESTED: &str = r#"caller_slot=${@SLOT_ENV@:-} nested=
 [ -n "@BACKGROUND@" ] || [ "${caller_slot%/*}" != "$root" ] || nested=1
 if [ -n "$nested" ] && case ${caller_slot##*/} in "$name" | "$name"-[1-9]) true ;; *) false ;; esac && [ "$(git -C "$caller_slot" rev-parse HEAD 2>/dev/null)" = "$head" ]; then
   s=${caller_slot##*/} slot=$caller_slot
+  exec 5>>"$slot.nested"
+  flock -s 5
   echo "offload: running in $s, the slot this job's caller holds on this host" >&2
 else
 "#;
@@ -138,20 +140,22 @@ first_in_line() {
   done
   return 1
 }
+owned() {
+  exec 9>"$root/$1.lock"
+  if flock -n 9 && (exec 7>>"$root/$1.nested"; flock -n 7) 2>/dev/null; then return 0; fi
+  exec 9>&-
+  return 1
+}
 started=$(date +%s%N)
 noted=0 polled=
 while :; do
   if [ "$lander_slot" = 1 ]; then
-    exec 9>"$root/$reserved.lock"
-    if flock -n 9; then s=$reserved; break; fi
-    exec 9>&-
+    if owned "$reserved"; then s=$reserved; break; fi
   fi
   why="behind earlier jobs in line"
   if [ -n "$nested" ] || { first_in_line && { [ -n "@BACKGROUND@" ] || admits $kind; }; }; then
     for s in $nearest; do
-      exec 9>"$root/$s.lock"
-      if flock -n 9; then break 2; fi
-      exec 9>&-
+      if owned "$s"; then break 2; fi
     done
   fi
   waited=$(( ($(date +%s%N) - started) / 1000000000 ))
@@ -241,7 +245,7 @@ leased() {
 }
 rc=0
 if [ -z "${ran:-}" ]; then
-  leased bash -euo pipefail "$script" 4>&- 6>&- 9>&- || rc=$?
+  leased bash -euo pipefail "$script" 4>&- 5>&- 6>&- 9>&- || rc=$?
   exit "$rc"
 fi
 id=${ran#*:}
@@ -256,12 +260,27 @@ trap '' PIPE HUP
   rc=0
   leased bash -euo pipefail "$script" || rc=$?
   echo "$rc" >"$exited.part" && mv "$exited.part" "$exited"
-) >"$out" 2>"$err" 4>&- 6>&- 9>&- </dev/null &
+) >"$out" 2>"$err" 4>&- 5>&- 6>&- 9>&- </dev/null &
 @DRAIN@detached=
 while :; do
   ended=; [ ! -f "$exited" ] || ended=1
   if [ -z "$detached" ]; then drain || { detached=1; echo >"$lost"; }; fi
   [ -z "$ended" ] || break
+  if [ -n "${nested:-}" ] && (exec 7>>"$slot.lock"; flock -n 7) 2>/dev/null; then
+    echo "offload: the check that started this nested job has ended, so the job ends with it and reaches no verdict" >&2
+    trap '' TERM
+    kill -TERM "-$$" 2>/dev/null || true
+    waits=0
+    while [ "$waits" -lt 600 ]; do
+      pgrep -g "$$" >"$results/$id.group" 2>/dev/null || true
+      grep -vxq "$$" "$results/$id.group" || break
+      waits=$((waits + 1))
+      sleep @DRAIN_POLL@
+    done
+    rm -f "$results/$id.group"
+    echo @WRONG_TREE@ >"$exited"
+    continue
+  fi
   if [ -n "$detached" ] && [ -n "$(find "$lost" -mmin +@REATTACH_MINUTES@ 2>/dev/null)" ] && [ -z "$(find "$attached" -mmin -1 2>/dev/null)" ]; then
     kill -TERM "-$$" 2>/dev/null || true
   fi
@@ -339,6 +358,7 @@ pub(super) fn run_part() -> String {
         .replace("@LEASE@", crate::runtime::layout::LEASE)
         .replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker())
         .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
+        .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
 }
 
 pub(crate) fn jobs_part() -> String {

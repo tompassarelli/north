@@ -551,7 +551,7 @@ fn every_slot_of_a_checkout_serves_sccache_on_its_own_stable_port_in_range() {
 }
 
 #[test]
-fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_waiting_out_the_queue() {
+fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_waiting_out_the_queue_and_ends_it_with_its_check() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let repo = home.path().join("code/p/main");
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "second"]);
@@ -562,34 +562,51 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let inner = home.path().join("inner.sh");
     fs::write(&inner, &script).unwrap();
-    let nested = |head: &str, ran: &Path| format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}' refs/land-offload/job '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = north_base::foundation::offload::SLOT_ENV);
+    let nested = |head: &str, ran: &Path, then: &str| format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}{then}' refs/land-offload/job '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = north_base::foundation::offload::SLOT_ENV);
+    let job = |command: &str, cap: &str, log: &str| {
+        let mut outer = Command::new("setsid")
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", ""])
+            .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+            .env("PATH", &path)
+            .env("NORTH_OFFLOAD_MAX_JOBS", cap)
+            .env_remove(north_base::foundation::offload::SLOT_ENV)
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .stdin(fs::File::open(&bundle).unwrap())
+            .stdout(fs::File::create(home.path().join(format!("{log}.out"))).unwrap())
+            .stderr(fs::File::create(home.path().join(format!("{log}.err"))).unwrap())
+            .spawn()
+            .unwrap();
+        north_base::platform::wait::until(std::time::Duration::from_secs(10), || outer.try_wait().unwrap().is_some());
+        let finished = outer.try_wait().unwrap();
+        if finished.is_none() {
+            let _ = rustix::process::kill_process_group(rustix::process::Pid::from_raw(outer.id() as i32).unwrap(), rustix::process::Signal::Kill);
+            let _ = outer.wait();
+        }
+        (finished.is_some_and(|status| status.success()), fs::read_to_string(home.path().join(format!("{log}.err"))).unwrap_or_default())
+    };
     let ran = home.path().join("inner-ran");
     let ran_elsewhere = home.path().join("inner-ran-elsewhere");
-    let command = format!("{} && {}", nested(&head, &ran), nested(&other, &ran_elsewhere));
-    let mut outer = Command::new("setsid")
-        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", ""])
-        .env("HOME", home.path())
-        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
-        .env("PATH", &path)
-        .env("NORTH_OFFLOAD_MAX_JOBS", "1")
-        .env_remove(north_base::foundation::offload::SLOT_ENV)
-        .env_remove("NORTH_OFFLOAD_ROOT")
-        .stdin(fs::File::open(&bundle).unwrap())
-        .stdout(fs::File::create(home.path().join("outer.out")).unwrap())
-        .stderr(fs::File::create(home.path().join("outer.err")).unwrap())
-        .spawn()
-        .unwrap();
-    north_base::platform::wait::until(std::time::Duration::from_secs(10), || outer.try_wait().unwrap().is_some());
-    let finished = outer.try_wait().unwrap();
-    if finished.is_none() {
-        let _ = rustix::process::kill_process_group(rustix::process::Pid::from_raw(outer.id() as i32).unwrap(), rustix::process::Signal::Kill);
-        let _ = outer.wait();
-    }
-    let err = fs::read_to_string(home.path().join("outer.err")).unwrap_or_default();
-    assert!(finished.is_some_and(|status| status.success()), "the nested jobs did not run within 10 s while their caller held the host's one-job cap: {err}");
-    assert_eq!(fs::read_to_string(&ran).unwrap(), home.path().join(".cache/land-offload/code-p-main").display().to_string(), "the nested job ran in the slot its caller holds");
-    assert_eq!(fs::read_to_string(&ran_elsewhere).unwrap(), home.path().join(".cache/land-offload/code-p-main-1").display().to_string(), "the nested job at another head took a free slot past its caller's one-job cap");
+    let (passed, err) = job(&format!("{} && {}", nested(&head, &ran, ""), nested(&other, &ran_elsewhere, "")), "1", "outer");
+    assert!(passed, "the nested jobs did not run within 10 s while their caller held the host's one-job cap: {err}");
+    let slot = |name: &str| home.path().join(".cache/land-offload").join(name).display().to_string();
+    assert_eq!(fs::read_to_string(&ran).unwrap(), slot("code-p-main"), "the nested job ran in the slot its caller holds");
+    assert_eq!(fs::read_to_string(&ran_elsewhere).unwrap(), slot("code-p-main-1"), "the nested job at another head took a free slot past its caller's one-job cap");
     assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "the nested jobs left no ticket in the queue");
+    let lingering = home.path().join("lingering-ran");
+    let ended = home.path().join("lingering-ended");
+    let said = home.path().join("lingering.err");
+    let linger = format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}; sleep 30; : >{ended}' refs/land-offload/job '' '' '' '' north-offload-ran:linger <{bundle} >/dev/null 2>{said} & until [ -e {ran} ]; do sleep 0.05; done", inner = inner.display(), ran = lingering.display(), ended = ended.display(), said = said.display(), bundle = bundle.display(), slot_env = north_base::foundation::offload::SLOT_ENV);
+    let (passed, err) = job(&linger, "", "caller");
+    assert!(passed && north_base::platform::wait::until(std::time::Duration::from_secs(10), || lingering.exists()), "the caller did not start its nested job: {err} {}", fs::read_to_string(&said).unwrap_or_default());
+    let free = || fs::File::open(home.path().join(".cache/land-offload/code-p-main.nested")).is_ok_and(|busy| rustix::fs::flock(&busy, rustix::fs::FlockOperation::NonBlockingLockExclusive).is_ok());
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(10), free), "a nested job still holds its slot 10 s after the check that started it ended");
+    assert!(!ended.exists(), "the nested job ran to its own end instead of ending with its check");
+    assert!(fs::read_to_string(&said).unwrap_or_default().contains("the check that started this nested job has ended"), "{}", fs::read_to_string(&said).unwrap_or_default());
+    let taker = home.path().join("taker-ran");
+    let (passed, err) = job(&format!("printf %s \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, taker.display()), "", "taker");
+    assert!(passed, "the next job did not run: {err}");
+    assert_eq!(fs::read_to_string(&taker).unwrap(), slot("code-p-main"), "the next job takes the slot the ended nested job left");
 }
 
 #[test]
