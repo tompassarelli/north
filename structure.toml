@@ -1211,5 +1211,5 @@ may_use = []
 [[module]]
 name = "evals"
 paths = ["evals/**"]
-responsibility = "Measurement runners that drive north and other harnesses from outside, as a user would: the Eval B load ladder against plain T3 Code, and the file-prediction scorer for first prompts, with the replay of experiment G1 over closed north boxes."
+responsibility = "Measurement runners that drive north and other harnesses from outside, as a user would: the Eval B load ladder against plain T3 Code, the file-prediction scorer for first prompts, with the replay of experiment G1 over closed north boxes, and the host glue that runs Terminal-Bench 2 through its own harness for Eval X."
 may_use = []

@@ -1,0 +1,58 @@
+#!/bin/sh
+set -eu
+here=$(dirname "$(readlink -f "$0")")
+[ -n "${EVAL_X_SHELL:-}" ] || exec env EVAL_X_SHELL=1 north capacity dev-shell run --dir "$here" -- "$0" "$@"
+TASKS=2fd12b88aafdd04a52c298e3940bcb189f9766d6
+HARBOR=fdba28fc411e47e8765420a1a063b4918fce3def
+work=${EVAL_X_WORK:-/tmp/eval-x}
+export HARBOR_TELEMETRY=off UV_PYTHON_DOWNLOADS=never UV_CACHE_DIR="$work/uv-cache" UV_TOOL_DIR="$work/uv-tools" UV_PROJECT_ENVIRONMENT="$work/harbor-venv"
+pin() {
+  [ "$(git -C "$1" rev-parse HEAD 2> /dev/null)" != "$3" ] || return 0
+  mkdir -p "$1"
+  git -C "$1" init -q
+  git -C "$1" fetch -q --depth 1 "$2" "$3"
+  git -C "$1" checkout -q --detach FETCH_HEAD
+}
+fetch() {
+  pin "$work/tasks" https://github.com/harbor-framework/terminal-bench-2 "$TASKS"
+  pin "$work/harbor" https://github.com/harbor-framework/harbor "$HARBOR"
+  [ -x "$work/harbor-venv/bin/harbor" ] || (cd "$work/harbor" && uvx --from uv==0.13.7 uv sync --locked --no-dev)
+}
+containers() {
+  conf=${XDG_CONFIG_HOME:-$HOME/.config}/containers
+  mkdir -p "$conf"
+  [ -e "$conf/policy.json" ] || printf '{"default":[{"type":"insecureAcceptAnything"}]}\n' > "$conf/policy.json"
+  [ -e "$conf/registries.conf" ] || printf 'unqualified-search-registries = ["docker.io"]\n' > "$conf/registries.conf"
+}
+rows() {
+  jq -c --arg host "$(hostname -s)" --arg load "$1" --argjson wall "$2" --arg tasks "$TASKS" --arg harbor "$HARBOR" \
+    '{task: .task_name, agent: .agent_info.name, reward: (.verifier_result.rewards // null), error: (.exception_info.exception_type // null),
+      agent_started: .agent_execution.started_at, agent_finished: .agent_execution.finished_at, wall_s: $wall,
+      host: $host, load_at_start: $load, tasks_commit: $tasks, harbor_commit: $harbor}' "$3"/*/result.json
+}
+case ${1:-} in
+  fetch)
+    fetch
+    "$work/harbor-venv/bin/harbor" --version
+    ;;
+  oracle)
+    fetch
+    containers
+    job=oracle-$2-$(date +%s) load=$(cut -d' ' -f1-3 /proc/loadavg) t0=$(date +%s)
+    "$work/harbor-venv/bin/harbor" run --path "$work/tasks/$2" --agent oracle --env podman --n-concurrent 1 --yes \
+      --jobs-dir "$work/jobs" --job-name "$job" > "$work/$job.log" 2>&1 || echo "eval-x: harbor exited $?; see $work/$job.log" >&2
+    rows "$load" $(($(date +%s) - t0)) "$work/jobs/$job"
+    podman images --digests --format '{{.Repository}}:{{.Tag}} {{.Digest}} {{.Size}}'
+    podman system df
+    ;;
+  harbor)
+    fetch
+    containers
+    shift
+    exec "$work/harbor-venv/bin/harbor" "$@"
+    ;;
+  *)
+    echo "usage: evals/x/host fetch | oracle TASK | harbor ARGS..." >&2
+    exit 2
+    ;;
+esac

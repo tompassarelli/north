@@ -201,6 +201,21 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Informed: [rationale/scoreboard.md](rationale/scoreboard.md) (north#657): a 50% time horizon of about 50 minutes for Claude 3.7 Sonnet, doubling about every seven months.
   Outcome: prior only.
 
+- <a id="terminal-bench-2"></a>**Terminal-Bench 2.0** (harbor-framework/terminal-bench-2),
+  https://github.com/harbor-framework/terminal-bench-2 at commit `2fd12b88aafdd04a52c298e3940bcb189f9766d6` (2026-04-30), accessed 2026-11-12.
+  Licence: Apache-2.0 (LICENSE at that commit), covering the 89 task folders; each task's container image is pulled from Docker Hub by tag and carries its own software, used inside the container only and never redistributed.
+  Reused scope: none copied or adapted. [evals/x](../evals/x/README.md) fetches the tasks by commit at run time and runs each task's own grader script unchanged (south#107).
+  Reaches at run time: Docker Hub for the task images, whose digests the run records at first pull because a tag can move; from inside each container the distribution's package mirrors, astral.sh and PyPI, which the graders install from; every task allows internet.
+  Outcome: adopted as an outside measure of north against plain T3 Code.
+
+- <a id="harbor"></a>**Harbor** (harbor-framework/harbor), the harness Terminal-Bench 2.0 runs on,
+  https://github.com/harbor-framework/harbor at release `v0.25.0`, commit `fdba28fc411e47e8765420a1a063b4918fce3def` (2026-10-25), accessed 2026-11-12.
+  Licence: Apache-2.0 (LICENSE at that commit). Maintained: the repository was pushed on the day of review.
+  Reused scope: none copied or adapted; it runs as shipped, installed from its own `uv.lock` into a scratch environment by [evals/x/host](../evals/x/host), with rootless podman 5.8.9, podman-compose 1.5.0 and uv from north's nixpkgs pin through the dev shell in `evals/x/flake.nix`. Its lock needs uv 0.13.5 or later, which that pin lacks, so the installer runs uv 0.13.7 from PyPI.
+  Reaches at build time: PyPI for its locked dependencies. At run time: the container runtime; a PostHog telemetry endpoint and an optional results hub, both kept off (`HARBOR_TELEMETRY=off`, no upload command is called), so no request to an outside service carries anything but what the benchmark itself fetches.
+  Why it over what exists: it is the benchmark's own runner and grader, so a row it prints is comparable with published rows; north adds no grader of its own.
+  Outcome: adopted with [Terminal-Bench 2.0](#terminal-bench-2).
+
 ### Statistics
 
 - <a id="wilson-interval"></a>**Wilson score interval** (E. B. Wilson, "Probable Inference, the Law of Succession, and Statistical
