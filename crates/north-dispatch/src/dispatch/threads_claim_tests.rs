@@ -141,7 +141,7 @@ fn a_claim_on_a_box_its_issue_lacks_is_refused_and_one_on_its_own_box_holds_only
     ledger.issues.1.insert(("makgora".to_owned(), 1109), body.to_owned());
     let (code, _, err) = ledger.run(&["claim", "makgora#1109", "--box", "Dispatch on nexus sees every issue filed since its token broke", "--by", "n1109-mirror"]);
     assert_eq!(code, 1);
-    assert!(err.contains("names no box of makgora#1109"), "{err}");
+    assert!(err.contains("names no box of makgora#1109") && err.contains("north-fleet: no test in crates/north-fleet") && err.contains("north-base: no test in crates/north-base"), "the refusal names the issue's box texts: {err}");
     assert!(ledger.listed().is_empty(), "a refused claim holds nothing");
     for (worker, text) in [("n-fleet", "north-fleet: no test"), ("n-base", "north-base: no test in crates/north-base waits on the clock")] {
         let (code, _, err) = ledger.run(&["claim", "makgora#1109", "--box", text, "--by", worker]);

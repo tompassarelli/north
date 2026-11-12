@@ -222,8 +222,8 @@ updates its own class's line when its lane lands.
   could not see a box another issue's brief named; forget released only the launch record's claim
   keys, never the threads ledger's.
 - Invariant: one session per box, decided before a session starts on it (4).
-- Mechanism: a running claim naming a box slug the issue lacks holds every box of the issue
-  (210c4f1383); a launch whose brief names another issue's box claims that box too
+- Mechanism: a running claim naming a box slug the issue lacks was held against every box of the
+  issue (210c4f1383) and since north#1054 holds none, dispatch listing it as stale; a launch whose brief names another issue's box claims that box too
   (cc9f745bff86); forget releases every threads claim the ledger lists for the session, even
   when its host left placement (c2cba7ead6, 1e19a696c1); a launch whose box claim the ledger has
   not confirmed does not start, and a turn handed a new box takes that box's claim first. The

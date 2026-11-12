@@ -222,10 +222,20 @@ impl Issue {
         self.product_holds().find_map(|(_, hold)| hold).map(|hold| hold.to_string()).or(dated).or_else(deferred).or_else(counted)
     }
 
-    /// The first of `held` whose box slug names no box of this issue, ticked or not: a claim that points at no box holds the whole issue.
-    pub fn unmatched_hold<'a>(&self, held: &'a BTreeMap<String, String>) -> Option<(&'a str, &'a str)> {
-        let slugs: BTreeSet<String> = self.body.lines().filter(|line| ANY_BOX.is_match(line)).filter_map(|line| crate::threads::claims::box_slug(line.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[x]").trim_start_matches("[X]"))).collect();
-        held.iter().find(|(slug, _)| !slugs.contains(*slug)).map(|(slug, why)| (slug.as_str(), why.as_str()))
+    /// `held` split into the claims that name a box of this issue, ticked or not, each keyed by the slug of the box it names, and the stale ones that name none, which hold no box.
+    pub fn settle_holds(&self, held: &BTreeMap<String, String>) -> (BTreeMap<String, String>, Vec<(String, String)>) {
+        let slugs: Vec<String> = crate::threads::claims::boxes(&self.body).filter_map(crate::threads::claims::box_slug).collect();
+        let mut named = BTreeMap::new();
+        let mut stale = Vec::new();
+        for (claim, why) in held {
+            match slugs.iter().find(|slug| crate::threads::claims::same_box(claim, slug)) {
+                Some(slug) => {
+                    named.entry(slug.clone()).or_insert_with(|| why.clone());
+                }
+                None => stale.push((claim.clone(), why.clone())),
+            }
+        }
+        (named, stale)
     }
 
     fn product_lines(&self) -> impl Iterator<Item = &str> {
@@ -240,6 +250,22 @@ impl Issue {
     pub fn priority(&self) -> usize {
         north_graph_ground::priority(self.labels.iter().map(String::as_str))
     }
+}
+
+/// The box claims of `issues` settled against each issue's boxes, and a skip line for each stale claim, which names no box of its issue and holds none.
+pub fn settle_box_holds(issues: &[Issue], held: &super::record::BoxHolds) -> (super::record::BoxHolds, Vec<(IssueRef, String)>) {
+    let mut settled = super::record::BoxHolds::new();
+    let mut stale = Vec::new();
+    for (item, claims) in held {
+        let Some(issue) = issues.iter().find(|issue| issue.reference() == *item) else {
+            settled.insert(item.clone(), claims.clone());
+            continue;
+        };
+        let (named, unmatched) = issue.settle_holds(claims);
+        stale.extend(unmatched.into_iter().map(|(slug, holder)| (item.clone(), format!("stale claim on box `{slug}` by {holder}: it names no box of this issue, so it holds none"))));
+        settled.insert(item.clone(), named);
+    }
+    (settled, stale)
 }
 
 /// What holds an unticked box when that is not its date.
@@ -462,9 +488,6 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
         return Err(format!("held by {holder}"));
     }
     let held = world.box_holds.get(&reference);
-    if let Some((slug, holder)) = held.and_then(|boxes| issue.unmatched_hold(boxes)) {
-        return Err(format!("held by {holder}: its claim on box `{slug}` names no box of this issue, so it holds them all"));
-    }
     if let (Some(cap), Some(boxes)) = (issue.worker_cap(), held)
         && boxes.len() >= cap
     {

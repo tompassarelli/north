@@ -200,7 +200,9 @@ fn decide_leaving(survey: &Survey, launched_by: &str) -> (Outcome, Pools) {
     let mut holds = survey.holds.clone();
     holds.extend(revival.holds.clone());
     outcome.revival = revival;
-    let world = issues::World { open: &survey.open, holds: &holds, box_holds: &survey.box_holds, box_tries: &survey.box_tries, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
+    let (box_holds, stale) = issues::settle_box_holds(&survey.issues, &survey.box_holds);
+    outcome.skipped.extend(stale);
+    let world = issues::World { open: &survey.open, holds: &holds, box_holds: &box_holds, box_tries: &survey.box_tries, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
     let mut claims = hotspots::Claims::default();
     for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
         if let Err(why) = screen::admitted(survey, issue, &world) {
@@ -210,7 +212,7 @@ fn decide_leaving(survey: &Survey, launched_by: &str) -> (Outcome, Pools) {
         outcome.ready.push(issue.reference());
         let reference = issue.reference();
         let none = std::collections::BTreeMap::new();
-        let running = survey.box_holds.get(&reference).unwrap_or(&none);
+        let running = box_holds.get(&reference).unwrap_or(&none);
         let tried = survey.box_tries.get(&reference).unwrap_or(&none);
         let boxes = open_boxes(issue, running, tried, survey.at, &mut claims);
         for text in issue.takeable(survey.at) {

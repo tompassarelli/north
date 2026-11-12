@@ -330,9 +330,9 @@ fn a_box_placed_on_the_laptop_is_queued_through_the_north_binary_not_a_threads_p
     assert_eq!(words[7..15], ["fleet", "dispatch", "queued", "--by", "nexus", "--item", "north#742", "--"]);
 }
 
-/// north#888: on 2026-11-08 01:16 UTC dispatch staffed north-879-d0116 while n882-tax held north#879 through a claim whose box slug matched no box of the issue.
+/// north#888, reversed by north#1054: on 2026-11-13 dispatch skipped three issues whose claim slug matched no box of their body, each holding every open box; an unmatched claim is stale and holds none.
 #[test]
-fn a_claim_on_a_slug_that_names_no_box_holds_every_box_of_its_issue() {
+fn a_claim_on_an_unmatched_slug_is_stale_and_leaves_the_other_boxes_takeable() {
     let (_, accounts) = fleet();
     let hosts = vec![host("gex45", 24, Ok(0))];
     let surveyed = |held: &str| {
@@ -342,9 +342,11 @@ fn a_claim_on_a_slug_that_names_no_box_holds_every_box_of_its_issue() {
     };
     let named = surveyed("the-tax-is-counted");
     assert_eq!(named.launches.len(), 1, "a claim on a box holds only that box: {:?}", named.skipped);
+    let prefix = surveyed("the-tax");
+    assert_eq!(prefix.launches.len(), 1, "a claim on a box's first words holds that box: {:?}", prefix.skipped);
     let unnamed = surveyed("n882-tax");
-    assert!(unnamed.launches.is_empty(), "{:?}", unnamed.launches.len());
-    assert!(unnamed.skipped.iter().any(|(_, why)| why.contains("held by fleet session n882-tax on nexus") && why.contains("names no box")), "{:?}", unnamed.skipped);
+    assert_eq!(unnamed.launches.len(), 2, "a stale claim holds no box: {:?}", unnamed.skipped);
+    assert!(unnamed.skipped.iter().any(|(_, why)| why.contains("stale claim on box `n882-tax`") && why.contains("fleet session n882-tax on nexus") && why.contains("names no box")), "{:?}", unnamed.skipped);
     assert_eq!(surveyed("the-tax-is-named").launches.len(), 2, "a ticked box a worker still holds is a box of the issue");
 }
 

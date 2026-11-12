@@ -54,10 +54,13 @@ fn body(reply: &Value, number: u64) -> Option<String> {
     reply["data"]["r0"][format!("i{number}")]["body"].as_str().map(str::to_owned)
 }
 
-/// Refuses a box slug the issue's `body` lacks, ticked or not: a claim on a box its issue lacks holds every box of it in dispatch. A native item or an unread body refuses nothing.
+/// Refuses a box slug the issue's `body` lacks, ticked or not: a claim on a box its issue lacks holds no box in dispatch, so the refusal names the boxes the issue has. A native item or an unread body refuses nothing.
 pub fn box_of_issue(body: Option<&str>, (repo, number): (&str, u64), slug: &str) -> Result<(), String> {
     match body.filter(|_| !CATALOG.is_native(repo)) {
-        Some(body) if !super::names_box(body, slug) => Err(format!("--box {slug} {NO_BOX} {repo}#{number}; a box another issue holds is claimed on that issue, since a claim on a box its issue lacks holds every box of it")),
+        Some(body) if !super::names_box(body, slug) => {
+            let shown: Vec<String> = super::boxes(body).map(|text| text.chars().take(90).collect()).collect();
+            Err(format!("--box {slug} {NO_BOX} {repo}#{number}; give the first words of one of its boxes: {}", shown.join(" | ")))
+        }
         _ => Ok(()),
     }
 }
