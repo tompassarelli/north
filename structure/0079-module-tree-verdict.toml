@@ -1,6 +1,0 @@
-[[module]]
-name = "tree_verdict"
-paths = ["crates/north-tree-verdict/src/**"]
-responsibility = "One verdict per tree: the verdict-bearing form of a clippy run and its cache key, shared by the capacity gate that records a session's own run and the land checks that reuse it."
-may_use = []
-

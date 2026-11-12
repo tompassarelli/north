@@ -12,7 +12,6 @@ doctest = false
 [dependencies]
 north-runtime-follow = { path = "../north-runtime-follow" }
 north-base = { path = "../north-base" }
-north-tree-verdict = { path = "../north-tree-verdict" }
 north-capacity = { path = "../north-capacity" }
 north-graph-loops = { path = "../north-graph-loops" }
 north-fleet = { path = "../north-fleet" }

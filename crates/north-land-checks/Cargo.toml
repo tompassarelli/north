@@ -13,7 +13,6 @@ doctest = false
 north-base = { path = "../north-base" }
 north-build-system = { path = "../north-build-system" }
 north-coverage = { path = "../north-coverage" }
-north-tree-verdict = { path = "../north-tree-verdict" }
 north-diff-gates = { path = "../north-diff-gates" }
 north-landing-gates = { path = "../north-landing-gates" }
 regex.workspace = true

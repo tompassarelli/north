@@ -14,7 +14,6 @@ use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category};
 
 const LOCAL: &str = "local";
-const OWN_RUN: &str = " from a fleet session's own run on this tree";
 
 struct Inputs {
     root: PathBuf,
@@ -32,18 +31,13 @@ impl Inputs {
     fn key(&self, command: &str) -> Option<String> {
         verdict_key::key(&self.root, &self.base, &self.tree, command, &self.environment)
     }
-
-    fn own_run_key(&self, command: &str) -> Option<String> {
-        let canonical = north_tree_verdict::canonical(&north_tree_verdict::land_arguments(command, &self.environment)?)?;
-        Some(north_tree_verdict::key(&north_tree_verdict::tree(&self.root, &self.tree)?, &canonical))
-    }
 }
 
-async fn keys(inputs: &Arc<Inputs>, commands: &[String], key: fn(&Inputs, &str) -> Option<String>) -> BTreeMap<String, String> {
+async fn keys(inputs: &Arc<Inputs>, commands: &[String]) -> BTreeMap<String, String> {
     let mut work = JoinSet::new();
     for command in commands {
         let (inputs, command) = (Arc::clone(inputs), command.clone());
-        work.spawn_blocking(move || key(&inputs, &command).map(|key| (command, key)));
+        work.spawn_blocking(move || inputs.key(&command).map(|key| (command, key)));
     }
     let mut keys = BTreeMap::new();
     while let Some(joined) = work.join_next().await {
@@ -72,26 +66,17 @@ impl Shared {
 
     async fn lookup(&self, commands: &[String]) -> (Vec<String>, Vec<(String, String)>) {
         let inputs = Inputs::of(self);
-        let land = keys(&inputs, commands, Inputs::key).await;
-        let own = keys(&inputs, commands, Inputs::own_run_key).await;
-        let found = self.hits(&land.values().chain(own.values()).map(String::as_str).collect::<Vec<_>>()).await;
-        let hit = |map: &BTreeMap<String, String>, command: &String, source: &'static str| map.get(command).and_then(|key| found.get(key).map(|hit| (key.clone(), hit, source)));
+        let land = keys(&inputs, commands).await;
+        let found = self.hits(&land.values().map(String::as_str).collect::<Vec<_>>()).await;
         let mut pending = Vec::new();
         let mut reused = Vec::new();
-        let mut credited = Vec::new();
         for command in commands {
-            let Some((key, (host, pass), source)) = hit(&land, command, "").or_else(|| hit(&own, command, OWN_RUN)) else {
+            let Some((key, (host, pass))) = land.get(command).and_then(|key| found.get(key).map(|hit| (key.clone(), hit))) else {
                 pending.push(command.clone());
                 continue;
             };
-            say(&format!("safe-push: {}{source}", verdict_cache::reused_line(command, &key, host, pass)));
-            if source == OWN_RUN {
-                credited.push(command.clone());
-            }
+            say(&format!("safe-push: {}", verdict_cache::reused_line(command, &key, host, pass)));
             reused.push((command.clone(), key));
-        }
-        if !credited.is_empty() {
-            self.cache_record(0, &credited).await;
         }
         (pending, reused)
     }
@@ -111,7 +96,7 @@ impl Shared {
 
     pub(super) async fn cache_record_as(&self, status: i32, commands: &[String], class: Option<&str>) {
         let inputs = Inputs::of(self);
-        for (command, key) in keys(&inputs, commands, Inputs::key).await {
+        for (command, key) in keys(&inputs, commands).await {
             let class = class.map_or_else(|| self.cache_class(&command), str::to_owned);
             let host = if class == ACTIONS_CLASS { LOCAL } else { class.as_str() };
             let arguments = verdict_key::record_arguments(host, &key, (status == 0).then_some(inputs.tree.as_str()));

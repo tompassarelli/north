@@ -12,7 +12,6 @@ use crate::shell;
 use north_base::foundation::exit::NO_VERDICT;
 use north_base::platform::attribution::{self, Cause, Harness};
 
-mod own_run;
 
 const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time"];
 const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
@@ -53,7 +52,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             let executed = executed(&process, std::env::var(EXECUTED).ok().as_deref());
             let Some(real) = real_program(program, &name, rest, &executed) else {
                 if let Some(class) = lease_class(&words(program, rest), host) {
-                    return own_run::leased(&name, rest, (&name, &name), |program| leased(class, program, rest, host));
+                    return leased(class, &name, rest, host);
                 }
                 let command: Vec<String> = std::iter::once(name.clone()).chain(rest.iter().cloned()).collect();
                 if let Some(words) = super::dev_shell::project(&north_base::platform::north_binary::north_binary().to_string_lossy(), &command) {
@@ -70,9 +69,11 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
                 let sized_rest = sized.as_deref().map_or(rest, |words| &words[1..]);
                 let mut command = std::process::Command::new(&real);
                 command.arg0(&name).args(sized_rest).env(EXECUTED, executed_value(&process, &executed, &real, sized_rest));
-                return own_run::run(&name, rest, &mut command);
+                let error = command.exec();
+                eprintln!("north capacity gate: {}: {error}", real.display());
+                return 126;
             };
-            own_run::leased(&name, rest, (&real.to_string_lossy(), program), |program| leased(class, program, rest, host))
+            leased(class, &real.to_string_lossy(), rest, host)
         }
         _ => {
             eprintln!("usage: north capacity gate [--class] PROGRAM [ARG...]");
