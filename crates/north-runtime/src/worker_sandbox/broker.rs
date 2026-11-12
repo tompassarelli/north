@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{IoSlice, IoSliceMut, Read, Write};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
@@ -22,7 +23,6 @@ pub(super) use super::offload_request::offload_refusal;
 use super::session_join;
 use super::request_checkout;
 use super::request_env::{environment, landing, landing_choices, own_homes, own_path, request_homes};
-use super::broker_served::Served;
 use super::{Context, FLAG, MAKER, removable};
 
 const DIRECTORY: &str = "north-outside";
@@ -37,7 +37,7 @@ const LENGTH_BYTES: usize = 8;
 const ANSWER_WAIT: Duration = Duration::from_secs(10);
 const REQUEST_LIMIT: usize = 4 << 20;
 const STDIO: usize = 3;
-const REFUSED: u8 = 126;
+pub(super) const REFUSED: u8 = 126;
 const SOCKET_CHECK: Duration = Duration::from_millis(100);
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
 const JOIN_LEASE: &str = r#"echo 0 >"$0" || echo "north worker-sandbox broker: could not join the caller's lease scope $0, so this run counts against no lease" >&2; exec "$@""#;
@@ -162,7 +162,7 @@ pub(super) fn send(stream: &UnixStream, request: Request, streams: [BorrowedFd; 
 /// Starts the broker as a transient user service when nothing answers its socket. Called before a command's domain is applied: afterwards the command cannot start a service, only ask this one. A draining broker still holds the unit name `UNIT`, so when that name is taken the broker starts under a name of its own.
 pub fn ensure() {
     let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
-    ensure_listening(&socket(), |unit| start(&north, unit, &Served::default()));
+    ensure_listening(&socket(), |unit| start(&north, unit, &[]));
 }
 
 pub(super) fn ensure_listening(path: &Path, start: impl Fn(&str) -> bool) {
@@ -188,14 +188,14 @@ fn listening(path: &Path) -> bool {
 }
 
 /// Starts `north` as the broker in the transient user service `unit` under `agent.slice`, so the checks and builds it runs for workers count against the agent CPU quota: in the default app.slice a session's brokered safe-push compiled outside the 12-CPU desk bound and held the laptop at load 39 (north#892); whether it started. A broker on a socket of its own follows the runtime link its starter follows, so the one a canary probe starts stays on the build it judges, and a successor serves what the broker it follows `served`.
-pub(super) fn start(north: &Path, unit: &str, served: &Served) -> bool {
+pub(super) fn start(north: &Path, unit: &str, served: &[OsString]) -> bool {
     let followed = std::env::var_os(SOCKET_ENV).and_then(|_| std::env::var_os(north_runtime_follow::LINK));
-    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).args(std::env::var_os(SOCKET_ENV).map(|socket| format!("--setenv={SOCKET_ENV}={}", socket.to_string_lossy()))).args(followed.map(|link| format!("--setenv={}={}", north_runtime_follow::LINK, link.to_string_lossy()))).arg(format!("--slice={SLICE}")).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).args(served.words()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).args(std::env::var_os(SOCKET_ENV).map(|socket| format!("--setenv={SOCKET_ENV}={}", socket.to_string_lossy()))).args(followed.map(|link| format!("--setenv={}={}", north_runtime_follow::LINK, link.to_string_lossy()))).arg(format!("--slice={SLICE}")).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).args(served).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     started.is_ok_and(|status| status.success())
 }
 
 /// Serves requests asked from this user's projects, and what `served` adds (verify-north's scratch project lies outside `~/code`), until its socket is replaced or removed, then exits once the requests it took are done. Once the promoted north is another one it exits when idle, and while requests run it starts the promoted north as its successor in a unit of its own, which takes the socket over: on a busy host the broker was never idle, so on 2026-11-10 it kept running a north three promotions old and new requests never met a landed fix (north#1023).
-pub fn serve(served: Served) -> std::process::ExitCode {
+pub(super) fn serve(served: Vec<OsString>, answer: Answer) -> std::process::ExitCode {
     let path = socket();
     let Some(directory) = path.parent() else { return std::process::ExitCode::from(2) };
     let north = match std::env::current_exe() {
@@ -228,10 +228,10 @@ pub fn serve(served: Served) -> std::process::ExitCode {
         }
         match listener.accept() {
             Ok((stream, _)) => {
-                let (north, running, served) = (north.clone(), running.clone(), served.clone());
+                let (north, running, answer) = (north.clone(), running.clone(), answer.clone());
                 running.fetch_add(1, Ordering::SeqCst);
                 std::thread::spawn(move || {
-                    if let Err(error) = handle(&north, stream, &served) {
+                    if let Err(error) = handle(&north, stream, &answer) {
                         eprintln!("north worker-sandbox broker: {error}");
                     }
                     running.fetch_sub(1, Ordering::SeqCst);
@@ -261,7 +261,7 @@ fn inode(path: &Path) -> Option<u64> {
     std::fs::metadata(path).ok().map(|metadata| metadata.ino())
 }
 
-fn receive(stream: &UnixStream) -> Result<Option<(Request, Vec<OwnedFd>)>, String> {
+pub(super) fn receive(stream: &UnixStream) -> Result<Option<(Request, Vec<OwnedFd>)>, String> {
     let mut length = [0u8; LENGTH_BYTES];
     let mut space = [0u8; 64];
     let mut control = RecvAncillaryBuffer::new(&mut space);
@@ -279,26 +279,16 @@ fn receive(stream: &UnixStream) -> Result<Option<(Request, Vec<OwnedFd>)>, Strin
     Ok(Some((serde_json::from_slice(&body).map_err(|error| error.to_string())?, streams)))
 }
 
-fn handle(north: &Path, stream: UnixStream, served: &Served) -> Result<(), String> {
+/// How a broker answers the one request on a stream from a caller whose `/proc/PID/cgroup` reads as given: what it serves is its starter's to say (`broker_start`).
+pub(super) type Answer = std::sync::Arc<dyn Fn(&Path, &UnixStream, Option<&str>) -> Result<(), String> + Send + Sync>;
+
+fn handle(north: &Path, stream: UnixStream, answer: &Answer) -> Result<(), String> {
     let peer = rustix::net::sockopt::get_socket_peercred(&stream).map_err(|error| error.to_string())?;
     if peer.uid.as_raw() != rustix::process::getuid().as_raw() {
         return Err(format!("refused a request from uid {}", peer.uid.as_raw()));
     }
     let cgroup = std::fs::read_to_string(format!("/proc/{}/cgroup", peer.pid.as_raw_nonzero().get())).ok();
-    answer_as(north, &stream, cgroup.as_deref(), served)
-}
-
-/// Answers the one request on `stream` as a broker that serves `served`, from a caller whose `/proc/PID/cgroup` reads `cgroup`: a caller the broker does not answer is told so and started nothing, and its refusal is returned for the broker's log.
-pub(super) fn answer_as(north: &Path, stream: &UnixStream, cgroup: Option<&str>, served: &Served) -> Result<(), String> {
-    if let Some(why) = served.refusal(cgroup) {
-        let Some((_, streams)) = receive(stream)? else { return Ok(()) };
-        let why = refuse(streams, why);
-        (&*stream).write_all(&[REFUSED]).map_err(|error| error.to_string())?;
-        return Err(why);
-    }
-    let mut host = Host::own();
-    host.code.extend(served.code.clone());
-    answer(north, stream, cgroup, &host)
+    answer(north, &stream, cgroup.as_deref())
 }
 
 /// Answers the one request on `stream` from a caller whose `/proc/PID/cgroup` reads `cgroup` (`None` when unreadable), on `host`; a refused or failed request is answered 126 and its reason returned for the broker's log.
@@ -379,7 +369,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
 }
 
 /// Tells the client on its standard error why its request is refused; the reason, for the broker's log.
-fn refuse(streams: Vec<OwnedFd>, why: String) -> String {
+pub(super) fn refuse(streams: Vec<OwnedFd>, why: String) -> String {
     if let Some(stderr) = streams.into_iter().nth(STDIO - 1) {
         let _ = writeln!(File::from(stderr), "north worker-sandbox broker: refused: {why}");
     }

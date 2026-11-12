@@ -11,6 +11,7 @@ use north_base::foundation::offload::{LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 
 use super::super::broker::{self, Request};
 use super::super::broker_served::Served;
+use super::super::broker_start;
 use super::super::lane_grant::Host;
 use super::super::{Context, removable};
 use super::{OPEN_SCOPE, git};
@@ -324,8 +325,7 @@ fn a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for
 fn answers_of_a_probe_s_broker(root: &Path, north: &Path, code: Option<PathBuf>, verb: &str, directory: &Path, worker: &[(String, String)]) -> (u8, String, bool, Option<String>) {
     let started = || std::fs::read_to_string(root.join("seen")).unwrap_or_default();
     let serving = Served { code, peers: Some(OPEN_SCOPE.trim().to_owned()) };
-    let from = |cgroup: &str| asked(|server| broker::answer_as(north, server, Some(cgroup), &serving)
-, verb, directory, worker);
+    let from = |cgroup: &str| asked(|server| broker_start::answer(north, server, Some(cgroup), &serving), verb, directory, worker);
     let seen = started();
     let (exit, told) = from(OPEN_SCOPE);
     let served = started().strip_prefix(&seen).and_then(|new| new.lines().next_back()).and_then(|line| line.split('|').next()) == Some(&*directory.to_string_lossy());
