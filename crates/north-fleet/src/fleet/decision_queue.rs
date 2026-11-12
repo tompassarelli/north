@@ -40,8 +40,9 @@ fn waiting_entry(gate: &Waiting, now_ms: u64) -> String {
         (Some(issue), None) => issue.clone(),
         (None, _) => format!("the asking session {}'s question", request.session),
     };
+    let category = request.ask_once.as_deref().map_or_else(String::new, |category| format!("  Ask-once category: {category}\n"));
     format!(
-        "- gate {} ({}, open {hours} h): {}\n  Recommended: {}\n  Alternatives: {}\n  Holds: {holds}\n  Answer: by telling the proxy\n",
+        "- gate {} ({}, open {hours} h): {}\n  Recommended: {}\n  Alternatives: {}\n  Holds: {holds}\n{category}  Answer: by telling the proxy\n",
         gate.label,
         request.session,
         one_line(&request.question),
@@ -70,6 +71,7 @@ mod tests {
             recommend: 1,
             default: usize::from(default),
             default_after_ms: if default { 8 * 3_600_000 } else { 0 },
+            ask_once: (!default).then(|| "credentials".into()),
         };
         Gate::new(id, request, 0, closure)
     }
@@ -86,6 +88,7 @@ mod tests {
         ];
         let text = digest(&gates, &[], 1_000, 2 * 3_600_000);
         assert!(text.contains("For Tom (1)") && text.contains("gate 169 (n562-w, open 2 h)") && text.contains("Recommended: one restricted key per host") && text.contains("Alternatives: keep local ledgers") && text.contains("Holds: tompassarelli/north#562"), "{text}");
+        assert!(text.contains("Ask-once category: credentials"), "a for-Tom gate names its ask-once category: {text}");
         assert!(!text.contains("gate 170") && !text.contains("gate 172") && !text.contains("gate 173"), "an ordinary open gate, a default from before the last look and Tom's own answer stay out: {text}");
         assert!(text.contains("Decided by default since you last looked (1)") && text.contains("gate 171"), "{text}");
         assert_eq!(digest(&gates[1..2], &[], 0, 0), "", "nothing for Tom prints nothing, so the session-start hook stays quiet");

@@ -19,6 +19,8 @@ pub struct GateRequest {
     pub recommend: usize,
     pub default: usize,
     pub default_after_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask_once: Option<String>,
 }
 
 impl GateRequest {
@@ -40,12 +42,7 @@ impl GateRequest {
         if let Some(phrase) = north_base::platform::signin::names(&joined) && !ask_once::names("accounts", &self.question, &self.options) {
             return Err(NorthError::Usage(format!("this gate asks Tom to sign in (\"{phrase}\"), and no agent work waits on a human sign-in: build the machine path (a GitHub App token, a sops-held key or a setup token) as a box instead; only a new account, which nobody can create for him, may ask him to sign in")));
         }
-        match ask_once::class(&self.question, &self.options) {
-            Some(class) if self.has_default() => Err(NorthError::Usage(format!("this gate decides an ask-once matter ({class}) that only Tom answers: open it without --default and --default-after, and it waits for his answer"))),
-            Some(_) => Ok(()),
-            None if in_range(self.default) && self.default_after_ms > 0 => Ok(()),
-            None => Err(NorthError::Usage(format!("--default must name an option from 1 to {} and --default-after must be a duration", self.options.len()))),
-        }
+        self.decision_rule()
     }
 
     pub fn has_default(&self) -> bool {
@@ -87,8 +84,9 @@ impl Ask {
                 options.push(filler.to_owned());
             }
         }
-        let (default, default_after_ms) = if ask_once::class(&self.text, &options).is_some() { (0, 0) } else { (recommend, ASK_DEFAULT_AFTER_MS) };
-        GateRequest { verification: false, issue: None, box_text: None, session: session.to_owned(), question: self.text.clone(), options, recommend, default, default_after_ms }
+        let category = ask_once::class(&self.text, &options).map(str::to_owned);
+        let (default, default_after_ms) = if category.is_some() { (0, 0) } else { (recommend, ASK_DEFAULT_AFTER_MS) };
+        GateRequest { verification: false, issue: None, box_text: None, session: session.to_owned(), question: self.text.clone(), options, recommend, default, default_after_ms, ask_once: category }
     }
 }
 
@@ -488,7 +486,25 @@ mod tests {
             recommend: 1,
             default: 2,
             default_after_ms: 30_000,
+            ask_once: None,
         }
+    }
+
+    #[test]
+    fn a_gate_without_a_default_names_the_ask_once_category_of_its_recommended_option() {
+        let gate = |question: &str, options: [&str; 2], recommend: usize, ask_once: Option<&str>| GateRequest { question: question.into(), options: options.map(String::from).to_vec(), recommend, default: 0, default_after_ms: 0, ask_once: ask_once.map(str::to_owned), ..request() };
+        let widening = ["keep the read-only token", "widen the token's access"];
+        let refused = gate("Widen access for the worker?", widening, 1, None).validate().unwrap_err().user_message();
+        assert!(refused.contains("--ask-once") && refused.contains("credentials") && refused.contains("--default-after"), "{refused}");
+        assert!(gate("Widen access for the worker?", widening, 1, Some("widen")).validate().is_err(), "a word outside the ask-once table names no category");
+        let for_tom = gate("Widen access for the worker?", widening, 2, Some("credentials"));
+        assert!(for_tom.validate().is_ok() && for_tom.for_tom());
+        let safe = GateRequest { default: 1, default_after_ms: 60_000, ..gate("Widen access for the worker?", widening, 1, None) };
+        assert!(safe.validate().is_ok(), "the question names access, but the recommended option keeps the read-only token, so its default applies");
+        let paid = GateRequest { default: 1, default_after_ms: 60_000, ..gate("Which box?", ["pay for the GPU box", "wait"], 1, None) };
+        assert!(paid.validate().unwrap_err().user_message().contains("--ask-once cost"), "a recommended option that spends money waits for Tom");
+        let both = GateRequest { default: 1, default_after_ms: 60_000, ..gate("Widen access for the worker?", widening, 2, Some("credentials")) };
+        assert!(both.validate().is_err(), "a category and a default contradict each other");
     }
 
     #[test]
@@ -556,11 +572,11 @@ mod tests {
         assert!(default_overdue(&book, u64::MAX, |_, _| Ok(())).unwrap().is_empty());
         let routine = Ask { text: "Rename the module?".into(), options: vec!["yes".into(), "no".into()] }.gate("worker");
         assert!(routine.has_default());
-        let undefaulted = |question: &str| GateRequest { question: question.into(), options: vec!["yes".into(), "no".into()], default: 0, default_after_ms: 0, ..request() };
-        let refused = undefaulted("Rename the module?").validate().unwrap_err().user_message();
-        assert!(refused.contains("--default must name an option"), "{refused}");
-        for question in ["Pay for the GPU box?", "Create an account on the forum?", "Make the repo public?", "Vendor this code of unclear license?", "Send the email in Tom's name?", "Post the 0.3.1 announcement under your name?", "Delete the ledger?", "Give the host an ssh key, which widens access?", "Change the project direction?"] {
-            let gate = undefaulted(question);
+        let undefaulted = |question: &str, category: Option<&str>| GateRequest { question: question.into(), options: vec!["yes".into(), "no".into()], default: 0, default_after_ms: 0, ask_once: category.map(str::to_owned), ..request() };
+        let refused = undefaulted("Rename the module?", None).validate().unwrap_err().user_message();
+        assert!(refused.contains("--ask-once"), "{refused}");
+        for (question, category) in [("Pay for the GPU box?", "cost"), ("Create an account on the forum?", "accounts"), ("Make the repo public?", "public"), ("Vendor this code of unclear license?", "direction"), ("Send the email in Tom's name?", "tom_name"), ("Post the 0.3.1 announcement under your name?", "tom_name"), ("Delete the ledger?", "deletion"), ("Give the host an ssh key, which widens access?", "credentials"), ("Change the project direction?", "direction")] {
+            let gate = undefaulted(question, Some(category));
             assert!(gate.validate().is_ok() && gate.for_tom(), "{question} is ask-once, so it waits for Tom without a default");
             let defaulted = GateRequest { default: 1, default_after_ms: 60_000, ..gate };
             assert!(defaulted.validate().is_err(), "{question} must not carry a default");

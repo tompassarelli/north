@@ -48,7 +48,7 @@ south `agents/catalog-config.json`; gate rows come from `crates/north-safe-push`
 | The proxy never opens a blocking question box: AskUserQuestion from a proxy-role session is denied with the gate-open path | `north-hook` (question-box) | Claude |
 | The proxy's diagnosis calls outside break-glass are refused with the brief to write (`north config proxy role` lists them) | `north-hook` (proxy-reach-guard) | Claude, Codex |
 | Tom's window starts with his decision queue (open for-Tom gates and defaults applied since the last look) when it is non-empty (advisory) | `north-hook` (gate-digest, `north gate digest`) | Claude |
-| A gate without a default and deadline is refused unless it names an ask-once class | `north gate open` (`GateRequest::validate`) | Claude, Codex |
+| A gate without a default and deadline is refused unless it names the ask-once category of its recommended option (`--ask-once`) | `north gate open` (`GateRequest::validate`) | Claude, Codex |
 | A decision, audit, review or research file written under the handoffs directory draws an advisory before the write: durable records go in the owning repository (advisory) | `handoff_record` through `north-hook` | Claude, Codex |
 
 `prompt-grounding` delivers context rather than enforcing a rule; `north-hook`

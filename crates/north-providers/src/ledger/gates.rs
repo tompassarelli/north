@@ -8,7 +8,7 @@ use crate::fleet::gates::{Answerer, Closure, Gate, GateBook, GateRequest};
 
 use super::{Ledger, millis, sql};
 
-const GATE_COLUMNS: &str = "gate_id,session,question,options,recommend,default_option,default_after_ms,opened_ms,answer,answered_by,closed_ms,verification,issue,box_text";
+const GATE_COLUMNS: &str = "gate_id,session,question,options,recommend,default_option,default_after_ms,opened_ms,answer,answered_by,closed_ms,verification,issue,box_text,ask_once";
 const PHASE: &str = "(SELECT state FROM lifecycle_states WHERE machine = 'gate' AND instance = CAST(gate_id AS TEXT))";
 
 fn instance(id: i64) -> String {
@@ -35,8 +35,8 @@ impl GateBook for Ledger {
         let options = serde_json::to_string(&request.options)?;
         let id = self.write(|conn| {
             conn.execute(
-                "INSERT INTO gates(session, question, options, recommend, default_option, default_after_ms, opened_ms, verification, issue, box_text) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![request.session, request.question, options, ordinal(request.recommend), ordinal(request.default), millis(request.default_after_ms), millis(opened_ms), request.verification, request.issue, request.box_text],
+                "INSERT INTO gates(session, question, options, recommend, default_option, default_after_ms, opened_ms, verification, issue, box_text, ask_once) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![request.session, request.question, options, ordinal(request.recommend), ordinal(request.default), millis(request.default_after_ms), millis(opened_ms), request.verification, request.issue, request.box_text, request.ask_once],
             )?;
             Ok(conn.last_insert_rowid())
         })?;
@@ -94,9 +94,10 @@ fn gate_from_row(row: &Row<'_>) -> rusqlite::Result<Gate> {
         recommend: usize::try_from(unsigned(4)?).unwrap_or(0),
         default: usize::try_from(unsigned(5)?).unwrap_or(0),
         default_after_ms: unsigned(6)?,
+        ask_once: row.get(14)?,
     };
-    let phase = match row.get::<_, Option<String>>(14)? {
-        Some(name) => GatePhase::parse(&name).ok_or_else(|| rusqlite::Error::FromSqlConversionFailure(14, rusqlite::types::Type::Text, format!("gate {} is in {name}, a phase gates do not have", row.get::<_, i64>(0).unwrap_or(0)).into()))?,
+    let phase = match row.get::<_, Option<String>>(15)? {
+        Some(name) => GatePhase::parse(&name).ok_or_else(|| rusqlite::Error::FromSqlConversionFailure(15, rusqlite::types::Type::Text, format!("gate {} is in {name}, a phase gates do not have", row.get::<_, i64>(0).unwrap_or(0)).into()))?,
         None => GatePhase::opened(&request),
     };
     Ok(Gate { id: row.get(0)?, request, opened_ms: unsigned(7)?, phase, closure })
@@ -126,7 +127,7 @@ pub(super) fn adopt(path: &std::path::Path, conn: &rusqlite::Connection) -> Nort
         if store.current::<GateLife>(&instance(id))?.is_some() {
             continue;
         }
-        let request = GateRequest { verification: false, issue: None, box_text: None, session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: usize::try_from(default_option).unwrap_or(0), default_after_ms: u64::try_from(default_after_ms).unwrap_or(0) };
+        let request = GateRequest { verification: false, issue: None, box_text: None, session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: usize::try_from(default_option).unwrap_or(0), default_after_ms: u64::try_from(default_after_ms).unwrap_or(0), ask_once: None };
         let (phase, cause) = classify(closed_ms, by.as_deref(), answer.is_some(), &request).map_err(|why| NorthError::State(format!("gate {id} in the ledger: {why}")))?;
         let opened = u64::try_from(opened_ms).unwrap_or(0);
         let adopted = store.transition_by::<GateLife>(&instance(id), phase, &format!("adopted from the gates row: {cause}"), Timestamp::now(), phase.deadline(&request, opened))?;

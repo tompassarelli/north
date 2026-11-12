@@ -269,7 +269,7 @@ mod tests {
         let posted = inbox.sent.into_inner().unwrap();
         assert_eq!(posted, [("boss".to_owned(), "[from kid · host 41 exited mid-task again within the hour of its revive] Last 2 transcript lines:\ntool: step 1 more\ntool: step 2 more".to_owned(), Delivery::Now)]);
         let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
-        let gate = |session: &str, question: &str, default: usize, default_after_ms: u64| GateRequest { verification: false, issue: None, box_text: None, session: session.into(), question: question.into(), options: vec!["yes".into(), "no".into()], recommend: 1, default, default_after_ms };
+        let gate = |session: &str, question: &str, default: usize, default_after_ms: u64| GateRequest { verification: false, issue: None, box_text: None, session: session.into(), question: question.into(), options: vec!["yes".into(), "no".into()], recommend: 1, default, default_after_ms, ask_once: None };
         book.open_gate(&gate("pal", "Which module name reads better?", 1, 60_000), 0).unwrap();
         let spending = book.open_gate(&gate("kid", "May we turn on extra usage credits?", 0, 0), 0).unwrap();
         let report = |child: &str, turn, reply: &str| Report { child: child.into(), turn, exit: TurnExit::Completed, landed: None, reply: Some(reply.into()), waiting: false };

@@ -285,6 +285,7 @@ fn gate(id: i64, session: &str, opened_ms: u64) -> Gate {
         recommend: 1,
         default: 2,
         default_after_ms: 60_000,
+        ask_once: None,
     };
     Gate::new(id, request, opened_ms, None)
 }

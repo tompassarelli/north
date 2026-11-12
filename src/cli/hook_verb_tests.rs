@@ -67,7 +67,7 @@ fn a_proxy_turn_reading_past_the_limit_on_one_subject_is_stopped_with_its_brief(
     assert_eq!(judged(&handed_off, &hook("t300", LAPTOP_LOAD_READS[15])), Verdict::Allow, "a launch starts a new streak");
 
     let mut gated = turn(question, &LAPTOP_LOAD_READS[..LIMIT]);
-    gated.extend(turn_tail(&["north gate open --question 'cap the lander?' --option yes --option no --recommend 1"], 100));
+    gated.extend(turn_tail(&["north gate open --question 'cap the lander?' --option yes --option no --recommend 1 --ask-once cost"], 100));
     assert_eq!(judged(&gated, &hook("t300", LAPTOP_LOAD_READS[15])), Verdict::Allow, "a gate starts a new streak");
 
     let mut next_prompt = turn(question, &LAPTOP_LOAD_READS[..LIMIT]);

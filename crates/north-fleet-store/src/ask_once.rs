@@ -31,3 +31,15 @@ pub fn class<'a>(question: &'a str, options: impl IntoIterator<Item = &'a String
     let text: Vec<String> = std::iter::once(question).chain(options.into_iter().map(String::as_str)).flat_map(words).collect();
     CLASSES.iter().find(|(_, phrases)| phrases.iter().any(|phrase| text.windows(phrase.len()).any(|window| window == phrase.as_slice()))).map(|(class, _)| class.as_str())
 }
+
+pub fn class_of(option: &str) -> Option<&'static str> {
+    class(option, std::iter::empty::<&String>())
+}
+
+pub fn categories() -> impl Iterator<Item = &'static str> {
+    CLASSES.iter().map(|(class, _)| class.as_str())
+}
+
+pub fn is_category(word: &str) -> bool {
+    categories().any(|class| class == word)
+}

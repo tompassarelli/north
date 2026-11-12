@@ -60,7 +60,7 @@ fn a_proxy_window_relays_an_answer_tom_typed_hours_earlier_from_a_turn_a_fleet_m
     let home = Path::new("/home/tom");
     let opened_ms = 1_794_016_800_000;
     let book = Ledger::open(&dir.path().join("ledger.db")).unwrap();
-    let ask = GateRequest { verification: false, issue: None, box_text: None, session: "north-88-d1828".into(), question: "Upload the capture?".into(), options: vec!["encrypt it".into(), "keep it local".into()], recommend: 2, default: 0, default_after_ms: 0 };
+    let ask = GateRequest { verification: false, issue: None, box_text: None, session: "north-88-d1828".into(), question: "Upload the capture?".into(), options: vec!["encrypt it".into(), "keep it local".into()], recommend: 2, default: 0, default_after_ms: 0, ask_once: None };
     let gate = book.open_gate(&ask, opened_ms).unwrap();
 
     for (cited, why) in [(10_519_702, "not typed by a person"), (10_519_703, "not typed by a person"), (10_519_704, "not typed by a person"), (10_519_799, "not in the convo store")] {
@@ -105,7 +105,7 @@ fn the_coordinator_window_closes_its_own_defaulted_gate_from_a_turn_tom_typed_af
     let index = convo(dir.path(), &rows);
     let opened_ms = 1_794_243_600_000;
     let book = Ledger::open(&dir.path().join("ledger.db")).unwrap();
-    let ask = |question: &str| GateRequest { verification: false, issue: None, box_text: None, session: "proxy".into(), question: question.into(), options: vec!["keep the ladder".into(), "route to Fable".into()], recommend: 2, default: 2, default_after_ms: 8 * 3_600_000 };
+    let ask = |question: &str| GateRequest { verification: false, issue: None, box_text: None, session: "proxy".into(), question: question.into(), options: vec!["keep the ladder".into(), "route to Fable".into()], recommend: 2, default: 2, default_after_ms: 8 * 3_600_000, ask_once: None };
     let (direct, relayed) = (book.open_gate(&ask("Ladder?"), opened_ms).unwrap(), book.open_gate(&ask("Filter?"), opened_ms).unwrap());
 
     let at_ms = typed_at(&dir.path().join(format!("{CONVERSATION}.jsonl"))).expect("Tom's queued message opens the window's current turn");

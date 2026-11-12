@@ -194,7 +194,7 @@ fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_w
             reported(&fleet, name, None, &format!("{name}: still on it"));
         }
         fleet.waits().register("waiting", Run::Branch("n636-reaper".into()), Path::new("/tmp"), None).unwrap();
-        let gate = GateRequest { verification: false, issue: None, box_text: None, session: "gated".into(), question: "Which?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 1, default_after_ms: 0 };
+        let gate = GateRequest { verification: false, issue: None, box_text: None, session: "gated".into(), question: "Which?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 1, default_after_ms: 0, ask_once: None };
         paper.open_gate(&gate, now_ms()).unwrap();
         let queue = home.path().join(".local/state/north/land-queue/560e3f31dbaa2415");
         std::fs::create_dir_all(&queue).unwrap();

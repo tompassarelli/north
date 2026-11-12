@@ -177,7 +177,7 @@ mod tests {
     use crate::fleet::store::{SessionRow, Spool, cache_sessions};
 
     fn request(session: &str) -> GateRequest {
-        GateRequest { verification: false, issue: None, box_text: None, session: session.into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 60_000 }
+        GateRequest { verification: false, issue: None, box_text: None, session: session.into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 60_000, ask_once: None }
     }
 
     fn cached(fleet: &Fleet, names: &[&str]) {

@@ -25,12 +25,12 @@ fn no_brief_plan_or_gate_needs_a_human_sign_in_under_the_shipped_phrase_lists() 
     for builds in ["No agent work depends on a human sign-in, by construction", "Replace the personal token with an App token so nobody signs in again; never ask for a passkey", "Mint installation tokens from the sops key without a browser login", "Rename the module"] {
         assert_eq!(signin_refusal(&brief(builds)), None, "{builds}");
     }
-    let ask = |question: &str, options: [&str; 2]| GateRequest { verification: false, issue: None, box_text: None, session: "worker".into(), question: question.into(), options: options.map(String::from).to_vec(), recommend: 1, default: 2, default_after_ms: 30_000 };
+    let ask = |question: &str, options: [&str; 2]| GateRequest { verification: false, issue: None, box_text: None, session: "worker".into(), question: question.into(), options: options.map(String::from).to_vec(), recommend: 1, default: 2, default_after_ms: 30_000, ask_once: None };
     for refused in [ask("Tom, please sign in to GitHub so the box can continue?", ["done", "later"]), ask("Which passkey confirmation do you want?", ["this one", "that one"]), ask("Unlock the keyring?", ["yes", "no"]), ask("Which route?", ["log in through the browser", "wait"])] {
         let why = refused.validate().unwrap_err().user_message();
         assert!(why.contains("machine path"), "{}: {why}", refused.question);
     }
-    let new_account = GateRequest { default: 0, default_after_ms: 0, ..ask("Create a new account for the mirror and sign in to it?", ["create it", "skip"]) };
+    let new_account = GateRequest { default: 0, default_after_ms: 0, ask_once: Some("accounts".into()), ..ask("Create a new account for the mirror and sign in to it?", ["create it", "skip"]) };
     assert!(new_account.validate().is_ok());
     assert!(ask("Rename the module?", ["yes", "no"]).validate().is_ok());
 }

@@ -19,6 +19,7 @@ mod box_path;
 mod fleet;
 mod gate;
 mod gate_closing;
+mod gate_list;
 mod gate_relay;
 mod glance;
 mod holds;

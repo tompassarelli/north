@@ -20,6 +20,7 @@ fn request(session: &str, default_after_ms: u64) -> GateRequest {
         recommend: 1,
         default: 2,
         default_after_ms,
+        ask_once: None,
     }
 }
 
@@ -44,7 +45,7 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_strangers_a
     use crate::fleet::gates::{Authority, Relay, TomTurn, TypedTurn, answer_gate, default_overdue, open, orphan, relay_gate};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
-    let legacy = super::SCHEMA.replace("answered_by TEXT,", "answered_by TEXT CHECK(answered_by IN ('tom','default')),").replace("verification INTEGER NOT NULL DEFAULT 0,\n  issue TEXT,\n  box_text TEXT\n", "verification INTEGER NOT NULL DEFAULT 0\n");
+    let legacy = super::SCHEMA.replace("answered_by TEXT,", "answered_by TEXT CHECK(answered_by IN ('tom','default')),").replace("verification INTEGER NOT NULL DEFAULT 0,\n  issue TEXT,\n  box_text TEXT,\n  ask_once TEXT\n", "verification INTEGER NOT NULL DEFAULT 0\n");
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&legacy).unwrap();
     conn.execute(r#"INSERT INTO gates VALUES(1, 'old', 'Old?', '["yes","no"]', 1, 2, 10, 0, 'yes', 'tom', 1, 0)"#, []).unwrap();

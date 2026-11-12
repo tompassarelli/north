@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::decision_queue;
@@ -8,15 +8,15 @@ use crate::fleet::gates::{Decision, Gate, GateRequest, due};
 use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::runtime::now_ms;
 use crate::fleet::sender::Sender;
-use crate::fleet::store::GateRow;
 use crate::dispatch::{IssueRef, OWNER, product_boxes};
 use crate::github_mirror::store::{Mirror, OPEN_ISSUES, key};
 use crate::platform::attribution::{self, Cause};
 use north_guard::guard::break_glass;
+use super::gate_list::{list, list_aside};
 
-const USAGE: &str = "Usage: north gate open [--session NAME (default $NORTH_FLEET_SESSION)] --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate list --aside [--json] | north gate digest [--peek]";
+const USAGE: &str = "Usage: north gate open [--session NAME (default $NORTH_FLEET_SESSION)] --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d) | --ask-once CATEGORY] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate list --aside [--json] | north gate digest [--peek]";
 const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; an issue with more than one open box needs --box, and one with a single open box is held whole.";
-const DEFAULT_HELP: &str = "--default and --default-after are required, except for a question about cost, accounts, credentials or access, making something public, deleting valuable data, sending in Tom's name, outside code of unclear license, or core direction and dependencies (the ask-once table in harness/defaults.toml): such a gate takes neither and is for Tom: only the work it holds waits for his answer. Every other gate applies its recommended default at its deadline (8h unless the brief names one).";
+const DEFAULT_HELP: &str = "--default and --default-after are required unless the gate names the ask-once category of its recommended option with --ask-once CATEGORY (cost, accounts, credentials, public, deletion, tom_name or direction, the ask-once table in harness/defaults.toml): such a gate takes neither and is for Tom: only the work it holds waits for his answer. Every other gate applies its recommended default at its deadline (8h unless the brief names one).";
 const FIRST_LOOK_MS: u64 = 24 * 3_600_000;
 const WAIT_POLL: Duration = Duration::from_secs(2);
 
@@ -92,7 +92,7 @@ fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
 }
 
 fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
-    let mut request = GateRequest { verification: false, issue: None, box_text: None, session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: 0, default_after_ms: 0 };
+    let mut request = GateRequest { verification: false, issue: None, box_text: None, session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: 0, default_after_ms: 0, ask_once: None };
     for pair in flags.chunks(2) {
         let [flag, value] = pair else { return Err(usage()) };
         match *flag {
@@ -102,6 +102,7 @@ fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
             "--recommend" => request.recommend = value.parse().map_err(|_| usage())?,
             "--default" => request.default = value.parse().map_err(|_| usage())?,
             "--default-after" => request.default_after_ms = duration_ms(value).ok_or_else(usage)?,
+            "--ask-once" => request.ask_once = Some((*value).to_owned()),
             "--issue" => request.issue = Some(IssueRef::parse(value).ok_or_else(usage)?.to_string()),
             "--box" => request.box_text = Some((*value).to_owned()),
             _ => return Err(usage()),
@@ -161,78 +162,6 @@ fn digest(fleet: &Fleet, mark: bool) -> NorthResult<()> {
         std::fs::write(&path, now.to_string()).map_err(|why| NorthError::State(format!("cannot record the digest look in {}: {why}", path.display())))?;
     }
     Ok(())
-}
-
-fn list(fleet: &Fleet, json: bool) -> NorthResult<()> {
-    let gates = fleet.digest(0)?.gates;
-    let elsewhere = fleet.gates_elsewhere()?;
-    if json {
-        println!("{}", Value::Array(listed(fleet.host(), &gates, &elsewhere)));
-        return Ok(());
-    }
-    for gate in &elsewhere {
-        println!("{}\t{}\t{}\topen", gate.label(), gate.request.session, gate.request.question);
-    }
-    for gate in &gates {
-        let state = gate.closure.as_ref().map_or_else(|| "open".to_owned(), |closure| format!("closed by {}: {}", closure.by.label(), closure.answer));
-        println!("{}\t{}\t{}\t{state}", gate.id, gate.request.session, gate.request.question);
-    }
-    Ok(())
-}
-
-fn list_aside(fleet: &Fleet, json: bool) -> NorthResult<()> {
-    let gates = fleet.aside_gates()?;
-    if json {
-        println!("{}", Value::Array(gates.iter().map(|gate| gate_json(gate, fleet.host())).collect()));
-        return Ok(());
-    }
-    for gate in &gates {
-        let state = gate.closure.as_ref().map_or_else(|| "open".to_owned(), |closure| format!("closed by {}: {}", closure.by.label(), closure.answer));
-        println!("{}\t{}\t{}\t{state}", gate.id, gate.request.session, gate.request.question);
-    }
-    Ok(())
-}
-
-fn listed(host: &str, gates: &[Gate], elsewhere: &[GateRow]) -> Vec<Value> {
-    gates.iter().map(|gate| gate_json(gate, host)).chain(elsewhere.iter().map(row_json)).collect()
-}
-
-fn gate_json(gate: &Gate, host: &str) -> Value {
-    json!({
-        "host": host,
-        "id": gate.id,
-        "session": gate.request.session,
-        "question": gate.request.question,
-        "issue": gate.request.issue,
-        "box": gate.request.box_text,
-        "options": gate.request.options,
-        "recommend": gate.request.recommend,
-        "default": gate.request.has_default().then_some(gate.request.default),
-        "opened_ms": gate.opened_ms,
-        "default_at_ms": gate.default_at_ms(),
-        "answer": gate.closure.as_ref().map(|closure| &closure.answer),
-        "answered_by": gate.closure.as_ref().map(|closure| closure.by.label()),
-        "closed_ms": gate.closure.as_ref().map(|closure| closure.closed_ms),
-    })
-}
-
-fn row_json(gate: &GateRow) -> Value {
-    json!({
-        "host": gate.host,
-        "id": gate.label(),
-        "session": gate.request.session,
-        "question": gate.request.question,
-        "issue": gate.request.issue,
-        "box": gate.request.box_text,
-        "options": gate.request.options,
-        "recommend": gate.request.recommend,
-        "default": gate.request.has_default().then_some(gate.request.default),
-        "opened_ms": gate.opened_ms,
-        "default_at_ms": gate.default_at_ms(),
-        "answer": null,
-        "answered_by": null,
-        "closed_ms": null,
-    })
 }
 
 fn await_default(fleet: &Fleet, id: i64) -> NorthResult<()> {

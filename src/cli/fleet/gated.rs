@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn a_launch_on_an_issue_box_carries_the_answer_of_a_gate_that_decided_it_for_a_retired_asker() {
         use crate::fleet::gates::{Answerer, Closure, GateRequest};
-        let request = GateRequest { verification: false, issue: Some("north#735".into()), box_text: Some("gate belongs".into()), session: "n-cx53".into(), question: "Which owner?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 0, default_after_ms: 0 };
+        let request = GateRequest { verification: false, issue: Some("north#735".into()), box_text: Some("gate belongs".into()), session: "n-cx53".into(), question: "Which owner?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 0, default_after_ms: 0, ask_once: None };
         let closed = [Gate::new(180, request, 1, Some(Closure { answer: "b\nship it".into(), by: Answerer::Tom, closed_ms: 2 }))];
 
         let section = decided(&tasks(&["north#735"]), Some(" north#735 Box: A gate belongs to the issue box"), &closed).expect("the box carries the answer");

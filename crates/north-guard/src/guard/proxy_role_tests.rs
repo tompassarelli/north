@@ -344,7 +344,7 @@ fn the_proxy_has_no_diagnosis_budget_without_break_glass() {
     let open = [
         bash("north fleet launch --provider claude --task north#1106 --box x 'brief'"),
         bash("north fleet send n1106 'go'"),
-        bash("north gate open --session x --question q --option a --option b --recommend 1"),
+        bash("north gate open --session x --question q --option a --option b --recommend 1 --ask-once cost"),
         bash("north fleet tree | rg -v exited | head -40"),
         bash("cd /home/tom/code/north/main && north fleet tree 2>&1 | cut -c1-200 | sed -n 1,60p"),
         bash("north land status"),

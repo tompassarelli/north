@@ -443,7 +443,7 @@ fn a_sandboxed_worker_opens_a_gate_and_records_a_box_check() {
         use north_core::fleet::gates::GateRequest;
         use north_core::fleet::sender::Sender;
         use north_core::fleet::store::{FleetRow, RowKind, Spool};
-        let request = GateRequest { verification: false, issue: None, box_text: None, session: "far-1".into(), question: "which?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 1, default_after_ms: 60_000 };
+        let request = GateRequest { verification: false, issue: None, box_text: None, session: "far-1".into(), question: "which?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 1, default_after_ms: 60_000, ask_once: None };
         let row = FleetRow { id: id.to_string_lossy().into_owned(), kind: RowKind::Gate, to: "far-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "which?".into(), sender: Sender::Session("far-1".into()), gate: Some(Box::new(request)), answer: None, job: None, origin: None, spooled_by: None };
         let home = PathBuf::from(std::env::var_os("HOME").unwrap());
         Spool::of(&home.join(".local/state/north/fleet"), "far-1").unwrap().put(&row).expect("a sandboxed worker opens a gate in its own fleet spool location");

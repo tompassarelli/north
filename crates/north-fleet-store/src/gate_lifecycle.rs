@@ -122,7 +122,7 @@ mod tests {
     }
 
     fn request(default_after_ms: u64) -> GateRequest {
-        GateRequest { verification: false, issue: None, box_text: None, session: "worker".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms }
+        GateRequest { verification: false, issue: None, box_text: None, session: "worker".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms, ask_once: None }
     }
 
     #[test]

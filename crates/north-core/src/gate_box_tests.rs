@@ -13,7 +13,7 @@ fn ticking_a_gated_box_closes_its_gate_and_a_box_scoped_gate_does_not_refuse_ano
     let home = tempfile::tempdir().unwrap();
     let paper = Arc::new(Paper::default());
     let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), paper.clone()).unwrap().arming(|_| Ok(()));
-    let request = GateRequest { verification: false, issue: Some("north#842".into()), box_text: Some("second build host".into()), session: "north-842-build-host".into(), question: "Which server?".into(), options: vec!["CPX62".into(), "CCX33".into()], recommend: 1, default: 1, default_after_ms: 8 * 3_600_000 };
+    let request = GateRequest { verification: false, issue: Some("north#842".into()), box_text: Some("second build host".into()), session: "north-842-build-host".into(), question: "Which server?".into(), options: vec!["CPX62".into(), "CCX33".into()], recommend: 1, default: 1, default_after_ms: 8 * 3_600_000, ask_once: None };
     let id = paper.open_gate(&request, 1).unwrap();
     let launch = |line: &str| format!("Item: north#842 One bad lane must not sink a 14-lane batch\nBox: {}", line.trim_start_matches("- [ ] "));
 
