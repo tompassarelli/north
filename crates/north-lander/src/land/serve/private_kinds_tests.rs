@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::read;
+use super::{dialed_through, read};
 use crate::land::heartbeat::Heartbeat;
 use crate::land::jobs::Chores;
 use crate::land::lander::Lander;
@@ -55,6 +55,8 @@ fn taken(lander: &Lander, tickets: Lanes, now: Duration, verdict: &Arc<Verdict>)
 fn a_lane_handed_in_on_another_host_is_vouched_for_only_by_that_hosts_passing_verdict_on_its_own_head() {
     let refused = read("worker-host", answered(1, REFUSAL));
     assert_eq!((refused.stand, refused.lines.join("\n") + "\n"), (Stand::Refuse, REFUSAL.to_owned()), "a refusal read from the worker's host lost the judge's own words");
+
+    assert_eq!((dialed_through("cpx62.lan", |named| format!("agent@{named}")), dialed_through("cpx62.lan", str::to_owned)), ("agent@cpx62".to_owned(), "cpx62.lan".to_owned()), "the verdict ask did not follow the host's agent login, or changed the host it dials when none is named");
 
     let dir = tempfile::tempdir().unwrap();
     let lander = lander(dir.path());

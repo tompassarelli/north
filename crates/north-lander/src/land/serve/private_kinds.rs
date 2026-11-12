@@ -17,7 +17,17 @@ pub(super) fn verdict(repo: &Path, ticket: &Ticket, base: &str, wait: Option<Dur
         return Denylist::from_env().verdict_within(&ticket.root, &ticket.origin, (base, &ticket.head, &default_branch(&ticket.root)), wait);
     }
     let script = script(ticket, base, &default_branch(repo), wait);
-    read(&ticket.host, Command::new("ssh").args(SSH_OPTIONS).args(["-T", &ticket.host, "--", &script]).stdin(Stdio::null()).output())
+    read(&ticket.host, Command::new("ssh").args(SSH_OPTIONS).args(["-T", &dialed(&ticket.host), "--", &script]).stdin(Stdio::null()).output())
+}
+
+fn dialed(host: &str) -> String {
+    dialed_through(host, crate::land::lander::login)
+}
+
+fn dialed_through(host: &str, login: impl Fn(&str) -> String) -> String {
+    let named = host.split('.').next().unwrap_or(host);
+    let session = login(named);
+    if session == named { host.to_owned() } else { session }
 }
 
 fn asked_elsewhere(host: &str) -> bool {
