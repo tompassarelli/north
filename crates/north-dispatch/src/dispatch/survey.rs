@@ -5,7 +5,7 @@ use super::issues::{self, Issue, IssueRef, OWNER};
 use super::plan::Cloud;
 use super::record;
 use super::slots::{Account, Host, PlanSize};
-use super::projects::Projects;
+use crate::threads::projects::Projects;
 use super::tier::{self, Evidence, History};
 use super::grounds::Ledger;
 use super::fleets::{self, PROBE, Session, remote_json};

@@ -1,4 +1,4 @@
-//! `north threads unowned`: the open makgora and wisp issues with an unchecked box, each with
+//! `north threads unowned`: the open issues of every unpaused project with an unchecked box, each with
 //! its owner, its block or UNOWNED, priority:now first.
 pub mod branches;
 
@@ -19,7 +19,6 @@ use crate::threads::claims::lifecycle::{self, Moved};
 use crate::threads::withheld::withheld;
 
 pub const VERBS: [&str; 1] = ["unowned"];
-const STAFFED: [&str; 2] = ["makgora", "wisp"];
 const PRIORITIES: [&str; 4] = ["priority:now", "-", "priority:next", "priority:later"];
 
 static BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));
@@ -56,8 +55,9 @@ fn unowned(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
     let claims = held(context)?;
     let db = open(context.database, false)?;
     let blocks: BTreeMap<String, String> = db.prepare("SELECT item, reason FROM blocks")?.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?.collect::<Result<_, _>>()?;
+    let staffed = staffed(context)?;
     let mut scanned = Vec::new();
-    for repo in STAFFED {
+    for repo in &staffed {
         let listed = context.gh(&["issue", "list", "-R", &format!("{}/{repo}", CATALOG.owner), "--state", "open", "--limit", "500", "--json", "number,title,labels,body,comments"])?;
         let issues: Vec<Value> = serde_json::from_str(&listed).map_err(|_| Failure::Refused("gh issue list: unreadable reply".into()))?;
         scanned.push((repo, issues, branches::lanes(context, repo, err)?));
@@ -91,7 +91,14 @@ fn unowned(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
         release(&stale, context)?;
     }
     rows.sort_by_key(|row| (row.rank, row.repo, row.number));
-    Ok(listing(&rows))
+    Ok(listing(&staffed, &rows))
+}
+
+fn staffed(context: &Context) -> Result<Vec<String>, Failure> {
+    let cfg = crate::platform::orchestration::read().map_err(Failure::Refused)?;
+    let projects = super::projects::Projects::read(&cfg).map_err(Failure::Refused)?;
+    let at = context.now.unix_seconds_f64();
+    Ok(projects.repos().iter().filter(|repo| projects.paused(repo, at).is_none()).cloned().collect())
 }
 
 /// Releases each claim whose lane failed after it was made; a replica leaves them to the ledger host.
@@ -108,8 +115,8 @@ fn release(stale: &[Stale], context: &Context) -> Result<(), Failure> {
     Ok(lifecycle::record(context.database, &moved, context.now)?)
 }
 
-fn listing(rows: &[Row]) -> String {
-    let mut listed: String = rows.iter().map(|row| format!("{}#{}\t{}\t{}\t{}\t{}\n", STAFFED[row.repo], row.number, row.priority, row.state, row.boxes, row.title)).collect();
+fn listing(staffed: &[String], rows: &[Row]) -> String {
+    let mut listed: String = rows.iter().map(|row| format!("{}#{}\t{}\t{}\t{}\t{}\n", staffed[row.repo], row.number, row.priority, row.state, row.boxes, row.title)).collect();
     let now: Vec<&Row> = rows.iter().filter(|row| row.priority == "priority:now").collect();
     let unowned = now.iter().filter(|row| row.state == "UNOWNED").count();
     let blocked = now.iter().filter(|row| row.state.starts_with("blocked:")).count();

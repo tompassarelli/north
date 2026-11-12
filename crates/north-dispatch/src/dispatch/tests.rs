@@ -86,7 +86,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         here: "nexus".into(),
         home: Some("/home/tom".into()),
         cfg: CONFIG.parse().unwrap(),
-        projects: super::projects::Projects::read(&CONFIG.parse().unwrap()).unwrap(),
+        projects: crate::threads::projects::Projects::read(&CONFIG.parse().unwrap()).unwrap(),
         hosts,
         spend: view(&accounts),
         rules: rules(),
@@ -185,7 +185,7 @@ fn a_project_with_paused_true_gets_no_launch_and_each_of_its_issues_prints_as_pa
     let (hosts, accounts) = fleet();
     let boxes = vec![issue("makgora", 798, "- [ ] a", &[]), issue("wisp", 230, "- [ ] a", &[]), issue("north", 1, "- [ ] a", &[])];
     let mut paused = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
-    paused.projects = super::projects::Projects::read(&cfg).unwrap();
+    paused.projects = crate::threads::projects::Projects::read(&cfg).unwrap();
     assert_eq!(paused.projects.set_aside(), ["galileo", "makgora", "wisp"]);
     let outcome = decide(&paused, "test");
     let launched: Vec<String> = outcome.launches.iter().map(|launch| launch.item.to_string()).collect();

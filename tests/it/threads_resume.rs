@@ -37,6 +37,7 @@ impl Rig {
         fs::write(root.join("activation.active"), "hook north-hook\n").unwrap();
         std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), root.join("bin/north")).unwrap();
         bash(&root.join("bin/gh"), GH);
+        fs::write(root.join("orchestration.toml"), "[projects.makgora]\nrepos = [\"makgora\"]\n").unwrap();
         Rig { _scratch: scratch, root, home }
     }
 
@@ -62,6 +63,8 @@ impl Rig {
             .env("REMOTE_DB", self.root.join("remote.db"))
             .env("REMOTE_HOME", self.root.join("remote-home"))
             .env("SSH_TRACE", self.root.join("ssh.trace"))
+            .env("AGENTS_ORCHESTRATION", self.root.join("orchestration.toml"))
+            .env_remove("AGENTS_OPERATOR_DIR")
             .env_remove("THREADS_ALIVE_OWNERS")
             .env_remove("THREADS_NO_NATIVE")
             .env_remove("CLAUDE_CODE_REMOTE")
