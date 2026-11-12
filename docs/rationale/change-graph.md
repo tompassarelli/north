@@ -20,6 +20,8 @@ Reopen the question when, with the change graph and the lander's semantic merge 
 - Git's own operations (fetch, rebase, merge, push) take 10% or more of the landing queue's 1 h p90, read from the
   queue's `logs/spans.jsonl`.
 
+Per-file verdicts for the tree-wide scans were measured on this replay and dropped (per-file-scan-verdicts.md, north#1265).
+
 ## Edges, not a Beagle port
 
 The same review judged which edges matter for a change: the crate graph for what compiles, function coverage for
