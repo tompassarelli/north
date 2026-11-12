@@ -12,6 +12,7 @@ pub(super) struct Window {
     pub account: String,
     pub arguments: Vec<String>,
     pub cwd: PathBuf,
+    pub terminal: bool,
     pub session: Session,
 }
 
@@ -53,12 +54,17 @@ fn on_terminal(pid: u32) -> bool {
     fs::read_link(format!("/proc/{pid}/fd/0")).is_ok_and(|target| target.to_string_lossy().starts_with("/dev/pts/"))
 }
 
-pub(super) fn find_window() -> NorthResult<Window> {
-    let [window] = <[_; 1]>::try_from(live_windows()?).map_err(|found| match found.len() {
-        0 => NorthError::State("no interactive claude window is running on a terminal".into()),
-        count => NorthError::State(format!("{count} interactive claude windows are running; this move handles exactly one")),
-    })?;
-    window
+pub(super) fn choose(windows: Vec<NorthResult<Window>>, conversation: &str) -> NorthResult<Window> {
+    let mut seen = Vec::new();
+    for window in windows {
+        match window {
+            Ok(window) if window.terminal && window.session.id == conversation => return Ok(window),
+            Ok(window) => seen.push(format!("process {} on account {} holding conversation {}{}", window.client, window.account, window.session.id, if window.terminal { "" } else { ", not on a terminal" })),
+            Err(error) => seen.push(format!("a window north could not read ({})", error.user_message())),
+        }
+    }
+    let seen = if seen.is_empty() { "none".to_owned() } else { seen.join("; ") };
+    Err(NorthError::Refused(format!("conversation {conversation}, which the fleet record names for the coordinator, has no live interactive window on a terminal; windows seen: {seen}")))
 }
 
 pub(super) fn live_windows() -> NorthResult<Vec<NorthResult<Window>>> {
@@ -67,7 +73,7 @@ pub(super) fn live_windows() -> NorthResult<Vec<NorthResult<Window>>> {
         let Some(account) = profile.file_name().and_then(|name| name.to_str()).and_then(|name| name.strip_prefix("claude-")).map(str::to_owned) else { continue };
         let Ok(sessions) = fs::read_dir(profile.join("sessions")) else { continue };
         for record in sessions.flatten().filter_map(|entry| json(&entry.path())) {
-            let live = record["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()).filter(|pid| Path::new(&format!("/proc/{pid}")).exists() && on_terminal(*pid));
+            let live = record["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()).filter(|pid| Path::new(&format!("/proc/{pid}")).exists());
             if let Some(client) = live.filter(|_| record["kind"] == "interactive" && record["entrypoint"] == "cli") {
                 found.push((client, profile.clone(), account.clone(), record));
             }
@@ -80,7 +86,7 @@ fn window(client: u32, profile: PathBuf, account: String, record: &Value) -> Nor
     let session = backing_session(&profile, client, record)?;
     let cwd = record["cwd"].as_str().map(PathBuf::from).unwrap_or_default();
     let arguments = arguments_of(client).into_iter().skip(1).collect();
-    Ok(Window { client, profile, account, arguments, cwd, session })
+    Ok(Window { client, profile, account, arguments, cwd, terminal: on_terminal(client), session })
 }
 
 fn backing_session(profile: &Path, client: u32, record: &Value) -> NorthResult<Session> {

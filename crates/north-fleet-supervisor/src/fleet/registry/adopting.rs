@@ -18,8 +18,22 @@ use super::Fleet;
 
 const WINDOW_CLOSE: Duration = Duration::from_secs(10);
 
+enum Others {
+    HangUp,
+    Keep,
+}
+
 impl Fleet {
     pub fn adopt(&self, name: &str, conversation: &str, cwd: PathBuf) -> NorthResult<SessionRecord> {
+        self.bind_window(name, conversation, cwd, Others::HangUp)
+    }
+
+    /// Binds `name` to the newest window on `conversation` as `adopt` does, but leaves the older window on it running, so a window move ends the window it moves from only once this binding holds.
+    pub fn adopt_moved(&self, name: &str, conversation: &str, cwd: PathBuf) -> NorthResult<SessionRecord> {
+        self.bind_window(name, conversation, cwd, Others::Keep)
+    }
+
+    fn bind_window(&self, name: &str, conversation: &str, cwd: PathBuf, others: Others) -> NorthResult<SessionRecord> {
         let (runtime, inbox) = self.window_of(conversation).ok_or_else(|| NorthError::State(format!("no live interactive window holds conversation {conversation}")))?;
         runtime.adopt_window(conversation, &inbox)?;
         let session_dir = self.session_dir(name)?;
@@ -32,7 +46,9 @@ impl Fleet {
                 bar_hosts(&session_dir)?;
                 return Ok(held);
             }
-            self.hang_up_other_windows(conversation, inbox.pid)?;
+            if matches!(others, Others::HangUp) {
+                self.hang_up_other_windows(conversation, inbox.pid)?;
+            }
         }
         let role = if name == PROXY { Role::Proxy } else { Role::Lead };
         let request = LaunchRequest {

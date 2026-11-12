@@ -1,5 +1,7 @@
 use crate::usage::outlook::{AccountOutlook, Runway};
 
+use super::session::Window;
+
 pub(super) const TRIGGER_MINUTES: f64 = 45.0;
 
 #[derive(Debug, PartialEq)]
@@ -44,5 +46,29 @@ pub(super) fn decide(current: &str, outlooks: &[AccountOutlook], requested: Opti
     match best {
         Some(target) => Verdict::Move { to: target.account.clone(), reason: format!("account {current} runs out in under {TRIGGER_MINUTES:.0} minutes; account {} has the most week headroom at {:.0}%", target.account, headroom(target)) },
         None => Verdict::Stranded { reason: format!("account {current} runs out in under {TRIGGER_MINUTES:.0} minutes and no other account has week headroom") },
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Step {
+    Carry,
+    Open,
+    Rebind,
+    Deliver,
+    EndOld,
+}
+
+pub(super) const STEPS: [Step; 5] = [Step::Carry, Step::Open, Step::Rebind, Step::Deliver, Step::EndOld];
+
+impl Step {
+    pub(super) fn describe(self, window: &Window, to: &str) -> String {
+        let (from, conversation) = (&window.account, &window.session.id);
+        match self {
+            Step::Carry => format!("carry conversation {conversation} into account {to}'s profile"),
+            Step::Open => format!("open a new window resuming conversation {conversation} on account {to} and confirm it runs there"),
+            Step::Rebind => format!("change the fleet record's account from {from} to {to} and bind the coordinator's name to the new window"),
+            Step::Deliver => "deliver the coordinator's undelivered messages to the new window".to_owned(),
+            Step::EndOld => format!("end the old window (process {}) on account {from} at the end of its turn", window.client),
+        }
     }
 }

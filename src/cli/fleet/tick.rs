@@ -67,10 +67,13 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         let fleet = fleet.clone();
         detach("api_spend", move || (api_spend::pull(&fleet), Instant::now()))
     };
-    let moving = detach("window_move", || {
-        window_move::auto();
-        Instant::now()
-    });
+    let moving = {
+        let fleet = fleet.clone();
+        detach("window_move", move || {
+            window_move::auto(&fleet);
+            Instant::now()
+        })
+    };
     let _pass = pass();
     let pulls = Pulls { spools: std::sync::Arc::new(OverSsh::default()), always: always_pulled(fleet) };
     let ticked = tick(fleet, &ledger, &pulls, &probes, now_ms(), Budgets::TICK);

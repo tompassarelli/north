@@ -1,49 +1,64 @@
-//! `north proxy move [--to ACCOUNT] [--auto] [--dry-run]`: Tom's interactive Claude window follows the account with the most week headroom
-//! before its own account runs out. The conversation is carried into the target profile, resumed in a new terminal window that takes the old
-//! window's place, and the old window and its background session end only after the new one is up on the target account at the end of a turn.
+//! `north proxy move [--to ACCOUNT] [--auto] [--dry-run]`: the coordinator's window follows the account with the most week headroom before
+//! its own account runs out. The window is the one holding the conversation the fleet record names for the coordinator. Everything from
+//! reading the windows on runs in a user unit, so a sandboxed shell, the coordinator's own included, can start it: the caller waits for the
+//! plan unit and prints its result, and the plan unit starts the swap unit, which waits for the old window's turn to end and runs the steps.
+mod on_desktop;
 mod plan;
 mod session;
+mod steps;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::registry::Fleet;
 use crate::foundation::clock::Timestamp;
 use crate::usage::outlook::AccountOutlook;
 
-use super::desktop::niri as desktop;
+use super::router;
 
-use plan::Verdict;
+use on_desktop::OnDesktop;
+use plan::{STEPS, Verdict};
 use session::{Window, arguments_of, environment_of, name_of, parent_of};
 
-const SETTLE: Duration = Duration::from_secs(90);
 const COOLDOWN: Duration = Duration::from_secs(20 * 60);
+const TURN_WAIT: Duration = Duration::from_secs(15 * 60);
+const STAGE: &str = "NORTH_WINDOW_MOVE";
+const PLAN_UNIT: (&str, Duration) = ("north-window-move", Duration::from_secs(120));
+const SWAP_UNIT: (&str, Duration) = ("north-window-move-swap", Duration::from_secs(25 * 60));
 const KEPT_ENVIRONMENT: [&str; 17] = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LOCALE_ARCHIVE", "LOCALE_ARCHIVE_2_27", "TERMINFO_DIRS", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "DBUS_SESSION_BUS_ADDRESS", "SSH_AUTH_SOCK", "NIX_LD", "NIX_LD_LIBRARY_PATH", "NORTH_DELIVERY_LIVENESS_REQUIRED"];
 pub(super) const USAGE: &str = "usage: north proxy move [--to ACCOUNT] [--auto] [--dry-run]";
 
 struct Request {
     to: Option<String>,
-    auto: bool,
     dry_run: bool,
 }
 
 pub(super) fn run(words: &[&str]) -> NorthResult<()> {
-    let mut request = Request { to: None, auto: false, dry_run: false };
+    let mut request = Request { to: None, dry_run: false };
+    let mut auto = false;
     let mut rest = words.iter();
     while let Some(word) = rest.next() {
         match *word {
             "--to" => request.to = Some(rest.next().ok_or_else(|| NorthError::Usage(USAGE.into()))?.to_string()),
-            "--auto" => request.auto = true,
+            "--auto" => auto = true,
             "--dry-run" => request.dry_run = true,
             _ => return Err(NorthError::Usage(USAGE.into())),
         }
     }
-    execute(&request)
+    if auto {
+        return start_when_due(&router::open_fleet()?);
+    }
+    match std::env::var(STAGE).as_deref() {
+        Ok("plan") => plan(&request),
+        Ok("swap") => swap(&request),
+        _ => in_unit(&request),
+    }
 }
 
 pub(super) fn tom_windows() -> Vec<super::one_proxy::Window> {
-    let windows = session::live_windows().into_iter().flatten().flatten();
+    let windows = session::live_windows().into_iter().flatten().flatten().filter(|window| window.terminal);
     let active = windows.filter_map(|window| std::fs::metadata(session::activity_path(&window)).and_then(|meta| meta.modified()).ok().map(|active| (window, active)));
     active.map(|(window, active)| super::one_proxy::Window { conversation: window.session.id, account: window.account, active, pid: window.client }).collect()
 }
@@ -52,10 +67,115 @@ pub(super) fn own_ancestors() -> Vec<u32> {
     std::iter::successors(Some(std::process::id()), |pid| parent_of(*pid).filter(|parent| *parent > 1)).collect()
 }
 
-pub(super) fn auto() {
-    if let Err(error) = execute(&Request { to: None, auto: true, dry_run: false }) {
+pub(super) fn auto(fleet: &Fleet) {
+    if let Err(error) = start_when_due(fleet) {
         eprintln!("north proxy move: {}", error.user_message());
     }
+}
+
+fn start_when_due(fleet: &Fleet) -> NorthResult<()> {
+    let Some(record) = fleet.fleet_proxy()? else { return Ok(()) };
+    let Verdict::Move { to, reason } = plan::decide(&record.account, &outlooks()?, None) else { return Ok(()) };
+    if !cooled_down() {
+        return Ok(());
+    }
+    println!("north proxy move: account {} to {to}: {reason}", record.account);
+    start(SWAP_UNIT, "swap", &["--to", &to], false)
+}
+
+fn in_unit(request: &Request) -> NorthResult<()> {
+    let mut words = Vec::new();
+    if let Some(to) = &request.to {
+        words.extend(["--to", to.as_str()]);
+    }
+    if request.dry_run {
+        words.push("--dry-run");
+    }
+    start(PLAN_UNIT, "plan", &words, true)
+}
+
+fn start((unit, limit): (&str, Duration), stage: &str, words: &[&str], wait: bool) -> NorthResult<()> {
+    let mut command = Command::new("systemd-run");
+    command.args(["--user", "--collect", "--quiet", "--setenv=PATH"]).arg(format!("--unit={unit}")).arg(format!("--property=RuntimeMaxSec={}", limit.as_secs())).arg(format!("--setenv={STAGE}={stage}"));
+    if wait {
+        command.args(["--wait", "--pipe"]);
+    }
+    let status = command.arg("--").arg(std::env::current_exe()?).args(["proxy", "move"]).args(words).status()?;
+    match (status.success(), wait) {
+        (true, true) => Ok(()),
+        (true, false) => {
+            println!("north proxy move: started the move in unit {unit}; the old window ends at the end of its turn");
+            Ok(())
+        }
+        (false, true) => Err(NorthError::State(format!("the window move unit {unit} exited {status}"))),
+        (false, false) => Err(NorthError::State(format!("could not start the window move unit {unit}: {status}"))),
+    }
+}
+
+fn plan(request: &Request) -> NorthResult<()> {
+    let fleet = router::open_fleet()?;
+    let window = recorded_window(&fleet)?;
+    let Some(to) = destination(&window, request.to.as_deref())? else { return Ok(()) };
+    let target = target_home(&to)?;
+    let ready = session::ready_for(&window, &target);
+    println!("north proxy move: window process {} holds conversation {} on account {}; the move runs:", window.client, window.session.id, window.account);
+    STEPS.iter().enumerate().for_each(|(at, step)| println!("  {}. {}", at + 1, step.describe(&window, &to)));
+    println!("north proxy move: replacement command: {}", replacement(&window, &to, ancestor_named(window.client, "ghostty").unwrap_or(0)).join(" "));
+    println!("north proxy move: turn ended: {}, target profile ready: {}", session::turn_ended(&window), ready.as_ref().map_or_else(NorthError::user_message, |()| "yes".to_owned()));
+    if request.dry_run {
+        println!("north proxy move: dry run; nothing moved");
+        return Ok(());
+    }
+    ready?;
+    start(SWAP_UNIT, "swap", &["--to", &to], false)
+}
+
+fn swap(request: &Request) -> NorthResult<()> {
+    stamp();
+    let fleet = router::open_fleet()?;
+    let window = recorded_window(&fleet)?;
+    let Some(to) = destination(&window, request.to.as_deref())? else { return Ok(()) };
+    let target = target_home(&to)?;
+    session::ready_for(&window, &target)?;
+    await_turn_end(&window)?;
+    let mover = OnDesktop { fleet: &fleet, to: to.clone(), target, mark: session::activity(&window) };
+    steps::perform(&mover, &window, &to)?;
+    println!("north proxy move: moved the window to account {to}");
+    Ok(())
+}
+
+fn recorded_window(fleet: &Fleet) -> NorthResult<Window> {
+    let conversation = fleet.fleet_proxy()?.and_then(|record| record.conversation).ok_or_else(|| NorthError::Refused("the fleet records no conversation for the coordinator".into()))?;
+    session::choose(session::live_windows()?, &conversation)
+}
+
+fn destination(window: &Window, requested: Option<&str>) -> NorthResult<Option<String>> {
+    match plan::decide(&window.account, &outlooks()?, requested) {
+        Verdict::Stay { reason } => {
+            println!("north proxy move: staying on account {}: {reason}", window.account);
+            Ok(None)
+        }
+        Verdict::Stranded { reason } => Err(NorthError::Refused(format!("the window on account {} cannot move: {reason}", window.account))),
+        Verdict::Move { to, reason } => {
+            println!("north proxy move: account {} to {to}: {reason}", window.account);
+            Ok(Some(to))
+        }
+    }
+}
+
+fn target_home(to: &str) -> NorthResult<PathBuf> {
+    router::account_home("claude", to).ok_or_else(|| NorthError::State(format!("no claude profile for account {to}")))
+}
+
+fn await_turn_end(window: &Window) -> NorthResult<()> {
+    let deadline = Instant::now() + TURN_WAIT;
+    while !session::turn_ended(window) {
+        if Instant::now() > deadline {
+            return Err(NorthError::Refused(format!("the window's turn was still running after {} minutes; nothing moved", TURN_WAIT.as_secs() / 60)));
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    Ok(())
 }
 
 fn outlooks() -> NorthResult<Vec<AccountOutlook>> {
@@ -64,108 +184,24 @@ fn outlooks() -> NorthResult<Vec<AccountOutlook>> {
     crate::usage::outlook::claude_accounts(&db, &crate::platform::orchestration::path(), Timestamp::now()).map_err(NorthError::State)
 }
 
-fn execute(request: &Request) -> NorthResult<()> {
-    let window = match session::find_window() {
-        Ok(window) => window,
-        Err(_) if request.auto => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    let accounts = outlooks()?;
-    let (to, reason) = match plan::decide(&window.account, &accounts, request.to.as_deref()) {
-        Verdict::Stay { reason } => {
-            if !request.auto {
-                println!("north proxy move: staying on account {}: {reason}", window.account);
-            }
-            return Ok(());
-        }
-        Verdict::Stranded { .. } if request.auto => return Ok(()),
-        Verdict::Stranded { reason } => return Err(NorthError::Refused(format!("the window on account {} cannot move: {reason}", window.account))),
-        Verdict::Move { to, reason } => (to, reason),
-    };
-    if !request.auto {
-        println!("north proxy move: account {} to {to}: {reason}", window.account);
-    }
-    if request.dry_run {
-        let ready = session::ready_for(&window, &super::router::account_home("claude", &to).unwrap_or_default());
-        println!("north proxy move: dry run; window process {} would resume in a new window, turn ended: {}, target profile ready: {}", window.client, session::turn_ended(&window), ready.map_or_else(|error| error.user_message(), |()| "yes".to_owned()));
-        println!("north proxy move: replacement command: {}", replacement(&window, &to, ancestor_named(window.client, "ghostty").unwrap_or(0))?.join(" "));
-        return Ok(());
-    }
-    if !session::turn_ended(&window) {
-        if !request.auto {
-            println!("north proxy move: the window's turn is still running; moving at the end of it");
-        }
-        return Ok(());
-    }
-    if request.auto {
-        println!("north proxy move: account {} to {to}: {reason}", window.account);
-        return detach(&to);
-    }
-    swap(&window, &to)
+fn stamp_path() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state/north/window-move.stamp"))
 }
 
-fn detach(to: &str) -> NorthResult<()> {
-    if !cooled_down() {
-        return Ok(());
-    }
-    let executable = std::env::current_exe()?;
-    let status = Command::new("systemd-run")
-        .args(["--user", "--collect", "--quiet", "--unit=north-window-move", "--property=RuntimeMaxSec=600", "--setenv=PATH"])
-        .arg("--")
-        .arg(executable)
-        .args(["proxy", "move", "--to", to])
-        .status()?;
-    if status.success() {
-        println!("north proxy move: started the move to account {to} in its own unit");
-        Ok(())
-    } else {
-        Err(NorthError::State(format!("could not start the window move unit: {status}")))
-    }
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs())
 }
 
 fn cooled_down() -> bool {
-    let Some(stamp) = std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state/north/window-move.stamp")) else { return false };
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
+    let Some(stamp) = stamp_path() else { return false };
     let last = std::fs::read_to_string(&stamp).ok().and_then(|text| text.trim().parse::<u64>().ok()).unwrap_or(0);
-    if now.saturating_sub(last) < COOLDOWN.as_secs() {
-        return false;
-    }
-    std::fs::write(&stamp, now.to_string()).is_ok()
+    now_secs().saturating_sub(last) >= COOLDOWN.as_secs()
 }
 
-fn swap(window: &Window, to: &str) -> NorthResult<()> {
-    let target = super::router::account_home("claude", to).ok_or_else(|| NorthError::State(format!("no claude profile for account {to}")))?;
-    session::ready_for(window, &target)?;
-    let mark = session::activity(window);
-    let copied = session::carry(window, &target)?;
-    println!("north proxy move: carried {copied} session items into {}", target.display());
-    let old_shell = parent_of(window.client).filter(|pid| name_of(*pid).ends_with("sh"));
-    let terminal = ancestor_named(window.client, "ghostty").ok_or_else(|| NorthError::State("the window's terminal process is not ghostty".into()))?;
-    let old = desktop::window_of_terminal(terminal)?;
-    let focused = desktop::focused()?;
-    let command = replacement(window, to, terminal)?;
-    let opened = desktop::open(&command)?;
-    let client = match wait_for_client(window, &target, opened.pid) {
-        Ok(client) => client,
-        Err(error) => {
-            desktop::terminate(opened.pid);
-            return Err(error);
-        }
-    };
-    println!("north proxy move: replacement window {} runs process {client} on {}", opened.id, environment_of(client).get("CLAUDE_CONFIG_DIR").map_or("?", String::as_str));
-    if !session::turn_ended(window) || session::activity(window) != mark {
-        desktop::terminate(opened.pid);
-        return Err(NorthError::Refused("the old window took a turn while the replacement started; nothing moved".into()));
+fn stamp() {
+    if let Some(stamp) = stamp_path() {
+        let _ = std::fs::write(stamp, now_secs().to_string());
     }
-    stop_background_session(window);
-    match old_shell {
-        Some(shell) => desktop::hang_up(shell),
-        None => desktop::hang_up(window.client),
-    }
-    wait_gone(window.client);
-    desktop::settle(&opened, &old, focused)?;
-    println!("north proxy move: moved the window to account {to}");
-    Ok(())
 }
 
 fn ancestor_named(pid: u32, name: &str) -> Option<u32> {
@@ -179,7 +215,7 @@ fn ancestor_named(pid: u32, name: &str) -> Option<u32> {
     None
 }
 
-fn replacement(window: &Window, to: &str, terminal: u32) -> NorthResult<Vec<String>> {
+fn replacement(window: &Window, to: &str, terminal: u32) -> Vec<String> {
     let launcher = format!("{}/.local/bin/claude-{to}", std::env::var("HOME").unwrap_or_default());
     let environment = environment_of(window.client);
     let mut command = vec!["ghostty".to_owned()];
@@ -189,7 +225,7 @@ fn replacement(window: &Window, to: &str, terminal: u32) -> NorthResult<Vec<Stri
     command.extend(environment.iter().filter(|(key, _)| KEPT_ENVIRONMENT.iter().any(|kept| key == kept)).map(|(key, value)| format!("{key}={value}")));
     command.extend(["bash".to_owned(), "-c".to_owned(), "\"$@\"; exec bash --posix".to_owned(), "claude-move".to_owned(), launcher]);
     command.extend(resume_arguments(window));
-    Ok(command)
+    command
 }
 
 fn resume_arguments(window: &Window) -> Vec<String> {
@@ -212,47 +248,4 @@ fn resume_arguments(window: &Window) -> Vec<String> {
         arguments.extend(["--model".to_owned(), model.clone()]);
     }
     arguments
-}
-
-fn wait_for_client(window: &Window, target: &Path, terminal: u32) -> NorthResult<u32> {
-    let deadline = Instant::now() + SETTLE;
-    while Instant::now() < deadline {
-        if let Some(client) = find_replacement(&window.session.id, terminal) {
-            let record = target.join("sessions").join(format!("{client}.json"));
-            let up = std::fs::read(&record).ok().and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok()).is_some_and(|record| record["status"] != "busy");
-            if up && environment_of(client).get("CLAUDE_CONFIG_DIR").map(Path::new) == Some(target) {
-                return Ok(client);
-            }
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-    Err(NorthError::State(format!("the replacement window did not resume session on {} within {} seconds; the old window is untouched", target.display(), SETTLE.as_secs())))
-}
-
-fn find_replacement(id: &str, terminal: u32) -> Option<u32> {
-    std::fs::read_dir("/proc").ok()?.flatten().filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok()).find(|pid| {
-        let arguments = arguments_of(*pid);
-        arguments.first().is_some_and(|first| first.ends_with("/claude")) && arguments.iter().any(|argument| argument == id) && ancestor_named(*pid, "ghostty") == Some(terminal)
-    })
-}
-
-fn stop_background_session(window: &Window) {
-    let Some(job) = &window.session.job else { return };
-    let Ok(runtime) = std::fs::read_link(format!("/proc/{}/exe", window.client)) else { return };
-    let home = std::env::var("HOME").unwrap_or_default();
-    let status = Command::new(runtime).env_clear().env("HOME", home).env("PATH", std::env::var("PATH").unwrap_or_default()).env("CLAUDE_CONFIG_DIR", &window.profile).args(["stop", job]).status();
-    match status {
-        Ok(status) if status.success() => println!("north proxy move: stopped background session {job} on account {}", window.account),
-        other => eprintln!("north proxy move: stopping background session {job} did not succeed: {other:?}"),
-    }
-}
-
-fn wait_gone(pid: u32) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < deadline && Path::new(&format!("/proc/{pid}")).exists() {
-        std::thread::sleep(Duration::from_millis(250));
-    }
-    if Path::new(&format!("/proc/{pid}")).exists() {
-        let _ = Command::new("kill").arg(pid.to_string()).status();
-    }
 }
