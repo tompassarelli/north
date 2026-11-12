@@ -69,6 +69,19 @@ pub struct Issue {
     pub needs: Vec<String>,
     /// The landings on origin/main citing it since its last report, read by the survey for an issue with a box due after landings.
     pub landings: usize,
+    /// The issue it is a sub-issue of, when GitHub holds one.
+    pub parent: Option<IssueRef>,
+    /// GitHub's issue type (Task, Bug, Feature), when set.
+    pub kind: Option<String>,
+    pub assignees: Vec<String>,
+    /// How many sub-issues it has and how many of them are closed.
+    pub children: Children,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Children {
+    pub total: u64,
+    pub completed: u64,
 }
 
 impl Issue {

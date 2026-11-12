@@ -1,3 +1,4 @@
+use super::issues::Children;
 use super::*;
 use north_github_mirror::store::{self, Mirror, OPEN_ISSUES, key};
 
@@ -30,6 +31,10 @@ pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
         stop: Default::default(),
         needs: Vec::new(),
         landings: 0,
+        parent: node["parent"]["number"].as_u64().zip(node["parent"]["repository"]["name"].as_str()).map(|(number, name)| IssueRef::new(name, number)),
+        kind: node["issueType"]["name"].as_str().map(str::to_owned),
+        assignees: node["assignees"]["nodes"].as_array().into_iter().flatten().filter_map(|who| who["login"].as_str().map(str::to_owned)).collect(),
+        children: Children { total: node["subIssuesSummary"]["total"].as_u64().unwrap_or(0), completed: node["subIssuesSummary"]["completed"].as_u64().unwrap_or(0) },
     })
 }
 

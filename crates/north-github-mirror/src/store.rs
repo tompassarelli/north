@@ -22,7 +22,7 @@ pub fn runs_kind(status: &str) -> String {
     format!("runs/{status}")
 }
 
-pub const OPEN_ISSUES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body createdAt labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 10) { nodes { body createdAt updatedAt } } } } } }";
+pub const OPEN_ISSUES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body createdAt parent { number repository { name } } issueType { name } assignees(first: 10) { nodes { login } } subIssuesSummary { total completed } labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 10) { nodes { body createdAt updatedAt } } } } } }";
 
 const CLOSED_ISSUES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: CLOSED, first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number } } } }";
 
