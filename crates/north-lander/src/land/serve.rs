@@ -109,15 +109,12 @@ impl Serve for Lander {
 }
 
 fn back_off(lander: &Lander, backoff: &mut Backoff, reason: &str, retire: &AtomicBool) {
-    let pause = backoff.refused();
-    println!("north land: waiting {}s: {reason}", pause.wait.as_secs());
+    let pause = backoff.after(reason);
+    println!("north land: waiting {:?}: {reason}", pause.wait);
     if pause.alarm && !after::send("proxy", &format!("north land: {}: {reason}; the lander keeps retrying every {} minutes", lander.repo.display(), pause.wait.as_secs() / 60)) {
         eprintln!("north land: could not alarm the proxy about {}", lander.repo.display());
     }
-    let until = Instant::now() + pause.wait;
-    while Instant::now() < until && !retire.load(Ordering::Relaxed) {
-        std::thread::sleep(POLL);
-    }
+    pause.sit_out(retire);
 }
 
 fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
