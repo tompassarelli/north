@@ -100,7 +100,7 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     if let Some((initial, after)) = plan.burst {
         conditions["burst"] = json!({"initial": initial, "after_s": after});
     }
-    conditions["unseen"] = json!(format!("each task adds `export const RUN_ID = \"{stamp}-l{level}-<task>\";` to its source, which its check greps for, and ends its commit message with `Run: {stamp}-l{level}-<task>`, so neither the diff nor the prose the private-kind judge reads repeats an earlier run's; a row's verdict_s shows whether the judge answered from its cache"));
+    conditions["unseen"] = json!(format!("each task adds `export const RUN_ID = \"{stamp}-l{level}-<task>\";` to its source, which its check greps for, and its brief carries `Commit message: Do ladder task <task> (Run: {stamp}-l{level}-<task>)`, which the launch proposes and judges as a real launch does, so neither the diff nor the prose repeats an earlier run's and a finish call that keeps the proposal finds its verdict cached; a row's verdict_s shows whether it did"));
     let stop = AtomicBool::new(false);
     let restart_log = plan.work.join("lander-restart.log");
     let (runs, outage) = std::thread::scope(|scope| {
