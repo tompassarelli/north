@@ -15,16 +15,16 @@ pub fn in_eval_unit(cgroup: &str) -> bool {
 }
 
 impl Fleet {
-    /// Refuses a launch that asks for `--gates-aside` unless an eval makes it: the process runs in an `eval-*` unit, or it runs in the scope of the live `evals-lead` lead session, or it replays an entry of the launch queue that was admitted with the flag. `cgroup` is the launcher's `/proc/self/cgroup`, a fact the launcher cannot change, never its environment or arguments.
-    pub fn admit_gates_aside(&self, asked: bool, caller: Option<&str>, queued: Option<&str>, cgroup: &str) -> NorthResult<()> {
-        if !asked || in_eval_unit(cgroup) || self.queued_with_gates_aside(queued) || self.is_evals_lead(caller, cgroup) {
+    /// Refuses a launch that asks for `--gates-aside` unless an eval makes it: the process runs in an `eval-*` unit, or it runs in the scope of the live `evals-lead` lead session, or it replays the entry of the launch queue named `name`, the launch being made, that was admitted with the flag. `cgroup` is the launcher's `/proc/self/cgroup`, a fact the launcher cannot change, never its environment or arguments.
+    pub fn admit_gates_aside(&self, asked: bool, name: &str, caller: Option<&str>, queued: Option<&str>, cgroup: &str) -> NorthResult<()> {
+        if !asked || in_eval_unit(cgroup) || self.queued_with_gates_aside(name, queued) || self.is_evals_lead(caller, cgroup) {
             return Ok(());
         }
         Err(NorthError::Refused(format!("--gates-aside is only for an eval: launch from an {EVAL_UNIT_PREFIX}* unit or from the {EVALS_LEAD} session, so no other session hides its children's gates from the owner")))
     }
 
-    fn queued_with_gates_aside(&self, queued: Option<&str>) -> bool {
-        queued.is_some_and(|name| self.queued_launches().is_ok_and(|launches| launches.iter().any(|launch| launch.name == name && launch.request.gates_aside)))
+    fn queued_with_gates_aside(&self, name: &str, queued: Option<&str>) -> bool {
+        queued == Some(name) && self.queued_launches().is_ok_and(|launches| launches.iter().any(|launch| launch.name == name && launch.request.gates_aside))
     }
 
     fn is_evals_lead(&self, caller: Option<&str>, cgroup: &str) -> bool {
@@ -52,12 +52,12 @@ mod tests {
         std::fs::write(session_host_files::scope_path(&lead_dir), "north-session-bbbb.scope").unwrap();
         let lead_cgroup = "0::/user.slice/agent.slice/north-session-bbbb.scope\n";
 
-        let refusal = laptop.admit_gates_aside(true, Some("worker"), None, WORKER).unwrap_err();
+        let refusal = laptop.admit_gates_aside(true, "child", Some("worker"), None, WORKER).unwrap_err();
         assert!(matches!(refusal, NorthError::Refused(_)) && refusal.to_string().contains("--gates-aside"), "{refusal}");
-        assert!(laptop.admit_gates_aside(true, Some(EVALS_LEAD), None, WORKER).is_err(), "naming the lead from another session's scope is not the lead");
-        assert!(laptop.admit_gates_aside(true, None, None, WORKER).is_err());
-        laptop.admit_gates_aside(false, Some("worker"), None, WORKER).unwrap();
-        laptop.admit_gates_aside(true, None, None, EVAL).unwrap();
-        laptop.admit_gates_aside(true, Some(EVALS_LEAD), None, lead_cgroup).unwrap();
+        assert!(laptop.admit_gates_aside(true, "child", Some(EVALS_LEAD), None, WORKER).is_err(), "naming the lead from another session's scope is not the lead");
+        assert!(laptop.admit_gates_aside(true, "child", None, None, WORKER).is_err());
+        laptop.admit_gates_aside(false, "child", Some("worker"), None, WORKER).unwrap();
+        laptop.admit_gates_aside(true, "child", None, None, EVAL).unwrap();
+        laptop.admit_gates_aside(true, "child", Some(EVALS_LEAD), None, lead_cgroup).unwrap();
     }
 }
