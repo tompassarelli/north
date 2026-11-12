@@ -80,7 +80,7 @@ fn entry(case: &Value, file: &str) -> Value {
     let neutral = required.is_empty() && forbidden.is_empty() && state.is_empty();
     let id = case["id"].as_str().unwrap_or_default();
     json!({
-        "file": file, "kind": case["kind"], "area": case["area"], "neutral": neutral, "runnable_in_both_arms": world.is_empty() && beyond.is_empty(),
+        "file": file, "kind": case["kind"], "area": case["area"], "neutral": neutral, "runnable_in_both_arms": world.is_empty() && beyond.is_empty(), "replays_prior_turns": !case["setup"]["priorTurns"].is_null(),
         "requires_t3_tools": required, "forbids_t3_tools": forbidden, "t3_state_checks": state, "world_needs_t3": world,
         "asks_without_t3_tools": asked, "bars_without_t3_tools": barred, "world_beyond_files": beyond,
         "runnable_given": judged(&GIVEN, id), "not_run": judged(&NOT_RUN, id),
@@ -125,6 +125,10 @@ fn asks(case: &Value) -> bool {
     loose(case) && !empty(&case["asks_without_t3_tools"])
 }
 
+fn replayed_control(case: &Value) -> bool {
+    case["kind"] == "control" && asks(case) && runnable(case) && case["replays_prior_turns"] == true
+}
+
 fn ids(cases: &Map<String, Value>, keep: impl Fn(&Value) -> bool) -> Vec<&String> {
     cases.iter().filter(|(_, case)| keep(case)).map(|(id, _)| id).collect()
 }
@@ -159,12 +163,14 @@ pub fn classify(checkout: &Path, pin_commit: &str) -> Result<Value, String> {
         "no_t3_tool_required_and_no_t3_state_check": count(&cases, loose),
         "of_those_with_a_check_that_names_no_t3_tool": count(&cases, |case| loose(case) && !(empty(&case["asks_without_t3_tools"]) && empty(&case["bars_without_t3_tools"]))),
         "of_those_asking_for_something_without_t3_tools": count(&cases, asks),
+        "replayed_control": count(&cases, replayed_control),
         "of_those_runnable_in_both_arms": count(&cases, |case| asks(case) && runnable(case)),
         "of_those_whose_world_needs_no_t3_tool": count(&cases, |case| loose(case) && !(empty(&case["asks_without_t3_tools"]) && empty(&case["bars_without_t3_tools"])) && empty(&case["world_needs_t3"])),
     });
     let lists = json!({
         "neutral": ids(&cases, |case| case["neutral"] == true),
         "neutral_and_runnable_in_both_arms": ids(&cases, |case| case["neutral"] == true && runnable(case)),
+        "replayed_control": ids(&cases, replayed_control),
         "asking_for_something_without_t3_tools": ids(&cases, asks),
         "asking_and_runnable_in_both_arms": ids(&cases, |case| asks(case) && runnable(case)),
         "asking_and_runnable_given_more_than_files": ids(&cases, |case| asks(case) && !case["runnable_given"].is_null()),

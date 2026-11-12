@@ -58,6 +58,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "device_open"
       ],
@@ -88,6 +89,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "device_open",
         "device_screenshot"
@@ -114,6 +116,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "device_open"
       ],
@@ -124,7 +127,6 @@
       ],
       "world_beyond_files": [
         "shellMocks",
-        "priorTurns",
         "context",
         "delegateRole"
       ],
@@ -147,6 +149,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "device_list",
         "device_open"
@@ -173,6 +176,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "device_open"
       ],
@@ -183,9 +187,7 @@
       ],
       "world_beyond_files": [
         "shellMocks",
-        "priorTurns",
-        "context",
-        "files outside the repository"
+        "context"
       ],
       "world_needs_t3": []
     },
@@ -204,6 +206,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -211,10 +214,9 @@
         "device"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock device_screenshot",
@@ -234,6 +236,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "device_open"
       ],
@@ -244,7 +247,6 @@
       ],
       "world_beyond_files": [
         "shellMocks",
-        "priorTurns",
         "context"
       ],
       "world_needs_t3": []
@@ -265,6 +267,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -273,7 +276,6 @@
       ],
       "world_beyond_files": [
         "shellMocks",
-        "priorTurns",
         "context"
       ],
       "world_needs_t3": []
@@ -292,6 +294,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "device_open"
       ],
@@ -302,7 +305,6 @@
       ],
       "world_beyond_files": [
         "shellMocks",
-        "priorTurns",
         "context"
       ],
       "world_needs_t3": [
@@ -328,6 +330,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -336,7 +339,6 @@
       ],
       "world_beyond_files": [
         "shellMocks",
-        "priorTurns",
         "context"
       ],
       "world_needs_t3": []
@@ -350,6 +352,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "orchestrator_capabilities"
       ],
@@ -360,7 +363,6 @@
       ],
       "world_beyond_files": [
         "shellMocks",
-        "priorTurns",
         "context"
       ],
       "world_needs_t3": []
@@ -381,6 +383,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "device_list",
         "device_open"
@@ -412,6 +415,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "device_list",
         "device_open"
@@ -443,6 +447,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "device_open"
       ],
@@ -468,6 +473,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "device_open"
       ],
@@ -478,7 +484,6 @@
       ],
       "world_beyond_files": [
         "shellMocks",
-        "priorTurns",
         "context"
       ],
       "world_needs_t3": []
@@ -498,6 +503,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "device_open"
       ],
@@ -524,6 +530,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_project_update"
       ],
@@ -531,7 +538,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_project_list"
@@ -551,6 +558,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -558,7 +566,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -580,6 +588,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "watch_pull_request"
       ],
@@ -587,9 +596,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -605,6 +613,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "preview_open"
       ],
@@ -612,10 +621,9 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_open",
@@ -636,6 +644,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "preview_snapshot"
       ],
@@ -643,9 +652,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_open",
@@ -666,6 +674,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -673,8 +682,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -700,15 +708,16 @@
       "kind": "bad",
       "neutral": false,
       "not_run": "the session is a T3 Code delegated child, started by T3 Code's own task prompt",
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
         "context",
-        "delegateRole"
+        "delegateRole",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -731,6 +740,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -738,10 +748,10 @@
         "linked"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
         "context",
-        "delegateRole"
+        "delegateRole",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -764,6 +774,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "link_pull_request"
       ],
@@ -771,9 +782,9 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "context",
-        "delegateRole"
+        "delegateRole",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -798,12 +809,13 @@
       "kind": "guard",
       "neutral": false,
       "not_run": "the case is for the Codex harness only",
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "Codex only"
@@ -823,6 +835,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -859,6 +872,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -894,6 +908,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -931,6 +946,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -954,6 +970,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -976,13 +993,12 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
-      "runnable_in_both_arms": false,
+      "runnable_in_both_arms": true,
       "t3_state_checks": [],
-      "world_beyond_files": [
-        "priorTurns"
-      ],
+      "world_beyond_files": [],
       "world_needs_t3": []
     },
     "control-new-thread-view-wording": {
@@ -999,6 +1015,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -1019,6 +1036,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -1042,6 +1060,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -1049,8 +1068,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock request_secret"
@@ -1071,6 +1090,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -1106,6 +1126,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -1141,13 +1162,12 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
-      "runnable_in_both_arms": false,
+      "runnable_in_both_arms": true,
       "t3_state_checks": [],
-      "world_beyond_files": [
-        "priorTurns"
-      ],
+      "world_beyond_files": [],
       "world_needs_t3": []
     },
     "control-run-lint-and-fix": {
@@ -1178,6 +1198,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -1203,6 +1224,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -1225,6 +1247,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -1232,7 +1255,7 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock request_secret"
@@ -1250,6 +1273,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -1257,9 +1281,8 @@
         "linked"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request"
@@ -1279,6 +1302,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task",
         "orchestrator_capabilities"
@@ -1287,7 +1311,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -1306,6 +1330,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task",
         "orchestrator_capabilities"
@@ -1314,7 +1339,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -1334,6 +1359,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -1341,7 +1367,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -1360,6 +1386,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
@@ -1367,8 +1394,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock orchestrator_capabilities",
@@ -1396,14 +1422,15 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_open",
@@ -1420,6 +1447,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "t3_background_wait"
       ],
@@ -1427,10 +1455,9 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -1451,6 +1478,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "preview_open"
       ],
@@ -1458,8 +1486,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_navigate",
@@ -1478,6 +1506,7 @@
       "kind": "bad",
       "neutral": true,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -1497,6 +1526,7 @@
       "kind": "control",
       "neutral": true,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -1515,14 +1545,12 @@
       "kind": "bad",
       "neutral": true,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
-      "runnable_in_both_arms": false,
+      "runnable_in_both_arms": true,
       "t3_state_checks": [],
-      "world_beyond_files": [
-        "priorTurns",
-        "files outside the repository"
-      ],
+      "world_beyond_files": [],
       "world_needs_t3": []
     },
     "file-links-package-relative": {
@@ -1536,6 +1564,7 @@
       "kind": "bad",
       "neutral": true,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -1560,12 +1589,13 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -1592,15 +1622,15 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_status",
@@ -1621,13 +1651,14 @@
       "kind": "bad",
       "neutral": true,
       "not_run": "the answer under test comes from a mocked T3 Code tool: north could be given it only by carrying T3 Code's tool list, and T3 Code only by replacing its own tool's answer",
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_list",
@@ -1646,6 +1677,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "delegate_task",
         "orchestrator_capabilities"
@@ -1654,8 +1686,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -1675,6 +1706,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
@@ -1683,7 +1715,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock html_preview",
@@ -1701,6 +1733,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "device_list",
         "device_open"
@@ -1709,8 +1742,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock device_list",
@@ -1729,6 +1762,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "preview_open"
       ],
@@ -1736,8 +1770,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_open",
@@ -1757,6 +1790,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "preview_open",
         "preview_snapshot"
@@ -1765,7 +1799,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_open",
@@ -1784,6 +1818,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
@@ -1792,8 +1827,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock html_preview",
@@ -1823,13 +1857,13 @@
       "kind": "guard",
       "neutral": false,
       "not_run": "the earlier turn is the agent calling T3 Code's tools, which a north session cannot have made",
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
         "shellMocks",
-        "priorTurns",
         "context"
       ],
       "world_needs_t3": [
@@ -1850,6 +1884,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "preview_evaluate"
       ],
@@ -1857,9 +1892,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_evaluate",
@@ -1888,15 +1922,13 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks",
-        "priorTurns",
-        "files outside the repository"
+        "shellMocks"
       ],
       "world_needs_t3": []
     },
@@ -1913,6 +1945,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "unwatch_pull_request"
       ],
@@ -1920,8 +1953,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock unwatch_pull_request",
@@ -1940,6 +1972,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
@@ -1948,7 +1981,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock html_preview",
@@ -1966,6 +1999,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "link_pull_request"
       ],
@@ -1989,6 +2023,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "link_pull_requests"
       ],
@@ -2014,6 +2049,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "link_pull_requests"
       ],
@@ -2039,6 +2075,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_thread_read"
       ],
@@ -2046,7 +2083,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_environment_links",
@@ -2066,14 +2103,15 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -2091,14 +2129,15 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock list_thread_pull_requests"
@@ -2117,6 +2156,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "watch_pull_request"
       ],
@@ -2124,10 +2164,9 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -2148,6 +2187,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "watch_pull_request"
       ],
@@ -2155,8 +2195,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -2180,13 +2219,14 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -2205,13 +2245,14 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -2235,13 +2276,13 @@
       "kind": "guard",
       "neutral": false,
       "not_run": "the earlier turn is the agent calling T3 Code's tools, which a north session cannot have made",
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -2264,6 +2305,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -2271,8 +2313,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -2290,6 +2332,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -2297,9 +2340,8 @@
         "linked"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request"
@@ -2319,14 +2361,14 @@
       "kind": "bad",
       "neutral": false,
       "not_run": "the answer under test comes from a mocked T3 Code tool: north could be given it only by carrying T3 Code's tool list, and T3 Code only by replacing its own tool's answer",
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_open",
@@ -2344,6 +2386,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "preview_snapshot",
         "t3_preview_close"
@@ -2352,7 +2395,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_open",
@@ -2373,6 +2416,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
@@ -2395,6 +2439,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
@@ -2420,13 +2465,14 @@
       "kind": "bad",
       "neutral": true,
       "not_run": "the answer under test comes from a mocked T3 Code tool: north could be given it only by carrying T3 Code's tool list, and T3 Code only by replacing its own tool's answer",
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -2447,13 +2493,13 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -2470,6 +2516,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
@@ -2478,10 +2525,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns",
         "context",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock html_preview",
@@ -2497,6 +2542,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "preview_recording_start",
         "preview_recording_stop"
@@ -2505,8 +2551,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_recording_start",
@@ -2527,6 +2573,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "delegate_task",
         "task_cancel"
@@ -2535,8 +2582,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -2560,14 +2606,15 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "context",
-        "delegateRole"
+        "delegateRole",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -2589,14 +2636,15 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "context",
-        "delegateRole"
+        "delegateRole",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_open",
@@ -2616,6 +2664,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -2623,8 +2672,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -2647,14 +2695,15 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "context",
-        "delegateRole"
+        "delegateRole",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -2673,14 +2722,14 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -2700,6 +2749,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -2707,8 +2757,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -2730,6 +2779,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
@@ -2738,9 +2788,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock html_preview",
@@ -2761,6 +2809,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -2768,7 +2817,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -2787,6 +2836,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "schedule_task"
       ],
@@ -2794,8 +2844,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock schedule_task"
@@ -2816,6 +2866,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "schedule_task"
       ],
@@ -2823,9 +2874,9 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock schedule_task"
@@ -2843,6 +2894,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "schedule_task"
       ],
@@ -2850,7 +2902,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock schedule_task"
@@ -2872,6 +2924,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "schedule_task"
       ],
@@ -2879,8 +2932,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock schedule_task",
@@ -2900,13 +2952,14 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock list_scheduled_tasks"
@@ -2926,15 +2979,15 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "context",
         "delegateRole",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -2954,6 +3007,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -2963,8 +3017,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -2983,6 +3037,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -2992,8 +3047,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock request_secret"
@@ -3012,6 +3067,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3022,9 +3078,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "delegateRole"
+        "delegateRole",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "role delegated-child"
@@ -3043,6 +3099,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3052,10 +3109,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3070,6 +3126,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3079,8 +3136,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3099,6 +3156,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3106,8 +3164,7 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3124,6 +3181,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3131,7 +3189,7 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3151,6 +3209,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3159,9 +3218,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "prior call device_list",
@@ -3181,6 +3239,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3188,8 +3247,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3208,6 +3267,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3215,9 +3275,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "context",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3232,6 +3291,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3239,8 +3299,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_open"
@@ -3255,6 +3315,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3262,9 +3323,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3279,6 +3339,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3286,8 +3347,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3306,6 +3367,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3313,8 +3375,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3334,6 +3396,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3341,8 +3404,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3359,6 +3422,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3366,8 +3430,7 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3380,6 +3443,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3387,8 +3451,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3403,6 +3467,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3410,10 +3475,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
         "context",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_open"
@@ -3434,6 +3498,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3441,8 +3506,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3461,6 +3526,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3470,10 +3536,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock request_secret"
@@ -3492,6 +3557,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3501,9 +3567,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3524,6 +3590,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3532,10 +3599,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "prior call device_list",
@@ -3554,6 +3620,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -3563,9 +3630,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3586,6 +3653,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3593,7 +3661,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock request_secret"
@@ -3610,6 +3678,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3617,8 +3686,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock request_secret"
@@ -3637,6 +3705,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3647,10 +3716,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "prior call device_list",
@@ -3668,6 +3736,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3678,10 +3747,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3698,6 +3766,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3705,11 +3774,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
         "context",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3726,6 +3793,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3735,11 +3803,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
         "context",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": []
     },
@@ -3756,6 +3822,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -3765,10 +3832,9 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
         "context",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_read",
@@ -3789,6 +3855,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "request_secret",
         "schedule_task"
@@ -3797,8 +3864,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock request_secret",
@@ -3823,12 +3889,12 @@
       "kind": "bad",
       "neutral": false,
       "not_run": "the session is a T3 Code side chat carrying its parent thread's digest",
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "priorTurns",
         "sideChat"
       ],
       "world_needs_t3": [
@@ -3846,6 +3912,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "t3_thread_read"
       ],
@@ -3853,9 +3920,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns",
-        "sideChat"
+        "sideChat",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_read",
@@ -3876,13 +3942,14 @@
       "kind": "bad",
       "neutral": false,
       "not_run": "the answer under test comes from a mocked T3 Code tool: north could be given it only by carrying T3 Code's tool list, and T3 Code only by replacing its own tool's answer",
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_evaluate",
@@ -3903,6 +3970,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task",
         "orchestrator_capabilities"
@@ -3911,8 +3979,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -3928,6 +3996,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -3935,9 +4004,9 @@
         "linked"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request"
@@ -3955,6 +4024,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "task_cancel"
       ],
@@ -3962,8 +4032,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -3987,6 +4056,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "task_cancel"
       ],
@@ -3994,8 +4064,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock task_cancel",
@@ -4015,12 +4084,13 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -4041,12 +4111,13 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -4067,6 +4138,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -4076,8 +4148,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock request_secret"
@@ -4097,6 +4169,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -4106,8 +4179,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
-        "shellMocks"
+        "shellMocks",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock request_secret"
@@ -4127,6 +4200,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "request_secret"
       ],
@@ -4136,9 +4210,8 @@
         "secret"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "files outside the repository"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock request_secret"
@@ -4153,6 +4226,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "link_pull_request",
         "watch_pull_request"
@@ -4161,8 +4235,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -4178,6 +4252,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "t3_thread_read"
       ],
@@ -4185,8 +4260,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_read"
@@ -4205,6 +4279,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_thread_list"
       ],
@@ -4212,7 +4287,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_list",
@@ -4232,6 +4307,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_thread_read"
       ],
@@ -4239,7 +4315,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_read"
@@ -4258,6 +4334,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "t3_thread_send"
       ],
@@ -4265,8 +4342,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_send"
@@ -4287,6 +4363,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "t3_thread_send"
       ],
@@ -4294,8 +4371,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_read",
@@ -4314,6 +4390,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "task_cancel"
       ],
@@ -4321,8 +4398,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock task_cancel",
@@ -4344,6 +4420,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -4351,9 +4428,9 @@
         "linked"
       ],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -4376,6 +4453,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -4383,7 +4461,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -4407,6 +4485,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
@@ -4416,8 +4495,8 @@
         "newThreads"
       ],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_wait"
@@ -4441,6 +4520,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -4448,8 +4528,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_launch",
@@ -4475,6 +4555,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -4502,6 +4583,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -4509,7 +4591,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -4533,6 +4615,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
@@ -4542,9 +4625,9 @@
         "newThreads"
       ],
       "world_beyond_files": [
-        "mocks",
         "context",
-        "delegateRole"
+        "delegateRole",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_wait",
@@ -4567,13 +4650,14 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "delegateRole"
+        "delegateRole",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -4603,6 +4687,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "task_status"
       ],
@@ -4610,8 +4695,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_launch",
@@ -4637,13 +4722,14 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_launch",
@@ -4670,6 +4756,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": "the case's context text in front of the prompt, with the runner's working directory rewritten to the scratch repository",
       "runnable_in_both_arms": false,
@@ -4697,6 +4784,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -4723,13 +4811,14 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_launch",
@@ -4754,6 +4843,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -4780,13 +4870,13 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_read",
@@ -4814,6 +4904,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
@@ -4821,8 +4912,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_wait"
@@ -4845,6 +4936,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
@@ -4854,8 +4946,8 @@
         "newThreads"
       ],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_wait"
@@ -4878,6 +4970,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
@@ -4887,8 +4980,8 @@
         "newThreads"
       ],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_wait"
@@ -4911,6 +5004,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
@@ -4920,8 +5014,8 @@
         "newThreads"
       ],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_wait"
@@ -4942,6 +5036,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "t3_thread_read"
       ],
@@ -4949,8 +5044,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_read",
@@ -4974,13 +5068,14 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -5005,6 +5100,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
@@ -5014,8 +5110,7 @@
         "newThreads"
       ],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock orchestrator_capabilities"
@@ -5036,6 +5131,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -5043,7 +5139,7 @@
         "newThreads"
       ],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock orchestrator_capabilities"
@@ -5064,6 +5160,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -5071,8 +5168,7 @@
         "newThreads"
       ],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock orchestrator_capabilities"
@@ -5091,6 +5187,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "task_cancel"
       ],
@@ -5098,8 +5195,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_interrupt",
@@ -5121,6 +5217,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "t3_thread_interrupt"
       ],
@@ -5128,8 +5225,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock t3_thread_interrupt",
@@ -5158,6 +5254,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "t3_thread_launch"
       ],
@@ -5167,7 +5264,7 @@
         "newThreads"
       ],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock orchestrator_capabilities",
@@ -5189,6 +5286,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
@@ -5196,7 +5294,7 @@
         "newThreads"
       ],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock orchestrator_capabilities"
@@ -5213,6 +5311,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -5220,7 +5319,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -5239,6 +5338,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "unlink_pull_requests"
       ],
@@ -5259,6 +5359,7 @@
       "kind": "guard",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": true,
@@ -5279,6 +5380,7 @@
       "kind": "control",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "unlink_pull_request"
       ],
@@ -5302,6 +5404,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "unlink_pull_requests"
       ],
@@ -5327,6 +5430,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "html_preview",
         "html_render"
@@ -5335,8 +5439,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock html_preview",
@@ -5358,15 +5462,15 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
         "shellMocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock list_thread_pull_requests",
@@ -5393,13 +5497,13 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock link_pull_request",
@@ -5421,6 +5525,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "html_render"
       ],
@@ -5428,9 +5533,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock html_preview",
@@ -5452,6 +5556,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "preview_evaluate"
       ],
@@ -5459,9 +5564,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_evaluate",
@@ -5480,6 +5584,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "preview_evaluate"
       ],
@@ -5487,9 +5592,8 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns",
-        "context"
+        "context",
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock preview_evaluate",
@@ -5507,6 +5611,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -5514,7 +5619,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -5532,12 +5637,13 @@
       "kind": "bad",
       "neutral": true,
       "not_run": null,
+      "replays_prior_turns": false,
       "requires_t3_tools": [],
       "runnable_given": null,
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -5559,6 +5665,7 @@
       "kind": "bad",
       "neutral": false,
       "not_run": null,
+      "replays_prior_turns": true,
       "requires_t3_tools": [
         "delegate_task"
       ],
@@ -5566,8 +5673,7 @@
       "runnable_in_both_arms": false,
       "t3_state_checks": [],
       "world_beyond_files": [
-        "mocks",
-        "priorTurns"
+        "mocks other than Skill"
       ],
       "world_needs_t3": [
         "mock delegate_task",
@@ -5589,8 +5695,8 @@
       "guard": 0
     },
     "neutral_and_runnable_in_both_arms": {
-      "bad": 2,
-      "cases": 3,
+      "bad": 3,
+      "cases": 4,
       "control": 1,
       "guard": 0
     },
@@ -5607,9 +5713,9 @@
       "guard": 4
     },
     "of_those_runnable_in_both_arms": {
-      "bad": 2,
-      "cases": 2,
-      "control": 0,
+      "bad": 3,
+      "cases": 4,
+      "control": 1,
       "guard": 0
     },
     "of_those_whose_world_needs_no_t3_tool": {
@@ -5623,6 +5729,12 @@
       "cases": 27,
       "control": 6,
       "guard": 8
+    },
+    "replayed_control": {
+      "bad": 0,
+      "cases": 1,
+      "control": 1,
+      "guard": 0
     }
   },
   "graders": {
@@ -5664,7 +5776,9 @@
       "tt-control-background-test-run"
     ],
     "asking_and_runnable_in_both_arms": [
+      "control-link-means-url",
       "file-links-ambiguous-basename",
+      "file-links-other-checkout",
       "file-links-package-relative"
     ],
     "asking_for_something_without_t3_tools": [
@@ -5697,6 +5811,7 @@
     "neutral_and_runnable_in_both_arms": [
       "file-links-ambiguous-basename",
       "file-links-no-files-control",
+      "file-links-other-checkout",
       "file-links-package-relative"
     ],
     "replayed_control": [
