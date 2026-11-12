@@ -90,7 +90,7 @@ pub fn lane_only_command_outside_scope(marker: bool, cgroup: Option<&str>) -> bo
 }
 
 /// The service unit of the runtime promotion whose canaries start their sessions on the operational reserve; a lander unit is none, since it launches owners' workers.
-const RESERVE_CALLER_UNIT: &str = "north-runtime-follow.service";
+pub const RESERVE_CALLER_UNIT: &str = "north-runtime-follow.service";
 
 /// The service unit a process whose `/proc/PID/cgroup` reads `cgroup` runs in when it is one of the reserve's callers, read from its cgroup, which a fleet session cannot leave.
 pub fn reserve_caller_unit(cgroup: &str) -> Option<String> {

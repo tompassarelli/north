@@ -1,9 +1,11 @@
-//! The operational reserve the policy declares (`[accounts.claude] reserve`): only the proxy, a scheduled routine,
-//! the owner's own sessions, the privacy judge, the lander and canaries draw it. A worker or subagent neither starts on
-//! it nor continues on it, judged by the account a launch resolves to, never by the name it was given.
+//! The spend rules a host start meets on the account it resolves to, never the name it was given
+//! (docs/rationale/spend-rule.md): the owner's hold on every API organization refuses it to every caller of every
+//! role; the operational reserve the policy declares (`[accounts.claude] reserve`) is drawn only by the proxy, a
+//! scheduled routine, the owner's own sessions, the privacy judge, the lander and canaries, so a worker or subagent
+//! neither starts on it nor continues on it.
 use std::path::Path;
 
-use toml_edit::{DocumentMut, Item};
+use toml_edit::DocumentMut;
 
 use super::Fleet;
 use super::stopping::Halt;
@@ -11,12 +13,26 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Delivery, Phase, Role, SessionRecord};
 use crate::fleet::runtime::PROXY;
 use crate::fleet::sender::Sender;
+use crate::spend::hold::{self, Hold};
 
-/// The account labels the policy at `policy` declares the operational reserve, as a session records them (`api:ORG` or a plan label).
-pub fn declared(policy: &Path) -> Vec<String> {
+/// What the policy declares of the accounts a start may not draw: the operational reserve's labels as a session records them (`api:ORG` or a plan label), and the owner's hold on every API organization.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Reserve {
+    pub labels: Vec<String>,
+    pub held: Option<Hold>,
+}
+
+impl Reserve {
+    /// Why a session recorded on `account` may not run there: the hold's line, else the reserve's.
+    pub fn why(&self, account: &str) -> String {
+        self.held.as_ref().and_then(|held| held.refusal(account)).unwrap_or_else(|| format!("{account} is the operational reserve no worker or subagent draws"))
+    }
+}
+
+/// What the policy at `policy` declares.
+pub fn declared(policy: &Path) -> Reserve {
     let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    let names = document.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("reserve")).and_then(Item::as_array);
-    names.into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect()
+    Reserve { labels: crate::spend::operational::declared(&document), held: hold::declared(&document) }
 }
 
 /// Whether a session of `role` under `parent` is a worker or subagent: anything but the proxy that a parent started or that holds a task.
@@ -24,10 +40,13 @@ pub fn kept_off(role: Role, parent: Option<&str>) -> bool {
     role != Role::Proxy && (role == Role::Worker || parent.is_some())
 }
 
-/// The one-line refusal of a worker or subagent start whose account resolves to a declared reserve, or none; a session a reserve caller's service unit launched (`caller`) is none of those.
-pub fn refusal(reserve: &[String], account: &Account, role: Role, parent: Option<&str>, caller: Option<&str>) -> Option<String> {
+/// The one-line refusal of a start on `account`, or none: under the hold, an API organization for every role and caller; else a worker or subagent whose account resolves to a declared reserve, unless a reserve caller's service unit launched it (`caller`).
+pub fn refusal(reserve: &Reserve, account: &Account, role: Role, parent: Option<&str>, caller: Option<&str>) -> Option<String> {
     let resolved = account.recorded_label();
-    (caller.is_none() && kept_off(role, parent) && reserve.iter().any(|held| *held == resolved || *held == account.label))
+    if let Some(held) = reserve.held.as_ref().filter(|_| account.api.is_some() || hold::api(&resolved)) {
+        return Some(held.line(&resolved));
+    }
+    (caller.is_none() && kept_off(role, parent) && reserve.labels.iter().any(|held| *held == resolved || *held == account.label))
         .then(|| format!("{resolved} is the operational reserve: no worker or subagent starts on it, whatever account it was launched under; only the proxy, scheduled routines, the privacy judge, the lander and canaries draw it"))
 }
 
@@ -42,32 +61,32 @@ impl Fleet {
         refusal(&declared(&self.policy), account, record.role(), record.parent.as_deref(), standing(record.reserve_caller.as_deref(), caller.as_deref())).map_or(Ok(()), |line| Err(NorthError::Refused(line)))
     }
 
-    /// Stops every running worker or subagent this host holds on a declared reserve; one line per session stopped or left.
+    /// Stops every running session this host holds on a held API organization, and every worker or subagent on a declared reserve; one line per session stopped or left.
     pub fn park_on_reserve(&self) -> Vec<String> {
         let reserve = declared(&self.policy);
-        if reserve.is_empty() {
+        if reserve.labels.is_empty() && reserve.held.is_none() {
             return Vec::new();
         }
         let found = self.sessions().unwrap_or_default().into_iter().filter(|record| on_reserve(&reserve, record) && !record.ended() && record.phase() != Some(Phase::Stopped));
         found
             .map(|record| match self.halt(&record.name, Halt::Reserve) {
                 Ok(()) => {
-                    let line = format!("{}: stopped on {}, the operational reserve no worker or subagent draws; revive it with --account naming another account", record.name, record.account);
+                    let line = format!("{}: stopped: {}; revive it with --account naming a plan account", record.name, reserve.why(&record.account));
                     let told = record.parent.as_deref().unwrap_or(PROXY);
                     match self.send_spooled(&Sender::fleet(), told, &line, Delivery::Queued) {
                         Ok(()) => line,
                         Err(error) => format!("{line}; {told} was not told: {}", error.user_message()),
                     }
                 }
-                Err(error) => format!("{}: runs on {}, the operational reserve, and was not stopped: {}", record.name, record.account, error.user_message()),
+                Err(error) => format!("{}: runs on {}, which it may not draw, and was not stopped: {}", record.name, record.account, error.user_message()),
             })
             .collect()
     }
 }
 
-/// Whether `record` is a worker or subagent recorded on a declared reserve that no reserve caller launched.
-pub fn on_reserve(reserve: &[String], record: &SessionRecord) -> bool {
-    record.reserve_caller.is_none() && kept_off(record.role(), record.parent.as_deref()) && reserve.contains(&record.account)
+/// Whether `record` runs on an account it may not draw: any API organization under the hold, whatever its role, or a declared reserve as a worker or subagent no reserve caller launched.
+pub fn on_reserve(reserve: &Reserve, record: &SessionRecord) -> bool {
+    (reserve.held.is_some() && hold::api(&record.account)) || (record.reserve_caller.is_none() && kept_off(record.role(), record.parent.as_deref()) && reserve.labels.contains(&record.account))
 }
 
 #[cfg(test)]
@@ -83,7 +102,7 @@ mod tests {
 
     #[test]
     fn a_worker_launched_on_the_pooled_api_account_is_refused_when_the_pool_resolves_it_to_the_reserve() {
-        let reserve = vec!["api:fixture-reserve-org".to_owned()];
+        let reserve = Reserve { labels: vec!["api:fixture-reserve-org".to_owned()], held: None };
         let pooled = account("api", Some("fixture-reserve-org"));
         let line = refusal(&reserve, &pooled, Role::Worker, Some("fixture-parent"), None).expect("a worker on the reserve through the pooled name is refused");
         assert!(line.starts_with("api:fixture-reserve-org is the operational reserve"), "{line}");
@@ -107,7 +126,7 @@ mod tests {
 
     #[test]
     fn a_canary_launched_from_the_promotion_unit_runs_on_the_reserve_while_an_owner_worker_from_a_lander_unit_or_a_revive_elsewhere_is_refused() {
-        let reserve = vec!["api:fixture-reserve-org".to_owned()];
+        let reserve = Reserve { labels: vec!["api:fixture-reserve-org".to_owned()], held: None };
         let pooled = account("api", Some("fixture-reserve-org"));
         let canary = north_base::platform::session_scope::reserve_caller_unit("0::/user.slice/user-1000.slice/user@1000.service/control.slice/north-runtime-follow.service\n");
         assert_eq!(canary.as_deref(), Some("north-runtime-follow.service"));

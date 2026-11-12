@@ -192,8 +192,9 @@ impl Fleet {
         let on_limit = self.recent(self.runtime(&record)?.as_ref(), &record).is_ok_and(|transcript| stopped_on_limit(&transcript, !session_running(&record) && !record.ended()));
         let onto = account.map(|to| self.account(&LaunchRequest { account: to.to_owned(), ..record.relaunch_request() })).transpose()?.filter(|onto| onto.recorded_label() != record.account);
         let Some(onto) = onto else {
-            if reserve::on_reserve(&reserve::declared(&self.policy), &record) {
-                return Err(NorthError::Refused(format!("{name} is recorded on {}, the operational reserve no worker or subagent continues on; revive it with --account naming another account", record.account)));
+            let reserve = reserve::declared(&self.policy);
+            if reserve::on_reserve(&reserve, &record) {
+                return Err(NorthError::Refused(format!("{name} is recorded on {}, which it may not continue on: {}; revive it with --account naming a plan account", record.account, reserve.why(&record.account))));
             }
             let revived = self.wake_placed(name, system_prompt, placement, effort)?;
             if on_limit {

@@ -112,12 +112,18 @@ pub fn listing(policy: &Path, home: &Path, state_root: &Path, here: &str) -> Vec
     let marks = state_root.join("api-exhausted");
     let mut lines: Vec<String> = orgs.iter().map(|org| format!("{} keys={} exhausted={}", org.line(), org.keys.len(), exhausted(&marks, org))).collect();
     let chosen = open(&orgs, &today(), |org| exhausted(&marks, org), readable);
-    lines.push(chosen.map_or_else(|| "api launches on: no open entry".to_owned(), |(org, _)| format!("api launches on: {}", org.name)));
+    match crate::spend::hold::at(policy) {
+        Some(held) => lines.push(format!("api launches on: none: {}", held.line("api"))),
+        None => lines.push(chosen.map_or_else(|| "api launches on: no open entry".to_owned(), |(org, _)| format!("api launches on: {}", org.name))),
+    }
     lines
 }
 
 /// The entry and key a run outside the fleet takes: the one the pool opens next, leaving out the organizations in `skipped`.
 pub fn next_key(policy: &Path, home: &Path, state_root: &Path, here: &str, skipped: &[String]) -> Option<(String, ApiKey)> {
+    if crate::spend::hold::at(policy).is_some() {
+        return None;
+    }
     let orgs = pool(policy, home, state_root, here);
     let marks = state_root.join("api-exhausted");
     open(&orgs, &today(), |org| skipped.contains(&org.id) || exhausted(&marks, org), readable).map(|(org, key)| (org.id.clone(), key))
@@ -154,10 +160,15 @@ pub fn rejudge(policy: &Path, home: &Path, state_root: &Path, here: &str, probe:
     if held.is_empty() {
         return Vec::new();
     }
+    let hold = crate::spend::hold::at(policy);
     let orgs = pool(policy, home, state_root, here);
     let mut lines = Vec::new();
     for (id, mark) in held {
         let Some(org) = orgs.iter().find(|org| org.id == id) else { continue };
+        if let Some(hold) = &hold {
+            lines.push(format!("api:{} keeps its exhausted mark unprobed: {}", org.name, hold.line(&format!("api:{}", org.name))));
+            continue;
+        }
         let Some(key) = org.keys.first() else {
             lines.push(format!("api:{} keeps its exhausted mark: this host holds no key to probe it with", org.name));
             continue;
@@ -286,7 +297,7 @@ fn settle(
         };
         lines.extend(marked_line(org, &record.name, &marked));
         let kept_off = record.reserve_caller.is_none() && crate::fleet::registry::reserve::kept_off(record.role(), record.parent.as_deref());
-        let reserved = |org: &Org| kept_off && reserve.iter().any(|held| held.split_once(':').is_some_and(|(_, held)| held == org.name));
+        let reserved = |org: &Org| reserve.held.is_some() || (kept_off && reserve.labels.iter().any(|held| held.split_once(':').is_some_and(|(_, held)| held == org.name)));
         let next = match moved_to(&record.account, &orgs, today, |org| exhausted(&dir, org) || reserved(org)) {
             Some(to) => Some((to, None)),
             None if failed => subscription(&record, &machine),

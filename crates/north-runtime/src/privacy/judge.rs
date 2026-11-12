@@ -191,8 +191,11 @@ fn first_answer<'a>(judges: &[Judge<'a>]) -> Result<(String, &'a str), String> {
     Err(refused.join("; "))
 }
 
-/// Asks `tier`'s model on each api organization the pool would launch on, soonest-expiring credit first.
+/// Asks `tier`'s model on each api organization the pool would launch on, soonest-expiring credit first; under the owner's API hold it is refused before any key is read.
 fn ask_api_pool(tier: &Tier, prompt: &str) -> Result<String, String> {
+    if let Some(held) = crate::spend::hold::at(&crate::platform::orchestration::path()) {
+        return Err(held.line("api"));
+    }
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let state = home.join(".local/state/north");
     let profile = std::env::var_os("NORTH_PROFILES").map_or_else(|| state.join("profiles"), PathBuf::from).join("claude-api");

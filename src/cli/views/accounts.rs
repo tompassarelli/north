@@ -110,7 +110,8 @@ pub fn read(at: Timestamp, detail: bool) -> Result<Accounts, String> {
     let verdicts = crate::pacing::placement::case::accounts(&roster)?;
     let credit = north_core::credit::standing(&crate::platform::orchestration::path(), &crate::watch::state_home(), at).orgs;
     let placement = placements(&verdicts);
-    let grants: Vec<ApiGrant> = credit.iter().map(grant).collect();
+    let held = crate::spend::hold::at(&crate::platform::orchestration::path());
+    let grants: Vec<ApiGrant> = credit.iter().map(|org| grant(org, held.as_ref())).collect();
     let view = crate::usage::SummaryView { db: &db, places: &places, now: at, offset_seconds: crate::foundation::clock::local_offset_seconds(), placement: &placement, grants: &grants };
     let text = crate::usage::summary(&view)?;
     let json = if detail { Some(detailed(&db, at, &roster, &credit)?) } else { None };
@@ -129,9 +130,11 @@ fn placements(verdicts: &[crate::pacing::placement::gate::Verdict]) -> BTreeMap<
         .collect()
 }
 
-fn grant(org: &north_core::credit::Standing) -> ApiGrant {
+fn grant(org: &north_core::credit::Standing, held: Option<&crate::spend::hold::Hold>) -> ApiGrant {
     let expires = org.balance.as_ref().map(|balance| balance.grant.expires.clone());
-    let (state, reason) = if org.exhausted {
+    let (state, reason) = if let Some(held) = held {
+        (State::Held, held.line(&format!("api:{}", org.name)))
+    } else if org.exhausted {
         (State::Out, "the provider refused a turn for credit".to_owned())
     } else if org.left < 0.005 {
         (State::Out, "no credit left".to_owned())

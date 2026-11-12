@@ -11,15 +11,26 @@ by accident.
 ## What still stops a start
 
 One module, `north_pace::spend`, answers whether a session may start on an account. Dispatch,
-`north fleet launch`, the spawn hook, hand-over and follows-release call it. It refuses for two reasons, and a
-refusal names which: `provider limit` or `operational reserve`.
+`north fleet launch`, the spawn hook, hand-over and follows-release call it. It refuses for three reasons, and a
+refusal names which: `api hold`, `provider limit` or `operational reserve`.
 
-1. **The provider's own limit.** An account at 100 percent of its five-hour or week window cannot run
+1. **The owner's API hold.** While `[accounts.claude] api_hold` records a day and a reason, every API
+   organization (the pooled `api` account and each `api:ORG`) is refused to every caller of every role, the
+   proxy, the owner's sessions, the privacy judge, the lander, canaries, spare fills and one-shot asks
+   included, before any request leaves; the refusal is one line naming the hold. `spend::hold` is the one copy
+   of the rule: the start refusal every host start passes through (`fleet::registry::reserve`), placement and
+   dispatch admission, the API pool (no key handed out, no exhausted mark probed, no session moved onto another
+   organization) and the judge's API step all ask it, the park step stops any session found on a held
+   organization, and `north accounts` lists every grant as held. Callers then use plan accounts, and DeepSeek or
+   Gemini where they already do. North writes no hold and lifts none; only removing that record on the owner's
+   word lifts it, so an organization becomes drawable again by an edit the owner ordered, never by a code path.
+
+2. **The provider's own limit.** An account at 100 percent of its five-hour or week window cannot run
    anything, so placement skips it and a launch that named it waits in the launch queue for the reset. A
    session that reaches the limit mid-run parks and is revived at the reset, or continues on another account
    in its own conversation (north#998). This is the provider's rule, read from its own figures; north adds no
    margin below it.
-2. **The declared operational reserve.** An account named in `[accounts.claude] reserve` (a plan account by
+3. **The declared operational reserve.** An account named in `[accounts.claude] reserve` (a plan account by
    label, an API organization as `api:ORG`) takes no worker and no subagent; only the privacy judge, the
    lander and the canaries use it. The entry in use names prepaid API credit, so this is a spending boundary
    the owner decides, kept on purpose when the limiters went: workers do not go onto that credit. Placement

@@ -338,7 +338,8 @@ pub fn verdicts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
     let cfg = crate::platform::orchestration::read()?;
     let basis = Basis::new(&cfg, at);
     let mut verdicts = accounts(roster)?;
-    verdicts.extend(grant_sources(roster, at).iter().map(|source| gate::grant_verdict(source, basis.operational(&source.account))));
+    let grants = if crate::spend::hold::declared(&cfg).is_some() { grants_left(at) } else { grant_sources(roster, at) };
+    verdicts.extend(grants.iter().map(|source| gate::grant_verdict(source, basis.operational(&source.account))));
     let reserved = crate::spend::operational_reserve(&cfg).into_iter().filter(|account| keyed_here(roster, account) && !verdicts.iter().any(|verdict| &verdict.account == account));
     let reserved: Vec<_> = reserved.filter_map(|account| basis.operational(&account).map(|why| gate::reserve_verdict(&account, why))).collect();
     verdicts.extend(reserved);

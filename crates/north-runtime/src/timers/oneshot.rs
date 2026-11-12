@@ -109,11 +109,26 @@ fn ambient_billing_refusal() -> Option<String> {
         return Some(format!("{name} is set, so the default login would bill by token"));
     }
     let dir = env_or("CLAUDE_CONFIG_DIR", || home().join(".claude"));
-    let read = |file: &str| std::fs::read_to_string(dir.join(file)).ok().and_then(|held| serde_json::from_str::<serde_json::Value>(&held).ok());
-    if ["settings.json", "settings.local.json"].iter().any(|file| read(file).is_some_and(|settings| settings.get("apiKeyHelper").is_some())) {
-        return Some("an apiKeyHelper is configured, so the default login would bill by token".to_owned());
+    if let Some(why) = settings_billing_refusal(&dir) {
+        return Some(why);
     }
-    read(".credentials.json").is_none_or(|credentials| credentials.get("claudeAiOauth").is_none()).then(|| "the default login is not a claude.ai subscription login".to_owned())
+    read_json(&dir, ".credentials.json").is_none_or(|credentials| credentials.get("claudeAiOauth").is_none()).then(|| "the default login is not a claude.ai subscription login".to_owned())
+}
+
+fn read_json(dir: &Path, file: &str) -> Option<serde_json::Value> {
+    std::fs::read_to_string(dir.join(file)).ok().and_then(|held| serde_json::from_str(&held).ok())
+}
+
+/// Why the Claude config directory `dir` would bill by token or reach another endpoint, if it would: an apiKeyHelper, or an env block naming an API key, token or endpoint variable, in its settings.
+fn settings_billing_refusal(dir: &Path) -> Option<String> {
+    ["settings.json", "settings.local.json"].into_iter().filter_map(|file| read_json(dir, file)).find_map(|settings| {
+        let named = EXTERNAL_BILLING.into_iter().find(|name| settings.get("env").and_then(|env| env.get(name)).is_some());
+        match (settings.get("apiKeyHelper"), named) {
+            (Some(_), _) => Some(format!("an apiKeyHelper is configured in {}, so it would bill by token", dir.display())),
+            (None, Some(name)) => Some(format!("{name} is set in the settings of {}, so it would bill by token", dir.display())),
+            (None, None) => None,
+        }
+    })
 }
 
 fn answered_record() -> std::path::PathBuf {
@@ -154,7 +169,7 @@ fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &Run
     let reserve = crate::platform::orchestration::read().map(|policy| crate::spend::operational::declared(&policy)).unwrap_or_default();
     let answered = std::fs::read_to_string(answered_record()).ok();
     let subscription = answered_first(crate::spend::operational::order(&reserve, shared), &reserve, answered.as_deref().map(str::trim));
-    ask(&profiles, &subscription, &mut |dir| match dir.map_or_else(ambient_billing_refusal, |_| None) {
+    ask(&profiles, &subscription, &mut |dir| match dir.map_or_else(ambient_billing_refusal, settings_billing_refusal) {
         Some(why) => Reply { code: Some(1), stdout: String::new(), stderr: why },
         None => {
             let reply = claude_once(&account_words(dir, &accounts, access.invocation), question, extra, limit);

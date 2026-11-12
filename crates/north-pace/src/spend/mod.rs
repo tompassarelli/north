@@ -1,10 +1,11 @@
 //! What north knows of account spend (docs/rationale/spend-rule.md): each account's sampled windows, the week
-//! left across them, and the two reasons a session may not start on an account: the provider has stopped it, or
-//! the policy declares it the operational reserve. Everything here is a pure function of a recorded `View`;
+//! left across them, and the three reasons a session may not start on an account: the owner holds every API
+//! organization, the provider has stopped it, or the policy declares it the operational reserve. Everything here is a pure function of a recorded `View`;
 //! `read` gathers one from this host's state files.
 mod read;
 #[cfg(test)]
 mod tests;
+pub mod hold;
 pub mod operational;
 
 use std::fmt;
@@ -74,6 +75,8 @@ pub struct View {
     pub working: usize,
     /// Accounts the policy declares an operational reserve (`[accounts.claude] reserve`): only the privacy judge, lander and canaries may use them, so no worker or subagent starts on them and their weeks stay out of the pool.
     pub operational: Vec<String>,
+    /// The owner's hold on every API organization (`[accounts.claude] api_hold`), which refuses an `api` account to every starter.
+    pub held: Option<hold::Hold>,
 }
 
 /// Who starts: a worker or an Agent-tool subagent, or a reserved caller (the proxy, a scheduled routine, one of
@@ -86,6 +89,7 @@ pub enum Starter {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rule {
+    Held,
     Operational,
     ProviderLimit,
 }
@@ -93,6 +97,7 @@ pub enum Rule {
 impl fmt::Display for Rule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::Held => "api hold",
             Self::Operational => "operational reserve",
             Self::ProviderLimit => "provider limit",
         })
@@ -121,8 +126,11 @@ impl View {
         self.accounts.iter().find(|account| account.name == name)
     }
 
-    /// Whether `starter` may start one more session on `account`: only the declared operational reserve and the provider's own limit refuse.
+    /// Whether `starter` may start one more session on `account`: only the owner's API hold, the declared operational reserve and the provider's own limit refuse.
     pub fn admit(&self, account: &str, starter: Starter) -> Result<(), Refusal> {
+        if let Some(line) = self.held.as_ref().and_then(|hold| hold.refusal(account)) {
+            return Err(Refusal { rule: Rule::Held, line });
+        }
         if starter != Starter::Reserved && self.operational.iter().any(|name| name == account) {
             return Err(Refusal { rule: Rule::Operational, line: format!("{account} is the operational reserve: only the privacy judge, lander and canaries may use it") });
         }

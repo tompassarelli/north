@@ -6,7 +6,7 @@ use crate::fleet::model::{Account, Effort, LaunchRequest, Machine, Role, Session
 use crate::fleet::runtime::{HostSpec, Opening, Runtime, binary, new_uuid};
 use crate::fleet::spares::{self, Place, Taken};
 
-use super::Fleet;
+use super::{Fleet, reserve};
 
 impl Fleet {
     /// A spare on the request's build host whose spec is the one this launch would start, taken and bound to the launch's name; None for any launch a spare cannot serve, and when none fits.
@@ -32,6 +32,9 @@ impl Fleet {
         let runtime = self.runtime(&record)?;
         let template = spares::template(record.relaunch_request(), spares::spare_name()?);
         let account = self.account(&template)?;
+        if let Some(line) = reserve::refusal(&reserve::declared(&self.policy), &account, Role::Worker, template.parent.as_deref(), None) {
+            return Err(NorthError::Refused(line));
+        }
         let (ssh, home) = (binary("ssh"), home().ok_or_else(|| NorthError::State("HOME is not set".into()))?);
         let place = Place { ssh: &ssh, machine: &machine, home: &home };
         let lock = OpenOptions::new().create(true).truncate(false).write(true).open(self.root.join(format!(".spares-{}.lock", machine.name.replace('/', "_"))))?;
@@ -71,7 +74,7 @@ impl Fleet {
 
 /// Starts `north spare-fill NAME` apart from this launch, so the next launch like it finds a spare.
 pub(super) fn fill_after(record: &SessionRecord) {
-    if record.machine.is_none() || record.role() != Role::Worker {
+    if !fill_wanted(record) {
         return;
     }
     let Ok(program) = std::env::current_exe() else { return };
@@ -79,6 +82,11 @@ pub(super) fn fill_after(record: &SessionRecord) {
         return;
     }
     let _ = std::os::unix::process::CommandExt::process_group(std::process::Command::new(program).args(["spare-fill", &record.name]), 0).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+}
+
+/// Whether a launch like `record` keeps spares: a worker on a build host, never a test launch nor a canary the runtime promotion started.
+fn fill_wanted(record: &SessionRecord) -> bool {
+    record.machine.is_some() && record.role() == Role::Worker && !record.verification && record.reserve_caller.as_deref() != Some(north_base::platform::session_scope::RESERVE_CALLER_UNIT)
 }
 
 fn home() -> Option<PathBuf> {

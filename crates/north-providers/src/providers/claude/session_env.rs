@@ -18,6 +18,7 @@ const COMPACT_WINDOW_ENV: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 const READ_TOKEN: &str = r#"CLAUDE_CODE_OAUTH_TOKEN=$(cat -- "$0") || exit; export CLAUDE_CODE_OAUTH_TOKEN; exec "$@""#;
 const READ_API_KEY: &str = r#"ANTHROPIC_API_KEY=$(cat -- "$0") || exit; export ANTHROPIC_API_KEY; exec "$@""#;
 const API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
+const ENDPOINT_ENV: [&str; 2] = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"];
 
 fn account_env(account: &Account) -> Vec<(String, OsString)> {
     (!at_default(account)).then(|| (CONFIG_ENV.into(), account.home.clone().into())).into_iter().collect()
@@ -61,7 +62,9 @@ pub(super) fn agent_args(request: &LaunchRequest) -> Vec<String> {
 
 pub(super) fn inherited_env(account: &Account) -> Vec<String> {
     let mut inherited = vec!["CLAUDE_CODE_CHILD_SESSION".into(), TOKEN_ENV.into()];
-    inherited.extend(account.api.is_none().then(|| API_KEY_ENV.into()));
+    if account.api.is_none() {
+        inherited.extend([API_KEY_ENV].into_iter().chain(ENDPOINT_ENV).map(String::from));
+    }
     inherited.extend(at_default(account).then(|| CONFIG_ENV.into()));
     inherited
 }

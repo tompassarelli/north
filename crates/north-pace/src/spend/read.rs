@@ -19,12 +19,12 @@ pub fn view(agents: &Path, rules: &Rules, working: usize, at: f64, size: impl Fn
     let gate = read(&agents.join("usage-gate.json"));
     let sampled = gate["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
     let accounts = sampled.map(|(name, windows)| account(rules, name, size(name), windows, at, signed_in(name))).collect();
-    View { at, accounts, working, operational }
+    View { at, accounts, working, operational, held: None }
 }
 
 pub fn view_from_config(cfg: &DocumentMut, agents: &Path, rules: &Rules, working: usize, at: f64, signed_in: impl Fn(&str) -> bool) -> View {
     let catalog = crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG);
-    view(agents, rules, working, at, |name| Size { plan_week: plan_week(cfg, catalog, name) }, signed_in, operational_reserve(cfg))
+    View { held: super::hold::declared(cfg), ..view(agents, rules, working, at, |name| Size { plan_week: plan_week(cfg, catalog, name) }, signed_in, operational_reserve(cfg)) }
 }
 
 fn read(path: &Path) -> Value {
