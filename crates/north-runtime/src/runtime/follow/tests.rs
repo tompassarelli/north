@@ -1,6 +1,7 @@
 use super::*;
 use north_base::platform::wait;
 use std::os::unix::fs::{PermissionsExt, symlink};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const OLDER: &str = "runtimes/aaaa";
 const NEWER: &str = "runtimes/bbbb";
@@ -63,4 +64,22 @@ fn a_newer_runtime_moves_the_lander_link_while_an_older_replay_runs() {
     assert!(held.message.contains("lander link held"), "{}", held.message);
     assert!(lander_at(&layout, OLDER), "a divergence found by the newer runtime's replay sends the link back to the runtime held before it");
     assert_eq!(fs::read_to_string(layout.state.join("lander-refused")).unwrap().trim(), NEWER);
+}
+
+#[test]
+fn a_follow_retakes_the_lock_while_a_starting_childs_copy_of_it_is_still_open() {
+    let (_state, layout) = fixture(false);
+    let held = lander_lock(&layout, Duration::ZERO).unwrap().unwrap();
+    let copy = held.try_clone().unwrap();
+    drop(held);
+    assert!(lander_lock(&layout, Duration::ZERO).unwrap().is_none(), "a copy of the released descriptor keeps the lock, as a child between fork and exec does");
+    let retaking = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            wait::until(WITHIN, || retaking.load(Ordering::SeqCst));
+            drop(copy);
+        });
+        retaking.store(true, Ordering::SeqCst);
+        assert!(lander_lock(&layout, WITHIN).unwrap().is_some(), "the follow left the lock to a copy that closed a moment later, so the newest runtime was never replayed");
+    });
 }

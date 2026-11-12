@@ -3,18 +3,20 @@ use super::layout::{Layout, TREE};
 use super::{deploy, update, walk};
 use crate::land_offload;
 use crate::platform::process;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread::ScopedJoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use rustix::fs::FlockOperation;
 
 const LANDER_SHADOW_MINUTES: &str = "3";
 const LANDER_LOCK: &str = "lander-promote.lock";
 const LANDER_WANTED: &str = "lander-follow-wanted";
 const LANDER_REPLAY_LIMIT: Duration = Duration::from_secs(30 * 60);
+const LANDER_RETAKE: Duration = Duration::from_secs(5);
+const LANDER_RETAKE_POLL: Duration = Duration::from_millis(20);
 const SCOPED: &str = "NORTH_RUNTIME_PROMOTE_SCOPED";
 const SYSTEMD_RUN: &str = "systemd-run";
 const SCOPE: [&str; 5] = ["--user", "--scope", "--slice=agent.slice", "--quiet", "--collect"];
@@ -123,8 +125,9 @@ pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {
         return Ok(());
     }
     request_newest(layout);
+    let mut retaking = Duration::ZERO;
     loop {
-        let Some(serial) = update::named_lock(layout, LANDER_LOCK, FlockOperation::NonBlockingLockExclusive)? else {
+        let Some(serial) = lander_lock(layout, retaking)? else {
             println!("north runtime lander: another promotion holds {LANDER_LOCK}; it stops its replay of an older runtime and replays the newest at once");
             return Ok(());
         };
@@ -137,6 +140,19 @@ pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {
             return verdict;
         }
         println!("north runtime lander: current moved to {} during the replay, so the newest replays next", newest.as_deref().map_or_else(String::new, |link| link.display().to_string()));
+        retaking = LANDER_RETAKE;
+    }
+}
+
+/// A follow that let go of the lock to read `current` again takes it back within `within`: a child another thread is starting holds a copy of every open descriptor until it execs, the lock just released among them, so a first refusal is not yet another promotion.
+fn lander_lock(layout: &Layout, within: Duration) -> Result<Option<File>, Failure> {
+    let started = Instant::now();
+    loop {
+        let held = update::named_lock(layout, LANDER_LOCK, FlockOperation::NonBlockingLockExclusive)?;
+        if held.is_some() || started.elapsed() >= within {
+            return Ok(held);
+        }
+        std::thread::sleep(LANDER_RETAKE_POLL);
     }
 }
 
