@@ -1,9 +1,8 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::path::Path;
+use std::process::{Command, ExitStatus, Stdio};
 
 use sha2::{Digest, Sha256};
 use toml_edit::DocumentMut;
@@ -14,16 +13,18 @@ use super::limits;
 use north_base::platform::records_mirror::state_home;
 use north_base::foundation::exit::NO_VERDICT;
 use north_base::foundation::offload::{SLOT_ENV, TIPS_ENV};
+use north_base::foundation::carry::CHECK_ENDS;
 use north_base::platform::orchestration;
-use north_build_system::{MutantStep, Mutants};
+
+mod own_tree;
+mod sweep;
+use sweep::{checkout_of, on_this_host};
 
 pub const USAGE: &str = "usage: north land scan test-admission kills [--host NAME] [--remote-north COMMAND] BASE..HEAD\n       north land scan test-admission kills --here BASE..HEAD";
 const SHIP_SECONDS: u64 = 900;
-const WORK: &str = "target/mutant-kills";
-const POLL: Duration = Duration::from_secs(2);
-const GRACE: Duration = Duration::from_secs(30);
 const SHOWN: usize = 5;
 const BASELINE_FAILED: i32 = 4;
+const WRAP_UP: u64 = 45;
 
 struct Lane {
     base: String,
@@ -147,10 +148,9 @@ fn input_key(directory: &Path, lane: &Lane, cap: u64) -> Option<String> {
 }
 
 fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, out: &mut impl Write) -> u8 {
-    let cap = limits::kill_seconds();
     let origin = git::text(directory, &["remote", "get-url", "origin"]).unwrap_or_default();
     let store = state_home().join("agents/mutants").join(push_ledger::repository(origin.trim())).join("kills");
-    let key = input_key(directory, lane, cap);
+    let key = input_key(directory, lane, limits::kill_seconds());
     if let Some(stored) = key.as_ref().and_then(|key| fs::read_to_string(store.join(key)).ok()) {
         let (code, verdict) = stored.split_once('\n').unwrap_or((&stored, ""));
         if let Ok(code) = code.parse::<u8>() {
@@ -164,19 +164,40 @@ fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, 
         let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: no build host has room (north capacity offload choose --any) and .safe-push declares no landing.remote-hosts");
         return NO_VERDICT;
     }
+    let local = hosts.first().is_some_and(|first| *first == north_base::platform::host::name()) && checkout_of(directory, &lane.head).is_some();
+    let (code, verdict) = if local {
+        let mut ran = Vec::new();
+        let code = on_this_host(directory, lane, &mut ran);
+        let _ = out.write_all(&ran);
+        (code, verdict_of(&ran))
+    } else {
+        shipped(directory, lane, &hosts, remote, out)
+    };
+    if let Some(key) = key.filter(|_| code <= 1 && !verdict.is_empty()) {
+        let _ = fs::create_dir_all(&store).and_then(|()| fs::write(store.join(key), format!("{code}\n{verdict}")));
+    }
+    code
+}
+
+fn shipped(directory: &Path, lane: &Lane, hosts: &[String], remote: &str, out: &mut impl Write) -> (u8, String) {
+    let cap = match sweep_cap() {
+        Ok(cap) => cap,
+        Err(why) => return (unavailable(out, &why), String::new()),
+    };
+    let timeout = seconds_left().unwrap_or(cap + SHIP_SECONDS);
     let command = format!("{remote} land scan test-admission kills --here {}..{}", lane.base, lane.head);
     let mut attempt = None;
-    for host in &hosts {
+    for host in hosts {
         let _ = writeln!(out, "mutant kill: running cargo-mutants over the lane's diff on {host}, capped at {cap} s, for {}", lane.names.iter().cloned().collect::<Vec<_>>().join(", "));
         let ran = Command::new(north_base::platform::north_binary::north_binary())
             .current_dir(directory)
-            .args(["capacity", "offload", "run", "--host", host, "--base", &lane.base, "--head", &lane.head, "--timeout", &(cap + SHIP_SECONDS).to_string(), "--", &command])
+            .args(["capacity", "offload", "run", "--host", host, "--base", &lane.base, "--head", &lane.head, "--timeout", &timeout.to_string(), "--", &command])
             .stdin(Stdio::null())
             .stderr(Stdio::inherit())
             .output();
         let Ok(output) = ran else {
             let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: north capacity offload run did not start");
-            return NO_VERDICT;
+            return (NO_VERDICT, String::new());
         };
         let reached = matches!(output.status.code(), Some(0 | 1));
         let _ = out.write_all(&output.stdout);
@@ -185,17 +206,29 @@ fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, 
             break;
         }
     }
-    let Some((host, output)) = attempt else { return NO_VERDICT };
-    let verdict: String = String::from_utf8_lossy(&output.stdout).lines().filter(|line| line.starts_with("mutant kill:") || line.starts_with("safe-push: ✗ mutant kill")).map(|line| format!("{line}\n")).collect();
+    let Some((host, output)) = attempt else { return (NO_VERDICT, String::new()) };
+    let verdict = verdict_of(&output.stdout);
     let code = match output.status.code() {
         Some(0) if !verdict.is_empty() => 0,
         Some(1) if verdict.contains("safe-push: ✗ mutant kill") => 1,
         _ => unavailable(out, &format!("north capacity offload run on {host} exited {}, so no verdict was reached", output.status)),
     };
-    if let Some(key) = key.filter(|_| code <= 1 && !verdict.is_empty()) {
-        let _ = fs::create_dir_all(&store).and_then(|()| fs::write(store.join(key), format!("{code}\n{verdict}")));
-    }
-    code
+    (code, verdict)
+}
+
+fn verdict_of(printed: &[u8]) -> String {
+    String::from_utf8_lossy(printed).lines().filter(|line| line.starts_with("mutant kill:") || line.starts_with("safe-push: ✗ mutant kill")).map(|line| format!("{line}\n")).collect()
+}
+
+fn seconds_left() -> Option<u64> {
+    let ends: u64 = std::env::var(CHECK_ENDS).ok()?.parse().ok()?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    Some(ends.saturating_sub(now))
+}
+
+fn sweep_cap() -> Result<u64, String> {
+    let Some(left) = seconds_left() else { return Ok(limits::kill_seconds()) };
+    left.checked_sub(WRAP_UP).filter(|cap| *cap > 0).map(|cap| cap.min(limits::kill_seconds())).ok_or_else(|| format!("its land check has {left} s left, too few to build and judge a mutant"))
 }
 
 /// The hosts to try in order: the named one alone, else the one with room, then each declared build host this host reaches.
@@ -233,54 +266,6 @@ fn choose(directory: &Path, here: &str) -> Option<String> {
     (output.status.success() && !host.is_empty()).then_some(host)
 }
 
-fn on_this_host(directory: &Path, lane: &Lane, out: &mut impl Write) -> u8 {
-    let Some(top) = git::text(directory, &["rev-parse", "--show-toplevel"]).map(|top| PathBuf::from(top.trim())) else {
-        return unavailable(out, "not inside a git checkout");
-    };
-    if git::text(&top, &["rev-parse", "HEAD"]).is_none_or(|head| head.trim() != lane.head) || git::text(&top, &["status", "--porcelain", "--untracked-files=no"]).is_none_or(|status| !status.is_empty()) {
-        return unavailable(out, &format!("--here mutates the checkout in place, so it needs a clean checkout of {}", lane.head));
-    }
-    let work = top.join(WORK);
-    let Some(diff) = git::bytes(&top, &[&["diff", "--no-color", "--no-ext-diff", &lane.base, &lane.head, "--"][..], &lane.sources.iter().map(String::as_str).collect::<Vec<_>>()].concat()) else {
-        return unavailable(out, &format!("git diff {}..{} failed", lane.base, lane.head));
-    };
-    let _ = fs::remove_dir_all(&work);
-    if let Err(error) = fs::create_dir_all(&work).and_then(|()| fs::write(work.join("lane.diff"), diff)) {
-        return unavailable(out, &format!("{}: {error}", work.display()));
-    }
-    let in_diff = work.join("lane.diff");
-    let lister = match north_build_system::here().mutants(&Mutants { root: &top, diff: &in_diff, step: MutantStep::List }) {
-        Ok(lister) => lister,
-        Err(why) => return unavailable(out, &why),
-    };
-    let listed = lister.command().stdin(Stdio::null()).stderr(Stdio::inherit()).output();
-    let total = match listed {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).lines().filter(|line| !line.trim().is_empty()).count(),
-        _ => return unavailable(out, "cargo mutants --list failed; run it inside the repository's dev shell"),
-    };
-    if total == 0 {
-        let _ = writeln!(out, "mutant kill: not applicable (cargo-mutants finds no mutant in the lane's diff)");
-        return 0;
-    }
-    let cap = limits::kill_seconds();
-    let started = Instant::now();
-    let end = match beside_tests(&top, lane, &work) {
-        Some(near) => match mutate(&top, &work, lane, &near, cap) {
-            Ok(End::Exited(status)) if status.code() != Some(BASELINE_FAILED) => {
-                restore(&top);
-                mutate(&top, &work, lane, &in_diff, cap.saturating_sub(started.elapsed().as_secs()))
-            }
-            first => first,
-        },
-        None => mutate(&top, &work, lane, &in_diff, cap),
-    };
-    restore(&top);
-    match end {
-        Ok(end) => judge(&work, lane, &end, Tally { total, cap, seconds: started.elapsed().as_secs() }, out),
-        Err(error) => unavailable(out, &format!("cargo mutants: {error}")),
-    }
-}
-
 struct Tally {
     total: usize,
     cap: u64,
@@ -314,82 +299,6 @@ fn judge(work: &Path, lane: &Lane, end: &End, tally: Tally, out: &mut impl Write
             1
         }
     }
-}
-
-fn mutate(top: &Path, work: &Path, lane: &Lane, in_diff: &Path, cap: u64) -> std::io::Result<End> {
-    let log = fs::File::create(work.join("runner.log"))?;
-    let (packages, tests) = (packages(top, &lane.files).into_iter().collect::<Vec<_>>(), lane.names.iter().cloned().collect::<Vec<_>>());
-    let step = MutantStep::Run { output: work, packages: &packages, tests: &tests };
-    let runner = north_build_system::here().mutants(&Mutants { root: top, diff: in_diff, step }).map_err(std::io::Error::other)?;
-    let mut command = runner.command();
-    command.stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log);
-    let mut child = command.spawn()?;
-    let deadline = Instant::now() + Duration::from_secs(cap);
-    let kills = [work.join("mutants.out/caught.txt"), work.join("mutants.out/timeout.txt")];
-    loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(End::Exited(status));
-        }
-        if kills.iter().any(|file| fs::metadata(file).is_ok_and(|meta| meta.len() > 0)) {
-            stop(&mut child);
-            return Ok(End::Caught);
-        }
-        if Instant::now() >= deadline {
-            stop(&mut child);
-            return Ok(End::Capped);
-        }
-        std::thread::sleep(POLL);
-    }
-}
-
-fn stop(child: &mut Child) {
-    if let Some(pid) = rustix::process::Pid::from_raw(child.id().cast_signed()) {
-        let _ = rustix::process::kill_process(pid, rustix::process::Signal::Int);
-    }
-    let deadline = Instant::now() + GRACE;
-    while Instant::now() < deadline {
-        if child.try_wait().ok().flatten().is_some() {
-            return;
-        }
-        std::thread::sleep(POLL);
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-fn beside_tests(top: &Path, lane: &Lane, work: &Path) -> Option<PathBuf> {
-    let near: BTreeSet<String> = lane.files.iter().flat_map(|file| {
-        let path = Path::new(file);
-        let parent = path.parent().unwrap_or(Path::new(""));
-        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-        match name.strip_suffix("_tests.rs") {
-            Some(stem) => vec![parent.join(format!("{stem}.rs"))],
-            None if name == "tests.rs" => vec![parent.join("mod.rs"), parent.with_extension("rs")],
-            None => vec![path.to_path_buf()],
-        }
-    }).map(|path| path.display().to_string()).collect();
-    let sources: Vec<&str> = lane.sources.iter().map(String::as_str).collect();
-    let changed = git::text(top, &[&["diff", "--name-only", "--no-renames", &lane.base, &lane.head, "--"][..], &sources].concat())?;
-    let near: Vec<&str> = changed.lines().filter(|path| near.contains(*path)).collect();
-    let diff = git::bytes(top, &[&["diff", "--no-color", "--no-ext-diff", &lane.base, &lane.head, "--"][..], &near].concat()).filter(|diff| !near.is_empty() && !diff.is_empty())?;
-    fs::write(work.join("near.diff"), diff).ok()?;
-    Some(work.join("near.diff"))
-}
-
-fn restore(top: &Path) {
-    let _ = git::bytes(top, &["checkout", "-q", "--", "."]);
-}
-
-fn packages(top: &Path, files: &[String]) -> BTreeSet<String> {
-    files
-        .iter()
-        .filter_map(|file| {
-            top.join(file).ancestors().skip(1).take_while(|dir| dir.starts_with(top)).find_map(|dir| {
-                let manifest = fs::read_to_string(dir.join("Cargo.toml")).ok()?.parse::<DocumentMut>().ok()?;
-                manifest.get("package")?.get("name")?.as_str().map(str::to_owned)
-            })
-        })
-        .collect()
 }
 
 fn tail(work: &Path) -> String {

@@ -162,6 +162,6 @@ impl BuildSystem for Cargo {
                 words
             }
         };
-        Ok(Invocation::new(request.root, Shell::Inherited, words))
+        Ok(Invocation::new(request.root, request.shell, words))
     }
 }

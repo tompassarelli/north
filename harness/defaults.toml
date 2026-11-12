@@ -1487,7 +1487,7 @@ consumers = ["crates/north-land-scans/src/test_admission/limits.rs"]
 [mutant_kill_seconds]
 value = 900
 allowed = { min = 60, max = 7200 }
-unit = "seconds cargo-mutants may spend on a build host, baseline build included, showing that a lane's added tests kill a mutant of its own diff before the land check gives up and refuses the lane"
+unit = "seconds cargo-mutants may spend on a build host, baseline build included, showing that a lane's added tests kill a mutant of its own diff; the step takes less when its land check has less left before its deadline"
 source = "prior: the run stops at the first caught mutant, and a warm offload slot rebuilds one north crate and its test binary per mutant in about a minute, so 15 minutes covers the baseline and about ten mutants (north#635, 2026-11-06)"
 fallback = "none; the land check reads this value"
 consumers = ["crates/north-land-scans/src/test_admission/limits.rs"]

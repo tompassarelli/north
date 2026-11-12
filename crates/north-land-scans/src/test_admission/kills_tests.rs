@@ -5,6 +5,7 @@ use std::path::Path;
 use std::os::unix::process::ExitStatusExt;
 use std::process::ExitStatus;
 
+use super::own_tree::OwnTree;
 use super::{End, Tally, fallbacks, judge, judge_each, judged_alone};
 
 const HOSTS: &str = "[hosts.gex45]\nssh = \"tom@gex45\"\n\n[hosts.cpx62]\nssh = \"tom@cpx62\"\n\n[hosts.whiterabbit]\nreaches = [\"gex45\", \"cpx62\"]\n";
@@ -97,4 +98,45 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     let survived = judge_each(repo, &range, "", false, |lane, out| judge(&work, lane, &End::Exited(ExitStatus::from_raw(0)), Tally { total: 1, cap: 900, seconds: 1 }, out), &mut out);
     assert_eq!(survived, Some(1), "a lane whose own added tests kill none of its own mutants still fails");
     assert!(String::from_utf8_lossy(&out).contains("a_test_guards_f survive all 1 mutant(s)"));
+
+    let long_ago = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+    let built = repo.join("target/debug");
+    std::fs::create_dir_all(built.join("deps")).unwrap();
+    std::fs::create_dir_all(built.join(".fingerprint/a")).unwrap();
+    for (path, text) in [("deps/liba.rlib", "built\n"), ("deps/a.d", "inputs\n"), (".fingerprint/a/lib-a", "fresh\n")] {
+        std::fs::write(built.join(path), text).unwrap();
+    }
+    std::fs::File::options().write(true).open(repo.join("crates/b/src/lib.rs")).unwrap().set_modified(long_ago).unwrap();
+    let before = snapshot(repo);
+    let tree = OwnTree::of(repo, &second).unwrap();
+    let own = tree.root().to_path_buf();
+    let modified = |path: &Path| std::fs::metadata(path).unwrap().modified().unwrap();
+    assert_eq!(modified(&own.join("crates/b/src/lib.rs")), long_ago, "the sweep's tree keeps the check's source times, so cargo finds the check's build fresh");
+    assert_eq!(modified(&own.join("target/debug/.fingerprint/a/lib-a")), modified(&built.join(".fingerprint/a/lib-a")));
+    std::fs::write(own.join("crates/b/src/lib.rs"), "pub fn g() -> u8 { 0 }\n").unwrap();
+    std::fs::write(own.join("target/debug/.fingerprint/a/lib-a"), "stale\n").unwrap();
+    std::fs::write(own.join("target/debug/deps/a.d"), "mutated\n").unwrap();
+    std::fs::write(own.join("target/debug/deps/liba.rlib.new"), "mutant\n").unwrap();
+    std::fs::rename(own.join("target/debug/deps/liba.rlib.new"), own.join("target/debug/deps/liba.rlib")).unwrap();
+    assert!(tree.written_through().is_empty());
+    drop(tree);
+    assert!(!own.exists());
+    assert_eq!(snapshot(repo), before, "on 2026-11-12 a sweep mutated and rebuilt in place in the slot its check built, which another run then took; a sweep now writes nothing into the checkout or build directory of its check (north#1254)");
+}
+
+fn snapshot(root: &Path) -> Vec<(std::path::PathBuf, Vec<u8>, std::time::SystemTime)> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).unwrap().map(Result::unwrap).filter(|entry| entry.file_name() != ".git") {
+            let meta = entry.metadata().unwrap();
+            if meta.is_dir() {
+                pending.push(entry.path());
+            } else {
+                found.push((entry.path(), std::fs::read(entry.path()).unwrap(), meta.modified().unwrap()));
+            }
+        }
+    }
+    found.sort();
+    found
 }

@@ -23,6 +23,7 @@ pub const LAND_BASE: &str = "SAFE_PUSH_LAND_BASE";
 pub const LAND_HEAD: &str = "SAFE_PUSH_LAND_HEAD";
 pub const REMOTE_MARK: &str = "NORTH_BUILD_OFFLOADED";
 pub const LAND_STORE_VIEW: &str = "SAFE_PUSH_LAND_STORE_VIEW";
+pub const CHECK_ENDS: &str = "SAFE_PUSH_LAND_CHECK_ENDS";
 
 const CARRY: &[(&str, Reach)] = &[
     (LANDING, Reach::Landing),
@@ -37,6 +38,7 @@ const CARRY: &[(&str, Reach)] = &[
     ("SAFE_PUSH_LAND_IT", Reach::Landing),
     ("SAFE_PUSH_LAND_SELECT_PATHS", Reach::Landing),
     (super::offload::TIPS_ENV, Reach::Landing),
+    (CHECK_ENDS, Reach::Landing),
     ("PATH", Reach::Host),
     ("HOME", Reach::Host),
     ("USER", Reach::Host),

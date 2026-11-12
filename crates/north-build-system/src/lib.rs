@@ -157,6 +157,7 @@ pub struct Mutants<'a> {
     /// The diff whose changed lines are mutated.
     pub diff: &'a Path,
     pub step: MutantStep<'a>,
+    pub shell: Shell,
 }
 
 /// A command a build system asks for: its words, the environment it sets and unsets, and the directory it runs in.

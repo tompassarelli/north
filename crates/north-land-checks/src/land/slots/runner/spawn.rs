@@ -48,6 +48,11 @@ pub(super) fn exit_code(status: ExitStatus) -> i32 {
     status.code().or_else(|| status.signal().map(|signal| 128 + signal)).unwrap_or(1)
 }
 
+fn check_ends(timeout: u64) -> String {
+    let own = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs()) + timeout;
+    std::env::var(carry::CHECK_ENDS).ok().and_then(|ends| ends.parse::<u64>().ok()).map_or(own, |outer| outer.min(own)).to_string()
+}
+
 pub(super) fn shell_deadline(seconds: u64, argv: &[String]) -> Vec<String> {
     let mut command = vec![
         "bash".to_owned(),
@@ -207,6 +212,7 @@ impl Shared {
             .env("SAFE_PUSH_LAND_REF", &self.arguments.published)
             .env("SAFE_PUSH_LANDING", "1")
             .env(carry::LAND_STORE_VIEW, if self.config.host_inputs(command).is_empty() { "" } else { "pinned" })
+            .env(carry::CHECK_ENDS, check_ends(timeout))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
