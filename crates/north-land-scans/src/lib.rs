@@ -33,6 +33,7 @@ pub mod stale_revert;
 pub mod test_admission;
 mod test_file;
 pub mod test_integrity;
+pub mod tree_build;
 pub mod tool_removal;
 mod workflow_paths;
 mod wall_clock;

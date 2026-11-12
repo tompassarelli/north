@@ -7,8 +7,6 @@ use std::process::{Command, Stdio};
 
 use super::{Range, git};
 
-mod lane_build;
-
 const DECIDES: [&str; 15] = [
     "crates/north-pacing/src/pacing/placement/",
     "crates/north-capacity/src/capacity/",
@@ -27,6 +25,7 @@ const DECIDES: [&str; 15] = [
     "harness/defaults.toml",
 ];
 const HEAD_NORTH: &str = "bin/head-north";
+const LANE_CODE: &str = "crates/";
 const REPLAY: [&str; 7] = ["ops", "strategy", "replay", "--since", "24h", "--invariants", "--budget"];
 const TRAILER: &str = "Replay-shift:";
 const BUDGET_KEY: &str = "the replay took";
@@ -54,8 +53,8 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl std::io::Write) -> u8 
         return 1;
     }
     let _ = writeln!(out, "strategy-replay: the lane touches {}; replaying the last 24 hours of logged decisions with its build", touched.join(", "));
-    lane_build::prefetch(directory, &range, out);
-    let lane = match Command::new(directory.join(HEAD_NORTH)).current_dir(directory).args(["--code", "crates/"]).args(REPLAY).stderr(Stdio::inherit()).output() {
+    super::tree_build::prefetch(&super::tree_build::Wanted { directory, base: range.base, head: range.head, code: LANE_CODE, caller: "strategy-replay" }, out);
+    let lane = match Command::new(directory.join(HEAD_NORTH)).current_dir(directory).args(["--code", LANE_CODE]).args(REPLAY).stderr(Stdio::inherit()).output() {
         Ok(output) => output,
         Err(error) => {
             let _ = writeln!(out, "strategy-replay: cannot run {HEAD_NORTH}: {error}");

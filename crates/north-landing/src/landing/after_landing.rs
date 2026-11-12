@@ -15,6 +15,7 @@ mod body;
 
 use body::{dropped_before, kept_boxes, render, split_sections};
 
+const ADVISORY_FROM: &str = "north-after-landing-advisory-base";
 const MARKER: &str = "<!-- after-landing-gate: ";
 const TAIL_LINES: usize = 15;
 const BODY_LIMIT: usize = 60_000;
@@ -231,12 +232,51 @@ fn gates_in(main: &Path, tree: &Path, args: &Args) -> Result<Vec<Failure>, Strin
     links.push_str(&git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.link"]).unwrap_or_default());
     link_paths(main, tree, &links)?;
     let mut failures = crate::land::after::gates::run(&crate::land::after::gates::Landed { tree, base: &args.base, head: &args.head, code_health: &crate::land::after::gates::code_health_program() });
-    let checks = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.check"]).unwrap_or_default();
-    failures.extend(repo_check_failures(tree, &repo_checks(&checks), args.base.as_str(), args.head.as_str()));
-    let advisory = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.advisory"]).unwrap_or_default();
-    failures.extend(repo_advisory_failures(tree, &repo_checks(&advisory), args.base.as_str(), args.head.as_str()));
+    let checks = repo_checks(&git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.check"]).unwrap_or_default());
+    let advisory = repo_checks(&git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.advisory"]).unwrap_or_default());
+    let judged_from = if advisory.is_empty() { None } else { advisory_base(main, args) };
+    let built = if judged_from.is_some() { [checks.as_slice(), advisory.as_slice()].concat() } else { checks.clone() };
+    build_elsewhere(tree, args, &built);
+    failures.extend(repo_check_failures(tree, &checks, args.base.as_str(), args.head.as_str()));
+    match judged_from {
+        Some(base) => failures.extend(repo_advisory_failures(tree, &advisory, &base, args.head.as_str())),
+        None if !advisory.is_empty() => println!("after-landing: the advisory checks of {} wait for the after-landing run of the newer main, which judges this range with its own", args.head),
+        None => {}
+    }
     failures.extend(goal_failures(main, tree, args, &links));
     Ok(failures)
+}
+
+fn advisory_base(main: &Path, args: &Args) -> Option<String> {
+    let deferred = args.git_dir.join(ADVISORY_FROM);
+    let ancestor = |older: &str, newer: &str| git(main, &["merge-base", "--is-ancestor", older, newer]).is_ok();
+    let recorded = fs::read_to_string(&deferred).ok().map(|base| base.trim().to_owned()).filter(|base| !base.is_empty() && ancestor(base, &args.base));
+    let from = recorded.unwrap_or_else(|| args.base.clone());
+    let tip = git(main, &["rev-parse", "refs/remotes/origin/main"]).ok().map(|tip| tip.trim().to_owned());
+    if tip.is_some_and(|tip| tip != args.head && ancestor(&args.head, &tip)) {
+        let _ = fs::write(&deferred, &from);
+        return None;
+    }
+    let _ = fs::remove_file(&deferred);
+    Some(from)
+}
+
+fn build_elsewhere(tree: &Path, args: &Args, checks: &[(String, String)]) {
+    let codes: std::collections::BTreeSet<&str> = checks.iter().filter_map(|(_, command)| head_north_code(command)).collect();
+    for code in codes {
+        let wanted = north_land_scans::tree_build::Wanted { directory: tree, base: &args.base, head: &args.head, code, caller: "after-landing" };
+        north_land_scans::tree_build::prefetch(&wanted, &mut std::io::stdout());
+    }
+}
+
+fn head_north_code(command: &str) -> Option<&str> {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let at = words.iter().position(|word| word.ends_with("bin/head-north"))?;
+    let flags = &words[at + 1..];
+    if flags.contains(&"--no-build") {
+        return None;
+    }
+    flags.iter().position(|word| *word == "--code").and_then(|code| flags.get(code + 1)).copied()
 }
 
 fn goal_failures(main: &Path, tree: &Path, args: &Args, links: &str) -> Vec<Failure> {
