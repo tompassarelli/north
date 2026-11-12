@@ -103,7 +103,9 @@ fn drop_transport(shims: &Path) {
 async fn a_held_session_survives_its_transport_dying_mid_wait() {
     let root = tempfile::tempdir().unwrap();
     let waiting = root.path().join("waiting");
-    let cli = format!(r#"while read -r line; do case $line in wait) (sleep 2; echo "waited $$") & : > {} ;; *) echo "got $line $$";; esac; done"#, waiting.display());
+    let release = root.path().join("release");
+    assert!(std::process::Command::new("mkfifo").arg(&release).status().unwrap().success());
+    let cli = format!(r#"while read -r line; do case $line in wait) (read -r _ < {}; echo "waited $$") & : > {} ;; *) echo "got $line $$";; esac; done"#, release.display(), waiting.display());
     let link = held(root.path(), &["sh", "-c", &cli], Vec::new());
     let (mut to_link, input) = tokio::io::duplex(4096);
     let (mut output, from_link) = tokio::io::duplex(4096);
@@ -123,7 +125,9 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
     drop_transport(&root.path().join("shims"));
     to_link.write_all(b"two\n").await.unwrap();
 
-    let mut after = vec![next(&mut lines).await, next(&mut lines).await];
+    let mut after = vec![next(&mut lines).await];
+    tokio::task::spawn_blocking(move || fs::write(release, "go\n")).await.unwrap().unwrap();
+    after.push(next(&mut lines).await);
     after.sort();
     assert_eq!(after, [format!("got two {cli_pid}"), format!("waited {cli_pid}")], "the background wait and the input sent while the link was down both reach the same CLI, once each");
     let links = fs::read_to_string(root.path().join("shims/links")).unwrap();
