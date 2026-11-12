@@ -534,7 +534,7 @@ pub fn run(arguments: &[String]) -> u8 {
         };
     }
     if let Cloud::Land(events, repo) = &command {
-        return super::cloud_land::run(events, repo, false);
+        return super::cloud_land::run(events, repo, false, None);
     }
     if command == Cloud::Reap {
         return match credentials().and_then(|curl| super::cloud_reap::run(&mut |method, path, body| curl.call(method, path, body), &mut std::io::stdout())) {
@@ -559,7 +559,7 @@ pub fn run(arguments: &[String]) -> u8 {
     match (result, landing) {
         (Ok(0), Some((id, path))) => {
             record_finished(&id, &path);
-            super::cloud_land::run(&path, Path::new("."), true)
+            super::cloud_land::run(&path, Path::new("."), true, crate::dispatch::cloud_launches().iter().rfind(|launch| launch.session == id))
         }
         (Ok(code), _) => code,
         (Err(error), _) => {

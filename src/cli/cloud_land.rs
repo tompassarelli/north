@@ -6,8 +6,11 @@ use serde_json::Value;
 use north_landing::land::scans::boxes;
 
 use super::cloud_handback;
+use crate::dispatch::CloudLaunch;
+use crate::fleet::runtime::SESSION_ENV;
 
-pub(super) type Run<'a> = dyn FnMut(&Path, &str, &[&str]) -> Result<String, String> + 'a;
+/// Runs a program in a directory, for the fleet session it names, and returns its output.
+pub(super) type Run<'a> = dyn FnMut(&Path, &str, &[&str], Option<&str>) -> Result<String, String> + 'a;
 
 const DROPPED_TRAILERS: [&str; 2] = ["claude-session:", "co-authored-by:"];
 
@@ -79,7 +82,13 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-pub(super) fn land(events: &[Value], transcript: &Path, repo: &Path, state: &Path, run: &mut Run) -> Outcome {
+/// The fleet session a cloud lane's ticket names, which the lander tells its verdict: the session running the landing, else the one whose `north cloud launch` started the cloud session.
+pub(super) fn queuing_session(caller: Option<String>, launch: Option<&CloudLaunch>) -> Option<String> {
+    caller.filter(|session| !session.is_empty()).or_else(|| launch.and_then(|launch| launch.owner.clone()))
+}
+
+pub(super) fn land(events: &[Value], transcript: &Path, repo: &Path, state: &Path, queued_for: Option<&str>, call: &mut Run) -> Outcome {
+    let mut run = |directory: &Path, program: &str, args: &[&str]| call(directory, program, args, None);
     let stop = |reason: String, lane: Option<&Path>| Outcome::Stopped { reason, lane: lane.map(Path::to_path_buf) };
     let session = session_of(events, transcript);
     let mbox = match cloud_handback::collect(events) {
@@ -139,7 +148,7 @@ pub(super) fn land(events: &[Value], transcript: &Path, repo: &Path, state: &Pat
     if let Err(error) = run(&lane, "north", &["land", "checks", "--base", &base, "--head", "HEAD", "--dry", "1"]) {
         return stop(format!("the lane's land checks failed: {error}"), Some(&lane));
     }
-    let output = match run(&lane, "safe-push", &["--to", "main"]) {
+    let output = match call(&lane, "safe-push", &["--to", "main"], queued_for) {
         Ok(output) => output,
         Err(error) => return stop(format!("safe-push --to main refused the lane: {error}"), Some(&lane)),
     };
@@ -154,11 +163,11 @@ fn tail(text: &str) -> String {
     lines[lines.len().saturating_sub(20)..].join("\n")
 }
 
-pub(super) fn run_program(directory: &Path, program: &str, args: &[&str]) -> Result<String, String> {
+pub(super) fn run_program(directory: &Path, program: &str, args: &[&str], session: Option<&str>) -> Result<String, String> {
     let output = if program == "git" {
         crate::platform::git::run_without_local_env(directory, args)
     } else {
-        Command::new(program).args(args).current_dir(directory).stdin(Stdio::null()).output()
+        Command::new(program).args(args).envs(session.map(|session| (SESSION_ENV, session))).current_dir(directory).stdin(Stdio::null()).output()
     }
     .map_err(|error| format!("{program}: {error}"))?;
     let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
@@ -186,7 +195,7 @@ pub(super) fn read_events(transcript: &Path) -> Result<Vec<Value>, String> {
         .map_err(|error| format!("{}: {error}", transcript.display()))
 }
 
-pub(super) fn run(transcript: &Path, repo: &Path, only_handback: bool) -> u8 {
+pub(super) fn run(transcript: &Path, repo: &Path, only_handback: bool, launch: Option<&CloudLaunch>) -> u8 {
     let events = match read_events(transcript) {
         Ok(events) => events,
         Err(error) => {
@@ -194,10 +203,11 @@ pub(super) fn run(transcript: &Path, repo: &Path, only_handback: bool) -> u8 {
             return 1;
         }
     };
+    let queued_for = queuing_session(std::env::var(SESSION_ENV).ok(), launch);
     let outcome = if only_handback {
-        land_handback(&events, transcript, repo, &state_dir(), &mut run_program)
+        land_handback(&events, transcript, repo, &state_dir(), queued_for.as_deref(), &mut run_program)
     } else {
-        Some(land(&events, transcript, repo, &state_dir(), &mut run_program))
+        Some(land(&events, transcript, repo, &state_dir(), queued_for.as_deref(), &mut run_program))
     };
     let Some(outcome) = outcome else { return 0 };
     let (code, text) = outcome.report();
@@ -207,6 +217,10 @@ pub(super) fn run(transcript: &Path, repo: &Path, only_handback: bool) -> u8 {
 
 /// The landing `north cloud wait` and `north cloud reap` share: a finished session's transcript
 /// lands as `land` does when it holds a handback, and is left alone (`None`) when it does not.
-pub(super) fn land_handback(events: &[Value], transcript: &Path, repo: &Path, state: &Path, run: &mut Run) -> Option<Outcome> {
-    cloud_handback::has_handback(events).then(|| land(events, transcript, repo, state, run))
+pub(super) fn land_handback(events: &[Value], transcript: &Path, repo: &Path, state: &Path, queued_for: Option<&str>, run: &mut Run) -> Option<Outcome> {
+    cloud_handback::has_handback(events).then(|| land(events, transcript, repo, state, queued_for, run))
 }
+
+#[cfg(test)]
+#[path = "cloud_land_tests.rs"]
+mod tests;

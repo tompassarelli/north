@@ -19,12 +19,8 @@ fn without_part(index: usize) -> Vec<Value> {
 }
 
 #[test]
-fn collect_round_trips_the_latest_multi_part_handback_and_ignores_a_stale_one() {
+fn collect_round_trips_the_latest_multi_part_handback_ignores_a_stale_one_and_refuses_one_missing_a_part() {
     assert_eq!(collect(&events()).unwrap(), MBOX.as_bytes());
-}
-
-#[test]
-fn collect_refuses_a_handback_missing_any_one_part() {
     for index in 1..=3 {
         let error = collect(&without_part(index)).unwrap_err();
         assert!(

@@ -110,7 +110,8 @@ pub(super) fn run(api: &mut Api, out: &mut dyn Write) -> Result<u8, String> {
     let state = super::cloud_land::state_dir();
     let launches = crate::dispatch::cloud_launches();
     let mut land = |launch: &CloudLaunch, events: &[Value], transcript: &Path| {
-        super::cloud_land::land_handback(events, transcript, &checkout(&launch.repo), &state, &mut super::cloud_land::run_program)
+        let queued_for = super::cloud_land::queuing_session(std::env::var(crate::fleet::runtime::SESSION_ENV).ok(), Some(launch));
+        super::cloud_land::land_handback(events, transcript, &checkout(&launch.repo), &state, queued_for.as_deref(), &mut super::cloud_land::run_program)
     };
     let now = crate::pacing::placement::now();
     let reaped = reap(&launches, api, &state.join("reap"), now, &mut land, out)?;

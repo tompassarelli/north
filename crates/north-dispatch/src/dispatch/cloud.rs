@@ -106,20 +106,22 @@ pub fn hold(item: &IssueRef, launched: &Launched, here: &str, pace: &Path, at: f
     record::append(pace, &entry)
 }
 
-/// One `north cloud launch`, kept in `LAUNCHES` so `north cloud reap` can land its handback.
+/// One `north cloud launch`, kept in `LAUNCHES` so `north cloud reap` can land its handback; `owner` is the fleet session that launched it, which the lander tells its verdict.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Launch {
     pub at: f64,
     pub repo: String,
     pub session: String,
     pub branch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 pub const LAUNCHES: &str = "cloud-launches.jsonl";
 
-pub fn register(directory: &Path, repo: &str, launched: &Launched, at: f64) -> Result<(), String> {
+pub fn register(directory: &Path, repo: &str, launched: &Launched, owner: Option<&str>, at: f64) -> Result<(), String> {
     use std::io::Write;
-    let entry = Launch { at, repo: repo.to_owned(), session: launched.session.clone(), branch: launched.branch.clone() };
+    let entry = Launch { at, repo: repo.to_owned(), session: launched.session.clone(), branch: launched.branch.clone(), owner: owner.map(str::to_owned) };
     let line = serde_json::to_string(&entry).map_err(|error| error.to_string())?;
     std::fs::create_dir_all(directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let path = directory.join(LAUNCHES);
