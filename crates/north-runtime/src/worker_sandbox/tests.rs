@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use super::{Context, Reader, confine, executable, readable, removable};
 
 pub(super) const COMMAND: &str = "NORTH_706_LOCKS_COMMAND";
+pub(super) const WRITES_CONFINED: &str = "NORTH_1116_WRITES_CONFINED";
 const LOGINS_ONLY: &str = "NORTH_977_LOGINS_ONLY";
 const HAND_OFF_TARGET: &str = "NORTH_975_HAND_OFF_TARGET";
 const OUTSIDE_MARKER: &str = "NORTH_CAPACITY_LOOP_MARKER";
@@ -37,7 +38,8 @@ fn a_confined_command_child() {
     let command = command.to_string_lossy().into_owned();
     let context = Context::from_env(&command);
     let roots = std::env::var_os(LOGINS_ONLY).is_none().then(|| removable(&context));
-    assert!(matches!(confine(roots.as_deref(), &readable(&context, Reader::of(roots.is_some())), Some(&executable(&context)), None, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    let writable = roots.as_deref().filter(|_| std::env::var_os(WRITES_CONFINED).is_some()).map(|roots| super::writable(&context, roots));
+    assert!(matches!(confine(roots.as_deref(), &readable(&context, Reader::of(roots.is_some())), Some(&executable(&context)), writable.as_deref(), &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let output = Command::new("bash").arg("-c").arg(&command).output().unwrap();
     assert!(output.status.success(), "{command}: {}", String::from_utf8_lossy(&output.stderr));
 }

@@ -55,7 +55,7 @@ impl Context {
     }
 }
 
-/// The trees a worker command may remove or rename files out of: its lane, the git common directory of its project and of every project it names apart from its top level and hooks (git_removable), scratch and caches, and the agent state it writes apart from the stores that hold the fleet's history (state.rs).
+/// The trees a worker command may remove or rename files out of: its lane, the git common directory of its project and of every project it names apart from its top level and hooks (git_removable), scratch and caches, and the agent state it writes apart from the stores that hold the fleet's history (state.rs), and the Buck2 daemon directory of each of its lanes (buck.rs).
 pub fn removable(context: &Context) -> Vec<PathBuf> {
     let home = &context.home;
     let mut roots: Vec<PathBuf> = ["/tmp", "/var/tmp", "/dev/shm"].map(PathBuf::from).into();
@@ -71,6 +71,7 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     }
     roots.extend(projects(context).iter().filter_map(|project| check_lane(project)));
     roots.extend(lanes(context));
+    roots.extend(super::buck::daemon_dirs(context));
     roots
 }
 

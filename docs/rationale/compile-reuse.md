@@ -121,7 +121,10 @@ on 2026-11-11, a worker's first `buck2 build` on the host created `~/.buck` insi
 existed. The daemon could not read its own `buckd.pid` and shut itself down at its 60 s self-check. The client gave
 up after 803 attempts over 89.8 s. The next start in that lane stopped at
 `remove_dir_all(~/.buck/buckd/<lane>/v2/prev): Permission denied`.
-Box 6 fixes all three in the sandbox ([Lanes](#lanes-north1115-box-6), decision 6).
+north#1116 also prepares the lane's own daemon directory under `~/.buck/buckd/` before it builds a command's domain
+(crates/north-runtime/src/worker_sandbox/buck.rs). Buck2 places `~/.buck` from HOME alone (`home_buck_dir` in Buck2's
+app/buck2_common/src/invocation_roots.rs at 7600cb80070a) and has no setting to move it, and pointing HOME into the
+lane for `buck2` would hand that HOME to every program the daemon and `buck2 run` start.
 
 ## Tests (north#1115 box 5)
 
@@ -420,8 +423,7 @@ The store was on cpx62, with Buildbarn workers on gex45 (8 slots), cpx62 and cpx
      (north-providers) and 8.3 s (north-ops diagnostics), all remote under full load. Box 9 records the
      one-line-edit rebuild before and after.
 6. **The worker sandbox lets a lane's daemon live** (the three failures in [Worker sandbox](#worker-sandbox)).
-   - The sandbox creates `~/.buck` before it builds a domain.
-   - It grants `~/.buck` read, write and remove, as it does `~/.cache`.
+   - It prepares the lane's own daemon directory under `~/.buck/buckd/` before it builds a domain (north#1116).
    - It prepares `buck-out/` before it builds a domain (north#1116).
 7. **A daemon lives as long as its lane.** This Buck2 has no idle exit, but a daemon checks its `buckd.pid` every
    60 s and shuts down when it cannot read it (measured: started 18:33:54 UTC, forced shutdown at 18:34:54 UTC).
