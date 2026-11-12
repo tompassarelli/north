@@ -16,6 +16,7 @@ struct LaunchFlags {
     verification: bool,
     gates_aside: bool,
     container_shell: bool,
+    container_dir: Option<PathBuf>,
     provider: Option<ProviderName>,
     account: Option<String>,
     cwd: Option<PathBuf>,
@@ -43,6 +44,7 @@ impl LaunchFlags {
             "--provider" => self.provider = Some(parse_provider(providers, &value)?),
             "--account" => self.account = Some(value),
             "--cwd" => self.cwd = Some(PathBuf::from(value)),
+            "--container-dir" => self.container_dir = Some(container_dir(&value)?),
             "--model" => self.model = Some(value),
             "--effort" => self.effort = Some(Effort::parse(&value)?),
             "--name" => self.name = Some(value),
@@ -81,6 +83,9 @@ impl LaunchFlags {
         if self.route.is_some() && (self.model.is_some() || self.effort.is_some()) {
             return Err(NorthError::Usage("--route picks each rung's model and effort itself; drop --model and --effort".to_owned()));
         }
+        if self.container_dir.is_some() && !self.container_shell {
+            return Err(NorthError::Usage("--container-dir goes with --container-shell".to_owned()));
+        }
         let (cwd, machine) = placement::working_directory(self.cwd)?;
         let name = match (self.name, self.role) {
             (Some(name), Some(Role::Proxy)) if name != PROXY => return Err(NorthError::Usage(format!("the proxy is named {PROXY}, not {name}"))),
@@ -93,6 +98,7 @@ impl LaunchFlags {
             verification: self.verification,
             gates_aside: self.gates_aside,
             container_shell: self.container_shell,
+            container_dir: self.container_dir,
             name,
             provider,
             account,
@@ -154,6 +160,14 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
     let wait = lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
     let (overrides, take_over, priority) = (std::mem::take(&mut flags.overrides), flags.take_over, flags.priority);
     Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over, priority, words: words.iter().map(|word| (*word).to_owned()).collect() })
+}
+
+fn container_dir(path: &str) -> NorthResult<PathBuf> {
+    let path = PathBuf::from(path);
+    if path.is_absolute() && path.components().all(|part| !matches!(part, std::path::Component::ParentDir)) {
+        return Ok(path);
+    }
+    Err(NorthError::Usage("--container-dir names an absolute directory inside the task's container, without `..`".to_owned()))
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {

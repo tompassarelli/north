@@ -40,6 +40,7 @@ fn request(cwd: &Path) -> LaunchRequest {
         verification: false,
         gates_aside: false,
         container_shell: false,
+        container_dir: None,
         name: "worker".into(),
         provider: Deepseek::live(&PI).provider(),
         account: "go".into(),
@@ -190,12 +191,10 @@ console.log(JSON.stringify(await handlers.before_agent_start({ prompt: "what is 
 
 #[test]
 fn a_pi_window_prompt_reaches_its_session_with_the_context_north_hook_adds_north_1041() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    std::fs::write(bin.join("north"), GROUNDING_NORTH).unwrap();
-    std::fs::set_permissions(bin.join("north"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    north_base::foundation::shim::write_executable(&bin.join("north"), GROUNDING_NORTH);
     std::fs::write(dir.path().join("north-fleet.ts"), super::windows::EXTENSION).unwrap();
     std::fs::write(dir.path().join("driver.ts"), PROMPT_DRIVER).unwrap();
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());

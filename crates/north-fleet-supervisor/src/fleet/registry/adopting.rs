@@ -55,6 +55,7 @@ impl Fleet {
             verification: false,
             gates_aside: false,
             container_shell: false,
+            container_dir: None,
             name: name.to_owned(),
             provider: runtime.provider(),
             account: inbox.account,

@@ -70,6 +70,9 @@ pub struct LaunchRequest {
     /// Declares that the session's shell tool runs its commands in a task container through a relay, never on this host, so the deciders that guard this host's processes let them through; like `--gates-aside`, only an eval's launch sets it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub container_shell: bool,
+    /// Where the session's own directory is mounted in that container, from `--container-dir`, which lets a file tool call naming a path there reach the same file through the session's directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container_dir: Option<PathBuf>,
     pub name: String,
     pub provider: ProviderName,
     pub account: String,
@@ -317,6 +320,9 @@ pub struct SessionRecord {
     /// Its launch declared that its shell tool runs in a task container, not on this host; nothing after the launch sets it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub container_shell: bool,
+    /// Where the session's own directory is mounted in that container, from `--container-dir`, which lets a file tool call naming a path there reach the same file through the session's directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container_dir: Option<PathBuf>,
     pub name: String,
     pub provider: ProviderName,
     pub account: String,
@@ -420,6 +426,7 @@ impl SessionRecord {
             verification,
             gates_aside: request.gates_aside,
             container_shell: request.container_shell,
+            container_dir: request.container_dir.clone(),
             name: request.name.clone(),
             provider: request.provider.clone(),
             account: request.account.clone(),
@@ -541,6 +548,7 @@ impl SessionRecord {
             verification: self.verification,
             gates_aside: self.gates_aside,
             container_shell: self.container_shell,
+            container_dir: self.container_dir.clone(),
             name: self.name.clone(),
             provider: self.provider.clone(),
             account: self.account.clone(),

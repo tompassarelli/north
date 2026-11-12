@@ -180,7 +180,7 @@ fn permission_decision(behavior: &str, message: Option<String>) -> Value {
 }
 
 pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Value> {
-    judge(input, guards, event, || false, &mut Vec::new())
+    judge(input, guards, event, || None, &mut Vec::new())
 }
 
 /// [`evaluate`] for the session this hook runs in: when its launch declared a container shell, each verdict that stands down is written to the hooks' records.
@@ -191,16 +191,17 @@ fn evaluate_here(input: &HookInput, guards: &[Guard], event: &str) -> Option<Val
     output
 }
 
-/// The hook output `guards` give `input`. For a shell command of a session `in_container`, a [`Host`] guard's refusal or advice and any guard's rewrite do not apply, since the command touches nothing on this host and a rewrite names a tool only this host has; what each would have said goes to `stood_down`.
-fn judge(input: &HookInput, guards: &[Guard], event: &str, in_container: impl FnOnce() -> bool, stood_down: &mut Vec<String>) -> Option<Value> {
+/// The hook output `guards` give `input`. For a file tool call of a session `in_container` that names the container directory its own directory is mounted at, a path under it is first moved to the same place under the session's own directory. For a shell command of a session `in_container`, a [`Host`] guard's refusal or advice and any guard's rewrite do not apply, since the command touches nothing on this host and a rewrite names a tool only this host has; what each would have said goes to `stood_down`.
+fn judge(input: &HookInput, guards: &[Guard], event: &str, in_container: impl FnOnce() -> Option<container_shell::ContainerSession>, stood_down: &mut Vec<String>) -> Option<Value> {
     let in_container = std::cell::LazyCell::new(in_container);
     let mut judged = Judged::default();
+    judged.take(container_shell::moved_file_call(event, input, &in_container), input, event);
     for guard in guards {
         if !guard.0.is_empty() && crate::guard::activation::authoring_guards_off(guard.0) {
             continue;
         }
         let verdict = (guard.1)(judged.rewritten.as_ref().unwrap_or(input));
-        if let Some(said) = host_bound(*guard, &verdict).filter(|_| input.is_shell() && *in_container) {
+        if let Some(said) = host_bound(*guard, &verdict).filter(|_| input.is_shell() && in_container.is_some()) {
             stood_down.push(said.to_owned());
         } else if let Some(output) = judged.take(verdict, input, event) {
             return Some(output);

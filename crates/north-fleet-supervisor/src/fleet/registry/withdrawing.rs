@@ -107,6 +107,7 @@ mod tests {
             verification: false,
             gates_aside: false,
             container_shell: false,
+            container_dir: None,
             name: name.into(),
             provider: ProviderName::new("claude"),
             account: "a".into(),

@@ -197,6 +197,7 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
         verification: false,
         gates_aside: false,
         container_shell: false,
+        container_dir: None,
         name: "proxy".into(),
         provider: crate::fleet::model::ProviderName::new("claude"),
         account: "a".into(),

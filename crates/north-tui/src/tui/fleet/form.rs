@@ -187,6 +187,7 @@ impl LaunchForm {
             verification: false,
             gates_aside: false,
             container_shell: false,
+            container_dir: None,
             name,
             provider: self.provider.clone(),
             account: account.label.clone(),

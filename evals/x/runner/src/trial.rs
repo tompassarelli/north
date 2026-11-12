@@ -213,7 +213,7 @@ impl Live<'_> {
         let workspace = seed_workspace(&trial.task.name)?;
         let mounts = mounts_for(&workspace, &trial_dir, &self.work("bin"))?;
         let sentence = instruction_sentence(&workspace);
-        let mut arm = self.spawn_arm(trial, &trial_dir, &arm_dir, &workspace.cwd)?;
+        let mut arm = self.spawn_arm(trial, &trial_dir, &arm_dir, &workspace.cwd, &workspace.workdir)?;
         let mut broker = match start_broker(&trial_dir, &arm_dir) {
             Ok(broker) => broker,
             Err(error) => {
@@ -256,6 +256,7 @@ impl Live<'_> {
         trial_dir: &Path,
         arm_dir: &Path,
         cwd: &str,
+        container_dir: &str,
     ) -> Result<Child> {
         let log = proc::create(&arm_dir.join("driver.log"))?;
         let log_err = log.try_clone()?;
@@ -280,6 +281,7 @@ impl Live<'_> {
                 .env("EVAL_T_TOKEN_FILE", self.token_file)
                 .env("EVAL_T_CLAUDE", self.claude)
                 .env("EVAL_X_RUNNER", std::env::current_exe()?)
+                .env("EVAL_X_CONTAINER_DIR", container_dir)
                 .process_group(0)
                 .stdin(Stdio::null())
                 .stdout(log)
@@ -291,6 +293,7 @@ impl Live<'_> {
 
 struct Workspace {
     cwd: String,
+    workdir: String,
     top: String,
     host_top: String,
     mounts: Value,
@@ -315,6 +318,7 @@ fn seed_workspace(task: &str) -> Result<Workspace> {
     let top = text("top")?;
     Ok(Workspace {
         cwd: text("cwd")?,
+        workdir: text("workdir")?,
         host_top: format!("{}{top}", text("root")?),
         top,
         mounts: value.get("mounts").cloned().unwrap_or_else(|| json!([])),

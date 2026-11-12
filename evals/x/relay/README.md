@@ -44,8 +44,10 @@ Read from Claude Code 2.1.322 and seen in a live north session:
 
 ## What north is told
 
-The north arm launches its session with `--container-shell` (`evals/t/arm` adds it when `EVAL_X_TRIAL` is set), and the
-session's record keeps it; only a launch from an `eval-*` unit may carry the flag. For such a session north's hook
+The north arm launches its session with `--container-shell` (`evals/t/arm` adds it when `EVAL_X_TRIAL` is set)
+and `--container-dir`, the task's working directory in the container (`EVAL_X_CONTAINER_DIR`, which the runner sets), so a
+file tool call naming a path there reaches the same file through the session's own directory. The session's record keeps
+both; only a launch from an `eval-*` unit may carry the flag. For such a session north's hook
 leaves a shell command as written wherever a guard would rewrite it to a tool only the host has, and does not apply a
 guard that protects the host's own processes, files, desktop or build capacity, because the command touches none of
 them. Guards about what leaves the machine, credentials and the session's own conduct judge it as on the host. Each

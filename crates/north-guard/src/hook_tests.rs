@@ -253,3 +253,31 @@ fn a_session_launched_with_a_container_shell_starts_a_server_and_searches_a_tree
     let (output, stood_down) = judged("task", "sops --decrypt secrets.yaml");
     assert_eq!((output.unwrap_or_default()["hookSpecificOutput"]["permissionDecision"].as_str(), stood_down.len()), (Some("deny"), 0), "a credential guard still judges a container session's command");
 }
+
+#[test]
+fn a_file_tool_path_under_a_container_sessions_container_directory_reaches_the_sessions_own_directory_and_nothing_else_widens() {
+    let fleet = tempfile::tempdir().unwrap();
+    let own = fleet.path().join("ws/app");
+    std::fs::create_dir_all(&own).unwrap();
+    std::os::unix::fs::symlink("/etc", own.join("outside")).unwrap();
+    for (session, container_shell, container_dir) in [("task", true, Some("/app")), ("host", false, Some("/app")), ("undeclared", true, None)] {
+        let launch = json!({"verification": true, "name": session, "provider": "claude", "account": "a", "cwd": own, "prompt": "Fix it.", "prompt_mode": "north", "container_shell": container_shell, "container_dir": container_dir});
+        let record = crate::fleet::model::SessionRecord::launched(&serde_json::from_value(launch).unwrap(), None, None, true, 1);
+        std::fs::create_dir(fleet.path().join(session)).unwrap();
+        crate::fleet::records::write_record(&fleet.path().join(session), &record).unwrap();
+    }
+    let guards = [guard("", |input| match input.tool_input["file_path"].as_str() {
+        Some(path) if path.starts_with("/app") => Verdict::Deny(format!("outside the lane: {path}")),
+        _ => Verdict::Allow,
+    })];
+    let judged = |session: &str, path: &str| {
+        let call = json!({"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": own, "tool_input": {"file_path": path, "content": "x"}});
+        judge(&HookInput::parse(call.to_string().as_bytes()).unwrap(), &guards, "PreToolUse", || container_shell::declared_in(fleet.path(), session), &mut Vec::new()).unwrap_or_default()["hookSpecificOutput"].clone()
+    };
+    let moved = judged("task", "/app/src/run.py");
+    assert_eq!((moved["permissionDecision"].as_str(), moved["updatedInput"]["file_path"].as_str(), moved["updatedInput"]["content"].as_str()), (Some("allow"), Some(own.join("src/run.py").to_str().unwrap()), Some("x")), "{moved}");
+    for (session, path) in [("host", "/app/run.py"), ("undeclared", "/app/run.py"), ("task", "/app/../etc/passwd"), ("task", "/app/outside/passwd"), ("task", "/application/run.py")] {
+        let decision = judged(session, path);
+        assert!(decision["permissionDecision"] == "deny" && decision["updatedInput"].is_null(), "{session} {path}: {decision}");
+    }
+}

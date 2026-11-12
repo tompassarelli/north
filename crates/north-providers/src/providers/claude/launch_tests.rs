@@ -14,6 +14,7 @@ fn request() -> LaunchRequest {
         verification: false,
         gates_aside: false,
         container_shell: false,
+        container_dir: None,
         name: "worker".into(),
         provider: Claude.provider(),
         account: "a".into(),
