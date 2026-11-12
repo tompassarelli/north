@@ -75,6 +75,11 @@ fn ssh_with_input(host: &str, script: &str, input: &[u8]) -> Result<String, Stri
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+enum Refusal {
+    Unreachable(String),
+    Moved(String),
+}
+
 impl Lander {
     pub fn base_moved(&self, base: &str) -> Result<bool, String> {
         let now = git(&self.worktree, &["ls-remote", "origin", "refs/heads/main"])?;
@@ -221,15 +226,15 @@ impl Lander {
                     continue;
                 }
             };
-            if let Err(error) = self.take_lane(host, &ticket, bundles.remove(name).as_deref()) {
-                if lane_gone(host, &ticket) {
-                    withdrawn.push((name.to_owned(), ticket));
-                } else {
-                    failures.push(error);
+            match self.take_lane(host, &ticket, bundles.remove(name).as_deref()) {
+                Ok(()) => arrived.push((name.to_owned(), ticket)),
+                Err(Refusal::Moved(reason)) => withdrawn.push((name.to_owned(), ticket, reason)),
+                Err(Refusal::Unreachable(_)) if lane_gone(host, &ticket) => {
+                    let reason = format!("its worktree {} is gone from {host}, so the lander cannot fetch {}", ticket.root.display(), ticket.head);
+                    withdrawn.push((name.to_owned(), ticket, reason));
                 }
-                continue;
+                Err(Refusal::Unreachable(error)) => failures.push(error),
             }
-            arrived.push((name.to_owned(), ticket));
         }
         for (name, ticket) in arrived {
             let path = self.queue.join(&name);
@@ -246,15 +251,23 @@ impl Lander {
         if failures.is_empty() { Ok(taken.len()) } else { Err(failures.join("; ")) }
     }
 
-    fn take_lane(&self, host: &str, ticket: &Ticket, bundle: Option<&str>) -> Result<(), String> {
-        let Some(bundle) = bundle else { return self.fetch_lane(host, ticket) };
-        match self.unbundle(host, ticket, bundle) {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                println!("north land: fetching {} from {host}, since the bundle its ticket carried did not apply: {error}", ticket.branch);
-                self.fetch_lane(host, ticket)
-            }
+    fn take_lane(&self, host: &str, ticket: &Ticket, bundle: Option<&str>) -> Result<(), Refusal> {
+        let from_bundle = bundle.map(|bundle| self.unbundle(host, ticket, bundle));
+        if from_bundle.as_ref().is_some_and(Result::is_ok) && self.holds(&ticket.head) {
+            println!("north land: took {} from {host}'s bundle", ticket.branch);
+            return Ok(());
         }
+        match from_bundle {
+            Some(Err(error)) => println!("north land: fetching {} from {host}, since the bundle its ticket carried did not apply: {error}", ticket.branch),
+            Some(Ok(())) => println!("north land: fetching {} from {host}, since the bundle its ticket carried does not hold {}", ticket.branch, ticket.head),
+            None => {}
+        }
+        self.fetch_lane(host, ticket).map_err(Refusal::Unreachable)?;
+        if self.holds(&ticket.head) { Ok(()) } else { Err(Refusal::Moved(format!("{} on {host} no longer holds {}, so the lander cannot take it", ticket.branch, ticket.head))) }
+    }
+
+    fn holds(&self, head: &str) -> bool {
+        !head.is_empty() && head.chars().all(|digit| digit.is_ascii_hexdigit()) && git(&self.repo, &["cat-file", "-e", &format!("{head}^{{commit}}")]).is_ok()
     }
 
     fn unbundle(&self, host: &str, ticket: &Ticket, encoded: &str) -> Result<(), String> {
@@ -269,10 +282,9 @@ impl Lander {
         north_git_locks::retry_after_clearing(&self.repo, || git(&self.repo, &["fetch", "-q", "--no-tags", &path, &target]).map(drop))
     }
 
-    fn withdraw(&self, host: &str, outbox: &str, withdrawn: Vec<(String, Ticket)>) -> Result<(), String> {
+    fn withdraw(&self, host: &str, outbox: &str, withdrawn: Vec<(String, Ticket, String)>) -> Result<(), String> {
         let mut told = Vec::new();
-        for (name, mut ticket) in withdrawn {
-            let reason = format!("its worktree {} is gone from {host}, so the lander cannot fetch {}", ticket.root.display(), ticket.head);
+        for (name, mut ticket, reason) in withdrawn {
             ticket.verdict = Some(format!("withdrawn by {OFFLOAD_OWNER}: {reason}"));
             let path = self.queue.join(queue::WITHDRAWN).join(&name);
             Records::open(&self.queue).and_then(|mut records| records.moved(&path, Phase::Withdrawn, ticket.verdict.as_deref().unwrap_or_default())).map_err(|error| format!("cannot record {}: {error}", path.display()))?;

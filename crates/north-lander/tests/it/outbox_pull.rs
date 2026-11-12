@@ -27,6 +27,8 @@ fn outbox_puller() {
     }
 }
 
+const NO_FETCH_SSH: &str = "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -o|-p) shift 2 ;; -*) shift ;; *) break ;; esac; done\nhost=$1\nshift\n[ \"$1\" = -- ] && shift\nprintf '%s\\n' \"$host\" >> \"${FAKE_REMOTE_SSH_LOG:-/dev/null}\"\ncase \"$*\" in *git-upload-pack*) exit 255 ;; esac\nexport XDG_STATE_HOME=\"$FAKE_REMOTE_STATE\"\nexec sh -c \"$*\"\n";
+
 fn outboxed(outbox: &Path, micros: u128, root: &Path, branch: &str, head: &str) -> String {
     let name = queue::file_name(micros, branch);
     let ticket = Ticket { origin: "https://github.com/tompassarelli/north".into(), root: root.to_owned(), host: "gex45".into(), branch: branch.into(), head: head.into(), session: Some(format!("{branch}-session")), queued_at: "2026-11-07T03:07:09Z".into(), queued_micros: Some(micros), ..Ticket::default() };
@@ -35,7 +37,7 @@ fn outboxed(outbox: &Path, micros: u128, root: &Path, branch: &str, head: &str) 
 }
 
 #[test]
-fn an_outbox_ticket_whose_worktree_is_gone_is_withdrawn_and_the_ticket_behind_it_is_pulled_the_same_round() {
+fn an_outbox_ticket_whose_worktree_is_gone_or_whose_branch_no_longer_holds_its_head_is_withdrawn_and_the_ticket_behind_it_is_pulled_the_same_round() {
     let world = World::new();
     let repository = world.repository("north");
     write_executable(&world.path().join("bin/ssh"), SSH);
@@ -46,6 +48,12 @@ fn an_outbox_ticket_whose_worktree_is_gone_is_withdrawn_and_the_ticket_behind_it
     let outbox = repository.queue.join(queue::OUTBOX);
     let gone = outboxed(&outbox, 1_794_020_829_623_648, &repository.checkout.parent().unwrap().join("worktrees/n706-claim-filed"), "n706-claim-filed", "ef0ef324027acc6752dd7476b7b3dd49c13e768f");
     let pulled = outboxed(&outbox, 1_794_020_900_000_000, &behind, "behind", &git(&behind, &["rev-parse", "HEAD"]));
+    let agent = world.path().join("agent-home/north");
+    git(world.path(), &["clone", "-q", repository.origin.to_str().unwrap(), agent.to_str().unwrap()]);
+    git(&agent, &["checkout", "-q", "-b", "rewritten"]);
+    let queued = commit_in(&agent, "queued");
+    let rewritten = outboxed(&outbox, 1_794_020_950_000_000, &agent, "rewritten", &queued);
+    git(&agent, &["commit", "-q", "--amend", "--allow-empty", "-m", "rewritten"]);
 
     let path = format!("{}:{}", world.path().join("bin").display(), std::env::var("PATH").unwrap_or_default());
     let output = Command::new(std::env::current_exe().unwrap())
@@ -67,6 +75,8 @@ fn an_outbox_ticket_whose_worktree_is_gone_is_withdrawn_and_the_ticket_behind_it
     assert!(withdrawn.verdict.unwrap_or_default().contains("is gone from gex45"), "{transcript}");
     assert!(outbox.join(queue::WITHDRAWN).join(&gone).is_file() && !outbox.join(&gone).exists(), "{transcript}");
     assert!(repository.queue.join(&pulled).is_file(), "the ticket behind it waited:\n{transcript}");
+    let moved = queue::read(&repository.queue.join(queue::WITHDRAWN).join(&rewritten)).unwrap_or_else(|error| panic!("{error}\n{transcript}"));
+    assert!(moved.verdict.unwrap_or_default().contains(&format!("no longer holds {queued}")) && !repository.queue.join(&rewritten).exists(), "{transcript}");
     let told = std::fs::read_to_string(world.path().join("bin/north.calls")).unwrap_or_default();
     assert!(told.lines().any(|call| call.starts_with("fleet send --from service:north-land n706-claim-filed-session ") && call.contains("was withdrawn from gex45's outbox")), "{told}");
 }
@@ -150,6 +160,58 @@ fn a_pull_goes_through_the_agent_login_a_host_names_else_by_its_name_and_leaves_
         assert!(pull.repository.queue.join(&name).is_file(), "{hosts}: the ticket was not taken:\n{transcript}");
         assert!(pull.logins().len() >= 2 && pull.logins().iter().all(|asked| asked == login), "{hosts}: {:?}\n{transcript}", pull.logins());
     }
+}
+
+const AGENT_LOGIN: &str = "[hosts.gex45]\nssh = \"tom@gex45\"\nagent_ssh = \"agent@gex45\"\n";
+
+fn commit_in(repository: &Path, message: &str) -> String {
+    git(repository, &["commit", "-q", "--allow-empty", "-m", message]);
+    git(repository, &["rev-parse", "HEAD"])
+}
+
+fn bundled(outbox: &Path, ticket: &str, repository: &Path, branch: &str) {
+    let bundle = queue::bundle(&outbox.join(ticket));
+    git(repository, &["bundle", "create", "-q", bundle.to_str().unwrap(), &format!("refs/heads/{branch}"), "^origin/main"]);
+}
+
+#[test]
+fn a_lane_is_taken_as_the_objects_of_its_bundle_whatever_its_repository_configures_and_a_head_the_bundle_lacks_is_not_taken() {
+    let pull = Pull::declaring(AGENT_LOGIN);
+    write_executable(&pull.world.path().join("bin/ssh"), NO_FETCH_SSH);
+    let agent = pull.world.path().join("agent-home/north");
+    git(pull.world.path(), &["clone", "-q", pull.repository.origin.to_str().unwrap(), agent.to_str().unwrap()]);
+    let outbox = pull.outbox();
+    std::fs::create_dir_all(&outbox).unwrap();
+    git(&agent, &["checkout", "-q", "-b", "whole"]);
+    let whole = commit_in(&agent, "whole");
+    let whole_ticket = queue::file_name(1_794_020_900_000_000, "whole");
+    bundled(&outbox, &whole_ticket, &agent, "whole");
+    outboxed(&outbox, 1_794_020_900_000_000, &agent, "whole", &whole);
+    git(&agent, &["checkout", "-q", "-b", "stale", "origin/main"]);
+    commit_in(&agent, "bundled");
+    let stale_ticket = queue::file_name(1_794_020_900_000_001, "stale");
+    bundled(&outbox, &stale_ticket, &agent, "stale");
+    let stale_head = commit_in(&agent, "after the bundle");
+    outboxed(&outbox, 1_794_020_900_000_001, &agent, "stale", &stale_head);
+
+    let marker = pull.world.path().join("ran-in-the-agents-repository");
+    let hostile = pull.world.path().join("hostile");
+    write_executable(&hostile, format!("#!/bin/sh\ntouch {}\n", marker.display()));
+    let hooks = pull.world.path().join("hostile-hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    for hook in ["reference-transaction", "post-checkout", "post-merge", "pre-auto-gc"] {
+        write_executable(&hooks.join(hook), format!("#!/bin/sh\ntouch {}\n", marker.display()));
+    }
+    for (key, value) in [("core.hooksPath", hooks.to_str().unwrap()), ("core.fsmonitor", hostile.to_str().unwrap()), ("core.sshCommand", hostile.to_str().unwrap()), ("core.pager", hostile.to_str().unwrap()), ("uploadpack.packObjectsHook", hostile.to_str().unwrap()), ("filter.hostile.clean", hostile.to_str().unwrap()), ("diff.external", hostile.to_str().unwrap())] {
+        git(&agent, &["config", key, value]);
+    }
+    let transcript = pull.pull();
+
+    assert!(pull.repository.queue.join(&whole_ticket).is_file(), "the lane its bundle holds was not taken:\n{transcript}");
+    assert_eq!(git(&pull.repository.checkout, &["rev-parse", "refs/land-remote/gex45/whole"]), whole, "{transcript}");
+    assert!(transcript.contains("north land: took whole from gex45's bundle"), "{transcript}");
+    assert!(!pull.repository.queue.join(&stale_ticket).exists() && outbox.join(&stale_ticket).is_file(), "a ticket whose head no fetched object holds was queued:\n{transcript}");
+    assert!(!marker.exists(), "git ran what the agent's repository configures:\n{transcript}");
 }
 
 const READY: &str = "NORTH_LAND_IT_VERDICTS_READY";
