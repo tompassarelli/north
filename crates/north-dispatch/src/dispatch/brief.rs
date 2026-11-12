@@ -12,6 +12,8 @@ pub const SAFETY_LINE: &str = "Run only build, test, git and file commands insid
 /// routing read. `box_text` names the one box the launch staffs on a `Box:` line, which it claims alone and its Done when names.
 pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds, box_text: Option<&str>) -> String {
     let reference = issue.reference();
+    let leaf = issue.is_leaf();
+    let box_text = box_text.filter(|_| !leaf);
     let mut head = vec![format!("Item: {reference} {}", issue.title)];
     head.extend(box_text.map(|text| format!("Box: {text}")));
     head.push(format!("Repository: {OWNER}/{}", issue.repo));
@@ -31,6 +33,7 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds,
     head.extend((!needs.is_empty()).then(|| format!("Needs: {}", needs.join(", "))));
     head.push(match box_text {
         Some(_) => format!("Done when: its Box: box of {reference} is ticked with its evidence, any change it needed is on origin/main (`git merge-base --is-ancestor SHA origin/main`), and {reference} is closed with the verified SHA if that box was its last unticked one."),
+        None if leaf => format!("Done when: {reference} is closed by its check: the Done when in its body exits 0 with its evidence, the change is on origin/main (`git merge-base --is-ancestor SHA origin/main`), and {reference} is closed with the verified SHA."),
         None => format!("Done when: every Done-when box of {reference} is ticked with its evidence, the change is on origin/main (`git merge-base --is-ancestor SHA origin/main`), and {reference} is closed with the verified SHA."),
     });
     head.push(format!("ETA: {}", grounds.eta(declared(issue, "ETA"), route)));
@@ -48,7 +51,7 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds,
         head.join("\n"),
         issue.number,
         issue.repo,
-        if box_text.is_some() { "only its Box: box, and any other box the same change satisfies, because dispatch staffs its other boxes on their own; report Done: once your Box: box is ticked, whatever other boxes stay open" } else { "its unticked Done-when boxes" },
+        if box_text.is_some() { "only its Box: box, and any other box the same change satisfies, because dispatch staffs its other boxes on their own; report Done: once your Box: box is ticked, whatever other boxes stay open" } else if leaf { "its check, which closes it" } else { "its unticked Done-when boxes" },
         if box_text.is_some() { " --box <the text of your Box: line>" } else { "" },
         if route.tier == Tier::Haiku { HAIKU_WAIT } else { "" },
     )

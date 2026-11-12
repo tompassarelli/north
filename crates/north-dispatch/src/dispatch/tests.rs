@@ -467,3 +467,14 @@ fn dispatch_staffs_open_leaf_issues_under_their_parent() {
     let launched: Vec<String> = outcome.launches.iter().map(|launch| launch.item.to_string()).collect();
     assert_eq!(launched, ["north#3", "north#5"], "the open leaf and the box of an issue whose sub-issues all hold boxes are staffed: {:?}", outcome.skipped);
 }
+
+#[test]
+fn a_leaf_s_brief_names_its_item_alone() {
+    use super::issues::ParentRef;
+    let leaf = Issue { parent: Some(ParentRef::new("tompassarelli", "north", 1)), ..issue("north", 3, "Done when: `cargo nextest run -p north-dispatch` exits 0", &[]) };
+    let route = super::tier::Route { tier: super::tier::Tier::Opus, category: "feature".into(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: None, why: String::new() };
+    let brief = super::brief::brief(&leaf, "dispatch", &route, &super::grounds::Grounds::default(), None);
+    assert!(brief.lines().any(|line| line.starts_with("Item: north#3 ")), "{brief}");
+    assert!(!brief.lines().any(|line| line.starts_with("Box: ")), "{brief}");
+    assert!(brief.lines().any(|line| line.starts_with("Done when: north#3 is closed by its check")), "{brief}");
+}
