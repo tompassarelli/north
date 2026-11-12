@@ -15,7 +15,6 @@ north-base = { path = "../north-base" }
 north-fleet-store = { path = "../north-fleet-store" }
 north-pace = { path = "../north-pace" }
 north-session-host = { path = "../north-session-host" }
-north-ssh-spare = { path = "../north-ssh-spare" }
 north-resume = { path = "../north-resume" }
 regex.workspace = true
 rusqlite.workspace = true

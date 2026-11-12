@@ -53,4 +53,3 @@ use north_fleet_store::ssh;
 pub mod board;
 pub mod claude_only;
 pub mod rungs;
-pub mod spares;

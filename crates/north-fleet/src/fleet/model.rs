@@ -356,9 +356,6 @@ pub struct SessionRecord {
     pub adopted_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revived_mid_task_ms: Option<u64>,
-    /// The held unit on its machine when the session took a spare, whose name is not the one its session name gives.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub held_unit: Option<String>,
     /// The brief of a two-rung route's first attempt, which a turn that stops short hands the second rung with what it tried.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_attempt: Option<String>,
@@ -413,7 +410,6 @@ impl SessionRecord {
             brief: request.brief_path(),
             adopted_ms: None,
             revived_mid_task_ms: None,
-            held_unit: None,
             first_attempt: super::rungs::first(&request.prompt).then(|| request.prompt.clone()),
             phase: None,
         }

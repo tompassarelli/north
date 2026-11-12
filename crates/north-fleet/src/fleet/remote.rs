@@ -12,7 +12,7 @@
 //! or after twelve hours with no link attached. Starting a session first stops any earlier service
 //! of the same session, so a revive never runs two CLIs on one conversation.
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -80,68 +80,26 @@ pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path, session
     let unit = unit(&spec.key);
     let dir = held.join(&unit).to_string_lossy().into_owned();
     let nonce = new_uuid()?;
-    let launch = launch_script(&spec, &held, &unit, &dir, &nonce, DETACHED, &[]);
-    linked(spec, machine, home, Held { unit, dir, nonce, launch }, session, trace)
-}
-
-/// A held unit already running on another machine: its name, its directory and the nonce a link attaches with.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Running {
-    pub unit: String,
-    pub dir: String,
-    pub nonce: String,
-}
-
-/// The session's host spec when it takes the spare `running` on `machine`: its link attaches to the client already running there instead of launching one.
-pub fn attached(spec: HostSpec, machine: &Machine, running: &Running, session: &str, trace: &Path) -> NorthResult<HostSpec> {
-    let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or_else(|| NorthError::State("HOME is not set".into()))?;
-    let held = Held { unit: running.unit.clone(), dir: running.dir.clone(), nonce: running.nonce.clone(), launch: ":".into() };
-    linked(spec, machine, Path::new(&home), held, session, trace)
-}
-
-/// The held directory of the unit `unit` under `home`.
-pub(super) fn held_dir(home: &Path, unit: &str) -> PathBuf {
-    home.join(HELD).join(unit)
-}
-
-struct Held {
-    unit: String,
-    dir: String,
-    nonce: String,
-    launch: String,
-}
-
-fn linked(spec: HostSpec, machine: &Machine, home: &Path, held: Held, session: &str, trace: &Path) -> NorthResult<HostSpec> {
-    let Held { unit, dir, nonce, launch } = held;
-    let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch, session: session.to_owned(), trace: trace.to_path_buf(), master: None };
-    let argv = [vec![std::env::current_exe()?.display().to_string(), "session-link".into()], link.arguments()].concat();
-    Ok(HostSpec { argv, cwd: home.to_path_buf(), ..spec })
-}
-
-/// The script that starts `spec`'s CLI as the held unit `unit` in `dir`, stopped once no link has been attached for `detached`, with `properties` added to the unit.
-pub(super) fn launch_script(spec: &HostSpec, held: &Path, unit: &str, dir: &str, nonce: &str, detached: Duration, properties: &[String]) -> String {
-    let (q_unit, q_dir) = (quote(unit), quote(dir));
+    let (q_unit, q_dir) = (quote(&unit), quote(&dir));
     let mut launch = format!(
-        "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce binding limit && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
+        "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
         quote(PRUNE),
         quote(&held.to_string_lossy()),
-        quote(nonce),
+        quote(&nonce),
         quote(&spec.cwd.to_string_lossy())
     );
-    for property in properties {
-        launch.push(' ');
-        launch.push_str(&quote(&format!("--property={property}")));
-    }
     for (key, value) in &spec.env {
         launch.push(' ');
         launch.push_str(&quote(&format!("--setenv={key}={}", value.to_string_lossy())));
     }
-    launch.push_str(&format!(" -- sh -c {} {q_dir} {q_unit} {}", quote(HOLD), detached.as_secs()));
+    launch.push_str(&format!(" -- sh -c {} {q_dir} {q_unit} {}", quote(HOLD), DETACHED.as_secs()));
     for arg in &spec.argv {
         launch.push(' ');
         launch.push_str(&quote(arg));
     }
-    launch
+    let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch, session: session.to_owned(), trace: trace.to_path_buf(), master: None };
+    let argv = [vec![std::env::current_exe()?.display().to_string(), "session-link".into()], link.arguments()].concat();
+    Ok(HostSpec { argv, cwd: home.to_path_buf(), ..spec })
 }
 
 pub fn leave_record(record: &SessionRecord, placed: &Path) {

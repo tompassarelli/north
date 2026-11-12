@@ -108,7 +108,7 @@ fn input(verb: &str, arguments: &Value) -> String {
 fn call(verbs: &[String], north: &Path, params: &Value) -> Result<Value, (i64, String)> {
     let verb = params["name"].as_str().filter(|name| verbs.iter().any(|verb| verb == name)).ok_or_else(|| (BAD_PARAMS, format!("no such tool: {}", params["name"])))?;
     let unstarted = |error: io::Error| (BAD_PARAMS, format!("{}: {error}", north.display()));
-    let mut child = Command::new(north).arg(verb).args(words(verb, &params["arguments"])).envs(north_base::platform::session_binding::unapplied()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(unstarted)?;
+    let mut child = Command::new(north).arg(verb).args(words(verb, &params["arguments"])).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(unstarted)?;
     if let Some(mut pipe) = child.stdin.take() {
         let _ = pipe.write_all(input(verb, &params["arguments"]).as_bytes());
     }

@@ -66,8 +66,6 @@ impl Fleet {
         };
         self.refuse_on_window(conversation.as_deref())?;
         let tasks = super::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
-        let spare = (claim == Claim::Fresh).then(|| self.take_spare(request, &account, runtime.as_ref(), effort)).flatten();
-        let conversation = spare.as_ref().map_or(conversation, |taken| Some(taken.conversation.clone()));
         let mut record = SessionRecord::launched(request, effort, conversation.clone(), verification, now_ms());
         record.overlay = runtime.overlay(&request.name);
         record.account = account.recorded_label();
@@ -75,7 +73,7 @@ impl Fleet {
         let unrecorded = record.clone();
         std::thread::scope(|scope| {
             let shown = scope.spawn(|| first_prompt(request, verification));
-            let mut early = (claim == Claim::Fresh).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())));
+            let mut early = (claim == Claim::Fresh).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()))));
             let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
             if let Err(error) = self.registrar.register(&row, claim) {
                 self.abandon_early(joined(), session_dir);
@@ -94,7 +92,6 @@ impl Fleet {
                     if let Err(error) = self.inherit_workers(request, &record) {
                         eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
                     }
-                    super::spares::fill_after(&record);
                     return Ok(record);
                 };
                 claims::release_for(self.claims.as_ref(), &record);
