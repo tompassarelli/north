@@ -110,6 +110,11 @@ fn provider_events_select_matching_guard_list() {
         .unwrap();
         assert!(output.is_empty());
     }
+    let (start, prompt) = (HookKind::SessionStart.guards(), HookKind::UserPromptSubmit.guards());
+    assert!(spare_guards(start, "SessionStart", Binding::Awaited, || true).is_empty(), "a spare no launch has taken gives no session-start context, which would be the spare's");
+    assert_eq!(spare_guards(prompt, "UserPromptSubmit", Binding::Written, || true).len(), start.len() + prompt.len(), "a taken spare's first prompt gets the session-start context of the session it was bound to");
+    assert_eq!(spare_guards(prompt, "UserPromptSubmit", Binding::Written, || false).len(), prompt.len(), "and only its first");
+    assert_eq!(spare_guards(start, "SessionStart", Binding::None, || true).len(), start.len(), "a session started as no spare keeps its session-start context");
 }
 
 fn deny(input: &HookInput) -> Verdict {

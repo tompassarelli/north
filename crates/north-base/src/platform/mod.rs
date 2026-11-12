@@ -57,6 +57,7 @@ pub mod south_land_limits;
 pub mod stdio;
 pub mod store_refs;
 pub mod terminal;
+pub mod session_binding;
 pub mod session_scope;
 pub mod session_host_files;
 pub mod pyjson;

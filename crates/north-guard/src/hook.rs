@@ -1,6 +1,7 @@
 use crate::platform::pyjson::{self, Value};
 use std::io::{self, Read, Write};
 use crate::hook_input::{HookInput, INPUT_LIMIT, Verdict};
+use crate::fleet::runtime::Binding;
 
 pub type GuardFn = fn(&HookInput) -> Verdict;
 
@@ -271,7 +272,8 @@ pub(crate) fn process(
             (guards, event)
         };
         let event = if event == "*" { input.data["hook_event_name"].as_str().unwrap_or("") } else { event };
-        if let Some(output) = evaluate(&input, guards, event) {
+        let guards = spare_guards(guards, event, crate::fleet::runtime::binding(), || first_prompt(&input));
+        if let Some(output) = evaluate(&input, &guards, event) {
             writer.write_all(pyjson::dumps(&output).as_bytes())?;
             writer.write_all(b"\n")?;
         }
@@ -279,6 +281,22 @@ pub(crate) fn process(
         crate::guard::launch_critical::record_invalid_input(&bytes);
     }
     Ok(())
+}
+
+/// The guards `event` runs in a session standing at `binding` (crate::fleet::runtime::binding): none at the start of a spare no launch has taken, whose context would be the spare's, and at a taken spare's `first` prompt the session-start guards before the prompt's own, so the context its start owes is produced for the session it was bound to.
+fn spare_guards(guards: &[Guard], event: &str, binding: Binding, first: impl FnOnce() -> bool) -> Vec<Guard> {
+    match (event, binding) {
+        ("SessionStart", Binding::Awaited) => Vec::new(),
+        ("UserPromptSubmit", Binding::Written) if first() => [HookKind::SessionStart.guards(), guards].concat(),
+        _ => guards.to_vec(),
+    }
+}
+
+/// Whether this prompt is the first of its conversation to reach the hook, marked once under the hooks' records.
+fn first_prompt(input: &HookInput) -> bool {
+    let (Some(conversation), Some(home)) = (input.data["session_id"].as_str().filter(|id| !id.is_empty() && !id.contains('/')), std::env::var_os("HOME")) else { return false };
+    let marks = std::path::Path::new(&home).join(".local/state/agents/hooks/spare-starts");
+    std::fs::create_dir_all(&marks).is_ok() && std::fs::OpenOptions::new().write(true).create_new(true).open(marks.join(conversation)).is_ok()
 }
 
 pub fn run(arguments: &[String]) -> Result<(), String> {

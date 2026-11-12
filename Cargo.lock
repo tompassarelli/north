@@ -1296,6 +1296,7 @@ dependencies = [
  "north-pace",
  "north-resume",
  "north-session-host",
+ "north-ssh-spare",
  "regex",
  "rusqlite",
  "rustix 0.38.44",
