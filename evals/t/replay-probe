@@ -36,7 +36,7 @@ case $arm in
     tool plant --turns "$turns" --session "$conv" --cwd "$ROOT" --out /dev/stdout > "$file" || fail "planting failed"
     north fleet revive "$name" >> "$W/launch.log" 2>&1 || fail "revive refused; see $W/launch.log"
     before=$(assistants "$file")
-    north fleet send "$name" "$ASK" >> "$W/launch.log" 2>&1 || fail "send refused; see $W/launch.log"
+    north fleet send --from "service:${EVAL_T_UNIT:-eval-t-replay-probe}" "$name" "$ASK" >> "$W/launch.log" 2>&1 || fail "send refused; see $W/launch.log"
     for _ in $(seq $((LIMIT / 3))); do [ "$(assistants "$file")" -gt "$before" ] && break; sleep 3; done
     answer=$(reply "$file") ;;
   t3)
