@@ -40,6 +40,13 @@ exec "$REAL_NORTH" "$@"
 
 const SCAN_STUB: &str = "printf '%s\\n' \"$*\" >>\"$STUB_TRACE\"\nexit \"${STUB_SCAN_STATUS:-0}\"\n";
 
+const GH_STUB: &str = r#"printf 'gh %s\n' "$*" >>"$STUB_TRACE"
+case "$1 $2" in
+  "workflow run") [ -z "${STUB_GH_REFUSE:-}" ] || { echo 'HTTP 403: Resource not accessible' >&2; exit 1; }; [ -n "${STUB_GH_SILENT:-}" ] || echo "https://github.com/owner/farm/actions/runs/7" ;;
+  "run view") printf '{"status":"completed","conclusion":"%s","url":"u","jobs":[]}\n' "${STUB_CONCLUSION:-success}" ;;
+esac
+"#;
+
 const LEASE_PROBE: &str = "printf 'acquire\\n' >>\"$LEASE_LOG\"\ntouch \"$LEASE_HELD\"\nstatus=0\n\"$@\" || status=$?\nrm -f \"$LEASE_HELD\"\nprintf 'release\\n' >>\"$LEASE_LOG\"\nexit \"$status\"\n";
 
 struct Fixture {
@@ -352,6 +359,62 @@ fn a_check_that_reaches_no_verdict_names_no_failed_step_for_the_sheriff_and_is_n
     assert!(!outcome.lines().any(|line| line.starts_with("failed-step\t")), "a check with no verdict was named a failing step: {outcome}");
     assert!(outcome.lines().any(|line| line.starts_with("skip\tland check ") && line.ends_with("reached no verdict (exit 75: its host or connection failed before the check reported), which is not this lane's failure")), "{outcome}");
     assert_eq!(runs(&fixture), [lane], "a check with no verdict was rerun on the base tree");
+    let farm = Fixture::new(&[("land.check", "file.txt :: north land dispatch farm")]);
+    script(&farm.path("stubs/gh"), GH_STUB);
+    let login = farm.path("home/.config/gh/hosts.yml");
+    fs::create_dir_all(login.parent().unwrap()).unwrap();
+    fs::write(&login, "github.com:\n    oauth_token: planted\n").unwrap();
+    let command = format!(r#"if cat {} >/dev/null 2>&1; then echo 'north land dispatch: {{"checks":"LEAKED"}}'; else printf 'north land dispatch: %s\n' "$(cat inputs.json)"; fi"#, login.display());
+    for (key, value) in [("dispatch.farm.command", command.as_str()), ("dispatch.farm.workflow", "farm-test.yml"), ("dispatch.farm.repository", "owner/farm"), ("dispatch.farm.input", "checks [a-z,]+")] {
+        git(&farm.repo, &["config", "--file", ".safe-push", "--add", key, value]);
+    }
+    git(&farm.repo, &["commit", "-qam", "declare the farm dispatch"]);
+    git(&farm.repo, &["push", "-q", "origin", "HEAD:main"]);
+    let main = git(&farm.repo, &["rev-parse", "HEAD"]);
+    git(&farm.repo, &["config", "--file", ".safe-push", "--add", "dispatch.farm.input", "tag .*"]);
+    fs::write(farm.repo.join("file.txt"), "lane\n").unwrap();
+    git(&farm.repo, &["commit", "-qam", "lane widens the declaration"]);
+    let lane = git(&farm.repo, &["rev-parse", "HEAD"]);
+    let dispatch = |tree: char, inputs: &str, envs: &[(&str, &str)]| {
+        fs::write(farm.repo.join("inputs.json"), inputs).unwrap();
+        let path = format!("{}:{}", farm.path("stubs").display(), std::env::var("PATH").unwrap_or_default());
+        let started = |trace: &str| trace.lines().filter(|line| line.starts_with("gh workflow run")).map(str::to_owned).collect::<Vec<_>>();
+        let before = started(&fs::read_to_string(farm.path("trace")).unwrap_or_default()).len();
+        let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
+            .current_dir(&farm.repo)
+            .args(["land", "dispatch", "farm"])
+            .env("PATH", path)
+            .env("HOME", farm.path("home"))
+            .env("XDG_STATE_HOME", farm.path("home/.local/state"))
+            .env("DEPBOX_ADMITTED", "1")
+            .env_remove("DEPBOX")
+            .env_remove("NORTH_WORKER_SANDBOXED")
+            .env("STUB_TRACE", farm.path("trace"))
+            .env("SAFE_PUSH_LAND_HEAD", &lane)
+            .env("SAFE_PUSH_LAND_BASE", &main)
+            .env("SAFE_PUSH_LAND_RUNTIME_HEAD", tree.to_string().repeat(40))
+            .envs(envs.iter().copied())
+            .output()
+            .unwrap();
+        (output, started(&fs::read_to_string(farm.path("trace")).unwrap_or_default()).split_off(before))
+    };
+    let (output, dispatched) = dispatch('1', r#"{"checks":"unit"}"#, &[]);
+    assert_eq!(output.status.code(), Some(0), "the check's command, run where the lander's GitHub login is unreadable, dispatches its declared input: {}", text(&output));
+    assert_eq!(dispatched, [format!("gh workflow run farm-test.yml -R owner/farm --ref main -f ref={lane} -f base={main} -f checks=unit")], "the lander dispatches main's repository and workflow and sets ref and base itself");
+    let (output, dispatched) = dispatch('1', r#"{"checks":"unit"}"#, &[]);
+    assert_eq!((output.status.code(), dispatched.len()), (Some(75), 0), "a second process of the same check dispatches nothing: {}", text(&output));
+    let (output, dispatched) = dispatch('2', r#"{"checks":"unit","tag":"x"}"#, &[]);
+    assert_eq!((output.status.code(), dispatched.len()), (Some(75), 0), "an input only the lane's own declaration allows dispatches nothing: {}", text(&output));
+    let (output, dispatched) = dispatch('3', r#"{"checks":"unit; rm"}"#, &[]);
+    assert_eq!((output.status.code(), dispatched.len()), (Some(75), 0), "a value outside its declared pattern dispatches nothing: {}", text(&output));
+    let (output, _) = dispatch('4', r#"{"checks":"unit"}"#, &[("STUB_GH_REFUSE", "1")]);
+    assert_eq!(output.status.code(), Some(75), "a refused dispatch never counts as passed: {}", text(&output));
+    let (output, _) = dispatch('5', r#"{"checks":"unit"}"#, &[("STUB_CONCLUSION", "cancelled")]);
+    assert_eq!(output.status.code(), Some(75), "a cancelled run never counts as passed: {}", text(&output));
+    let (output, _) = dispatch('6', r#"{"checks":"unit"}"#, &[("STUB_CONCLUSION", "failure")]);
+    assert_eq!(output.status.code(), Some(1), "a failed run is red although the check's command exits 0: {}", text(&output));
+    let (output, _) = dispatch('7', r#"{"checks":"unit"}"#, &[("STUB_GH_SILENT", "1")]);
+    assert_eq!(output.status.code(), Some(75), "a dispatch that returns no run id takes no other run of the same head for its own: {}", text(&output));
 }
 
 #[test]

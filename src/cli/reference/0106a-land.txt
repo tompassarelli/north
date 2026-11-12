@@ -1,0 +1,1 @@
+  land dispatch NAME                             Run the land-check command main's .safe-push declares under [dispatch "NAME"] in the dependency sandbox, dispatch its workflow once from the inputs it prints, and pass, fail or reach no verdict on the run that dispatch returned
