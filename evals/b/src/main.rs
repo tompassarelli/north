@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 const USAGE: &str = "usage:
   eval-b workload --seed S --count N --lander-host HOST --out DIR
-  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A] [--parent SESSION] [--hosts H,H] [--burst INITIAL:AFTER_S] [--kill-lander QUEUED:DOWN_S] [--one-message] [--model M] --work DIR --results FILE
+  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A] [--parent SESSION] [--hosts H,H] [--burst INITIAL:AFTER_S] [--kill-lander QUEUED:DOWN_S] [--model M] --work DIR --results FILE
   eval-b t3-tasks --workload DIR --count N --out FILE
   eval-b t3-rows --workload DIR --from EVAL_A_ROWS --results FILE
   eval-b summary --results FILE
@@ -80,8 +80,8 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     let stamp = proc::sh("date +%m%d-%H%M%S").out.trim().to_owned();
     let work = PathBuf::from(need(flags, "work")?).join(format!("l{level}-{stamp}"));
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-    let tasks: Vec<Value> = manifest["tasks"].as_array().into_iter().flatten().skip(first - 1).take(count).cloned().collect();
-    let plan = ladder::Plan { level, tasks, account: flags.get("account").cloned().unwrap_or_else(|| "d".to_owned()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), one_message: flags.contains_key("one-message"), model: flags.get("model").cloned().unwrap_or_else(|| ladder::PINNED_MODEL.to_owned()) };
+    let tasks: Vec<Value> = manifest["tasks"].as_array().into_iter().flatten().skip(first - 1).take(count).map(|task| ladder::unseen(task, &format!("{stamp}-l{level}"))).collect();
+    let plan = ladder::Plan { level, tasks, account: flags.get("account").cloned().unwrap_or_else(|| "d".to_owned()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), model: flags.get("model").cloned().unwrap_or_else(|| ladder::PINNED_MODEL.to_owned()) };
     let kill = pair(flags, "kill-lander")?;
     let branches: Vec<String> = plan.tasks.iter().map(|t| format!("{}-l{level}", t["id"].as_str().unwrap_or_default())).collect();
     scratch::prepare_laptop(&dir.join("repo"), &plan.hosts, &branches)?;
@@ -100,7 +100,7 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     if let Some((initial, after)) = plan.burst {
         conditions["burst"] = json!({"initial": initial, "after_s": after});
     }
-    conditions["brief"] = json!(if plan.one_message { "one-message: file contents in the brief, one shell write and the finish call in one message" } else { "plain" });
+    conditions["unseen"] = json!(format!("each task adds `export const RUN_ID = \"{stamp}-l{level}-<task>\";` to its source and its check greps for it, so no diff repeats one an earlier run handed in"));
     let stop = AtomicBool::new(false);
     let restart_log = plan.work.join("lander-restart.log");
     let (runs, outage) = std::thread::scope(|scope| {
@@ -163,12 +163,7 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(64);
     };
-    let one_message = rest.iter().any(|a| a == "--one-message");
-    let rest: Vec<String> = rest.iter().filter(|a| *a != "--one-message").cloned().collect();
-    let mut flags = flags(&rest);
-    if one_message {
-        flags.insert("one-message".to_owned(), String::new());
-    }
+    let flags = flags(rest);
     let outcome = match verb.as_str() {
         "workload" => workload(&flags),
         "ladder" => ladder(&flags, &argv),

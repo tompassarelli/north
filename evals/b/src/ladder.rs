@@ -24,7 +24,6 @@ pub struct Plan {
     pub hosts: Vec<String>,
     pub work: PathBuf,
     pub burst: Option<(usize, f64)>,
-    pub one_message: bool,
     pub model: String,
 }
 
@@ -51,22 +50,18 @@ pub fn prompt(task: &Value) -> String {
     format!("{}\n\nThe change is done when this acceptance command passes, run from the repository root: {}\n", task["text"].as_str().unwrap_or_default(), task["check"].as_str().unwrap_or_default())
 }
 
-const ONE_MESSAGE: &str = "Everything needed is above. In ONE message, write the files with one shell command, a heredoc per file with its whole contents, since the client refuses Edit and Write on a file it has not read, and call the finish tool in that same message. Read nothing and run nothing first. The finish call runs the acceptance check and returns the failure if there is one.";
-
-fn one_message(task: &Value, cwd: &str) -> String {
-    let shown: String = task["files"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(|file| format!("Current contents of {cwd}/{file}:\n```\n{}```\n\n", fs::read_to_string(Path::new(cwd).join(file)).unwrap_or_default()))
-        .collect();
-    format!("{shown}{ONE_MESSAGE}\n")
+pub fn unseen(task: &Value, nonce: &str) -> Value {
+    let id = task["id"].as_str().unwrap_or_default();
+    let line = format!("export const RUN_ID = \"{nonce}-{id}\";");
+    let mut marked = task.clone();
+    marked["text"] = json!(format!("{} Also add this line at the end of `src/{id}.ts`: `{line}`", task["text"].as_str().unwrap_or_default()));
+    marked["check"] = json!(format!("{} && grep -qF '{line}' src/{id}.ts", task["check"].as_str().unwrap_or_default()));
+    marked
 }
 
 fn launch(plan: &Plan, task: &Value, branch: &str, name: &str, wave: &'static str) -> Run {
     let cwd = scratch::worktree(branch);
-    let text = header(&plan.model) + &prompt(task) + &if plan.one_message { format!("\n{}", one_message(task, &cwd)) } else { String::new() };
+    let text = header(&plan.model) + &prompt(task);
     let tier_reason = format!("Eval B pins {} at medium for the whole ladder", plan.model);
     let args = [
         "fleet", "launch", "--provider", "claude", "--account", &plan.account, "--model", &plan.model, "--effort", EFFORT, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",

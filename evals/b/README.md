@@ -25,11 +25,11 @@ beside the repository; the runner compares each landed test file with them (the 
 4. Collects each session's record, spend and transcript, stops and forgets it, checks the landed main, writes one
    row per task to the results file and removes the scratch project from every host.
 
-Every brief carries `Needs: cpx62`, so placement prefers the build host reserved for the ladder. `--one-message`
-appends the current contents of the task's files (its source, its test and the registry when it touches it) and asks
-the worker to write them with one shell command and call the finish tool in the same message, reading and running
-nothing first; a row's `conditions.brief` names the brief and `model_requests` counts the session's distinct model
-requests. `--model M` launches every worker of the ladder on M instead of claude-opus-5-5, at the same effort and
+Every brief carries `Needs: cpx62`, so placement prefers the build host reserved for the ladder. Every task's text
+also asks for one line at the end of its source, `export const RUN_ID = "<stamp>-l<level>-<task>";`, and its
+acceptance command greps for it, so no run hands in a diff an earlier run handed in and the private-kind judge never
+answers a landing from its cache; `conditions.unseen` records it and `model_requests` counts the session's distinct
+model requests. `--model M` launches every worker of the ladder on M instead of claude-opus-5-5, at the same effort and
 with the same brief, and each row names it in `conditions.model`; its rows answer which model the harness may choose
 behind the same check, a different comparison from the pinned-model rows, and go in their own results file.
 
