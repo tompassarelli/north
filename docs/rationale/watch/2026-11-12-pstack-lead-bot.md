@@ -100,10 +100,18 @@ the weekday cadence (North's work does not keep office hours, and its per-event 
   worker at the same tier. Metric: API-equivalent spend from the follow-up's first message to its landing. Keep if
   the revived arm's median is at most the fresh arm's with no more `Not done:` reports or reverts. Not run here: it
   needs ten live follow-ups, far over 30 minutes.
-- E2, landing notices to the digest: north#1263. Frozen input: every message delivered to the proxy on 2026-11-12.
-  Metric: landing-notice wakes after which the proxy acted within 10 minutes on something the hourly digest would
-  not have shown in time. Keep the move if that count is 0. Not run here: the proxy's inbox lives on the laptop,
-  not on the build host this cycle ran on.
+- E2, landing notices to the digest: north#1263, run on 2026-11-12 on the laptop. Frozen input: every message
+  delivered to the proxy on 2026-11-12 UTC up to 05:46, the end of the proxy's transcript when it was read (the
+  `queue-operation` rows of conversation `2a5be8f1` under the claude-a profile; the held log held 0 landing
+  notices). Metric: landing-notice wakes after which the proxy acted within 10 minutes on something the hourly
+  digest would not have shown in time. Keep the move if that count is 0. Result: 509 messages from the fleet were
+  delivered; 36 came from the lander and none was a landing notice (the lander tells the lane's owner, not the
+  proxy, so the half of the move that touches `landed BRANCH as SHA` has no wakes to remove); 70 were a worker's
+  `landed <sha>` send, 69 of them opening with a sha. After 41 of those 69 the proxy sent or launched, within 10
+  minutes, a message naming that sha to a session other than the sender: a read request to the independent
+  reader of the landed commit, or a launch of a dependent follow-up box. The count is 41, not 0. Verdict: drop;
+  the wakes stay and no code is built. The 10-minute window cannot show how many of those 41 would have been
+  asked for anyway an hour later; a rerun would compare reader latency with and without the wake.
 - E3, an explicit abandoned verdict: run on 2026-11-12. Frozen input: the open north issues labelled
   `priority:now` or `priority:next` at 2026-11-12, read with `gh issue list --state open --limit 1000`. Metric: the
   share not updated in 14 days. Keep (build the verdict) if at least 5%. Result: 0 of 115 (68 now, 47 next); the
