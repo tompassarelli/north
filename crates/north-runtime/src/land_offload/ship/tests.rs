@@ -248,6 +248,17 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     let asked = fs::read_to_string(home.path().join("asked")).unwrap_or_default();
     assert!(asked.lines().any(|line| line == format!("{}|capacity offload slot record code-p-main", repo.display())), "a script that could not write its slot's record, as one run inside a session's domain cannot, asked north for no record from the main checkout, so the broker refuses every request its job makes: north was asked {asked:?}; {told}");
     assert!(!told.contains("cannot record"), "{told}");
+    let older = home.path().join("older");
+    crate::foundation::shim::write_script(&older, "echo 'usage: north capacity offload' >&2\nexit 2\n");
+    let current = home.path().join(".local/state/north/current/north");
+    fs::create_dir_all(current.parent().unwrap()).unwrap();
+    crate::foundation::shim::write_script(&current, "printf '%s|%s\\n' \"$PWD\" \"$*\" >>\"$HOME/asked-current\"\n");
+    let output = ship(Some(&older));
+    let told = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{told}");
+    let asked = fs::read_to_string(home.path().join("asked-current")).unwrap_or_default();
+    assert!(asked.lines().any(|line| line == format!("{}|capacity offload slot record code-p-main", repo.display())), "a north that predates the record verb answered with its usage and the script asked no other north for the record: {asked:?}; {told}");
+    assert!(!told.contains("cannot record"), "{told}");
 }
 
 #[test]

@@ -207,7 +207,16 @@ SCCACHE_BASEDIRS=$slot; export SCCACHE_BASEDIRS SCCACHE_SERVER_PORT
 printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
 printf '%s\n' "$owner" >"$root/$s.owner"
 placed=$HOME/@SLOT_RECORDS@
-{ mkdir -p "$placed" && printf '%s\n' "${repo#"$HOME"/}" >"$placed/$s"; } 2>/dev/null || { [ -n "${north_bin:-}" ] && (cd "$repo" && "$north_bin" capacity offload slot record "$s") </dev/null >/dev/null; } || echo "offload: cannot record $s as a slot of $repo, so the sandbox broker refuses a request this job makes" >&2
+record_slot() {
+  recorded_by=
+  for candidate in "${north_bin:-}" "${AGENT_CAPACITY_NORTH:-}" "$HOME/.local/state/north/current/north" "$(command -v north 2>/dev/null)"; do
+    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    why=$(cd "$repo" && "$candidate" capacity offload slot record "$s" 2>&1 </dev/null) && return 0
+    recorded_by=$candidate
+  done
+  return 1
+}
+{ mkdir -p "$placed" && printf '%s\n' "${repo#"$HOME"/}" >"$placed/$s"; } 2>/dev/null || record_slot || echo "offload: cannot record $s as a slot of $repo, so the sandbox broker refuses a request this job makes${recorded_by:+ ($recorded_by said: $(printf '%s' "$why" | tail -n 1))}" >&2
 # Buck2 keeps a project's daemon state in ~/.buck/buckd/<its real path>, and a daemon keeps the domain of the job that started it.
 [ -n "${nested:-}" ] || rm -rf -- "$HOME/.buck/buckd$(cd "$root" && pwd -P)/${s:?}" || echo "offload: cannot remove the Buck2 daemon state the job before left for $s" >&2
 printf '%s\n' "$$" >"$root/$s.pgid"
