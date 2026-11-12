@@ -3,12 +3,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::file_prediction;
 use crate::fleet::{brief_files, claims, proposal};
 use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
 use crate::fleet::remote::{self, HooksCheck};
-use crate::fleet::model::{Account, Effort, LaunchRequest, Role, SessionRecord, Status};
+use crate::fleet::model::{Account, Effort, LaunchRequest, Predicted, Role, SessionRecord, Status};
 use crate::fleet::runtime::{Opening, new_uuid, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
@@ -141,7 +142,7 @@ impl Fleet {
     }
 
     #[allow(clippy::too_many_arguments, reason = "the launch's parts the host start takes, each borrowed from launch_into")]
-    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck, opened: Option<NorthResult<OpenedHost>>, prompt: impl FnOnce() -> String) -> NorthResult<()> {
+    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck, opened: Option<NorthResult<OpenedHost>>, prompt: impl FnOnce() -> (String, Option<Predicted>)) -> NorthResult<()> {
         let opening = match (&request.resume, predecessor) {
             (Some(kept), Some(predecessor)) => {
                 remote::carry_conversation(self.runtime(record)?.as_ref(), request.machine.as_ref(), &self.account(&LaunchRequest { machine: request.machine.clone(), ..predecessor.record().relaunch_request() })?, account, kept)?;
@@ -156,7 +157,12 @@ impl Fleet {
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
-        self.deliver_first_turn(record, account, &prompt())
+        let (prompt, predicted) = prompt();
+        if predicted.is_some() {
+            record.predicted = predicted;
+            write_record(&self.session_dir(&request.name)?, record)?;
+        }
+        self.deliver_first_turn(record, account, &prompt)
     }
 
     /// Ends the host of a failed launch and removes its directory however far the launch got, so a host slow to show its provider's exit leaves nothing under the name; renaming it away first means a watchdog racing on the name cannot leave it half removed.
@@ -269,9 +275,9 @@ impl Fleet {
     }
 }
 
-fn first_prompt(request: &LaunchRequest, verification: bool) -> String {
+fn first_prompt(request: &LaunchRequest, verification: bool) -> (String, Option<Predicted>) {
     if request.role() != Role::Worker || request.resume.is_some() {
-        return request.prompt.clone();
+        return (request.prompt.clone(), None);
     }
     let prompt = match grounding::drawn(&request.name, now_ms()) {
         Some(arm) if !verification => grounding::stamped(&request.prompt, arm),
@@ -279,8 +285,11 @@ fn first_prompt(request: &LaunchRequest, verification: bool) -> String {
     };
     std::thread::scope(|scope| {
         let verdict = scope.spawn(|| launch_verdict(request, verification));
+        let predicted = scope.spawn(|| if verification { None } else { file_prediction::section(&prompt, &request.cwd, request.machine.as_ref(), &north_base::platform::north_binary::own_binary()) });
         let shown = brief_files::shown(&prompt, &request.cwd, request.machine.as_ref());
-        proposal::told(&shown, &verdict.join().unwrap_or(proposal::Verdict::Unasked))
+        let (guess, record) = predicted.join().unwrap_or(None).map_or((None, None), |(section, predicted)| (section, Some(predicted)));
+        let shown = guess.map_or(shown.clone(), |section| format!("{shown}\n\n{section}"));
+        (proposal::told(&shown, &verdict.join().unwrap_or(proposal::Verdict::Unasked)), record)
     })
 }
 

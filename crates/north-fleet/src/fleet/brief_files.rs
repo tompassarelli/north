@@ -19,27 +19,40 @@ const BASE: &str = "base=$(git rev-parse -q --verify 'refs/remotes/origin/main^{
 /// none or `cwd` holds no repository with a base to read.
 pub fn shown(brief: &str, cwd: &Path, machine: Option<&Machine>) -> String {
     let named = named(brief, cwd);
-    if named.is_empty() {
-        return brief.to_owned();
+    match read(&named, cwd, machine, &format!("{HEADING}, read from the lane's base commit")) {
+        Some((section, _)) => format!("{brief}\n\n{section}"),
+        None => brief.to_owned(),
     }
-    let paths = named.iter().map(|path| quote(path)).collect::<Vec<_>>().join(" ");
-    let script = format!("{BASE} && git ls-tree -z -l \"$base\" -- {paths} && printf '\\0' && git ls-tree -l \"$base\" -- {paths} | awk '$2 == \"blob\" && $4 <= {FILE_CAP} {{ print $3 }}' | git cat-file --batch");
-    let Some(listed) = run(machine, cwd, &script) else { return brief.to_owned() };
-    let Some((base, entries, batch)) = parted(&listed) else { return brief.to_owned() };
+}
+
+/// The section of the tracked files among `paths`, under the same caps as `shown`, with the paths it carries; `None`
+/// when `paths` is empty or `cwd` holds no repository with a base to read.
+pub fn read(paths: &[String], cwd: &Path, machine: Option<&Machine>, lead: &str) -> Option<(String, Vec<String>)> {
+    if paths.is_empty() {
+        return None;
+    }
+    let quoted = paths.iter().map(|path| quote(path)).collect::<Vec<_>>().join(" ");
+    let script = format!("{BASE} && git ls-tree -z -l \"$base\" -- {quoted} && printf '\\0' && git ls-tree -l \"$base\" -- {quoted} | awk '$2 == \"blob\" && $4 <= {FILE_CAP} {{ print $3 }}' | git cat-file --batch");
+    let listed = run(machine, cwd, &script)?;
+    let (base, entries, batch) = parted(&listed)?;
     let tracked: Vec<Entry> = entries.split('\0').filter_map(Entry::parse).collect();
-    let (taken, mut left) = chosen(&named, &tracked, base);
+    let (taken, mut left) = chosen(paths, &tracked, base);
     let contents = blobs(batch);
-    let mut section = format!("{HEADING}, read from the lane's base commit {base}; they need no reading:");
+    let mut section = format!("{lead} {base}; they need no reading:");
+    let mut carried = Vec::new();
     for entry in &taken {
         match contents.iter().find(|(blob, _)| *blob == entry.blob).and_then(|(_, bytes)| std::str::from_utf8(bytes).ok()) {
-            Some(text) => section.push_str(&format!("\n=== {} (blob {})\n{}", entry.path, entry.blob, text.trim_end_matches('\n'))),
+            Some(text) => {
+                section.push_str(&format!("\n=== {} (blob {})\n{}", entry.path, entry.blob, text.trim_end_matches('\n')));
+                carried.push(entry.path.clone());
+            }
             None => left.push(format!("{} is not text", entry.path)),
         }
     }
     for line in &left {
         section.push_str(&format!("\nLeft out: {line}"));
     }
-    format!("{brief}\n\n{section}")
+    Some((section, carried))
 }
 
 fn chosen<'a>(named: &[String], tracked: &'a [Entry], base: &str) -> (Vec<&'a Entry>, Vec<String>) {
@@ -80,7 +93,7 @@ impl Entry {
     }
 }
 
-fn named(brief: &str, cwd: &Path) -> Vec<String> {
+pub fn named(brief: &str, cwd: &Path) -> Vec<String> {
     let root = format!("{}/", cwd.display());
     let mut paths: Vec<String> = Vec::new();
     for word in brief.split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '`' | '(' | ')' | '"' | '\'' | '<' | '>' | '[' | ']')) {
@@ -120,7 +133,7 @@ fn blobs(batch: &[u8]) -> Vec<(String, &[u8])> {
     found
 }
 
-fn run(machine: Option<&Machine>, cwd: &Path, script: &str) -> Option<Vec<u8>> {
+pub(super) fn run(machine: Option<&Machine>, cwd: &Path, script: &str) -> Option<Vec<u8>> {
     let script = format!("cd {} && {script}", quote(&cwd.to_string_lossy()));
     let command = match machine {
         None => {

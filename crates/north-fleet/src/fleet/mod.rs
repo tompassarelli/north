@@ -2,6 +2,7 @@ pub mod audience;
 pub mod attachments;
 pub mod books;
 pub mod brief_files;
+pub mod file_prediction;
 pub mod builds;
 pub mod claims;
 pub mod detached;

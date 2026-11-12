@@ -285,6 +285,14 @@ pub fn first_item_issue(text: &str) -> Option<String> {
     item_issues(text).into_iter().next()
 }
 
+/// What a launch predicted for a brief that named no files: the files the classifier named, as the write set, and those of them the
+/// first prompt carries, as the read set.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Predicted {
+    pub writes: Vec<String>,
+    pub reads: Vec<String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SessionRecord {
     #[serde(default)]
@@ -346,6 +354,9 @@ pub struct SessionRecord {
     pub budget: Option<super::budget::Stated>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub box_name: Option<String>,
+    /// The files the launch predicted for a brief that named none: the write set the classifier named and the read set the first prompt carried (north#1234).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub predicted: Option<Predicted>,
     /// The box of its task its claim covers instead of the whole issue.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claim_box: Option<String>,
@@ -417,6 +428,7 @@ impl SessionRecord {
             prompt_sender: None,
             budget: request.budget(),
             box_name: request.box_name(),
+            predicted: None,
             claim_box: request.claimed_box(),
             other_claims: request.other_claims(),
             brief: request.brief_path(),
