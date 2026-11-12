@@ -95,7 +95,7 @@ where
     };
     schedule::execute(&plan.units, settings.in_flight, |unit| {
         let outcome = unit::run_unit(&live, unit, settings.max_reruns)?;
-        live.record_unit(unit, &outcome)
+        unit::record(&live, unit, &outcome)
     })?;
     println!(
         "run {run_id}: rows in {}",

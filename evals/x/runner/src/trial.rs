@@ -17,12 +17,17 @@ use crate::manifest::{HARBOR_COMMIT, TASKS_COMMIT, Task};
 use crate::plan::{EFFORT, Harness, MODEL, Trial};
 use crate::proc::{self, EVAL_X};
 use crate::transcript::{self, Reading};
-use crate::unit::Attempt;
 use crate::wait;
 
 const EVAL_X_BIN: &str = "/eval-x-bin";
 const TRIAL_MOUNT: &str = "/eval-x";
 const ARM_GRACE: Duration = Duration::from_secs(120);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Attempt {
+    pub rate_limited: bool,
+    pub effort: Option<String>,
+}
 
 pub struct Live<'a> {
     pub settings: &'a Settings,
@@ -41,31 +46,11 @@ impl Live<'_> {
         self.settings.work.join(name)
     }
 
-    fn record(&self, row: &Value) -> Result<()> {
+    pub fn record(&self, row: &Value) -> Result<()> {
         let mut rows = self.rows.lock().unwrap_or_else(PoisonError::into_inner);
         writeln!(rows, "{row}")?;
         println!("{row}");
         Ok(())
-    }
-
-    pub fn record_unit(
-        &self,
-        unit: &crate::plan::Unit,
-        outcome: &crate::unit::UnitOutcome,
-    ) -> Result<()> {
-        let task = unit.task();
-        self.record(&json!({
-            "kind": "unit",
-            "run": self.run_id,
-            "unit": unit.index + 1,
-            "phase": unit.trials[0].phase.label(),
-            "task": task.name,
-            "large": task.is_large(),
-            "virtual_machine": task.is_virtual_machine(),
-            "passes": outcome.passes,
-            "valid": outcome.valid,
-            "efforts": outcome.efforts,
-        }))
     }
 }
 

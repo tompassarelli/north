@@ -1,12 +1,8 @@
+use serde_json::json;
+
 use crate::error::Result;
 use crate::plan::{Trial, Unit};
-use crate::trial::Live;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Attempt {
-    pub rate_limited: bool,
-    pub effort: Option<String>,
-}
+use crate::trial::{Attempt, Live};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnitOutcome {
@@ -56,4 +52,20 @@ fn run_trial(
         }
         attempt_number += 1;
     }
+}
+
+pub fn record(live: &Live<'_>, unit: &Unit, outcome: &UnitOutcome) -> Result<()> {
+    let task = unit.task();
+    live.record(&json!({
+        "kind": "unit",
+        "run": live.run_id,
+        "unit": unit.index + 1,
+        "phase": unit.trials[0].phase.label(),
+        "task": task.name,
+        "large": task.is_large(),
+        "virtual_machine": task.is_virtual_machine(),
+        "passes": outcome.passes,
+        "valid": outcome.valid,
+        "efforts": outcome.efforts,
+    }))
 }
