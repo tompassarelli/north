@@ -1,6 +1,6 @@
 use std::process::{Command, Output, Stdio};
 
-use super::machine::{aggregate_slice, batch_slice, env, native_slice, uid};
+use super::machine::{aggregate_slice, batch_slice, env, native_slice, read_text, slice_path, uid, user_manager_cgroup};
 use crate::capacity::admission::default_mib;
 use crate::capacity::cpus::aggregate_cpus;
 
@@ -39,7 +39,28 @@ fn succeeded(output: Option<Output>) -> bool {
     output.is_some_and(|output| output.status.success())
 }
 
+/// The cgroup file a slice property is realized in and the text the kernel shows once it holds, at systemd's default 100 ms quota period.
+fn realized(property: &str) -> Option<(&'static str, String)> {
+    match property.split_once('=')? {
+        ("CPUWeight", "idle") => Some(("cpu.idle", "1".to_owned())),
+        ("CPUWeight", weight) => Some(("cpu.weight", weight.to_owned())),
+        ("IOWeight", weight) => Some(("io.weight", format!("default {weight}"))),
+        ("CPUQuota", "") => Some(("cpu.max", "max 100000".to_owned())),
+        ("CPUQuota", percent) => percent.strip_suffix('%')?.parse::<f64>().ok().filter(|percent| percent.is_finite() && *percent > 0.0).map(|percent| ("cpu.max", format!("{} 100000", (percent * 1000.0).round()))),
+        _ => None,
+    }
+}
+
+/// Whether the slice's cgroup already shows every property, so a lease whose limits hold starts no systemctl.
+pub(super) fn holds(slice: &str, properties: &[&str]) -> bool {
+    let directory = user_manager_cgroup().join(slice_path(slice));
+    properties.iter().all(|property| realized(property).is_some_and(|(file, wanted)| read_text(directory.join(file)).is_some_and(|text| text.trim() == wanted)))
+}
+
 fn set_slice(slice: &str, properties: &[&str]) -> bool {
+    if holds(slice, properties) {
+        return true;
+    }
     let mut arguments = vec!["set-property", "--runtime", slice];
     arguments.extend_from_slice(properties);
     succeeded(systemctl(true, &arguments))
