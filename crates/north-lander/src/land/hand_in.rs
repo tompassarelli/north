@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running it as the check before queueing on the would-be head's tree, keyed and recorded as the lander's own run, when the lane's checks before queueing hold that command, so the safe-push it hands the lane to reuses that run (north#1230), and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running it as the check before queueing on the would-be head's tree, keyed and recorded as the lander's own run, when the lane's checks before queueing hold that command, so the safe-push it hands the lane to reuses that run (north#1230), and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
 
 use std::fs;
 use std::io;
@@ -69,6 +69,7 @@ struct Named {
     paths: Vec<String>,
     targets: Vec<PathBuf>,
     committed: bool,
+    added: Vec<String>,
 }
 
 pub fn run(arguments: &[String], road: impl Road) -> u8 {
@@ -130,6 +131,9 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
             return 1;
         }
     };
+    if !named.added.is_empty() {
+        println!("{verb}: also landing {}, which the lane's commits change and the call did not name", named.added.join(" "));
+    }
     let head = request.check.and_then(|_| would_be(&named.lane.root, &named.message, &named.paths));
     if let Some(head) = &head {
         ask_early(&named, head.clone());
@@ -243,11 +247,13 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     if let Some((path, _)) = paths.iter().zip(&relative).find(|(path, name)| !path.exists() && !targets.contains(path) && !in_lane(&root, name, &committed)) {
         return Err(format!("{} is not in the lane: it is in neither the lane's tree nor its base, so there is no change to stage", path.display()));
     }
-    let unnamed: Vec<&str> = committed.iter().map(String::as_str).filter(|change| !relative.iter().any(|path| path == change)).collect();
-    if !unnamed.is_empty() {
-        return Err(format!("the lane's commits also change {}, which the hand-in did not name", unnamed.join(" ")));
+    let unnamed: Vec<String> = committed.iter().filter(|change| !relative.iter().any(|path| path == *change)).cloned().collect();
+    let deleted = git(&root, &["diff", "--name-only", "--diff-filter=D", &format!("refs/remotes/origin/{destination}...HEAD"), "--"])?;
+    let unnamed_deletions: Vec<&str> = unnamed.iter().map(String::as_str).filter(|change| deleted.lines().any(|line| line == *change)).collect();
+    if !unnamed_deletions.is_empty() {
+        return Err(format!("the lane's commits also delete {}, which the hand-in did not name", unnamed_deletions.join(" ")));
     }
-    Ok(Named { lane: Lane { root, destination }, message, paths: named, targets, committed: !committed.is_empty() })
+    Ok(Named { lane: Lane { root, destination }, message, paths: named, targets, committed: !committed.is_empty(), added: unnamed })
 }
 
 fn apply(named: Named, files: &[File]) -> Result<Named, String> {

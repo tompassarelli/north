@@ -116,18 +116,22 @@ fn a_hand_in_verb_call_lands_named_paths_staged_now_or_committed_first() {
     fs::write(lane.join("other.txt"), "a change committed beside it\n").unwrap();
     git(&lane, &["add", "other.txt"]);
     git(&lane, &["commit", "-qm", "Commit another change"]);
+    git(&lane, &["rm", "-q", "README"]);
+    git(&lane, &["commit", "-qm", "Delete the readme"]);
     let start = git(&lane, &["rev-parse", "HEAD"]);
     let base = git(&north.origin, &["rev-parse", "main"]);
 
     let refused = verb(&world, "Add the committed note", &[&lane.join("committed.txt")]).wait_with_output().unwrap();
     let text = report(&refused);
     assert_eq!(refused.status.code(), Some(1), "{text}");
-    assert!(text.contains("other.txt") && text.contains("NOT committed"), "{text}");
+    assert!(text.contains("delete README") && !text.contains("other.txt") && text.contains("NOT committed"), "{text}");
     assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a refused hand-in committed: {text}");
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "a refused hand-in queued: {text}");
 
-    let (output, journal) = decided(&world, &north, verb(&world, "Add the committed note (north#1158)", &[&lane.join("committed.txt"), &lane.join("other.txt")]));
+    git(&lane, &["revert", "--no-edit", "HEAD"]);
+    let (output, journal) = decided(&world, &north, verb(&world, "Add the committed note (north#1158)", &[&lane.join("committed.txt")]));
     let text = report(&output);
+    assert!(text.contains("also landing other.txt"), "the verb did not say which unnamed path it added: {text}");
     let committed_landed = git(&north.origin, &["rev-parse", "main"]);
     assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
     assert!(text.contains(&format!("Done: landed {committed_landed} on main")), "the verb did not queue the committed lane: {text}\n{journal}");
