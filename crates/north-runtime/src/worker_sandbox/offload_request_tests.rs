@@ -142,7 +142,7 @@ fn serve(root: &Path) {
     a_request_is_served_only_from_the_checkout_north_made(root, &north, &host, &worker, &mut failures);
     git_reads_the_registered_repository_when_the_lane_s_gitfile_is_rewritten_after_the_check(root, &north, &host, &worker, &mut failures);
     a_request_from_a_directory_north_cannot_place_is_refused_for_every_verb(root, &north, &host, &worker, &mut failures);
-    a_request_from_an_offload_slot_is_served_as_the_project_that_keeps_its_worktree(root, &north, &host, &worker, &mut failures);
+    a_request_from_an_offload_slot_is_served_only_as_the_project_the_offload_recorded_for_it(root, &north, &host, &worker, &mut failures);
     a_verb_that_starts_no_command_of_the_caller_s_finds_its_programs_on_the_broker_s_path(root, &north, &host, &worker, &mut failures);
     a_new_domain_s_git_grants_are_the_main_checkout_s_whatever_the_lane_s_gitfile_names(root, &mut failures);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -221,33 +221,39 @@ fn a_request_from_a_directory_north_cannot_place_is_refused_for_every_verb(root:
     std::fs::write(&pointer, made).unwrap();
 }
 
-/// The cases of a request asked from under the build offload's slots: a job in a slot the offload's script made as a worktree of the project's main checkout is served there, as the first runtime with the placement rule did not on 2026-11-12, and a directory made beside it is refused, with no `.git`, with the slot's own `.git` copied in, and as a repository of its own.
-fn a_request_from_an_offload_slot_is_served_as_the_project_that_keeps_its_worktree(root: &Path, north: &Path, host: &Host, worker: &[(String, String)], failures: &mut Vec<String>) {
-    const CASE: &str = "a_request_from_an_offload_slot_is_served_as_the_project_that_keeps_its_worktree";
-    let slots = root.join("home/.cache/land-offload");
-    let (slot, made_up) = (slots.join("code-alpha-main-5"), slots.join("made-up"));
-    std::fs::create_dir_all(made_up.join("below")).unwrap();
-    git(&root.join("home/code/alpha/main"), &["worktree", "add", "-q", "--detach", &slot.to_string_lossy()]);
-    std::fs::create_dir_all(slot.join("crates")).unwrap();
+/// The cases of a request asked from under the build offload's slots: a job in a slot the offload's script made and recorded as its project's is served there, as the first runtime with the placement rule did not on 2026-11-12, and nothing else is: the same slot before its record, a directory beside it that holds the slot's `.git`, and a directory named as another session's lane whose `.git` names that lane's worktree, with a record of that name or without, which a rule that read the directory's own `.git` served as that lane's repository.
+fn a_request_from_an_offload_slot_is_served_only_as_the_project_the_offload_recorded_for_it(root: &Path, north: &Path, host: &Host, worker: &[(String, String)], failures: &mut Vec<String>) {
+    const CASE: &str = "a_request_from_an_offload_slot_is_served_only_as_the_project_the_offload_recorded_for_it";
+    let home = root.join("home");
+    let (slots, records) = (home.join(north_base::foundation::offload::ROOT_DEFAULT), home.join(north_base::foundation::offload::SLOT_RECORDS));
+    let (slot, made_up, named_as_lane) = (slots.join("code-alpha-main-5"), slots.join("made-up"), slots.join("lane"));
+    for directory in [&made_up, &named_as_lane, &records] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    git(&home.join("code/alpha/main"), &["worktree", "add", "-q", "--detach", &slot.to_string_lossy()]);
+    std::fs::copy(slot.join(".git"), made_up.join(".git")).unwrap();
+    std::fs::copy(home.join("code/alpha/worktrees/lane/.git"), named_as_lane.join(".git")).unwrap();
     let text = |file: &str| std::fs::read_to_string(root.join(file)).unwrap_or_default();
     let verb = "depbox run -- true";
-    let (code, told) = ask(north, host, verb, &slot.join("crates"), worker);
-    let seen = text("seen");
-    if code != 0 || seen.lines().next_back().and_then(|started| started.split('|').next()) != Some(&*slot.join("crates").to_string_lossy()) {
-        failures.push(format!("{CASE}: `{verb}` asked from a job's slot was not served there: exit {code}: {told}"));
-    }
-    let mut refused = |place: &str| {
-        let (code, told) = ask(north, host, verb, &made_up.join("below"), worker);
+    let mut refused = |directory: &Path, place: &str| {
+        let seen = text("seen");
+        let (code, told) = ask(north, host, verb, directory, worker);
         if code != 126 || !told.contains("refused") || text("seen") != seen {
             failures.push(format!("{CASE}: `{verb}` asked from {place} was not refused: exit {code}: {told}"));
         }
     };
-    refused("a directory made under the slots that is no checkout");
-    std::fs::copy(slot.join(".git"), made_up.join(".git")).unwrap();
-    refused("a directory made under the slots that holds a slot's .git");
-    std::fs::remove_file(made_up.join(".git")).unwrap();
-    git(&made_up, &["init", "-q", "-b", "main"]);
-    refused("a repository made under the slots");
+    refused(&slot, "a slot the offload recorded no project for");
+    refused(&made_up, "a directory made under the slots that holds a slot's .git");
+    refused(&named_as_lane, "a directory made under the slots, named as a lane, whose .git names that lane's worktree");
+    std::fs::write(records.join("lane"), "code/alpha/main
+").unwrap();
+    refused(&named_as_lane, "a recorded slot whose name is a lane of its project");
+    std::fs::write(records.join("code-alpha-main-5"), "code/alpha/main
+").unwrap();
+    let (code, told) = ask(north, host, verb, &slot, worker);
+    if code != 0 || text("seen").lines().next_back().and_then(|started| started.split('|').next()) != Some(&*slot.to_string_lossy()) {
+        failures.push(format!("{CASE}: `{verb}` asked from a job's recorded slot was not served there: exit {code}: {told}"));
+    }
 }
 
 /// The cases of a request asked from a lane that reads another repository than its project's own, through its `.git` or its worktree's `commondir`, and of one that names another repository in its environment.

@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 pub const ROOT_ENV: &str = "NORTH_OFFLOAD_ROOT";
 pub const ROOT_DEFAULT: &str = ".cache/land-offload";
+/// Where, under the home of a build host's user, the offload's script records the checkout each slot it takes belongs to: one file a slot, named as the slot is, holding that checkout's path under the home. No worker command writes there, so the sandbox broker reads from it which project a slot is.
+pub const SLOT_RECORDS: &str = ".local/state/north/offload-slots";
 pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";

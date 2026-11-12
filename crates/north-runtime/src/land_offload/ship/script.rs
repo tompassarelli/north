@@ -204,6 +204,8 @@ case $s in @SLOT_PORTS@ esac
 SCCACHE_BASEDIRS=$slot; export SCCACHE_BASEDIRS SCCACHE_SERVER_PORT
 printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
 printf '%s\n' "$owner" >"$root/$s.owner"
+placed=$HOME/@SLOT_RECORDS@
+{ mkdir -p "$placed" && printf '%s\n' "${repo#"$HOME"/}" >"$placed/$s"; } 2>/dev/null || echo "offload: cannot record $s as a slot of $repo, so the sandbox broker refuses a request this job makes" >&2
 printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
   [ -z "${exited:-}" ] || [ -e "$exited" ] || echo 143 >"$exited" 2>/dev/null || true
@@ -477,7 +479,7 @@ pub(crate) fn jobs_part() -> String {
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
 }
 
 pub(super) fn beside_part() -> String {

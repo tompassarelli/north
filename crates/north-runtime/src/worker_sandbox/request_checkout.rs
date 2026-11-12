@@ -1,4 +1,4 @@
-//! The checkout a request to the outside broker is asked from (south#118). The process the broker starts runs as the operator outside the worker's domain, and the git it runs reads the repository its working directory names, so a request is served only from a lane or a main checkout of a project this host keeps, or from a slot the build offload made for one, and only while that checkout reads its project's own repository. A directory the broker cannot place in one is refused for every verb. Where git reads from is the repository the project's main checkout keeps, which no worker writes: a lane's own `.git` is read to refuse a request, never to name a repository.
+//! The checkout a request to the outside broker is asked from (south#118). The process the broker starts runs as the operator outside the worker's domain, and the git it runs reads the repository its working directory names, so a request is served only from a lane or a main checkout of a project this host keeps, or from a slot the build offload recorded as one's, and only while that checkout reads its project's own repository. A directory the broker cannot place in one is refused for every verb. Where git reads from is the repository the project's main checkout keeps, which no worker writes: a lane's own `.git` is read to refuse a request, never to name a repository.
 
 use std::path::{Path, PathBuf};
 
@@ -52,23 +52,35 @@ pub(super) fn registered(code: &[PathBuf], directory: &Path) -> Result<Checkout,
     }
 }
 
-/// Where this host's build offload keeps its slots: the `NORTH_OFFLOAD_ROOT` of `environment`, the broker's own, else `.cache/land-offload` under `home`, as the offload's script reads it.
-pub(super) fn slots(environment: &[(String, String)], home: &Path) -> PathBuf {
-    use north_base::foundation::offload::{ROOT_DEFAULT, ROOT_ENV};
-    environment.iter().find(|(name, value)| name == ROOT_ENV && !value.is_empty()).map_or_else(|| home.join(ROOT_DEFAULT), |(_, root)| PathBuf::from(root))
+/// This host's build offload slots: the directory that holds them (the `NORTH_OFFLOAD_ROOT` of the broker's own environment, else the default under `home`) and the one where the offload's script records the checkout each slot belongs to (land_offload/ship/script.rs), which no worker command writes.
+pub(super) struct Slots {
+    root: PathBuf,
+    records: PathBuf,
+    home: PathBuf,
 }
 
-/// The checkout a request asked from `directory` is served from, or why it is refused: the lane or main checkout `registered` places it in, else the build offload's slot under `slots` it lies in. A job the offload runs asks from its slot, which lies under no project.
-pub(super) fn served(code: &[PathBuf], slots: &Path, directory: &Path) -> Result<Checkout, String> {
-    registered(code, directory).or_else(|refusal| slot(code, slots, directory).ok_or(refusal))
+impl Slots {
+    pub(super) fn of(environment: &[(String, String)], home: &Path) -> Self {
+        use north_base::foundation::offload::{ROOT_DEFAULT, ROOT_ENV, SLOT_RECORDS};
+        let root = environment.iter().find(|(name, value)| name == ROOT_ENV && !value.is_empty()).map_or_else(|| home.join(ROOT_DEFAULT), |(_, root)| PathBuf::from(root));
+        Self { root, records: home.join(SLOT_RECORDS), home: home.to_owned() }
+    }
+
+    /// The slot `ROOT/NAME` that `directory` lies in, as a checkout of the project the offload's script recorded for that name: the record names the main checkout of a project under `code`, whose repository keeps the worktree `NAME`. The slots lie where a worker writes, so nothing in a slot is read, its `.git` least of all, and a name the project has a lane of is no slot's: that worktree is the lane's. `None` for any other directory.
+    fn checkout(&self, code: &[PathBuf], directory: &Path) -> Option<Checkout> {
+        let (real, root) = (directory.canonicalize().ok()?, self.root.canonicalize().ok()?);
+        let top = root.join(real.strip_prefix(&root).ok()?.components().next()?);
+        let name = top.file_name()?;
+        let recorded = std::fs::read_to_string(self.records.join(name)).ok()?;
+        let main = self.home.join(recorded.trim()).canonicalize().ok()?;
+        let (project, _) = code.iter().filter_map(|code| code.canonicalize().ok()).find_map(|code| self::top(&code, &main)).filter(|(project, placed)| *placed == main && main == project.join("main"))?;
+        let (_, common) = main_git_dirs(&main).filter(|_| project.join("worktrees").join(name).symlink_metadata().is_err())?;
+        let git_dir = Some(common.join("worktrees").join(name)).filter(|kept| kept.is_dir())?;
+        Some(Checkout { top, git_dir, common })
+    }
 }
 
-/// The slot `SLOTS/NAME` that `directory` lies in, as the checkout of the one project under `code` whose main checkout keeps the worktree `NAME` for it: the offload's script makes a slot with `git worktree add` in that repository (land_offload/ship/script.rs), and the slot's `.git` is read only to tell whether it leads there. `None` for a directory in no such slot, whatever its name.
-fn slot(code: &[PathBuf], slots: &Path, directory: &Path) -> Option<Checkout> {
-    let (real, slots) = (directory.canonicalize().ok()?, slots.canonicalize().ok()?);
-    let top = slots.join(real.strip_prefix(&slots).ok()?.components().next()?);
-    let read = git_dirs(&top)?;
-    let mains = code.iter().filter_map(|code| std::fs::read_dir(code.canonicalize().ok()?).ok()).flatten().flatten().map(|project| project.path().join("main"));
-    let kept = mains.filter_map(|main| main_git_dirs(&main)).map(|(_, common)| (common.join("worktrees").join(top.file_name().unwrap_or_default()), common)).find(|kept| *kept == read)?;
-    Some(Checkout { top, git_dir: kept.0, common: kept.1 })
+/// The checkout a request asked from `directory` is served from, or why it is refused: the lane or main checkout `registered` places it in, else the build offload's slot it lies in. A job the offload runs asks from its slot, which lies under no project.
+pub(super) fn served(code: &[PathBuf], slots: &Slots, directory: &Path) -> Result<Checkout, String> {
+    registered(code, directory).or_else(|refusal| slots.checkout(code, directory).ok_or(refusal))
 }

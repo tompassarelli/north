@@ -231,6 +231,7 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read_to_string(home.path().join(north_base::foundation::offload::SLOT_RECORDS).join("code-p-main")).unwrap_or_default(), "code/p/main\n", "the script recorded no checkout for the slot it took, so the sandbox broker cannot tell which project a request from it belongs to");
     assert_eq!(git(&home.path().join(".cache/land-offload/code-p-main"), &["rev-parse", "HEAD"]), head);
     assert!(half_made.is_dir(), "a fetch's auto maintenance pruned a worktree entry that has no gitdir yet, as it would one git worktree add is still creating");
 }
