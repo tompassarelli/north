@@ -134,6 +134,38 @@ impl Fixture {
         Run { status: output.status.code().unwrap_or(-1), output: format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)) }
     }
 
+    fn graph_split(&self) -> Run {
+        let probe = self.top().join("probe");
+        if !probe.exists() {
+            fs::create_dir_all(&probe).unwrap();
+            self.git_at(&probe, &["init", "-q", "-b", "main"]);
+            fs::write(probe.join("Cargo.toml"), "[package]\nname = \"probe\"\n").unwrap();
+            self.git_at(&probe, &["add", "Cargo.toml"]);
+            self.git_at(&probe, &["commit", "-qm", "probe"]);
+            self.git_at(&probe, &["remote", "add", "origin", "https://example.invalid/owner/probe.git"]);
+            fs::write(self.top().join("task.txt"), "split the probe\n").unwrap();
+            fs::create_dir_all(self.top().join("planner")).unwrap();
+            shim::write_executable(&self.top().join("planner/claude"), "#!/bin/sh\nexit 1\n");
+        }
+        let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
+            .args(["graph", "split", "--base", "main", "--task"])
+            .arg(self.top().join("task.txt"))
+            .arg("--record")
+            .arg(self.top().join("split.json"))
+            .current_dir(&probe)
+            .env("PATH", format!("{}:{}", self.top().join("planner").display(), std::env::var("PATH").unwrap_or_default()))
+            .env("AGENTS_CLAUDE_BIN", self.top().join("planner/claude"))
+            .env("HOME", self.top().join("home"))
+            .env("AGENTS_ORCHESTRATION", self.top().join("orchestration.toml"))
+            .env("XDG_STATE_HOME", self.top().join("state"))
+            .env("GIT_CONFIG_GLOBAL", self.top().join("gitconfig"))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        Run { status: output.status.code().unwrap_or(-1), output: format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)) }
+    }
+
     fn lander_queue() -> Self {
         let fixture = Self::new();
         fixture.settle(&format!("[landing]\n\tqueue = lander\n\tlander-host = {}\n\tremote-hosts = remote-host\n", local_host()), "lander queue");
@@ -189,16 +221,21 @@ fn a_lane_that_removes_a_retired_landing_queue_from_dot_safe_push_is_queued_for_
 fn a_lane_on_a_fleet_ssh_host_the_repository_does_not_list_is_queued_for_the_lander() {
     let fixture = Fixture::new();
     let host = local_host();
+    let trusted = format!("[hosts.{host}]\nssh = \"tom@{host}\"\n[placement]\npublic_repos = [\"probe\"]\n");
     fixture.settle("[landing]\n\tqueue = lander\n\tlander-host = another-host\n", "a lander elsewhere");
     fixture.work("work from a fleet host");
     let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::var("PATH").unwrap_or_default());
     assert_ne!(run.status, 0, "{}", run.output);
     assert!(run.output.contains(&format!("{host} is neither landing.lander-host")), "{}", run.output);
-    fs::write(fixture.top().join("orchestration.toml"), format!("[hosts.{host}]\nssh = \"tom@{host}\"\n")).unwrap();
+    fs::write(fixture.top().join("orchestration.toml"), &trusted).unwrap();
     let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::var("PATH").unwrap_or_default());
     assert_ne!(run.status, 0, "AGENTS_ORCHESTRATION chose the fleet file the route trusts: {}", run.output);
-    fixture.fleet(&format!("[hosts.{host}]\nssh = \"tom@{host}\"\n"));
+    let split = fixture.graph_split();
+    assert!(split.output.contains("probe is not one"), "AGENTS_ORCHESTRATION chose the fleet file the graph split's public-repository gate trusts: {}", split.output);
+    fixture.fleet(&trusted);
     let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::var("PATH").unwrap_or_default());
     assert_eq!(run.status, 0, "{}", run.output);
     assert!(run.output.contains("Done: queued (outbox)"), "{}", run.output);
+    let split = fixture.graph_split();
+    assert!(!split.output.contains("probe is not one"), "{}", split.output);
 }

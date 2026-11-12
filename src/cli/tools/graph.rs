@@ -7,7 +7,7 @@ use crate::timers::oneshot::{self, Ask};
 const PLANNING_LIMIT: Duration = Duration::from_secs(600);
 
 fn admits(repository: &str) -> bool {
-    crate::platform::orchestration::read().is_ok_and(|policy| crate::pacing::placement::gate::public(repository, &policy))
+    crate::platform::orchestration::snapshot().is_ok_and(|policy| crate::pacing::placement::gate::public(repository, &policy))
 }
 
 fn ask(question: &Question) -> Result<Answer, String> {
