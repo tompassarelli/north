@@ -226,7 +226,7 @@ impl Watch {
     }
 
     pub fn in_flight(&self) -> usize {
-        self.journaled() + self.jobs.running().len() + self.asks.running() + usize::from(self.alone.is_some())
+        self.journaled() + self.jobs.running().len() + self.asks.unread() + usize::from(self.alone.is_some())
     }
 
     pub fn adoptable(&self, lander: &Lander) -> bool {

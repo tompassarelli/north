@@ -34,6 +34,10 @@ impl Asks {
         self.asking.values().filter(|ask| !ask.answer.is_finished()).count()
     }
 
+    pub fn unread(&self) -> usize {
+        self.asking.len()
+    }
+
     pub fn settle(&mut self, lander: &Lander, tickets: Lanes, now: Duration, verdict: &Arc<Verdict>) -> Result<Lanes, String> {
         self.asking.retain(|path, _| tickets.iter().any(|(queued, ticket)| queued == path && ticket.unjudged_on.is_some()));
         self.resting.retain(|path, _| tickets.iter().any(|(queued, _)| queued == path));
