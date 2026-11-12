@@ -97,6 +97,16 @@ Each lands and is live on the runtime in under two hours.
 9. **One sort at the send path.** `sort` with the pinned rules, absorbing `page.rs` and `wakes_proxy`. Done when: an existing send-path test sends one row of each pinned kind among forty alike and repeated service rows and the coordinator receives each pinned row whole and at once. Size: 90 min.
 10. **The pushed digest.** Every 15 min, with counts and first and last times. Done when: an existing digest test shows twelve held rows of three causes arriving as one message with three lines whose counts sum to twelve, and the held log still holding all twelve. Size: 45 min.
 
+### What can be built at the same time
+
+Read from the files each slice changes:
+
+- **Now, together: 1, 2, 8 and 9.** Slice 1 adds a read-only verb over existing records, 2 changes the lifecycle kernel (`crates/north-base/src/lifecycle.rs`, its store) and the fleet tick, 8 adds a read-only verb over runs and tickets, and 9 changes the send path (`crates/north-fleet-store/src/{page,fold,alike,flood}.rs`, `crates/north-fleet-supervisor/src/fleet/registry/messages.rs`, `crates/north-fleet/src/fleet/upward.rs`). Slices 1 and 8 each add a numbered verb page under `src/cli/verbs/`, so the second to land takes the next number.
+- **After 2: 3.** It implements the kernel's new `expire` and registers its machine in `src/cli/machines.rs`, which 2 also changes.
+- **After 3 and 9: 4.** Reported is a `box-work` state, and holding or delivering a `Done:` to the coordinator is decided in `upward.rs` and `receipts.rs`, which 9 rewrites.
+- **After 3: 5, 6 and 7, together.** Queued-to-launch, the landing-side states and finished-unreviewed are `box-work` states. Slice 5 changes the launch queue and the tick's drain, 6 the lander's enqueue and verdict and the sheriff's `owner.rs`, 7 the review job (`crates/north-dispatch/src/dispatch/deepseek/review.rs`); 7 also waits for north#1231's first box, which reads the same job.
+- **After 9: 10.** The digest is the sort's digest class.
+
 ## What it would not build
 
 - A new store, a dashboard or a screen: the records live in the ledgers through the store that exists, and `north box path` and the digest are text.
