@@ -456,7 +456,7 @@ impl Fleet {
 
     fn instructions(&self, record: &SessionRecord) -> NorthResult<(String, String)> {
         let orders = self.orders().read()?;
-        let extra = record.system_prompt.as_deref().map(fs::read_to_string).transpose()?;
+        let extra = record.system_prompt.as_deref().map(|path| fs::read_to_string(path).map_err(|error| NorthError::io_at(error, || format!("reading {}", path.display())))).transpose()?;
         let inputs = PromptInputs {
             role: record.role(),
             mode: record.prompt_mode,

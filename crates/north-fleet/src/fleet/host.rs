@@ -54,7 +54,7 @@ impl Host {
     }
 
     pub fn start(&self, spec: &HostSpec, provider: &ProviderName, idle_exit: Option<Duration>, served_by: &str) -> NorthResult<u32> {
-        fs::create_dir_all(&self.dir)?;
+        fs::create_dir_all(&self.dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", self.dir.display())))?;
         if self.dir.join(SOCKET).is_dir() {
             return Err(NorthError::Refused(format!("{} is held by an interactive window; the fleet starts no host there", self.dir.display())));
         }
@@ -63,9 +63,9 @@ impl Host {
         }
         let socket = self.socket_path();
         let _ = fs::remove_file(&socket);
-        fs::write(self.dir.join(SERVED_BY), served_by)?;
+        fs::write(self.dir.join(SERVED_BY), served_by).map_err(|error| NorthError::io_at(error, || format!("writing {}", self.dir.join(SERVED_BY).display())))?;
         let unit = session_scope::session_unit(provider.label(), &new_uuid()?);
-        fs::write(session_host_files::scope_path(&self.dir), &unit)?;
+        fs::write(session_host_files::scope_path(&self.dir), &unit).map_err(|error| NorthError::io_at(error, || format!("writing {}", session_host_files::scope_path(&self.dir).display())))?;
         let mut command = Command::new(binary("setsid"));
         command
             .arg(binary("systemd-run"))
@@ -97,7 +97,7 @@ impl Host {
         }
         command.env("NORTH_FLEET_SCOPE", &unit);
         let _ = fs::remove_file(session_host_files::pid_path(&self.dir));
-        let pid = command.spawn()?.id();
+        let pid = command.spawn().map_err(|error| NorthError::io_at(error, || format!("starting the session host in {}", spec.cwd.display())))?.id();
         if let Err(error) = self.await_socket(pid) {
             self.terminate()?;
             return Err(error);
@@ -109,7 +109,8 @@ impl Host {
         if frames.is_empty() {
             return Ok(());
         }
-        let stream = UnixStream::connect(self.socket())?;
+        let socket = self.socket();
+        let stream = UnixStream::connect(&socket).map_err(|error| NorthError::io_at(error, || format!("connecting to {}", socket.display())))?;
         stream.set_read_timeout(Some(REPLY_WAIT))?;
         let mut writer = &stream;
         let mut replies = BufReader::new(&stream);

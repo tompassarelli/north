@@ -99,7 +99,7 @@ impl Fleet {
                     self.abandon_early(opened, session_dir);
                     return Err(error);
                 }
-                let brought = fs::create_dir_all(session_dir).map_err(NorthError::from).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, opened, || shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))));
+                let brought = fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, opened, || shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))));
                 let Err(error) = brought else {
                     if let Err(error) = self.inherit_workers(request, &record) {
                         eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());

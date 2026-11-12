@@ -6,6 +6,7 @@ use std::io;
 #[derive(Debug)]
 pub enum NorthError {
     Io(io::Error),
+    IoAt { at: String, error: io::Error },
     Json(serde_json::Error),
     Usage(String),
     Configuration(String),
@@ -18,6 +19,10 @@ pub enum NorthError {
 }
 
 impl NorthError {
+    pub fn io_at(error: io::Error, at: impl FnOnce() -> String) -> Self {
+        Self::IoAt { at: at(), error }
+    }
+
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::Usage(_) => 2,
@@ -45,6 +50,7 @@ impl fmt::Display for NorthError {
         match self {
             Self::Usage(message) | Self::Refused(message) | Self::Rejected(message) | Self::Saturated(message) => formatter.write_str(message),
             Self::Io(error) => write!(formatter, "I/O failed: {error}"),
+            Self::IoAt { at, error } => write!(formatter, "I/O failed while {at}: {error}"),
             Self::Json(error) => write!(formatter, "JSON failed: {error}"),
             Self::Configuration(message) => {
                 write!(formatter, "North configuration failed: {message}")
@@ -59,7 +65,7 @@ impl fmt::Display for NorthError {
 impl Error for NorthError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Io(error) => Some(error),
+            Self::Io(error) | Self::IoAt { error, .. } => Some(error),
             Self::Json(error) => Some(error),
             _ => None,
         }
