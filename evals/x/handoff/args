@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+here=$(dirname "$(readlink -f "$0")")
+work=${EVAL_X_WORK:-/tmp/eval-x}
+mkdir -p "$work/bin"
+cmp -s "$here/stub.sh" "$work/bin/stub.sh" 2> /dev/null || cp "$here/stub.sh" "$work/bin/stub.sh"
+printf '%s\n' \
+  --agent acp \
+  --ak 'registry_entry={"id":"eval-x-handoff","name":"Eval X trial hand-off","version":"0.1.0","description":"Answers the agent protocol and hands the instruction to the host through the trial directory","distribution":{"local":{"cmd":"sh","args":["/eval-x-bin/stub.sh"]}}}' \
+  --ak distribution_preference=local \
+  --ak auth_policy=disabled
