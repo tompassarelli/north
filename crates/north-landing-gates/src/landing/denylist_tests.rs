@@ -33,12 +33,27 @@ fn denylist_south_rules_come_from_origin_main_not_the_checkout() {
     commit_all(origin, "new rules");
     let holder = tempfile::tempdir().unwrap();
     let mirror = holder.path().join("mirror.git");
-    let rules = south_denylist_in(south.path(), &mirror).unwrap();
+    let rules = south_denylist_in(south.path(), &mirror, None).unwrap();
     assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n");
     assert_eq!(std::fs::read_to_string(main.join("privacy/public-denylist.toml")).unwrap(), "stale = true\n");
+    let (holders, url) = (holder.path().join("holders"), origin.to_string_lossy().into_owned());
+    let (serving, asked) = ((holders.clone(), url.clone()), origin.to_owned());
+    std::thread::spawn(move || super::holder::serve(&serving.0, &serving.1, move || git(&asked, &["rev-parse", "refs/heads/main"]).ok().map(|oid| oid.trim().to_owned()), || None));
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(10), || super::holder::ask(&holders, &url, "0").ne(&super::holder::Answer::Absent)), "the holder never listened");
+    let stamp = mirror.join("north-last-fetch");
+    std::fs::remove_file(&stamp).unwrap();
+    let rules = south_denylist_in(south.path(), &mirror, Some(&holders)).unwrap();
+    assert_eq!((std::fs::read_to_string(rules.path()).unwrap().as_str(), stamp.exists()), ("fresh = true\n", false), "a source its holder confirms unchanged is scanned from the mirror without a fetch");
+    write(origin, "privacy/public-denylist.toml", "moved = true\n");
+    commit_all(origin, "moved rules");
+    let rules = south_denylist_in(south.path(), &mirror, Some(&holders)).unwrap();
+    assert_eq!((std::fs::read_to_string(rules.path()).unwrap().as_str(), stamp.exists()), ("moved = true\n", true), "a source whose ref moved is fetched");
+    std::fs::remove_file(&stamp).unwrap();
+    let rules = south_denylist_in(south.path(), &mirror, Some(&holder.path().join("no-holder"))).unwrap();
+    assert_eq!((std::fs::read_to_string(rules.path()).unwrap().as_str(), stamp.exists()), ("moved = true\n", true), "with no holder answering the scan fetches as before");
     git(origin, &["rm", "-q", "privacy/public-denylist.toml"]).unwrap();
     commit_all(origin, "drop rules");
-    assert!(south_denylist_in(south.path(), &mirror).unwrap_err().to_string().contains("missing"));
+    assert!(south_denylist_in(south.path(), &mirror, None).unwrap_err().to_string().contains("missing"));
 }
 
 fn crc32(bytes: &[u8]) -> u32 {
@@ -140,7 +155,7 @@ fn denylist_a_stale_lock_in_the_south_checkout_neither_blocks_nor_is_touched_by_
     write(&main, ".git/refs/remotes/origin/main.lock", "");
     let (status, held_refs) = (git(&main, &["status", "--porcelain"]).unwrap(), refs(&main));
     let mirror = tempfile::tempdir().unwrap();
-    let rules = south_denylist_in(south.path(), &mirror.path().join("south-denylist.git")).unwrap();
+    let rules = south_denylist_in(south.path(), &mirror.path().join("south-denylist.git"), None).unwrap();
     let findings = plant(rules.path());
     assert!(findings.contains("fake-private-term in notes.txt"), "{findings:?}");
     assert_eq!(git(&main, &["status", "--porcelain"]).unwrap(), status);
@@ -158,12 +173,12 @@ fn denylist_a_failed_fetch_scans_the_last_copy_and_with_no_copy_reports_no_verdi
     south_clone(origin, south.path());
     let mirrors = tempfile::tempdir().unwrap();
     let (cold, warm) = (mirrors.path().join("cold.git"), mirrors.path().join("warm.git"));
-    assert!(south_denylist_in(south.path(), &warm).is_ok());
+    assert!(south_denylist_in(south.path(), &warm, None).is_ok());
     git(&south.path().join("main"), &["remote", "set-url", "origin", &south.path().join("gone").to_string_lossy()]).unwrap();
-    let copy = south_denylist_in(south.path(), &warm).unwrap();
+    let copy = south_denylist_in(south.path(), &warm, None).unwrap();
     assert_eq!(std::fs::read_to_string(copy.path()).unwrap(), PLANTED_RULES);
     assert!(!plant(copy.path()).is_empty(), "a private value still refuses on the last copy");
-    assert!(matches!(south_denylist_in(south.path(), &cold), Err(Fault::Unavailable(_))), "no copy means no verdict, not a refusal");
+    assert!(matches!(south_denylist_in(south.path(), &cold, None), Err(Fault::Unavailable(_))), "no copy means no verdict, not a refusal");
 }
 
 #[test]
@@ -176,14 +191,14 @@ fn denylist_a_stale_lock_in_the_mirror_is_recovered_and_the_rules_refresh() {
     south_clone(origin, south.path());
     let holder = tempfile::tempdir().unwrap();
     let mirror = holder.path().join("south-denylist.git");
-    assert!(south_denylist_in(south.path(), &mirror).is_ok());
+    assert!(south_denylist_in(south.path(), &mirror, None).is_ok());
     write(&mirror, "refs/south/main.lock", "");
     write(&mirror, "north-fetch.lock", "");
     let hour_ago = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
     std::fs::File::options().write(true).open(mirror.join("north-fetch.lock")).unwrap().set_modified(hour_ago).unwrap();
     write(origin, "privacy/public-denylist.toml", "fresh = true\n");
     commit_all(origin, "new rules");
-    let rules = south_denylist_in(south.path(), &mirror).unwrap();
+    let rules = south_denylist_in(south.path(), &mirror, None).unwrap();
     assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n");
 }
 

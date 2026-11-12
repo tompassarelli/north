@@ -1,0 +1,1 @@
+  denylist hold SOUTH_DIR                       Keep a connection to the deny-list source open so a scan asks whether its ref moved instead of fetching, stopping 10 min after the last question or when the runtime changes
