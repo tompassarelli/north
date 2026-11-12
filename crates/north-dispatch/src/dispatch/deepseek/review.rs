@@ -22,6 +22,7 @@ use std::time::Duration;
 
 const QUEUED: &str = "deepseek-reviews.jsonl";
 const REQUEUE_S: f64 = 30.0 * 60.0;
+const RETRY_S: f64 = 60.0 * 60.0;
 const GIT_WAIT: Duration = Duration::from_secs(60);
 const LANDING_LABEL: &str = "area:landing";
 const RESTING: [&str; 2] = ["idle", "parked"];
@@ -110,9 +111,12 @@ struct Queued {
     name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     left: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    failed: Option<String>,
 }
 
-/// The sessions the review record names: within `REQUEUE_S`, so one Done report queues one job, and ever.
+/// The sessions the review record names: queued within `REQUEUE_S`, so one Done report queues one job, or failed within
+/// `RETRY_S`, so a failing job yields its turn to the sessions behind it; and queued or left ever.
 #[derive(Clone, Debug, Default)]
 pub struct Marked {
     pub recent: BTreeSet<String>,
@@ -123,13 +127,14 @@ pub struct Marked {
 pub fn queued(directory: &Path, at: f64) -> Marked {
     let text = std::fs::read_to_string(directory.join(QUEUED)).unwrap_or_default();
     let marks: Vec<Queued> = text.lines().filter_map(|line| serde_json::from_str::<Queued>(line).ok()).collect();
-    Marked { recent: marks.iter().filter(|queued| at - queued.at < REQUEUE_S).map(|queued| queued.name.clone()).collect(), ever: marks.into_iter().map(|queued| queued.name).collect() }
+    let within = |queued: &&Queued| at - queued.at < if queued.failed.is_some() { RETRY_S } else { REQUEUE_S };
+    Marked { recent: marks.iter().filter(within).map(|queued| queued.name.clone()).collect(), ever: marks.into_iter().filter(|queued| queued.failed.is_none()).map(|queued| queued.name).collect() }
 }
 
-fn mark(directory: &Path, name: &str, at: f64, left: Option<&str>) -> Result<(), String> {
+fn mark(directory: &Path, name: &str, at: f64, left: Option<&str>, failed: Option<&str>) -> Result<(), String> {
     std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let mut file = std::fs::OpenOptions::new().create(true).append(true).open(directory.join(QUEUED)).map_err(|error| error.to_string())?;
-    let line = format!("{}\n", serde_json::to_string(&Queued { at, name: name.to_owned(), left: left.map(str::to_owned) }).map_err(|error| error.to_string())?);
+    let line = format!("{}\n", serde_json::to_string(&Queued { at, name: name.to_owned(), left: left.map(str::to_owned), failed: failed.map(str::to_owned) }).map_err(|error| error.to_string())?);
     file.write_all(line.as_bytes()).map_err(|error| error.to_string())
 }
 
@@ -142,7 +147,7 @@ fn reported_done(report: &Value) -> bool {
 fn waits(session: &Value, marked: &Marked) -> bool {
     let name = session["name"].as_str().unwrap_or_default();
     session["provider"] == PROVIDER
-        && if session["past"] == true { session["ended"] == "retired" && !marked.ever.contains(name) } else { RESTING.contains(&session["status"].as_str().unwrap_or_default()) && !marked.recent.contains(name) }
+        && if session["past"] == true { session["ended"] == "retired" && !marked.ever.contains(name) && !marked.recent.contains(name) } else { RESTING.contains(&session["status"].as_str().unwrap_or_default()) && !marked.recent.contains(name) }
 }
 
 /// Whether `listing` holds a session of the provider that waits for its review job.
@@ -232,7 +237,7 @@ pub fn queue(found: &Found, here: &str, laptop: Option<&str>, remote: &Remote<'_
             if dry_run || !left.retired {
                 return line;
             }
-            match mark(&directory, &left.name, placement::now(), Some(&left.why)) {
+            match mark(&directory, &left.name, placement::now(), Some(&left.why), None) {
                 Ok(()) => line,
                 Err(why) => format!("{line}; not recorded: {why}"),
             }
@@ -252,9 +257,12 @@ pub fn queue(found: &Found, here: &str, laptop: Option<&str>, remote: &Remote<'_
         } else {
             remote(&done.host, &job(done))
         };
-        match ran.and_then(|()| mark(&directory, &done.name, placement::now(), None)) {
+        match ran.and_then(|()| mark(&directory, &done.name, placement::now(), None, None)) {
             Ok(()) => line,
-            Err(why) => format!("{line} failed: {why}"),
+            Err(why) => match mark(&directory, &done.name, placement::now(), None, Some(&why)) {
+                Ok(()) => format!("{line} failed, retried in an hour so the sessions behind it go first: {why}"),
+                Err(unrecorded) => format!("{line} failed: {why}; not recorded: {unrecorded}"),
+            },
         }
     }));
     if !found.done.is_empty() || !found.left.is_empty() {
@@ -386,7 +394,7 @@ pub fn brief(job_name: &str, item: &str, category: &str, box_text: Option<&str>,
         "Category: review\nItem: {item}\n{}Review and land the DeepSeek worker {job_name}'s commits in {} (head {sha}) against the box above.\n\n\
          Read `git -C {} log -p origin/main..HEAD` and the box's Done when, and run that check in the lane. Reject the commit for any of these classes:\n{classes}\n\
          If it is clean, land it with `safe-push` from the lane and run `{verdict} clean`. If you fix a real defect yourself, land the fixed lane and run `{verdict} defect CLASS`. \
-         If it cannot land, run `{verdict} defect CLASS`, which records the rejection on the lane so `north lane gc` bundles it to ~/archive/lanes with your verdict and removes it once you exit, and report Not done naming the class; dispatch then gives the box to Claude.\n",
+         If it cannot land, run `{verdict} defect CLASS`, which records the rejection on the lane so `north lane gc` bundles it to the lane archive with your verdict and removes it once you exit, and report Not done naming the class; dispatch then gives the box to Claude.\n",
         box_text.map_or_else(String::new, |text| format!("Box: {text}\n")),
         lane.display(),
         lane.display(),

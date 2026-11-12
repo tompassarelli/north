@@ -230,22 +230,24 @@ fn a_resting_session_on_a_build_host_that_reported_done_gets_a_review_job_and_on
     let held = |name: &str, status: &str, past: bool, item: &str| json!({"name": name, "provider": "opencode", "status": status, "machine": "cpx62b", "past": past, "ended": if past { "retired" } else { "" }, "tasks": [item], "box": "the box"});
     let said = |text: &str, ended_ms: u64| json!({"entries": [{"kind": "assistant", "text": text}], "turns": [{"ended_ms": ended_ms}]});
     let lists = vec![
-        ("nexus".to_owned(), json!([held("held-done", "parked", false, "north#7"), held("held-later", "idle", false, "north#7"), held("retired-done", "exited", true, "north#7"), held("retired-reviewed", "exited", true, "north#7"), held("retired-closed", "exited", true, "north#8"), held("retired-ticked", "exited", true, "north#9")])),
+        ("nexus".to_owned(), json!([held("held-done", "parked", false, "north#7"), held("held-later", "idle", false, "north#7"), held("held-last", "idle", false, "north#7"), held("retired-done", "exited", true, "north#7"), held("retired-reviewed", "exited", true, "north#7"), held("retired-closed", "exited", true, "north#8"), held("retired-ticked", "exited", true, "north#9")])),
         ("gex45".to_owned(), json!([session("on-here", "working")])),
         ("cpx62".to_owned(), json!([session("remote-done", "idle"), session("remote-busy", "idle")])),
     ];
     let read = |host: Option<&str>| match host {
-        None => Ok(json!({"held-done": said("Done: h", 300), "held-later": said("Done: l", 400), "retired-done": said("Done: r", 100), "retired-reviewed": said("Done: q", 50), "retired-closed": said("Done: c", 60), "retired-ticked": said("Done: t", 70)})),
+        None => Ok(json!({"held-done": said("Done: h", 300), "held-later": said("Done: l", 400), "held-last": said("Done: z", 500), "retired-done": said("Done: r", 100), "retired-reviewed": said("Done: q", 50), "retired-closed": said("Done: c", 60), "retired-ticked": said("Done: t", 70)})),
         Some("cpx62") => Ok(json!({"remote-done": said("Done: x", 200), "remote-busy": said("Not done: y", 10)})),
         _ => Err("unreached".to_owned()),
     };
-    let marked = review::Marked { recent: BTreeSet::new(), ever: BTreeSet::from(["retired-reviewed".to_owned()]) };
+    let record = tempfile::tempdir().unwrap();
+    std::fs::write(record.path().join("deepseek-reviews.jsonl"), "{\"at\":9990,\"name\":\"retired-reviewed\"}\n{\"at\":7300,\"name\":\"held-done\",\"failed\":\"refused\"}\n{\"at\":2800,\"name\":\"retired-done\",\"failed\":\"refused\"}\n").unwrap();
+    let marked = review::queued(record.path(), 10_000.0);
     let mut notes = Vec::new();
 
     let reports = super::reports("nexus", None, &json!(null), &lists, &marked, &read, &mut notes);
     let found = review::done(&lists, &reports, &[], &[issue("north", 7, "- [ ] the box", &[]), issue("north", 9, "- [x] the box", &[])], &marked);
 
-    assert_eq!(found.done.iter().map(|done| (done.name.as_str(), done.host.as_str())).collect::<Vec<_>>(), [("retired-done", "nexus"), ("remote-done", "cpx62"), ("held-done", "nexus"), ("held-later", "nexus")], "a session the control host holds for a build host is reviewed where it is held, once even after the fleet retired it, oldest Done first");
+    assert_eq!(found.done.iter().map(|done| (done.name.as_str(), done.host.as_str())).collect::<Vec<_>>(), [("retired-done", "nexus"), ("remote-done", "cpx62"), ("held-later", "nexus"), ("held-last", "nexus")], "a session the control host holds for a build host is reviewed where it is held, once even after the fleet retired it, oldest Done first, and one whose job failed within the hour sits out that hour");
     assert_eq!(found.left.iter().map(|left| (left.name.as_str(), left.why.as_str(), left.retired)).collect::<Vec<_>>(), [("retired-closed", "north#8: its issue is not among the open issues dispatch reads", true), ("retired-ticked", "north#9: its box is ticked", true)]);
     assert!(notes.is_empty(), "{notes:?}");
     let lines = review::queue(&found, "nexus", None, &|_, _| Err("no remote run in a dry run".to_owned()), true);
@@ -256,7 +258,7 @@ fn a_resting_session_on_a_build_host_that_reported_done_gets_a_review_job_and_on
             "would leave retired-ticked on nexus: north#9: its box is ticked",
             "would review retired-done on nexus (north#7, feature)",
             "would review remote-done on cpx62 (north#7, feature)",
-            "would review held-done on nexus (north#7, feature)",
+            "would review held-later on nexus (north#7, feature)",
             "review: would queue 3 of 4 waiting, 1 left for later runs at 3 a run; would leave 2",
         ],
         "one run queues the three oldest and names the rest"
