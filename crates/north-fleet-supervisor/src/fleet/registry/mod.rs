@@ -194,6 +194,10 @@ impl Fleet {
         crate::platform::orchestration::placed_hosts(&self.policy)
     }
 
+    pub fn owners_machine(&self) -> Option<String> {
+        crate::platform::orchestration::owners_machine(&self.policy)
+    }
+
     pub fn accounts(&self) -> Vec<Account> {
         self.roster().accounts
     }

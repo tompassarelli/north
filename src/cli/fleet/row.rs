@@ -63,7 +63,7 @@ pub(in crate::cli) fn forwarded<'a>(words: &[&'a str], peer: Option<&'a str>) ->
 }
 
 fn put(peer: Option<&str>) -> NorthResult<()> {
-    let (rows, input) = admitted_put(&stdin()?, peer, ledger_sessions)?;
+    let (rows, input) = admitted_put(&stdin()?, peer, ledger_sessions, owners_machine().as_deref())?;
     match client::forward_to_ledger_host(&forwarded(FORWARDED_PUT, peer), &input)? {
         Some(0) => Ok(()),
         Some(code) => Err(NorthError::Refused(format!("the ledger host did not confirm the commit (exit {code}); retry, a row id commits once"))),
@@ -82,24 +82,24 @@ fn serve_exchange(peer: Option<&str>) -> NorthResult<()> {
     Ok(())
 }
 
-pub(in crate::cli) fn admitted_put(input: &[u8], peer: Option<&str>, sessions: impl FnOnce() -> NorthResult<Vec<SessionRow>>) -> NorthResult<(Vec<FleetRow>, Vec<u8>)> {
+pub(in crate::cli) fn admitted_put(input: &[u8], peer: Option<&str>, sessions: impl FnOnce() -> NorthResult<Vec<SessionRow>>, owner: Option<&str>) -> NorthResult<(Vec<FleetRow>, Vec<u8>)> {
     let rows = FleetRow::parse(input)?;
     let Some(peer) = peer else { return Ok((rows, input.to_vec())) };
-    let rows = peer_row::admit_all(&rows, peer, &sessions()?)?;
+    let rows = peer_row::admit_all(&rows, peer, &sessions()?, owner)?;
     let input = serde_json::to_vec(&rows)?;
     Ok((rows, input))
 }
 
-pub(in crate::cli) fn admitted_exchange(input: &[u8], peer: Option<&str>, store: &Store) -> NorthResult<Exchange> {
+pub(in crate::cli) fn admitted_exchange(input: &[u8], peer: Option<&str>, store: &Store, owner: Option<&str>) -> NorthResult<Exchange> {
     let exchange: Exchange = serde_json::from_slice(input)?;
     match peer {
-        Some(peer) => peer_row::admit_exchange(exchange, peer, &store.sessions()?, now_ms()),
+        Some(peer) => peer_row::admit_exchange(exchange, peer, &store.sessions()?, owner, now_ms()),
         None => Ok(exchange),
     }
 }
 
 pub(in crate::cli) fn served_exchange(store: &mut Store, input: &[u8], peer: Option<&str>) -> NorthResult<Exchanged> {
-    let exchange = admitted_exchange(input, peer, store)?;
+    let exchange = admitted_exchange(input, peer, store, owners_machine().as_deref())?;
     let exchanged = store.exchange(&exchange)?;
     Ok(match peer {
         Some(peer) => peer_row::seen_by(exchanged, peer),
@@ -172,4 +172,8 @@ fn record(request: &WaitRequest, input: &[u8], peer: Option<&str>) -> NorthResul
         Some(code) => Err(NorthError::Refused(format!("the ledger host did not record the wait (exit {code}); retry"))),
         None => Store::open(&client::ledger_path()?)?.wait(request),
     }
+}
+
+fn owners_machine() -> Option<String> {
+    crate::platform::orchestration::owners_machine(&crate::platform::orchestration::path())
 }

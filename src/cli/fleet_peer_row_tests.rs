@@ -4,6 +4,7 @@ use crate::fleet::store::{Addressee, ControlVerb, Exchange, FleetRow, LedgerHost
 
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
 const SENT_MS: u64 = 1_793_000_000_000;
+const OWNER: Option<&str> = Some("whiterabbit");
 
 fn row(id: &str, kind: RowKind, from: &str, sender: Sender, to: &str, text: &str) -> FleetRow {
     FleetRow { id: id.into(), kind, to: to.into(), from: from.into(), urgent: true, sent_at: SENT_MS, text: text.into(), sender, gate: None, answer: None, job: None, origin: None, spooled_by: None }
@@ -50,16 +51,16 @@ fn a_gex45_put_or_exchange_refuses_spoofed_senders_control_and_gate_answers_and_
     store.exchange(&Exchange { host: "gex45".into(), sessions: vec![sessions().remove(1)], ..Exchange::default() }).unwrap();
     for attack in attacks() {
         let input = serde_json::to_vec(&attack).unwrap();
-        assert!(admitted_put(&input, Some("gex45"), || store.sessions()).is_err(), "{}", attack.id);
+        assert!(admitted_put(&input, Some("gex45"), || store.sessions(), OWNER).is_err(), "{}", attack.id);
         let exchange = serde_json::to_vec(&Exchange { host: "gex45".into(), rows: vec![attack.clone()], ..Exchange::default() }).unwrap();
-        assert!(admitted_exchange(&exchange, Some("gex45"), &store).is_err(), "{}", attack.id);
+        assert!(admitted_exchange(&exchange, Some("gex45"), &store, OWNER).is_err(), "{}", attack.id);
     }
     let spoofed_host = serde_json::to_vec(&Exchange { host: "whiterabbit".into(), rows: vec![report()], ..Exchange::default() }).unwrap();
-    assert!(admitted_exchange(&spoofed_host, Some("gex45"), &store).is_err());
-    let (rows, _) = admitted_put(&serde_json::to_vec(&report()).unwrap(), Some("gex45"), || store.sessions()).unwrap();
+    assert!(admitted_exchange(&spoofed_host, Some("gex45"), &store, OWNER).is_err());
+    let (rows, _) = admitted_put(&serde_json::to_vec(&report()).unwrap(), Some("gex45"), || store.sessions(), OWNER).unwrap();
     store.put(&rows).unwrap();
     assert_eq!(addressed_to_lead(&mut store), [FleetRow { origin: Some("gex45".into()), urgent: false, ..report() }]);
-    let (unchecked, _) = admitted_put(&serde_json::to_vec(&attacks()[2]).unwrap(), None, || store.sessions()).unwrap();
+    let (unchecked, _) = admitted_put(&serde_json::to_vec(&attacks()[2]).unwrap(), None, || store.sessions(), OWNER).unwrap();
     assert_eq!(unchecked[0].origin, None);
 }
 
@@ -77,20 +78,23 @@ fn a_gex45_job_or_gate_row_for_a_laptop_session_is_refused_and_one_for_its_own_s
     let job = crate::fleet::store::JobPayload { key: "lead-job".into(), lease_secs: Some(u64::MAX), exit: Some(0) };
     for (id, kind) in [("7-start", RowKind::JobStart), ("7-beat", RowKind::JobBeat), ("7-exit", RowKind::JobExit), ("7-gate", RowKind::Gate)] {
         let for_lead = FleetRow { job: Some(job.clone()), ..row(id, kind, "gex45", Sender::Session("gex45-worker".into()), "lead", "") };
-        assert!(admitted_put(&serde_json::to_vec(&for_lead).unwrap(), Some("gex45"), || store.sessions()).is_err(), "{id}");
+        assert!(admitted_put(&serde_json::to_vec(&for_lead).unwrap(), Some("gex45"), || store.sessions(), OWNER).is_err(), "{id}");
         let for_own = FleetRow { to: "gex45-worker".into(), ..for_lead };
-        assert!(admitted_put(&serde_json::to_vec(&for_own).unwrap(), Some("gex45"), || store.sessions()).is_ok(), "{id}");
+        assert!(admitted_put(&serde_json::to_vec(&for_own).unwrap(), Some("gex45"), || store.sessions(), OWNER).is_ok(), "{id}");
     }
 }
 
 #[test]
-fn a_gex45_gate_answer_for_a_laptop_gate_is_admitted_from_tom_or_the_askers_parent_and_refused_from_anyone_else() {
+fn a_gate_answer_from_another_host_is_admitted_as_tom_only_from_the_machine_tom_types_on_and_else_only_from_the_askers_parent() {
     let mut ledger = sessions();
     ledger[0].parent = Some("gex45-worker".into());
     let answer = |id: &str, sender: Sender| FleetRow { answer: Some(crate::fleet::store::AnswerPayload { gate: 177, number: 1 }), ..row(id, RowKind::GateAnswer, "gex45", sender, "lead", "") };
-    let admitted = crate::fleet::peer_row::admit(&answer("1794019263711-tom", Sender::Tom), "gex45", &ledger).unwrap();
-    assert_eq!((admitted.origin.as_deref(), admitted.urgent), (Some("gex45"), false));
-    assert!(crate::fleet::peer_row::admit(&answer("2-parent", Sender::Session("gex45-worker".into())), "gex45", &ledger).is_ok());
+    let refusal = crate::fleet::peer_row::admit(&answer("1794019263711-tom", Sender::Tom), "gex45", &ledger, OWNER).unwrap_err();
+    assert!(refusal.why().contains("not the machine Tom types on"), "{}", refusal.why());
+    let from_tom = FleetRow { from: "whiterabbit".into(), to: "gex45-worker".into(), ..answer("4-tom-at-his-desk", Sender::Tom) };
+    let admitted = crate::fleet::peer_row::admit(&from_tom, "whiterabbit", &ledger, OWNER).unwrap();
+    assert_eq!((admitted.origin.as_deref(), admitted.urgent), (Some("whiterabbit"), false));
+    assert!(crate::fleet::peer_row::admit(&answer("2-parent", Sender::Session("gex45-worker".into())), "gex45", &ledger, OWNER).is_ok());
     ledger[0].parent = Some("proxy".into());
-    assert!(matches!(crate::fleet::peer_row::admit(&answer("3-stranger", Sender::Session("gex45-worker".into())), "gex45", &ledger), Err(crate::fleet::peer_row::Refusal::Spoofed(_))));
+    assert!(matches!(crate::fleet::peer_row::admit(&answer("3-stranger", Sender::Session("gex45-worker".into())), "gex45", &ledger, OWNER), Err(crate::fleet::peer_row::Refusal::Spoofed(_))));
 }

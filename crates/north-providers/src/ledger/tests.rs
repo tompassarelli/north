@@ -64,6 +64,9 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_strangers_a
     let refused = answer_gate(&book, ask_once, 1, None, Authority { caller: Some("parent"), parent: Some("parent"), typed: None }, 200, |_, _| panic!("a parent answered a gate put to Tom")).unwrap_err();
     assert!(refused.to_string().contains("put to Tom"), "{refused}");
     assert!(book.gate(ask_once).unwrap().unwrap().is_open());
+    let relayed = TypedTurn { conversation: "c-0".into(), at_ms: 150 };
+    let closure = answer_gate(&book, ask_once, 1, None, Authority { caller: Some("parent"), parent: Some("parent"), typed: Some(&relayed) }, 200, |_, _| Ok(())).unwrap();
+    assert_eq!(closure.by, Answerer::Tom, "a relay of Tom's typed turn closes a gate put to Tom");
     for number in [0, 3] {
         assert!(answer_gate(&book, id, number, None, Authority { caller: Some("parent"), parent: Some("parent"), typed: None }, 200, |_, _| panic!("invalid choice delivery")).is_err());
     }

@@ -17,7 +17,8 @@ impl Refusal {
     }
 }
 
-pub fn admit(row: &FleetRow, peer: &str, ledger: &[SessionRow]) -> Result<FleetRow, Refusal> {
+/// `row` as `peer` sent it, checked against the ledger's sessions; `owner` is the machine Tom types on, the one peer whose rows may answer a gate as Tom.
+pub fn admit(row: &FleetRow, peer: &str, ledger: &[SessionRow], owner: Option<&str>) -> Result<FleetRow, Refusal> {
     if let Some(why) = row.spooled_by.as_deref().and_then(|writer| row.refused_from(writer)) {
         return Err(Refusal::Spoofed(why));
     }
@@ -28,7 +29,7 @@ pub fn admit(row: &FleetRow, peer: &str, ledger: &[SessionRow]) -> Result<FleetR
         on_peer(ledger, peer, sender).map_err(|held| refusal(held, format!("row {} names sender {sender}, which is not a session on {peer}", row.id)))?;
     }
     if row.kind == RowKind::GateAnswer {
-        answerable(row, peer, ledger)?;
+        answerable(row, peer, ledger, owner)?;
     } else if row.kind != RowKind::Message {
         on_peer(ledger, peer, &row.to).map_err(|held| refusal(held, format!("row {} is a {} for {}, which is not a session on {peer}", row.id, row.kind.label(), row.to)))?;
     }
@@ -36,13 +37,14 @@ pub fn admit(row: &FleetRow, peer: &str, ledger: &[SessionRow]) -> Result<FleetR
     Ok(FleetRow { origin: Some(peer.to_owned()), urgent, ..row.clone() })
 }
 
-fn answerable(row: &FleetRow, peer: &str, ledger: &[SessionRow]) -> Result<(), Refusal> {
+fn answerable(row: &FleetRow, peer: &str, ledger: &[SessionRow], owner: Option<&str>) -> Result<(), Refusal> {
     let Some(asker) = ledger.iter().find(|session| session.name == row.to) else {
         return Err(Refusal::Unregistered(format!("row {} answers a gate of {}, which the ledger does not list", row.id, row.to)));
     };
     match &row.sender {
+        Sender::Tom if row.spooled_by.is_none() && owner == Some(peer) => Ok(()),
+        Sender::Tom => Err(Refusal::Spoofed(format!("row {} answers a gate of {} as Tom from {peer}, which is not the machine Tom types on", row.id, row.to))),
         _ if runs_on(asker, peer) => Ok(()),
-        Sender::Tom if row.spooled_by.is_none() => Ok(()),
         Sender::Session(sender) if asker.parent.as_deref() == Some(sender.as_str()) => Ok(()),
         sender => Err(Refusal::Spoofed(format!("row {} answers a gate of {}, which runs on {}, and its sender {sender} is neither Tom nor {}'s parent", row.id, row.to, asker.host, row.to))),
     }
@@ -86,18 +88,18 @@ fn refusal(held_elsewhere: bool, why: String) -> Refusal {
     if held_elsewhere { Refusal::Spoofed(why) } else { Refusal::Unregistered(why) }
 }
 
-pub fn admit_all(rows: &[FleetRow], peer: &str, ledger: &[SessionRow]) -> NorthResult<Vec<FleetRow>> {
-    rows.iter().map(|row| admit(row, peer, ledger).map_err(|refusal| NorthError::Refused(refusal.why().to_owned()))).collect()
+pub fn admit_all(rows: &[FleetRow], peer: &str, ledger: &[SessionRow], owner: Option<&str>) -> NorthResult<Vec<FleetRow>> {
+    rows.iter().map(|row| admit(row, peer, ledger, owner).map_err(|refusal| NorthError::Refused(refusal.why().to_owned()))).collect()
 }
 
-pub fn admit_exchange(exchange: Exchange, peer: &str, ledger: &[SessionRow], now_ms: u64) -> NorthResult<Exchange> {
+pub fn admit_exchange(exchange: Exchange, peer: &str, ledger: &[SessionRow], owner: Option<&str>, now_ms: u64) -> NorthResult<Exchange> {
     if exchange.host != peer {
         return Err(NorthError::Refused(format!("an exchange from {peer} names host {}", exchange.host)));
     }
     if let Some(session) = exchange.sessions.iter().find(|session| session.host != peer) {
         return Err(NorthError::Refused(format!("an exchange from {peer} registers {} on {}", session.name, session.host)));
     }
-    let rows = admit_all(&exchange.rows, peer, ledger)?;
+    let rows = admit_all(&exchange.rows, peer, ledger, owner)?;
     let sessions: Vec<SessionRow> = exchange.sessions.into_iter().filter(|session| ledger.iter().all(|held| held.name != session.name || held.host == peer)).map(|session| stamped(session, ledger, now_ms)).collect();
     let seen: Vec<SessionRow> = ledger.iter().cloned().chain(sessions.iter().filter(|session| ledger.iter().all(|held| held.name != session.name)).cloned()).collect();
     let addressees = exchange.addressees.into_iter().filter(|addressee| on_peer(&seen, peer, &addressee.name).is_ok()).map(|addressee| floored(addressee, &seen, now_ms)).collect();

@@ -46,6 +46,14 @@ pub fn ssh_hosts(cfg: &DocumentMut) -> Vec<String> {
     hosts.filter(|(_, host)| host.get("ssh").and_then(Item::as_str).is_some()).map(|(name, _)| name.to_owned()).collect()
 }
 
+/// The machine Tom types on: the `[hosts.NAME]` table with no `ssh` destination whose `serves` names `laptop`.
+pub fn owners_machine(path: &Path) -> Option<String> {
+    let cfg: DocumentMut = std::fs::read_to_string(path).ok()?.parse().ok()?;
+    let hosts = cfg.get("hosts").and_then(Item::as_table_like)?;
+    let laptop = |host: &Item| host.get("serves").and_then(Item::as_array).is_some_and(|serves| serves.iter().any(|need| need.as_str() == Some("laptop")));
+    hosts.iter().find(|(_, host)| host.get("ssh").is_none() && laptop(host)).map(|(name, _)| name.to_owned())
+}
+
 /// The `[hosts.NAME]` tables that take other hosts' builds (`offload_builds = true`), with the ssh destination each names.
 pub fn build_hosts(cfg: &DocumentMut) -> Vec<(String, String)> {
     let hosts = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter());

@@ -19,7 +19,7 @@ pub(super) fn deliver_far(ledger: &OpenLedger, pulls: &Pulls, taken: &[Taken], k
             if registered.is_empty() {
                 return Ok(Vec::new());
             }
-            let admitted = peer_row::admit_exchange(Exchange { rows: Vec::new(), host: registered, sessions, addressees, gates, outranks: Vec::new() }, &host.name, &known, now_ms)?;
+            let admitted = peer_row::admit_exchange(Exchange { rows: Vec::new(), host: registered, sessions, addressees, gates, outranks: Vec::new() }, &host.name, &known, None, now_ms)?;
             let exchanged = ledger()?.exchange(&admitted)?;
             let rows: Vec<FleetRow> = exchanged.rows.into_iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)).collect();
             if rows.is_empty() { Ok(Vec::new()) } else { spools.deliver(&host.ssh, &rows) }
@@ -43,6 +43,7 @@ pub(super) fn take_far(fleet: &Fleet, records: &[SessionRecord], cached: Vec<Ses
     let answers = each_by("take_far", runs, Instant::now() + budget);
     let known = ledger_records(fleet, records, cached, now_ms);
     let archived: Vec<SessionRecord> = fleet.past_sessions();
+    let owner = fleet.owners_machine();
     let mut taken = Vec::new();
     for (host, answer) in hosts.into_iter().zip(answers) {
         match answer {
@@ -58,7 +59,7 @@ pub(super) fn take_far(fleet: &Fleet, records: &[SessionRecord], cached: Vec<Ses
                     }
                 }
                 for row in found.rows {
-                    let admitted = row.validate().map_err(|error| Refusal::Spoofed(format!("{}: {}", row.id, error.user_message()))).and_then(|()| peer_row::admit(&row, &host.name, &known));
+                    let admitted = row.validate().map_err(|error| Refusal::Spoofed(format!("{}: {}", row.id, error.user_message()))).and_then(|()| peer_row::admit(&row, &host.name, &known, owner.as_deref()));
                     match admitted {
                         Ok(admitted) => {
                             ids.push(admitted.id.clone());
