@@ -1,6 +1,7 @@
 mod classify;
 mod context;
 mod pin;
+mod plant;
 mod proc;
 mod row;
 mod transfer;
@@ -20,6 +21,7 @@ const USAGE: &str = "usage:
   eval-t context --transcript FILE [--bare FILE]
   eval-t transfer-fixture --state DIR
   eval-t world --checkout DIR --case ID --into DIR [--seen-at DIR]
+  eval-t plant --turns FILE --session ID --cwd DIR --out FILE
   eval-t grade --checkout DIR --grader DIR --node PROGRAM --case ID --arm NAME --transcript FILE --cwd DIR --out DIR [--stamp JSON]";
 
 fn flags(args: &[String]) -> BTreeMap<String, String> {
@@ -87,6 +89,14 @@ fn grade(flags: &BTreeMap<String, String>) -> Result<(), String> {
     Ok(())
 }
 
+fn plant(flags: &BTreeMap<String, String>) -> Result<(), String> {
+    let turns = fs::read_to_string(need(flags, "turns")?).map_err(|e| format!("--turns: {e}"))?;
+    let turns: Vec<Value> = serde_json::from_str(&turns).map_err(|e| format!("--turns: {e}"))?;
+    let transcript = plant::transcript(&turns, need(flags, "session")?, need(flags, "cwd")?)?;
+    let out = need(flags, "out")?;
+    fs::write(out, transcript).map_err(|e| format!("{out}: {e}"))
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     let Some((command, rest)) = args.split_first() else {
         return Err(USAGE.to_owned());
@@ -98,6 +108,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "context" => context(&flags),
         "transfer-fixture" => transfer::fixture(Path::new(need(&flags, "state")?)).map(|manifest| println!("{manifest:#}")),
         "world" => world::build(Path::new(need(&flags, "checkout")?), need(&flags, "case")?, Path::new(need(&flags, "into")?), flags.get("seen-at").map(String::as_str)).map(|manifest| println!("{manifest:#}")),
+        "plant" => plant(&flags),
         "grade" => grade(&flags),
         _ => Err(USAGE.to_owned()),
     }

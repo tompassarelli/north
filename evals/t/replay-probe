@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Replay probe (south#107, T-C): can a harness resume a planted two-turn Claude Code transcript through its own launch path?
+# evals/t/replay-probe north|t3 SCRATCH runs it; evals/t/replay-probe stop SCRATCH leaves nothing running. EVAL_T_ACCOUNT names the subscription account; t3 also needs EVAL_T_TOKEN_FILE.
+set -uo pipefail
+cd "$(dirname "$(readlink -f "$0")")" || exit 1
+[ $# = 2 ] || { echo "usage: evals/t/replay-probe north|t3 SCRATCH | evals/t/replay-probe stop SCRATCH" >&2; exit 2; }
+arm=$1 W=$(readlink -f "$2") ROOT=$W/repo turns=probe/turns.json
+MODEL=${EVAL_T_MODEL:-claude-opus-5-5} EFFORT=${EVAL_T_EFFORT:-medium} LIMIT=${EVAL_T_LIMIT_S:-300}
+SEED='Reply with OK only.' ASK='What is the code word I gave you? Reply with the word only.'
+tool() { cargo run -q --locked --offline -- "$@"; }
+stop() {
+  [ -f "$W/server.pid" ] && kill -- "-$(cat "$W/server.pid")" 2> /dev/null
+  while read -r name; do north fleet stop "$name" > /dev/null 2>&1; north fleet forget "$name" > /dev/null 2>&1; done < "$W/names" 2> /dev/null
+  return 0
+}
+fail() { echo "FAIL replay $arm: $1" >&2; exit 1; }
+for variable in $(compgen -e | grep -E '^(ANTHROPIC_|CLAUDE_CODE_USE_)'); do unset "$variable"; done
+[ "$arm" = stop ] && { stop; echo "stopped replay probe at $W"; exit 0; }
+mkdir -p "$ROOT" "$W/home" && git -C "$ROOT" init -q 2> /dev/null
+git -C "$ROOT" -c user.name=eval-t -c user.email=eval-t@localhost commit -q --allow-empty -m "probe world" 2> /dev/null
+assistants() { jq -s '[.[] | select(.type == "assistant")] | length' "$1" 2> /dev/null; }
+reply() { jq -rs '[.[] | select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text] | last // empty' "$1"; }
+case $arm in
+  north)
+    : "${EVAL_T_ACCOUNT:?names the subscription account, a}"
+    for variable in $(compgen -e | grep -E '^(CLAUDE|CODEX_HOME|NORTH_FLEET_)'); do unset "$variable"; done
+    export XDG_STATE_HOME=$W/state NORTH_TEST_ROOT=$W/state NORTH_FLEET_TEST=1 THREADS_DB=$W/state/threads.db
+    mkdir -p "$XDG_STATE_HOME"; north threads list > /dev/null 2>&1
+    name=evalT-probe-$$; trap stop EXIT; echo "$name" >> "$W/names"
+    north fleet launch --provider claude --account "$EVAL_T_ACCOUNT" --model "$MODEL" --effort "$EFFORT" --name "$name" --parent none --role worker --prompt north --test --cwd "$ROOT" --no-wait "$SEED" > "$W/launch.log" 2>&1 || fail "launch refused; see $W/launch.log"
+    for _ in $(seq $((LIMIT / 3))); do sleep 3; north fleet show "$name" --json 2> /dev/null | jq -e '.status != "working" and (.conversation // "") != ""' > /dev/null && break; done
+    conv=$(north fleet show "$name" --json 2> /dev/null | jq -r '.conversation // empty')
+    file=$(find "$XDG_STATE_HOME" "$HOME/.local/state/north/profiles" -name "$conv.jsonl" 2> /dev/null | head -1)
+    [ -n "$file" ] || fail "no transcript for conversation $conv"
+    north fleet stop "$name" >> "$W/launch.log" 2>&1
+    tool plant --turns "$turns" --session "$conv" --cwd "$ROOT" --out "$file" || fail "planting failed"
+    north fleet revive "$name" >> "$W/launch.log" 2>&1 || fail "revive refused; see $W/launch.log"
+    before=$(assistants "$file")
+    north fleet send "$name" "$ASK" >> "$W/launch.log" 2>&1 || fail "send refused; see $W/launch.log"
+    for _ in $(seq $((LIMIT / 3))); do [ "$(assistants "$file")" -gt "$before" ] && break; sleep 3; done
+    answer=$(reply "$file") ;;
+  t3)
+    : "${EVAL_T_TOKEN_FILE:?names a file holding the subscription OAuth token}"
+    T3=${T3_RUNTIME:-$HOME/.local/lib/t3/versions/0.1.9/t3}
+    claude=$(readlink -f "$(command -v claude)")
+    tools=$(dirname "$claude"):$(dirname "$(command -v git)"):$(dirname "$(command -v bash)")
+    cfg=$W/cfg state=$W/t3-base; mkdir -p "$cfg" "$state"; printf '{"effortLevel": "%s"}\n' "$EFFORT" > "$cfg/settings.json"
+    cli=(env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 "$T3")
+    serve() {
+      : > "$W/server.log"
+      setsid env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 CLAUDE_CONFIG_DIR="$cfg" T3CODE_TELEMETRY_ENABLED=false OTEL_SDK_DISABLED=true \
+        CLAUDE_CODE_OAUTH_TOKEN="$(cat "$EVAL_T_TOKEN_FILE")" "$T3" serve --base-dir "$state" --host 127.0.0.1 --port "$(shuf -i 38800-38999 -n 1)" --no-browser "$ROOT" > "$W/server.log" 2>&1 &
+      echo $! > "$W/server.pid"
+      for _ in $(seq 90); do grep -q 'Connection string' "$W/server.log" && return 0; sleep 1; done
+      fail "the server never came up; see $W/server.log"
+    }
+    trap stop EXIT; serve
+    "${cli[@]}" project add "$ROOT" --base-dir "$state" > "$W/project.log" 2>&1 || fail "project add failed; see $W/project.log"
+    thread=$(printf '%s' "$SEED" | timeout "$LIMIT" "${cli[@]}" thread start "$ROOT" - --provider claudeAgent --model "$MODEL" --wait --json --base-dir "$state" | jq -r '.threadId // empty')
+    [ -n "$thread" ] || fail "thread start gave no thread; see $W/server.log"
+    file=$(ls "$cfg"/projects/*/*.jsonl 2> /dev/null | head -1); [ -n "$file" ] || fail "the seed left no transcript"
+    stop; rm -f "$W/server.pid"
+    tool plant --turns "$turns" --session "$(basename "$file" .jsonl)" --cwd "$ROOT" --out "$file" || fail "planting failed"
+    serve; trap stop EXIT
+    answer=$(timeout "$LIMIT" "${cli[@]}" thread send "$thread" "$ASK" --wait --json --base-dir "$state" | jq -r '.reply // empty') ;;
+  *) fail "the arms are north and t3" ;;
+esac
+case $answer in
+  *PLUM*) echo "PASS replay $arm: resumed the planted transcript; reply: $answer" ;;
+  *) fail "the reply did not carry the planted code word; reply: ${answer:-none}" ;;
+esac

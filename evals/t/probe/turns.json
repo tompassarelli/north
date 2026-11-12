@@ -1,0 +1,6 @@
+[
+  {"role": "user", "text": "Remember this code word for later: PLUM. Reply with OK only."},
+  {"role": "assistant", "text": "OK."},
+  {"role": "user", "text": "The project is called Tidewater. Reply with OK only."},
+  {"role": "assistant", "text": "OK."}
+]
