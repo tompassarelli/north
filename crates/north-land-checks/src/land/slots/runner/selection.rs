@@ -6,7 +6,7 @@ use std::process::Command;
 
 use crate::landing::{land_test_runner, land_test_selection};
 use super::super::affected::Scope;
-use super::super::it_modules::Selection;
+use super::super::it_modules::{Selection, Stage};
 use super::super::verdict_key;
 use super::super::select::{Config, changed};
 use super::super::selection_record::Recorded;
@@ -16,10 +16,37 @@ use crate::platform::records_mirror::state_home;
 use super::{say, warn};
 use crate::platform::north_binary::land_north as program;
 
-pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str) -> (Option<Scope>, Option<String>) {
-    let (it, packages) = it_for(root, arguments, commands, recorded, runner).unzip();
-    let scope = scope_for(root, arguments, commands, recorded).map(|scope| scope.including(&packages.unwrap_or_default()));
-    (scope, it)
+pub(super) struct Selections {
+    pub(super) scope: Option<Scope>,
+    pub(super) it: Option<String>,
+    pub(super) no_test: Option<String>,
+}
+
+struct It {
+    filters: String,
+    packages: BTreeSet<String>,
+    no_test: Option<String>,
+}
+
+pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str) -> Selections {
+    let it = it_for(root, arguments, commands, recorded, runner);
+    let packages = it.as_ref().map(|it| it.packages.clone()).unwrap_or_default();
+    let scope = scope_for(root, arguments, commands, recorded).map(|scope| scope.including(&packages));
+    let no_test = it.as_ref().and_then(|it| it.no_test.clone());
+    Selections { scope, it: it.map(|it| it.filters), no_test }
+}
+
+pub(super) fn without_tests(commands: Vec<String>, reason: &str) -> Vec<String> {
+    commands
+        .into_iter()
+        .filter(|command| {
+            let tests = verdict_key::reads_it(std::slice::from_ref(command));
+            if tests {
+                say(&format!("safe-push: land check {command} runs no test after this landing, so it passes without a slot: {reason}"));
+            }
+            !tests
+        })
+        .collect()
 }
 
 fn scope_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<Scope> {
@@ -72,17 +99,18 @@ fn checked_out(root: &Path, tree: &str) -> bool {
     clean && commit("HEAD").is_some_and(|head| Some(head) == commit(tree))
 }
 
-fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str) -> Option<(String, BTreeSet<String>)> {
+fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str) -> Option<It> {
     if !verdict_key::reads_it(commands) {
         return None;
     }
     if let Some(filters) = recorded.and_then(|recorded| recorded.it.clone()) {
         say(&format!("safe-push: the after-landing tests/it run reuses the candidate's selection, {filters}"));
-        return Some((filters, BTreeSet::new()));
+        return Some(It { filters, packages: BTreeSet::new(), no_test: None });
     }
     let program = program();
     let away = Away::on(Path::new(&program), runner, &arguments.base, arguments.tree());
-    let selection = verdict_key::lane_it(root, &arguments.base, &arguments.head, &arguments.batch, away.as_ref(), commands, |error| warn(&format!("safe-push: {error}; the tests/it run covers every module")))?;
+    let stage = if arguments.after { Stage::AfterLanding(&arguments.batch) } else { Stage::BeforePush };
+    let selection = verdict_key::lane_it(root, &arguments.base, &arguments.head, stage, away.as_ref(), commands, |error| warn(&format!("safe-push: {error}; the tests/it run covers every module")))?;
     if !arguments.leased {
         say(&format!("safe-push: the tests/it run is {}", selection.summary()));
     }
@@ -90,7 +118,8 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
     Outcome(arguments.outcome.clone()).record(&[SELECTED, &arguments.base, &arguments.head, &serde_json::to_string(&selected).unwrap_or_default()]);
     let since = if let Selection::Tests(tests) = &selection { tests.unselected_since() } else { Vec::new() };
     shadow_row(arguments, &selected, &since);
-    Some((selection.arguments(), selection.packages()))
+    let no_test = if let Selection::NoTest(reason) = &selection { Some(reason.clone()) } else { None };
+    Some(It { filters: selection.arguments(), packages: selection.packages(), no_test })
 }
 
 fn selected(selection: &Selection) -> Selected {
@@ -98,6 +127,7 @@ fn selected(selection: &Selection) -> Selected {
         Selection::Every => Selected { every: true, ..Selected::default() },
         Selection::Modules { modules, units, floor } => Selected { tests: units.tests().map(str::to_owned).collect(), modules: modules.clone(), floor: floor.entries(), ..Selected::default() },
         Selection::Tests(tests) => tests.selected(),
+        Selection::NoTest(reason) => Selected { no_test: Some(reason.clone()), ..Selected::default() },
     }
 }
 

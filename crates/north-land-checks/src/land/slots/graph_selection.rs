@@ -114,8 +114,11 @@ impl Tests {
             by_binary.entry(binary.to_owned()).or_default().insert(name.to_owned());
         }
         let added = answer.added.into_iter().map(|test| (test.package, test.name)).collect();
-        let tests = Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.len(), listed: BTreeMap::new(), unknown: 0, since: answer.since.into_iter().collect() };
-        (!tests.by_binary.is_empty() || !tests.added.is_empty()).then_some(tests)
+        Some(Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.len(), listed: BTreeMap::new(), unknown: 0, since: answer.since.into_iter().collect() })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_binary.is_empty() && self.added.is_empty()
     }
 
     /// The inclusion filter's second source: every test `cargo nextest list` sees that the map does not know. `added` already names the unknown tests the change graph scanned; the listing gives each its binary, and it catches a test the scan cannot see. A test the listing does not match stays a name term, and a binary it lacks is dropped, since nextest refuses a filter naming a binary the workspace does not have. `None` when nothing was listed, so no binary the graph names can be checked, or when the resulting filter passes the limit, so the caller runs the whole closure instead.
@@ -174,7 +177,7 @@ impl Tests {
 
     pub fn selected(&self) -> Selected {
         let tests = self.by_binary.values().flatten().cloned().chain(self.units.tests().map(str::to_owned)).collect();
-        Selected { tests, added: self.added.iter().map(|(_, name)| name.clone()).collect(), modules: self.modules.clone(), floor: self.floor.entries(), every: false }
+        Selected { tests, added: self.added.iter().map(|(_, name)| name.clone()).collect(), modules: self.modules.clone(), floor: self.floor.entries(), every: false, no_test: None }
     }
 
     pub fn arguments(&self) -> String {
@@ -243,6 +246,8 @@ pub struct Selected {
     pub floor: BTreeSet<String>,
     #[serde(default)]
     pub every: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_test: Option<String>,
 }
 
 impl Selected {

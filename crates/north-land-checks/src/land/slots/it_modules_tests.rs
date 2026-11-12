@@ -53,7 +53,7 @@ fn a_lane_the_graph_traces_runs_only_its_tests_and_an_untraced_lane_runs_the_cra
     let directory = tempfile::tempdir().unwrap();
     let answer = r#"{"tests":["north::it fleet::launch::refuses_a_full_window","north-land-checks land::slots::select::tests::queues","north-coverage::pick_tests pick::regions"],"always":["north-base::bin/probe tests::reads_home"],"added":[{"package":"north-land-checks","name":"narrows_to_ids"}],"files":[],"untraced":null}"#;
     let traced = graph_stub(directory.path(), "traced", &format!("printf '%s' '{answer}'"));
-    let selection = selection_asking_with(&traced, root(), "HEAD", "HEAD", &Batch::default(), || listing(&["north::it fleet::launch::refuses_a_full_window", "north-land-checks land::slots::select::tests::queues", "north-coverage::pick_tests pick::regions", "north-base::bin/probe tests::reads_home"])).unwrap();
+    let selection = selection_asking_with(&traced, root(), "HEAD", "HEAD", Stage::BeforePush, || listing(&["north::it fleet::launch::refuses_a_full_window", "north-land-checks land::slots::select::tests::queues", "north-coverage::pick_tests pick::regions", "north-base::bin/probe tests::reads_home"])).unwrap();
     assert_eq!(
         selection.arguments(),
         "--tests -E (binary_id(north-base::bin/probe)&(test(=tests::reads_home)))|(binary_id(north-coverage::pick_tests)&(test(=pick::regions)))|(binary_id(north-land-checks)&(test(=land::slots::select::tests::queues)))|(binary_id(north::it)&(test(=fleet::launch::refuses_a_full_window)))|(package(north-land-checks)&test(/(^|::)narrows_to_ids$/))|(binary_id(north::it)&test(/^(affected_modules|agent_text_reads)::/))|(binary_id(=north-code-health)&test(=code_health::habits_tests::the_north_tree_keeps_its_rust_habits))|(binary_id(=north-land-checks)&test(=land::wall_time_tests::no_land_check_or_test_reads_wall_time_or_host_load))|(binary_id(=north-runtime)&test(=runtime::reuse::tests::every_file_a_source_embeds_at_compile_time_counts_as_a_rust_input))|(binary_id(=north-runtime)&test(=runtime::reuse::tests::no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree))",
@@ -64,7 +64,7 @@ fn a_lane_the_graph_traces_runs_only_its_tests_and_an_untraced_lane_runs_the_cra
     let crate_level = select(&read(STRUCTURE), &read(TABLE), &spawners(root()), &[]).unwrap().with_units(units(&read(tree_wide_units::TABLE), &Plan::parse(&read(STRUCTURE)).unwrap()).unwrap());
     for (name, body) in [("untraced", "echo '{\"tests\":[]}'; exit 3"), ("missing", "exit 2")] {
         let program = graph_stub(directory.path(), name, body);
-        assert_eq!(selection_asking_with(&program, root(), "HEAD", "HEAD", &Batch::default(), BTreeMap::new).unwrap(), crate_level, "a graph that answers {name} falls back to the crate-level selection");
+        assert_eq!(selection_asking_with(&program, root(), "HEAD", "HEAD", Stage::BeforePush, BTreeMap::new).unwrap(), crate_level, "a graph that answers {name} falls back to the crate-level selection");
     }
 }
 
@@ -81,14 +81,14 @@ fn every_lane_selection_names_the_tree_wide_unit_tests_the_graph_and_the_crate_f
     let untraced = graph_stub(directory.path(), "untraced", "exit 2");
     let table = read(tree_wide_units::TABLE);
     for program in [&traced, &untraced] {
-        let selection = selection_asking_with(program, root(), "HEAD", "HEAD", &Batch::default(), || listing(&["north-land-checks land::slots::select::tests::queues"])).unwrap();
+        let selection = selection_asking_with(program, root(), "HEAD", "HEAD", Stage::BeforePush, || listing(&["north-land-checks land::slots::select::tests::queues"])).unwrap();
         for test in TREE_WIDE_UNITS {
             assert!(selection.summary().contains(test), "{program:?}: the selection line names {test}: {}", selection.summary());
             assert!(table.contains(test), "{test} is declared in {}", tree_wide_units::TABLE);
         }
         assert!(selection.packages().is_superset(&["north-code-health".to_owned(), "north-runtime".to_owned()].into()), "{program:?}: their packages are built");
     }
-    let graph = selection_asking_with(&traced, root(), "HEAD", "HEAD", &Batch::default(), || listing(&["north-land-checks land::slots::select::tests::queues"])).unwrap().arguments();
+    let graph = selection_asking_with(&traced, root(), "HEAD", "HEAD", Stage::BeforePush, || listing(&["north-land-checks land::slots::select::tests::queues"])).unwrap().arguments();
     for test in TREE_WIDE_UNITS {
         assert!(graph.contains(&format!("test(={test})")), "the graph filter runs {test}: {graph}");
     }
@@ -123,7 +123,7 @@ fn every_declared_tree_wide_unit_test_still_exists_in_its_package() {
 fn a_selected_integration_binary_of_another_crate_is_built_and_run() {
     let directory = tempfile::tempdir().unwrap();
     let traced = graph_stub(directory.path(), "traced", r#"printf '%s' '{"tests":["north-lander::it land_chaos::reverts_the_red_lane"],"files":[]}'"#);
-    let selection = selection_asking_with(&traced, root(), "HEAD", "HEAD", &Batch::default(), || listing(&["north-lander::it land_chaos::reverts_the_red_lane"])).unwrap();
+    let selection = selection_asking_with(&traced, root(), "HEAD", "HEAD", Stage::BeforePush, || listing(&["north-lander::it land_chaos::reverts_the_red_lane"])).unwrap();
     let arguments = selection.arguments();
     assert!(arguments.starts_with("--tests -E "), "the tests/it binaries are built: {arguments}");
     assert!(arguments.contains("(binary_id(north-lander::it)&(test(=land_chaos::reverts_the_red_lane)))"), "the selected test runs: {arguments}");
@@ -223,7 +223,7 @@ fn a_lane_changing_only_harness_data_runs_the_tests_that_read_it() {
     assert!(commands.iter().any(|command| command.contains("SAFE_PUSH_LAND_IT")), "the Rust test check fires for a harness-data-only lane: {commands:?}");
     let answer = r#"{"tests":["north-fleet fleet::supervisor::tests::reads_defaults"],"always":[],"added":[],"files":[],"untraced":null,"known":1}"#;
     let graph = graph_stub(directory.path(), "graph", &format!("printf '%s' '{answer}'"));
-    let selection = selection_asking_with(&graph, &repo, &base, &head, &Batch::default(), || listing(&["north-fleet fleet::supervisor::tests::reads_defaults"])).unwrap();
+    let selection = selection_asking_with(&graph, &repo, &base, &head, Stage::BeforePush, || listing(&["north-fleet fleet::supervisor::tests::reads_defaults"])).unwrap();
     assert!(selection.arguments().contains("(binary_id(north-fleet)&(test(=fleet::supervisor::tests::reads_defaults)))"), "the test that reads harness/defaults.toml runs: {}", selection.arguments());
     assert!(selection.packages().contains("north-fleet"), "the package of that test is built: {:?}", selection.packages());
 
@@ -254,7 +254,7 @@ fn a_moved_module_selects_the_tests_that_reach_it() {
     let (base, head) = replay_of_the_sandbox_move(&repo);
     let answer = r#"{"tests":["north-runtime worker_sandbox::tests::lane_only_reads_the_lane","north-runtime worker_sandbox::broker::tests::answers","north-providers providers::opencode::turns::tests::a_turn_runs","north-providers providers::opencode::harness::tests::wraps"],"always":[],"added":[],"files":[],"untraced":null,"known":1151}"#;
     let graph = graph_stub(directory.path(), "graph", &format!("printf '%s' '{answer}'"));
-    let selection = selection_asking_with(&graph, &repo, &base, &head, &Batch::default(), || listing(&["north-runtime worker_sandbox::tests::lane_only_reads_the_lane", "north-runtime worker_sandbox::broker::tests::answers", "north-providers providers::opencode::turns::tests::a_turn_runs", "north-providers providers::opencode::harness::tests::wraps"])).unwrap();
+    let selection = selection_asking_with(&graph, &repo, &base, &head, Stage::BeforePush, || listing(&["north-runtime worker_sandbox::tests::lane_only_reads_the_lane", "north-runtime worker_sandbox::broker::tests::answers", "north-providers providers::opencode::turns::tests::a_turn_runs", "north-providers providers::opencode::harness::tests::wraps"])).unwrap();
     let arguments = selection.arguments();
     assert!(selection.runs_module("worker_sandbox"), "the tests/it module that spawns north and holds {SANDBOX_TEST}, which the graph does not know, runs because the lane changes crates its binary links: {arguments}");
     assert!(arguments.contains("worker_sandbox|") || arguments.contains("|worker_sandbox)") || arguments.contains("(worker_sandbox)"), "the filter names the module: {arguments}");

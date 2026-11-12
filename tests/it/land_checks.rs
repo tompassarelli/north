@@ -622,4 +622,28 @@ fn land_after_reuses_the_candidates_selection() {
     let fresh = fixture.command_between(&tip, &tip).args(["--after", "--fresh", "--command", record]).output().unwrap();
     assert_eq!(fresh.status.code(), Some(0), "the sheriff's --fresh rerun is a flag of the after-landing runner: {}", text(&fresh));
     assert_eq!(fs::read_to_string(fixture.path("seen")).unwrap().lines().count(), 3, "a --fresh after-landing run runs its check: {}", text(&fresh));
+
+    let answer = fixture.path("answer");
+    let graph = fixture.path("state/north/current/north");
+    fs::create_dir_all(graph.parent().unwrap()).unwrap();
+    script(&graph, &format!("if [ \"$1 $2 $3\" = 'graph ask affected' ]; then cat '{}'; exit 0; fi\nexec \"$REAL_NORTH\" \"$@\"\n", answer.display()));
+    fs::create_dir_all(fixture.repo.join("docs")).unwrap();
+    fs::write(fixture.repo.join("docs/a.md"), "a\n").unwrap();
+    git(&fixture.repo, &["add", "docs"]);
+    git(&fixture.repo, &["commit", "-qm", "docs"]);
+    let docs = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    fs::write(&answer, r#"{"tests":[],"always":[],"added":[],"files":["docs/a.md"],"untraced":null,"known":2}"#).unwrap();
+    let documents = fixture.command_between(&tip, &docs).args(["--after", "--command", record]).output().unwrap();
+    assert_eq!(documents.status.code(), Some(0), "a documents-only landing is green: {}", text(&documents));
+    assert_eq!(fs::read_to_string(fixture.path("seen")).unwrap().lines().count(), 3, "a documents-only landing the change graph reaches no test from runs no test: {}", text(&documents));
+    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
+    assert!(outcome.contains(r#""no_test":"the change graph reaches no test from docs/a.md""#), "the after-landing record names why no test ran: {outcome}");
+    fs::write(fixture.repo.join("crates/a/src/f.rs"), "fn f() {}\n").unwrap();
+    git(&fixture.repo, &["commit", "-qam", "source"]);
+    let source = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    fs::write(&answer, r#"{"tests":["north::it m1::t"],"always":[],"added":[],"files":["crates/a/src/f.rs"],"untraced":null,"known":2}"#).unwrap();
+    let reached = fixture.command_between(&docs, &source).args(["--after", "--command", record]).output().unwrap();
+    assert_eq!(reached.status.code(), Some(0), "{}", text(&reached));
+    let seen = fs::read_to_string(fixture.path("seen")).unwrap();
+    assert!(seen.lines().count() == 4 && seen.lines().last().is_some_and(|run| run.contains("test(/m1::/)") && !run.contains("m2::")), "a source landing runs the tests its change reaches: {seen}\n{}", text(&reached));
 }

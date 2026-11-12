@@ -6,7 +6,7 @@ use regex::Regex;
 use toml_edit::{DocumentMut, Item};
 
 use super::graph_selection::{self, Batch, Tests};
-use super::guard_suites::{Floor, Suites};
+use super::guard_suites::{self, Floor, Suites};
 use super::select::changed;
 use super::shared_build::live_runtime;
 use super::tree_wide_units::{self, Units};
@@ -22,12 +22,31 @@ pub const ROOT: &str = "north";
 const UNIT: &str = "kind(lib)|kind(bin)";
 const IT: &str = "binary_id(north::it)";
 const EVERY_IT: &str = "kind(test)";
+const SELECTION_INPUTS: [&str; 5] = [TABLE, STRUCTURE, tree_wide_units::TABLE, guard_suites::TABLE, ".safe-push"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Selection {
     Every,
     Modules { modules: BTreeSet<String>, units: Units, floor: Floor },
     Tests(Tests),
+    NoTest(String),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Stage<'a> {
+    BeforePush,
+    AfterLanding(&'a Batch),
+}
+
+static NO_BATCH: Batch = Batch { lanes: Vec::new(), ran: Vec::new() };
+
+impl Stage<'_> {
+    fn batch(&self) -> &Batch {
+        match self {
+            Self::BeforePush => &NO_BATCH,
+            Self::AfterLanding(batch) => batch,
+        }
+    }
 }
 
 impl Selection {
@@ -41,6 +60,7 @@ impl Selection {
                 format!("{}-E {filter}", if !modules.is_empty() || floor.has_it_case() { "--tests " } else { "" })
             }
             Self::Tests(tests) => tests.arguments(),
+            Self::NoTest(_) => "--tests -E none()".to_owned(),
         }
     }
 
@@ -48,6 +68,7 @@ impl Selection {
         match self {
             Self::Tests(tests) => tests.summary(),
             Self::Modules { units, floor, .. } if !units.is_empty() || !floor.is_empty() => format!("{}, and the whole packages of the tree-wide unit tests {} and of the guard suites {}", self.arguments(), units.names(), floor.names()),
+            Self::NoTest(reason) => format!("no test, since {reason}"),
             Self::Every | Self::Modules { .. } => self.arguments(),
         }
     }
@@ -57,6 +78,7 @@ impl Selection {
             Self::Every => Self::Every,
             Self::Modules { modules, floor, .. } => Self::Modules { modules, units, floor },
             Self::Tests(tests) => Self::Tests(tests.with_units(units)),
+            Self::NoTest(reason) => Self::NoTest(reason),
         }
     }
 
@@ -65,6 +87,7 @@ impl Selection {
             Self::Every => Self::Every,
             Self::Modules { modules, units, .. } => Self::Modules { modules: modules.into_iter().chain(floor.it.iter().cloned()).collect(), units, floor },
             Self::Tests(tests) => Self::Tests(tests.with_floor(floor)),
+            Self::NoTest(reason) => Self::NoTest(reason),
         }
     }
 
@@ -73,6 +96,7 @@ impl Selection {
             Self::Every => true,
             Self::Modules { modules, .. } => modules.contains(module),
             Self::Tests(tests) => tests.runs_module(module),
+            Self::NoTest(_) => false,
         }
     }
 
@@ -80,7 +104,7 @@ impl Selection {
         match self {
             Self::Tests(tests) => tests.packages(),
             Self::Modules { units, floor, .. } => units.packages().into_iter().chain(floor.packages()).collect(),
-            Self::Every => BTreeSet::new(),
+            Self::Every | Self::NoTest(_) => BTreeSet::new(),
         }
     }
 }
@@ -218,31 +242,34 @@ pub fn select(structure: &str, table: &str, spawners: &BTreeSet<String>, files: 
     Ok(if every { Selection::Every } else { Selection::Modules { modules, units: Units::default(), floor: Floor::default() } })
 }
 
-pub fn selection(root: &Path, base: &str, head: &str, batch: &Batch, away: Option<&graph_selection::Away<'_>>) -> Result<Selection, String> {
-    selection_asking(&live_runtime(), root, base, head, batch, away)
+pub fn selection(root: &Path, base: &str, head: &str, stage: Stage<'_>, away: Option<&graph_selection::Away<'_>>) -> Result<Selection, String> {
+    selection_asking(&live_runtime(), root, base, head, stage, away)
 }
 
-pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str, batch: &Batch, away: Option<&graph_selection::Away<'_>>) -> Result<Selection, String> {
-    selection_asking_with(program, root, base, head, batch, || graph_selection::list(root, away))
+pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str, stage: Stage<'_>, away: Option<&graph_selection::Away<'_>>) -> Result<Selection, String> {
+    selection_asking_with(program, root, base, head, stage, || graph_selection::list(root, away))
 }
 
 /// [`selection_asking`] with its `cargo nextest list` step injected, so a test can judge the graph answer and the inclusion filter without building the workspace.
-pub fn selection_asking_with(program: &Path, root: &Path, base: &str, head: &str, batch: &Batch, listed: impl FnOnce() -> graph_selection::ListedTests) -> Result<Selection, String> {
+pub fn selection_asking_with(program: &Path, root: &Path, base: &str, head: &str, stage: Stage<'_>, listed: impl FnOnce() -> graph_selection::ListedTests) -> Result<Selection, String> {
     let read = |path: &str| std::fs::read_to_string(root.join(path)).map_err(|error| format!("{path}: {error}"));
     let plan = Plan::parse(&read(STRUCTURE)?)?;
     let table = Table::parse(&read(TABLE)?, &plan, &spawners(root))?;
     let units = units(&read(tree_wide_units::TABLE)?, &plan)?;
     let files = changed(root, base, head, &[]);
     let floor = Suites::read(root)?.floor(&files);
-    let selection = match graph_selection::ask(program, root, base, head, batch) {
-        Some(tests) => {
+    let selection = match graph_selection::ask(program, root, base, head, stage.batch()) {
+        Some(tests) if tests.is_empty() && matches!(stage, Stage::AfterLanding(_)) && floor.is_empty() && !files.iter().any(|file| compiled(file) || SELECTION_INPUTS.contains(&file.as_str())) => {
+            return Ok(Selection::NoTest(format!("the change graph reaches no test from {}", files.join(", "))));
+        }
+        Some(tests) if !tests.is_empty() || matches!(stage, Stage::AfterLanding(_)) => {
             let compiled: Vec<String> = files.iter().filter(|file| compiled(file)).cloned().collect();
             match tests.with_listed(listed()) {
                 Some(tests) => Selection::Tests(tests.with_modules(table.tree_wide.iter().cloned().chain(reach(&plan, &table, &compiled).modules).collect())),
                 None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &files)?,
             }
         }
-        None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &files)?,
+        Some(_) | None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &files)?,
     };
     let selection = selection.with_units(units).with_floor(floor);
     if let Selection::Tests(tests) = &selection

@@ -16,7 +16,7 @@ use super::select::{Config, changed, path_class};
 use arguments::{Arguments, Environment, Outcome, parse};
 use checkout::Trees;
 use entry::{any, portable, replay, start_stage};
-use selection::{defined_on_tree, selections, without_empty_test_selections};
+use selection::{Selections, defined_on_tree, selections, without_empty_test_selections, without_tests};
 
 mod arguments;
 mod base_tests;
@@ -203,7 +203,11 @@ async fn covers(root: &Path, head: &str, code: &str) -> bool {
 
 async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environment: Environment, cancel: watch::Receiver<bool>, commands: Vec<String>) -> i32 {
     let recorded = arguments.after.then(|| selection_record::load(&arguments.head)).flatten();
-    let (scope, it) = selections(&root, &arguments, &commands, recorded.as_ref(), environment.runner.as_deref().unwrap_or_default());
+    let Selections { scope, it, no_test } = selections(&root, &arguments, &commands, recorded.as_ref(), environment.runner.as_deref().unwrap_or_default());
+    let commands = match &no_test {
+        Some(reason) => without_tests(commands, reason),
+        None => commands,
+    };
     if !arguments.after && !arguments.leased {
         selection_record::save(&arguments.head, Recorded { scope: scope.clone(), it: it.clone() });
     }
@@ -339,7 +343,7 @@ async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Con
     let host = arguments.runner_host.clone();
     let commands = { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() };
     let (_cancel_sender, cancel) = watch::channel(false);
-    let (scope, it) = selections(&root, &arguments, &commands, None, &arguments.runner_host);
+    let Selections { scope, it, .. } = selections(&root, &arguments, &commands, None, &arguments.runner_host);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let paths = path_class(&root, &arguments.base, &arguments.head);
     let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
