@@ -1,5 +1,5 @@
 mod cross_project;
-pub(crate) mod oneshot;
+pub mod oneshot;
 mod eta_calibration;
 mod fleet_session;
 mod gcroots;

@@ -5,6 +5,8 @@
 //! the gating selection while `[gate.test-selection-proof]` is in shadow. Depends on north-graph for the facts,
 //! north-coverage for hunk carrying and region selection, and north-base for check logs; nothing depends on it but
 //! the `north` binary, and the lander reaches it through the command line.
+//! `north graph split` turns a task and a base commit into boxes whose parts share no file, reading only the base
+//! tree and one planning call through the `split::Planner` port its caller fills.
 pub mod apart;
 pub mod blame;
 pub mod carry;
@@ -14,6 +16,7 @@ pub mod facts;
 pub mod lane;
 pub mod overlap;
 pub mod shadow;
+pub mod split;
 pub mod workspace;
 
 pub use cli::{VERBS, ask, run};

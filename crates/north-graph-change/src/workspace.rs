@@ -13,14 +13,14 @@ pub fn input(path: &str) -> bool {
     path == "Cargo.lock" || path == "Cargo.toml"
 }
 
-struct Package {
-    name: String,
-    source: bool,
+pub(crate) struct Package {
+    pub(crate) name: String,
+    pub(crate) source: bool,
     entry: String,
-    dependencies: Vec<String>,
+    pub(crate) dependencies: Vec<String>,
 }
 
-fn packages(text: &str) -> Result<Vec<Package>, String> {
+pub(crate) fn packages(text: &str) -> Result<Vec<Package>, String> {
     let document: DocumentMut = text.parse().map_err(|why| format!("Cargo.lock does not parse: {why}"))?;
     let Some(tables) = document.get("package").and_then(Item::as_array_of_tables) else {
         return Err("Cargo.lock lists no [[package]]".to_owned());

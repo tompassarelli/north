@@ -1,0 +1,2 @@
+  graph split [--repo DIR] [--record FILE] [--plan FILE | --prompt FILE] --base SHA (--task FILE | -)  Split a task into a first box of shared signatures, parts that share no file and a last box, from the base tree and one planning call
+  graph split --check ID --parts N [--record FILE]  Check that every part of a split landed and no stub of its first box remains on origin/main

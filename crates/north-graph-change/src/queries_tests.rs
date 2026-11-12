@@ -7,6 +7,9 @@ use crate::cone::{self, Added, Cone};
 use crate::facts::{Facts, TestId};
 use crate::lane::{Change, Changed, Status};
 use crate::overlap;
+use crate::split::base::Base;
+use crate::split::parts::{self, Refusal};
+use crate::split::plan::{Plan, Symbol};
 
 fn graph(facts: &[(&str, &str, &str)]) -> Graph {
     let mut graph = Graph::open_in_memory().unwrap();
@@ -99,7 +102,7 @@ docs/references.md cites crates/north-climb/src/lineage.rs
 }
 
 #[test]
-fn overlap_keeps_disjoint_cones_apart_and_no_always_test_links_them() {
+fn overlap_keeps_disjoint_cones_apart_and_no_always_test_links_them_while_a_split_joins_parts_sharing_a_file() {
     let graph = graph(&[
         ("test:north-lander::a", "in-binary", "north-lander"),
         ("test:north-lander::b", "in-binary", "north-lander"),
@@ -118,6 +121,45 @@ fn overlap_keeps_disjoint_cones_apart_and_no_always_test_links_them() {
     assert_eq!(found.groups, vec![vec!["a".to_owned()], vec!["b".to_owned()]]);
     assert!(found.pairs.is_empty());
     assert_eq!(found.always.into_iter().collect::<Vec<_>>(), vec![id("north-lander", "unrecorded")]);
+    let tree = Tree(&["crates/a/src/lib.rs", "crates/a/src/x.rs", "crates/a/src/y.rs", "crates/a/src/z.rs"]);
+    let answer = |y: &str| format!(r#"{{"parts": [{{"name": "x", "files": [{{"path": "crates/a/src/lib.rs"}}, {{"path": "crates/a/src/x.rs"}}]}}, {{"name": "y", "files": [{{"path": "{y}"}}, {{"path": "crates/a/src/y.rs"}}]}}, {{"name": "z", "files": [{{"path": "crates/a/src/z.rs"}}]}}]}}"#);
+    let split = parts::split(&Plan::parse(&answer("crates/a/src/lib.rs")).unwrap().0, &tree).unwrap();
+    let names: Vec<Vec<String>> = split.parts.iter().map(|part| part.names.clone()).collect();
+    assert_eq!(names, vec![vec!["x".to_owned(), "y".to_owned()], vec!["z".to_owned()]]);
+    let refused = parts::split(&Plan::parse(&answer("crates/a/src/gone.rs")).unwrap().0, &tree).unwrap_err();
+    assert_eq!(refused, Refusal(vec!["part y changes crates/a/src/gone.rs but the base has no such file (mark it new if the task creates it)".to_owned()]));
+}
+
+struct Tree(&'static [&'static str]);
+
+impl Base for Tree {
+    fn tracked(&self, path: &str) -> bool {
+        self.0.contains(&path)
+    }
+
+    fn merged_as_set(&self, _: &str) -> bool {
+        false
+    }
+
+    fn crate_of(&self, path: &str) -> Option<&str> {
+        path.starts_with("crates/a/").then_some("a")
+    }
+
+    fn manifest_of(&self, _: &str) -> Option<String> {
+        Some("crates/a/Cargo.toml".to_owned())
+    }
+
+    fn sees(&self, user: &str, owner: &str) -> bool {
+        user == owner
+    }
+
+    fn defining(&self, _: &Symbol) -> std::collections::BTreeSet<String> {
+        std::collections::BTreeSet::new()
+    }
+
+    fn referring(&self, _: &Symbol) -> std::collections::BTreeSet<String> {
+        std::collections::BTreeSet::new()
+    }
 }
 
 #[test]
