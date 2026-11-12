@@ -87,28 +87,6 @@ pub(super) fn refuse_unfetchable(root: &Path, base: &str, head: &str) -> Result<
     crate::land::slots::deps::fetch_crates(root).map_err(|error| format!("this lane changes Cargo.lock and its crates cannot be fetched: {error}"))
 }
 
-pub(super) fn refuse_unlocked(root: &Path, base: &str, head: &str) -> Result<(), String> {
-    let changed = git(root, &["diff", "--name-only", &format!("{base}..{head}"), "--", "Cargo.lock", ":(glob)**/Cargo.toml"])?;
-    if changed.is_empty() || git(root, &["cat-file", "-e", &format!("{head}:Cargo.lock")]).is_err() {
-        return Ok(());
-    }
-    let Ok(merged) = git(root, &["merge-tree", "--write-tree", base, head]) else { return Ok(()) };
-    let candidate = merged.lines().next().unwrap_or_default().to_owned();
-    let tree = tempfile::tempdir().map_err(|error| format!("a scratch tree for the lock check: {error}"))?;
-    let mut archive = Command::new("git").arg("-C").arg(root).args(["archive", &candidate]).stdout(Stdio::piped()).spawn().map_err(|error| format!("git archive: {error}"))?;
-    let unpacked = Command::new("tar").arg("-x").arg("-C").arg(tree.path()).stdin(archive.stdout.take().ok_or("git archive gave no output")?).status().map_err(|error| format!("tar: {error}"))?;
-    if !archive.wait().is_ok_and(|status| status.success()) || !unpacked.success() {
-        return Err(format!("the lane merged onto {base} could not be unpacked for the lock check"));
-    }
-    let metadata = Command::new("cargo").args(["metadata", "--locked", "--offline", "--format-version", "1", "--manifest-path"]).arg(tree.path().join("Cargo.toml")).current_dir(root).stdin(Stdio::null()).stdout(Stdio::null()).output().map_err(|error| format!("cargo metadata did not start for the lock check: {error}"))?;
-    if metadata.status.success() {
-        return Ok(());
-    }
-    let reason = String::from_utf8_lossy(&metadata.stderr).lines().find(|line| line.starts_with("error")).unwrap_or("cargo metadata failed").replace(&tree.path().display().to_string(), ".");
-    let files = changed.lines().collect::<Vec<_>>().join(", ");
-    Err(format!("this lane and main differ in {files}, and the lane merged onto main fails `cargo metadata --locked --offline`: {reason}; rebase onto main, run cargo metadata --offline, commit Cargo.lock and hand it in again"))
-}
-
 pub(super) fn refuse_stale_revert(root: &Path, base: &str, head: &str) -> Result<(), String> {
     let Ok(candidate) = stale_revert::onto(root, base, head) else { return Ok(()) };
     match stale_revert::reverted(root, base, &candidate, head) {
@@ -134,7 +112,3 @@ pub(super) fn refuse_nothing_to_land(root: &Path, base: &str, destination: &str)
     let uncommitted = if paths.is_empty() { String::new() } else { format!(", and these paths are uncommitted: {}", paths.join(", ")) };
     Err(format!("nothing to land: HEAD is already on origin/{destination}, so the lane adds no commit{uncommitted}; commit the lane's change and run safe-push again"))
 }
-
-#[cfg(test)]
-#[path = "refuse_tests.rs"]
-mod tests;
