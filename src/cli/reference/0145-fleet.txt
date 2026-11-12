@@ -1,1 +1,1 @@
-  fleet dispatch [--dry-run] [--draft REPO#N...]      Launch ready makgora and wisp boxes on every free worker slot; --draft computes a draft of each named issue's qualifying ready box on slots the round leaves free, launching nothing else
+  fleet dispatch [--dry-run] [--draft REPO#N...]      Launch ready boxes of every unpaused project in orchestration.toml (its dispatch_repos, else repos) on every free worker slot; --draft computes a draft of each named issue's qualifying ready box on slots the round leaves free, launching nothing else
