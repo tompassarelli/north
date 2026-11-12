@@ -97,7 +97,7 @@ is its own integration test at the pin, `apps/server/integration/transferBudgetV
 
 ## Behaviour cases in both harnesses
 
-The arm scripts come from the live runtime's own tree (`~/.local/state/north/current/tree`): `evals/t/run` re-executes itself there, and a runtime whose tree lacks one of them stops the run before its first trial.
+`evals/t/run` builds the Eval T tool once in the checkout it is called from, which must be a git checkout, and exports the binary as `EVAL_T_TOOL`. `evals/t/arm`, which starts and drives the sessions, comes from the live runtime's own tree (`~/.local/state/north/current/tree`; `EVAL_T_RUNTIME` names another runtime-shaped directory) and calls only that binary, never cargo. A runtime whose tree lacks `evals/t/arm`, or whose copy still builds its own tool, stops the run before its first trial.
 
 `evals/t/run --smoke` runs one case (`file-links-package-relative`) once in each arm and prints one graded row per
 arm; `evals/t/run --list NAME --samples N [--label NAME] [--seed N]` runs every case of a list of `cases.json`,

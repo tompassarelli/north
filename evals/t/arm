@@ -3,9 +3,9 @@ set -uo pipefail
 arm=$1 W=$(readlink -f "$2")
 MODEL=${EVAL_T_MODEL:-claude-opus-5-5} EFFORT=${EVAL_T_EFFORT:-medium} LIMIT=${EVAL_T_LIMIT_S:-600} ROOT=${EVAL_T_ROOT:-$W/repo}
 SEED='Reply with OK only.'
+[ ! -f "$W/turns.json" ] || : "${EVAL_T_TOOL:?names the built eval-t binary; evals/t/run and evals/x/run build it and export it}"
+tool() { "$EVAL_T_TOOL" "$@"; }
 fail() { echo "eval-t arm $arm: $1" >&2; exit 1; }
-here=$(dirname "$(readlink -f "$0")")
-tool() { cargo run -q --locked --offline --manifest-path "$here/Cargo.toml" --target-dir "$EVAL_T_TARGET" -- "$@"; }
 assistants() { jq -s '[.[] | select(.type == "assistant")] | length' "$1" 2> /dev/null; }
 : > "$W/planted.jsonl"
 for variable in $(compgen -e | grep -E '^(ANTHROPIC_|CLAUDE_CODE_USE_)'); do unset "$variable"; done

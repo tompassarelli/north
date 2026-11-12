@@ -24,7 +24,7 @@ container tasks run and graded by the benchmark's own harness, [Harbor](https://
 
 ## Where it runs
 
-The arm scripts come from the live runtime's own tree (`~/.local/state/north/current/tree`): `evals/x/run` re-executes itself there, and a runtime whose tree lacks one of them stops the run before its first trial.
+`evals/x/run` and `evals/t/run` stay in the checkout they are called from, which must be a git checkout, and build their tools there once per run; a failed build stops the run with its own exit code. The scripts that start or drive a session come from the live runtime's own tree (`~/.local/state/north/current/tree`; `EVAL_X_RUNTIME` names another runtime-shaped directory) and only call the built binaries, so nothing is built or written in that tree. A runtime whose tree lacks one of them, or whose `evals/t/arm` still builds its own tool, stops the run before its first trial.
 
 A container needs the full range of subordinate user ids, which a worker's sandbox cannot map, so `host oracle` and
 `host harbor` are started as a user unit outside a worker session, from a checkout of main:

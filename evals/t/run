@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -uo pipefail
-cd "$(dirname "$(readlink -f "$0")")" || exit 1
-if [ -z "${EVAL_T_TREE:-}" ]; then
-  runtime=$(readlink -f "$HOME/.local/state/north/current" 2> /dev/null) || runtime=
-  [ -n "$runtime" ] || { echo "eval-t: no live north runtime at ~/.local/state/north/current; the run stops before its first trial" >&2; exit 1; }
-  for path in evals/t/run evals/t/arm evals/t/Cargo.toml evals/t/cases.json; do
-    [ -f "$runtime/tree/$path" ] || { echo "eval-t: the live runtime $runtime has no $runtime/tree/$path; the run stops before its first trial" >&2; exit 1; }
-  done
-  exec env EVAL_T_TREE="$runtime/tree" EVAL_T_WORK="$(readlink -m "${EVAL_T_WORK:-work}")" "$runtime/tree/evals/t/run" "$@"
-fi
+here=$(dirname "$(readlink -f "$0")")
+cd "$here" || exit 1
+git rev-parse --show-toplevel > /dev/null 2>&1 \
+  || { echo "eval-t: $here is not inside a git checkout; start evals/t/run from a checkout of main, where the tool is built" >&2; exit 1; }
+runtime=${EVAL_T_RUNTIME:-$(readlink -f "$HOME/.local/state/north/current" 2> /dev/null)} || runtime=
+[ -n "$runtime" ] || { echo "eval-t: no live north runtime at ~/.local/state/north/current; the run stops before its first trial" >&2; exit 1; }
+driver=$runtime/tree/evals/t/arm
+[ -f "$driver" ] || { echo "eval-t: the live runtime $runtime has no $driver; the run stops before its first trial" >&2; exit 1; }
+{ grep -q EVAL_T_TOOL "$driver" && ! grep -qw cargo "$driver"; } \
+  || { echo "eval-t: the live runtime $runtime has a $driver that predates this change (it builds its own tool); the run stops before its first trial" >&2; exit 1; }
 usage="usage: evals/t/run --smoke | --list NAME [--samples N] [--label NAME] [--seed N]
   NAME is a key of cases.json's lists; the environment names the logins: EVAL_T_ACCOUNT, EVAL_T_TOKEN_FILE"
 list='' samples=1 label=$(date +%Y%m%d-%H%M%S) seed=1
@@ -25,8 +26,10 @@ done
 [ -n "$list" ] || { echo "$usage" >&2; exit 2; }
 work=${EVAL_T_WORK:-work} node=${EVAL_T_NODE:-node} T3=${T3_RUNTIME:-$HOME/.local/lib/t3/versions/0.1.9/t3}
 run=$work/runs/$label
-target=$(readlink -m "$work/target") && export EVAL_T_TARGET=$target
-tool() { cargo run -q --locked --offline --target-dir "$target" -- "$@"; }
+cargo build -q --locked --offline --target-dir target || exit $?
+export EVAL_T_TOOL=$here/target/debug/eval-t
+[ -x "$EVAL_T_TOOL" ] || { echo "eval-t: the build left no $EVAL_T_TOOL" >&2; exit 1; }
+tool() { "$EVAL_T_TOOL" "$@"; }
 mkdir -p "$run"
 pin=$(jq -r .pin cases.json) source=$(jq -r .source cases.json)
 [ -d "$work/t3code/.git" ] || { git init -q "$work/t3code" && git -C "$work/t3code" fetch -q --depth 1 "$source" "$pin" \
@@ -42,7 +45,7 @@ version=$("$T3" --version)
 stamp() {
   jq -cn --arg label "$label" --argjson sample "$1" --argjson seed "$seed" --arg model "${EVAL_T_MODEL:-claude-opus-5-5}" \
     --arg effort "${EVAL_T_EFFORT:-medium}" --arg t3 "$version" --arg t3_sha256 "$(sha256sum "$T3" | cut -d' ' -f1)" \
-    --arg claude "$("${EVAL_T_CLAUDE:-claude}" --version 2> /dev/null)" --arg north "$north" --arg tree "$EVAL_T_TREE" --arg row REAL-HARNESS \
+    --arg claude "$("${EVAL_T_CLAUDE:-claude}" --version 2> /dev/null)" --arg north "$north" --arg tree "$runtime/tree" --arg row REAL-HARNESS \
     --arg host "$(hostname)" --arg started "$2" --arg load_1m "$3" '$ARGS.named'
 }
 north=$(readlink -f "$(command -v north)" | sed -n 's|.*/runtimes/\([0-9a-f]\{40\}\)/.*|\1|p')
@@ -55,7 +58,7 @@ for case in $cases; do
     for arm in $arms; do
       w=$run/$case-$sample-$arm started=$(date -u +%FT%TZ) load=$(cut -d' ' -f1 /proc/loadavg) place=$(readlink -f "$run")/$case-$sample-$arm/repo
       [ "$arm" = north ] || place=${EVAL_T_PLAIN:-/tmp/eval-t}/$label/$case-$sample-$arm/repo
-      tool world --checkout "$work/t3code" --case "$case" --into "$w" --seen-at "$place" > /dev/null && EVAL_T_ROOT=$place ./arm "$arm" "$w" \
+      tool world --checkout "$work/t3code" --case "$case" --into "$w" --seen-at "$place" > /dev/null && EVAL_T_ROOT=$place "$driver" "$arm" "$w" \
         && tool grade --checkout "$work/t3code" --grader "$work/grader" --node "$node" --case "$case" --arm "$arm" \
           --transcript "$w/transcript.jsonl" --planted "$w/planted.jsonl" --cwd "$place" --out "$w" --stamp "$(stamp "$sample" "$started" "$load")" | tee -a "$run/results.jsonl"
       [ "${PIPESTATUS[0]}" = 0 ] || { failed=1; echo "eval-t: $case sample $sample in $arm gave no graded row; see $w" >&2; }

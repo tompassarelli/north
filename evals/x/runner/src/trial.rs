@@ -280,7 +280,6 @@ impl Live<'_> {
                 .env("EVAL_T_TOKEN_FILE", self.token_file)
                 .env("EVAL_T_CLAUDE", self.claude)
                 .env("EVAL_X_RUNNER", std::env::current_exe()?)
-                .env("EVAL_T_TARGET", self.work("build/eval-t-target"))
                 .process_group(0)
                 .stdin(Stdio::null())
                 .stdout(log)

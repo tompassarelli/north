@@ -13,8 +13,10 @@ two minutes to end by itself; then its process group is stopped.
 
 ## Commands
 
-Run from a checkout of main, on the host that runs the trials, as a user unit. `evals/x/run` builds the runner from
-its lockfile in north's dev shell into `WORK/build/runner-target`, outside the live runtime's tree, and runs it:
+Run from a checkout of main (a git checkout, which the script checks first), on the host that runs the trials, as a user
+unit. `evals/x/run` builds the runner and the Eval T tool from their lockfiles in that checkout, in north's dev shell,
+and runs the runner with the scripts of the live runtime's tree (`EVAL_X_RUNTIME` names another runtime-shaped
+directory); it exports the tool as `EVAL_T_TOOL`:
 
     evals/x/run plan
     evals/x/run smoke TASK --account A --token-file FILE

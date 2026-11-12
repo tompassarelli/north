@@ -1,17 +1,15 @@
 #!/bin/sh
 set -eu
 here=$(dirname "$(readlink -f "$0")")
-if [ -z "${EVAL_X_TREE:-}" ]; then
-  runtime=$(readlink -f "$HOME/.local/state/north/current" 2> /dev/null) || runtime=
-  [ -n "$runtime" ] || { echo "eval-x: no live north runtime at ~/.local/state/north/current; the run stops before its first trial" >&2; exit 1; }
-  [ -f "$runtime/tree/evals/x/run" ] || { echo "eval-x: the live runtime $runtime has no $runtime/tree/evals/x/run; the run stops before its first trial" >&2; exit 1; }
-  exec env EVAL_X_TREE="$runtime/tree" "$runtime/tree/evals/x/run" "$@"
-fi
-work=${EVAL_X_WORK:-${XDG_STATE_HOME:-$HOME/.local/state}/north/eval-x}
-case $work in /*) ;; *) work=$PWD/$work ;; esac
-target=$work/build/runner-target
-mkdir -p "$work"
-north capacity dev-shell run --dir "$work" -- \
-  sh -c 'exec cargo build -q --locked --manifest-path "$1/Cargo.toml" --target-dir "$2"' sh "$here/runner" "$target" >&2
+git -C "$here" rev-parse --show-toplevel > /dev/null 2>&1 \
+  || { echo "eval-x: $here is not inside a git checkout; start evals/x/run from a checkout of main, where the tools are built" >&2; exit 1; }
+runtime=${EVAL_X_RUNTIME:-$(readlink -f "$HOME/.local/state/north/current" 2> /dev/null)} || runtime=
+[ -n "$runtime" ] || { echo "eval-x: no live north runtime at ~/.local/state/north/current; the run stops before its first trial" >&2; exit 1; }
+[ -f "$runtime/tree/evals/x/arm" ] || { echo "eval-x: the live runtime $runtime has no $runtime/tree/evals/x/arm; the run stops before its first trial" >&2; exit 1; }
+root=$(readlink -f "$here/../..")
+build() { north capacity dev-shell run --dir "$root" -- sh -c 'cd "$1" && shift && exec cargo build -q --locked "$@" --target-dir target' sh "$@" >&2; }
+build "$here/runner"
+build "$root/evals/t" --offline
 # Rootless podman maps the subordinate ids with the setuid newuidmap wrapper, which must come before the store's copy.
-EVAL_X_DIR=$here PATH=/run/wrappers/bin:$PATH exec "$target/debug/eval-x-runner" "$@"
+EVAL_X_DIR=$runtime/tree/evals/x EVAL_T_TOOL=$root/evals/t/target/debug/eval-t PATH=/run/wrappers/bin:$PATH \
+  exec "$here/runner/target/debug/eval-x-runner" "$@"
