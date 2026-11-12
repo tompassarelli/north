@@ -1,0 +1,1 @@
+  fleet drafts                     List each draft computed for an open box before its launch: age, check result, tokens, cost and whether main moved under its files

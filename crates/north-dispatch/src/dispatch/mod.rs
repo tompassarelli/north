@@ -31,6 +31,9 @@ mod brief;
 pub mod cells;
 pub mod deepseek;
 mod cloud;
+pub mod drafts;
+#[cfg(test)]
+mod drafts_tests;
 mod effects;
 mod facets;
 pub(crate) mod fleets;

@@ -3,7 +3,7 @@
 use crate::error::NorthResult;
 use crate::fleet::registry::Fleet;
 
-use super::{hops, list, rebooted, reports, spend, tree, withheld};
+use super::{drafts, hops, list, rebooted, reports, spend, tree, withheld};
 
 /// The view `words` names, or `None` when they name no read-only view.
 pub(super) fn run(fleet: &Fleet, words: &[&str]) -> Option<NorthResult<()>> {
@@ -13,6 +13,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> Option<NorthResult<()>> {
         ("rebooted", rest) => rebooted::run(fleet, rest),
         ("reports", rest) => reports::run(fleet, rest),
         ("held", rest) => withheld::run(fleet, rest),
+        ("drafts", rest) => drafts::run(rest),
         ("tree", []) => tree::tree(fleet),
         ("hops", names) => hops::run(fleet, names),
         ("spend", rest) => spend::run(fleet, rest),
