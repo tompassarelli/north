@@ -580,20 +580,25 @@ fn a_lander_that_cannot_start_pages_once_and_a_held_runtime_is_retried_after_15_
     for entry in std::fs::read_dir(chain.queue.join("done")).unwrap() {
         modified_at(&entry.unwrap().path(), NOW);
     }
-    let systemctl = |restarts: u32| {
+    let systemctl = |restarts: u32, result: &str| {
         let bin = chain.root.path().join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        north_base::foundation::shim::write_executable(&bin.join("systemctl"), format!("#!/bin/sh\nprintf 'ActiveState=activating\\nNRestarts={restarts}\\n'\n"));
+        north_base::foundation::shim::write_executable(&bin.join("systemctl"), format!("#!/bin/sh\nprintf 'ActiveState=activating\\nNRestarts={restarts}\\nResult={result}\\n'\n"));
         north_base::foundation::shim::write_executable(&bin.join("journalctl"), "#!/bin/sh\necho \"Unable to locate executable '/lander/tree/bin/north': No such file or directory\"\n");
     };
     let paged = || chain.told().lines().filter(|call| call.contains("--key lander-unit-start:")).map(str::to_owned).collect::<Vec<_>>();
 
-    systemctl(2);
+    systemctl(16, "success");
+    let handover = chain.promote();
+    assert!(handover.status, "{}", handover.stdout);
+    assert_eq!(paged(), Vec::<String>::new(), "a unit restarting onto a changed live runtime after a clean exit is no failed start, however many restarts it counts");
+
+    systemctl(2, "exit-code");
     let twice = chain.promote();
     assert!(twice.status && twice.stdout.contains("stays off the lander until current moves on or the lander has landed nothing for 15 minutes"), "{}", twice.stdout);
     assert_eq!(paged(), Vec::<String>::new(), "two failed starts page no one");
 
-    systemctl(3);
+    systemctl(3, "exit-code");
     let thrice = chain.promote();
     assert!(thrice.status, "{}", thrice.stdout);
     let pages = paged();

@@ -17,16 +17,17 @@ const HEALTHY_FOR: Duration = Duration::from_secs(10 * 60);
 struct Start {
     state: String,
     restarts: u32,
+    result: String,
 }
 
 fn parse(text: &str) -> Start {
     let field = |name: &str| text.lines().find_map(|line| line.strip_prefix(name)).map(str::trim).unwrap_or_default().to_owned();
-    Start { state: field("ActiveState="), restarts: field("NRestarts=").parse().unwrap_or(0) }
+    Start { state: field("ActiveState="), restarts: field("NRestarts=").parse().unwrap_or(0), result: field("Result=") }
 }
 
-/// A unit systemd keeps restarting without it running: it has been restarted `FAILED_STARTS` times and is between starts or failed, never active.
+/// A unit systemd keeps restarting without it running: it has been restarted `FAILED_STARTS` times and is between starts or failed, never active. A unit whose last run ended cleanly (`Result=success`) is restarting onto a changed live runtime, which is not a failure to start, though `NRestarts` counts it.
 fn cannot_start(start: &Start) -> bool {
-    start.restarts >= FAILED_STARTS && matches!(start.state.as_str(), "activating" | "failed")
+    start.restarts >= FAILED_STARTS && start.result != "success" && matches!(start.state.as_str(), "activating" | "failed")
 }
 
 fn message(unit: &str, restarts: u32, cause: &str) -> String {
@@ -68,7 +69,7 @@ fn episode(home: &Path, unit: &str, failing: bool, now: SystemTime) -> Option<u6
 /// Pages the proxy and the lander's lead once for each of `units` that has failed to start three times, with the journal's last lines as the cause; the fleet store delivers one page per run of failures.
 pub fn page(home: &Path, units: &[String]) {
     for unit in units {
-        let Some(text) = output("systemctl", &["--user", "show", "-p", "ActiveState,NRestarts", unit]) else {
+        let Some(text) = output("systemctl", &["--user", "show", "-p", "ActiveState,NRestarts,Result", unit]) else {
             println!("north land: could not read the state of {unit}, so a failure to start would go unpaged");
             continue;
         };
