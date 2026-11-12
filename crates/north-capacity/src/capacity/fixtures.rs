@@ -1,4 +1,5 @@
 #![cfg(any(test, feature = "test-support"))]
+#![doc(hidden)]
 
 use super::admission::{Class, Facts, Profile};
 

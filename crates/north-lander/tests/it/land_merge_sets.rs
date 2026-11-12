@@ -9,7 +9,7 @@ use north_lander::landing::merge_set;
 
 const DRIVER: &str = "NORTH_MERGE_SETS_DRIVER";
 const HOME: &str = "NORTH_MERGE_SETS_HOME";
-const NAME: &str = "land_merge_sets::lanes_that_each_add_a_crate_an_allow_table_a_mod_line_and_a_feature_land_in_one_candidate";
+const NAME: &str = "land_merge_sets::land_drivers_merge_lanes_that_each_add_a_crate_an_allow_table_a_mod_line_a_capacity_module_and_a_feature_in_one_candidate";
 
 const CARGO: &str = r#"[workspace]
 members = ["crates/north-a", "crates/north-b"]
@@ -46,6 +46,9 @@ const STRUCTURE_FILES: &[(&str, &str)] = &[
     ("structure/0003-module-a.toml", "[[module]]\nname = \"a\"\npaths = [\"crates/north-a/src/**\"]\nmay_use = []\n"),
 ];
 
+const CAPACITY_PATH: &str = "crates/north-capacity/src/capacity/mod.rs";
+const CAPACITY: &str = "pub mod admission;\nmod aperture;\npub mod fixtures;\npub mod replay;\n";
+
 const MAIN: &str = "mod cli;\nmod run;\n\nfn main() {}\n";
 const INDEX: &str = r#"cd "$(git rev-parse --show-toplevel)"
 case "$*" in
@@ -77,7 +80,7 @@ fn main_repo(root: &Path) -> std::path::PathBuf {
     run(root, &["clone", "-q", origin.to_str().unwrap(), main.to_str().unwrap()]);
     write(&main, ".gitattributes", include_str!("../../../../.gitattributes"));
     write(&main, "harness/merge-sets.toml", &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../harness/merge-sets.toml")).unwrap());
-    for (path, text) in [("Cargo.toml", CARGO), ("structure.toml", STRUCTURE), ("src/main.rs", MAIN), ("docs/features/a.md", "# a\n")] {
+    for (path, text) in [("Cargo.toml", CARGO), ("structure.toml", STRUCTURE), ("src/main.rs", MAIN), ("docs/features/a.md", "# a\n"), (CAPACITY_PATH, CAPACITY)] {
         write(&main, path, text);
     }
     for (path, text) in STRUCTURE_FILES {
@@ -111,6 +114,7 @@ fn adds_everything(root: &Path, name: &str) {
     });
     write(root, &format!("structure/9000-allow-{name}.toml"), &format!("[[implicit_state.allow]]\nshape = \"status-string\"\npath = \"{krate}/src/{name}.rs\"\nreason = \"an external format\"\n"));
     edit(root, "src/main.rs", |text| text.replace("mod run;\n", &format!("mod run;\nmod {name};\n")));
+    edit(root, CAPACITY_PATH, |text| text.replace("mod aperture;\n", &format!("mod aperture;\npub mod {name};\n")));
     write(root, &format!("docs/features/{name}.md"), &format!("# {name}\n"));
 }
 
@@ -137,11 +141,12 @@ fn scenario(home: &Path) {
     let cargo = show("Cargo.toml");
     assert!(cargo.contains(r#"members = ["crates/north-a", "crates/north-b", "crates/north-x", "crates/north-y"]"#) && cargo.contains("north-x = { path = \"crates/north-x\" }\nnorth-y = { path = \"crates/north-y\" }\n"), "{cargo}");
     assert_eq!(show("structure.toml").matches("[[implicit_state.allow]]").count(), 3, "{}", show("structure.toml"));
+    assert_eq!(show(CAPACITY_PATH), "pub mod admission;\nmod aperture;\npub mod fixtures;\npub mod replay;\npub mod x;\npub mod y;", "lanes that each add a module to capacity/mod.rs merge without a conflict");
     assert_eq!(show("src/main.rs"), "mod cli;\nmod run;\nmod x;\nmod y;\n\nfn main() {}", "a line that is not a mod line still conflicts");
 }
 
 #[test]
-fn lanes_that_each_add_a_crate_an_allow_table_a_mod_line_and_a_feature_land_in_one_candidate() {
+fn land_drivers_merge_lanes_that_each_add_a_crate_an_allow_table_a_mod_line_a_capacity_module_and_a_feature_in_one_candidate() {
     if let Some(arguments) = std::env::var_os(DRIVER) {
         let arguments: Vec<String> = arguments.to_string_lossy().split_whitespace().skip(1).map(str::to_owned).collect();
         std::process::exit(merge_set::run(&arguments).into());
