@@ -52,14 +52,7 @@ impl Fleet {
     }
 
     fn launch_into(&self, request: &LaunchRequest, claim: Claim, session_dir: &Path) -> NorthResult<SessionRecord> {
-        let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
-        if verification && north_base::platform::land_queue::test_root().is_none() {
-            return Err(NorthError::Refused("a test launch needs NORTH_TEST_ROOT naming the fixture root its fleet state and land queue stay inside".into()));
-        }
-        if let Some(parent) = &request.parent {
-            self.reaches(parent)?;
-        }
-        self.refuse_second_proxy(request, claim)?;
+        let verification = self.admitted(request, claim)?;
         let account = self.account(request)?;
         let runtime = self.runtimes.get(&request.provider)?;
         let hooks = HooksCheck::start(runtime.clone(), &account, request.machine.as_ref());
@@ -111,6 +104,19 @@ impl Fleet {
             }
             launched
         })
+    }
+
+    /// Refuses a launch its test root, parent or role does not allow, and says whether it is a verification launch.
+    fn admitted(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<bool> {
+        let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
+        if verification && north_base::platform::land_queue::test_root().is_none() {
+            return Err(NorthError::Refused("a test launch needs NORTH_TEST_ROOT naming the fixture root its fleet state and land queue stay inside".into()));
+        }
+        if let Some(parent) = &request.parent {
+            self.reaches(parent)?;
+        }
+        self.refuse_second_proxy(request, claim)?;
+        Ok(verification)
     }
 
     /// Ends a host started beside a registration, start lock or claim that then failed, and removes the directory it ran in.
