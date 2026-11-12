@@ -35,25 +35,5 @@ fn real(number: f64) -> String {
 }
 
 fn string(text: &str) -> String {
-    let mut out = String::from("\"");
-    for character in text.chars() {
-        match character {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            ' '..='~' => out.push(character),
-            _ => {
-                let mut units = [0u16; 2];
-                for unit in character.encode_utf16(&mut units) {
-                    out.push_str(&format!("\\u{unit:04x}"));
-                }
-            }
-        }
-    }
-    out.push('"');
-    out
+    north_base::json_text::ascii_string(text)
 }

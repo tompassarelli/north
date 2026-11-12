@@ -129,26 +129,7 @@ fn status(rows: &[Outcome]) -> Vec<(Option<String>, String)> {
 }
 
 fn text(value: &str) -> String {
-    let mut out = String::from("\"");
-    for character in value.chars() {
-        match character {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            plain if plain.is_ascii() && !plain.is_ascii_control() => out.push(plain),
-            other => {
-                let mut units = [0u16; 2];
-                for unit in other.encode_utf16(&mut units) {
-                    out.push_str(&format!("\\u{unit:04x}"));
-                }
-            }
-        }
-    }
-    out + "\""
+    north_base::json_text::ascii_string(value)
 }
 
 fn optional(value: &Option<String>) -> String {

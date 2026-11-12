@@ -69,27 +69,7 @@ impl<'de> Deserialize<'de> for Json {
 }
 
 pub(super) fn quote(text: &str) -> String {
-    let mut quoted = String::from("\"");
-    for character in text.chars() {
-        match character {
-            '"' => quoted.push_str("\\\""),
-            '\\' => quoted.push_str("\\\\"),
-            '\n' => quoted.push_str("\\n"),
-            '\r' => quoted.push_str("\\r"),
-            '\t' => quoted.push_str("\\t"),
-            '\u{8}' => quoted.push_str("\\b"),
-            '\u{c}' => quoted.push_str("\\f"),
-            ' '..='~' => quoted.push(character),
-            _ => {
-                let mut units = [0u16; 2];
-                for unit in character.encode_utf16(&mut units) {
-                    quoted.push_str(&format!("\\u{unit:04x}"));
-                }
-            }
-        }
-    }
-    quoted.push('"');
-    quoted
+    north_base::json_text::ascii_string(text)
 }
 
 impl Json {

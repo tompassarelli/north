@@ -6,26 +6,7 @@ use crate::providers::claude::runs::int;
 use crate::providers::claude::runs::telemetry::{Prices, Request, Tokens, hook_fire, idle_gap_misses};
 
 fn quoted(text: &str, out: &mut String) {
-    out.push('"');
-    for character in text.chars() {
-        match character {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            character if character.is_ascii() && !character.is_ascii_control() => out.push(character),
-            character => {
-                let mut units = [0u16; 2];
-                for unit in character.encode_utf16(&mut units) {
-                    out.push_str(&format!("\\u{unit:04x}"));
-                }
-            }
-        }
-    }
-    out.push('"');
+    out.push_str(&north_base::json_text::ascii_string(text));
 }
 
 fn spaced(value: &Value, out: &mut String) {
