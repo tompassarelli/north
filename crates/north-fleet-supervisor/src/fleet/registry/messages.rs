@@ -1,5 +1,5 @@
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::fold::{Admit, Condition, admit};
+use crate::fleet::fold::{Admit, Condition, Route, admit_via, told};
 use crate::fleet::model::{Delivery, Status};
 use crate::fleet::runtime::{PROXY, new_uuid, now_ms};
 use crate::fleet::sender::Sender;
@@ -43,8 +43,19 @@ impl Fleet {
     /// Sends `text` as `send_message` does, naming the standing condition it reports so the store delivers it once per episode.
     pub fn send_condition(&self, from: &Sender, name: &str, text: &str, condition: Option<&Condition>, delivery: Delivery) -> NorthResult<Sent> {
         let now = now_ms();
-        match admit(&self.root, from, name, text, condition, now) {
+        let absent = matches!(from, Sender::Service(_)) && name == OWNER && !self.addressable(name);
+        let spool = self.spool();
+        let route = Route { to: name, recipient: if absent { PROXY } else { name }, spooled: &|id| spool.holds(id) };
+        match admit_via(&self.root, from, &route, text, condition, now) {
             Admit::Send => {}
+            Admit::Fold(folded) => {
+                if let Some(earlier) = &folded.replaces {
+                    spool.withdraw(earlier)?;
+                }
+                let row = self.spool_message(from, route.recipient, &folded.text, delivery)?;
+                told(&self.root, &folded.key, &row.id);
+                return Ok(Sent::Queued { id: row.id });
+            }
             Admit::Drop => return Ok(Sent::Held),
             Admit::Hold => {
                 crate::fleet::held::hold(&self.root, name, &from.to_string(), text, now);
@@ -57,7 +68,7 @@ impl Fleet {
             }
         }
         crate::fleet::alarms::record(&self.root, from, text, now);
-        if matches!(from, Sender::Service(_)) && name == OWNER && !self.addressable(name) {
+        if absent {
             self.log_dead_letter(name, PROXY);
             return self.deliver_message(from, PROXY, &format!("(for {name}, not live) {text}"), delivery).map(|_| Sent::Unreached);
         }
@@ -298,7 +309,7 @@ mod tests {
         assert_eq!(held.len(), 5, "{held:?}");
         assert!(held[0].contains("Landing in progress") && held[2].contains("cleared after 13 min") && held[3] == "health: ci: recovered" && held[4].contains("Done: landed be5886ab3b"), "{held:?}");
 
-        use crate::fleet::fold::WINDOW_MS;
+        use crate::fleet::fold::{WINDOW_MS, admit};
         let watchdog = Sender::Service("north-capacity-watchdog".into());
         let alarm = |text: &str, at: u64| admit(home.path(), &watchdog, PROXY, text, None, at);
         assert_eq!(alarm("watchdog: host disk past its high watermark: 3.1 GiB free on /nix/store", 0), Admit::Send);

@@ -2,6 +2,7 @@ pub use north_base::{error, foundation};
 pub use north_pace::credit;
 
 pub mod alarm_stats;
+pub mod alike;
 pub mod alarms;
 pub mod flood;
 pub mod fold;

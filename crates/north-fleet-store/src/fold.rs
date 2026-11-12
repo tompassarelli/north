@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
+use crate::alike::{Folded, Join};
 use crate::flood::Ceiling;
 use crate::sender::Sender;
 
@@ -41,13 +42,15 @@ pub struct Condition {
 
 /// What becomes of a message: it wakes its recipient, it waits in the digest because it opens nothing
 /// new, it is dropped as the clearing of a condition no episode holds open, or it is folded into the
-/// page-flood line it carries, which goes out in its place.
+/// page-flood line it carries, which goes out in its place, or it joins the one follow-up of its alike
+/// messages (`alike.rs`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Admit {
     Send,
     Hold,
     Drop,
     Flood(String),
+    Fold(Folded),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -56,20 +59,48 @@ enum Cause {
     Cleared(String),
 }
 
+/// Where a message goes: the addressee it is keyed under, the session it finally reaches (the proxy for a copy re-addressed from an absent lead), and whether a follow-up row is still waiting for the fleet tick.
+pub struct Route<'a> {
+    pub to: &'a str,
+    pub recipient: &'a str,
+    pub spooled: &'a dyn Fn(&str) -> bool,
+}
+
 /// Whether a message from `sender` to `to` goes out, is held or is folded into a page flood; a
 /// delivered alarm or condition is recorded in `root` so its repeats fold into it, and a service's
 /// message to the proxy then passes the ceiling in `flood.rs`.
 pub fn admit(root: &Path, sender: &Sender, to: &str, text: &str, condition: Option<&Condition>, now_ms: u64) -> Admit {
+    admit_via(root, sender, &Route { to, recipient: to, spooled: &|_| false }, text, condition, now_ms)
+}
+
+/// As [`admit`], for a message that reaches `route.recipient`: an alike message past the first of its group folds into the group's follow-up before the ceiling counts it.
+pub fn admit_via(root: &Path, sender: &Sender, route: &Route, text: &str, condition: Option<&Condition>, now_ms: u64) -> Admit {
     let Sender::Service(_) = sender else { return Admit::Send };
     let _lock = lock(root);
-    match fold(root, sender, to, text, condition, now_ms) {
-        Admit::Send if to == crate::runtime::PROXY && !text.starts_with(GATE) => match crate::flood::admit(root, sender, text, now_ms) {
-            Ceiling::Under => Admit::Send,
-            Ceiling::Flood(line) => Admit::Flood(line),
-            Ceiling::Over => Admit::Hold,
-        },
+    match fold(root, sender, route.to, text, condition, now_ms) {
+        Admit::Send if !text.starts_with(GATE) => {
+            if sender.author(text) == *sender
+                && let Join::Folds(folded) = crate::alike::join(root, &sender.to_string(), route.recipient, text, now_ms, route.spooled)
+            {
+                return Admit::Fold(folded);
+            }
+            if route.to != crate::runtime::PROXY {
+                return Admit::Send;
+            }
+            match crate::flood::admit(root, sender, text, now_ms) {
+                Ceiling::Under => Admit::Send,
+                Ceiling::Flood(line) => Admit::Flood(line),
+                Ceiling::Over => Admit::Hold,
+            }
+        }
         admitted => admitted,
     }
+}
+
+/// Records that `id` is the spooled follow-up of the alike group `key`.
+pub fn told(root: &Path, key: &str, id: &str) {
+    let _lock = lock(root);
+    crate::alike::told(root, key, id);
 }
 
 fn lock(root: &Path) -> Option<fs::File> {
@@ -196,6 +227,31 @@ mod tests {
         assert_eq!(&distinct[..2], &[Admit::Send, Admit::Send], "the lander already sent the condition's one message in this window");
         assert!(matches!(&distinct[2], Admit::Flood(line) if line.contains("sent 4 messages") && line.contains(CLASS)), "{distinct:?}");
         assert_eq!(&distinct[3..], &[Admit::Hold, Admit::Hold], "whatever its keys, a sender past the ceiling waits in the digest");
+
+        let starter = Sender::Service("north-land-start".into());
+        let units: Vec<String> = (0..7).map(|unit| format!("north-land@repo-{unit}.service")).collect();
+        let page = |unit: &str| format!("north land: {unit} has failed to start 16 times and is not serving its queue, so nothing lands there: Unable to locate executable '/lander/tree/bin/north'");
+        let rows: Vec<(&str, &str)> = units.iter().map(|unit| (PROXY, unit.as_str())).chain(units[..4].iter().map(|unit| ("land-lead", unit.as_str()))).collect();
+        let route = |to: &'static str| Route { to, recipient: PROXY, spooled: &|_| true };
+        let folds: Vec<Admit> = rows
+            .iter()
+            .enumerate()
+            .map(|(at, (to, unit))| {
+                let key = Condition { key: format!("lander-unit-start:{unit}"), cleared: false };
+                let admitted = admit_via(root.path(), &starter, &route(to), &page(unit), Some(&key), 2_000_000 + at as u64);
+                if let Admit::Fold(folded) = &admitted {
+                    told(root.path(), &folded.key, &format!("row{at}"));
+                }
+                admitted
+            })
+            .collect();
+        assert_eq!(folds[0], Admit::Send, "the first of the group goes out at once");
+        assert!(folds[1..].iter().all(|fold| matches!(fold, Admit::Fold(_))), "nothing is held or folded as a flood: {folds:?}");
+        let Admit::Fold(last) = &folds[10] else { unreachable!() };
+        assert_eq!(last.replaces.as_deref(), Some("row9"), "each follow-up replaces the one the tick has not yet handed in");
+        assert!(last.text.starts_with("north land: * has failed to start 16 times") && last.text.contains(" x 11: "), "{}", last.text);
+        assert!(units.iter().all(|unit| last.text.contains(unit.as_str())), "every unit is named: {}", last.text);
+        assert!(last.text.contains("repo-0.service /lander/tree/bin/north (x2)") && !last.text.contains("repo-6.service /lander/tree/bin/north (x"), "a copy joins its original: {}", last.text);
     }
 
     #[test]
