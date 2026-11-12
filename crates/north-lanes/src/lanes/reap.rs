@@ -362,7 +362,7 @@ pub(super) fn irreplaceable_ignored(tree: &Path) -> Vec<String> {
 
 pub(super) fn disposable(path: &str) -> bool {
     let cache = |name: &str| path.starts_with(&format!("{name}/")) || path.contains(&format!("/{name}/"));
-    cache(".direnv") || cache(".firn-cache") || cache("target") || path == "target" || ((path == "result" || path.starts_with("result-")) && !path.contains('/'))
+    cache(".direnv") || cache(".firn-cache") || cache("target") || path == "target" || path.starts_with("buck-out/") || path == ".buckconfig.flake" || ((path == "result" || path.starts_with("result-")) && !path.contains('/'))
 }
 
 fn lane_age(tree: &Path, now: SystemTime) -> i64 {

@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::{Context, Reader, confine, executable, readable, removable};
 
-const COMMAND: &str = "NORTH_706_LOCKS_COMMAND";
+pub(super) const COMMAND: &str = "NORTH_706_LOCKS_COMMAND";
 const LOGINS_ONLY: &str = "NORTH_977_LOGINS_ONLY";
 const HAND_OFF_TARGET: &str = "NORTH_975_HAND_OFF_TARGET";
 const OUTSIDE_MARKER: &str = "NORTH_CAPACITY_LOOP_MARKER";

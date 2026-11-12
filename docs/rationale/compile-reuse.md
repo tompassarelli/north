@@ -111,7 +111,9 @@ A Buck2 daemon outlives the command that starts it and keeps that command's Land
 grants Execute entry by entry at a lane's root, around `target/` (crates/north-runtime/src/worker_sandbox/executable.rs),
 so a `buck-out/` created after the daemon's domain was built is never executable for that daemon, and `~/.buck` is
 not among the trees a worker command may remove from, so a second daemon start fails to clean its directory. Until
-the sandbox treats them as build output and cache, a worker creates `buck-out/` before its first `buck2` command.
+north#1116 a worker created `buck-out/` before its first `buck2` command; the sandbox now prepares a Buck2 lane's
+`buck-out/` before it builds a command's domain (crates/north-runtime/src/worker_sandbox/buck.rs), and
+`north lane remove`, `reap` and `gc` count `buck-out/` and `.buckconfig.flake` as disposable, as they do `target/`.
 
 Reads fail the same way: the sandbox fixes what a domain may read when it builds the domain
 (`crates/north-runtime/src/worker_sandbox/readable.rs`), so a directory created later is unreadable inside it. On gex45
@@ -420,7 +422,7 @@ The store was on cpx62, with Buildbarn workers on gex45 (8 slots), cpx62 and cpx
 6. **The worker sandbox lets a lane's daemon live** (the three failures in [Worker sandbox](#worker-sandbox)).
    - The sandbox creates `~/.buck` before it builds a domain.
    - It grants `~/.buck` read, write and remove, as it does `~/.cache`.
-   - It grants Execute on `buck-out/` as it does on `target/`.
+   - It prepares `buck-out/` before it builds a domain (north#1116).
 7. **A daemon lives as long as its lane.** This Buck2 has no idle exit, but a daemon checks its `buckd.pid` every
    60 s and shuts down when it cannot read it (measured: started 18:33:54 UTC, forced shutdown at 18:34:54 UTC).
    - Before removing a lane, `north lane remove`, the lane-free unit and `lane gc` run `buck2 kill` in it, then

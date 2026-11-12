@@ -75,7 +75,7 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
 }
 
 /// The lanes a command run from `context` works in: the one it runs in and the ones it names.
-fn lanes(context: &Context) -> Vec<PathBuf> {
+pub(super) fn lanes(context: &Context) -> Vec<PathBuf> {
     lane(&context.home, &context.cwd).into_iter().chain(context.named_lanes.iter().cloned()).collect()
 }
 

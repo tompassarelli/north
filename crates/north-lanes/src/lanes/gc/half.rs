@@ -10,7 +10,7 @@ use super::super::repo::is_lander_tree;
 use north_base::platform::land_queue;
 
 const HOUR_MS: f64 = 3_600_000.0;
-const BUILD_OUTPUT: [&str; 2] = ["target", ".direnv"];
+const BUILD_OUTPUT: [&str; 3] = ["target", "buck-out", ".direnv"];
 
 pub(super) struct Lanes<'a> {
     pub(super) main: &'a Path,

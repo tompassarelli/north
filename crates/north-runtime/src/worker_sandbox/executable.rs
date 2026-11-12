@@ -13,8 +13,9 @@ pub fn build_outputs(context: &Context) -> Vec<PathBuf> {
     outputs
 }
 
-/// Every file a worker command may execute: all of them but the build output.
+/// Every file a worker command may execute: all of them but the build output, with each Buck2 lane's `buck-out/` made first so it is one of them (buck.rs).
 pub fn executable(context: &Context) -> Vec<PathBuf> {
+    super::buck::make_build_output(context);
     beneath_except(Path::new("/"), &build_outputs(context), Entries::All)
 }
 
