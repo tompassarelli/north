@@ -78,12 +78,14 @@ pub fn is(launch: &Launch) -> bool {
     launch.account == ACCOUNT
 }
 
-/// The `fleet reports` of every host in `hosts` that lists a resting session of the provider: the laptop's from its mirrored
-/// copy, this host's by running it, each other host's through `read` over ssh.
-pub fn reports(hosts: &[String], here: &str, laptop: Option<&str>, laptop_reports: &Value, lists: &[(String, Value)], read: &dyn Fn(Option<&str>) -> Result<Value, String>, notes: &mut Vec<String>) -> Vec<(String, Value)> {
-    let mut found: Vec<(String, Value)> = laptop.filter(|host| hosts.iter().any(|name| name == host)).map(|host| (host.to_owned(), laptop_reports.clone())).into_iter().collect();
-    for host in hosts.iter().filter(|host| laptop != Some(host.as_str())) {
-        if !lists.iter().any(|(name, listing)| name == host && review::has_resting(listing)) {
+/// The `fleet reports` of every host whose listing holds a session of the provider waiting for its review job: the laptop's
+/// from its mirrored copy, this host's by running it, each other host's through `read` over ssh. The host that holds a
+/// session may be none of the provider's hosts, since a session placed on a build host is listed by the host that launched it.
+pub fn reports(here: &str, laptop: Option<&str>, laptop_reports: &Value, lists: &[(String, Value)], marked: &review::Marked, read: &dyn Fn(Option<&str>) -> Result<Value, String>, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+    let mut found: Vec<(String, Value)> = Vec::new();
+    for (host, _) in lists.iter().filter(|(_, listing)| review::has_waiting(listing, marked)) {
+        if laptop == Some(host.as_str()) {
+            found.push((host.clone(), laptop_reports.clone()));
             continue;
         }
         match read((host != here).then_some(host.as_str())) {
@@ -92,6 +94,25 @@ pub fn reports(hosts: &[String], here: &str, laptop: Option<&str>, laptop_report
         }
     }
     found
+}
+
+/// Each listing of `lists` but the laptop's read again with `--all`, so it also shows the sessions the fleet retired.
+fn with_retired(cfg: &DocumentMut, here: &str, laptop: Option<&str>, lists: &[(String, Value)], notes: &mut Vec<String>) -> Vec<(String, Value)> {
+    lists
+        .iter()
+        .map(|(host, listing)| {
+            if laptop == Some(host.as_str()) {
+                return (host.clone(), listing.clone());
+            }
+            match fleets::remote_json_within((host != here).then(|| fleets::destination(cfg, host)).as_deref(), &["fleet", "list", "--json", "--all"], PROBE) {
+                Ok(all) => (host.clone(), all),
+                Err(why) => {
+                    notes.push(format!("{host} fleet list --all unread, so no retired DeepSeek session there is reviewed this run: {why}"));
+                    (host.clone(), listing.clone())
+                }
+            }
+        })
+        .collect()
 }
 
 /// The provider's sessions that count against its slot cap: those running or resting, less the resting ones whose review job is queued, since that job forgets them.
@@ -135,16 +156,17 @@ pub fn cell(launch: &Launch, cfg: &DocumentMut) -> Option<String> {
 }
 
 impl Seen {
-    /// What dispatch reads about DeepSeek: the boxes the dispatch record shows it tried, and the resting sessions on its
-    /// hosts whose last report starts `Done:`.
+    /// What dispatch reads about DeepSeek: the boxes the dispatch record shows it tried, and the sessions of the
+    /// provider on every host, resting or retired unreviewed, whose last report starts `Done:`.
     #[allow(clippy::too_many_arguments, reason = "each input is a reading the dispatch survey already holds")]
     pub fn read(cfg: &DocumentMut, here: &str, laptop: Option<&str>, fleet_lists: &[(String, Value)], laptop_reports: &Value, records: &[Record], issues: &[Issue], at: f64, notes: &mut Vec<String>) -> Self {
         let settings = Settings::read();
         let read = |host: Option<&str>| fleets::remote_json_within(host.map(|name| fleets::destination(cfg, name)).as_deref(), &["fleet", "reports", "--json"], PROBE);
-        let reports = reports(&settings.hosts, here, laptop, laptop_reports, fleet_lists, &read, notes);
-        let queued = review::queued(&super::record::directory(), at);
-        let done = review::done(fleet_lists, &reports, records, issues, &queued);
-        Self { tried: tried(records), done, running: counted(fleet_lists, &queued), settings }
+        let marked = review::queued(&super::record::directory(), at);
+        let lists = with_retired(cfg, here, laptop, fleet_lists, notes);
+        let reports = reports(here, laptop, laptop_reports, &lists, &marked, &read, notes);
+        let done = review::done(&lists, &reports, records, issues, &marked);
+        Self { tried: tried(records), done, running: counted(fleet_lists, &marked.recent), settings }
     }
 
     /// Places `ready` on DeepSeek when it takes the box, else on Claude through `claude`.

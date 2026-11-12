@@ -105,7 +105,7 @@ fn an_idle_deepseek_session_whose_last_report_is_done_queues_one_review_job_and_
     let said = |text: &str| json!({"entries": [{"kind": "tool", "text": "Bash cargo test"}, {"kind": "assistant", "text": text}, {"kind": "turn_end", "text": "completed"}]});
     let reports = vec![("whiterabbit".to_owned(), json!({"ds-done": said("Done: the box landed in the lane."), "ds-busy": said("Done: earlier"), "ds-stuck": said("Not done: tests fail.\nStop: reasoning"), "cl-done": said("Done: x"), "ds-queued": said("Done: y"), "ds-parked": said("Done: z")}))];
     let landing = issue("north", 7, "- [ ] the box", &["area:landing"]);
-    let queued = BTreeSet::from(["ds-queued".to_owned()]);
+    let queued = review::Marked { recent: BTreeSet::from(["ds-queued".to_owned()]), ever: BTreeSet::from(["ds-queued".to_owned()]) };
 
     let found = review::done(&lists, &reports, &[], &[landing], &queued);
 
@@ -227,19 +227,25 @@ fn a_deepseek_run_whose_lane_the_broker_landed_before_its_report_is_recorded_lan
 #[test]
 fn a_resting_session_on_a_build_host_that_reported_done_gets_a_review_job_and_one_that_has_not_gets_none() {
     let session = |name: &str, status: &str| json!({"name": name, "provider": "opencode", "status": status, "tasks": ["north#7"], "box": "the box"});
+    let held = |name: &str, status: &str, past: bool| json!({"name": name, "provider": "opencode", "status": status, "machine": "cpx62b", "past": past, "ended": if past { "retired" } else { "" }, "tasks": ["north#7"], "box": "the box"});
     let said = |text: &str| json!({"entries": [{"kind": "assistant", "text": text}]});
-    let lists = vec![("gex45".to_owned(), json!([session("on-here", "working")])), ("cpx62".to_owned(), json!([session("remote-done", "idle"), session("remote-busy", "idle")]))];
-    let hosts = vec!["gex45".to_owned(), "cpx62".to_owned()];
+    let lists = vec![
+        ("nexus".to_owned(), json!([held("held-done", "parked", false), held("retired-done", "exited", true), held("retired-reviewed", "exited", true)])),
+        ("gex45".to_owned(), json!([session("on-here", "working")])),
+        ("cpx62".to_owned(), json!([session("remote-done", "idle"), session("remote-busy", "idle")])),
+    ];
     let read = |host: Option<&str>| match host {
+        None => Ok(json!({"held-done": said("Done: h"), "retired-done": said("Done: r"), "retired-reviewed": said("Done: q")})),
         Some("cpx62") => Ok(json!({"remote-done": said("Done: x"), "remote-busy": said("Not done: y")})),
         _ => Err("unreached".to_owned()),
     };
+    let marked = review::Marked { recent: BTreeSet::new(), ever: BTreeSet::from(["retired-reviewed".to_owned()]) };
     let mut notes = Vec::new();
 
-    let reports = super::reports(&hosts, "gex45", None, &json!(null), &lists, &read, &mut notes);
-    let found = review::done(&lists, &reports, &[], &[issue("north", 7, "- [ ] the box", &[])], &BTreeSet::new());
+    let reports = super::reports("nexus", None, &json!(null), &lists, &marked, &read, &mut notes);
+    let found = review::done(&lists, &reports, &[], &[issue("north", 7, "- [ ] the box", &[])], &marked);
 
-    assert_eq!(found.iter().map(|done| (done.name.as_str(), done.host.as_str())).collect::<Vec<_>>(), [("remote-done", "cpx62")]);
+    assert_eq!(found.iter().map(|done| (done.name.as_str(), done.host.as_str())).collect::<Vec<_>>(), [("held-done", "nexus"), ("retired-done", "nexus"), ("remote-done", "cpx62")], "a session the control host holds for a build host is reviewed where it is held, once even after the fleet retired it");
     assert!(notes.is_empty(), "{notes:?}");
 }
 

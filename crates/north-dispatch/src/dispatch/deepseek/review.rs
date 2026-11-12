@@ -1,8 +1,9 @@
 //! The step after a DeepSeek worker reports `Done:` (north#1020). Dispatch queues one `north fleet dispatch review` job on
-//! the session's host, through the laptop job queue or here, as it queues launches. The job reads the lane's commit, and
-//! by `sampling` either launches a Sonnet reviewer on the lane and hands the lane to it, or forgets the session and lands
-//! the lane through safe-push. A reviewer records its verdict with `north fleet dispatch verdict`, which sampling and
-//! the DeepSeek overlay read.
+//! the host that holds the session, through the laptop job queue or here, as it queues launches, also for a session the
+//! fleet retired before any job named it (north#1231). The job reads the lane's commit where the lane lives, over ssh on
+//! the build host a session placed there ran on, and by `sampling` either launches a Sonnet reviewer on the lane and hands
+//! the lane to it, or forgets the session and lands the lane through safe-push. A reviewer records its verdict with
+//! `north fleet dispatch verdict`, which sampling and the DeepSeek overlay read.
 use super::super::issues::{Issue, IssueRef, references};
 use super::super::record::{self, Record};
 use super::super::{facets, fleets};
@@ -10,7 +11,7 @@ use super::mechanical;
 use super::sampling::{self, Kind, Verdict};
 use super::PROVIDER;
 use crate::pacing::placement;
-use crate::platform::process::run_within;
+use crate::platform::process::run_command_within;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -90,10 +91,18 @@ struct Queued {
     name: String,
 }
 
-/// The sessions dispatch queued a review job for within `REQUEUE_S`, so one Done report queues one job.
-pub fn queued(directory: &Path, at: f64) -> BTreeSet<String> {
+/// The sessions the review record names: within `REQUEUE_S`, so one Done report queues one job, and ever.
+#[derive(Clone, Debug, Default)]
+pub struct Marked {
+    pub recent: BTreeSet<String>,
+    pub ever: BTreeSet<String>,
+}
+
+/// The sessions dispatch queued a review job for, as of `at`.
+pub fn queued(directory: &Path, at: f64) -> Marked {
     let text = std::fs::read_to_string(directory.join(QUEUED)).unwrap_or_default();
-    text.lines().filter_map(|line| serde_json::from_str::<Queued>(line).ok()).filter(|queued| at - queued.at < REQUEUE_S).map(|queued| queued.name).collect()
+    let marks: Vec<Queued> = text.lines().filter_map(|line| serde_json::from_str::<Queued>(line).ok()).collect();
+    Marked { recent: marks.iter().filter(|queued| at - queued.at < REQUEUE_S).map(|queued| queued.name.clone()).collect(), ever: marks.into_iter().map(|queued| queued.name).collect() }
 }
 
 fn mark(directory: &Path, name: &str, at: f64) -> Result<(), String> {
@@ -107,24 +116,36 @@ fn reported_done(report: &Value) -> bool {
     report["entries"].as_array().and_then(|entries| entries.iter().rev().find(|entry| entry["kind"] == "assistant")).and_then(|entry| entry["text"].as_str()).is_some_and(|text| text.trim_start().starts_with("Done:"))
 }
 
-/// Whether `listing` holds a session of the provider that rests.
-pub fn has_resting(listing: &Value) -> bool {
-    listing.as_array().into_iter().flatten().any(|session| session["provider"] == PROVIDER && RESTING.contains(&session["status"].as_str().unwrap_or_default()))
+/// Whether `session` is the provider's and waits for its review job: resting with none queued lately, or retired by its
+/// host before any job named it.
+fn waits(session: &Value, marked: &Marked) -> bool {
+    let name = session["name"].as_str().unwrap_or_default();
+    session["provider"] == PROVIDER
+        && if session["past"] == true { session["ended"] == "retired" && !marked.ever.contains(name) } else { RESTING.contains(&session["status"].as_str().unwrap_or_default()) && !marked.recent.contains(name) }
 }
 
-/// The DeepSeek sessions resting in each host's listing, idle or parked once their host rests, whose last report starts `Done:`, with no review job queued.
-pub fn done(lists: &[(String, Value)], reports: &[(String, Value)], records: &[Record], issues: &[Issue], queued: &BTreeSet<String>) -> Vec<Done> {
+/// Whether `listing` holds a session of the provider that waits for its review job.
+pub fn has_waiting(listing: &Value, marked: &Marked) -> bool {
+    listing.as_array().into_iter().flatten().any(|session| waits(session, marked))
+}
+
+/// The DeepSeek sessions in each host's listing that wait for their review job and whose last report starts `Done:`; a
+/// retired one only while its issue is open.
+pub fn done(lists: &[(String, Value)], reports: &[(String, Value)], records: &[Record], issues: &[Issue], marked: &Marked) -> Vec<Done> {
     let mut found = Vec::new();
     for (host, listing) in lists {
         let Some(report) = reports.iter().find(|(name, _)| name == host).map(|(_, report)| report) else { continue };
-        for session in listing.as_array().into_iter().flatten().filter(|session| session["provider"] == PROVIDER && RESTING.contains(&session["status"].as_str().unwrap_or_default())) {
+        for session in listing.as_array().into_iter().flatten().filter(|session| waits(session, marked)) {
             let name = session["name"].as_str().unwrap_or_default();
-            if queued.contains(name) || !reported_done(&report[name]) {
+            if !reported_done(&report[name]) {
                 continue;
             }
             let tasks = session["tasks"].as_array().map_or_else(|| session["task_ref"].as_str().unwrap_or_default().to_owned(), |tasks| tasks.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "));
             let Some(item) = references(&tasks, "").into_iter().find(|item| !item.repo.is_empty()).or_else(|| fleets::named_items(name).into_iter().next()) else { continue };
             let issue = issues.iter().find(|issue| issue.reference() == item);
+            if issue.is_none() && session["past"] == true {
+                continue;
+            }
             let category = records.iter().rev().find(|record| record.name == name).and_then(|record| record.category.clone()).or_else(|| issue.and_then(|issue| facets::declared_in(&issue.body, "Category")).map(str::to_owned)).unwrap_or_else(|| "unknown".into());
             let landing = issue.is_some_and(|issue| issue.labels.iter().any(|label| label == LANDING_LABEL));
             found.push(Done { name: name.to_owned(), host: host.clone(), item, box_text: session["box"].as_str().map(str::to_owned), category, landing, oracle: issue.map(|issue| oracle_tests(&issue.body, session["box"].as_str())).unwrap_or_default() });
@@ -222,10 +243,56 @@ fn parse(arguments: &[String]) -> Option<Job> {
     (!job.item.is_empty() && !job.category.is_empty()).then_some(job)
 }
 
-fn git(lane: &Path, args: &[&str]) -> Result<String, String> {
-    let mut words = vec!["-C", lane.to_str().ok_or("the lane path is not UTF-8")?];
+/// A lane and the machine it lives on: this host, or the build host a session placed there ran on, reached over ssh.
+struct Worktree {
+    path: PathBuf,
+    machine: Option<(String, String)>,
+}
+
+impl Worktree {
+    fn here(path: PathBuf) -> Self {
+        Self { path, machine: None }
+    }
+
+    /// The command that runs `words` in this lane's directory where it lives.
+    fn command(&self, words: &[&str]) -> Result<Command, String> {
+        let path = self.path.to_str().ok_or("the lane path is not UTF-8")?;
+        let (program, rest) = words.split_first().ok_or("no command")?;
+        let Some((_, ssh)) = &self.machine else {
+            let mut command = Command::new(crate::fleet::runtime::binary(program));
+            command.args(rest).current_dir(&self.path);
+            return Ok(command);
+        };
+        let script = format!("cd {} && PATH=\"$HOME/.local/bin:$PATH\" {}", quote(path), words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));
+        let mut command = Command::new(crate::fleet::runtime::binary("ssh"));
+        command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", ssh, "--", &script]);
+        Ok(command)
+    }
+
+    fn exists(&self) -> bool {
+        match &self.machine {
+            None => self.path.is_dir(),
+            Some(_) => self.command(&["true"]).ok().and_then(|command| run_command_within(command, None, GIT_WAIT)).is_some_and(|output| output.status.success()),
+        }
+    }
+
+    /// The `--cwd` a session launched from this host takes to work in this lane.
+    fn launch_cwd(&self) -> String {
+        match &self.machine {
+            Some((name, _)) => format!("{name}:{}", self.path.display()),
+            None => self.path.to_string_lossy().into_owned(),
+        }
+    }
+}
+
+fn quote(word: &str) -> String {
+    format!("'{}'", word.replace('\'', "'\\''"))
+}
+
+fn git(lane: &Worktree, args: &[&str]) -> Result<String, String> {
+    let mut words = vec!["git"];
     words.extend(args);
-    let output = run_within("git", &words, GIT_WAIT).ok_or_else(|| format!("git {} did not finish", args.join(" ")))?;
+    let output = run_command_within(lane.command(&words)?, None, GIT_WAIT).ok_or_else(|| format!("git {} did not finish", args.join(" ")))?;
     if !output.status.success() {
         return Err(format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
     }
@@ -233,10 +300,17 @@ fn git(lane: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 /// The lane a DeepSeek session worked in: `worktrees/NAME` beside the `main` checkout it was launched in, which the
-/// opencode launcher makes, else that checkout.
-fn lane(cwd: &Path, name: &str) -> PathBuf {
+/// opencode launcher makes on the machine the session ran on, else that checkout when it ran here.
+fn lane(session: &Value, name: &str) -> Worktree {
+    let cwd = Path::new(session["cwd"].as_str().unwrap_or_default());
     let made = cwd.parent().map(|container| container.join("worktrees").join(name));
-    made.filter(|lane| lane.is_dir()).unwrap_or_else(|| cwd.to_owned())
+    match session["machine"].as_str() {
+        Some(machine) => {
+            let ssh = placement::config().map_or_else(|_| machine.to_owned(), |cfg| fleets::destination(&cfg, machine));
+            Worktree { path: made.unwrap_or_else(|| cwd.to_owned()), machine: Some((machine.to_owned(), ssh)) }
+        }
+        None => Worktree::here(made.filter(|lane| lane.is_dir()).unwrap_or_else(|| cwd.to_owned())),
+    }
 }
 
 fn north(words: &[&str]) -> Result<String, String> {
@@ -291,24 +365,38 @@ pub(super) fn no_commit_kind(queues: &Path, session: &str) -> Kind {
 }
 
 fn review(job: &Job) -> Result<String, String> {
-    let listing: Value = serde_json::from_str(&north(&["fleet", "list", "--json"])?).map_err(|error| error.to_string())?;
-    let Some(session) = listing.as_array().into_iter().flatten().find(|session| session["name"] == job.name.as_str()) else { return Ok(format!("{} is no longer listed", job.name)) };
-    let lane = lane(Path::new(session["cwd"].as_str().unwrap_or_default()), &job.name);
+    let listing: Value = serde_json::from_str(&north(&["fleet", "list", "--json", "--all"])?).map_err(|error| error.to_string())?;
+    let Some(session) = listing.as_array().into_iter().flatten().filter(|session| session["name"] == job.name.as_str()).min_by_key(|session| session["past"] == true) else { return Ok(format!("{} is no longer listed", job.name)) };
+    let retired = session["past"] == true;
+    let lane = lane(session, &job.name);
+    if retired && !lane.exists() {
+        return Ok(format!("{} was retired and its lane {} is gone", job.name, lane.path.display()));
+    }
+    let forget = |to: Option<&str>| -> Result<(), String> {
+        if retired {
+            return Ok(());
+        }
+        let mut words = vec!["fleet", "forget", job.name.as_str()];
+        words.extend(to.map(|heir| ["--to", heir]).into_iter().flatten());
+        north(&words).map(drop)
+    };
     git(&lane, &["fetch", "-q", "origin"])?;
     let sha = git(&lane, &["rev-parse", "HEAD"])?;
     let ahead: u32 = git(&lane, &["rev-list", "--count", "origin/main..HEAD"])?.parse().map_err(|error| format!("{error}"))?;
     let directory = record::directory();
     let verdict = |kind: Kind, class: Option<String>| Verdict { at: placement::now(), session: job.name.clone(), category: job.category.clone(), sha: sha.clone(), kind, class, effort: None };
     if ahead == 0 {
-        north(&["fleet", "forget", &job.name])?;
+        forget(None)?;
         let state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).filter(|path| path.is_absolute()).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"));
         let kind = no_commit_kind(&state.join("north/land-queue"), &job.name);
         sampling::append(&directory, &verdict(kind, None))?;
         return Ok(format!("{} reported Done with no commit ahead of origin/main ({kind:?}); forgot it", job.name));
     }
     if let Some(failed) = mechanical_failure(&lane, &job.oracle)? {
-        let told = format!("A mechanical check refused your commit {sha} before any review: {} ({}). Fix it in the lane and report Done again.", failed.why, failed.class);
-        north(&["fleet", "send", &job.name, &told])?;
+        if !retired {
+            let told = format!("A mechanical check refused your commit {sha} before any review: {} ({}). Fix it in the lane and report Done again.", failed.why, failed.class);
+            north(&["fleet", "send", &job.name, &told])?;
+        }
         sampling::append(&directory, &verdict(Kind::Bounced, Some(failed.class.to_owned())))?;
         return Ok(format!("{} bounced to {}: {}; no reviewer launched", job.item, job.name, failed.class));
     }
@@ -316,17 +404,21 @@ fn review(job: &Job) -> Result<String, String> {
     if Lander::of(&sampling::read(&directory), &job.category, job.landing, locked, &sha) == Lander::Reviewer {
         let reviewer = format!("{}-rv", job.name);
         let effort = sampling::reviewer_effort(&job.name);
-        let text = brief(&job.name, &job.item, &job.category, job.box_text.as_deref(), &lane, &sha, effort);
-        let cwd = lane.to_string_lossy().into_owned();
+        let text = brief(&job.name, &job.item, &job.category, job.box_text.as_deref(), &lane.path, &sha, effort);
+        let cwd = lane.launch_cwd();
         let mut words = vec!["fleet", "launch", "--provider", "claude", "--model", "sonnet", "--effort", effort, "--role", "worker", "--name", &reviewer, "--task", &job.item, "--cwd", &cwd];
         words.extend(job.box_text.as_deref().map(|text| ["--box", text]).into_iter().flatten());
-        words.extend(["--tier-reason", "north#1020: Sonnet reviews DeepSeek commits by sampling", "--local", "the DeepSeek lane is on this host", &text]);
+        words.extend(["--tier-reason", "north#1020: Sonnet reviews DeepSeek commits by sampling"]);
+        if lane.machine.is_none() {
+            words.extend(["--local", "the DeepSeek lane is on this host"]);
+        }
+        words.push(&text);
         north(&words)?;
-        north(&["fleet", "forget", &job.name, "--to", &reviewer])?;
+        forget(Some(&reviewer))?;
         return Ok(format!("{reviewer} reviews {} ({sha}, {}); {} forgotten", job.item, job.category, job.name));
     }
-    north(&["fleet", "forget", &job.name])?;
-    let pushed = Command::new(crate::fleet::runtime::binary("safe-push")).current_dir(&lane).output().map_err(|error| error.to_string())?;
+    forget(None)?;
+    let pushed = lane.command(&["safe-push"])?.output().map_err(|error| error.to_string())?;
     if pushed.status.success() {
         sampling::append(&directory, &verdict(Kind::Unsampled, None))?;
         return Ok(format!("{} ({sha}) went to the lander unreviewed; {} forgotten", job.item, job.name));
@@ -372,7 +464,7 @@ pub fn verdict(arguments: &[String]) -> u8 {
 }
 
 fn reject_lane(session: &str, sha: &str, class: &str) {
-    let Ok(top) = std::env::current_dir().map_err(|error| error.to_string()).and_then(|cwd| git(&cwd, &["rev-parse", "--show-toplevel"])) else { return };
+    let Ok(top) = std::env::current_dir().map_err(|error| error.to_string()).and_then(|cwd| git(&Worktree::here(cwd), &["rev-parse", "--show-toplevel"])) else { return };
     if !Path::new(&top).parent().is_some_and(|parent| parent.ends_with("worktrees")) {
         return;
     }
@@ -383,12 +475,12 @@ fn reject_lane(session: &str, sha: &str, class: &str) {
 }
 
 /// The files at `base` that define the tests named `oracle`.
-fn oracle_files(lane: &Path, base: &str, oracle: &[String]) -> Vec<String> {
+fn oracle_files(lane: &Worktree, base: &str, oracle: &[String]) -> Vec<String> {
     oracle.iter().flat_map(|name| git(lane, &["grep", "-l", "-e", &format!("fn {name}"), base, "--", "*.rs"]).unwrap_or_default().lines().filter_map(|hit| hit.split_once(':').map(|(_, file)| file.to_owned())).collect::<Vec<_>>()).collect()
 }
 
 /// The first mechanical check the lane's head fails, run before any reviewer launches.
-fn mechanical_failure(lane: &Path, oracle: &[String]) -> Result<Option<mechanical::Failure>, String> {
+fn mechanical_failure(lane: &Worktree, oracle: &[String]) -> Result<Option<mechanical::Failure>, String> {
     let base = git(lane, &["merge-base", "origin/main", "HEAD"])?;
     let diff = git(lane, &["diff", "-U0", &format!("{base}..HEAD")])?;
     let subject = git(lane, &["log", "-1", "--format=%s"])?;
