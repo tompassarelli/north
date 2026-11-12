@@ -35,6 +35,9 @@ const REMOTE_ONLY: &str = "--remote-only";
 const USER_ERROR: i32 = 3;
 /// What decides the gate's verdict and where the client sends its actions, besides the code it lints: the gate script, the tree's own buckconfig files, and the flake whose dev shell writes the toolchain buckconfig the tree includes.
 const GATE_ORIGIN: [&str; 6] = ["lint", ".buckconfig", ".buckconfig.local", ".buckconfig.d", "flake.nix", "flake.lock"];
+/// The toolchain buckconfig the tree's `.buckconfig` includes, which may hold any section: the flake's shell hook links it into the checkout from the store, untracked.
+const TOOLCHAIN_LINK: &str = ".buckconfig.flake";
+const NIX_STORE: &str = "/nix/store";
 
 fn words(verb: &[&str]) -> Vec<String> {
     std::iter::once("buck2").chain(verb.iter().copied()).map(str::to_owned).collect()
@@ -66,9 +69,9 @@ fn output_dir(root: &Path, profile: Profile, output: Option<&Path>) -> PathBuf {
 
 /// The clippy gate in place of `declared`, a lint line of `.safe-push`, for a host that moves its lint line alone
 /// (north#1115). The gate script and every file of the tree the Buck2 client reads its configuration from must be
-/// `base`'s byte for byte: a tree's `.buckconfig` outranks the host's own and no flag overrides it for the remote
-/// execution client (cpx62, 2026-11-12), so a lane that rewrites one would name its own gate or its own endpoint.
-/// `None` leaves the line as declared.
+/// `base`'s byte for byte, and the toolchain buckconfig it includes the shell hook's own link: a tree's `.buckconfig`
+/// outranks the host's own and no flag overrides it for the remote execution client (cpx62, 2026-11-12), so a lane
+/// that rewrites one would name its own gate or its own endpoint. `None` leaves the line as declared.
 pub(crate) fn gate(root: &Path, base: &str, declared: &str) -> Option<String> {
     let side = Buck2 { tests: false };
     if !side.governs(root) || !super::cargo::lints(declared) || !unchanged_since(root, base) {
@@ -81,7 +84,24 @@ pub(crate) fn gate(root: &Path, base: &str, declared: &str) -> Option<String> {
 fn unchanged_since(root: &Path, base: &str) -> bool {
     let git = |arguments: &[&str]| Command::new("git").arg("-C").arg(root).args(arguments).args(GATE_ORIGIN).stderr(Stdio::null()).output().ok();
     let same = git(&["diff", "--quiet", base, "--"]).is_some_and(|output| output.status.success());
-    same && git(&["ls-files", "--others", "--"]).is_some_and(|output| output.status.success() && output.stdout.is_empty())
+    same && git(&["ls-files", "--others", "--"]).is_some_and(|output| output.status.success() && output.stdout.is_empty()) && linked_by_the_shell(root)
+}
+
+/// Whether the tree's toolchain buckconfig is absent or the link the flake's shell hook makes, and not a file the tree tracks or one left in its place.
+fn linked_by_the_shell(root: &Path) -> bool {
+    let untracked = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["ls-files", "--", TOOLCHAIN_LINK])
+        .stderr(Stdio::null())
+        .output()
+        .is_ok_and(|output| output.status.success() && output.stdout.is_empty());
+    let link = root.join(TOOLCHAIN_LINK);
+    untracked
+        && match fs::symlink_metadata(&link) {
+            Ok(file) => file.file_type().is_symlink() && fs::read_link(&link).is_ok_and(|target| target.starts_with(NIX_STORE)),
+            Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+        }
 }
 
 /// Whether `command` runs this side's clippy gate.
