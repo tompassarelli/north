@@ -1,0 +1,1 @@
+  land scan leftovers BASE..HEAD                Refuse a Rust module file the lane leaves with no mod line, #[path] or include! reaching it

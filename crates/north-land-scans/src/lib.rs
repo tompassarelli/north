@@ -17,6 +17,7 @@ pub mod holdlist;
 pub(crate) mod host_paths;
 pub mod incident_guard;
 pub mod language;
+pub mod leftovers;
 pub mod nix_entry;
 pub mod outgoing;
 mod peer_invocations;
@@ -47,7 +48,7 @@ pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integ
        north land scan generated-registry BASE..HEAD
        north land scan holdlist-guards-resolve BASE..HEAD
        north land scan detector-proof BASE..HEAD
-       north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan safe-push-verbs [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps\n       north land scan dep-floor LOCK < LOCK-BEFORE";
+       north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan leftovers BASE..HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan safe-push-verbs [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps\n       north land scan dep-floor LOCK < LOCK-BEFORE";
 
 /// A bare revision or an empty base is a root commit: its base is the empty tree, so the diff and the history read are of the whole commit.
 pub struct Range<'a> {
@@ -122,6 +123,7 @@ fn ranged_checks(directory: &Path, name: &str, range: &str) -> Option<u8> {
         "incident-test" => incident_guard::scan(directory, range, &mut out),
         "test-admission" => test_admission::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "policy-sweep" => policy::sweep(directory, range, &mut out),
+        "leftovers" => leftovers::scan(directory, range, &mut out),
         "strategy-replay" => strategy_replay::scan(directory, range, &mut out),
         "shell-hook" => shell_hook::scan(directory, range, &mut out),
         "generated-rewrite" => generated::scan(directory, range, &mut std::io::stderr()),
