@@ -300,12 +300,12 @@ store is folded, the tick writes under the verdict-cache key the slot runner com
 
 Records are immutable, content-addressed files, so the lander host holds the union of every host's records:
 
-- An offload job pulls the store's new files before it runs.
-- The job's results carry back the records it wrote.
+- A recording run's results carry back the records it wrote, and bring the host what the lander holds.
 - Copying with ignore-existing in both directions is a safe merge.
 
-Lookup asks only whether any run has seen these answers, so verdicts carry with no lane bookkeeping. A
-lane's own pre-land check, every probe and each `land shadow tick` lane run all feed every later probe.
+Lookup asks only whether any run has seen these answers, so verdicts carry with no lane bookkeeping. As
+built, only recording runs write a pass (each `land shadow tick` lane run and the run of each landed main);
+a lane's own pre-land check and a probe look up and write nothing.
 
 ### Shadow, then on
 
@@ -357,8 +357,13 @@ The nextest land line (a check line that runs `cargo nextest run`, not `--no-run
   classifier drops with the program. After the run `observe` stores `record_set(weak, set)` for each unit, for a
   pass `record_pass(weak, strong, pass)`, and for a fail at a (weak, strong) that holds a pass clears it. A unit
   whose set holds an `unreusable` line stores its set and no pass.
-- **Store sync.** `north capacity offload verdict sync --host H` runs before each lookup run's job and after each
-  recording run, so a host holds the lander's records and the lander holds the host's.
+- **Store sync.** `north capacity offload verdict sync --host H` runs after each recording run, off the land
+  path, so a host holds the lander's records and the lander holds the host's. A lookup run reads the store its
+  host already holds. Until 2026-11-12 a lookup run also synced before its job. The sync lists every file on
+  both replicas, and the store had grown to 689,944 files, so one listing on one busy host took 203 s against
+  the 90 s cap. In the lander's logs 22 of 84 runs over 48 h (9 of the last 16) waited the whole 90 s before a
+  check started, 34 waits in all, while the shadow reused 0 of 313,259 units over 375 checks in the same two
+  days (north#1247).
 - **Weak** is the sha256 of the unit id (`BINARY_ID TEST`), the check line with every `${SAFE_PUSH_LAND_PACKAGES|CHANGED|IT|CPUS|SELECT_PATHS...}`
   expansion removed, the blob ids of `rust-toolchain.toml`, `flake.lock`, `Cargo.lock` and `.cargo/config.toml`, `rustc -vV` from cargo's
   `target/.rustc_info.json`, and the environment the check's sandbox is given: only the variables `north capacity carry --list --into sandbox`

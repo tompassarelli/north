@@ -50,9 +50,6 @@ impl Shared {
             say(&format!("safe-push: land check: {command} ({timeout} s, in one {host} slot on one north build with {} other land check(s))", commands.len() - 1));
         }
         let observed: Vec<String> = commands.iter().map(|command| self.observed(command)).collect();
-        if commands.iter().any(|command| self.observes(command)) {
-            self.sync_store(&host).await;
-        }
         let checks: Vec<(&str, u64)> = observed.iter().map(String::as_str).zip(timeouts.iter().copied()).collect();
         let (head_north, others) = checks[1..].split_at(phases.head_north.len());
         let outer = (checks[0].1 + head_north.iter().map(|check| check.1).max().unwrap_or_default()).max(others.iter().map(|check| check.1).sum()) + BATCH_GRACE;

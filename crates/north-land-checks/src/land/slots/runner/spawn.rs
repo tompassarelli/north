@@ -173,9 +173,6 @@ impl Shared {
                 return Err(1);
             }
             let observed = self.observed(command);
-            if observing {
-                self.sync_store(&host).await;
-            }
             let offload = self.offload_argv(&host, tree, timeout, &observed);
             let capacity = if environment.offload_host.is_empty() { "" } else { environment.capacity.as_str() };
             let suffix = if environment.offload_host.is_empty() { "" } else { " while this host is in game-reserve" };
