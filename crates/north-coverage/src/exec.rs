@@ -14,6 +14,14 @@ pub struct Work {
     pub root: PathBuf,
 }
 
+pub struct Reached {
+    pub key: String,
+    pub binary: String,
+    pub test: String,
+    pub failed: bool,
+    pub functions: Vec<String>,
+}
+
 impl Work {
     pub fn raw(&self) -> PathBuf {
         self.root.join("raw")

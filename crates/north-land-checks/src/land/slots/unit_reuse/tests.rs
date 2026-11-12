@@ -1,4 +1,4 @@
-use super::lines::Record;
+use north_base::verdict_cache::reuse_log::Record;
 use super::outcome::{Outcome, parse};
 use super::wrapped;
 

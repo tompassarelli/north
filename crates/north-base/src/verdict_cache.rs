@@ -2,6 +2,7 @@ mod key;
 mod observed;
 pub mod fingerprint;
 pub mod path_set;
+pub mod reuse_log;
 mod store;
 #[cfg(test)]
 mod fingerprint_tests;

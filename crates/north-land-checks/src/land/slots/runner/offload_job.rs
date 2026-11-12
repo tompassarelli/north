@@ -4,6 +4,7 @@ use std::time::SystemTime;
 
 use crate::land::slots::shared_build::Phases;
 use crate::land::slots::unit_reuse;
+use north_base::verdict_cache::reuse_log;
 use crate::land::trace::check_log::{self, Line};
 use crate::land::trace::{self, Category, Span};
 use super::execute::first_failure;
@@ -109,7 +110,7 @@ impl Shared {
             let part = part.unwrap_or_else(|| batch::Part { status: if ran.status == 0 { 1 } else { ran.status }, offset: 0.0, seconds: ran.ended_at - running, text: text.clone() });
             let _ = fs::write(&log, &part.text);
             if self.observes(command) {
-                unit_reuse::harvest::harvest(&log, &unit_reuse::harvest::directory());
+                reuse_log::harvest(&log, &unit_reuse::directory());
             }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let seconds = part.seconds.round() as u64;

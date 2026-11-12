@@ -73,7 +73,7 @@ fn a_verdict_the_shadow_tick_records_is_found_by_the_slot_runners_lookup_for_the
 }
 
 mod reuse_report {
-    use super::super::super::slots::unit_reuse::lines::Record;
+    use north_base::verdict_cache::reuse_log::Record;
     use super::super::reuse::{render, summarize};
 
     fn unit(probe: &str, set: Option<&str>, passed: bool, seconds: f64) -> Record {

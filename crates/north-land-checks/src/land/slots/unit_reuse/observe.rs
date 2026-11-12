@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use north_base::foundation::clock::Timestamp;
+use north_base::verdict_cache::reuse_log::Record;
 use north_base::platform::process::child_within;
 use north_base::verdict_cache::fingerprint::{self, Artifacts, Tree, Weak};
 use north_base::verdict_cache::path_set::{self, Entry};
@@ -10,7 +11,6 @@ use north_base::verdict_cache::{Pass, Store, set_id};
 use north_base::foundation::carry::{self, Boundary};
 use north_build_system::{Resolution, Shell};
 
-use super::lines::Record;
 use super::outcome::{Outcome, parse};
 use super::{USAGE, execute, recorder, runs};
 

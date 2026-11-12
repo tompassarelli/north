@@ -2,6 +2,8 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use north_base::verdict_cache::reuse_log::{self, Record};
+
 use crate::map::{self, Map};
 use crate::record::MAP_LINE;
 use crate::run_selected::{host, north, repository};
@@ -52,6 +54,14 @@ fn enter(repository: &str) -> Result<(), String> {
     if fetched.success() { Ok(()) } else { Err(format!("git fetch origin main failed in {}", checkout.display())) }
 }
 
+fn sync_sets(host: &str) {
+    match Command::new(north()).args(["capacity", "offload", "verdict", "sync", "--host", host]).stdin(Stdio::null()).stdout(Stdio::null()).status() {
+        Ok(status) if status.success() => {}
+        Ok(status) => eprintln!("north test coverage refresh: north capacity offload verdict sync --host {host} exited {status}, so the path sets of its record stay on that host"),
+        Err(error) => eprintln!("north test coverage refresh: north capacity offload verdict sync --host {host}: {error}"),
+    }
+}
+
 fn refresh(host: &str, head: &str) -> Result<Map, String> {
     let root = Path::new(".");
     let _running = Running::claim(&map::path_for(&repository(root)).with_extension("refreshing"))?;
@@ -62,15 +72,22 @@ fn refresh(host: &str, head: &str) -> Result<Map, String> {
         .map_err(|error| format!("north capacity offload run: {error}"))?;
     let stdout = child.stdout.take().ok_or("the offload has no output")?;
     let mut recorded = None;
+    let mut reads = Vec::new();
     for line in BufReader::new(stdout).lines() {
         let line = line.map_err(|error| format!("cannot read the offload's output: {error}"))?;
-        match line.strip_prefix(MAP_LINE) {
-            Some(text) => recorded = Some(serde_json::from_str::<Map>(text).map_err(|error| format!("cannot parse the recorded map: {error}"))?),
-            None => eprintln!("{line}"),
+        if let Some(text) = line.strip_prefix(MAP_LINE) {
+            recorded = Some(serde_json::from_str::<Map>(text).map_err(|error| format!("cannot parse the recorded map: {error}"))?);
+            reads.clear();
+        } else if let Some(read) = Record::from_marked(&line) {
+            reads.push(read);
+        } else {
+            eprintln!("{line}");
         }
     }
     let status = child.wait().map_err(|error| format!("north capacity offload run: {error}"))?;
     let map = recorded.ok_or_else(|| format!("the record on {host} printed no map ({status})"))?;
+    reuse_log::append(&reads, &reuse_log::directory(&map::state_home()));
+    sync_sets(host);
     let repository = repository(root);
     let path = map::path_for(&repository);
     map.save(&path)?;

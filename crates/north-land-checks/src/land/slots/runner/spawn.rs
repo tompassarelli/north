@@ -10,6 +10,7 @@ use tokio::process::{Child, Command};
 
 use crate::land::slots::select::Placement;
 use crate::land::slots::{unit_reuse, verdict_key};
+use north_base::verdict_cache::reuse_log;
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
@@ -186,7 +187,7 @@ impl Shared {
         };
         let ran = self.spawn_argv(command, argv, tree, timeout, dir).await;
         if observing && let Ok(ran) = &ran {
-            unit_reuse::harvest::harvest(&ran.log, &unit_reuse::harvest::directory());
+            reuse_log::harvest(&ran.log, &unit_reuse::directory());
             if environment.record_reuse && let Some(host) = self.offload_host_for(command) {
                 self.sync_store(&host).await;
             }

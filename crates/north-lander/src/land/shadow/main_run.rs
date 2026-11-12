@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::super::slots::select::Config;
-use super::super::slots::unit_reuse::{self, harvest};
+use north_base::verdict_cache::reuse_log;
+use super::super::slots::unit_reuse;
 use super::{Settings, place};
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -45,7 +46,7 @@ pub fn record(settings: &Settings, worktree: &Path, main: &str, logs: &Path) -> 
         let Ok(output) = File::create(&log) else { continue };
         let Ok(errors) = output.try_clone() else { continue };
         let _ = command.stdout(output).stderr(errors).status();
-        harvest::harvest(&log, &harvest::directory());
+        reuse_log::harvest(&log, &unit_reuse::directory());
     }
     if let Some(mut sync) = north(settings, &["capacity", "offload", "verdict", "sync", "--host", &host], worktree) {
         let _ = sync.stdout(Stdio::null()).stderr(Stdio::null()).status();

@@ -1,8 +1,7 @@
 use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::super::slots::unit_reuse::harvest;
-use super::super::slots::unit_reuse::lines::Record;
+use north_base::verdict_cache::reuse_log::{self, Record};
 use super::super::slots::unit_reuse::{self, USAGE as OBSERVE_USAGE};
 use super::super::trace::report::duration_seconds;
 
@@ -91,7 +90,7 @@ fn report(arguments: &[String]) -> u8 {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let from = now.saturating_sub(seconds as u64);
-    let records: Vec<Record> = harvest::read_since(&harvest::directory(), from).into_iter().map(|(_, record)| record).collect();
+    let records: Vec<Record> = reuse_log::read_since(&unit_reuse::directory(), from).into_iter().map(|(_, record)| record).collect();
     print!("{}", render(&summarize(&records), since));
     0
 }

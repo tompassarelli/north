@@ -102,10 +102,10 @@ pub fn start(root: &Path, reason: &str) -> Result<String, String> {
 /// Tell this host's graph the map at `path`, then send it to every build host's graph and the
 /// lander's; a host that cannot be reached keeps its older map and is named in the refresh's log.
 pub fn ingest(root: &Path, path: &Path, repository: &str) {
-    match Command::new(north()).args(["graph", "ingest", "coverage"]).stdout(Stdio::null()).status() {
+    match Command::new(north()).args(["graph", "ingest", "coverage", "reads"]).stdout(Stdio::null()).status() {
         Ok(status) if status.success() => {}
-        Ok(status) => eprintln!("north test coverage refresh: north graph ingest coverage exited {status}, so this host's graph keeps its older map"),
-        Err(error) => eprintln!("north test coverage refresh: north graph ingest coverage: {error}"),
+        Ok(status) => eprintln!("north test coverage refresh: north graph ingest coverage reads exited {status}, so this host's graph keeps its older map"),
+        Err(error) => eprintln!("north test coverage refresh: north graph ingest coverage reads: {error}"),
     }
     for warning in crate::hosts::tell(root, path, repository) {
         eprintln!("north test coverage refresh: {warning}");

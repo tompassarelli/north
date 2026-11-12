@@ -1,6 +1,9 @@
+use std::path::PathBuf;
+
+use north_base::platform::records_mirror::state_home;
+use north_base::verdict_cache::reuse_log;
+
 mod execute;
-pub mod harvest;
-pub mod lines;
 mod observe;
 pub use observe::checked_environment;
 pub mod outcome;
@@ -11,6 +14,10 @@ pub const USAGE: &str = "north land reuse observe --probe ID [--record] [--tree 
 const RUNNER_KEY: &str = "target.x86_64-unknown-linux-gnu.runner";
 pub const RECORD_ENV: &str = "NORTH_LAND_REUSE_RECORD";
 const NO_RECORDING: [&str; 1] = ["north-land-sandbox"];
+
+pub fn directory() -> PathBuf {
+    reuse_log::directory(&state_home())
+}
 
 pub fn runs_nextest(command: &str) -> bool {
     command.contains("cargo nextest run") && !command.contains("--no-run")

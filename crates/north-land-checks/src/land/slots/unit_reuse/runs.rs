@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 
 use north_build_system::{TestRecord, TestRun};
 
-use super::lines::Record;
+use north_base::verdict_cache::reuse_log::Record;
 use super::outcome::parse;
 
 pub fn read(record: &TestRecord) -> Result<Vec<TestRun>, String> {

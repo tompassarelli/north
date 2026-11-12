@@ -5,10 +5,12 @@ use std::process::Command;
 
 use serde::Deserialize;
 
+use north_base::verdict_cache::reuse_log::Record;
 use north_build_system::{BuildSystem, Coverage, Resolution, Selection, Shell, Step, Tests};
 
-use crate::exec::{FAILED, TOOLS_ENV, WORK_ENV, Work};
+use crate::exec::{FAILED, Reached, TOOLS_ENV, WORK_ENV, Work};
 use crate::map::{Function, Index, Map, Test};
+use crate::reads;
 
 pub const MAP_LINE: &str = "north-coverage-map ";
 const SUITE: [&str; 5] = ["--workspace", "--lib", "--bins", "--test", "it"];
@@ -39,9 +41,12 @@ pub struct Span {
 
 pub fn run(arguments: &[String]) -> u8 {
     match record(arguments) {
-        Ok(map) => match serde_json::to_string(&map) {
+        Ok((map, reads)) => match serde_json::to_string(&map) {
             Ok(text) => {
                 println!("{MAP_LINE}{text}");
+                for read in &reads {
+                    println!("{}", read.marked());
+                }
                 eprintln!("north test coverage record: {} tests reach {} functions at {}", map.tests.len(), map.functions.len(), map.commit);
                 0
             }
@@ -56,7 +61,7 @@ fn fail(why: &str) -> u8 {
     1
 }
 
-fn record(arguments: &[String]) -> Result<Map, String> {
+fn record(arguments: &[String]) -> Result<(Map, Vec<Record>), String> {
     let root = std::env::current_dir().map_err(|error| format!("current directory: {error}"))?;
     let suite: Vec<String> = if arguments.is_empty() { SUITE.iter().map(|word| (*word).to_owned()).collect() } else { arguments.to_vec() };
     let tools = tools()?;
@@ -81,13 +86,14 @@ fn record(arguments: &[String]) -> Result<Map, String> {
     let spans = spans(&root, &tools, &work, &objects)?;
     let reached = read_reach(&work.reach())?;
     let unprofiled = unprofiled_tests(&work, &binaries, &objects, &reached)?;
+    let reads = reads::records(&commit, &read_units(&work.units())?, &binaries, &reached);
     let recorded = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
     let mut map = assemble(commit, recorded, &binaries, &spans, &reached, &unprofiled);
     match crate::index::record(&root, &work.root, &map.functions) {
         Ok(index) => map.index = index,
         Err(why) => eprintln!("north test coverage record: no item-reference index, so a change outside every function selects its crate closure: {why}"),
     }
-    complete(map, listed)
+    complete(map, listed).map(|map| (map, reads))
 }
 
 pub fn complete(map: Map, listed: usize) -> Result<Map, String> {
@@ -166,14 +172,6 @@ fn span(root: &Path, function: ExportFunction) -> Option<(String, Span)> {
     let start = u32::try_from(lines.iter().map(|(start, _)| *start).min()?).ok()?;
     let end = u32::try_from(lines.iter().map(|(_, end)| *end).max()?).ok()?;
     Some((function.name, Span { file, start, end }))
-}
-
-pub struct Reached {
-    pub key: String,
-    pub binary: String,
-    pub test: String,
-    pub failed: bool,
-    pub functions: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]

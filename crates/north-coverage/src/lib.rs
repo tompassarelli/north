@@ -12,6 +12,7 @@ pub mod index;
 pub mod map;
 pub mod miss;
 pub mod pick;
+pub mod reads;
 pub mod record;
 pub mod refresh;
 pub mod run_selected;
