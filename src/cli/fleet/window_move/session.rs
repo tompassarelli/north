@@ -182,3 +182,26 @@ pub(super) fn ready_for(window: &Window, target: &Path) -> NorthResult<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn window(client: u32, account: &str, conversation: &str, terminal: bool) -> NorthResult<Window> {
+        let session = Session { id: conversation.to_owned(), transcript: PathBuf::new(), job: None, model: None };
+        Ok(Window { client, profile: PathBuf::new(), account: account.to_owned(), arguments: Vec::new(), cwd: PathBuf::new(), terminal, session })
+    }
+
+    #[test]
+    fn window_move_chooses_the_window_holding_the_recorded_conversation_among_three() {
+        let windows = || vec![window(10, "a", "tom-own", true), window(11, "b", "coordinator", true), window(12, "c", "other", true)];
+        let chosen = choose(windows(), "coordinator").unwrap();
+        assert_eq!((chosen.client, chosen.account.as_str()), (11, "b"));
+
+        let refused = choose(windows(), "missing").err().unwrap().user_message();
+        assert!(refused.contains("process 10 on account a holding conversation tom-own") && refused.contains("process 12 on account c"), "{refused}");
+
+        let headless = choose(vec![window(10, "a", "tom-own", true), window(11, "b", "coordinator", false)], "coordinator").err().unwrap().user_message();
+        assert!(headless.contains("not on a terminal"), "{headless}");
+    }
+}
