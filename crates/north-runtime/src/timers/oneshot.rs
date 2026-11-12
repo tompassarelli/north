@@ -1,6 +1,8 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
+
+use north_base::foundation::limit_clock;
 
 use super::{env_or, home, north_program, text};
 use crate::fleet::model::Account;
@@ -11,6 +13,9 @@ use crate::spend::billing;
 
 pub(crate) const QUIET: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC";
 const QUIET_WORD: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1";
+/// Claude names its limit reset in this zone, the one `limit_clock` reads.
+const UTC_WORD: &str = "TZ=UTC";
+const UNREAD_RESET_S: u64 = 3600;
 
 
 pub(crate) struct Reply {
@@ -29,27 +34,61 @@ fn at_limit(text: &str) -> bool {
     text.find("hit your").is_some_and(|start| text[start..].contains("limit"))
 }
 
-pub(crate) fn ask(profiles: &Path, labels: &[String], attempt: &mut dyn FnMut(Option<&Path>) -> Reply, warn: &mut dyn FnMut(String)) -> Asked {
-    let (mut tried, mut failed) = (false, false);
-    for label in labels {
-        let dir = profiles.join(format!("claude-{label}"));
-        if !dir.is_dir() {
-            continue;
-        }
-        tried = true;
+/// The accounts a one-shot ask found at their usage limit, each until its limit resets, kept beside `oneshot-answered`.
+pub(crate) struct Limited {
+    record: PathBuf,
+    now_s: u64,
+    held: Vec<(String, u64)>,
+}
+
+impl Limited {
+    pub(crate) fn read(state: &Path, now_s: u64) -> Self {
+        let record = state.join("oneshot-limited");
+        let listed = std::fs::read_to_string(&record).unwrap_or_default();
+        let held = listed.lines().filter_map(|line| {
+            let (label, reset) = line.split_once(' ')?;
+            Some((label.to_owned(), reset.trim().parse::<u64>().ok()?))
+        }).filter(|(_, reset)| *reset > now_s).collect();
+        Self { record, now_s, held }
+    }
+
+    fn holds(&self, label: &str) -> bool {
+        self.held.iter().any(|(held, _)| held == label)
+    }
+
+    fn hold(&mut self, label: &str, text: &str) {
+        let reset = limit_clock::reset_after(text, self.now_s * 1000).map_or(self.now_s + UNREAD_RESET_S, |ms| ms.div_ceil(1000));
+        self.held.retain(|(held, _)| held != label);
+        self.held.push((label.to_owned(), reset));
+        let lines: String = self.held.iter().map(|(held, reset)| format!("{held} {reset}\n")).collect();
+        let _ = std::fs::write(&self.record, lines);
+    }
+}
+
+fn ask_ambient(attempt: &mut dyn FnMut(Option<&Path>) -> Reply) -> Asked {
+    let reply = attempt(None);
+    if reply.code == Some(0) { Asked::Answer(reply.stdout) } else { Asked::Failed(super::child_failure("claude", reply.code, reply.stderr.as_bytes())) }
+}
+
+pub(crate) fn ask(profiles: &Path, limited: &mut Limited, labels: &[String], attempt: &mut dyn FnMut(Option<&Path>) -> Reply, warn: &mut dyn FnMut(String)) -> Asked {
+    let profiled: Vec<(&String, PathBuf)> = labels.iter().map(|label| (label, profiles.join(format!("claude-{label}")))).filter(|(_, dir)| dir.is_dir()).collect();
+    if profiled.is_empty() {
+        return ask_ambient(attempt);
+    }
+    let open: Vec<(&String, PathBuf)> = profiled.into_iter().filter(|(label, _)| !limited.holds(label)).collect();
+    let mut failed = false;
+    for (label, dir) in open {
         let reply = attempt(Some(&dir));
         if reply.code == Some(0) && !reply.stdout.is_empty() {
             return Asked::Answer(reply.stdout);
         }
         let combined = format!("{}{}", reply.stdout, reply.stderr);
-        if !at_limit(&combined) {
+        if at_limit(&combined) {
+            limited.hold(label, &combined);
+        } else {
             failed = true;
             warn(format!("claude account {label} failed: {combined}"));
         }
-    }
-    if !tried {
-        let reply = attempt(None);
-        return if reply.code == Some(0) { Asked::Answer(reply.stdout) } else { Asked::Failed(super::child_failure("claude", reply.code, reply.stderr.as_bytes())) };
     }
     if failed { Asked::Failed("a claude account failed".to_owned()) } else { Asked::AtLimit }
 }
@@ -87,7 +126,7 @@ pub(crate) fn lean_flags<'a>(ask: &Ask<'a>) -> [&'a str; 14] {
 
 pub(crate) fn once_args<'a>(program: &'a str, words: &'a [String], ask: &Ask<'a>, extra: &[&'a str]) -> Vec<&'a str> {
     let unset = words.chunks(2).take_while(|pair| pair.len() == 2 && pair[0] == "-u").count() * 2;
-    let mut args: Vec<&str> = billing::EXTERNAL.iter().flat_map(|name| ["-u", *name]).chain(words[..unset].iter().map(String::as_str)).chain([QUIET_WORD]).chain(words[unset..].iter().map(String::as_str)).collect();
+    let mut args: Vec<&str> = billing::EXTERNAL.iter().flat_map(|name| ["-u", *name]).chain(words[..unset].iter().map(String::as_str)).chain([QUIET_WORD, UTC_WORD]).chain(words[unset..].iter().map(String::as_str)).collect();
     args.push(program);
     args.extend(lean_flags(ask));
     args.extend(extra);
@@ -114,8 +153,12 @@ fn ambient_billing_refusal() -> Option<String> {
     billing::read_json(&dir, ".credentials.json").is_none_or(|credentials| credentials.get("claudeAiOauth").is_none()).then(|| "the default login is not a claude.ai subscription login".to_owned())
 }
 
-fn answered_record() -> std::path::PathBuf {
-    home().join(".local/state/north/oneshot-answered")
+fn state() -> PathBuf {
+    home().join(".local/state/north")
+}
+
+fn answered_record() -> PathBuf {
+    state().join("oneshot-answered")
 }
 
 fn answered_first(mut labels: Vec<String>, reserve: &[String], answered: Option<&str>) -> Vec<String> {
@@ -152,7 +195,8 @@ fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &Run
     let reserve = crate::platform::orchestration::read().map(|policy| crate::spend::operational::declared(&policy)).unwrap_or_default();
     let answered = std::fs::read_to_string(answered_record()).ok();
     let subscription = answered_first(crate::spend::operational::order(&reserve, shared), &reserve, answered.as_deref().map(str::trim));
-    ask(&profiles, &subscription, &mut |dir| match dir.map_or_else(ambient_billing_refusal, billing::settings_refusal) {
+    let now_s = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    ask(&profiles, &mut Limited::read(&state(), now_s), &subscription, &mut |dir| match dir.map_or_else(ambient_billing_refusal, billing::settings_refusal) {
         Some(why) => Reply { code: Some(1), stdout: String::new(), stderr: why },
         None => {
             let reply = claude_once(&account_words(dir, &accounts, access.invocation), question, extra, limit);

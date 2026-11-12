@@ -2,11 +2,10 @@
 //! `north fleet waits` revives it once the reset has passed or a reading of that window newer than
 //! the park shows room.
 pub use super::waits::resume_message;
-use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
 use north_base::platform::attribution::{self, Cause, Harness};
-use regex::Regex;
+use north_base::foundation::limit_clock::reset_after;
 
 use super::model::{EntryKind, Phase, SessionRecord, Status, Transcript, UsageLimit};
 use super::registry::Fleet;
@@ -17,12 +16,9 @@ use crate::usage::decide::world::{Label, Reading, Unix, Window};
 
 const RECENT: Duration = Duration::from_secs(48 * 3600);
 const UNREADABLE_RETRY_MS: u64 = 3_600_000;
-const DAY_MS: u64 = 86_400_000;
 const LABEL: &str = "usage limit";
 const FIVE_HOURS_MS: u64 = 5 * 3_600_000;
 pub use crate::usage::FULL_PCT;
-
-static CLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bresets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(utc\)").expect("limit clock pattern"));
 
 /// The reset of an account's usage window as `north fleet usage` reports it, for a limit whose turn named none.
 pub trait AccountResets {
@@ -47,20 +43,8 @@ impl Parked {
 pub fn lifts_at_ms(limit: &UsageLimit, now_ms: u64, account: impl FnOnce() -> Option<u64>) -> u64 {
     let stream = limit.resets_at_s.map(|seconds| seconds.saturating_mul(1000));
     let future = |at: Option<u64>| at.filter(|at| *at > now_ms);
-    let lifts = future(stream).or_else(|| future(limit.message.as_deref().and_then(|text| clock_after(text, now_ms)))).or_else(|| future(account()));
+    let lifts = future(stream).or_else(|| future(limit.message.as_deref().and_then(|text| reset_after(text, now_ms)))).or_else(|| future(account()));
     lifts.unwrap_or_else(|| unknown_reset_ms(now_ms)).div_ceil(1000) * 1000
-}
-
-fn clock_after(text: &str, now_ms: u64) -> Option<u64> {
-    let found = CLOCK.captures(text)?;
-    let (hour, minute): (u64, u64) = (found[1].parse().ok()?, found.get(2).map_or(Some(0), |minute| minute.as_str().parse().ok())?);
-    if !(1..=12).contains(&hour) || minute > 59 {
-        return None;
-    }
-    let pm = found[3].eq_ignore_ascii_case("pm");
-    let in_day = ((hour % 12) + if pm { 12 } else { 0 }) * 3_600_000 + minute * 60_000;
-    let today = now_ms - now_ms % DAY_MS + in_day;
-    Some(if today > now_ms { today } else { today + DAY_MS })
 }
 
 /// Registers a `usage:` wait for each session that stopped on the account's limit and that

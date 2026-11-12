@@ -1,5 +1,6 @@
+/// north#1239: every one-shot ask tried each account at its limit again before the one with room, 5.5 s of an 8.3 s ask.
 #[test]
-fn a_roster_account_ask_reaches_its_program_through_env() {
+fn a_second_judge_ask_skips_accounts_found_at_their_limit_and_starts_claude_once() {
     let profile = std::path::PathBuf::from("/profiles/claude-b");
     let held = tempfile::tempdir().unwrap();
     let token_file = held.path().join("claude-b");
@@ -17,6 +18,25 @@ fn a_roster_account_ask_reaches_its_program_through_env() {
     let args = super::oneshot::once_args("true", &words, &ask, &[]);
     let status = std::process::Command::new("env").args(&args).status().unwrap();
     assert!(status.success(), "env {args:?}: {status}");
+    let profiles = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let labels: Vec<String> = ["a", "b", "c"].map(str::to_owned).to_vec();
+    for label in &labels {
+        std::fs::create_dir(profiles.path().join(format!("claude-{label}"))).unwrap();
+    }
+    for expected in [3, 1] {
+        let mut starts = 0;
+        let mut attempt = |dir: Option<&std::path::Path>| {
+            starts += 1;
+            let answers = dir.is_some_and(|dir| dir.ends_with("claude-c"));
+            let stdout = if answers { "yes" } else { "You've hit your limit · resets 3pm (UTC)" }.to_owned();
+            super::oneshot::Reply { code: Some(i32::from(!answers)), stdout, stderr: String::new() }
+        };
+        let mut limited = super::oneshot::Limited::read(state.path(), 1_792_000_000);
+        let asked = super::oneshot::ask(profiles.path(), &mut limited, &labels, &mut attempt, &mut |warning| panic!("{warning}"));
+        assert!(matches!(asked, super::oneshot::Asked::Answer(ref answer) if answer == "yes"));
+        assert_eq!(starts, expected);
+    }
 }
 
 

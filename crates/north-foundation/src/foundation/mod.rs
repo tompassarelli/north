@@ -7,6 +7,7 @@ pub mod clock;
 pub mod convo_index;
 pub mod exit;
 pub mod hook_deadline;
+pub mod limit_clock;
 pub mod offload;
 pub mod redact;
 pub mod shim;
