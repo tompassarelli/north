@@ -8,6 +8,7 @@ use std::os::unix::fs::symlink;
 
 const PREVIOUS: &str = "1111111111111111111111111111111111111111";
 const PROMOTED: &str = "2222222222222222222222222222222222222222";
+const OLDER: &str = "0000000000000000000000000000000000000000";
 
 struct Fleet<'a> {
     layout: &'a Layout,
@@ -18,6 +19,7 @@ struct Fleet<'a> {
     settles: bool,
     landers: Option<probes::Landers>,
     depbox_host: Option<std::path::PathBuf>,
+    services: Option<String>,
     probed: Mutex<Vec<String>>,
     alarms: Mutex<Vec<String>>,
     pages: Mutex<Vec<(String, String)>>,
@@ -29,6 +31,12 @@ impl Machine for Fleet<'_> {
         if let Some(home) = self.depbox_host.as_ref().filter(|_| probe.name.contains("depbox")) {
             let output = Command::new(bash_program()).arg("-c").arg(&probe.script).env("HOME", home).env("TMPDIR", home.join("tmp")).env_remove("XDG_STATE_HOME").env_remove("NORTH_RUNTIME_LINK").env_remove(north_base::platform::session_scope::REMOVAL_ROOTS).output().unwrap();
             return classify(output.status.code(), format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
+        }
+        if let Some(listing) = self.services.as_ref().filter(|_| probe.name.contains("host service")) {
+            return match services::judge(self.layout, PROMOTED, listing) {
+                Ok(said) => Ran::Exited { code: 0, log: said },
+                Err(failure) => classify(Some(i32::from(failure.code)), failure.message),
+            };
         }
         let failing = if probe.script.contains(PREVIOUS) { &self.replaced } else { &self.failing };
         match failing {
@@ -95,7 +103,7 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, settles: false, landers: None, depbox_host: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, settles: false, landers: None, depbox_host: None, services: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
     }
 
     fn settling(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
@@ -111,10 +119,18 @@ impl Host {
     fn current(&self) -> std::path::PathBuf {
         fs::read_link(self.layout.current()).unwrap()
     }
+
+    fn swapped(&self, runtimes: &[&str]) {
+        fs::write(self.layout.swaps(), runtimes.iter().enumerate().map(|(at, runtime)| format!("{{\"runtime\":\"{runtime}\",\"at\":{at}}}\n")).collect::<String>()).unwrap();
+    }
 }
 
 fn exited(code: u8, log: &str) -> Ran {
     Ran::Exited { code, log: log.to_owned() }
+}
+
+fn listed(processes: &[(u32, &str, &str, &str)]) -> Option<String> {
+    Some(serde_json::Value::Array(processes.iter().map(|(pid, kind, subject, runtime)| serde_json::json!({"pid": pid, "kind": kind, "process": format!("{kind}{subject}"), "runtime": runtime})).collect()).to_string())
 }
 
 fn bash_program() -> std::path::PathBuf {
@@ -127,7 +143,7 @@ fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming
     let host = Host::promoted();
     let fleet = host.fleet(Some(("reaches gex45 through", exited(255, "ssh: Could not resolve hostname gex45\n"))));
     assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::RolledBack);
-    assert_eq!(fleet.probed.lock().unwrap().len(), 7);
+    assert_eq!(fleet.probed.lock().unwrap().len(), 8);
     assert_eq!(host.current(), layout::link(PREVIOUS));
     assert_eq!(lifecycle::state_of::<Promoting>(&host.layout, PROMOTED).unwrap(), Some(Promotion::RolledBack));
     let alarms = fleet.alarms.lock().unwrap();
@@ -585,4 +601,25 @@ fn the_verify_north_probe_reads_all_of_the_placement_listing_before_judging_it()
     let walk = plan.probes.iter().find(|probe| probe.name.contains("verify-north")).unwrap();
     let output = Command::new(bash_program()).arg("-c").arg(&walk.script).env("HOME", home.path()).env_remove("XDG_STATE_HOME").env_remove("NORTH_RUNTIME_LINK").output().unwrap();
     assert!(output.status.success(), "grep -q closed the listing's pipe at its first line and the writer died on it, exit {:?}: {}", output.status.code(), String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn a_host_service_on_a_runtime_older_than_the_one_the_promotion_replaced_fails_the_canary_naming_it() {
+    let host = Host::promoted();
+    host.swapped(&[OLDER, PREVIOUS, PROMOTED]);
+    let fleet = Fleet { services: listed(&[(7, "broker", "", OLDER), (8, "fleet watchdog", " worker-1", PREVIOUS), (9, "land serve", " /code/north/main", PROMOTED), (10, "offload taker", "", OLDER)]), ..host.fleet(None) };
+    let Verdict::Unrun(why) = check(&host.layout, "nexus", PROMOTED, &fleet) else { panic!("a broker two promotions behind passed the canary") };
+    assert!(why.contains("host service `broker` (pid 7) runs 00000000, `offload taker` (pid 10) runs 00000000: older than 11111111, the runtime 22222222 replaces"), "{why}");
+    assert!(!why.contains("pid 8") && !why.contains("pid 9"), "a service on the replaced runtime is on its way and one on the judged runtime arrived: {why}");
+    assert_eq!(host.current(), layout::link(PROMOTED), "a stale host service is the host's fault, not the runtime's, so nothing is rolled back");
+    assert!(fleet.alarms.lock().unwrap()[0].contains("`broker` (pid 7) runs 00000000"));
+}
+
+#[test]
+fn session_processes_behind_the_replaced_runtime_pass_the_canary() {
+    let host = Host::promoted();
+    host.swapped(&[OLDER, PREVIOUS, PROMOTED]);
+    let fleet = Fleet { services: listed(&[(7, "session-host", " worker-1", OLDER), (8, "session-link", " worker-1", OLDER), (9, "tool-server", " finish", OLDER), (12, "worker-sandbox broker", "", OLDER), (10, "broker", "", PREVIOUS), (11, "land serve", "", "3333333333333333333333333333333333333333")]), ..host.fleet(None) };
+    assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::Passed, "a session moves its own processes when it can, and a lander of a build this host never promoted is another checkout's");
+    assert!(fleet.alarms.lock().unwrap().is_empty());
 }

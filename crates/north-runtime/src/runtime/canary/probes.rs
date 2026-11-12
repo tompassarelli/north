@@ -90,6 +90,7 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hu
         (false, false) => not_applicable.push(offload_hop),
     }
     probes.push(probe("a worker command's depbox run execs the judged north", depbox_run(&north), DEPBOX_LIMIT));
+    probes.push(probe("no host service runs a runtime older than the one replaced", format!("{north} runtime probe services"), SHELL_LIMIT));
     match landers {
         Some(landers) => {
             not_applicable.extend(landers.unserved.iter().map(|file| format!("no running lander serves {file}")));

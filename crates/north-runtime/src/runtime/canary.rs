@@ -10,8 +10,10 @@ use std::time::{Duration, Instant};
 mod baseline;
 mod launch;
 mod probes;
+mod services;
 
 pub(super) use launch::probe as launch_probe;
+pub(super) use services::probe as services_probe;
 pub(super) use probes::{Landers, Probe};
 
 /// The scripts of the two probes that ask a broker from a scratch project they make, for the test of the broker that serves them (worker_sandbox/offload_request_tests.rs).

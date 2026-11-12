@@ -64,6 +64,11 @@ repository), the runtime it runs and `current`, or `behind` with the runtime its
 the program path in `/proc/PID/cmdline`, then from `/proc/PID/exe`. When neither names one, a process that started
 through a link after the link last moved counts as running that link's runtime. Any other process runs an older one.
 
+The canary reads the same list on every promotion (`north runtime probe services`): a host service (a broker, a lander,
+a watchdog, the offload taker) on a runtime this host ran before the one the promotion replaces follows no promotion, so
+the probe names it as a host fault and the runtime is neither passed nor rolled back. One on the replaced runtime is on
+its way, and a session host, session link or tool server behind is counted and left to its session (north#1022).
+
 `north runtime lag --json` answers the fleet-wide question (north#1081): a JSON array with one object per long-lived
 process on every declared host, `host`, `process`, `runtime` and `seconds`. The settling host asks each other host for
 its own list with `north runtime lag --processes --json` over ssh, and times each process from the first landing in
