@@ -226,7 +226,11 @@ fn bind(socket: &Path, mode: Mode, group: Option<u32>) -> Result<Option<UnixList
 
 /// A directory the agent socket may use is one the broker made: absent, or still owned by this uid in the mode the broker gives its own.
 fn own_directory(parent: &Path, mode: Mode) -> Result<(), String> {
-    let Ok(meta) = std::fs::metadata(parent) else { return Ok(()) };
+    let meta = match std::fs::metadata(parent) {
+        Ok(meta) => meta,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("cannot read {}: {error}", parent.display())),
+    };
     let ours = meta.uid() == rustix::process::geteuid().as_raw() && meta.mode() & 0o777 == mode.directory();
     if ours {
         Ok(())
