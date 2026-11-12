@@ -107,7 +107,7 @@ pub fn create(lane: &Path, issue: &str, from: Option<&str>) -> Result<String, St
 }
 
 fn serialized(main: &Path) -> Result<File, String> {
-    let dir = main.join(".git/north");
+    let dir = lane_issue::common_dir(main).ok_or("cannot resolve the repository's git directory")?.join("north");
     std::fs::create_dir_all(&dir).map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
     let file = File::create(dir.join("lane-new.lock")).map_err(|error| format!("cannot open the lane creation lock: {error}"))?;
     flock(&file, FlockOperation::LockExclusive).map_err(|error| format!("cannot take the lane creation lock: {error}"))?;

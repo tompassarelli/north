@@ -75,3 +75,22 @@ fn a_local_branch_named_origin_main_does_not_move_a_new_lane_off_the_remotes_mai
 
     assert_eq!(git_in(&lane, &["rev-parse", "HEAD"]), remote_main);
 }
+
+#[test]
+fn a_lane_of_a_project_whose_main_is_a_linked_worktree_keeps_its_lock_under_the_common_git_dir() {
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path().canonicalize().unwrap();
+    let hub = root.join("hub");
+    init_repo(&hub, None);
+    let container = root.join("north");
+    let main = container.join("main");
+    std::fs::create_dir_all(&container).unwrap();
+    git_in(&hub, &["worktree", "add", "-q", "-b", "trunk", main.to_str().unwrap(), "main"]);
+    assert!(main.join(".git").is_file());
+    let lane = container.join("worktrees/linked-main");
+
+    assert_eq!(create(&lane, "north#1249", None).unwrap(), "north#1249");
+
+    assert!(hub.join(".git/north/lane-new.lock").is_file());
+    assert_eq!(recorded(&main, "linked-main").as_deref(), Some("north#1249"));
+}

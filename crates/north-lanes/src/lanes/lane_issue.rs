@@ -13,12 +13,15 @@ fn key(branch: &str) -> String {
     format!("branch.{branch}.north-issue")
 }
 
+pub(super) fn common_dir(main: &Path) -> Option<PathBuf> {
+    git_out(main, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).map(PathBuf::from)
+}
+
 fn path(main: &Path, branch: &str) -> Option<PathBuf> {
     if branch.is_empty() {
         return None;
     }
-    let common = git_out(main, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
-    Some(PathBuf::from(common).join(RECORDS).join(branch))
+    Some(common_dir(main)?.join(RECORDS).join(branch))
 }
 
 pub(super) fn valid(item: &str) -> bool {
