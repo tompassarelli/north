@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use crate::foundation::clock::Timestamp;
 
 pub const PROXY: &str = "proxy";
+pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
+pub const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 
 pub fn binary(name: &str) -> PathBuf {
     let on_path = std::env::var_os("PATH")

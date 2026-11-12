@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 
-pub use north_fleet_store::runtime::{PROXY, binary, now_ms};
+pub use north_fleet_store::runtime::{PROXY, ROLE_ENV, SESSION_ENV, binary, now_ms};
 use super::gates::Question;
 use super::model::{Account, Effort, LaunchRequest, ProviderName, Quota, Transcript};
 use super::roster::Roster;
@@ -165,8 +165,6 @@ pub trait Runtime: Send + Sync {
 pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
 /// The foreground maximum a session may ask for, which only its hand-in call uses: the hand-in wait and room to print its verdict.
 pub const HAND_IN_CAP_SECS: u64 = north_base::land_ticket::HAND_IN_WAIT.as_secs() + 300;
-pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
-pub const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 pub const ACTOR_ENV: &str = "THREADS_ACTOR";
 pub const CAPACITY_NEED_ENV: &str = "AGENT_CAPACITY_NEED";
 /// The variable naming a spare worker's binding file, whose session name, actor and capacity need the worker-sandbox prefix applies once a launch takes the spare.
