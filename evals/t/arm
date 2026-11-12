@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -uo pipefail
+arm=$1 W=$(readlink -f "$2")
+MODEL=${EVAL_T_MODEL:-claude-opus-5-5} EFFORT=${EVAL_T_EFFORT:-medium} LIMIT=${EVAL_T_LIMIT_S:-600} ROOT=$W/repo
+fail() { echo "eval-t arm $arm: $1" >&2; exit 1; }
+for variable in $(compgen -e | grep -E '^(ANTHROPIC_|CLAUDE_CODE_USE_)'); do unset "$variable"; done
+case $arm in
+  north)
+    : "${EVAL_T_ACCOUNT:?names the subscription account north launches on}"
+    for variable in $(compgen -e | grep -E '^(CLAUDE|CODEX_HOME|NORTH_FLEET_)'); do unset "$variable"; done
+    export XDG_STATE_HOME=$W/state NORTH_TEST_ROOT=$W/state NORTH_FLEET_TEST=1 THREADS_DB=$W/state/threads.db
+    mkdir -p "$XDG_STATE_HOME"
+    north threads list > /dev/null 2>&1
+    name=evalT-$$
+    north fleet launch --provider claude --account "$EVAL_T_ACCOUNT" --model "$MODEL" --effort "$EFFORT" --name "$name" --parent none \
+      --role worker --prompt north --test --cwd "$ROOT" --no-wait "$(cat "$W/prompt.txt")" > "$W/launch.log" 2>&1 || fail "launch refused; see $W/launch.log"
+    settled() { north fleet show "$name" --json 2> /dev/null | jq -e '.status != "working"
+      and ([.entries[] | select(.kind == "user" or .kind == "assistant")] | last | .kind) == "assistant"' > /dev/null; }
+    for _ in $(seq $((LIMIT / 3))); do sleep 3; settled && break; done
+    settled || echo "eval-t arm north: not settled after $LIMIT s" >&2
+    conversation=$(north fleet show "$name" --json 2> /dev/null | jq -r '.conversation // empty')
+    kept=$(find "$XDG_STATE_HOME" "$HOME/.local/state/north/profiles" -name "$conversation.jsonl" 2> /dev/null | head -1)
+    cat "${kept:-$XDG_STATE_HOME/north/fleet/$name/g1/stream.jsonl}" > "$W/transcript.jsonl"
+    north fleet stop "$name" >> "$W/launch.log" 2>&1
+    north fleet forget "$name" >> "$W/launch.log" 2>&1 ;;
+  t3 | bare)
+    : "${EVAL_T_TOKEN_FILE:?names a file holding the subscription OAuth token}"
+    T3=${T3_RUNTIME:-$HOME/.local/lib/t3/current/t3}
+    claude=$(readlink -f "${EVAL_T_CLAUDE:-$(command -v claude)}")
+    cfg=$W/cfg state=$W/t3-base port=$(shuf -i 38800-38999 -n 1) tools=$(dirname "$claude"):$(dirname "$(command -v git)"):$(dirname "$(command -v bash)")
+    mkdir -p "$cfg" "$state" "$W/home"
+    printf '{"effortLevel": "%s"}\n' "$EFFORT" > "$cfg/settings.json"
+    if [ "$arm" = bare ]; then
+      (cd "$ROOT" && env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 CLAUDE_CONFIG_DIR="$cfg" CLAUDE_CODE_OAUTH_TOKEN="$(cat "$EVAL_T_TOKEN_FILE")" \
+        timeout "$LIMIT" "$claude" -p --model "$MODEL" < "$W/prompt.txt" > "$W/reply.txt" 2> "$W/turn.err")
+      cat "$cfg"/projects/*/*.jsonl > "$W/transcript.jsonl" 2> /dev/null
+      [ -s "$W/transcript.jsonl" ] || fail "the session left no transcript"
+      exit 0
+    fi
+    cli=(env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 "$T3")
+    setsid env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 CLAUDE_CONFIG_DIR="$cfg" T3CODE_TELEMETRY_ENABLED=false OTEL_SDK_DISABLED=true \
+      CLAUDE_CODE_OAUTH_TOKEN="$(cat "$EVAL_T_TOKEN_FILE")" \
+      "$T3" serve --base-dir "$state" --host 127.0.0.1 --port "$port" --no-browser "$ROOT" > "$W/server.log" 2>&1 &
+    server=$!
+    trap 'kill -- "-$server" 2> /dev/null || kill "$server" 2> /dev/null' EXIT
+    for _ in $(seq 90); do grep -q 'Connection string' "$W/server.log" && break; sleep 1; done
+    grep -q 'Connection string' "$W/server.log" || fail "the server never came up; see $W/server.log"
+    "${cli[@]}" project add "$ROOT" --base-dir "$state" > "$W/project.log" 2>&1 || fail "project add failed; see $W/project.log"
+    timeout "$LIMIT" "${cli[@]}" thread start "$ROOT" - --provider claudeAgent --model "$MODEL" --wait --json --base-dir "$state" \
+      < "$W/prompt.txt" > "$W/turn.json" 2> "$W/turn.err" || echo "eval-t arm t3: thread start exited $?; see $W/turn.err" >&2
+    cat "$cfg"/projects/*/*.jsonl > "$W/transcript.jsonl" 2> /dev/null ;;
+  *) fail "the arms are north, t3 and bare" ;;
+esac
+[ -s "$W/transcript.jsonl" ] || fail "the session left no transcript"

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -uo pipefail
+cd "$(dirname "$(readlink -f "$0")")" || exit 1
+usage="usage: evals/t/run --smoke | --list NAME [--samples N] [--label NAME] [--seed N]
+  NAME is a key of cases.json's lists; the environment names the logins: EVAL_T_ACCOUNT, EVAL_T_TOKEN_FILE"
+list='' samples=1 label=$(date +%Y%m%d-%H%M%S) seed=1
+while [ $# -gt 0 ]; do
+  case $1 in
+    --smoke) list=smoke; shift ;;
+    --list) list=$2; shift 2 ;;
+    --samples) samples=$2; shift 2 ;;
+    --label) label=$2; shift 2 ;;
+    --seed) seed=$2; shift 2 ;;
+    *) echo "$usage" >&2; exit 2 ;;
+  esac
+done
+[ -n "$list" ] || { echo "$usage" >&2; exit 2; }
+work=${EVAL_T_WORK:-work} node=${EVAL_T_NODE:-node} T3=${T3_RUNTIME:-$HOME/.local/lib/t3/current/t3}
+run=$work/runs/$label
+tool() { cargo run -q --locked --offline -- "$@"; }
+mkdir -p "$run"
+tool fetch --into "$work/t3code" && tool classify --checkout "$work/t3code" --check cases.json || exit 1
+if [ ! -d "$work/grader/node_modules" ]; then
+  [ -d "$work/grader" ] || git -C "$work/t3code" worktree add -q --detach ../grader HEAD || exit 1
+  (cd "$work/grader" && bun install --ignore-scripts) > "$run/grader-install.log" 2>&1
+fi
+if [ "$list" = smoke ]; then cases=file-links-package-relative; else cases=$(jq -r --arg list "$list" '.lists[$list][]?' cases.json); fi
+[ -n "$cases" ] || { echo "eval-t: cases.json has no list $list" >&2; exit 2; }
+version=$("$T3" --version)
+stamp() {
+  jq -cn --arg label "$label" --argjson sample "$1" --argjson seed "$seed" --arg model "${EVAL_T_MODEL:-claude-opus-5-5}" \
+    --arg effort "${EVAL_T_EFFORT:-medium}" --arg t3 "$version" --arg t3_sha256 "$(sha256sum "$T3" | cut -d' ' -f1)" \
+    --arg claude "$(claude --version 2> /dev/null)" --arg north "$(north --version 2> /dev/null)" '$ARGS.named'
+}
+failed=0
+for case in $cases; do
+  for sample in $(seq "$samples"); do
+    arms="t3 north"
+    [ $(($(printf '%s' "$seed-$case-$sample" | cksum | cut -d' ' -f1) % 2)) = 0 ] || arms="north t3"
+    for arm in $arms; do
+      w=$run/$case-$sample-$arm
+      tool world --checkout "$work/t3code" --case "$case" --into "$w" > /dev/null && ./arm "$arm" "$w" \
+        && tool grade --checkout "$work/t3code" --grader "$work/grader" --node "$node" --case "$case" --arm "$arm" \
+          --transcript "$w/transcript.jsonl" --cwd "$(readlink -f "$w/repo")" --out "$w" --stamp "$(stamp "$sample")" | tee -a "$run/results.jsonl"
+      [ "${PIPESTATUS[0]}" = 0 ] || { failed=1; echo "eval-t: $case sample $sample in $arm gave no graded row; see $w" >&2; }
+    done
+  done
+done
+[ "$version" = "t3 v0.1.9" ] || { echo "eval-t: $T3 is $version, not the pinned v0.1.9, so these rows do not count" >&2; exit 1; }
+exit "$failed"

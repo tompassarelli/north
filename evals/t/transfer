@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+state=$(readlink -f "${1:?usage: evals/t/transfer STATE, a directory written by eval-t transfer-fixture}")
+session=eval-t-transfer stream=$state/north/fleet/$session/g1/stream.jsonl settle=${EVAL_T_SETTLE_S:-20}
+[ -s "$state/measured-turn.jsonl" ] && [ -s "$stream" ] || { echo "eval-t transfer: $state holds no fixture" >&2; exit 2; }
+export XDG_STATE_HOME=$state
+t0=$(date +%s%N)
+north fleet show "$session" > "$state/snapshot.out"
+t1=$(date +%s%N)
+north fleet show "$session" --json > "$state/snapshot.json"
+timeout "$((settle * 2))" north fleet show "$session" --follow > "$state/follow.out" 2> /dev/null &
+sleep "$settle"
+before=$(wc -c < "$state/follow.out") before_lines=$(wc -l < "$state/follow.out")
+cat "$state/measured-turn.jsonl" >> "$stream"
+wait || true
+jq -cn --argjson history "$(jq '.history.stream_bytes' "$state/fixture.json")" --argjson measured "$(jq '.measured.stream_bytes' "$state/fixture.json")" \
+  --argjson snapshot "$(wc -c < "$state/snapshot.out")" --argjson json "$(wc -c < "$state/snapshot.json")" --argjson ms $(((t1 - t0) / 1000000)) \
+  --argjson turn $(($(wc -c < "$state/follow.out") - before)) --argjson lines $(($(wc -l < "$state/follow.out") - before_lines)) \
+  '{north: "north fleet show", stored_history_bytes: $history, stored_measured_turn_bytes: $measured, thread_snapshot_bytes: $snapshot,
+    thread_snapshot_json_bytes: $json, thread_snapshot_ms: $ms, measured_turn_bytes: $turn, measured_turn_lines: $lines}'

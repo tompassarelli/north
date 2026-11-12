@@ -1,0 +1,5302 @@
+{
+  "case_files": {
+    "evals/mcp-tool-use/cases/device-manager.ndjson": {
+      "blob": "af4186072035bdace49ce89d345801866a4204cc",
+      "sha256": "2dd9f7ae8a57a72820e0d379175a10424e1271b09f247fb843d6415d51bf63e8"
+    },
+    "evals/mcp-tool-use/cases/file-links.ndjson": {
+      "blob": "08c058ab90010f57349a68b58af3573ac014d5a8",
+      "sha256": "f6647a129cc50d39f9bec140e4bb5ef97f271d2373d6740cf8ee9bdf80fcbbfe"
+    },
+    "evals/mcp-tool-use/cases/orchestration.ndjson": {
+      "blob": "e69f14f7cc547c99968745091d85ef2e1881aff6",
+      "sha256": "ef9749223b4e4e8074a50a159eed059dd6aba83867a1032a9a767f58c2dd64c3"
+    },
+    "evals/mcp-tool-use/cases/projects.ndjson": {
+      "blob": "b52ee4eff30bc89147cc47889c11632b64e7647f",
+      "sha256": "4ce17168cb29c74b13dffe9283a90f3318aaff1326c44b0c6c1a19b213dbe41c"
+    },
+    "evals/mcp-tool-use/cases/pull-requests.ndjson": {
+      "blob": "2e14e45f7f250b42330b652b64ff8b4263034e22",
+      "sha256": "45da2acfa58d8d7f28b79f18fc52aee9d3c8bfafc353b8d159a9cf66813f44ce"
+    },
+    "evals/mcp-tool-use/cases/secrets.ndjson": {
+      "blob": "3420fa2dca5221cccb20a1e84a13c5d8884ab792",
+      "sha256": "0020747b272046890bc3d3037138abac5dc1a2ddfe10c25e2de65e092be7f4af"
+    },
+    "evals/mcp-tool-use/cases/side-chats.ndjson": {
+      "blob": "1dd4c70d3662a1bd0be3fff928880369e622fef3",
+      "sha256": "5c1a3e17e58b2cf74c3f5fb3f2e15533e58eae0ecbdcec44904e6aff7bb16e55"
+    },
+    "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson": {
+      "blob": "0d714fd3651132ed6555dd4387fb2a9e4b221d06",
+      "sha256": "5f54c42582fdd0997f48af9c4976fa86badc444b20111c9149f30ee9fa63a9db"
+    },
+    "evals/mcp-tool-use/cases/visual-preview.ndjson": {
+      "blob": "edd66f26966e995ee9cba7025ccaa54a5e087585",
+      "sha256": "df3700ec694780606a77b4d31ff082c0828c196ed8821300c37da753ab6ee44b"
+    }
+  },
+  "cases": {
+    "ACC-01": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "device_close",
+        "device_list",
+        "device_open",
+        "device_screenshot",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "CAP-01": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "device_screenshot",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_open",
+        "device_screenshot"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "DEL-02": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "device_open"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "priorTurns",
+        "context",
+        "delegateRole"
+      ],
+      "world_needs_t3": [
+        "role delegated-child"
+      ]
+    },
+    "DISC-01": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_list",
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "DOC-01": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "device_open"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "priorTurns",
+        "context",
+        "files outside the repository"
+      ],
+      "world_needs_t3": []
+    },
+    "FAIL-AFTER-hub": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock device_screenshot",
+        "prior call device_list",
+        "prior call device_open",
+        "prior call device_screenshot"
+      ]
+    },
+    "HOST-01a": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "device_open"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "LEGIT-01": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [
+        "Bash",
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "device_close",
+        "device_open",
+        "device_screenshot"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "NAT-01": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "device_open",
+        "t3_thread_launch"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "role native-subagent"
+      ]
+    },
+    "NODEV-02": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "device_close",
+        "device_list",
+        "device_open",
+        "device_screenshot"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "ORC-01": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "orchestrator_capabilities"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "OWN-01": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_list",
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "OWN-02": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_list",
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "OWN-03": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "SEED-01": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "device_open"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "SESS-01": {
+      "area": "device-manager",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/device-manager.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "archive-project-not-delete": {
+      "area": "projects",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/projects.ndjson",
+      "forbids_t3_tools": [
+        "t3_project_delete",
+        "t3_project_update"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_project_update"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock t3_project_list"
+      ]
+    },
+    "async-delegate-then-end-turn": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "t3_thread_wait",
+        "task_status"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "mock task_status"
+      ]
+    },
+    "babysit-uses-monitor": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "CronCreate",
+        "Monitor",
+        "ScheduleWakeup",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "watch_pull_request"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock watch_pull_request"
+      ]
+    },
+    "browser-resume-after-unavailable-status": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "preview_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_open",
+        "mock preview_snapshot",
+        "mock preview_status",
+        "no prompt of its own",
+        "prior call preview_status"
+      ]
+    },
+    "browser-status-reuses-existing-tab": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_open"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [
+        "preview_snapshot"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_open",
+        "mock preview_snapshot",
+        "mock preview_status",
+        "no prompt of its own",
+        "prior call preview_status"
+      ]
+    },
+    "capabilities-reread-between-waves": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "orchestrator_capabilities"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "prior call delegate_task",
+        "prior call orchestrator_capabilities"
+      ]
+    },
+    "child-babysit-calls-watch": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "Monitor",
+        "ScheduleWakeup",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "watch_pull_request"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context",
+        "delegateRole"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock watch_pull_request",
+        "role delegated-child"
+      ]
+    },
+    "child-pr-not-linked": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "watch_pull_request"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "linked"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context",
+        "delegateRole"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock watch_pull_request",
+        "role delegated-child"
+      ]
+    },
+    "child-pushes-existing-pr-links": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "watch_pull_request"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "link_pull_request"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context",
+        "delegateRole"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock watch_pull_request",
+        "role delegated-child"
+      ]
+    },
+    "codex-same-model-subagents-stay-native": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "Agent"
+      ],
+      "bars_without_t3_tools": [
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "Codex only"
+      ]
+    },
+    "control-diff-question-no-thread-id": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "t3_thread_list",
+        "t3_thread_read",
+        "t3_thread_search"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "control-explain-preview-manager-code": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "device_list",
+        "html_preview",
+        "html_render",
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "orchestrator_capabilities",
+        "preview_open",
+        "preview_snapshot",
+        "preview_status",
+        "schedule_task",
+        "t3_preview_close",
+        "t3_preview_list",
+        "t3_thread_launch",
+        "t3_thread_read",
+        "task_status",
+        "watch_pull_request"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "control-explain-why-change": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "device_list",
+        "html_preview",
+        "html_render",
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "orchestrator_capabilities",
+        "preview_open",
+        "preview_snapshot",
+        "preview_status",
+        "schedule_task",
+        "t3_preview_list",
+        "t3_thread_launch",
+        "t3_thread_read",
+        "task_status",
+        "watch_pull_request"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "control-fix-failing-tests": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "device_list",
+        "html_preview",
+        "html_render",
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "orchestrator_capabilities",
+        "preview_open",
+        "preview_snapshot",
+        "preview_status",
+        "schedule_task",
+        "t3_preview_list",
+        "t3_thread_launch",
+        "t3_thread_read",
+        "task_status",
+        "watch_pull_request"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "shellMocks"
+      ],
+      "world_needs_t3": []
+    },
+    "control-fix-with-background-pr": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "watch_pull_request"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "control-link-means-url": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "watch_pull_request"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "priorTurns"
+      ],
+      "world_needs_t3": []
+    },
+    "control-new-thread-view-wording": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "orchestrator_capabilities",
+        "t3_thread_launch"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "control-nightly-time-question": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "list_scheduled_tasks",
+        "run_scheduled_task_now",
+        "schedule_task"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "control-no-sudo-version-check": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": [
+        "mock request_secret"
+      ]
+    },
+    "control-pr-lookup-question": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "unlink_pull_request",
+        "watch_pull_request"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "control-refactor-chart-component": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "device_list",
+        "html_preview",
+        "html_render",
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "orchestrator_capabilities",
+        "preview_open",
+        "preview_snapshot",
+        "preview_status",
+        "schedule_task",
+        "t3_preview_list",
+        "t3_thread_launch",
+        "t3_thread_read",
+        "task_status",
+        "watch_pull_request"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "control-rename-auth-file": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "device_list",
+        "html_preview",
+        "html_render",
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "orchestrator_capabilities",
+        "preview_open",
+        "preview_snapshot",
+        "preview_status",
+        "schedule_task",
+        "t3_preview_list",
+        "t3_thread_launch",
+        "t3_thread_read",
+        "task_status",
+        "watch_pull_request"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "priorTurns"
+      ],
+      "world_needs_t3": []
+    },
+    "control-run-lint-and-fix": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "device_list",
+        "html_preview",
+        "html_render",
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "orchestrator_capabilities",
+        "preview_open",
+        "preview_snapshot",
+        "preview_status",
+        "schedule_task",
+        "t3_preview_list",
+        "t3_thread_launch",
+        "t3_thread_read",
+        "task_status",
+        "watch_pull_request"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "shellMocks"
+      ],
+      "world_needs_t3": []
+    },
+    "control-subagent-label-bug-wording": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "orchestrator_capabilities",
+        "t3_thread_launch"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "control-sudo-passwordless": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "Bash"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock request_secret"
+      ]
+    },
+    "creator-links-own-pr": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "list_thread_pull_requests",
+        "watch_pull_request"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "linked"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request"
+      ]
+    },
+    "cross-provider-delegates-with-options": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task",
+        "orchestrator_capabilities"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "debate-drops-second-model": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "t3_thread_wait",
+        "task_status"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task",
+        "orchestrator_capabilities"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "mock t3_thread_wait",
+        "mock task_status"
+      ]
+    },
+    "delegate-runtime-mode-narrowed": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "delegates-then-new-thread-with-model": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_launch"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock orchestrator_capabilities",
+        "mock t3_thread_launch",
+        "prior call delegate_task"
+      ]
+    },
+    "demo-build-opens-preview-unasked": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_act",
+        "preview_evaluate",
+        "preview_navigate",
+        "preview_open",
+        "preview_recording_start",
+        "preview_resize",
+        "preview_snapshot",
+        "preview_wait_for"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_open",
+        "mock preview_snapshot",
+        "mock preview_status"
+      ]
+    },
+    "deploy-wait-ends-turn-unwatched": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_background_wait"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock t3_background_wait",
+        "mock watch_pull_request",
+        "prior call link_pull_request"
+      ]
+    },
+    "dev-server-opened-blank-then-navigated": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_navigate",
+        "preview_open"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "preview_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_navigate",
+        "mock preview_open",
+        "mock preview_status"
+      ]
+    },
+    "file-links-ambiguous-basename": {
+      "area": "file-links",
+      "asks_without_t3_tools": [
+        "fileLinks"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/file-links.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": true,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "file-links-no-files-control": {
+      "area": "file-links",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Bash",
+        "fileLinks"
+      ],
+      "file": "evals/mcp-tool-use/cases/file-links.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "control",
+      "neutral": true,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "file-links-other-checkout": {
+      "area": "file-links",
+      "asks_without_t3_tools": [
+        "fileLinks"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/file-links.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": true,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "priorTurns",
+        "files outside the repository"
+      ],
+      "world_needs_t3": []
+    },
+    "file-links-package-relative": {
+      "area": "file-links",
+      "asks_without_t3_tools": [
+        "fileLinks"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/file-links.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": true,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "file-watcher-after-async-delegates": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Monitor",
+        "ScheduleWakeup",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "t3_thread_wait",
+        "task_status"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "mock task_status"
+      ]
+    },
+    "followup-edit-reopens-preview-unasked": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_act",
+        "preview_evaluate",
+        "preview_navigate",
+        "preview_open",
+        "preview_recording_start",
+        "preview_resize",
+        "preview_snapshot",
+        "preview_status",
+        "preview_wait_for"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_status",
+        "prior call preview_open",
+        "prior call preview_snapshot"
+      ]
+    },
+    "found-thread-mentioned-without-link": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "textMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": true,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_list",
+        "mock t3_thread_read",
+        "mock t3_thread_search"
+      ]
+    },
+    "guard-capabilities-recheck-after-provider-returns": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "orchestrator_capabilities"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task",
+        "orchestrator_capabilities"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "prior call orchestrator_capabilities"
+      ]
+    },
+    "guard-inline-visual-preview-then-render": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "html_render",
+        "preview_open"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "html_preview",
+        "html_render"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock html_preview",
+        "mock html_render"
+      ]
+    },
+    "guard-ios-sim-device-tools": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "device_list",
+        "device_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": [
+        "mock device_list",
+        "mock device_open"
+      ]
+    },
+    "guard-open-preview-for-user-sign-in": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_act",
+        "t3_preview_close"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "preview_open"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock preview_open",
+        "mock preview_status",
+        "mock t3_preview_list"
+      ]
+    },
+    "guard-open-tweet-in-t3-browser": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "WebFetch",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "preview_open",
+        "preview_snapshot"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock preview_open",
+        "mock preview_snapshot",
+        "mock preview_status"
+      ]
+    },
+    "guard-rerender-after-black-background-correction": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "html_render"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "html_preview",
+        "html_render"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock html_preview",
+        "mock html_render",
+        "prior call html_preview",
+        "prior call html_render"
+      ]
+    },
+    "guard-stop-preview-after-correction": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_act",
+        "preview_evaluate",
+        "preview_navigate",
+        "preview_open",
+        "preview_recording_start",
+        "preview_resize",
+        "preview_snapshot",
+        "preview_status",
+        "preview_wait_for"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "prior call preview_act",
+        "prior call preview_open",
+        "prior call preview_snapshot"
+      ]
+    },
+    "guard-webmcp-unrequested-site-write": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_act",
+        "preview_evaluate"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "preview_evaluate"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_evaluate",
+        "mock preview_status",
+        "prior call preview_evaluate",
+        "prior call preview_open"
+      ]
+    },
+    "guard-x-card-png-uses-shot": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_act",
+        "preview_evaluate",
+        "preview_navigate",
+        "preview_open",
+        "preview_recording_start",
+        "preview_resize",
+        "preview_snapshot",
+        "preview_wait_for"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "files outside the repository"
+      ],
+      "world_needs_t3": []
+    },
+    "handback-unwatches": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "watch_pull_request"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "unwatch_pull_request"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock unwatch_pull_request",
+        "prior call link_pull_request",
+        "prior call watch_pull_request"
+      ]
+    },
+    "inline-visual-hardcodes-black-background": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "html_render"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "html_preview",
+        "html_render"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock html_preview",
+        "mock html_render"
+      ]
+    },
+    "link-one-pr": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_requests"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [
+        "link_pull_request"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "link-pasted-prs": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "link_pull_requests"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "linked"
+      ],
+      "world_beyond_files": [
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "link-stacked-prs": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "link_pull_requests"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "linked"
+      ],
+      "world_beyond_files": [
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "linked-thread-chip-reads-there": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "t3_environment_link"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_read"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock t3_environment_links",
+        "mock t3_thread_read"
+      ]
+    },
+    "list-after-linking-only-pr": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock list_thread_pull_requests"
+      ]
+    },
+    "list-prs-first-no-pr-work": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "list_thread_pull_requests"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock list_thread_pull_requests"
+      ]
+    },
+    "merge-permission-after-unwatch-polls": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Monitor",
+        "ScheduleWakeup",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "watch_pull_request"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock watch_pull_request",
+        "prior call unwatch_pull_request"
+      ]
+    },
+    "merge-when-ready-poll-loop": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Monitor",
+        "ScheduleWakeup",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "watch_pull_request"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock watch_pull_request",
+        "prior call link_pull_request"
+      ]
+    },
+    "native-agents-for-unasked-parallel-audit": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "native-subagent-delegates-further": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "orchestrator_capabilities"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "role native-subagent"
+      ]
+    },
+    "opus-review-too-via-delegate": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "Agent"
+      ],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "t3_thread_send"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "prior call delegate_task",
+        "prior call task_status"
+      ]
+    },
+    "polling-after-async-delegates": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "t3_thread_wait",
+        "task_status"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "mock t3_thread_wait",
+        "mock task_status"
+      ]
+    },
+    "pr-created-not-linked": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "linked"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request"
+      ]
+    },
+    "preview-snapshot-timeout-retry-loop": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_recording_start",
+        "preview_snapshot"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "files outside the repository"
+      ],
+      "world_needs_t3": [
+        "mock preview_open",
+        "mock preview_recording_start",
+        "mock preview_snapshot",
+        "mock preview_status"
+      ]
+    },
+    "preview-tab-not-closed-after-own-check": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "preview_snapshot",
+        "t3_preview_close"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock preview_open",
+        "mock preview_snapshot",
+        "mock preview_status",
+        "mock t3_preview_close"
+      ]
+    },
+    "proactive-visual-ci-time-breakdown": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_navigate",
+        "preview_open"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "html_preview",
+        "html_render"
+      ],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "proactive-visual-latency-regression": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_navigate",
+        "preview_open"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "html_preview",
+        "html_render"
+      ],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "provider-unavailable-cli-fallback": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": true,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "relink-and-list-on-merge-ask": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "watch_pull_request"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock list_thread_pull_requests",
+        "prior call link_pull_request"
+      ]
+    },
+    "render-without-html-preview": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "html_preview",
+        "html_render"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns",
+        "context",
+        "files outside the repository"
+      ],
+      "world_needs_t3": [
+        "mock html_preview",
+        "mock html_render"
+      ]
+    },
+    "requested-after-video-for-edit": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "preview_recording_start",
+        "preview_recording_stop"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_recording_start",
+        "mock preview_recording_stop",
+        "mock preview_snapshot",
+        "mock preview_status"
+      ]
+    },
+    "restart-delegate-with-full-access": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "t3_thread_send"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task",
+        "task_cancel"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "mock task_cancel",
+        "prior call delegate_task",
+        "prior call orchestrator_capabilities"
+      ]
+    },
+    "review-child-links-reviewed-pr": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "watch_pull_request"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context",
+        "delegateRole"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock list_thread_pull_requests",
+        "role delegated-child"
+      ]
+    },
+    "review-child-opens-preview-for-public-page": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_navigate",
+        "preview_open",
+        "preview_snapshot",
+        "preview_status"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context",
+        "delegateRole"
+      ],
+      "world_needs_t3": [
+        "mock preview_open",
+        "mock preview_snapshot",
+        "mock preview_status",
+        "role delegated-child"
+      ]
+    },
+    "review-followup-ask-sol-to-confirm": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "t3_thread_send"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "prior call delegate_task",
+        "prior call task_status"
+      ]
+    },
+    "review-round-child-links-pr": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "watch_pull_request"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context",
+        "delegateRole"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock list_thread_pull_requests",
+        "role delegated-child"
+      ]
+    },
+    "review-round-per-bot-nit": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "prior call delegate_task",
+        "prior call task_status"
+      ]
+    },
+    "review-round-uses-thread-send": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "t3_thread_send"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "prior call delegate_task",
+        "prior call orchestrator_capabilities",
+        "prior call task_status"
+      ]
+    },
+    "revise-page-resends-html": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "html_preview",
+        "html_render"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "html_preview",
+        "html_render"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns",
+        "files outside the repository"
+      ],
+      "world_needs_t3": [
+        "mock html_preview",
+        "mock html_render",
+        "prior call html_preview",
+        "prior call html_render"
+      ]
+    },
+    "same-provider-delegate-with-effort": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "schedule-fresh-session-per-run": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "run_scheduled_task_now"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "schedule_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock schedule_task"
+      ]
+    },
+    "schedule-one-off-tomorrow": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "run_scheduled_task_now",
+        "schedule_task"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "schedule_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock schedule_task"
+      ]
+    },
+    "schedule-one-time-date": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "run_scheduled_task_now"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "schedule_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock schedule_task"
+      ]
+    },
+    "schedule-runs-job-first": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "run_scheduled_task_now"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "schedule_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock schedule_task",
+        "prior call delegate_task"
+      ]
+    },
+    "scheduled-run-lists-tasks": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "delete_scheduled_task",
+        "list_scheduled_tasks",
+        "schedule_task"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock list_scheduled_tasks"
+      ]
+    },
+    "scorer-child-links-scored-prs": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "watch_pull_request"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context",
+        "delegateRole",
+        "files outside the repository"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock list_thread_pull_requests",
+        "role delegated-child"
+      ]
+    },
+    "secret-adb-pairing-code": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret",
+        "t3_environment_link"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-adb-pairing-declined": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "finalTextMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "t3_environment_link"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": [
+        "mock request_secret"
+      ]
+    },
+    "secret-child-signin-wall": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device",
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "delegateRole"
+      ],
+      "world_needs_t3": [
+        "role delegated-child"
+      ]
+    },
+    "secret-cli-deploy-token": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-cli-oauth-link": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-build-log": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "Bash",
+        "Edit",
+        "Write"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-cli-session": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "Bash"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-device-panel-signin": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "device_close",
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device",
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "prior call device_list",
+        "prior call device_open"
+      ]
+    },
+    "secret-ctrl-durable-env": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-key-on-disk": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "shellMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "context",
+        "files outside the repository"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-local-auth": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_open"
+      ]
+    },
+    "secret-ctrl-oauth": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "files outside the repository"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-optional-key": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-prod-config": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-public-key": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "Bash"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot",
+        "textMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-signed-in-browser": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-sudo": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-ctrl-test-card": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context",
+        "files outside the repository"
+      ],
+      "world_needs_t3": [
+        "mock preview_open"
+      ]
+    },
+    "secret-ctrl-write-auth": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-live-check-declined": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "finalTextMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock request_secret"
+      ]
+    },
+    "secret-live-check-skipped": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-pasted-password-sim": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "shellMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret",
+        "t3_thread_read",
+        "t3_thread_search"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device",
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "prior call device_list",
+        "prior call device_open"
+      ]
+    },
+    "secret-pasted-pin-delegation": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret",
+        "t3_thread_launch"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-several-values-one-card": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Bash",
+        "WebFetch",
+        "WebSearch"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "request_secret"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock request_secret"
+      ]
+    },
+    "secret-shell-token-how-to-send": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "textMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock request_secret"
+      ]
+    },
+    "secret-sim-sandbox-after-email": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device",
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "prior call device_list",
+        "prior call device_open"
+      ]
+    },
+    "secret-sim-sandbox-login": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "device",
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-staging-denied-guard": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context",
+        "files outside the repository"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-staging-login-after-denial": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context",
+        "files outside the repository"
+      ],
+      "world_needs_t3": []
+    },
+    "secret-transcript-recovery": {
+      "area": "secrets",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [
+        "request_secret"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context",
+        "files outside the repository"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_read",
+        "mock t3_thread_search"
+      ]
+    },
+    "secret-webhook-how-to-send": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot",
+        "textMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret",
+        "schedule_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock request_secret",
+        "mock schedule_task"
+      ]
+    },
+    "side-chat-does-not-continue-main-task": {
+      "area": "side-chats",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "Edit",
+        "Write",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/side-chats.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "t3_thread_send"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "priorTurns",
+        "sideChat"
+      ],
+      "world_needs_t3": [
+        "side chat"
+      ]
+    },
+    "side-chat-reads-live-main-thread": {
+      "area": "side-chats",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/side-chats.ndjson",
+      "forbids_t3_tools": [
+        "t3_thread_send"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_read"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns",
+        "sideChat"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_read",
+        "side chat"
+      ]
+    },
+    "snapshot-desktop-tab-from-remote-server": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_evaluate",
+        "preview_snapshot"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_evaluate",
+        "mock preview_open",
+        "mock preview_snapshot",
+        "mock preview_status",
+        "mock t3_preview_list"
+      ]
+    },
+    "sol-native-agent-type-instead-of-delegate": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task",
+        "orchestrator_capabilities"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "stack-links-every-layer": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "linked"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request"
+      ]
+    },
+    "stale-review-not-cancelled-on-ship": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "t3_thread_send"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "task_cancel"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock task_cancel",
+        "mock task_status",
+        "mock watch_pull_request",
+        "prior call delegate_task",
+        "prior call t3_thread_send",
+        "prior call task_status"
+      ]
+    },
+    "stop-all-delegates-uses-task-cancel": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "t3_thread_interrupt"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "task_cancel"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock task_cancel",
+        "mock task_status",
+        "prior call delegate_task"
+      ]
+    },
+    "subagent-ask-no-new-threads": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "subagents-as-you-see-fit-uses-native": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "sudo-password-apt-install-for-tests": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "Bash"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot",
+        "textMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": [
+        "mock request_secret"
+      ]
+    },
+    "sudo-password-dnf-update": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "Bash"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot",
+        "textMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks"
+      ],
+      "world_needs_t3": [
+        "mock request_secret"
+      ]
+    },
+    "sudo-password-write-etc-file": {
+      "area": "secrets",
+      "asks_without_t3_tools": [
+        "Bash"
+      ],
+      "bars_without_t3_tools": [
+        "shellMustNot",
+        "textMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/secrets.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "request_secret"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "secret"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "files outside the repository"
+      ],
+      "world_needs_t3": [
+        "mock request_secret"
+      ]
+    },
+    "takeover-links-pr": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "link_pull_request",
+        "watch_pull_request"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock watch_pull_request"
+      ]
+    },
+    "thread-id-not-read": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_read"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_read"
+      ]
+    },
+    "thread-link-rewritten-with-title": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "textMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_list"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_list",
+        "mock t3_thread_read"
+      ]
+    },
+    "thread-mention-without-link-after-read": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "textMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_read"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_read"
+      ]
+    },
+    "thread-send-fresh-context": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_send"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_send"
+      ]
+    },
+    "thread-send-to-named-top-level-thread": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "t3_thread_launch",
+        "t3_thread_send"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_send"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_read",
+        "mock t3_thread_send"
+      ]
+    },
+    "too-many-delegates-cancel-extras": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "t3_thread_interrupt"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "task_cancel"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock task_cancel",
+        "mock task_status",
+        "prior call delegate_task"
+      ]
+    },
+    "top-links-background-pr": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "watch_pull_request"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "linked"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock list_thread_pull_requests"
+      ]
+    },
+    "tt-another-agent-in-parallel-not-thread": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "Agent"
+      ],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "tt-another-thread-worktree": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_launch"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "newThreads"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_wait"
+      ]
+    },
+    "tt-background-agent": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch",
+        "t3_thread_wait",
+        "task_status"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_launch",
+        "mock t3_thread_read",
+        "mock t3_thread_wait"
+      ]
+    },
+    "tt-background-research-no-agent-word": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch",
+        "t3_thread_wait",
+        "task_status"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "tt-background-worker-pr-is-delegate": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "tt-child-authorized-thread": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_launch"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "newThreads"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "context",
+        "delegateRole"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_wait",
+        "role delegated-child"
+      ]
+    },
+    "tt-child-no-unprompted-thread": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch",
+        "t3_thread_send"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "delegateRole"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "mock t3_thread_launch",
+        "role delegated-child"
+      ]
+    },
+    "tt-completed-task-result": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch",
+        "t3_thread_send",
+        "t3_thread_wait",
+        "task_status"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "task_status"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_launch",
+        "mock t3_thread_read",
+        "mock t3_thread_wait",
+        "mock task_status"
+      ]
+    },
+    "tt-control-agent-config": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "orchestrator_capabilities",
+        "t3_thread_launch"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_launch",
+        "mock t3_thread_read",
+        "mock t3_thread_wait"
+      ]
+    },
+    "tt-control-background-test-run": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "Bash"
+      ],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "orchestrator_capabilities",
+        "t3_thread_launch"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "context"
+      ],
+      "world_needs_t3": []
+    },
+    "tt-control-stop-task-button": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "orchestrator_capabilities",
+        "t3_thread_interrupt",
+        "t3_thread_launch",
+        "t3_thread_send",
+        "task_cancel",
+        "task_status"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "tt-control-task-queue": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "orchestrator_capabilities",
+        "t3_thread_launch",
+        "task_cancel",
+        "task_status"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_launch",
+        "mock t3_thread_read",
+        "mock t3_thread_wait"
+      ]
+    },
+    "tt-control-thread-pool-starvation": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "orchestrator_capabilities",
+        "t3_thread_interrupt",
+        "t3_thread_launch",
+        "t3_thread_send",
+        "task_cancel"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "tt-delegate-status-no-poll": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "t3_thread_interrupt",
+        "t3_thread_read",
+        "t3_thread_send",
+        "t3_thread_wait",
+        "task_cancel",
+        "task_status"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_read",
+        "mock t3_thread_wait",
+        "mock task_status",
+        "prior call delegate_task",
+        "prior call orchestrator_capabilities",
+        "prior call t3_thread_launch"
+      ]
+    },
+    "tt-dependent-worktree-parent-base": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_launch"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_wait"
+      ]
+    },
+    "tt-independent-local-default-no-remote": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_launch"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "newThreads"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_wait"
+      ]
+    },
+    "tt-independent-requested-base": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_launch"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "newThreads"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_wait"
+      ]
+    },
+    "tt-independent-worktree-default-base": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Workflow",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_launch"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "newThreads"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_wait"
+      ]
+    },
+    "tt-launched-thread-status-reads": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "t3_thread_interrupt",
+        "t3_thread_send",
+        "t3_thread_wait",
+        "task_cancel",
+        "task_status"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_read"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_read",
+        "mock task_status",
+        "prior call delegate_task",
+        "prior call orchestrator_capabilities",
+        "prior call t3_thread_launch"
+      ]
+    },
+    "tt-native-subagent-no-thread-for-rewrite": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "orchestrator_capabilities",
+        "t3_thread_launch"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities",
+        "mock t3_thread_launch",
+        "role native-subagent"
+      ]
+    },
+    "tt-new-chat-handoff-cross-provider": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_launch"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "newThreads"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "tt-new-thread-with-an-agent-wording": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "newThreads"
+      ],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "tt-separate-thread-i-can-follow": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "newThreads"
+      ],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "tt-stop-delegate-keep-thread": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "t3_thread_interrupt",
+        "t3_thread_send"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "task_cancel"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_interrupt",
+        "mock task_cancel",
+        "prior call delegate_task",
+        "prior call orchestrator_capabilities",
+        "prior call t3_thread_launch"
+      ]
+    },
+    "tt-stop-thread-keep-delegate": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task",
+        "task_cancel"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_interrupt"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock t3_thread_interrupt",
+        "mock t3_thread_read",
+        "mock task_cancel",
+        "prior call delegate_task",
+        "prior call orchestrator_capabilities",
+        "prior call t3_thread_launch"
+      ]
+    },
+    "tt-thread-in-another-project": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "Agent",
+        "Edit",
+        "Write"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [
+        "t3_thread_launch"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "newThreads"
+      ],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock orchestrator_capabilities",
+        "mock t3_project_list"
+      ]
+    },
+    "tt-three-new-threads-one-per-bug": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [
+        "textMust"
+      ],
+      "bars_without_t3_tools": [
+        "Agent"
+      ],
+      "file": "evals/mcp-tool-use/cases/threads-vs-tasks.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task"
+      ],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [
+        "newThreads"
+      ],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "two-children-same-model": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "delegate_task"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "unlink-closed-and-merged-prs": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "unlink_pull_request",
+        "unlink_pull_requests"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "unlink_pull_requests"
+      ],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [
+        "linkedNumbers"
+      ],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "unlink-merged-prs-only": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "guard",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [
+        "linkedNumbers"
+      ],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "unlink-one-pr": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "unlink_pull_requests"
+      ],
+      "kind": "control",
+      "neutral": false,
+      "requires_t3_tools": [
+        "unlink_pull_request"
+      ],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [
+        "linkedNumbers"
+      ],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "unlink-prs-not-open": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "unlink_pull_request",
+        "unlink_pull_requests"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "unlink_pull_requests"
+      ],
+      "runnable_in_both_arms": true,
+      "t3_state_checks": [
+        "linkedNumbers"
+      ],
+      "world_beyond_files": [],
+      "world_needs_t3": []
+    },
+    "visualizer-served-and-opened-in-preview": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_navigate",
+        "preview_open"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "html_preview",
+        "html_render"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock html_preview",
+        "mock html_render",
+        "mock preview_open"
+      ]
+    },
+    "wake-rearms-active-watch": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "watch_pull_request"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "shellMocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock list_thread_pull_requests",
+        "mock watch_pull_request",
+        "prior call link_pull_request",
+        "prior call watch_pull_request"
+      ]
+    },
+    "wake-required-passed-rearm-or-shell-wait": {
+      "area": "pull-requests",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Monitor",
+        "ScheduleWakeup",
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/pull-requests.ndjson",
+      "forbids_t3_tools": [
+        "link_pull_request",
+        "link_pull_requests",
+        "list_thread_pull_requests",
+        "watch_pull_request"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock link_pull_request",
+        "mock list_thread_pull_requests",
+        "mock unwatch_pull_request",
+        "mock watch_pull_request",
+        "prior call link_pull_request",
+        "prior call watch_pull_request"
+      ]
+    },
+    "webmcp-charts-saved-to-site-not-inline": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_evaluate"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "html_render"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock html_preview",
+        "mock html_render",
+        "mock preview_evaluate",
+        "mock preview_status",
+        "prior call preview_evaluate",
+        "prior call preview_status"
+      ]
+    },
+    "webmcp-requested-chart-save-refused": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "html_render"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "preview_evaluate"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_evaluate",
+        "mock preview_status",
+        "prior call html_render"
+      ]
+    },
+    "webmcp-requested-site-write-refused": {
+      "area": "visual-preview",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/visual-preview.ndjson",
+      "forbids_t3_tools": [
+        "preview_evaluate"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "preview_evaluate"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns",
+        "context"
+      ],
+      "world_needs_t3": [
+        "mock preview_evaluate",
+        "mock preview_status",
+        "prior call preview_evaluate",
+        "prior call preview_open"
+      ]
+    },
+    "worker-counts-per-model": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "workflow-without-opt-in": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "Workflow"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [],
+      "kind": "bad",
+      "neutral": true,
+      "requires_t3_tools": [],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    },
+    "worktree-add-for-parallel-pr-delegates": {
+      "area": "orchestration",
+      "asks_without_t3_tools": [],
+      "bars_without_t3_tools": [
+        "shellMustNot"
+      ],
+      "file": "evals/mcp-tool-use/cases/orchestration.ndjson",
+      "forbids_t3_tools": [
+        "create_threads",
+        "delegate_task",
+        "t3_thread_launch"
+      ],
+      "kind": "bad",
+      "neutral": false,
+      "requires_t3_tools": [
+        "delegate_task"
+      ],
+      "runnable_in_both_arms": false,
+      "t3_state_checks": [],
+      "world_beyond_files": [
+        "mocks",
+        "priorTurns"
+      ],
+      "world_needs_t3": [
+        "mock delegate_task",
+        "mock orchestrator_capabilities"
+      ]
+    }
+  },
+  "counts": {
+    "all": {
+      "bad": 89,
+      "cases": 195,
+      "control": 38,
+      "guard": 68
+    },
+    "neutral": {
+      "bad": 6,
+      "cases": 7,
+      "control": 1,
+      "guard": 0
+    },
+    "neutral_and_runnable_in_both_arms": {
+      "bad": 2,
+      "cases": 3,
+      "control": 1,
+      "guard": 0
+    },
+    "no_t3_tool_required_and_no_t3_state_check": {
+      "bad": 25,
+      "cases": 54,
+      "control": 19,
+      "guard": 10
+    },
+    "of_those_asking_for_something_without_t3_tools": {
+      "bad": 10,
+      "cases": 16,
+      "control": 2,
+      "guard": 4
+    },
+    "of_those_runnable_in_both_arms": {
+      "bad": 2,
+      "cases": 2,
+      "control": 0,
+      "guard": 0
+    },
+    "of_those_whose_world_needs_no_t3_tool": {
+      "bad": 3,
+      "cases": 8,
+      "control": 4,
+      "guard": 1
+    },
+    "of_those_with_a_check_that_names_no_t3_tool": {
+      "bad": 13,
+      "cases": 27,
+      "control": 6,
+      "guard": 8
+    }
+  },
+  "graders": {
+    "evals/mcp-tool-use/device-grading.ts": {
+      "blob": "f0029176b1eb9537117183856413deb48c0881a1",
+      "sha256": "40996bed7cdbb56007abb20bbfde886d75ce9e2625ed983425a75376aa12f291"
+    },
+    "evals/mcp-tool-use/file-link-grading.ts": {
+      "blob": "5ea6ee830b96e880af2ced9ee26311e116386063",
+      "sha256": "0b952213058836df38ba0316b08480a4066e4746f65c39c274a36df89ad523f6"
+    },
+    "evals/mcp-tool-use/regrade.ts": {
+      "blob": "44b77d598c7afa6853d8db452193bc3a5541ee34",
+      "sha256": "e0bda5006b20601374c14f6a92d5af1ef7661d30ee94e6008c29ce66cab2d108"
+    },
+    "evals/mcp-tool-use/run.ts": {
+      "blob": "7a7a8400fe6126a16ea45348650ea1d07dccc4e6",
+      "sha256": "d7b7e10184a8ef8089a0d48f9fe33413a0306f7d7aa67d3f047f8cb0bed1037e"
+    },
+    "evals/mcp-tool-use/secret-grading.ts": {
+      "blob": "96d48e174fc58bb59ab2b7f1625ccd86682e8ba6",
+      "sha256": "618757421adb370cc6047f08bf91ad5c60138c9c343b42752580ff8233d7389f"
+    }
+  },
+  "lists": {
+    "asking_and_runnable_in_both_arms": [
+      "file-links-ambiguous-basename",
+      "file-links-package-relative"
+    ],
+    "asking_for_something_without_t3_tools": [
+      "child-babysit-calls-watch",
+      "codex-same-model-subagents-stay-native",
+      "control-link-means-url",
+      "demo-build-opens-preview-unasked",
+      "file-links-ambiguous-basename",
+      "file-links-other-checkout",
+      "file-links-package-relative",
+      "found-thread-mentioned-without-link",
+      "guard-stop-preview-after-correction",
+      "guard-x-card-png-uses-shot",
+      "opus-review-too-via-delegate",
+      "preview-snapshot-timeout-retry-loop",
+      "provider-unavailable-cli-fallback",
+      "side-chat-does-not-continue-main-task",
+      "snapshot-desktop-tab-from-remote-server",
+      "tt-control-background-test-run"
+    ],
+    "neutral": [
+      "file-links-ambiguous-basename",
+      "file-links-no-files-control",
+      "file-links-other-checkout",
+      "file-links-package-relative",
+      "found-thread-mentioned-without-link",
+      "provider-unavailable-cli-fallback",
+      "workflow-without-opt-in"
+    ],
+    "neutral_and_runnable_in_both_arms": [
+      "file-links-ambiguous-basename",
+      "file-links-no-files-control",
+      "file-links-package-relative"
+    ]
+  },
+  "pin": "24e77473ecf41bc1f7142529c7911c1c1aae1d76",
+  "release": "v0.1.9",
+  "rule": "A case is neutral when none of its checks names a tool only T3 Code has. A check names one when (a) one of its tool-name fields (calls, distinctCalls, order, minCalls and endsTurnAfter, which require a call; callsMustNot, notCalls and maxCalls, which forbid or bound one) holds a tool T3 Code's MCP server defines, which in the case files is every lower-case name, each found under apps/server/src/mcp/toolkits, while Claude Code's own tools are capitalised; or (b) it is a check whose grader is built on T3 Code's tools or thread state: newThreads (t3_thread_launch, create_threads), linked and linkedNumbers (pull requests linked to a T3 Code thread), device (device_*), secret (request_secret). A case is runnable in both arms when a real session can be given its world: files alone (no mocked tool or shell result, no earlier turn, thread context or side chat, no file outside the repository), the top role, not Codex-only and a prompt of its own. A case asks for something without T3 Code's tools when it requires no T3 Code tool, has no check on T3 Code's thread state, and at least one check asks the agent to produce something (a call of a tool both harnesses have, a pattern its text or shell command must match, or working file links); a case whose only checks forbid things is passed by doing nothing.",
+  "source": "https://github.com/pingdotgg/t3code"
+}

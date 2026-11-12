@@ -115,6 +115,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="t3code"></a>**T3 Code** (T3 Tools Inc., Theo Browne and contributors, MIT), https://github.com/pingdotgg/t3code, read at
   `32a0531` on 2026-11-07 and at `5e59ece720` on 2026-11-10. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
   The v0.1.8 linux-x64 release binary is also run, unmodified and pinned by the release checksum, as the second client of the mayday ladder; its review is in [rationale/mayday-ladder.md](rationale/mayday-ladder.md) (2026-11-11).
+  Its MCP tool-use eval cases and graders at release `v0.1.9` (`24e77473ecf4`) are read and run in place by Eval T ([evals/t](../evals/t/README.md), 2026-11-12): fetched at run time at the pinned commit, their hashes recorded in `evals/t/cases.json`, no source or case text copied, so the MIT notice travels with the checkout and none is owed here; the crate reaches the network only for that fetch.
   Informed: [rationale/watch/2026-11-07-t3code.md](rationale/watch/2026-11-07-t3code.md), north#714, north#715 and north#716; the second read, [rationale/watch/2026-11-08-t3code-gemini.md](rationale/watch/2026-11-08-t3code-gemini.md), checked Gemini's review against main and led to north#862 to north#866; the second cycle, [rationale/watch/2026-11-10-t3code.md](rationale/watch/2026-11-10-t3code.md), led to north#1051.
   Outcome: adopted as ideas, no code copied. Four mechanisms were kept:
   - behavior evals of harness text built from real failures (north#714);
