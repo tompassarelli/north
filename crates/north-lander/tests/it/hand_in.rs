@@ -365,3 +365,34 @@ fn a_hand_in_verb_call_takes_a_named_path_literally_so_a_glob_or_pathspec_magic_
     assert_eq!(git(&north.origin, &["diff-tree", "--no-commit-id", "--name-status", "-r", "main"]), "A\t*.txt", "a glob in a name staged more than that file");
     assert_eq!((git(&lane, &["diff", "--cached", "--name-only"]), git(&lane, &["ls-files", "--others"])), (String::new(), "a.txt".to_owned()), "the unnamed file was staged");
 }
+
+#[test]
+fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_and_a_real_conflict_stays_a_refusal_naming_the_file() {
+    let (world, north) = scanned_world(JUDGE_PASSES);
+    let behind = worktree(&north, "behind");
+    let conflicting = worktree(&north, "conflicting");
+    fs::write(north.checkout.join("moved.txt"), "main moved on\n").unwrap();
+    fs::write(north.checkout.join("README"), "main's readme\n").unwrap();
+    git(&north.checkout, &["add", "-A"]);
+    git(&north.checkout, &["commit", "-qm", "Move main on"]);
+    git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    let moved = git(&north.origin, &["rev-parse", "main"]);
+
+    fs::write(behind.join("named.txt"), "a change made before main moved\n").unwrap();
+    fs::write(behind.join("unnamed.txt"), "a change the worker did not name\n").unwrap();
+    let (output, journal) = decided(&world, &north, verb(&world, "Add the note made behind main (north#1239)", &[&behind.join("named.txt")]));
+    let text = report(&output);
+    assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
+    assert!(text.contains("rebased the lane's 0 commit(s)") && text.contains("onto origin/main"), "the hand-in did not say it rebased the lane: {text}");
+    assert_eq!(git(&behind, &["rev-parse", "HEAD~1"]), moved, "the lane was not rebased onto main before it was committed and checked: {text}");
+    assert_eq!(fs::read_to_string(behind.join("unnamed.txt")).unwrap(), "a change the worker did not name\n", "the rebase lost an uncommitted change: {text}");
+
+    fs::write(conflicting.join("README"), "the lane's readme\n").unwrap();
+    let start = git(&conflicting, &["rev-parse", "HEAD"]);
+    let refused = verb(&world, "Rewrite the readme", &[&conflicting.join("README")]).wait_with_output().unwrap();
+    let text = report(&refused);
+    assert_eq!(refused.status.code(), Some(1), "{text}");
+    assert!(text.contains("conflicts with origin/main") && text.contains("README"), "a real conflict was not refused naming its file: {text}");
+    assert_eq!(git(&conflicting, &["rev-parse", "HEAD~1"]), start, "a conflicting lane was moved: {text}");
+    assert_eq!(fs::read_to_string(conflicting.join("README")).unwrap(), "the lane's readme\n", "a conflicting lane lost its change: {text}");
+}

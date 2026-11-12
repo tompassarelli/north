@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running it as the check before queueing on the would-be head's tree, keyed and recorded as the lander's own run, when the lane's checks before queueing hold that command, so the safe-push it hands the lane to reuses that run (north#1230), and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them, and rebases a lane behind its destination onto it, with its uncommitted changes, when that applies without a conflict (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running it as the check before queueing on the would-be head's tree, keyed and recorded as the lander's own run, when the lane's checks before queueing hold that command, so the safe-push it hands the lane to reuses that run (north#1230), and returns at the ticket (north#1194); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
 
 use std::fs;
 use std::io;
@@ -131,6 +131,9 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
             return 1;
         }
     };
+    if let Some(rebased) = rebase_onto_destination(&named.lane) {
+        println!("{verb}: {rebased}");
+    }
     if !named.added.is_empty() {
         println!("{verb}: also landing {}, which the lane's commits change and the call did not name", named.added.join(" "));
     }
@@ -165,6 +168,28 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
             1
         }
     }
+}
+
+fn rebase_onto_destination(lane: &Lane) -> Option<String> {
+    let root = &lane.root;
+    let (remote_ref, base) = fetch_base(root, &lane.destination).ok()?;
+    let behind = git(root, &["merge-base", "--is-ancestor", &base, "HEAD"]).is_err();
+    let published = git(root, &["rev-parse", "--symbolic-full-name", "@{upstream}"]).is_ok_and(|upstream| upstream != remote_ref);
+    if !behind || published {
+        return None;
+    }
+    let replayed = git(root, &["replay", "--ref-action=print", "--onto", &base, &format!("{remote_ref}..HEAD")]).ok()?;
+    let rebased = replayed.split_whitespace().nth(2).map_or_else(|| base.clone(), str::to_owned);
+    let uncommitted = git(root, &["stash", "create"]).ok()?;
+    if !uncommitted.is_empty() {
+        git(root, &["merge-tree", "--write-tree", "--merge-base", "HEAD", &rebased, &uncommitted]).ok()?;
+    }
+    let commits = git(root, &["rev-list", "--count", &format!("{remote_ref}..HEAD")]).ok()?;
+    if git(root, &["rebase", "--quiet", "--autostash", &base]).is_err() {
+        let _ = git(root, &["rebase", "--abort"]);
+        return None;
+    }
+    Some(format!("rebased the lane's {commits} commit(s) and its uncommitted changes onto origin/{} at {}, which moved on without a conflict", lane.destination, &base[..base.len().min(10)]))
 }
 
 fn as_land_check(lane: &Lane, check: &str, head: &str) -> Option<Result<(), String>> {
