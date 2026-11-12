@@ -10,9 +10,11 @@ ends the trial; the stub then answers `end_turn` whatever `done.json` says, so t
 - `stub.sh`: POSIX sh, 48 lines. Uses shell builtins plus `mv` and `sleep`, which every task image has, so nothing is
   installed in the image and no binary is built.
 - `constraints.txt`: pins the protocol library (see below).
-- `args`: copies `stub.sh` and `constraints.txt` into `$EVAL_X_WORK/bin` (default `~/.local/state/north/eval-x/bin`) when missing or
-  different, and prints the Harbor arguments that select the stub, one per line: `--agent acp`, three `--ak` lines
-  (the inline registry entry with its `local` distribution, `distribution_preference=local`, `auth_policy=disabled`)
+- `instruction.j2`: the prompt template Harbor renders the task's instruction through, reversed (see below).
+- `args`: copies `stub.sh`, `constraints.txt` and `instruction.j2` into `$EVAL_X_WORK/bin` (default `~/.local/state/north/eval-x/bin`) when missing or
+  different, and prints the Harbor arguments that select the stub, one per line: `--agent acp`, four `--ak` lines
+  (the inline registry entry with its `local` distribution, `distribution_preference=local`, `auth_policy=disabled`,
+  `prompt_template_path` naming the copied `instruction.j2`)
   and two `--ae` lines (the constraints variables).
 
 ## Mounts the runner adds
@@ -33,7 +35,7 @@ The stub writes each file whole to a dot-file and renames it, in this order:
 3. `prompt.json`: the raw `session/prompt` request line, last, so its presence means the other two are complete.
 
 Then it polls `/eval-x/done.json` once a second and returns `{"stopReason":"end_turn"}` when it exists. The host reads
-the instruction with `jq -r '.params.prompt[] | select(.type == "text") | .text' T/prompt.json`.
+the instruction with `jq -j '[.params.prompt[] | select(.type == "text") | .text] | join("") | explode | reverse | implode' T/prompt.json`.
 
 ## JSON-RPC shapes assumed from Harbor v0.25.0
 
@@ -61,3 +63,13 @@ honours `UV_CONSTRAINT`: a local check installed 0.9.0 from an unpinned request.
 unchanged.
 
 The constraints file is in the mount that already carries the stub, so no extra mount is needed.
+
+## Why the instruction arrives reversed
+
+Harbor runs its agent as `bash -c` with the instruction quoted on the command line of that shell and of its runner
+(`acp.py`, `run`). A session command that kills by a word of the task, such as `pkill -f convert_masks.py` on
+sam-cell-seg, matches that command line and ends Harbor's agent command with exit 143, and Harbor then grades while
+the session works on (seen in all four sam-cell-seg trials of 2026-11-12 and 2026-11-13, each within a second of
+such a command). `instruction.j2` renders the instruction reversed, so no word of the task stands on that command
+line; the arm reverses it back by code point, which Jinja's `reverse` inverts exactly. A command that kills by the
+runner's own name (`python`, `acp_runner`) still reaches it.

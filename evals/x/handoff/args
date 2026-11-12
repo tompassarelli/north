@@ -3,7 +3,7 @@ set -eu
 here=$(dirname "$(readlink -f "$0")")
 work=${EVAL_X_WORK:-${XDG_STATE_HOME:-$HOME/.local/state}/north/eval-x}
 mkdir -p "$work/bin"
-for file in stub.sh constraints.txt; do
+for file in stub.sh constraints.txt instruction.j2; do
   cmp -s "$here/$file" "$work/bin/$file" 2> /dev/null || cp "$here/$file" "$work/bin/$file"
 done
 printf '%s\n' \
@@ -11,5 +11,6 @@ printf '%s\n' \
   --ak 'registry_entry={"id":"eval-x-handoff","name":"Eval X trial hand-off","version":"0.1.0","description":"Answers the agent protocol and hands the instruction to the host through the trial directory","distribution":{"local":{"cmd":"sh","args":["/eval-x-bin/stub.sh"]}}}' \
   --ak distribution_preference=local \
   --ak auth_policy=disabled \
+  --ak "prompt_template_path=$work/bin/instruction.j2" \
   --ae UV_CONSTRAINT=/eval-x-bin/constraints.txt \
   --ae PIP_CONSTRAINT=/eval-x-bin/constraints.txt

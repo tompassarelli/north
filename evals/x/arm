@@ -27,7 +27,7 @@ relay=$here/relay/container-bash
 mkdir -p "$trial" "$state"
 trial=$(readlink -f "$trial") state=$(readlink -f "$state") cwd=$(readlink -f "$cwd")
 case $state/ in "$trial"/*) echo "eval-x arm $arm: the state directory must lie outside the trial directory" >&2; exit 2 ;; esac
-prompt='[.params.prompt[] | select(.type == "text") | .text] | join("")'
+prompt='[.params.prompt[] | select(.type == "text") | .text] | join("") | explode | reverse | implode'
 for _ in $(seq "${EVAL_X_HANDOFF_S:-900}"); do
   jq -e "$prompt" "$trial/prompt.json" > /dev/null 2>&1 && break
   sleep 1

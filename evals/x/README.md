@@ -41,7 +41,8 @@ mount of it on the host. Model traffic never passes through the container and no
 its own directory and README:
 
 - `handoff/`: the stand-in agent Harbor starts in the container. It passes the task's instruction to the host and
-  waits for the arm to end the trial.
+  waits for the arm to end the trial. Harbor gets the instruction reversed, so a session's `pkill -f` on a word of the
+  task cannot end Harbor's agent command before the arm ends the trial.
 - `workspace/`: copies a task's working directory out of its image to the host and prints the mounts for it.
 - `relay/`: the shell both arms give Claude Code, and the broker that runs its commands in the container.
 - `arm`: runs one arm on the host for one trial and writes the trial's result. The plain arm runs T3 Code to the end
