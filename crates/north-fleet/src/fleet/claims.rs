@@ -149,31 +149,6 @@ pub fn hold_for(claims: &dyn Claims, record: &SessionRecord, ancestors: &BTreeSe
     }
 }
 
-/// What an exited sweep cleared, and the owners whose claim it could not give up, so they are swept again.
-#[derive(Debug, Default)]
-pub struct Swept {
-    pub released: usize,
-    pub unreleased: BTreeSet<String>,
-}
-
-/// Gives up every claim among `rows` whose owner is in `exited`, whatever its standing: a session that exited holds nothing, and the ledger keeps its row until someone clears it.
-pub fn release_exited(claims: &dyn Claims, exited: &BTreeSet<String>, rows: Rows<'_>) -> NorthResult<Swept> {
-    let mut swept = Swept::default();
-    for (item, owner) in claims.holders(rows)? {
-        if !exited.contains(&owner) {
-            continue;
-        }
-        match claims.release(&item, &owner) {
-            Ok(()) => swept.released += 1,
-            Err(error) => {
-                eprintln!("north fleet: {owner} did not release {item}: {}", error.user_message());
-                swept.unreleased.insert(owner);
-            }
-        }
-    }
-    Ok(swept)
-}
-
 /// Gives up every claim `session` holds on `task`'s issue, its boxes as well as the whole issue, so once the record drops it too dispatch staffs the issue; returns how many it gave up.
 pub fn release_task(claims: &dyn Claims, session: &str, task: &str) -> NorthResult<usize> {
     let issues = [split_key(task).0.to_owned()];

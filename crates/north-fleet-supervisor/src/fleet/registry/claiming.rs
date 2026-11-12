@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::claim_releases;
 use crate::fleet::claims::{self, Rows, Taken};
 use crate::fleet::model::{LaunchRequest, SessionRecord, Status};
 use crate::fleet::records::{CLAIMS_RELEASED, CLAIMS_SWEEP_LOG, read_record, write_record};
@@ -81,7 +82,7 @@ impl Fleet {
             if owners.is_empty() {
                 continue;
             }
-            let swept = claims::release_exited(self.claims.as_ref(), &owners, Rows::Owners(&owners))?;
+            let swept = claim_releases::release_exited(self.claims.as_ref(), &owners, Rows::Owners(&owners))?;
             released += swept.released;
             let exited = self.exited()?;
             for owner in owners.difference(&swept.unreleased).filter(|owner| exited.contains(*owner)) {
@@ -94,7 +95,7 @@ impl Fleet {
     /// Gives up every claim `name` holds in the ledger, the boxes it claimed itself as well as those its launch named, because a forgotten or retired session leaves no directory for the exited sweep to find it by.
     pub(super) fn release_all_claims_of(&self, name: &str) -> NorthResult<()> {
         let owners = BTreeSet::from([name.to_owned()]);
-        let swept = claims::release_exited(self.claims.as_ref(), &owners, Rows::Owners(&owners))?;
+        let swept = claim_releases::release_exited(self.claims.as_ref(), &owners, Rows::Owners(&owners))?;
         if swept.unreleased.is_empty() { Ok(()) } else { Err(NorthError::State(format!("{name} ends but the threads ledger did not release all of its claims"))) }
     }
 
@@ -116,7 +117,7 @@ impl Fleet {
         let mut gone = self.exited()?;
         let now = now_ms();
         gone.extend(self.cached_sessions()?.unwrap_or_default().into_iter().filter(|row| row.never_started(now)).map(|row| row.name));
-        Ok(claims::release_exited(self.claims.as_ref(), &gone, Rows::Items(items))?.released)
+        Ok(claim_releases::release_exited(self.claims.as_ref(), &gone, Rows::Items(items))?.released)
     }
 
     /// The sessions that hold nothing: those that exited, and those whose host never started within the launch grace.

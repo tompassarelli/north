@@ -4,6 +4,7 @@ pub mod books;
 pub mod brief_files;
 pub mod file_prediction;
 pub mod builds;
+pub mod claim_releases;
 pub mod claims;
 pub mod detached;
 pub mod done_hold;
