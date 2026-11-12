@@ -38,6 +38,7 @@ pub(super) mod hold;
 mod ahead;
 pub(super) use ahead::run as build_ahead;
 mod build;
+mod caller;
 mod collect;
 mod ordered;
 mod preswap;
@@ -118,6 +119,7 @@ fn follow_main(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<(), Fail
 }
 
 pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
+    caller::ships("north runtime update --sha")?;
     if !land_offload::accepts_peer_runtimes_here() {
         return Err(failed(1, format!("this host settles the fleet and promotes only a runtime it built or had a build host build, not {} shipped from another host", layout::short(target))));
     }

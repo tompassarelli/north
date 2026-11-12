@@ -2,7 +2,7 @@ use super::super::failure::{Failure, failed};
 use super::super::layout::{self, Layout};
 use super::super::pin;
 use super::super::remote;
-use super::{Flight, PINNED_LOCK_WAIT, PROMOTE_LOCK, advance, built, checkout, follow_main, named_lock, named_lock_waiting, promotion_waiting, usable};
+use super::{Flight, PINNED_LOCK_WAIT, PROMOTE_LOCK, advance, built, caller, checkout, follow_main, named_lock, named_lock_waiting, promotion_waiting, usable};
 use crate::land_offload;
 use rustix::fs::FlockOperation;
 use std::fs::{self, File};
@@ -22,6 +22,7 @@ pub(super) fn unordered(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result
 
 /// An order's go-live on a host that takes shipped runtimes, run by the runtime live there: a ship never moves a host back, since a late one must not undo a newer promotion, but an order moves the host to its commit whichever runtime is live. The move is a promotion like any other, so a runtime the hold-back list holds here stays held.
 pub(in crate::runtime) fn update_ordered_to(layout: &Layout, target: &str) -> Result<(), Failure> {
+    caller::ships("north runtime update --sha --ordered")?;
     if !land_offload::accepts_peer_runtimes_here() {
         return Err(failed(1, format!("this host settles the fleet and takes an order only as `north runtime order`, not {} shipped from another host", layout::short(target))));
     }
