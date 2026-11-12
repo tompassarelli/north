@@ -58,7 +58,16 @@ fn home() -> PathBuf {
 }
 
 pub fn agent_login(cfg: &DocumentMut, host: &str) -> Option<String> {
-    cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get("agent_ssh")?.as_str()).map(str::to_owned)
+    login(cfg, host, "agent_ssh")
+}
+
+/// The operator's ssh destination `[hosts.NAME].ssh`, which operator work dials: the lander's fetch and outbox, and the private-kind verdict ask.
+pub fn operator_login(cfg: &DocumentMut, host: &str) -> Option<String> {
+    login(cfg, host, "ssh")
+}
+
+fn login(cfg: &DocumentMut, host: &str, key: &str) -> Option<String> {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get(key)?.as_str()).map(str::to_owned)
 }
 
 /// The names of the `[hosts.NAME]` tables that carry an `ssh` destination: the machines a lander reaches to pull an outbox from.

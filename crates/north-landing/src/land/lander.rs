@@ -17,7 +17,7 @@ use north_base::land_ticket::Records;
 use north_base::land_ticket::{self, Phase};
 
 pub const OFFLOAD_OWNER: &str = "north-land";
-use super::after::route::SSH_OPTIONS;
+use super::after::route::{self, SSH_OPTIONS};
 const WAIT_TICK: Duration = Duration::from_millis(200);
 const BUNDLE_LIMIT: usize = 8 << 20;
 
@@ -116,7 +116,7 @@ impl Lander {
     }
 
     fn fetch_lane_once(&self, host: &str, ticket: &Ticket) -> Result<(), String> {
-        let url = format!("ssh://{}{}", host, ticket.root.display());
+        let url = format!("ssh://{}{}", route::operator_login(host)?, ticket.root.display());
         let target = format!("+refs/heads/{}:{}", ticket.branch, lane_ref(host, &ticket.branch));
         let ssh_command = std::iter::once("ssh").chain(SSH_OPTIONS.iter().copied()).collect::<Vec<_>>().join(" ");
         let output = Command::new("git").arg("-C").arg(&self.repo).args(["fetch", "-q", "--no-tags", &url, &target]).env("GIT_SSH_COMMAND", ssh_command).output().map_err(|error| format!("git fetch {url}: {error}"))?;
@@ -147,7 +147,7 @@ impl Lander {
             return Err(format!("{name:?} in {area:?} is not a ticket name"));
         }
         let outbox = self.remote_outbox()?;
-        ssh_with_input(host, &format!("d={outbox}/{area};mkdir -p \"$d\" && cat >\"$d/.{name}.part\" && mv -f \"$d/.{name}.part\" \"$d/{name}\""), text.as_bytes()).map(drop)
+        ssh_with_input(&route::operator_login(host)?, &format!("d={outbox}/{area};mkdir -p \"$d\" && cat >\"$d/.{name}.part\" && mv -f \"$d/.{name}.part\" \"$d/{name}\""), text.as_bytes()).map(drop)
     }
 
     /// Sends the decided ticket at `path` to the outbox host it was handed in on, where its waiting hand-in reads the
@@ -186,7 +186,7 @@ impl Lander {
         let settle = settle_script(taken);
         let asks = format!("for f in \"$d\"/{}/*.json; do [ -f \"$f\" ] || continue; printf '?%s\\n\\000' \"${{f##*/}}\"; rm -f -- \"$f\"; done; ", queue::ASKS);
         let bundle = format!("b=\"${{f%.json}}.{}\"; [ -f \"$b\" ] && {{ printf '=%s\\n' \"${{f##*/}}\"; head -c {} \"$b\" | base64 -w0; printf '\\000'; }}; ", queue::BUNDLE, BUNDLE_LIMIT + 1);
-        let listing = ssh_with_input(host, &format!("d={outbox}; {settle}n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json \"$d\"/{0}/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; {asks}set -- \"$d\"/*.json; [ -e \"$1\" ] || exit 0; {mirror} for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; {bundle}printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", queue::ASKS, tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
+        let listing = ssh_with_input(&route::operator_login(host)?, &format!("d={outbox}; {settle}n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json \"$d\"/{0}/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; {asks}set -- \"$d\"/*.json; [ -e \"$1\" ] || exit 0; {mirror} for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; {bundle}printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", queue::ASKS, tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
         taken.clear();
         let mut records = Records::open(&self.queue).map_err(|error| format!("cannot read the records of {}: {error}", self.queue.display()))?;
         let mut failures = Vec::new();
@@ -283,7 +283,7 @@ impl Lander {
             told.push((name, ticket, reason));
         }
         let names: Vec<&str> = told.iter().map(|(name, _, _)| name.as_str()).collect();
-        ssh(host, &format!("d={outbox}; mkdir -p \"$d/{0}\" && cd \"$d\" && mv -f -- {1} {0}/ && rm -f -- {2}", queue::WITHDRAWN, names.join(" "), bundles(&names)))?;
+        ssh(&route::operator_login(host)?, &format!("d={outbox}; mkdir -p \"$d/{0}\" && cd \"$d\" && mv -f -- {1} {0}/ && rm -f -- {2}", queue::WITHDRAWN, names.join(" "), bundles(&names)))?;
         for (_, ticket, reason) in told {
             if let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) {
                 super::after::send(session, &format!("north land: {} ({}) was withdrawn from {host}'s outbox: {reason}; queue it again from a worktree on its branch", ticket.branch, ticket.head));
@@ -306,7 +306,7 @@ impl Lander {
                 Err(error) => waiting.push(format!("{host}'s outbox skipped this round: {error}")),
             }
             if !taken.is_empty()
-                && let Err(error) = self.remote_outbox().and_then(|outbox| ssh(&host, &format!("d={outbox}; {}", settle_script(&taken))))
+                && let Err(error) = self.remote_outbox().and_then(|outbox| route::operator_login(&host).and_then(|login| ssh(&login, &format!("d={outbox}; {}", settle_script(&taken)))))
             {
                 waiting.push(format!("{host}'s outbox keeps its taken tickets this round: {error}"));
             }
@@ -335,5 +335,5 @@ fn ledger_tail() -> String {
 
 fn lane_gone(host: &str, ticket: &Ticket) -> bool {
     let root = ticket.root.to_string_lossy().replace('\'', "'\\''");
-    ssh(host, &format!("[ -e '{root}/.git' ] && echo present || echo gone")).is_ok_and(|answer| answer.trim() == "gone")
+    route::operator_login(host).is_ok_and(|login| ssh(&login, &format!("[ -e '{root}/.git' ] && echo present || echo gone")).is_ok_and(|answer| answer.trim() == "gone"))
 }

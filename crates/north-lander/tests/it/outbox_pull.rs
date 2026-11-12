@@ -147,8 +147,8 @@ impl Pull {
 }
 
 #[test]
-fn a_pull_dials_the_operator_login_by_name_with_or_without_an_agent_login_and_leaves_no_queue_where_no_outbox_is() {
-    for (hosts, login) in [("[hosts.gex45]\nssh = \"tom@gex45\"\n", "gex45"), ("[hosts.gex45]\nssh = \"tom@gex45\"\nagent_ssh = \"agent@gex45\"\n", "gex45")] {
+fn a_pull_dials_the_declared_operator_destination_with_or_without_an_agent_login_and_leaves_no_queue_where_no_outbox_is() {
+    for (hosts, login) in [("[hosts.gex45]\nssh = \"tom@gex45\"\n", "tom@gex45"), ("[hosts.gex45]\nssh = \"tom@gex45\"\nagent_ssh = \"agent@gex45\"\n", "tom@gex45")] {
         let empty = Pull::declaring(hosts);
         let transcript = empty.pull();
         assert!(!empty.logins().is_empty() && empty.logins().iter().all(|asked| asked == login), "{hosts}: {:?}\n{transcript}", empty.logins());

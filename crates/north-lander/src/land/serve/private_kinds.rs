@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use north_base::foundation::exit::NO_VERDICT;
 
-use crate::land::after::route::{REMOTE_NORTH, SSH_OPTIONS, quote};
+use crate::land::after::route::{REMOTE_NORTH, SSH_OPTIONS, operator_login, plain, quote};
 use crate::land::enqueue::default_branch;
 use crate::land::queue::Ticket;
 use crate::land::repositories;
@@ -17,7 +17,14 @@ pub(super) fn verdict(repo: &Path, ticket: &Ticket, base: &str, wait: Option<Dur
         return Denylist::from_env().verdict_within(&ticket.root, &ticket.origin, (base, &ticket.head, &default_branch(&ticket.root)), wait);
     }
     let script = script(ticket, base, &default_branch(repo), wait);
-    read(&ticket.host, Command::new("ssh").args(SSH_OPTIONS).args(["-T", &ticket.host, "--", &script]).stdin(Stdio::null()).output())
+    let named = ticket.host.split('.').next().unwrap_or(&ticket.host);
+    let login = match operator_login(named) {
+        Ok(login) if login != named => login,
+        Ok(_) if plain(&ticket.host) => ticket.host.clone(),
+        Ok(_) => return unreachable(&ticket.host, "its host is not an ssh host name"),
+        Err(why) => return unreachable(&ticket.host, &why),
+    };
+    read(&ticket.host, Command::new("ssh").args(SSH_OPTIONS).args(["-T", &login, "--", &script]).stdin(Stdio::null()).output())
 }
 
 fn asked_elsewhere(host: &str) -> bool {

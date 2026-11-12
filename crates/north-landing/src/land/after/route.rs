@@ -9,18 +9,23 @@ pub fn fleet_hosts() -> Vec<String> {
 }
 
 pub fn session_login(host: &str) -> Result<String, String> {
-    login_in(fleet().as_ref(), host)
+    login_in(fleet().as_ref(), host, orchestration::agent_login)
+}
+
+pub fn operator_login(host: &str) -> Result<String, String> {
+    login_in(fleet().as_ref(), host, orchestration::operator_login)
 }
 
 fn fleet() -> Option<DocumentMut> {
     land_queue::confined(&orchestration::snapshot_path()).ok().and_then(|()| orchestration::snapshot().ok())
 }
 
-fn login_in(fleet: Option<&DocumentMut>, host: &str) -> Result<String, String> {
-    match fleet.and_then(|fleet| orchestration::agent_login(fleet, host)) {
-        None => Ok(host.to_owned()),
+fn login_in(fleet: Option<&DocumentMut>, host: &str, declared: fn(&DocumentMut, &str) -> Option<String>) -> Result<String, String> {
+    match fleet.and_then(|fleet| declared(fleet, host)) {
+        None if plain(host) => Ok(host.to_owned()),
+        None => Err(format!("{host:?} is not an ssh host name")),
         Some(login) if plain(&login) => Ok(login),
-        Some(login) => Err(format!("{host}'s agent login {login:?} is not an ssh login")),
+        Some(login) => Err(format!("{host} declares the login {login:?}, which is not an ssh login")),
     }
 }
 
