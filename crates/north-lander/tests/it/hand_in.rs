@@ -179,7 +179,7 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     }
     let (world, north) = scanned_world(JUDGE_ASKS_A_MODEL);
     write_executable(&world.path().join("bin/north"), VERDICT_NORTH);
-    fs::write(north.checkout.join(".safe-push"), "[landing]\n\tpush-app = lander\n[land]\n\tcheck = ** :: sleep 3\n").unwrap();
+    fs::write(north.checkout.join(".safe-push"), "[landing]\n\tpush-app = lander\n[land]\n\tcheck = ** :: test ! -e red.txt && sleep 3\n").unwrap();
     git(&north.checkout, &["commit", "-qam", "Run a land check before queueing"]);
     git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
     git(&north.checkout, &["fetch", "-q", "origin"]);
@@ -202,6 +202,16 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     let store = north_base::platform::finish_record::FinishRecords(world.path().join("verdicts").join("finished"));
     let recorded = store.read("proposer").unwrap_or_else(|| panic!("a failed finish call wrote no finish record outside the lane: {text}"));
     assert!(!recorded.passed && recorded.command == "echo the box is red; exit 3", "the finish record does not name the failed acceptance command: {recorded:?}");
+    let narrow = worktree(&north, "narrow");
+    fs::write(narrow.join("red.txt"), "a change the named check does not read\n").unwrap();
+    let refused = finish(&world, "small", "true", "Add the red note (north#1233)", &narrow.join("red.txt"));
+    let text = report(&refused);
+    assert_eq!(refused.status.code(), Some(1), "{text}");
+    assert!(queue::pending(&north.queue).unwrap().is_empty(), "a lane one of the repository's checks before queueing failed was queued: {text}");
+    assert!(store.read("small").is_some_and(|recorded| !recorded.passed && recorded.command == "true"), "a finish call whose named check passed left a passing finish record for a lane the repository's check before queueing failed, so a route's first rung never moves to its second (north#1233): {text}");
+    let refused_attempt = text.lines().find_map(|line| line.split("the attempt is kept in ").nth(1)).unwrap_or_else(|| panic!("a lane refused by a check before queueing named no kept attempt: {text}"));
+    let attempt: serde_json::Value = serde_json::from_str(&fs::read_to_string(refused_attempt.trim()).unwrap()).unwrap();
+    assert!(attempt["output"].as_str().is_some_and(|output| output.contains("test ! -e red.txt")) && attempt["diff"].as_str().is_some_and(|diff| diff.contains("+a change the named check does not read")), "the kept attempt names neither the repository's failed check nor the refused change: {attempt}");
 
     let mut proposing = queueing(&world, FINISH, FINISH_ARGUMENTS, &["--judge-message", "proposer"]).current_dir(&lane).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     proposing.stdin.take().unwrap().write_all(b"Add the proposed note (north#1239)").unwrap();

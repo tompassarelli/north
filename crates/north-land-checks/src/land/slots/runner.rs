@@ -37,7 +37,7 @@ mod spawn;
 mod steps;
 mod timeout_row;
 mod verdict;
-pub use queue_checks::{queue_commands, refuse_queue_checks};
+pub use queue_checks::{QueueRefusal, judge_queue_checks, queue_commands, refuse_queue_checks};
 pub use steps::taken as queue_steps;
 pub use steps::{Window, windows as queue_windows};
 use crate::platform::north_binary::land_north as program;

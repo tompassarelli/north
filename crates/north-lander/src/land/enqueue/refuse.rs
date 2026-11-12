@@ -4,8 +4,25 @@ use super::facts::Repository;
 use crate::land::candidate::{git, output};
 use crate::land::lane_gates::{self, Lane};
 use crate::land::scans::git::merge_base;
+use crate::land::slots::runner::QueueRefusal;
+use north_base::platform::finish_record::{FinishRecords, Finished};
 use crate::dep_gate::Registry;
 use crate::landing::{merge_set, stale_revert};
+
+/// A lane the repository's checks before queueing judged and failed turns its session's passing finish record for
+/// that tree failed, so a route's first rung moves to its second on the repository's own checks and not only on the
+/// check its finish call named; a refusal that reached no verdict leaves the record as it is (north#1233).
+pub(super) fn refused_finish(session: Option<&str>, root: &Path, head: &str, refusal: QueueRefusal) -> String {
+    let tree = |commit: &str| git(root, &["rev-parse", "--verify", "--quiet", &format!("{commit}^{{tree}}")]).ok();
+    let records = FinishRecords::here();
+    let vouched = session.filter(|_| matches!(refusal, QueueRefusal::Failed(_))).and_then(|session| records.read(session)).filter(|finished| finished.passed && tree(&finished.head).is_some_and(|checked| Some(checked) == tree(head)));
+    if let Some(finished) = vouched
+        && let Err(error) = records.record(&Finished { passed: false, ..finished })
+    {
+        eprintln!("safe-push: the finish record was not turned failed: {error}");
+    }
+    refusal.into_text()
+}
 
 pub(super) fn refuse_archived(repository: &Repository) -> Result<(), String> {
     if repository.archived {

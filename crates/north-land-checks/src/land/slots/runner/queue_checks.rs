@@ -31,13 +31,34 @@ pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>
     Ok(commands)
 }
 
+/// Why the checks before queueing refuse a lane: one of them ran and failed, or none reached a verdict, which says
+/// nothing about the lane's change (north#1233).
+#[derive(Debug)]
+pub enum QueueRefusal {
+    Failed(String),
+    Unjudged(String),
+}
+
+impl QueueRefusal {
+    pub fn into_text(self) -> String {
+        match self {
+            Self::Failed(text) | Self::Unjudged(text) => text,
+        }
+    }
+}
+
 pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), String> {
+    judge_queue_checks(root, base, head).map_err(QueueRefusal::into_text)
+}
+
+pub fn judge_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), QueueRefusal> {
     steps::begin();
     let (config, clippy, commands) = steps::timed("commands", || -> Result<_, String> {
         let config = Config::load(root, head);
         let clippy = clippy_first::listed(&config.after_set().commands(root, base, head)?, |command| !config.is_inferred(command));
         Ok((config, clippy, queue_commands(root, base, head)?))
-    })?;
+    })
+    .map_err(QueueRefusal::Unjudged)?;
     if commands.is_empty() {
         return Ok(());
     }
@@ -47,10 +68,10 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), St
     let mut status = NO_VERDICT_STATUS;
     let mut attempt = 1;
     while attempt <= ATTEMPTS {
-        let ran = block_on(run_added_avoiding(root.to_owned(), arguments.clone(), config.clone(), commands.clone(), &failed)).map_err(|error| error.to_string())?;
+        let ran = block_on(run_added_avoiding(root.to_owned(), arguments.clone(), config.clone(), commands.clone(), &failed)).map_err(|error| QueueRefusal::Unjudged(error.to_string()))?;
         status = ran.status;
         if ran.unanswered {
-            return Err("no build host answers over ssh, so the checks before queueing cannot run; the lane is not queued uncompiled, so run safe-push again once a build host is back".to_owned());
+            return Err(QueueRefusal::Unjudged("no build host answers over ssh, so the checks before queueing cannot run; the lane is not queued uncompiled, so run safe-push again once a build host is back".to_owned()));
         }
         if status == SLOTS_BUSY_STATUS {
             say("safe-push: every slot on the build host stayed busy for its wait limit; the checks before queueing wait in line again");
@@ -70,17 +91,20 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), St
     if status == 0 {
         return Ok(());
     }
+    Err(refusal(status, clippy.is_some(), (root, base, head)))
+}
+
+fn refusal(status: i32, clippy: bool, (root, base, head): (&Path, &str, &str)) -> QueueRefusal {
     if status == NO_VERDICT_STATUS {
-        return Err(format!("the checks before queueing reached no verdict {ATTEMPTS} times (exit 75: the host or its connection failed before they reported); the lane is not queued uncompiled, so run safe-push again"));
+        return QueueRefusal::Unjudged(format!("the checks before queueing reached no verdict {ATTEMPTS} times (exit 75: the host or its connection failed before they reported); the lane is not queued uncompiled, so run safe-push again"));
     }
-    let rerun = match clippy {
-        Some(_) => {
-            let crates = affected::scope(root, base, head).map_or_else(|_| "--workspace".to_owned(), |scope| scope.changed_arguments());
-            format!("; to rerun clippy alone: cargo clippy --all-targets {crates} -- -D warnings")
-        }
-        None => String::new(),
+    let rerun = if clippy {
+        let crates = affected::scope(root, base, head).map_or_else(|_| "--workspace".to_owned(), |scope| scope.changed_arguments());
+        format!("; to rerun clippy alone: cargo clippy --all-targets {crates} -- -D warnings")
+    } else {
+        String::new()
     };
-    Err(format!("a check before queueing exited {status}; fix the failure above{rerun}"))
+    QueueRefusal::Failed(format!("a check before queueing exited {status}; fix the failure above{rerun}"))
 }
 
 fn lane_tests(landing: &[String]) -> Option<String> {
