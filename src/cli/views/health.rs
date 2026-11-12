@@ -2,6 +2,11 @@ use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
 
+const RETIRE: &[north_base::lifecycle::Retire] = &[
+    north_base::lifecycle::retire::<north_landing::land::after_landing_lifecycle::AfterLandingRun>,
+    north_base::lifecycle::retire::<north_core::land_ticket::LandTicket>,
+];
+
 pub struct Health {
     pub text: String,
     pub json: Value,
@@ -14,7 +19,7 @@ pub fn run(arguments: &[String], citations: fn(&std::path::Path) -> Result<(), S
         [flag] if flag == "--dry-run" => (true, false),
         [flag] if flag == "--json" => (false, true),
         [first, second] if (first == "--dry-run" && second == "--json") || (first == "--json" && second == "--dry-run") => (true, true),
-        [verb] if verb == "facts" => return crate::health::run(arguments, citations),
+        [verb] if verb == "facts" => return crate::health::run(arguments, citations, RETIRE),
         _ => {
             eprintln!("Usage: north health [--dry-run] [--json] | facts");
             return std::process::ExitCode::from(2);

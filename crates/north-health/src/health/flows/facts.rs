@@ -7,7 +7,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use north_base::agents_sync::UNPUBLISHED;
 use north_base::dispatch_pause::{RECORD, TIMER};
 use north_base::error::NorthResult;
-use north_base::lifecycle::{Fault, Store};
+use north_base::lifecycle::{Fault, Retire, Store};
 use north_pace::usage::profiles;
 
 use super::{Dispatch, Held, HostFacts, Lifecycles};
@@ -107,6 +107,17 @@ fn stores(home: &Path) -> Vec<NorthResult<Store>> {
     let leases = runtime.map(|runtime| runtime.join(CAPACITY_LEASES)).filter(|path| path.exists());
     let spool = Some(north_threads::threads::client::spool::records_path(&home.join(".local/state/threads/spool"))).filter(|path| path.exists());
     std::iter::once(Store::host()).chain(spool.into_iter().chain(leases).map(|path| Store::open(&path))).collect()
+}
+
+/// Retires, in every store of this host, the rows whose holder is a process of this host that is gone. Only this host can
+/// judge those holders, so a copy of its ledger elsewhere reports them as orphaned until this runs.
+pub fn retire_gone(home: &Path, passes: &[Retire]) -> NorthResult<usize> {
+    let now = Timestamp::now();
+    let mut moved = 0;
+    for store in stores(home) {
+        moved += store?.retire_every(now, passes)?;
+    }
+    Ok(moved)
 }
 
 pub fn lifecycles(home: &Path) -> Lifecycles {

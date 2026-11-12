@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use super::{Delivery, Effect, Expiry, FaultKind, Leased, Lifecycle, Liveness, Owner, Refusal, Stage, State, Store};
+use super::{Delivery, Effect, Expiry, FaultKind, Leased, Lifecycle, Liveness, Owner, Refusal, Stage, State, Store, retire};
 use crate::foundation::clock::Timestamp;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -251,4 +251,34 @@ fn a_gone_holder_s_row_is_retired_and_reported_once() {
     assert!(next.faults(at(7)).unwrap().is_empty());
     let moves: Vec<_> = next.history("pull", "gex45").unwrap().into_iter().map(|logged| (logged.to, logged.cause)).collect();
     assert_eq!(moves, [("pulling".to_owned(), "pulling".to_owned()), ("abandoned".to_owned(), "the holder, pid 10 on laptop, is gone".to_owned())]);
+}
+
+struct Here(&'static str, u32);
+
+impl Liveness for Here {
+    fn alive(&self, owner: &Owner) -> Option<bool> {
+        (owner.host == self.0).then_some(owner.pid != self.1)
+    }
+}
+
+#[test]
+fn a_gone_holder_s_row_on_a_second_host_is_retired_by_that_host_s_pass_and_reported_at_most_once_from_its_copy() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    let copy = directory.path().join("mirror.db");
+    store(&path, owner("gex45", 20), 0).transition::<Puller>("gex45", Pull::Pulling, "pulling", at(0)).unwrap().unwrap();
+    let mut owner_host = Store::open_as(&path, owner("gex45", 21), Box::new(Here("gex45", 20))).unwrap();
+    let mirror = |path: &std::path::Path| {
+        let _ = std::fs::remove_file(&copy);
+        rusqlite::Connection::open(path).unwrap().execute("VACUUM INTO ?1", [copy.to_str().unwrap()]).unwrap();
+        Store::open_as(&copy, owner("laptop", 10), Box::new(Here("laptop", 0))).unwrap()
+    };
+    assert!(mirror(&path).faults(at(5)).unwrap().is_empty(), "the laptop cannot judge a holder on gex45");
+
+    assert_eq!(owner_host.retire_every(at(5), &[retire::<Puller>]).unwrap(), 1);
+    assert_eq!(owner_host.retire_every(at(6), &[retire::<Puller>]).unwrap(), 0);
+
+    assert!(mirror(&path).faults(at(100)).unwrap().is_empty());
+    let moves: Vec<_> = owner_host.history("pull", "gex45").unwrap().into_iter().map(|logged| logged.to).collect();
+    assert_eq!(moves, ["pulling", "abandoned"]);
 }

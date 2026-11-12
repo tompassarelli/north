@@ -65,6 +65,14 @@ const KEEP_MOVES: Duration = Duration::from_secs(30 * 24 * 3600);
 /// A refused illegal move stays a fault this long.
 const ILLEGAL_WINDOW: Duration = Duration::from_secs(3600);
 
+/// One machine's retirement of its gone holders' rows, as [`Store::retire_every`] runs it.
+pub type Retire = fn(&mut Store, Timestamp) -> NorthResult<usize>;
+
+/// [`Store::retire_gone`] of machine `L`, counting the rows it moved.
+pub fn retire<L: Lifecycle>(store: &mut Store, at: Timestamp) -> NorthResult<usize> {
+    Ok(store.retire_gone::<L>(at)?.len())
+}
+
 /// The records of every instance of every machine kept in one SQLite file, and the log of their moves.
 pub struct Store {
     connection: Connection,
@@ -226,6 +234,16 @@ impl Store {
             retired.extend(self.settle::<L>(&old.instance, at)?.filter(|new| new.seq != old.seq));
         }
         Ok(retired)
+    }
+
+    /// Runs each of `passes` over this store, so the host holding the dead processes retires their rows itself and a
+    /// copy of the store made afterwards never shows a holder only that host could judge gone. Returns how many rows moved.
+    pub fn retire_every(&mut self, at: Timestamp, passes: &[Retire]) -> NorthResult<usize> {
+        let mut moved = 0;
+        for pass in passes {
+            moved += pass(self, at)?;
+        }
+        Ok(moved)
     }
 
     fn moving<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp, (holder, deadline): (&Owner, Option<Timestamp>), effects: &[Effect]) -> NorthResult<Moved<L::State>> {

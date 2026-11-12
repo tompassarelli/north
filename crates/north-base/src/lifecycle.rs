@@ -17,7 +17,7 @@ mod store;
 mod tests;
 
 pub use owner::{Liveness, Owner, Proc};
-pub use store::{EXPIRE_BOUND, EXPIRED, Store};
+pub use store::{EXPIRE_BOUND, EXPIRED, Retire, Store, retire};
 
 /// How a side effect a move started is delivered when a crash falls between the move's commit and the delivery.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

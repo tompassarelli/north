@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Duration;
 
+use north_base::lifecycle::Retire;
+
 use crate::foundation::clock::Timestamp;
 use crate::platform::rolling_issue::Breaches;
 use crate::platform::sqlite::{self, Access};
@@ -454,11 +456,11 @@ pub fn report(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<(bool, V
     live(dry_run, citations)
 }
 
-pub fn run(arguments: &[String], citations: fn(&Path) -> Result<(), String>) -> ExitCode {
+pub fn run(arguments: &[String], citations: fn(&Path) -> Result<(), String>, retire: &[Retire]) -> ExitCode {
     let dry_run = match arguments {
         [] => false,
         [flag] if flag == "--dry-run" => true,
-        [verb] if verb == "facts" => return facts::run(),
+        [verb] if verb == "facts" => return facts::run(retire),
         _ => {
             eprintln!("Usage: north health [--dry-run] | facts");
             return ExitCode::from(1);
