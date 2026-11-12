@@ -15,6 +15,7 @@ mod cloud_land;
 mod cloud_reap;
 mod token_usage;
 mod alarm_stats;
+mod box_path;
 mod fleet;
 mod gate;
 mod gate_closing;
@@ -88,6 +89,7 @@ enum Command {
     Health(Vec<String>),
     Glance(Vec<String>),
     Holds(Vec<String>),
+    BoxPath(Vec<String>),
     GuardLanguage,
     ContractProbe(Vec<String>),
     Grounding(Vec<String>),
@@ -160,6 +162,7 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("health", |_, rest| Command::Health(rest)),
     ("glance", |_, rest| Command::Glance(rest)),
     ("holds", |_, rest| Command::Holds(rest)),
+    ("box", |_, rest| Command::BoxPath(rest)),
     ("contract-probe", |_, rest| Command::ContractProbe(rest)),
     ("remote-serve", |_, rest| Command::RemoteServe(rest)),
 ];
@@ -249,6 +252,10 @@ fn dispatch(command: Command) -> ExitCode {
             Err(error) => failure(error),
         },
         Command::Holds(arguments) => match holds::run(&arguments) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => failure(error),
+        },
+        Command::BoxPath(arguments) => match box_path::run(&arguments) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => failure(error),
         },

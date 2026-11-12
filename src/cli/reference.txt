@@ -328,6 +328,7 @@ Commands:
   lane sync CHECKOUT...                            Fetch and fast-forward each project main checkout to origin/main, outside a worker sandbox
   buck targets [--check] [--root DIR]              Write every workspace crate's Buck2 targets from the Cargo manifests; --check exits 1 on drift
   holds list [--here] [--json]                  Every stop set by hand on each host (dispatch pause, issue holds, laptop drain switch, stable-pin hold, a lock a unit holds): who set it, why, since when and what lifts it, red once it outlives its lift by 10 minutes or names none
+  box path REPO#N [--box K]                     Each state one box passed through from its claim to the runtime holding its landing (claimed, launching, working, handing-in, queued, checking, landed, reported, delivered, verified, promoted), with its start, the time spent in it and its source record; a state no record holds prints as unrecorded with its gap
 
 Options:
   -h, --help  Show the operator and agent commands

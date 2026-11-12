@@ -13,6 +13,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("alarm", Diagnosis),
     ("autoland-status", Status),
     ("bin-references", Diagnosis),
+    ("box", Status),
     ("broker", Bookkeeping),
     ("buck", Bookkeeping),
     ("build-cache-gate", Diagnosis),

@@ -50,6 +50,7 @@ autobins = false
 
 [dependencies]
 north-core = { path = "crates/north-core" }
+north-base = { path = "crates/north-base" }
 north-calibration = { path = "crates/north-calibration" }
 north-health = { path = "crates/north-health" }
 north-providers = { path = "crates/north-providers" }
@@ -114,7 +115,6 @@ tui-textarea-2.workspace = true
 north-registries = { path = "crates/north-registries" }
 
 [dev-dependencies]
-north-base = { path = "crates/north-base" }
 sha1.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
