@@ -1,8 +1,8 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::{Effect, Fault, FaultKind, Lifecycle, Liveness, Move, Moved, Owner, Proc, Record, Refusal, State};
 use crate::error::{NorthError, NorthResult};
@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS lifecycle_effects(
 CREATE INDEX IF NOT EXISTS lifecycle_effects_open ON lifecycle_effects(kind, stage);
 ";
 
+/// How long a writer waits for another process's transaction before it is refused as locked.
+const BUSY_WAIT: Duration = Duration::from_secs(30);
 /// Logged moves older than this are pruned at the instance's next move.
 const KEEP_MOVES: Duration = Duration::from_secs(30 * 24 * 3600);
 /// A refused illegal move stays a fault this long.
@@ -72,6 +74,37 @@ pub struct Store {
 
 fn sql(error: rusqlite::Error) -> NorthError {
     NorthError::State(format!("lifecycle store: {error}"))
+}
+
+/// Puts the file in write-ahead mode, in which a commit costs one sync and a reader never blocks the writer. Switching
+/// a file another process is switching answers busy at once, without the busy handler, so that is retried for
+/// [`BUSY_WAIT`]; a file that cannot be switched keeps the mode it has.
+fn write_ahead(connection: &Connection) -> NorthResult<()> {
+    let until = Instant::now() + BUSY_WAIT;
+    loop {
+        let mode: String = connection.query_row("PRAGMA journal_mode", [], |row| row.get(0)).map_err(sql)?;
+        if mode == "wal" {
+            return Ok(());
+        }
+        match connection.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(())) {
+            Ok(()) => return Ok(()),
+            Err(rusqlite::Error::SqliteFailure(failure, _)) if failure.code == ErrorCode::DatabaseBusy && Instant::now() < until => std::thread::sleep(Duration::from_millis(10)),
+            Err(rusqlite::Error::SqliteFailure(failure, _)) if failure.code != ErrorCode::DatabaseBusy => return Ok(()),
+            Err(error) => return Err(sql(error)),
+        }
+    }
+}
+
+/// Creates the tables and indexes the file lacks in one transaction, and writes nothing when it has them all, so a
+/// process opening a ledger another process is using neither queues behind its writes nor makes several of its own.
+fn create_schema(connection: &Connection) -> NorthResult<()> {
+    let present: i64 = connection.query_row("SELECT count(*) FROM sqlite_master WHERE name GLOB 'lifecycle_*'", [], |row| row.get(0)).map_err(sql)?;
+    if usize::try_from(present).is_ok_and(|present| present == SCHEMA.matches("CREATE ").count()) {
+        return Ok(());
+    }
+    let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Immediate).map_err(sql)?;
+    transaction.execute_batch(SCHEMA).map_err(sql)?;
+    transaction.commit().map_err(sql)
 }
 
 fn millis(duration: Duration) -> i64 {
@@ -107,8 +140,9 @@ impl Store {
             std::fs::create_dir_all(parent)?;
         }
         let connection = Connection::open(path).map_err(sql)?;
-        connection.busy_timeout(Duration::from_secs(10)).map_err(sql)?;
-        connection.execute_batch(SCHEMA).map_err(sql)?;
+        connection.busy_timeout(BUSY_WAIT).map_err(sql)?;
+        write_ahead(&connection)?;
+        create_schema(&connection)?;
         Ok(Self { connection, who, liveness })
     }
 
