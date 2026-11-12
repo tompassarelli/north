@@ -1,0 +1,4 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "evals/files/src/boxes.rs"
+reason = "the issue state is a field of GitHub's GraphQL reply, an external format read once to pick the closed boxes an offline replay scores, never held as state (north#1147)"

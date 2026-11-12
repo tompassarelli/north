@@ -89,6 +89,10 @@ shape = "status-string"
 path = "src/cli/scoreboard/chain.rs"
 reason = "the outcome is the text column the ledger's runs table stores, read here as rows and never held as state (north#722)"
 
+[[implicit_state.allow]]
+shape = "status-string"
+path = "evals/files/src/boxes.rs"
+reason = "the issue state is a field of GitHub's GraphQL reply, an external format read once to pick the closed boxes an offline replay scores, never held as state (north#1147)"
 [crate_lines]
 default = 25000
 hub = 10000
@@ -1207,5 +1211,5 @@ may_use = []
 [[module]]
 name = "evals"
 paths = ["evals/**"]
-responsibility = "Measurement runners that drive north and other harnesses from outside, as a user would: the Eval B load ladder against plain T3 Code, and the file-prediction scorer for first prompts."
+responsibility = "Measurement runners that drive north and other harnesses from outside, as a user would: the Eval B load ladder against plain T3 Code, and the file-prediction scorer for first prompts, with the replay of experiment G1 over closed north boxes."
 may_use = []
