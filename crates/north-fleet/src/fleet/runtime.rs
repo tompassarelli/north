@@ -169,6 +169,8 @@ pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 pub const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 pub const ACTOR_ENV: &str = "THREADS_ACTOR";
 pub const CAPACITY_NEED_ENV: &str = "AGENT_CAPACITY_NEED";
+/// The variable naming a spare worker's binding file, whose session name, actor and capacity need the worker-sandbox prefix applies once a launch takes the spare.
+pub const BINDING_ENV: &str = "NORTH_FLEET_BINDING";
 
 pub fn new_uuid() -> NorthResult<String> {
     Ok(std::fs::read_to_string("/proc/sys/kernel/random/uuid")?.trim().to_owned())

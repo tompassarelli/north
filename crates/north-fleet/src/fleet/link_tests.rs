@@ -5,7 +5,8 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines};
 
 use super::super::model::Machine;
-use super::super::remote::held_under;
+use super::super::remote::{attached, held_under};
+use super::super::spares::{self, Place};
 use super::super::runtime::HostSpec;
 use super::*;
 
@@ -138,12 +139,39 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
 }
 
 
-#[test]
-fn a_session_held_on_another_machine_starts_its_link_here_though_its_lane_exists_only_there() {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_there_only_when_one_fits() {
     let root = tempfile::tempdir().unwrap();
     let lane = Path::new("/home/tom/code/north/worktrees/only-on-far");
     let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["opencode".into()], env: Vec::new(), env_remove: Vec::new(), cwd: lane.to_path_buf() };
     let placed = held_under(spec, &Machine { name: "far".into(), ssh: "tom@far".into() }, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
     assert_eq!(placed.cwd, root.path());
     assert!(Link::parse(&placed.argv[2..]).unwrap().launch.contains(&format!("cd {}", quote(&lane.to_string_lossy()))));
+
+    let shims = machine(root.path());
+    let (ssh, far, home) = (shims.join("ssh"), Machine { name: "far".into(), ssh: "tom@far".into() }, root.path());
+    let place = Place { ssh: &ssh, machine: &far, home };
+    let cli = r#"while read -r line; do echo "got $line as $(tr "\n" " " < "$NORTH_FLEET_BINDING")"; done"#;
+    let spec = HostSpec { key: "spare-one".into(), shared: false, argv: vec!["sh".into(), "-c".into(), cli.into()], env: Vec::new(), env_remove: Vec::new(), cwd: home.to_path_buf() };
+    let spools = home.join(".local/state/north/fleet/spool/sessions");
+    fs::create_dir_all(spools.join("spare-one")).unwrap();
+    spares::start(&place, &spares::spare_spec(spec, home, "spare-one"), "kind", "fp-one", "spare-one", "conversation-one").unwrap();
+    assert_eq!(spares::take(&place, "fp-two", "box-two", &spares::binding("box-two", None)), None, "a launch whose spec fits no spare starts its own client");
+    let taken = spares::take(&place, "fp-one", "box-two", &spares::binding("box-two", None)).expect("the launch takes the spare that fits it");
+    assert_eq!(taken.conversation, "conversation-one");
+    assert_eq!(spares::take(&place, "fp-one", "box-three", &spares::binding("box-three", None)), None, "a second take of the one spare loses the race and its launch starts cold");
+    assert!(spools.join("box-two").is_dir() && !spools.join("spare-one").exists(), "the session takes the spare's spool, the directory its tool server may write");
+
+    let host = HostSpec { key: "box-two".into(), shared: false, argv: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd: home.to_path_buf() };
+    let link = Link { ssh, ..Link::parse(&attached(host, &far, &taken.running, "box-two", &home.join("hops.jsonl")).unwrap().argv[2..]).unwrap() };
+    let (mut to_link, input) = tokio::io::duplex(4096);
+    let (mut output, from_link) = tokio::io::duplex(4096);
+    let relay = tokio::spawn(async move { link.relay(chunks(input), &mut output, std::future::pending()).await });
+    to_link.write_all(b"brief\n").await.unwrap();
+    assert_eq!(next(&mut BufReader::new(from_link).lines()).await, "got brief as NORTH_FLEET_SESSION=box-two THREADS_ACTOR=box-two ", "the taken client reads its binding by the time the brief reaches it");
+    drop(to_link);
+    assert_eq!(tokio::time::timeout(WAIT, relay).await.unwrap().unwrap().unwrap(), 0);
+    let held = home.join(".local/state/north/held");
+    north_base::platform::wait::until_async(WAIT, || holding(&held).is_empty()).await;
+    assert_eq!(holding(&held), Vec::<String>::new(), "the taken spare stops with its session");
 }

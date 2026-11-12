@@ -89,6 +89,10 @@ pub fn confine(roots: Option<&[PathBuf]>, readable: &[PathBuf], executable: Opti
 }
 
 pub fn run(arguments: &[String], screen: Screen) -> std::process::ExitCode {
+    let bound = north_base::platform::session_binding::unapplied();
+    if !bound.is_empty() {
+        return bind(arguments, bound);
+    }
     match arguments {
         [broker] if broker == BROKER => broker::serve(),
         [maker, runtime, paths @ ..] if maker == MAKER => sockets::make(Path::new(runtime), &paths.iter().map(PathBuf::from).collect::<Vec<_>>()),
@@ -103,6 +107,13 @@ pub fn run(arguments: &[String], screen: Screen) -> std::process::ExitCode {
             std::process::ExitCode::from(2)
         }
     }
+}
+
+/// Runs this command again with the name a taken spare was bound to, so its domain, its hooks and every north verb below it see the session it now is, never the spare it started as.
+fn bind(arguments: &[String], bound: Vec<(String, String)>) -> std::process::ExitCode {
+    let error = Command::new(std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"))).arg(FLAG).args(arguments).envs(bound).exec();
+    eprintln!("north worker-sandbox: {error}");
+    std::process::ExitCode::from(126)
 }
 
 /// Runs `north WORDS` outside the worker's Landlock domain, through the broker that a fixed set of verbs may ask (broker.rs), for a tool that must build its own mount namespace (Landlock refuses mount(2) inside a domain, so bubblewrap cannot start there); run with neither the sandbox mark nor hidden sockets, it just execs `north WORDS`. The tool's own namespace then confines what it may write.

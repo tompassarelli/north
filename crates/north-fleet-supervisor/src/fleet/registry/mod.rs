@@ -21,6 +21,7 @@ use super::prompt::{PromptInputs, StandingOrders, prompt_sha, render};
 use super::records::{CLAIMS_RELEASED, PLACED, read_phased, read_record, write_record};
 use super::model::Phases;
 use super::remote::{self, HooksCheck};
+use super::spares::Taken;
 use super::roster::Roster;
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, now_ms};
 use super::runtimes::Runtimes;
@@ -59,6 +60,7 @@ mod reopening;
 mod retiring;
 mod launching;
 mod home;
+mod spares;
 mod start_lock;
 mod stopping;
 mod withdrawing;
@@ -368,19 +370,31 @@ impl Fleet {
     }
 
     fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening, hooks: HooksCheck) -> NorthResult<()> {
-        let opened = self.open_host(record, account, opening)?;
+        let opened = self.open_host(record, account, opening, None)?;
         self.go_live(record, opening, hooks, opened)
     }
 
-    /// Starts the session's host, and with it the provider CLI, or joins the shared host it runs in; the session is not yet recorded live, so a launch runs this beside its registration and sends nothing but the CLI's handshake until that is in.
-    fn open_host(&self, record: &SessionRecord, account: &Account, opening: Opening) -> NorthResult<OpenedHost> {
+    /// Starts the session's host, and with it the provider CLI, or joins the shared host it runs in; the session is not yet recorded live, so a launch runs this beside its registration and sends nothing but the CLI's handshake until that is in. With `spare` taken on the session's machine, its link attaches to that client instead of starting one, and the spare is stopped when the host does not start.
+    fn open_host(&self, record: &SessionRecord, account: &Account, opening: Opening, spare: Option<&Taken>) -> NorthResult<OpenedHost> {
+        let opened = self.open_host_from(record, account, opening, spare);
+        if let (Err(_), Some(taken), Some(machine)) = (&opened, spare, &record.machine) {
+            self.release_spare(machine, taken);
+        }
+        opened
+    }
+
+    fn open_host_from(&self, record: &SessionRecord, account: &Account, opening: Opening, spare: Option<&Taken>) -> NorthResult<OpenedHost> {
         let since_ms = if record.host_dir.as_os_str().is_empty() { record.created_ms } else { now_ms() };
         self.refuse_on_window(record.conversation.as_deref())?;
         let runtime = self.runtime(record)?;
         self.refuse_headless_proxy(record, runtime.as_ref(), account)?;
         let (instructions, sha) = self.instructions(record)?;
         let trace = hops::trace_in(&self.root.join(&record.name));
-        let spec = remote::placed(runtime.host(account, &record.relaunch_request(), opening, &instructions)?, record, &trace)?;
+        let spec = runtime.host(account, &record.relaunch_request(), opening, &instructions)?;
+        let spec = match (spare, &record.machine) {
+            (Some(taken), Some(machine)) => remote::attached(spec, machine, &taken.running, &record.name, &trace)?,
+            _ => remote::placed(spec, record, &trace)?,
+        };
         let host_dir = if spec.shared { self.root.join(HOSTS).join(&spec.key) } else { self.root.join(&record.name) };
         let host = Host::new(host_dir.clone());
         let started = !host.running();
@@ -388,11 +402,13 @@ impl Fleet {
             host.start(&spec, &record.provider, idle_exit(record), &account.recorded_label())?;
             host.send(&runtime.handshake())?;
         }
-        Ok(OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms })
+        let held_unit = spare.map(|taken| taken.running.unit.clone());
+        Ok(OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms, held_unit })
     }
 
     fn go_live(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost) -> NorthResult<()> {
-        let OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms } = opened;
+        let OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms, held_unit } = opened;
+        record.held_unit = held_unit;
         let request = record.relaunch_request();
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);
@@ -498,6 +514,7 @@ struct OpenedHost {
     host: Host,
     started: bool,
     since_ms: u64,
+    held_unit: Option<String>,
 }
 
 impl OpenedHost {

@@ -25,6 +25,7 @@ pub mod refusals;
 pub mod records;
 pub mod link;
 pub mod remote;
+pub mod spares;
 pub mod model;
 pub mod overlap;
 pub mod peer_row;

@@ -277,7 +277,7 @@ impl Evidence for Here {
         let mut placed: BTreeMap<&str, BTreeMap<String, String>> = BTreeMap::new();
         for record in records {
             if let Some(machine) = record.machine.as_ref().filter(|_| !record.ended()) {
-                placed.entry(machine.ssh.as_str()).or_default().insert(unit(&record.name), record.name.clone());
+                placed.entry(machine.ssh.as_str()).or_default().insert(record.held_unit.clone().unwrap_or_else(|| unit(&record.name)), record.name.clone());
                 continue;
             }
             if let Some(host) = record.host_pid.filter(|_| record.live()) {
