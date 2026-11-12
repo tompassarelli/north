@@ -1,12 +1,13 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-/// The agent state under `~/.local/state` a worker command writes, and nothing beside it: the hooks' records under `agents`, the conversation index `north convo search` keeps, the threads ledger, which a worker on the ledger host writes a claim and a box check into, the threads spool and its records, which a worker elsewhere queues them in, the fleet spool a report, a gate and a spend request go through, the guard's own logs and stamps, the build shims' metadata and timings and the dev shells' roots, and `north/land`, where a land check takes its locks. The runtimes unconfined sessions execute, the fleet's session records, the lifecycle ledger, the client profiles and every other store stay unwritable.
-const WRITTEN: [&str; 16] = [
+use north_base::platform::session_scope::SESSION_SPOOLS;
+
+/// The agent state under `~/.local/state` a worker command writes, and nothing beside it: the hooks' records under `agents`, the conversation index `north convo search` keeps, the threads ledger, which a worker on the ledger host writes a claim and a box check into, the threads spool and its records, which a worker elsewhere queues them in, the guard's own logs and stamps, the build shims' metadata and timings and the dev shells' roots, and `north/land`, where a land check takes its locks. The runtimes unconfined sessions execute, the fleet's session records, the lifecycle ledger, the client profiles and every other store stay unwritable.
+const WRITTEN: [&str; 15] = [
     "agents",
     "convo",
     "threads",
-    "north/fleet/spool",
     "north/land",
     "north/file-skills",
     "north/recommend-acts",
@@ -24,9 +25,10 @@ const WRITTEN: [&str; 16] = [
 /// The stores a worker command may write but never remove from, since the history the fleet screen shows and every later decision reads lives in them.
 const KEPT: [&str; 3] = ["convo", "threads", "north/fleet"];
 
-/// Every path under `state` a worker command may open for writing or create beneath: the stores [`WRITTEN`] names and the shared-memory index of each WAL database directly in `north` (the lifecycle ledger and the graph), which it reads but never writes, and which SQLite writes even to read.
-pub fn writable(state: &Path) -> Vec<PathBuf> {
+/// Every path under `state` a worker command may open for writing or create beneath: the stores [`WRITTEN`] names, the own fleet spool location of `session`, made first where missing, which a report, a gate and a spend request go through and which the fleet tick reads as that session's and nobody else's, so no other spool path is granted, the shared-memory index of each WAL database directly in `north` (the lifecycle ledger and the graph), which it reads but never writes, and which SQLite writes even to read.
+pub fn writable(state: &Path, session: Option<&str>) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = WRITTEN.iter().map(|store| state.join(store)).collect();
+    paths.extend(session.filter(|session| own_location(session)).map(|session| state.join(SESSION_SPOOLS).join(session)).filter(|spool| std::fs::create_dir_all(spool).is_ok()));
     paths.extend(write_ahead_logs(&state.join("north")));
     paths
 }
@@ -58,4 +60,8 @@ fn write_ahead_logs(directory: &Path) -> Vec<PathBuf> {
 fn in_wal_mode(database: &Path) -> bool {
     let mut header = [0u8; 20];
     std::fs::File::open(database).and_then(|mut file| file.read_exact(&mut header)).is_ok() && header[18..20] == [2, 2]
+}
+
+fn own_location(session: &str) -> bool {
+    !session.is_empty() && !session.starts_with('.') && !session.contains('/') && !session.chars().any(char::is_whitespace)
 }

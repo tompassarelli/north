@@ -13,6 +13,15 @@ pub const REMOVAL_ROOTS: &str = "NORTH_WORKER_REMOVAL_ROOTS";
 /// Set on a command inside a lane-only session's domain (DeepSeek's OpenCode and Pi): its code holds no GitHub token and no cloud call (south#104).
 pub const LANE_ONLY: &str = "NORTH_WORKER_LANE_ONLY";
 
+/// Where under the state directory each fleet session has its own spool location, named after it: the one spool path the worker sandbox lets a worker write, and the one a worker's fleet commands write to.
+pub const SESSION_SPOOLS: &str = "north/fleet/spool/sessions";
+
+/// The worker session this process runs for, named by its launch's environment, whose own spool location its fleet rows go to.
+pub fn spooling_worker() -> Option<String> {
+    let worker = std::env::var_os("NORTH_FLEET_ROLE").is_some_and(|role| role == "worker");
+    worker.then(|| std::env::var("NORTH_FLEET_SESSION").ok()).flatten().filter(|session| !session.is_empty())
+}
+
 pub fn bind(command: &mut Command) {
     if let Ok(unit) = std::env::var("NORTH_FLEET_SCOPE") {
         command.args([format!("--property=BindsTo={unit}"), format!("--property=After={unit}")]);

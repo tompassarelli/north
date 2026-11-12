@@ -337,7 +337,7 @@ fn indexing_reads_every_north_account_profile_and_what_tom_types_while_a_turn_ru
 
 fn fleet_store(path: &Path, conversation: &str, from_tom: &[&str]) {
     rusqlite::Connection::open(path).unwrap().execute_batch("CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;").unwrap();
-    let row = |id: usize, to: &str, text: &str, sender: Sender| FleetRow { id: format!("m-{id}"), kind: RowKind::Message, to: to.into(), from: "laptop".into(), urgent: false, sent_at: 1_794_000_000_000, text: text.into(), sender, gate: None, answer: None, job: None, origin: None };
+    let row = |id: usize, to: &str, text: &str, sender: Sender| FleetRow { id: format!("m-{id}"), kind: RowKind::Message, to: to.into(), from: "laptop".into(), urgent: false, sent_at: 1_794_000_000_000, text: text.into(), sender, gate: None, answer: None, job: None, origin: None, spooled_by: None };
     let mut rows: Vec<FleetRow> = from_tom.iter().enumerate().map(|(id, text)| row(id, "fleet", text, Sender::Tom)).collect();
     rows.push(row(from_tom.len(), "fleet", "CHECKPOINTTOKEN Your context is 250k tokens.", Sender::session_host()));
     rows.push(row(from_tom.len() + 1, "vn-1", "PROBETOKEN sent to a test session as Tom", Sender::Tom));

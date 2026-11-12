@@ -7,7 +7,7 @@ use super::removable::{git_writable, projects};
 pub fn writable(context: &Context, removable: &[PathBuf]) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = removable.to_vec();
     paths.push(PathBuf::from("/dev"));
-    paths.extend(super::state::writable(&context.home.join(".local/state")));
+    paths.extend(super::state::writable(&context.home.join(".local/state"), context.session.as_deref()));
     paths.extend(git_writable(context));
     paths.extend(projects(context).into_iter().map(|project| project.join("worktrees")));
     paths

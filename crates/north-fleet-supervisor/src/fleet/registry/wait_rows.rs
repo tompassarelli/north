@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::sender::Sender;
-use crate::fleet::store::{FleetRow, RowKind, Spool};
+use crate::fleet::store::{FleetRow, RowKind};
 use crate::fleet::waits::Run;
 
 use super::{Fleet, HandedIn};
@@ -25,7 +25,7 @@ impl Fleet {
             return Err(NorthError::Usage(format!("{run} names a path or process on this machine, which {}, where {session} runs, cannot see; wait on a job, farm or branch run instead", held.host)));
         }
         let row = self.new_row(RowKind::Wait, session, &run.to_string(), &Sender::typed(self.caller()))?;
-        Spool::at(&self.root).put(&row)?;
+        self.spool().put(&row)?;
         Ok(Waiting::Spooled { id: row.id, host: held.host })
     }
 

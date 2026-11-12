@@ -44,6 +44,7 @@ impl Fleet {
             answer: None,
             job: None,
             origin: None,
+            spooled_by: None,
         };
         self.spool().put(&row)?;
         Ok(Controlled::Spooled(Box::new(row)))
@@ -52,6 +53,12 @@ impl Fleet {
     pub(super) fn apply_control(&self, row: &FleetRow) -> NorthResult<HandedIn> {
         let verb = ControlVerb::parse(&row.text)?;
         row.validate()?;
+        if let Some(writer) = row.spooled_by.as_deref()
+            && self.record(&row.to).ok().and_then(|record| record.parent).as_deref() != Some(writer)
+        {
+            eprintln!("north fleet: refused CONTROL row {} from {writer}'s spool: {} is not its child", row.id, row.to);
+            return self.journaled(row, || Ok(()));
+        }
         match verb {
             ControlVerb::Forget => self.forget_for(&row.to, self.ordered_by(row.sender.session(), Halt::Ordered)).map(|()| HandedIn::Delivered),
             ControlVerb::Stop if let Some(refusal) = self.stop_refusal(&row.to)? => {

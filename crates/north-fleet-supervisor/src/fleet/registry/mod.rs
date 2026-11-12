@@ -118,6 +118,7 @@ pub struct Fleet {
     recording: Arc<dyn RunRecording>,
     remote_lanes: Arc<dyn RemoteLanes>,
     desk: Arc<dyn ProxyDesk>,
+    spools_as: Option<String>,
 }
 
 struct Ports {
@@ -133,7 +134,8 @@ impl Fleet {
         let home = home_dir()?;
         let state = live_state_dir(&home);
         north_base::platform::land_queue::confined(&state).map_err(NorthError::Refused)?;
-        Self::rooted_at(home, state, crate::platform::orchestration::path(), Ports { runtimes, ledger, claims, registrar, leases })
+        let fleet = Self::rooted_at(home, state, crate::platform::orchestration::path(), Ports { runtimes, ledger, claims, registrar, leases })?;
+        Ok(Self { spools_as: north_base::platform::session_scope::spooling_worker(), ..fleet })
     }
 
     fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>, leases: Arc<dyn JobLeases>) -> NorthResult<Self> {
@@ -146,7 +148,7 @@ impl Fleet {
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
         let kept = root.join(lanes::KEPT_LANES);
-        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), desk: Arc::new(NoDesk) };
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), desk: Arc::new(NoDesk), spools_as: None };
         fleet.adopt_journals()?;
         Ok(fleet)
     }

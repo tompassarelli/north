@@ -3,7 +3,7 @@ use crate::fleet::books::SessionSpend;
 use crate::fleet::host::Host;
 use crate::fleet::model::{Delivery, Status};
 use crate::fleet::sender::Sender;
-use crate::fleet::store::{FleetRow, RowKind, Spool};
+use crate::fleet::store::{FleetRow, RowKind};
 use crate::fleet::turns::Tokens;
 use crate::credit::Open;
 use crate::router::pricing::{PriceTable, TokenUse};
@@ -43,7 +43,7 @@ impl Fleet {
         let held = self.held_elsewhere(name)?.ok_or_else(|| NorthError::Usage(format!("no session named {name}")))?;
         let requester = requester.ok_or_else(|| NorthError::Usage(format!("{name} runs on {}, which answers a spend request with a message to the asking session; ask from a session, or run this on {}", held.host, held.host)))?;
         let row = self.new_row(RowKind::Spend, name, "", &Sender::Session(requester.to_owned()))?;
-        Spool::at(&self.root).put(&row)?;
+        self.spool().put(&row)?;
         Ok(Spent::Asked { id: row.id, host: held.host })
     }
 

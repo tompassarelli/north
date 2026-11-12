@@ -39,7 +39,7 @@ fn answerable(row: &FleetRow, peer: &str, ledger: &[SessionRow]) -> Result<(), R
     };
     match &row.sender {
         _ if runs_on(asker, peer) => Ok(()),
-        Sender::Tom => Ok(()),
+        Sender::Tom if row.spooled_by.is_none() => Ok(()),
         Sender::Session(sender) if asker.parent.as_deref() == Some(sender.as_str()) => Ok(()),
         sender => Err(Refusal::Spoofed(format!("row {} answers a gate of {}, which runs on {}, and its sender {sender} is neither Tom nor {}'s parent", row.id, row.to, asker.host, row.to))),
     }

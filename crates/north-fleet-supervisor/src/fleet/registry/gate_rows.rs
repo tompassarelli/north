@@ -3,7 +3,7 @@ use crate::fleet::gates::{self, Answerer, GateRequest};
 use crate::fleet::model::Delivery;
 use crate::fleet::runtime::{new_uuid, now_ms};
 use crate::fleet::sender::Sender;
-use crate::fleet::store::{AnswerPayload, FleetRow, RowKind, Spool};
+use crate::fleet::store::{AnswerPayload, FleetRow, RowKind};
 
 use super::{Fleet, HandedIn};
 
@@ -22,13 +22,13 @@ impl Fleet {
             return Err(NorthError::Usage(format!("no session named {}", request.session)));
         }
         let row = FleetRow { gate: Some(Box::new(request.clone())), ..self.new_row(RowKind::Gate, &request.session, &request.question, from)? };
-        Spool::at(&self.root).put(&row)?;
+        self.spool().put(&row)?;
         Ok(Opened::Spooled(Box::new(row)))
     }
 
     pub fn spool_gate_answer(&self, session: &str, gate: i64, number: usize, note: Option<&str>, caller: Option<&str>) -> NorthResult<FleetRow> {
         let row = FleetRow { answer: Some(AnswerPayload { gate, number }), ..self.new_row(RowKind::GateAnswer, session, note.unwrap_or_default(), &Sender::typed(caller.map(str::to_owned)))? };
-        Spool::at(&self.root).put(&row)?;
+        self.spool().put(&row)?;
         Ok(row)
     }
 
@@ -78,6 +78,10 @@ impl Fleet {
     }
 
     fn apply_gate_answer(&self, row: &FleetRow) -> NorthResult<HandedIn> {
+        if let Some(writer) = row.spooled_by.as_deref().filter(|_| row.sender == Sender::Tom) {
+            eprintln!("north fleet: refused GATE-ANSWER row {} from {writer}'s spool: an answer as Tom comes only from his own shell or a proxy relaying his typed turn", row.id);
+            return self.journaled(row, || Ok(()));
+        }
         if let Sender::Service(unit) = &row.sender {
             return Err(NorthError::Usage(format!("GATE-ANSWER row {} is from service {unit}, which cannot answer a gate", row.id)));
         }
@@ -161,6 +165,7 @@ impl Fleet {
             answer: None,
             job: None,
             origin: None,
+            spooled_by: None,
         })
     }
 }
@@ -169,7 +174,7 @@ impl Fleet {
 mod tests {
     use super::super::fixtures::{fleet, live, live_under};
     use super::*;
-    use crate::fleet::store::{SessionRow, cache_sessions};
+    use crate::fleet::store::{SessionRow, Spool, cache_sessions};
 
     fn request(session: &str) -> GateRequest {
         GateRequest { verification: false, issue: None, box_text: None, session: session.into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 60_000 }
@@ -233,17 +238,19 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_row_from_a_session_that_is_not_the_parent_closes_nothing_and_is_consumed() {
+    fn an_answer_row_from_a_session_that_is_not_the_parent_or_as_tom_from_a_sessions_spool_closes_nothing_and_is_consumed() {
         let home = tempfile::tempdir().unwrap();
         let laptop = fleet(home.path());
         let worker = live_under(&laptop, "worker", Some("boss"));
         let id = laptop.open_gate(&request("worker")).unwrap();
         let row = laptop.spool_gate_answer("worker", id, 1, None, Some("intruder")).unwrap();
         let by_the_gate_session = laptop.spool_gate_answer("worker", id, 1, None, Some("worker")).unwrap();
+        let as_tom_from_the_workers_spool = FleetRow { spooled_by: Some("worker".into()), ..laptop.spool_gate_answer("worker", id, 1, None, None).unwrap() };
 
         assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
         assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Already);
         assert_eq!(laptop.deliver_row(&by_the_gate_session).unwrap(), HandedIn::Delivered);
+        assert_eq!(laptop.deliver_row(&as_tom_from_the_workers_spool).unwrap(), HandedIn::Delivered);
 
         assert!(laptop.gate(id).unwrap().unwrap().is_open());
         let frames = worker.frames.lock().unwrap();

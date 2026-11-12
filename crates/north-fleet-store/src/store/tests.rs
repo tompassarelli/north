@@ -2,6 +2,7 @@ use rusqlite::Connection;
 
 use super::*;
 use crate::error::NorthError;
+use crate::sender::Sender;
 
 const OLD_EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('claim','release','KICKOFF','ANSWER')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;
 CREATE INDEX events_item ON events(item, seq);";
@@ -44,7 +45,7 @@ fn ledger() -> (tempfile::TempDir, std::path::PathBuf) {
 }
 
 fn message(id: &str, to: &str) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: crate::sender::Sender::Tom, gate: None, answer: None, job: None, origin: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: crate::sender::Sender::Tom, gate: None, answer: None, job: None, origin: None, spooled_by: None }
 }
 
 fn count(path: &std::path::Path, sql: &str) -> i64 {
@@ -113,14 +114,28 @@ fn an_addressee_with_thousands_of_delivered_ids_is_answered_in_a_few_thousand_st
 }
 
 #[test]
-fn a_spooled_row_that_does_not_parse_is_set_aside_and_the_rest_flush() {
+fn a_spooled_row_that_does_not_parse_or_that_a_sessions_own_location_holds_under_another_sender_is_set_aside_and_the_rest_flush() {
     let root = tempfile::tempdir().unwrap();
     let spool = Spool::at(root.path());
     spool.put(&message("m-1", "sc-1")).unwrap();
     std::fs::write(root.path().join("spool/m-0.json"), r#"{"id":"m-0","kind":"MESSAGE","to_node":"sc-1","sender":"two words"}"#).unwrap();
+    let own = FleetRow { sender: Sender::Session("w-1".into()), ..message("m-2", "sc-1") };
+    Spool::of(root.path(), "w-1").unwrap().put(&own).unwrap();
+    let forged = [
+        ("m-3", FleetRow { sender: Sender::Session("boss".into()), ..message("m-3", "sc-1") }),
+        ("a-4", FleetRow { kind: RowKind::GateAnswer, answer: Some(AnswerPayload { gate: 7, number: 1 }), ..message("a-4", "sc-1") }),
+        ("j-5", FleetRow { kind: RowKind::JobExit, sender: Sender::Service("north-job-run".into()), ..message("j-5", "sc-1") }),
+    ];
+    for (id, row) in &forged {
+        std::fs::write(root.path().join(format!("spool/sessions/w-1/{id}.json")), serde_json::to_vec(row).unwrap()).unwrap();
+    }
 
-    assert_eq!(spool.pending().unwrap(), [message("m-1", "sc-1")]);
-    assert!(root.path().join("spool/rejected/m-0.json").is_file());
+    let listed: Vec<String> = spool.listing().unwrap().into_iter().map(|spooled| format!("{} {}", spooled.id, spooled.row["spooled_by"])).collect();
+    assert_eq!(listed, ["m-0 null", "m-1 null", "m-2 \"w-1\""]);
+    assert_eq!(spool.pending().unwrap(), [message("m-1", "sc-1"), FleetRow { spooled_by: Some("w-1".into()), ..own }]);
+    for id in ["m-0", "m-3", "a-4", "j-5"] {
+        assert!(root.path().join(format!("spool/rejected/{id}.json")).is_file(), "{id} was not set aside");
+    }
     assert!(!root.path().join("spool/m-0.json").exists());
 }
 

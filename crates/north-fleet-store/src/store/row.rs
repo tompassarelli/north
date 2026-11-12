@@ -111,6 +111,8 @@ pub struct FleetRow {
     pub job: Option<JobPayload>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spooled_by: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -163,6 +165,18 @@ impl FleetRow {
             ControlVerb::parse(&self.text)?;
         }
         Ok(())
+    }
+
+    /// Why the spool location of `session` may not hold this row: it holds only rows `session` sends and job rows of its own.
+    pub fn refused_from(&self, session: &str) -> Option<String> {
+        let job = matches!(self.kind, RowKind::JobStart | RowKind::JobBeat | RowKind::JobExit);
+        match &self.sender {
+            Sender::Tom if self.kind == RowKind::GateAnswer => Some(format!("row {} in {session}'s spool answers a gate as Tom", self.id)),
+            _ if job && self.to != session => Some(format!("row {} in {session}'s spool is a {} for {}", self.id, self.kind.label(), self.to)),
+            _ if job => None,
+            sender if sender.session() != Some(session) => Some(format!("row {} in {session}'s spool names sender {sender}", self.id)),
+            _ => None,
+        }
     }
 
     pub fn parse(input: &[u8]) -> NorthResult<Vec<Self>> {

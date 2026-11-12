@@ -114,6 +114,7 @@ mod tests {
             answer: None,
             job: Some(JobPayload { key: key.into(), lease_secs: None, exit: None }),
             origin: None,
+            spooled_by: None,
         }
     }
 

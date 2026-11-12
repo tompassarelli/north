@@ -173,7 +173,7 @@ mod tests {
     use super::*;
     use crate::error::NorthError;
     use crate::fleet::sender::Sender;
-    use crate::fleet::store::RowKind;
+    use crate::fleet::store::{FleetRow, RowKind};
 
     const REPORT: &str = "Not done: Clippy and the lease_lifecycle test run are queued in admission; I will finish when they report.\nStop: capacity";
 
@@ -191,11 +191,11 @@ mod tests {
     }
 
     #[test]
-    fn a_stop_ordered_on_a_session_whose_own_builds_wait_in_admission_is_held_and_runs_once_they_have() {
+    fn a_stop_ordered_on_a_session_whose_own_builds_wait_in_admission_is_held_and_runs_once_they_have_and_one_from_a_sessions_spool_only_for_its_own_child() {
         let home = tempfile::tempdir().unwrap();
         let admission = home.path().join("agent-capacity-v1");
         let fleet = fleet(home.path()).reading_admission(admission.clone());
-        let worker = live(&fleet, "n757-leases");
+        let worker = super::super::fixtures::live_under(&fleet, "n757-leases", Some("n757-lead"));
         let stream = serde_json::json!({"type": "assistant", "session_id": "n757-leases", "message": {"content": [{"type": "text", "text": REPORT}]}});
         fs::write(fleet.root.join("n757-leases/g1/stream.jsonl"), format!("{stream}\n")).unwrap();
         let clippy = build(&admission, "queue", "001-clippy.json", "gate:n757-leases");
@@ -212,7 +212,10 @@ mod tests {
 
         fs::remove_file(clippy).unwrap();
         fs::remove_file(tests).unwrap();
-        fleet.run_control(ControlVerb::Stop, "n757-leases", None).unwrap();
+        let spooled_by = |session: &str| FleetRow { sender: Sender::Session(session.into()), spooled_by: Some(session.into()), ..fleet.new_row(RowKind::Control, "n757-leases", "stop", &Sender::Tom).unwrap() };
+        assert_eq!(fleet.apply_control(&spooled_by("n757-other")).unwrap(), HandedIn::Delivered);
+        assert!(!fleet.record("n757-leases").unwrap().ended(), "a stop from another session's spool stopped a session that is not its child");
+        fleet.apply_control(&spooled_by("n757-lead")).unwrap();
         assert!(fleet.record("n757-leases").unwrap().ended(), "the stop never ran once the builds had");
     }
 

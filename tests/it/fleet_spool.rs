@@ -39,7 +39,7 @@ impl Hosts {
 }
 
 fn message(id: &str) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: "sc-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: Sender::Tom, gate: None, answer: None, job: None, origin: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: "sc-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: Sender::Tom, gate: None, answer: None, job: None, origin: None, spooled_by: None }
 }
 
 #[test]

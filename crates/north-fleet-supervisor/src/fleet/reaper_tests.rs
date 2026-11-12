@@ -174,7 +174,7 @@ fn a_message_to_a_retired_session_reaches_its_parent_as_one_turn_and_never_reviv
     fleet.retire("worker", "test", Some("Done: nothing to land.")).unwrap();
 
     let sent = fleet.send_message(&Sender::Tom, "worker", "are you there", Delivery::Queued).unwrap();
-    let row = FleetRow { id: format!("{}-{}", now_ms(), new_uuid().unwrap()), kind: RowKind::Message, to: "worker".into(), from: "far".into(), urgent: false, sent_at: now_ms(), text: "from the far host".into(), sender: Sender::Session("peer".into()), gate: None, answer: None, job: None, origin: None };
+    let row = FleetRow { id: format!("{}-{}", now_ms(), new_uuid().unwrap()), kind: RowKind::Message, to: "worker".into(), from: "far".into(), urgent: false, sent_at: now_ms(), text: "from the far host".into(), sender: Sender::Session("peer".into()), gate: None, answer: None, job: None, origin: None, spooled_by: None };
     fleet.hand_in(&row).unwrap();
 
     assert_eq!(sent, Sent::Retired { heir: "lead".into() });

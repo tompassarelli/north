@@ -26,7 +26,7 @@ pub use row::{AnswerPayload, ControlVerb, FleetRow, JobPayload, RowKind};
 pub use registrar::{Registered, Registrar, Registration};
 pub use sent::delivered_by;
 pub use sessions::{Claim, SessionRow};
-pub use spool::{SPOOL_DIR, Spool, Spooled};
+pub use spool::{SESSIONS_DIR, SPOOL_DIR, Spool, Spooled};
 pub use waits::{JOB_LEASE_SECS, WaitKey, WaitKind, WaitRequest, WaitRow};
 
 use schema::sql;

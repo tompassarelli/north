@@ -89,7 +89,7 @@ fn live_with(host: &Host, name: &str, reply: &str, task_ref: Option<&str>) -> Ar
 }
 
 fn message(id: &str, to: &str, sent_at: u64) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at, text: "hello".into(), sender: Sender::Session("lead".into()), gate: None, answer: None, job: None, origin: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at, text: "hello".into(), sender: Sender::Session("lead".into()), gate: None, answer: None, job: None, origin: None, spooled_by: None }
 }
 
 fn far_message(id: &str, machine: &str) -> FleetRow {

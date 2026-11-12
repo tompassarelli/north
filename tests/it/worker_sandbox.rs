@@ -145,11 +145,11 @@ fn a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_h
     let lock = root.join("code/p/main/.git/index.lock");
     file(&lock);
     assert!(Command::new("touch").args(["-d", "2 minutes ago"]).arg(&lock).status().unwrap().success());
-    let refused = [".bashrc", "new-file", ".local/state/north/profiles/claude-a/settings.json", "code/p/main/new.rs"];
+    let refused = [".bashrc", "new-file", ".local/state/north/fleet/spool/m.json", ".local/state/north/profiles/claude-a/settings.json", "code/p/main/new.rs"];
     let written = [
         "code/p/worktrees/lane/scratch/out.log",
         "code/p/worktrees/lane/new.txt",
-        ".local/state/north/fleet/spool/m.json",
+        ".local/state/north/fleet/spool/sessions/w-sender/m.json",
         ".local/state/threads/spool/s.jsonl",
         ".local/state/convo/index.db",
         ".local/state/agents/a.jsonl",
@@ -442,9 +442,9 @@ fn a_sandboxed_worker_opens_a_gate_and_records_a_box_check() {
         use north_core::fleet::sender::Sender;
         use north_core::fleet::store::{FleetRow, RowKind, Spool};
         let request = GateRequest { verification: false, issue: None, box_text: None, session: "far-1".into(), question: "which?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 1, default_after_ms: 60_000 };
-        let row = FleetRow { id: id.to_string_lossy().into_owned(), kind: RowKind::Gate, to: "far-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "which?".into(), sender: Sender::Tom, gate: Some(Box::new(request)), answer: None, job: None, origin: None };
+        let row = FleetRow { id: id.to_string_lossy().into_owned(), kind: RowKind::Gate, to: "far-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "which?".into(), sender: Sender::Session("far-1".into()), gate: Some(Box::new(request)), answer: None, job: None, origin: None, spooled_by: None };
         let home = PathBuf::from(std::env::var_os("HOME").unwrap());
-        Spool::at(&home.join(".local/state/north/fleet")).put(&row).expect("a sandboxed worker opens a gate in the fleet spool");
+        Spool::of(&home.join(".local/state/north/fleet"), "far-1").unwrap().put(&row).expect("a sandboxed worker opens a gate in its own fleet spool location");
         let queued = north_core::threads::client::spool_ingest(b"{\"type\":\"done-check\"}\n").expect("a sandboxed worker queues a box check");
         assert!(queued, "the check was not queued for the ledger host");
         return;
@@ -462,11 +462,11 @@ fn a_sandboxed_worker_opens_a_gate_and_records_a_box_check() {
     let resident = rusqlite::Connection::open(state.join("ledger.db")).unwrap();
     resident.query_row("pragma journal_mode=wal", [], |_| Ok(())).unwrap();
     let command = child("1793000000000-956");
-    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
+    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_FLEET_SESSION", "far-1").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
     let report = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(output.status.success(), "{report}");
     let names = |directory: &str| -> Vec<String> { std::fs::read_dir(home.path().join(directory)).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect() };
-    assert!(names(".local/state/north/fleet/spool").contains(&"1793000000000-956.json".to_owned()), "{report}");
+    assert!(names(".local/state/north/fleet/spool/sessions/far-1").contains(&"1793000000000-956.json".to_owned()), "{report}");
     let threads = names(".local/state/threads/spool");
     assert!(threads.iter().filter(|name| name.ends_with(".jsonl")).count() == 2, "{threads:?}: {report}");
 }
@@ -503,7 +503,7 @@ impl Worker {
 
     fn run(&self, command: &str) -> (String, String) {
         let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
-        let output = Command::new(north).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", self.runtime.path()).current_dir(self.home.lane()).output().unwrap();
+        let output = Command::new(north).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_FLEET_SESSION", "w-sender").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", self.runtime.path()).current_dir(self.home.lane()).output().unwrap();
         (String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
     }
 
@@ -519,7 +519,7 @@ impl Worker {
         let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
         let listed = Command::new(north).args(["fleet", "list"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("XDG_RUNTIME_DIR", self.runtime.path()).output().unwrap();
         assert!(listed.status.success(), "the fleet outside the sandbox did not list: {}", String::from_utf8_lossy(&listed.stderr));
-        let (stdout, stderr) = self.run(&format!("NORTH_FLEET_SESSION=w-sender {north} fleet send {recipient} ready to land; echo exit=$?"));
+        let (stdout, stderr) = self.run(&format!("{north} fleet send {recipient} ready to land; echo exit=$?"));
         assert!(stdout.contains("exit=0"), "a worker's send failed: {stdout}{stderr}");
         assert!(!stderr.to_lowercase().contains("denied") && !stderr.to_lowercase().contains("fail") && !stderr.contains("not withdrawn"), "a worker's send printed an error: {stderr}");
         let spooled = north_core::fleet::store::Spool::at(fleet).pending().unwrap();

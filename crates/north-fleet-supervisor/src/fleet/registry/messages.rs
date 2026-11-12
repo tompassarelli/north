@@ -27,8 +27,9 @@ impl Fleet {
         Err(NorthError::Usage(format!("no session named {session}")))
     }
 
+    /// The spool this process writes: a worker's own location, else the fleet's shared one.
     pub fn spool(&self) -> Spool {
-        Spool::at(&self.root)
+        self.spools_as.as_deref().and_then(|session| Spool::of(&self.root, session).ok()).unwrap_or_else(|| Spool::at(&self.root))
     }
 
     pub fn held_since(&self, since_ms: u64) -> Vec<crate::fleet::held::Held> {
@@ -103,8 +104,9 @@ impl Fleet {
             answer: None,
             job: None,
             origin: None,
+            spooled_by: None,
         };
-        Spool::at(&self.root).put(&row)?;
+        self.spool().put(&row)?;
         Ok(row)
     }
 }

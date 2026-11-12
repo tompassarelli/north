@@ -6,7 +6,7 @@ const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT N
 const SENT_MS: u64 = 1_793_000_000_000;
 
 fn row(id: &str, kind: RowKind, from: &str, sender: Sender, to: &str, text: &str) -> FleetRow {
-    FleetRow { id: id.into(), kind, to: to.into(), from: from.into(), urgent: true, sent_at: SENT_MS, text: text.into(), sender, gate: None, answer: None, job: None, origin: None }
+    FleetRow { id: id.into(), kind, to: to.into(), from: from.into(), urgent: true, sent_at: SENT_MS, text: text.into(), sender, gate: None, answer: None, job: None, origin: None, spooled_by: None }
 }
 
 fn attacks() -> Vec<FleetRow> {
