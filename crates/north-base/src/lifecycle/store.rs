@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, TransactionBehavior, params};
 
-use super::{Effect, Fault, FaultKind, Lifecycle, Liveness, Move, Moved, Owner, Proc, Record, Refusal, State};
+use super::{Departed, Effect, Fault, FaultKind, Lifecycle, Liveness, Lost, Move, Moved, Owner, Proc, Record, Refusal, State};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
@@ -246,24 +246,27 @@ impl Store {
         Ok(moved)
     }
 
-    fn moving<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp, (holder, deadline): (&Owner, Option<Timestamp>), effects: &[Effect]) -> NorthResult<Moved<L::State>> {
+    /// [`Self::transition`] that names the state it leaves (`None` for an instance with no record): another writer that
+    /// moved the instance first makes it [`Lost::AlreadyMoved`], which is not logged as an illegal move, so a writer
+    /// that lost a race treats its move as done. The state is compared as stored, before a gone holder's state moves to
+    /// its orphan state.
+    pub fn transition_from<L: Lifecycle>(&mut self, instance: &str, from: Option<L::State>, to: L::State, cause: &str, at: Timestamp) -> NorthResult<Departed<L::State>> {
+        let holder = self.who.clone();
+        let step = Step { instance, to, cause, at, holder: &holder, deadline: None, effects: &[] };
         let transaction = self.connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
         let current = read(&transaction, L::NAME, instance)?.map(|row| typed::<L>(instance, row)).transpose()?;
-        let current = match release::<L>(&transaction, &self.who, self.liveness.as_ref(), current, Some(to), at)? {
-            Ok(current) => current,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        if !L::legal(current.as_ref().map(|record| record.state), to) {
-            log(&transaction, L::NAME, instance, current.as_ref().map(|record| record.state.name()), to.name(), at, &self.who, cause, true)?;
-            transaction.commit().map_err(sql)?;
-            return Ok(Err(Refusal::Illegal { from: current.map(|record| record.state), to }));
+        let now = current.as_ref().map(|record| record.state);
+        if now != from {
+            return Ok(Err(Lost::AlreadyMoved { now }));
         }
-        let first = Record { instance: instance.to_owned(), state: to, since: at, due: None, owner: None, cause: String::new(), seq: 0 };
-        let record = write::<L>(&transaction, (&self.who, holder), current.as_ref().unwrap_or(&first), to, cause, at, deadline)?;
-        outbox::queue(&transaction, L::NAME, instance, &self.who, effects, at)?;
-        prune::<L>(&transaction, at)?;
-        transaction.commit().map_err(sql)?;
-        Ok(Ok(record))
+        Ok(advance::<L>(transaction, (&self.who, self.liveness.as_ref()), current, &step)?.map_err(Lost::Refused))
+    }
+
+    fn moving<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp, (holder, deadline): (&Owner, Option<Timestamp>), effects: &[Effect]) -> NorthResult<Moved<L::State>> {
+        let step = Step { instance, to, cause, at, holder, deadline, effects };
+        let transaction = self.connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
+        let current = read(&transaction, L::NAME, instance)?.map(|row| typed::<L>(instance, row)).transpose()?;
+        advance::<L>(transaction, (&self.who, self.liveness.as_ref()), current, &step)
     }
 
     /// The logged moves of one instance, oldest first.
@@ -332,6 +335,36 @@ impl Store {
         faults.extend(outbox::faults(&self.connection, at)?);
         Ok(faults)
     }
+}
+
+struct Step<'a, S> {
+    instance: &'a str,
+    to: S,
+    cause: &'a str,
+    at: Timestamp,
+    holder: &'a Owner,
+    deadline: Option<Timestamp>,
+    effects: &'a [Effect],
+}
+
+/// Makes `step` from `current` in `transaction`, which it commits: a refused move commits only its log line.
+fn advance<L: Lifecycle>(transaction: Transaction, (who, liveness): (&Owner, &dyn Liveness), current: Option<Record<L::State>>, step: &Step<L::State>) -> NorthResult<Moved<L::State>> {
+    let Step { instance, to, cause, at, holder, deadline, effects } = *step;
+    let current = match release::<L>(&transaction, who, liveness, current, Some(to), at)? {
+        Ok(current) => current,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
+    if !L::legal(current.as_ref().map(|record| record.state), to) {
+        log(&transaction, L::NAME, instance, current.as_ref().map(|record| record.state.name()), to.name(), at, who, cause, true)?;
+        transaction.commit().map_err(sql)?;
+        return Ok(Err(Refusal::Illegal { from: current.map(|record| record.state), to }));
+    }
+    let first = Record { instance: instance.to_owned(), state: to, since: at, due: None, owner: None, cause: String::new(), seq: 0 };
+    let record = write::<L>(&transaction, (who, holder), current.as_ref().unwrap_or(&first), to, cause, at, deadline)?;
+    outbox::queue(&transaction, L::NAME, instance, who, effects, at)?;
+    prune::<L>(&transaction, at)?;
+    transaction.commit().map_err(sql)?;
+    Ok(Ok(record))
 }
 
 fn read(connection: &Connection, machine: &str, instance: &str) -> NorthResult<Option<Row>> {

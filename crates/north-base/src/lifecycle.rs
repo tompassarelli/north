@@ -144,6 +144,17 @@ pub enum Refusal<S> {
 /// The record after an accepted move, or why the move was refused.
 pub type Moved<S> = Result<Record<S>, Refusal<S>>;
 
+/// The record after an accepted move that names the state it leaves, or why it did not happen.
+pub type Departed<S> = Result<Record<S>, Lost<S>>;
+
+/// Why a move that names the state it leaves did not happen.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Lost<S> {
+    /// Another writer moved the instance first, so it is no longer in the named state (`now`, `None` for no record); not logged, since two writers racing is expected.
+    AlreadyMoved { now: Option<S> },
+    Refused(Refusal<S>),
+}
+
 /// One logged move.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Move {

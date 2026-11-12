@@ -178,3 +178,24 @@ fn fleet_session_model_is_sound() {
     let broken: Vec<String> = model.findings.iter().map(|finding| format!("{}: {}", model.machine, finding.line())).collect();
     assert!(broken.is_empty(), "{}", broken.join("; "));
 }
+
+#[test]
+fn a_stop_that_met_a_lost_race_to_a_retirement_is_done_and_leaves_no_illegal_move() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path());
+    let record = read_record(&mid_turn(&fleet, "worker")).unwrap();
+    let mut stopper = fleet.phases().unwrap();
+    let seen = Some(stopper.of(record.launch(), &json!({})).unwrap());
+    let mut retirer = fleet.phases().unwrap();
+    retirer.moved(record.launch(), Phase::Stopped, "a launch took its name over").unwrap();
+    retirer.moved(record.launch(), Phase::Retired, "archived").unwrap();
+
+    stopper.stopped_from(record.launch(), seen, "north fleet stop ended the turn").unwrap();
+    fleet.stop("worker").unwrap();
+
+    let store = Store::open(&store_path(&fleet.root)).unwrap();
+    assert_eq!(store.current::<Session>(&record.launch().instance()).unwrap().unwrap().state, Phase::Retired);
+    let moves = store.history("fleet-session", &record.launch().instance()).unwrap();
+    assert!(moves.iter().all(|logged| !logged.refused), "{moves:?}");
+    assert!(store.faults(Timestamp::now()).unwrap().is_empty());
+}

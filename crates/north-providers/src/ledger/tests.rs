@@ -426,3 +426,24 @@ fn a_run_that_created_children_counts_as_a_split() {
     assert!((unclosed - later).abs() < 1e-9, "only the run that made no child is spend that closed nothing: {unclosed} against {later}");
     assert!(report.dashboard("7d").contains("split 1 ("), "{}", report.dashboard("7d"));
 }
+
+#[test]
+fn a_gate_closed_by_two_sweeps_at_once_is_a_lost_race_and_not_an_illegal_move() {
+    use crate::fleet::gate_lifecycle::GatePhase;
+    use crate::fleet::gates::Closure;
+
+    let directory = tempfile::tempdir().unwrap();
+    let book = ledger(&directory);
+    let id = book.open_gate(&GateRequest { default: 0, default_after_ms: 0, ..request("proxy", 0) }, 1_000).unwrap();
+    let seen = book.gate(id).unwrap().unwrap().phase;
+    let closure = Closure { answer: "orphaned".into(), by: Answerer::Orphaned, closed_ms: 2_000 };
+
+    assert!(book.close_from(id, Some(seen), &closure).unwrap());
+    book.move_gate(id, GatePhase::Orphaned, "answer delivered", 2_001).unwrap();
+
+    assert!(!book.close_from(id, Some(seen), &closure).unwrap());
+    assert!(!book.close_gate(id, &closure).unwrap());
+    let moves = north_base::lifecycle::Store::open(&directory.path().join("ledger.db")).unwrap().history("gate", &id.to_string()).unwrap();
+    assert!(moves.iter().all(|logged| !logged.refused), "{moves:?}");
+    assert_eq!(book.gate(id).unwrap().unwrap().phase, GatePhase::Orphaned);
+}

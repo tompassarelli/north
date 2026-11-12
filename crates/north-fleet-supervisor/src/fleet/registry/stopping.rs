@@ -86,7 +86,7 @@ impl Fleet {
         let record = self.record(name)?;
         let mut phases = self.phases()?;
         if record.adopted() {
-            phases.moved(record.launch(), Phase::Stopped, why.label())?;
+            phases.stopped(record.launch(), why.label())?;
             return Ok(false);
         }
         let _start = self.start_lock(name)?;
@@ -99,7 +99,7 @@ impl Fleet {
             let _ = host.send(&runtime.close(&transcript));
         }
         let terminate = !self.host_in_use(&record)?;
-        phases.moved(record.launch(), Phase::Stopped, why.label())?;
+        phases.stopped(record.launch(), why.label())?;
         if terminate && let Err(error) = host.terminate() {
             if record.live() {
                 phases.live(record.launch(), record.host_pid, &format!("its host did not stop: {}", error.user_message()))?;

@@ -5,7 +5,7 @@ use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use north_base::lifecycle::{Lifecycle, Moved, Refusal, State, Store};
+use north_base::lifecycle::{Lifecycle, Lost, Moved, Refusal, State, Store};
 use north_publish::publish;
 
 use super::process::{Input, detach, python_json};
@@ -111,14 +111,32 @@ impl Spool {
 
     pub(super) fn adopting(store: Store, directory: &Path, at: Timestamp) -> NorthResult<Self> {
         let mut spool = Self { store, directory: directory.to_path_buf() };
-        for entry in std::fs::read_dir(directory)?.filter_map(Result::ok) {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let Some(phase) = adopted_phase(&name) else { continue };
-            if spool.store.current::<SpooledWrite>(&name)?.is_none() {
-                spool.go(&name, phase, &format!("adopted from the spool file {name}, which had no record"), at)?;
-            }
+        for (name, phase) in spool.unrecorded()? {
+            spool.adopt(&name, phase, at)?;
         }
         Ok(spool)
+    }
+
+    /// The spool files that have no record, with the phase their suffix puts them in.
+    fn unrecorded(&self) -> NorthResult<Vec<(String, Phase)>> {
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(&self.directory)?.filter_map(Result::ok) {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(phase) = adopted_phase(&name) else { continue };
+            if self.store.current::<SpooledWrite>(&name)?.is_none() {
+                found.push((name, phase));
+            }
+        }
+        Ok(found)
+    }
+
+    /// Records `name`, found with no record; another process that recorded it first has adopted it already.
+    fn adopt(&mut self, name: &str, phase: Phase, at: Timestamp) -> NorthResult<()> {
+        let cause = format!("adopted from the spool file {name}, which had no record");
+        match self.store.transition_from::<SpooledWrite>(name, None, phase, &cause, at)? {
+            Ok(_) | Err(Lost::AlreadyMoved { .. }) => Ok(()),
+            Err(Lost::Refused(refusal)) => Err(refused(name, &refusal)),
+        }
     }
 
     /// The names of the writes waiting to be sent, oldest name first, a write whose flush died mid-send among them, and
@@ -441,5 +459,23 @@ mod spool_lifecycle {
         let causes: Vec<_> = next.store.history(SpooledWrite::NAME, "2-2.argv").unwrap().into_iter().map(|logged| (logged.to, logged.cause)).collect();
         assert_eq!(causes[2], ("queued".to_owned(), "the holder, pid 10 on client, is gone".to_owned()));
         assert_eq!(next.store.current::<SpooledWrite>("3-3.failed").unwrap().unwrap().state, Phase::Refused);
+    }
+
+    #[test]
+    fn a_lost_race_to_adopt_a_spool_file_is_not_an_illegal_move() {
+        let (_keep, directory, ledger) = rig();
+        std::fs::write(directory.join("4-4.jsonl"), "{}").unwrap();
+        let mut first = Spool { store: store(&ledger, 10, 0), directory: directory.clone() };
+        let mut second = Spool { store: store(&ledger, 11, 0), directory };
+        let (seen_first, seen_second) = (first.unrecorded().unwrap(), second.unrecorded().unwrap());
+        assert_eq!((seen_first.len(), seen_second.len()), (1, 1));
+
+        first.adopt("4-4.jsonl", Phase::Queued, at(0)).unwrap();
+        second.adopt("4-4.jsonl", Phase::Queued, at(1)).unwrap();
+
+        let record = second.store.current::<SpooledWrite>("4-4.jsonl").unwrap().unwrap();
+        assert_eq!((record.state, record.seq), (Phase::Queued, 1));
+        assert!(second.store.history(SpooledWrite::NAME, "4-4.jsonl").unwrap().iter().all(|logged| !logged.refused));
+        assert!(second.store.faults(at(2)).unwrap().is_empty());
     }
 }

@@ -257,6 +257,9 @@ The module is `north_base::lifecycle` (`crates/north-base/src/lifecycle.rs`), bu
   state a live process holds (`Refusal::Held`, not logged: two takers racing is expected), and records the mover's
   process as the holder of a state `orphan` names. The holder is host, pid, process start time and boot time, so a
   reused pid or a reboot never passes for the holder.
+  A writer that lost a race to another writer of the same record names the state it expects to leave
+  (`Store::transition_from`): when the record has moved on, the answer is `Lost::AlreadyMoved`, not logged, and the
+  writer treats its move as done instead of asking the table for a move it rightly refuses.
 - **Every move logged with its cause.** `lifecycle_moves` keeps from, to, time, mover and cause for 30 days, refused
   moves included. When the holder of a state is gone, the next transition first logs the move to the orphan state with
   "the holder, pid N on HOST, is gone", so the log says what happened instead of the old marker silently aging out.

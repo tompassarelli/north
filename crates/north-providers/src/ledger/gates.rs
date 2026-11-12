@@ -24,6 +24,17 @@ fn settled_names() -> String {
 }
 
 impl Ledger {
+    /// Closes the gate seen in `seen` (`None` for a gate with no record yet), false when a gate already closed or another closer moved it first, which is not logged as an illegal move.
+    pub(super) fn close_from(&self, id: i64, seen: Option<GatePhase>, closure: &Closure) -> NorthResult<bool> {
+        if seen.is_some_and(|phase| !phase.is_open()) {
+            return Ok(false);
+        }
+        let cause = format!("closed by {}", closure.by.label());
+        let Ok(_) = Store::open(&self.path)?.transition_from::<GateLife>(&instance(id), seen, GatePhase::Delivering, &cause, at(closure.closed_ms))? else { return Ok(false) };
+        self.write(|conn| conn.execute("UPDATE gates SET answer = ?2, answered_by = ?3, closed_ms = ?4 WHERE gate_id = ?1", params![id, closure.answer, closure.by.label(), millis(closure.closed_ms)]).map(drop))?;
+        Ok(true)
+    }
+
     fn move_gate_to(&self, id: i64, to: GatePhase, cause: &str, at_ms: u64) -> NorthResult<bool> {
         let moved = Store::open(&self.path)?.transition::<GateLife>(&instance(id), to, cause, at(at_ms))?;
         Ok(!matches!(moved, Err(Refusal::Held { .. } | Refusal::Illegal { .. })))
@@ -62,11 +73,8 @@ impl GateBook for Ledger {
     }
 
     fn close_gate(&self, id: i64, closure: &Closure) -> NorthResult<bool> {
-        if !self.move_gate_to(id, GatePhase::Delivering, &format!("closed by {}", closure.by.label()), closure.closed_ms)? {
-            return Ok(false);
-        }
-        self.write(|conn| conn.execute("UPDATE gates SET answer = ?2, answered_by = ?3, closed_ms = ?4 WHERE gate_id = ?1", params![id, closure.answer, closure.by.label(), millis(closure.closed_ms)]).map(drop))?;
-        Ok(true)
+        let seen = Store::open(&self.path)?.current::<GateLife>(&instance(id))?.map(|record| record.state);
+        self.close_from(id, seen, closure)
     }
 
     fn move_gate(&self, id: i64, to: GatePhase, cause: &str, at_ms: u64) -> NorthResult<bool> {

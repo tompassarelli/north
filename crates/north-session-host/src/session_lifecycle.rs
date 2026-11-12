@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use north_base::lifecycle::{Effect, Leased, Lifecycle, Owner, Refusal, State, Store};
+use north_base::lifecycle::{Effect, Leased, Lifecycle, Lost, Owner, Refusal, State, Store};
 use serde_json::Value;
 
 use north_base::error::{NorthError, NorthResult};
@@ -196,6 +196,24 @@ impl Phases {
     pub fn moved(&mut self, record: Launch<'_>, to: Phase, cause: &str) -> NorthResult<Phase> {
         let moved = self.store.transition::<Session>(&record.instance(), to, cause, Timestamp::now())?;
         admitted(record, moved.map(|moved| moved.state))
+    }
+
+    /// Moves the launch to Stopped, as an operator's stop does. A launch a take-over or an archive already retired,
+    /// or one another writer moved after this one read it, has been ended by that writer, so the stop is done.
+    pub fn stopped(&mut self, record: Launch<'_>, cause: &str) -> NorthResult<()> {
+        let seen = self.current(record)?;
+        self.stopped_from(record, seen, cause)
+    }
+
+    /// [`Self::stopped`] for the phase `seen` when the stop was decided.
+    pub fn stopped_from(&mut self, record: Launch<'_>, seen: Option<Phase>, cause: &str) -> NorthResult<()> {
+        if seen == Some(Phase::Retired) {
+            return Ok(());
+        }
+        match self.store.transition_from::<Session>(&record.instance(), seen, Phase::Stopped, cause, Timestamp::now())? {
+            Ok(_) | Err(Lost::AlreadyMoved { .. }) => Ok(()),
+            Err(Lost::Refused(refusal)) => admitted(record, Err(refusal)).map(drop),
+        }
     }
 
     pub fn current(&self, record: Launch<'_>) -> NorthResult<Option<Phase>> {
