@@ -1,6 +1,6 @@
 # Docs audit, November 2026
 
-Every tracked file under `docs/`, plus `README.md` and `AGENTS.md`, listed once with a verdict and the evidence checked, so that other workers can carry the verdicts out before north is shown more widely (north#1281, box "Docs audit"). The tree was read at commit c013d6124c on 2026-11-12. Nothing was rewritten in this change; this file is the only one it adds.
+Every tracked file under `docs/`, plus `README.md` and `AGENTS.md`, listed once with a verdict and the evidence checked, so that other workers can carry the verdicts out before north is shown more widely (north#1281, box "Docs audit"). The tree was read at commit c013d6124c on 2026-11-12. Nothing was rewritten in this change; this file is the only one it adds. Two changes that landed while it was written are folded into the rows: the logo became one `.jpeg` (commit 2edb3994b7) and `docs/rationale/operator-repository.md` was added (commit cda5987959).
 
 Owner: north#1281
 
@@ -17,14 +17,14 @@ A worker who carries a row out appends `Done: COMMIT` to it, which is what the b
 
 ## Counts
 
-412 paths: the 411 that `git ls-files docs README.md AGENTS.md` printed, and this file.
+412 paths: the 411 that `git ls-files docs README.md AGENTS.md` prints once those two changes are counted, and this file.
 
-- keep: 364
+- keep: 365
 - rewrite: 29
 - merge: 13
-- delete: 6
+- delete: 5
 
-By directory, for the 411: 276 files under `docs/features/` (265 records, 10 section titles, 1 header), 123 under `docs/rationale/` (90 notes, their index, 2 registries, 30 files in five subdirectories), 10 other files under `docs/`, and the two root files.
+By directory, for the 411: 276 files under `docs/features/` (265 records, 10 section titles, 1 header), 124 under `docs/rationale/` (91 notes, one of them added after the tree was read, their index, 2 registries, 30 files in five subdirectories), 9 other files under `docs/`, and the two root files.
 
 ## How it was checked
 
@@ -44,7 +44,7 @@ By directory, for the 411: 276 files under `docs/features/` (265 records, 10 sec
 3. **The features index cannot be opened.** `README.md` links `docs/features/` as "what each command does". The index, `docs/features.md`, has been untracked since 2026-11-11 (commit 59f27fc3d7, `.gitignore` line 8), so a reader on GitHub or in a fresh clone finds ten directories of one-bullet files and no page.
 4. **Nothing takes a newcomer from the README to a landed change.** "Try it" ends at opening the screen. Install, first landed change, running a fleet and safety have no page (see the reading order).
 5. **Pages describe one operator's machines.** `docs/nexus-run.md` is about one machine and another project's assets. 48 feature records name the owner or his machines where a role would do, and `docs/harness.md` Install is written for his layout.
-6. **Feature records have grown past their purpose.** `docs/rationale/docs-architecture.md` asks for one short paragraph per record. 22 records are over 2,000 bytes, the longest 9,267, each as a single bullet. 22 section and number pairs are shared by two or more records, and 55 file names carry an issue number.
+6. **Feature records have grown past their purpose.** `docs/rationale/docs-architecture.md` asks for one short paragraph per record. 22 records are over 2,000 bytes, the longest 9,413, each as a single bullet. 22 section and number pairs are shared by two or more records, and 55 file names carry an issue number.
 7. **The rationale index does not sort.** It lists 90 notes alphabetically. For 23 the summary is only an owner line or a date, and plans, measurements, live mechanisms and retired designs look alike. Two notes open with "Nothing here is built yet" although parts are built.
 8. **One check named by the docs does not exist.** `docs/rationale/docs-architecture.md` says `tests/readme_links.rs` keeps versions, dates and counts out of the README; no such file is tracked.
 
@@ -85,7 +85,7 @@ Steps 1 to 6 should be one numbered list in the README and nowhere else. `AGENTS
 3. `docs/features/_header.md` and the index it heads: the README's link to "what each command does" opens no page.
 4. `docs/architecture.md`: merged into `ARCHITECTURE.md`, so there is one map.
 5. `AGENTS.md`: the first file a newcomer's agents read; it tells them to run test files that are not there.
-6. `docs/features/08-machines-capacity-and-scheduled-jobs/0004-runtime-promotion.md`: how an install updates itself, as one bullet of 9,267 bytes.
+6. `docs/features/08-machines-capacity-and-scheduled-jobs/0004-runtime-promotion.md`: how an install updates itself, as one bullet of 9,413 bytes.
 7. `docs/features/03-fleet-sessions/0011-dispatch.md`: how a fleet finds its own work, as one bullet of 5,788 bytes.
 8. `docs/features/04-landing-and-lanes/0053-finish-verb.md`: how a worker hands in, as one bullet of 3,438 bytes.
 9. `docs/features/03-fleet-sessions/0004-fleet-tick.md`: what runs a fleet between messages, as one bullet of 3,301 bytes.
@@ -122,14 +122,13 @@ The rationale index:
 
 - `AGENTS.md`: **rewrite**. Agent entry; small fixes only. Wrong today: (1) tells agents to run `*.test.sh` or `*.test.py`, but `git ls-files '*.test.py'` prints nothing and three `*.test.*` files remain under `bin/`, `lib/` and `harness/`; (2) calls `bin/` "the agent commands", where `ls bin` now shows toolchain shims and three tools; (3) the router to `docs/architecture.md#owning-boundary` must follow that page's merge. Checked: all 24 backticked paths are tracked; `north dash`, `north concerns`, `north docs`, `north land`, `north check` are listed by `north --help`; `bin/verify-north` is tracked. Edits outside `## Routers` need a provenance record (docs/rationale/docs-architecture.md, box 2a). Last changed 2026-11-11. Private-detail scan: owner's name 1, machine names 0, dollar figures or account labels 0.
 - `docs/architecture.md`: **merge**. Merge into the root `ARCHITECTURE.md` (2026-11-12, seven layers, every crate). This page predates it (first written 2026-08-01) and draws a four-directory picture. Unique content to carry over: the session scope paragraphs (`north-session-<uuid>.scope`, `north session-unit`). Then repoint the README link and the AGENTS.md router. Its 4 backticked paths are tracked. Last changed 2026-11-10.
-- `docs/assets/north-logo.png`: **delete**. No tracked file names it (`git grep north-logo.png` prints nothing); the README uses the `.webp`. Keep it only if a page outside the repository links it.
-- `docs/assets/north-logo.webp`: **keep**. Used by `README.md` line 1.
+- `docs/assets/north-logo.jpeg`: **keep**. Used by `README.md` line 1 since commit 2edb3994b7, which removed the `.png` and the `.webp`. 1,804,668 bytes, where the `.webp` it replaced was 27,626.
 - `docs/feedback-loop.md`: **rewrite**. Reference, read by code: `crates/north-base/src/cites.rs` names it and `north health` reads its "File signals" and "Recorded readings" tables, so the file and those two headings stay. Rewrite the rest: the header dates its reader cells to a search of 2026-10-12; one cell cites `bin/capacity-watchdog:465`, which is not tracked (unbackticked, so the citation check misses it); five paragraphs under the table are dated measurements that belong in `docs/rationale/learned-routing-and-goal-eta.md`. Never on a newcomer's path. Last changed 2026-11-11. Private-detail scan: owner's name 3, machine names 0, dollar figures or account labels 0.
 - `docs/graph.md`: **keep**. Reference for `north graph`; the survivor of the graph group. One fix: it names `north graph retain` and `north land follow`, which the help does not list. Last changed 2026-11-12. Private-detail scan: owner's name 3, machine names 1, dollar figures or account labels 2.
 - `docs/harness.md`: **rewrite**. The end-to-end page, 217 lines, four subjects. Wrong today: (1) Install opens "is not a public install", which north#1281 reverses, and steps 2 and 6 say "Not verified here" and "not traced"; (2) it names `agents sync`, `agents plan`, `threads unowned`, `threads ready`, `threads show`, `threads queue follow` and `follows-release` as bare commands, and `bin/` ships none of them (the help lists `north config agents sync`, `north threads ARGV`, `north follows-release`); (3) Landing step 1 is one 190-word sentence. Split it: "Staffing a worker" and "Messages" become the briefing page, "Landing a change" the landing page, "Install" the onboarding page, "Where policy lives" the operator-repository page. Checked: 3 backticked paths tracked, links resolve, `north fleet tree|launch|send|ask`, `north land serve|enqueue`, `north runtime update|health|deploy`, `north ledger worker` are listed by help. Last changed 2026-11-12. Private-detail scan: owner's name 5, machine names 0, dollar figures or account labels 0.
 - `docs/nexus-run.md`: **delete**. Move to the operator's private repository. Nothing is lost: the contract is the `north capacity nexus` line in `north capacity --help`; the rest describes one operator's machine (named 9 times), a private asset cache path and another project's commands. Remove the links in `README.md` and `docs/features/_header.md` in the same change. Last changed 2026-11-07. Private-detail scan: owner's name 0, machine names 9, dollar figures or account labels 0.
 - `docs/references/2609.20804-harness-design.md`: **keep**. Digest of one paper, dated 2026-10-12, linked from `docs/references.md`. The only file in its directory. Last changed 2026-11-10.
-- `docs/references.md`: **keep**. Outside sources, 783 lines; its anchors are link targets for rationale and watch notes, so headings keep their ids. Relative links resolve. Reference tier only. Last changed 2026-11-12. Private-detail scan: owner's name 4, machine names 0, dollar figures or account labels 5.
+- `docs/references.md`: **keep**. Outside sources, 784 lines; its anchors are link targets for rationale and watch notes, so headings keep their ids. Relative links resolve. Reference tier only. Last changed 2026-11-12. Private-detail scan: owner's name 4, machine names 0, dollar figures or account labels 5.
 - `docs/terms.md`: **keep**. The four layer terms; accurate. One fix: the NorthThread section says items are managed "through the `threads` command"; `bin/` no longer ships it, the help lists `north threads ARGV`. Last changed 2026-11-10.
 - `README.md`: **rewrite**. Front door. Wrong today: (1) says `bin/` holds `agents`, `threads` and `safe-push`; `ls bin` shows none of them (deleted 2026-11-06, commit 4dd7f6aea0; `safe-push` is now a link to the north binary that the runtime installer writes, and `agents` and `threads` resolve outside this repository); (2) links `docs/features/` as "what each command does", but the index `docs/features.md` is untracked since 59f27fc3d7 (`.gitignore` line 8), so the link opens ten directories of one-bullet fragments; (3) names Claude Code and Codex as the base harnesses, while `north fleet --help` takes `--provider claude|codex|opencode|pi`; (4) links `docs/architecture.md` and not the newer root `ARCHITECTURE.md`; (5) "Try it" stops at opening the screen and says the factory "does not install elsewhere", which north#1281 reverses; (6) lists `docs/nexus-run.md` and one rationale note among concept documents. `north check citations` exits 0 on it. Last changed 2026-11-12. Private-detail scan: owner's name 4, machine names 3, dollar figures or account labels 0.
 
@@ -241,7 +240,7 @@ The rationale index:
 - `docs/features/03-fleet-sessions/0051-queued-launch-withdrawn-or-dropped-north-1054.md`: **keep**. 587 bytes, last changed 2026-11-11. Each `north` verb it names is listed by help.
 - `docs/features/03-fleet-sessions/0052-hand-stops-north-1136.md`: **keep**. 995 bytes, last changed 2026-11-12. Each `north` verb it names is listed by help.
 - `docs/features/03-fleet-sessions/0053-drafts-north-1240.md`: **rewrite**. One bullet of 2,493 bytes. Cut it to what the feature is for and the command that runs it; move flags to the command's help and reasons to a rationale note. Last changed 2026-11-12. Each `north` verb it names is listed by help.
-- `docs/features/03-fleet-sessions/0053-small-first-north-1233.md`: **keep**. 1,429 bytes, last changed 2026-11-12. Fix: names `north finish`, which neither `north --help-all` nor the verb's own `--help` lists; add the help line where the dispatcher still runs it, else drop the name.
+- `docs/features/03-fleet-sessions/0053-small-first-north-1233.md`: **keep**. 1,739 bytes, last changed 2026-11-12. Fix: names `north finish`, which neither `north --help-all` nor the verb's own `--help` lists; add the help line where the dispatcher still runs it, else drop the name.
 - `docs/features/03-fleet-sessions/_title.md`: **keep**. Section heading the index generator reads. 
 
 #### `docs/features/04-landing-and-lanes/`
@@ -372,7 +371,7 @@ The rationale index:
 - `docs/features/08-machines-capacity-and-scheduled-jobs/0001-product-verification.md`: **keep**. Refile under section 10; `verify-north` is the command the onboarding page should end on. 1,492 bytes, last changed 2026-11-11. Each `north` verb it names is listed by help.
 - `docs/features/08-machines-capacity-and-scheduled-jobs/0002-fleet-landings.md`: **keep**. Refile under section 04. 675 bytes, last changed 2026-11-08. Each `north` verb it names is listed by help.
 - `docs/features/08-machines-capacity-and-scheduled-jobs/0003-fleet-receipts.md`: **keep**. Refile under section 03. 1,338 bytes, last changed 2026-11-10. Each `north` verb it names is listed by help. Fix: names the owner 1 times and the operator's machines 0 times; name the role instead.
-- `docs/features/08-machines-capacity-and-scheduled-jobs/0004-runtime-promotion.md`: **rewrite**. One bullet of 9,267 bytes. Cut it to what the feature is for and the command that runs it; move flags to the command's help and reasons to a rationale note. Last changed 2026-11-12. Fix: names `north depbox`, `north runtime build`, `north runtime follow`, `north runtime settle`, `north runtime status`, which neither `north --help-all` nor the verb's own `--help` lists; add the help line where the dispatcher still runs it, else drop the name. Fix: names the bare command `agents`, which `bin/` no longer ships; write the `north` form the help lists. Fix: names the owner 0 times and the operator's machines 3 times; name the role instead.
+- `docs/features/08-machines-capacity-and-scheduled-jobs/0004-runtime-promotion.md`: **rewrite**. One bullet of 9,413 bytes. Cut it to what the feature is for and the command that runs it; move flags to the command's help and reasons to a rationale note. Last changed 2026-11-12. Fix: names `north depbox`, `north runtime build`, `north runtime follow`, `north runtime settle`, `north runtime status`, which neither `north --help-all` nor the verb's own `--help` lists; add the help line where the dispatcher still runs it, else drop the name. Fix: names the bare command `agents`, which `bin/` no longer ships; write the `north` form the help lists. Fix: names the owner 0 times and the operator's machines 3 times; name the role instead.
 - `docs/features/08-machines-capacity-and-scheduled-jobs/0005-landing-watch.md`: **keep**. 1,548 bytes, last changed 2026-11-10. Each `north` verb it names is listed by help.
 - `docs/features/08-machines-capacity-and-scheduled-jobs/0006-orphan-lease-reaper.md`: **keep**. 474 bytes, last changed 2026-11-04. Fix: names `north capacity reap-orphans`, which neither `north --help-all` nor the verb's own `--help` lists; add the help line where the dispatcher still runs it, else drop the name. Fix: names the owner 0 times and the operator's machines 2 times; name the role instead.
 - `docs/features/08-machines-capacity-and-scheduled-jobs/0007-capacity-estimates.md`: **keep**. 590 bytes, last changed 2026-11-05. Names no `north` verb. Fix: names the bare command `machine-capacity`, which `bin/` no longer ships; write the `north` form the help lists.
@@ -444,7 +443,7 @@ The rationale index:
 
 ### Rationale notes
 
-- `docs/rationale/account-capacity.md`: **keep**. Plan, superseded: its lines 12 to 16 already say the limiter was deleted on 2026-11-11 and link `spend-rule.md`. 72,069 bytes, last changed 2026-11-11. Verbs the help does not list: `north fleet waits`, `north hook spawn-capacity`, `north hook spawn-gate`, `north threads calibrate`. Backticked paths no longer tracked: 3. Private-detail scan: owner's name 36, machine names 11, dollar figures or account labels 5.
+- `docs/rationale/account-capacity.md`: **keep**. Plan, superseded: its lines 12 to 16 already say the limiter was deleted on 2026-11-11 and link `spend-rule.md`. 72,083 bytes, last changed 2026-11-12. Verbs the help does not list: `north fleet waits`, `north hook spawn-capacity`, `north hook spawn-gate`, `north threads calibrate`. Backticked paths no longer tracked: 3. Private-detail scan: owner's name 36, machine names 11, dollar figures or account labels 5.
 - `docs/rationale/agent-era-security.md`: **keep**. Outside-source review. 18,382 bytes, last changed 2026-11-12.
 - `docs/rationale/agent-push-identity.md`: **keep**. Live mechanism. 4,664 bytes, last changed 2026-11-11.
 - `docs/rationale/agent-user.md`: **keep**. Live mechanism, with measurements. 5,409 bytes, last changed 2026-11-10. Verbs the help does not list: `north depbox`.
@@ -501,6 +500,7 @@ The rationale index:
 - `docs/rationale/nix-leverage.md`: **keep**. Outside-source review. 14,213 bytes, last changed 2026-11-09. Verbs the help does not list: `north depbox`. Private-detail scan: owner's name 4, machine names 5, dollar figures or account labels 0.
 - `docs/rationale/non-rust-inventory.md`: **keep**. Inventory. 6,735 bytes, last changed 2026-11-11. Verbs the help does not list: `north capacity gate`. Private-detail scan: owner's name 1, machine names 1, dollar figures or account labels 0.
 - `docs/rationale/one-landing-per-change.md`: **keep**. Live mechanism. 2,369 bytes, last changed 2026-11-04.
+- `docs/rationale/operator-repository.md`: **keep**. Plan of 2026-11-12 for the box "Operator repository, plan" of north#1281, added by commit cda5987959 after this audit read the tree. It names `north operator init`, `north operator check` and `north operator paths`, which it proposes and the help does not list yet; the box "Operator repository, built" adds them. 23,582 bytes.
 - `docs/rationale/operator-views.md`: **keep**. Plan. 9,438 bytes, last changed 2026-11-11.
 - `docs/rationale/outcome-watchdog.md`: **keep**. Live mechanism. 2,951 bytes, last changed 2026-11-10. Verbs the help does not list: `north health facts`. Private-detail scan: owner's name 0, machine names 1, dollar figures or account labels 0.
 - `docs/rationale/page-flood.md`: **keep**. Live mechanism. 3,477 bytes, last changed 2026-11-12.
