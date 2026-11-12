@@ -14,7 +14,9 @@ container tasks run and graded by the benchmark's own harness, [Harbor](https://
   `v0.25.0` (`fdba28fc411e`) under `/tmp/eval-x` (or `EVAL_X_WORK`), installs Harbor from its own lock and prints
   its version. `host oracle TASK` runs the benchmark's reference solution for one task through Harbor and the
   task's own grader, and prints one graded row, the digests of the images pulled and the disk they take: it proves
-  a host can run the benchmark before any agent is involved. `host harbor ARGS...` runs Harbor with the same pins.
+  a host can run the benchmark before any agent is involved. `host caps IMAGE` starts one container with a cap of
+  one CPU and 2 GB and prints the limits the kernel applied, `cpu.max 100000 100000` and `memory.max 2147483648`
+  when the user's cgroup delegation lets a task's caps hold. `host harbor ARGS...` runs Harbor with the same pins.
   Harbor's telemetry is off in every call and nothing is uploaded.
 
 ## Where it runs
