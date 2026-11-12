@@ -1,5 +1,6 @@
 use std::fs;
-use super::archive::{CLOSED_ISSUE_HOURS, Lane, archive, window_hours};
+use std::os::unix::fs::PermissionsExt;
+use super::archive::{CLOSED_ISSUE_HOURS, Lane, archive, archive_unregistered, window_hours};
 use super::evidence::IssueState;
 use crate::lanes::test_git::{git_in, init_repo};
 
@@ -45,4 +46,34 @@ fn a_closed_issue_lane_is_bundled_then_reaped_after_its_window() {
     assert_eq!(fs::read_to_string(restored.join("work.txt")).unwrap(), "committed work\n");
     assert_eq!(fs::read_to_string(restored.join("notes.txt")).unwrap(), "uncommitted notes\n", "uncommitted changes ride in the bundle");
     assert_eq!(git_in(&restored, &["rev-parse", "HEAD^"]), tip);
+}
+
+#[test]
+fn a_half_removed_lane_is_archived_once_across_two_gc_runs() {
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path().canonicalize().unwrap();
+    let main = root.join("proj/main");
+    init_repo(&main, None);
+    let common = main.join(".git");
+    let directory = root.join("proj/worktrees/half");
+    let archive_root = root.join("archive/lanes");
+    let lane = Lane { main: &main, base: "main", project: "proj", worktree: Some(&directory), branch: "", tip: "", issues: &[], why: "git no longer registers this lane directory" };
+    let leave = || {
+        let locked = directory.join("tools/modules");
+        fs::create_dir_all(&locked).unwrap();
+        fs::write(locked.join("tsc.js"), "left behind\n").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+        fs::set_permissions(directory.join("tools"), fs::Permissions::from_mode(0o555)).unwrap();
+    };
+    let bundles = || fs::read_dir(archive_root.join("proj")).unwrap().flatten().filter(|entry| entry.path().extension().is_some_and(|ext| ext == "bundle")).count();
+
+    leave();
+    let first = archive_unregistered(&lane, &directory, &common, &archive_root, 0).unwrap();
+    assert!(!directory.exists(), "a directory of read-only folders is still removed once bundled");
+
+    leave();
+    let second = archive_unregistered(&lane, &directory, &common, &archive_root, 3_600_000).unwrap();
+    assert_eq!(first, second);
+    assert_eq!(bundles(), 1, "the same files are bundled once");
+    assert_eq!(fs::read_to_string(archive_root.join("proj/index.tsv")).unwrap().lines().count(), 1, "and indexed once");
 }

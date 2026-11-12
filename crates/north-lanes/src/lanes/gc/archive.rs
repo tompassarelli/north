@@ -1,5 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use super::super::{lane_issue, lane_rejection};
@@ -12,6 +13,7 @@ pub(super) const CLOSED_ISSUE_HOURS: f64 = 7.0 * 24.0;
 pub(super) const NO_ISSUE_HOURS: f64 = 14.0 * 24.0;
 const LOCK_STALE_MS: i64 = 3_600_000;
 const STALE_LOCK: std::time::Duration = std::time::Duration::from_secs(60);
+const SNAPSHOT_DATE: &str = "1000000000 +0000";
 const IDENTITY: [&str; 4] = ["-c", "user.name=north lane gc", "-c", "user.email=lane-gc@north.invalid"];
 
 pub(super) fn window_hours(issues: &[IssueState]) -> Option<f64> {
@@ -109,10 +111,15 @@ fn record(lane: &Lane, head: &str, place: &str, root: &Path, now_ms: i64) -> Res
     std::fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let file = directory.join(format!("{}-{}.bundle", slug(lane), &head[..head.len().min(12)]));
     bundle(lane, head, &file)?;
+    let index = directory.join("index.tsv");
+    let tail = format!("\t{head}\t");
+    if std::fs::read_to_string(&index).is_ok_and(|rows| rows.lines().any(|row| row.contains(&tail) && row.ends_with(&*file.to_string_lossy()))) {
+        return Ok(file);
+    }
     let at = Timestamp::from_unix_millis(now_ms).iso_millis();
     let issues = if lane.issues.is_empty() { "-".to_owned() } else { lane.issues.join(" ") };
     let line = format!("{at}\t{place}\t{}\t{head}\t{issues}\t{}\t{}\n", if lane.branch.is_empty() { "(detached)" } else { lane.branch }, lane.why, file.display());
-    OpenOptions::new().create(true).append(true).open(directory.join("index.tsv")).and_then(|mut index| index.write_all(line.as_bytes())).map_err(|error| error.to_string())?;
+    OpenOptions::new().create(true).append(true).open(&index).and_then(|mut index| index.write_all(line.as_bytes())).map_err(|error| error.to_string())?;
     Ok(file)
 }
 
@@ -167,8 +174,20 @@ fn snapshot_unregistered(lane: &Lane, directory: &Path, common: &Path) -> Result
     if !lane.tip.is_empty() {
         arguments.extend(["-p", lane.tip]);
     }
-    let commit = git(lane.main, &arguments);
+    let dated = [("GIT_AUTHOR_DATE", Path::new(SNAPSHOT_DATE)), ("GIT_COMMITTER_DATE", Path::new(SNAPSHOT_DATE))];
+    let commit = git_with(lane.main, &arguments, LIMIT, &dated);
     if commit.ok { Ok(commit.out) } else { Err(format!("snapshot commit failed: {}", commit.last_err_line())) }
+}
+
+fn writable(directory: &Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else { return };
+    for entry in entries.flatten() {
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            let path = entry.path();
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
+            writable(&path);
+        }
+    }
 }
 
 fn reap_unregistered(directory: &Path) -> Result<(), String> {
@@ -176,6 +195,8 @@ fn reap_unregistered(directory: &Path) -> Result<(), String> {
     if !beside_lanes || !std::fs::symlink_metadata(directory).is_ok_and(|meta| meta.is_dir()) {
         return Err("not a plain directory directly under worktrees/".to_owned());
     }
+    let _ = std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700));
+    writable(directory);
     std::fs::remove_dir_all(directory).map_err(|error| error.to_string())
 }
 
