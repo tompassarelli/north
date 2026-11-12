@@ -39,6 +39,7 @@ case $arm in
     fi
     cli=(env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 "$T3")
     setsid env -i HOME="$W/home" PATH="$tools" LANG=C.UTF-8 CLAUDE_CONFIG_DIR="$cfg" T3CODE_TELEMETRY_ENABLED=false OTEL_SDK_DISABLED=true \
+      ${EVAL_X_TRIAL:+SHELL=$SHELL EVAL_X_TRIAL=$EVAL_X_TRIAL} \
       CLAUDE_CODE_OAUTH_TOKEN="$(cat "$EVAL_T_TOKEN_FILE")" \
       "$T3" serve --base-dir "$state" --host 127.0.0.1 --port "$port" --no-browser "$ROOT" > "$W/server.log" 2>&1 &
     server=$!
