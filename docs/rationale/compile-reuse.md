@@ -661,6 +661,33 @@ Checked on a build host through `bin/land-shell` (2026-11-12), on one crate with
 Not checked: where `buck2 test` runs a test whose own rule names a local executor. The test run stays behind
 `buck2_tests` until that is shown the same way.
 
+**Lint alone (`buck2_lint`).** `[hosts.NAME] buck2_lint = true` moves only the lint line of the checks before a
+landing to the clippy gate. The host still builds and tests with Cargo, and `build_system` stays unset. Four rules
+hold, each asked by the commit review before any host sets it:
+
+- **Which host decides.** The checks before a landing hand their lint line to `north land lint` on the host that
+  executes it, so a check offloaded from a host without the key is linted the executing host's way; the laptop,
+  which is no client of the store, still never runs Buck2. A north that lacks the verb runs the line as declared.
+- **The Cargo lint stays the authority.** The run after a landing never hands its lint line over and keys that
+  line's verdict apart from the one before the landing, so the landed tree is linted by `cargo clippy` itself and
+  never reuses a pass the gate gave. What the key changes in trust: the gate's pass rests on results read from the
+  shared store, so a forged result there could at worst pass a lint before a landing, and the Cargo lint of the
+  landed tree then fails it.
+- **Origin.** The gate runs only while the gate script and every file of the tree the Buck2 client reads its
+  configuration from are byte for byte those of the base the check was given: `lint/`, `.buckconfig`,
+  `.buckconfig.local`, `.buckconfig.d/`, and `flake.nix` with `flake.lock`, whose dev shell writes the toolchain
+  buckconfig the tree includes; an untracked file among them counts as a change. Otherwise the declared Cargo line
+  runs. So a lane that rewrites the gate script or names its own endpoint is judged by Cargo, and the endpoint, the
+  cache and the store are the ones the host and main name. A flag cannot do this instead: a tree's `.buckconfig`
+  outranks the host's file, and neither `--config-file` nor `--config` changes where the remote execution client
+  connects (build host, 2026-11-12: with a tree naming its own endpoint, both still failed to connect to it).
+- **Verdict.** The check passes or fails on Buck2's exit status alone: 0 passes, 3 (Buck2's status for an error in
+  the tree) fails, and any other status is no verdict (exit 75). No output is read.
+
+Checked on a build host (2026-11-12), on one crate through `bin/land-shell`: the gate on a clean tree exits 0
+(`clippy: 1 targets clean`, 3 commands, 0 local); with a lint finding it exits 3; with an
+endpoint the client cannot reach it exits 2, which the verb reports as no verdict.
+
 A check build passes `--materializations=none` (`-M none`): the lint gate, the type check and the compile before a
 test run leave their outputs in the store, since nothing after them reads one (Lanes: 4.3 s against 71 s and
 4.4 GiB for `//...`). The runtime build keeps `--out`, which copies the one binary a later step runs.

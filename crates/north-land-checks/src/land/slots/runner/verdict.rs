@@ -8,7 +8,7 @@ use tokio::process::Command;
 use tokio::task::JoinSet;
 
 use super::{ACTIONS_CLASS, Shared, say};
-use crate::land::slots::verdict_key;
+use crate::land::slots::{lint_gate, verdict_key};
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category};
@@ -20,15 +20,21 @@ struct Inputs {
     base: String,
     tree: String,
     environment: Vec<(String, String)>,
+    after: bool,
 }
 
 impl Inputs {
     fn of(shared: &Shared) -> Arc<Self> {
         let environment = shared.scope_environment().into_iter().map(|(name, value)| (name.to_owned(), value)).collect();
-        Arc::new(Self { root: shared.root.clone(), base: shared.arguments.base.clone(), tree: shared.arguments.tree().to_owned(), environment })
+        Arc::new(Self { root: shared.root.clone(), base: shared.arguments.base.clone(), tree: shared.arguments.tree().to_owned(), environment, after: shared.arguments.after })
     }
 
     fn key(&self, command: &str) -> Option<String> {
+        if self.after && lint_gate::wraps(command) {
+            let (name, value) = lint_gate::AFTER_LANDING;
+            let environment: Vec<(String, String)> = self.environment.iter().cloned().chain([(name.to_owned(), value.to_owned())]).collect();
+            return verdict_key::key(&self.root, &self.base, &self.tree, command, &environment);
+        }
         verdict_key::key(&self.root, &self.base, &self.tree, command, &self.environment)
     }
 }

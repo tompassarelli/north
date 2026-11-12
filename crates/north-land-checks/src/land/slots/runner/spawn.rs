@@ -9,7 +9,7 @@ use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
 use crate::land::slots::select::Placement;
-use crate::land::slots::{unit_reuse, verdict_key};
+use crate::land::slots::{lint_gate, unit_reuse, verdict_key};
 use north_base::verdict_cache::reuse_log;
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use crate::platform::north_binary::land_north as program;
@@ -154,8 +154,23 @@ impl Shared {
         !self.arguments.after && unit_reuse::runs_tests(command)
     }
 
+    /// Whether the lint line `command` is handed to the executing host's north, which may run its Buck2 gate instead: before a landing only, so the run after it lints the landed tree with Cargo.
+    fn gated(&self, command: &str) -> bool {
+        !self.arguments.after && lint_gate::wraps(command)
+    }
+
+    fn wrapped(&self, north: &str, command: &str) -> String {
+        if self.observes(command) {
+            unit_reuse::wrapped(north, &self.arguments.head, self.environment.record_reuse, command)
+        } else if self.gated(command) {
+            lint_gate::wrapped(north, command)
+        } else {
+            command.to_owned()
+        }
+    }
+
     pub(super) fn observed(&self, command: &str) -> String {
-        if self.observes(command) { unit_reuse::wrapped("north", &self.arguments.head, self.environment.record_reuse, command) } else { command.to_owned() }
+        self.wrapped("north", command)
     }
 
     pub(super) async fn sync_store(&self, host: &str) {
@@ -180,7 +195,7 @@ impl Shared {
             say(&format!("safe-push: offloading to {host}{suffix}"));
             under_capacity(capacity, shell_deadline(timeout + OFFLOAD_GRACE, &offload))
         } else {
-            let observed = if observing { unit_reuse::wrapped(&unit_reuse::quote(&program()), &self.arguments.head, environment.record_reuse, command) } else { command.to_owned() };
+            let observed = self.wrapped(&unit_reuse::quote(&program()), command);
             let local = ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed];
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(timeout, &local))

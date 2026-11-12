@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
 use serde::Deserialize;
@@ -32,6 +33,8 @@ const UNMATERIALISED: &str = "--materializations=none";
 const REMOTE_ONLY: &str = "--remote-only";
 /// Buck2's exit status for a build the tree's own targets or code failed; an engine or daemon failure exits with another.
 const USER_ERROR: i32 = 3;
+/// What decides the gate's verdict and where the client sends its actions, besides the code it lints: the gate script, the tree's own buckconfig files, and the flake whose dev shell writes the toolchain buckconfig the tree includes.
+const GATE_ORIGIN: [&str; 6] = ["lint", ".buckconfig", ".buckconfig.local", ".buckconfig.d", "flake.nix", "flake.lock"];
 
 fn words(verb: &[&str]) -> Vec<String> {
     std::iter::once("buck2").chain(verb.iter().copied()).map(str::to_owned).collect()
@@ -59,6 +62,26 @@ fn output_dir(root: &Path, profile: Profile, output: Option<&Path>) -> PathBuf {
         Profile::Release => "release",
     };
     output.map_or_else(|| root.join(OUT), |output| root.join(output)).join(profile)
+}
+
+/// The clippy gate in place of `declared`, a lint line of `.safe-push`, for a host that moves its lint line alone
+/// (north#1115). The gate script and every file of the tree the Buck2 client reads its configuration from must be
+/// `base`'s byte for byte: a tree's `.buckconfig` outranks the host's own and no flag overrides it for the remote
+/// execution client (cpx62, 2026-11-12), so a lane that rewrites one would name its own gate or its own endpoint.
+/// `None` leaves the line as declared.
+pub(crate) fn gate(root: &Path, base: &str, declared: &str) -> Option<String> {
+    let side = Buck2 { tests: false };
+    if !side.governs(root) || !super::cargo::lints(declared) || !unchanged_since(root, base) {
+        return None;
+    }
+    Some(side.land_line(declared)).filter(|issued| issued != declared)
+}
+
+/// Whether the tree's gate script and its Buck2 configuration are those of `base`, with no untracked file among them.
+fn unchanged_since(root: &Path, base: &str) -> bool {
+    let git = |arguments: &[&str]| Command::new("git").arg("-C").arg(root).args(arguments).args(GATE_ORIGIN).stderr(Stdio::null()).output().ok();
+    let same = git(&["diff", "--quiet", base, "--"]).is_some_and(|output| output.status.success());
+    same && git(&["ls-files", "--others", "--"]).is_some_and(|output| output.status.success() && output.stdout.is_empty())
 }
 
 /// Whether `command` runs this side's clippy gate.

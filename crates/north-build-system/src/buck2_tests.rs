@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use super::Buck2;
 use crate::cargo::Cargo;
@@ -28,4 +29,38 @@ fn a_buck2_host_builds_a_tree_s_north_with_buck2_and_calls_the_tree_broken_only_
     assert_eq!(invocation.words, ["buck2", "build", "--remote-only", "//:north", "--out", "/tree/buck-out/north/dev/"]);
     assert_eq!(binary, Path::new("/tree/buck-out/north/dev/north"));
     assert!(side.broken(Some(3), "") && !side.broken(Some(2), "") && !side.broken(None, ""), "only exit 3, Buck2's user error, blames the tree; an engine or daemon failure gives no verdict");
+}
+
+#[test]
+fn a_lint_only_host_runs_the_gate_only_while_the_tree_s_gate_script_and_buck2_configuration_are_the_base_s() {
+    let tree = tempfile::tempdir().unwrap();
+    let git = |arguments: &[&str]| assert!(Command::new("git").arg("-C").arg(tree.path()).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(arguments).stdout(Stdio::null()).status().unwrap().success());
+    let write = |name: &str, text: &str| std::fs::write(tree.path().join(name), text).unwrap();
+    std::fs::create_dir(tree.path().join("lint")).unwrap();
+    for (name, text) in [(".buckconfig", "[cells]\n  root = .\n"), ("lint/clippy.bxl", "gate\n"), ("code.rs", "one\n")] {
+        write(name, text);
+    }
+    for arguments in [&["init", "-q"][..], &["add", "."], &["commit", "-qm", "base"], &["tag", "base"]] {
+        git(arguments);
+    }
+    let gate = |declared: &str| super::gate(tree.path(), "base", declared);
+
+    write("code.rs", "two\n");
+    assert_eq!(
+        gate(CLIPPY).as_deref(),
+        Some("./bin/land-shell --dev -- buck2 bxl --remote-only --materializations=none //lint/clippy.bxl:clippy -- --targets //..."),
+        "a lane that changes code alone is linted by the gate"
+    );
+    assert_eq!((gate(NEXTEST), gate(SCAN)), (None, None), "the key moves the lint line alone");
+    assert_eq!(super::gate(tree.path(), "no-such-base", CLIPPY), None, "a base this checkout lacks leaves the line as declared");
+    write("lint/clippy.bxl", "a lane's own gate\n");
+    assert_eq!(gate(CLIPPY), None, "a lane that rewrites the gate script is linted by Cargo, not by its own gate");
+    write("lint/clippy.bxl", "gate\n");
+    write(".buckconfig", "[buck2_re_client]\n  engine_address = grpc://lane:1\n");
+    assert_eq!(gate(CLIPPY), None, "a lane whose .buckconfig names its own endpoint is linted by Cargo, since the tree's file outranks the host's");
+    git(&["checkout", "-q", "--", ".buckconfig"]);
+    write(".buckconfig.local", "[buck2_re_client]\n  engine_address = grpc://lane:1\n");
+    assert_eq!(gate(CLIPPY), None, "and so is a tree with an untracked buckconfig file");
+    std::fs::remove_file(tree.path().join(".buckconfig.local")).unwrap();
+    assert!(gate(CLIPPY).is_some(), "the gate runs again once the tree's own configuration is the base's");
 }

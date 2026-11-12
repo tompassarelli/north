@@ -18,6 +18,7 @@ use buck2::Buck2;
 use cargo::Cargo;
 
 const TEST_SWITCH: &str = "buck2_tests";
+const LINT_SWITCH: &str = "buck2_lint";
 
 pub trait BuildSystem {
     /// Whether `root` is a workspace this build system builds.
@@ -68,6 +69,22 @@ pub fn here() -> Box<dyn BuildSystem> {
 pub fn for_tree(root: &Path) -> Box<dyn BuildSystem> {
     let side = here();
     if side.governs(root) { side } else { Box::new(Cargo) }
+}
+
+/// The Buck2 clippy gate this host runs in place of `declared`, a lint line of `.safe-push`, when `[hosts.NAME] buck2_lint`
+/// is true. The key moves the lint line alone: the host still builds and tests with Cargo. `None`, the line as declared,
+/// for a host without the key, a tree with no Buck2 targets, a run that names no `base`, and a tree whose gate script or
+/// Buck2 configuration is not `base`'s.
+pub fn lint_gate(root: &Path, base: Option<&str>, declared: &str) -> Option<String> {
+    let host = north_base::platform::host::name();
+    let policy = north_base::platform::orchestration::read().ok()?;
+    let switched = policy.get("hosts").and_then(|hosts| hosts.get(host.as_str())?.get(LINT_SWITCH)?.as_bool()) == Some(true);
+    if switched { buck2::gate(root, base?, declared) } else { None }
+}
+
+/// Whether `command` is Cargo's lint line, the one a host's `buck2_lint` replaces.
+pub fn lints_with_cargo(command: &str) -> bool {
+    cargo::lints(command)
 }
 
 /// Whether `command` is the lint line of either side.
