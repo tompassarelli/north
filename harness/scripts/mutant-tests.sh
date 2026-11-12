@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-root=${XDG_CACHE_HOME:-$HOME/.cache}/north/mutant-cargo
+root=$PWD/target/mutant-cargo
 slots=${MUTANT_SLOTS:-4}
 mkdir -p "$root"
 mapfile -t claimed <<<"$MUTANT_TESTS"

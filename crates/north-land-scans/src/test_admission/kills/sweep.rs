@@ -14,7 +14,7 @@ use super::{BASELINE_FAILED, End, Lane, SHOWN, Tally, git, judge, sweep_cap, una
 const WORK: &str = "target/mutant-kills";
 const POLL: Duration = Duration::from_secs(2);
 const GRACE: Duration = Duration::from_secs(30);
-const SWEEPS: &str = ".cache/north/mutant-sweeps";
+const SWEEPS: &str = "target/mutant-sweeps";
 
 pub(super) fn checkout_of(directory: &Path, head: &str) -> Option<PathBuf> {
     let top = git::text(directory, &["rev-parse", "--show-toplevel"]).map(|top| PathBuf::from(top.trim()))?;
@@ -30,7 +30,7 @@ pub(super) fn on_this_host(directory: &Path, lane: &Lane, out: &mut impl Write) 
         Err(why) => return unavailable(out, &why),
     };
     let copying = Instant::now();
-    let sweeps = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(SWEEPS);
+    let sweeps = top.join(SWEEPS);
     let tree = match OwnTree::of(&top, &lane.head, &sweeps) {
         Ok(tree) => tree,
         Err(why) => return unavailable(out, &format!("no copy of the check's checkout and build: {why}")),
