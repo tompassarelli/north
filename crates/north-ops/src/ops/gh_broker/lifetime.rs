@@ -11,9 +11,12 @@ use crate::platform::gh_broker_route::Place;
 const IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
 
 pub(super) fn watch(place: &Place, watched: Arc<server::Activity>, resident: bool) {
+    watch_runtime(place, watched, resident, north_runtime_follow::Follow::current());
+}
+
+pub(super) fn watch_runtime(place: &Place, watched: Arc<server::Activity>, resident: bool, mut runtime: north_runtime_follow::Follow) {
     let (socket, wanted) = (place.socket(), place.resident_wanted());
     let bound = inode(&socket);
-    let mut runtime = north_runtime_follow::Follow::current();
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(Duration::from_secs(1));

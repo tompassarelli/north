@@ -42,6 +42,11 @@ impl Activity {
         self.open.load(Ordering::Relaxed)
     }
 
+    #[cfg(test)]
+    pub fn is_draining(&self) -> bool {
+        self.draining.load(Ordering::SeqCst)
+    }
+
     pub fn idle_for(&self) -> Option<Duration> {
         (self.open.load(Ordering::Relaxed) == 0).then(|| Duration::from_secs(unix_now().saturating_sub(self.last.load(Ordering::Relaxed))))
     }

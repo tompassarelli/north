@@ -260,9 +260,17 @@ fn the_brokers_gh_config_edits_keep_the_login_and_release_only_its_own_line_whil
 }
 
 #[test]
-fn a_draining_broker_answers_every_call_that_reaches_it_until_none_is_open() {
+fn a_resident_broker_finishes_its_request_then_follows_a_promotion() {
     let mut broker = Harness::start(Duration::from_secs(20));
     broker.github.held.store(true, Ordering::SeqCst);
+    let state = tempfile::tempdir().unwrap();
+    let (old, new) = ("a".repeat(40), "b".repeat(40));
+    for sha in [&old, &new] {
+        std::fs::create_dir_all(state.path().join("runtimes").join(sha).join("bin")).unwrap();
+    }
+    let link = state.path().join("current");
+    std::os::unix::fs::symlink(format!("runtimes/{old}"), &link).unwrap();
+    let executable = state.path().join("runtimes").join(&old).join("bin/north");
     let socket = broker.socket.clone();
     let held = {
         let socket = socket.clone();
@@ -274,14 +282,20 @@ fn a_draining_broker_answers_every_call_that_reaches_it_until_none_is_open() {
         })
     };
     north_base::platform::wait::until(Duration::from_secs(60), || broker.activity.idle_for().is_none());
-    broker.activity.drain(&socket);
+    let place = Place::at(socket.parent().unwrap().to_path_buf());
+    super::lifetime::watch_runtime(&place, Arc::clone(&broker.activity), true, north_runtime_follow::Follow::of(link.clone(), Some(executable.clone())));
+    std::fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink(format!("runtimes/{new}"), &link).unwrap();
+    north_base::platform::wait::until(Duration::from_secs(60), || broker.activity.is_draining());
     assert_eq!(broker.get("/whoami").status, 200, "a call that connects while the drain waits on an open call is answered, not reset");
     let served = broker.served.take().unwrap();
-    assert!(!served.is_finished(), "the server keeps accepting while a call is open");
+    assert!(!served.is_finished(), "the broker keeps serving the request it holds after the link moved");
     broker.github.held.store(false, Ordering::SeqCst);
     served.join().unwrap();
     assert!(broker.activity.finish_open_calls(Duration::from_secs(600)));
-    assert_eq!(held.join().unwrap().status, 200, "the call in flight when the drain began is answered, not cut");
+    assert_eq!(held.join().unwrap().status, 200, "the request open at the promotion is answered, not cut");
+    let next = north_runtime_follow::Follow::of(link, Some(executable)).next().unwrap();
+    assert_eq!(next, state.path().canonicalize().unwrap().join("runtimes").join(&new).join("bin/north"), "the restarted broker runs the promoted runtime");
 }
 
 #[test]
