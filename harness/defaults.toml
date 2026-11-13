@@ -2069,3 +2069,12 @@ unit = "paths from the repository root (a trailing / names a directory, a leadin
 source = "north#1036 second review (2026-11-13): with runtime promotion on landing, a trust-boundary change that skipped its test line would go live on every host before the after-landing run could revert it, and a landing path change that breaks landing could not land its own revert"
 fallback = "a missing list keeps the test line before queueing for every lane"
 consumers = ["crates/north-land-checks/src/land/slots/runner/queue_checks.rs"]
+
+[agent_slice_write_cap_mib]
+value = 200
+allowed = { min = 20, max = 100000 }
+unit = "MiB per second of writes to the home filesystem that each of agent.slice and control.slice may submit, as IOWriteBandwidthMax, because io.weight does nothing on a disk with no IO scheduler and io.cost off"
+source = "guess: 2026-11-13 capture on the laptop saw agent.slice writeback bursts of 1 to 2.3 GB per second with 3 to 6 s of full IO stall each second sampled"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose full IO pressure can be compared at this cap against the same bursts uncapped" }
+fallback = "none: the cap is applied when the profile is applied and agent.slice shows no write rate"
+consumers = ["crates/north-capacity-host/src/capacity/host/systemd.rs"]

@@ -8,6 +8,7 @@ const NATIVE_CPU_WEIGHT: u32 = 200;
 const DESKTOP_SLICE: &str = "app.slice";
 const SESSION_SLICE: &str = "session.slice";
 const AGENT_SLICE: &str = "agent.slice";
+const CONTROL_SLICE: &str = "control.slice";
 
 /// The manager's private socket reports peer pid 0 inside a PID namespace and fails with ENODATA; without XDG_RUNTIME_DIR the client uses the user bus.
 pub fn client_environment(command: &mut Command) -> &mut Command {
@@ -84,8 +85,21 @@ pub fn apply_profile(profile: &str, cores: f64, slice_cpus: Option<f64>) -> bool
         for (slice, weight) in desktop_weights(profile) {
             set_slice(slice, &[&format!("CPUWeight={weight}"), &format!("IOWeight={weight}")]);
         }
+        cap_writes();
     }
     set_slice(&aggregate_slice(), &[&quota, &format!("CPUWeight={}", default_mib("land_check_cpu_weight") as u32)]) && set_slice(&batch_slice(), &BATCH_PROPERTIES) && set_slice(&native_slice(), &[&weight, &io])
+}
+
+/// The disk gives the io.weight above no effect (no scheduler, io.cost off), so the agent and control slices are held to a write rate on the home filesystem instead: a build or checkout writeback burst of gigabytes a second otherwise fills the device and stalls the desktop on it.
+fn cap_writes() {
+    let Some(home) = env("HOME") else { return };
+    let property = format!("IOWriteBandwidthMax={home} {}", (default_mib("agent_slice_write_cap_mib") as u64) << 20);
+    for slice in [AGENT_SLICE, CONTROL_SLICE] {
+        let capped = read_text(user_manager_cgroup().join(slice_path(slice)).join("io.max")).is_some_and(|text| text.contains("wbps="));
+        if !capped {
+            succeeded(systemctl(true, &["set-property", "--runtime", slice, &property]));
+        }
+    }
 }
 
 pub(super) const BATCH_PROPERTIES: [&str; 2] = ["CPUWeight=idle", "CPUQuota="];
