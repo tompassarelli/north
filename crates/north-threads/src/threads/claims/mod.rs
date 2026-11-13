@@ -54,6 +54,11 @@ pub fn boxes(body: &str) -> impl Iterator<Item = &str> {
     body.lines().filter_map(checked).map(str::trim)
 }
 
+/// Whether the issue `body` holds more than one box, ticked or not.
+pub fn several_boxes(body: &str) -> bool {
+    boxes(body).nth(1).is_some()
+}
+
 fn checked(line: &str) -> Option<&str> {
     let text = line.trim_start().strip_prefix(['-', '*'])?.trim_start();
     ["[ ]", "[x]", "[X]"].into_iter().find_map(move |mark| text.strip_prefix(mark))

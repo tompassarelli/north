@@ -8,7 +8,7 @@ fn uncategorised(repo: &str, number: u64, body: &str, labels: &[&str]) -> super:
 
 #[test]
 fn a_rolling_alarm_issue_is_not_ready_because_its_body_declares_no_category_while_the_same_body_with_one_launches() {
-    let rise = crate::ledger::rises::Rise { tier: "sonnet".into(), category: "tooling".into(), before: (5.2, 3), after: (10.4, 3), boxes: Vec::new() };
+    let rise = crate::ledger::rises::Rise { tier: "sonnet".into(), category: "tooling".into(), before: (5.2, 3), after: (10.4, 3), boxes: Vec::new(), left_out: (0, 0) };
     let body = crate::ledger::rises::issue_body(&[rise]).unwrap();
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), room: None, running: Ok(0), measure: None, builds: None }];
     let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, grant: None }];

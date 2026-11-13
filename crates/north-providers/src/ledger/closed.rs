@@ -61,6 +61,9 @@ pub struct ClosedBox {
     pub item: String,
     pub usd: f64,
     pub runs: Vec<BoxRun>,
+    /// Runs whose brief named no box on an issue of several boxes: their cost belongs to no one box, so no cell's median reads it.
+    #[serde(default)]
+    pub unattributed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -116,15 +119,24 @@ impl Cell {
         self.closed - self.reworked
     }
 
+    fn attributed_spends(&self) -> Vec<f64> {
+        self.boxes.iter().filter_map(|closed| (!closed.unattributed).then_some(closed.usd)).collect()
+    }
+
+    /// How many closed boxes of the cell the medians leave out because their runs named no box on an issue of several.
+    pub fn unattributed(&self) -> usize {
+        self.boxes.len() - self.attributed_spends().len()
+    }
+
     /// The median cost of one closed box of the cell, which one umbrella issue with hundreds of runs does not move; None when no box is recorded.
     pub fn median_box_usd(&self) -> Option<f64> {
-        let mut spends: Vec<f64> = self.boxes.iter().map(|closed| closed.usd).collect();
+        let mut spends = self.attributed_spends();
         (!spends.is_empty()).then(|| percentile(&mut spends, 50))
     }
 
     /// The median cost of the cell's closed boxes without its dearest one, which shows whether the median rests on more than that one box; None when fewer than two boxes are recorded.
     pub fn median_box_usd_without_dearest(&self) -> Option<f64> {
-        let mut spends: Vec<f64> = self.boxes.iter().map(|closed| closed.usd).collect();
+        let mut spends = self.attributed_spends();
         spends.sort_by(f64::total_cmp);
         spends.pop()?;
         (!spends.is_empty()).then(|| percentile(&mut spends, 50))
@@ -270,7 +282,8 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, bodies: &HashMap<S
     let mut arms = Vec::new();
     let mut spent_boxes = Vec::new();
     let mut distinct_closed = 0;
-    for ((item, _), runs) in boxes.iter_mut() {
+    for ((item, slug), runs) in boxes.iter_mut() {
+        let unattributed = slug.is_none() && bodies.get(*item).map(String::as_str).is_some_and(crate::threads::claims::several_boxes);
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let reworked = runs.iter().any(|run| run.landed && run.reworked);
@@ -289,7 +302,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, bodies: &HashMap<S
             cell.runs += share.len();
             cell.reworked += usize::from(reworked);
             cell.usd += part;
-            cell.boxes.push(ClosedBox { item: (*item).to_owned(), usd: part, runs: priced });
+            cell.boxes.push(ClosedBox { item: (*item).to_owned(), usd: part, runs: priced, unattributed });
             cell.run_minutes.extend(share.iter().filter_map(|run| run.minutes()));
         }
         distinct_closed += 1;

@@ -174,10 +174,16 @@ fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise
         (0..count).map(|n| run(item, SONNET, "bug-known-cause", &format!("{day}T{:02}:00:00Z", 8 + n), &format!("{day}T{:02}:30:00Z", 8 + n))).collect()
     };
     let before = report(&[box_runs("north#30", 2, "2026-10-15"), box_runs("north#31", 2, "2026-10-16"), box_runs("north#32", 2, "2026-10-17")].concat(), "2026-10-13T06:00:00Z");
-    let week = report(&[box_runs("north#33", 2, "2026-10-22"), box_runs("north#34", 2, "2026-10-23"), box_runs("north#35", 2, "2026-10-24"), box_runs("north#36", 12, "2026-10-25")].concat(), "2026-10-20T06:00:00Z");
+    let week_runs = [box_runs("north#33", 2, "2026-10-22"), box_runs("north#34", 2, "2026-10-23"), box_runs("north#35", 2, "2026-10-24"), box_runs("north#36", 12, "2026-10-25")].concat();
+    let closed: HashSet<String> = week_runs.iter().filter_map(|run| run.item.clone()).collect();
+    let bodies = [("north#36".to_owned(), "- [ ] First piece\n- [ ] Second piece\n".to_owned())].into();
+    let week = summarize(&week_runs, &closed, &bodies, "2026-10-20T06:00:00Z", &PriceTable::load().unwrap());
     let cell = |report: &ClosedReport| report.cells.iter().find(|cell| cell.tier == SONNET.0).map(|cell| (cell.closed, cell.usd_per_closed())).unwrap();
     let ((was_n, was), (now_n, now)) = (cell(&before), cell(&week));
     assert!((was_n, now_n) == (3, 4) && now > was * 1.25, "{was} -> {now}");
+    let sonnet = week.cells.iter().find(|cell| cell.tier == SONNET.0).unwrap();
+    assert_eq!(sonnet.unattributed(), 1, "the umbrella's unslugged runs stay a closed box and leave the median");
+    assert_eq!(sonnet.median_box_usd(), report(&box_runs("north#33", 2, "2026-10-22"), "2026-10-20T06:00:00Z").cells[0].median_box_usd(), "the median is the ordinary boxes'");
 
     let mut issues = Issues::default();
     let (_, ticked) = two_ticks(&Ledger { week, before, estimates: Ok(EstimatedRuns::default()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() }, &mut issues);

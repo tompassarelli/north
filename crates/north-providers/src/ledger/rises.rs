@@ -16,6 +16,8 @@ pub struct Rise {
     pub before: (f64, usize),
     pub after: (f64, usize),
     pub boxes: Vec<ClosedBox>,
+    /// Closed boxes of the two weeks (this week, the week before) the medians leave out: runs that named no box on an issue of several.
+    pub left_out: (usize, usize),
 }
 
 pub fn rises(week: &ClosedReport, before: &ClosedReport) -> Vec<Rise> {
@@ -32,6 +34,7 @@ pub fn rises(week: &ClosedReport, before: &ClosedReport) -> Vec<Rise> {
                 before: (was, earlier.closed),
                 after: (now, cell.closed),
                 boxes: cell.boxes_dearest_first(),
+                left_out: (cell.unattributed(), earlier.unattributed()),
             })
         })
         .collect()
@@ -59,14 +62,16 @@ impl Rise {
 
     pub fn line(&self) -> String {
         format!(
-            "rose {} {}: ${:.2} (n {}) the week before -> ${:.2} (n {}) this week, +{:.0}%",
+            "rose {} {}: ${:.2} (n {}) the week before -> ${:.2} (n {}) this week, +{:.0}% (medians leave out {} unattributed umbrella boxes this week, {} the week before)",
             self.tier,
             self.category,
             self.before.0,
             self.before.1,
             self.after.0,
             self.after.1,
-            self.percent()
+            self.percent(),
+            self.left_out.0,
+            self.left_out.1
         )
     }
 
