@@ -215,20 +215,8 @@ impl Ingest<'_> {
     fn ledger_budget(&self, run: &Run) -> Result<Option<f64>, Failure> {
         let Some(category) = run.f.known_category() else { return Ok(None) };
         let started: Option<String> = self.db.query_row("SELECT started FROM runs WHERE agent = ?", [run.agent()?], |row| row.get(0)).optional()?.flatten();
-        let Some(started) = started.and_then(|started| Timestamp::parse(&started).ok()) else { return Ok(None) };
-        let since = Timestamp::from_unix_seconds(started.unix_seconds() - LEDGER_WEEK).iso();
-        let mut budgets: Vec<f64> = self
-            .db
-            .prepare("SELECT budget_usd FROM runs WHERE category = ? AND role = 'worker' AND brief_text IS NOT NULL AND budget_usd > 0 AND started >= ? AND started < ? AND agent != ?")?
-            .query_map(params![category, since, started.iso(), run.agent()?], |row| row.get(0))?
-            .collect::<Result<_, _>>()?;
-        budgets.sort_by(f64::total_cmp);
-        let middle = budgets.len() / 2;
-        Ok(match budgets.len() {
-            0 => None,
-            n if n % 2 == 0 => Some((budgets[middle - 1] + budgets[middle]) / 2.0),
-            _ => Some(budgets[middle]),
-        })
+        let Some(started) = started else { return Ok(None) };
+        stated_budget_median(self.db, category, &started, run.agent()?)
     }
 
     fn telemetry(&mut self, r: &Row) -> Result<(), Failure> {
@@ -468,4 +456,36 @@ fn finished_values(run: &Run, item: Option<&str>, follows: &Value, category: &st
         values.push(r.sql(key)?);
     }
     Ok(values)
+}
+
+/// The median Budget the briefs of the category's worker runs stated in the week before `started`.
+fn stated_budget_median(db: &Connection, category: &str, started: &str, agent: Sql) -> Result<Option<f64>, Failure> {
+    let Ok(started) = Timestamp::parse(started) else { return Ok(None) };
+    let since = Timestamp::from_unix_seconds(started.unix_seconds() - LEDGER_WEEK).iso();
+    let mut budgets: Vec<f64> = db
+        .prepare("SELECT budget_usd FROM runs WHERE category = ? AND role = 'worker' AND brief_text LIKE '%Budget:%' AND budget_usd > 0 AND started >= ? AND started < ? AND agent != ?")?
+        .query_map(params![category, since, started.iso(), agent], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    budgets.sort_by(f64::total_cmp);
+    let middle = budgets.len() / 2;
+    Ok(match budgets.len() {
+        0 => None,
+        n if n % 2 == 0 => Some((budgets[middle - 1] + budgets[middle]) / 2.0),
+        _ => Some(budgets[middle]),
+    })
+}
+
+/// Restates the fallback Budget of recent worker runs whose brief stated none: runs recorded before the fallback took
+/// the stated Budgets' median carry the cost the ledger's runs spent, a different unit from the API-equivalent E.
+pub(super) fn restate_fallback_budgets(db: &Connection, now: Timestamp) -> Result<(), Failure> {
+    let since = Timestamp::from_unix_seconds(now.unix_seconds() - 2 * LEDGER_WEEK).iso();
+    let pending: Vec<(Sql, String, String)> = db
+        .prepare("SELECT agent, category, started FROM runs WHERE role = 'worker' AND budget_source = 'ledger' AND (brief_text IS NULL OR brief_text NOT LIKE '%Budget:%') AND category != 'unknown' AND started >= ?")?
+        .query_map([since], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<_, _>>()?;
+    for (agent, category, started) in pending {
+        let budget = stated_budget_median(db, &category, &started, agent.clone())?;
+        db.execute("UPDATE runs SET budget_usd = ?1, budget_source = CASE WHEN ?1 IS NULL THEN NULL ELSE budget_source END WHERE agent = ?2", params![budget, agent])?;
+    }
+    Ok(())
 }

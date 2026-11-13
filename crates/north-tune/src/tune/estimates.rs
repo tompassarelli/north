@@ -13,6 +13,9 @@ pub const CALIBRATED: (f64, f64) = (0.67, 1.5);
 /// Estimated runs a ratio needs before its drift counts, so one odd run files nothing.
 pub const DRIFT_MIN_RUNS: usize = 3;
 
+/// The tier label prefix of runs on the opencode provider: free models whose spend the Claude price table cannot state, and whose briefs carry the Claude cells' estimates.
+const OPENCODE_TIERS: &str = "opencode";
+
 /// How the actual figures of a cell's runs compare with their estimates.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ratios {
@@ -53,7 +56,7 @@ pub struct Calibration {
 pub fn calibrations(runs: &[EstimatedRun]) -> Vec<Calibration> {
     let eta_percent = (Knobs::registry().eta_coverage * 100.0).round() as usize;
     let mut cells: BTreeMap<(&str, &str), Vec<&EstimatedRun>> = BTreeMap::new();
-    for run in runs {
+    for run in runs.iter().filter(|run| !run.tier.starts_with(OPENCODE_TIERS)) {
         cells.entry((run.tier.as_str(), run.category.as_str())).or_default().push(run);
     }
     cells
