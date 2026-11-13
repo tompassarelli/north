@@ -163,7 +163,7 @@ impl Fleet {
     fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck, opened: Option<NorthResult<OpenedHost>>, prompt: impl FnOnce() -> (String, Option<Predicted>)) -> NorthResult<()> {
         let opening = match (&request.resume, predecessor) {
             (Some(kept), Some(predecessor)) => {
-                remote::carry_conversation(self.runtime(record)?.as_ref(), request.machine.as_ref(), &self.account(&LaunchRequest { machine: request.machine.clone(), ..LaunchRequest::relaunching(predecessor.record()) })?, account, kept)?;
+                remote::carry_conversation(self.runtime(record)?.as_ref(), request.machine.as_ref(), &self.profile(&LaunchRequest { machine: request.machine.clone(), ..LaunchRequest::relaunching(predecessor.record()) })?, account, kept)?;
                 Opening::Resume(kept)
             }
             _ => fresh_opening(request, conversation),
@@ -239,7 +239,7 @@ impl Fleet {
         let cut_short = self.halt_cut_short(name, self.ordered_by(self.caller().as_deref(), Halt::MovedAccount))?;
         let revived = {
             let _start = self.start_lock(name)?;
-            remote::carry_conversation(self.runtime(&record)?.as_ref(), record.machine.as_ref(), &self.account(&LaunchRequest::relaunching(&record))?, &onto, &conversation)?;
+            remote::carry_conversation(self.runtime(&record)?.as_ref(), record.machine.as_ref(), &self.profile(&LaunchRequest::relaunching(&record))?, &onto, &conversation)?;
             self.set_account(name, &onto.recorded_label())?;
             self.revive_held(name, system_prompt, placement, effort).or_else(|error| self.set_account(name, &record.account).and(Err(error)))?
         };

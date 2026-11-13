@@ -104,11 +104,11 @@ pub fn room_for(windows: &Value, at: f64, family: ModelFamily) -> Room {
     room
 }
 
-/// What orders accounts and API grants for a launch, earliest deadline first: a source the fleet cannot
-/// drain before its deadline, then the one whose capacity is lost soonest (a plan's weekly reset, a
-/// grant's expiry), then the week's room that expires soonest in plan units per hour until its reset,
-/// then five-hour room in plan units. An API grant ranks behind every plan account unless `[accounts.claude] api_beside_plans`
-/// puts it beside them. `north fleet launch`, revive and dispatch all rank by this, and it never refuses.
+/// What orders accounts and API grants for a launch: a source the fleet cannot drain before its deadline,
+/// then, beside a grant, the one whose capacity is lost soonest (a plan's weekly reset, a grant's expiry),
+/// then the week's room that expires soonest in plan units per hour until its reset, then five-hour room in
+/// plan units. Two plans skip the reset term, since the room expiring per hour already weighs it by how much is
+/// left. An API grant ranks behind every plan account unless `[accounts.claude] api_beside_plans` puts it beside them. `north fleet launch`, revive and dispatch all rank by this, and it never refuses.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rank {
     behind_plans: bool,
@@ -116,6 +116,7 @@ pub struct Rank {
     deadline_h: Option<f64>,
     expiring: f64,
     five_hour: f64,
+    grant: bool,
     /// Set only when an account is ranked by the room its own family's meter leaves, as the coordinator is.
     headroom: Option<f64>,
 }
@@ -123,19 +124,19 @@ pub struct Rank {
 impl Rank {
     pub fn of(room: Room, plan: PlanSize) -> Self {
         let deadline_h = (room.week > 0.0).then(|| room.week_reset_h.max(Room::SOONEST_RESET_H));
-        Self { behind_plans: false, urgent: false, deadline_h, expiring: room.expiring(plan), five_hour: room.five_hour * plan.five_hour, headroom: None }
+        Self { behind_plans: false, urgent: false, deadline_h, expiring: room.expiring(plan), five_hour: room.five_hour * plan.five_hour, grant: false, headroom: None }
     }
 
     /// Order accounts by the room their own family's meter leaves, so the coordinator starts where its
     /// Fable week has the most headroom rather than where the shared week expires soonest.
     pub fn headroom(room: f64) -> Self {
-        Self { behind_plans: false, urgent: false, deadline_h: None, expiring: 0.0, five_hour: 0.0, headroom: Some(room) }
+        Self { behind_plans: false, urgent: false, deadline_h: None, expiring: 0.0, five_hour: 0.0, grant: false, headroom: Some(room) }
     }
 
     /// An API grant with credit left: its deadline is its expiry, it is urgent when the measured burn would not spend it by then,
     /// and it ranks behind every plan account unless the owner put grants `beside_plans`.
     pub fn grant(deadline_h: f64, urgent: bool, beside_plans: bool) -> Self {
-        Self { behind_plans: !beside_plans, urgent, deadline_h: Some(deadline_h.max(Room::SOONEST_RESET_H)), expiring: 0.0, five_hour: 0.0, headroom: None }
+        Self { behind_plans: !beside_plans, urgent, deadline_h: Some(deadline_h.max(Room::SOONEST_RESET_H)), expiring: 0.0, five_hour: 0.0, grant: true, headroom: None }
     }
 
     pub fn order(&self, other: &Self) -> Ordering {
@@ -148,7 +149,7 @@ impl Rank {
                 (Some(left), Some(right)) => left.total_cmp(&right),
                 _ => Ordering::Equal,
             })
-            .then(soonest(self).total_cmp(&soonest(other)))
+            .then(if self.grant || other.grant { soonest(self).total_cmp(&soonest(other)) } else { Ordering::Equal })
             .then(self.expiring.total_cmp(&other.expiring))
             .then(self.five_hour.total_cmp(&other.five_hour))
     }

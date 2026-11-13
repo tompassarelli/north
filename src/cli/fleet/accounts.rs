@@ -42,10 +42,7 @@ fn probe(fleet: &Fleet) -> NorthResult<()> {
 fn probe_client(fleet: &Fleet, label: &str) -> NorthResult<()> {
     let roster = fleet.roster();
     let claude = crate::fleet::model::ProviderName::new("claude");
-    let account = match roster.standing(&claude, label) {
-        crate::fleet::roster::Standing::Refused(refused) => refused.account.clone(),
-        _ => roster.account(&claude, label)?,
-    };
+    let account = roster.profile(&claude, label)?;
     if account.api.is_some() {
         return Err(NorthError::Usage(format!("{label} is an api account; `north fleet accounts --probe` re-judges its exhausted marks")));
     }

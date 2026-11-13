@@ -179,6 +179,10 @@ impl Fleet {
         self.runtimes.account(&state_dir(&self.home), &self.home, &self.policy, request)
     }
 
+    pub(crate) fn profile(&self, request: &LaunchRequest) -> NorthResult<Account> {
+        self.runtimes.profile(&state_dir(&self.home), &self.home, &self.policy, request)
+    }
+
     fn runtime(&self, record: &SessionRecord) -> NorthResult<Arc<dyn Runtime>> {
         self.runtimes.get(&record.provider)
     }

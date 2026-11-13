@@ -121,6 +121,14 @@ impl Roster {
         self.spent.iter().find(|spent| &spent.provider == provider && spent.label == label).map_or(Standing::Unknown, Standing::Spent)
     }
 
+    /// The account whose profile holds a session's conversation: one its client refused still has its conversation to carry off.
+    pub fn profile(&self, provider: &ProviderName, label: &str) -> NorthResult<Account> {
+        match self.standing(provider, label) {
+            Standing::Refused(refused) => Ok(refused.account.clone()),
+            _ => self.account(provider, label),
+        }
+    }
+
     pub fn account(&self, provider: &ProviderName, label: &str) -> NorthResult<Account> {
         match self.standing(provider, label) {
             Standing::Listed(account) => Ok(account.clone()),

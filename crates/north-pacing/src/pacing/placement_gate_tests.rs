@@ -287,7 +287,7 @@ fn a_replayed_coordinator_launch_reads_the_fable_meter_and_falls_back_to_opus_hi
 }
 
 #[test]
-fn the_declared_operational_reserve_is_never_offered_to_a_worker_and_an_account_at_99_percent_of_its_week_is_never_picked_beside_an_open_account() {
+fn the_declared_operational_reserve_is_never_offered_to_a_worker_and_neither_an_account_at_99_percent_of_its_week_nor_a_small_plan_resetting_sooner_is_picked_beside_a_roomy_account() {
     let cfg: DocumentMut = "[accounts.claude]\nreserve = [\"b\"]\n".parse().unwrap();
     let at = crate::foundation::clock::rfc3339_seconds("2026-10-19T00:00:00Z").unwrap();
     let listed = roster(&[("a", None), ("b", None)]);
@@ -310,6 +310,13 @@ fn the_declared_operational_reserve_is_never_offered_to_a_worker_and_an_account_
     }
     let only_spent = verdicts(&gate(&[("claude:a", week(99.0, "2026-10-19T02:00:00Z"))]), &listed);
     assert_eq!(target(&gate::decide(CODE_ONLY, &DocumentMut::new(), only_spent, (false, String::new()), &[], "here", false)), "claude:a");
+
+    let plans: DocumentMut = "[accounts.claude]\nplans = { a = \"ultra-10x\", e = \"max-5x\" }\n".parse().unwrap();
+    let roomy = json!([{"window": "week", "used_pct": 6.0, "resets_at": "2026-10-24T10:00:00Z"}]);
+    let small = json!([{"window": "5h", "used_pct": 80.0, "resets_at": "2026-10-19T03:00:00Z"}, {"window": "week", "used_pct": 72.0, "resets_at": "2026-10-23T11:00:00Z"}]);
+    let both = gate::verdicts(&gate(&[("claude:a", roomy), ("claude:e", small)]), &roster(&[("a", None), ("e", None)]), &Basis::new(&plans, at));
+    let drawn = gate::decide(CODE_ONLY, &plans, both, (false, String::new()), &[], "here", false);
+    assert_eq!(target(&drawn), "claude:a", "on 2026-11-13 dispatch drew the small plan e, resetting a day sooner, while a held 94% of a week twice e's size (north#259): {}", gate::summary(&drawn));
 }
 
 /// Opened by north#1054: the commit reviewer of 74aa9ca208 found that a grant with more than 2 dollars left counted as room above the subscription floor, so it was picked ahead of a plan account.

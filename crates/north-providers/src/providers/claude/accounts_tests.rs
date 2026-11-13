@@ -73,7 +73,7 @@ fn a_launch_on_the_api_pool_with_every_org_spent_is_refused_naming_each_org_and_
 }
 
 #[test]
-fn an_account_its_client_refused_is_not_offered_and_its_launch_refused_with_the_refusal_until_cleared() {
+fn an_account_its_client_refused_is_not_offered_and_its_launch_refused_with_the_refusal_until_cleared_though_its_conversation_still_carries_off() {
     let state = tempfile::tempdir().unwrap();
     profile(state.path(), "b", "account-b");
     profile(state.path(), "e", "account-e");
@@ -89,6 +89,7 @@ fn an_account_its_client_refused_is_not_offered_and_its_launch_refused_with_the_
         Err(NorthError::Refused(why)) => assert!(why.contains(text), "{why}"),
         other => panic!("launching the refused account was not refused: {other:?}"),
     }
+    assert_eq!(roster.profile(&claude, "b").ok().map(|account| account.label), Some("b".to_owned()), "on 2026-11-13 a revive onto claude:a could not carry a session off claude:e while e's client refused it");
     crate::fleet::refusals::clear(&marks, "b").unwrap();
     assert_eq!(labels(&discover(&claude, state.path(), &Profiles::default())).0, vec!["b", "e"]);
 }

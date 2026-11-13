@@ -64,10 +64,12 @@ the week points left across the accounts a host is signed in to and whose readin
 
 **Order.** Order decides only which source takes a worker. Placement ranks plan accounts and API grants
 earliest deadline first (`room::Rank`, north#723): first a source the fleet's measured burn could not use up
-before its deadline, then the soonest deadline (a plan's weekly reset while its week has room, a grant's
-expiry), then week room per plan unit per hour to reset, less `spend_worker_charge` for each box this run
-has placed on it, then five-hour room. `north fleet accounts --plan` prints the order with each source's
-reason. Order never refuses. An API grant ranks behind every plan account, whatever its deadline or a plan's spent
+before its deadline, then, when an API grant is compared, the soonest deadline (a plan's weekly reset while
+its week has room, a grant's expiry), then week room per plan unit per hour to reset, less
+`spend_worker_charge` for each box this run has placed on it, then five-hour room. Two plan accounts skip the
+reset term: on 2026-11-13 a small plan with a quarter of its week left, resetting a day sooner, drew the
+workers while a plan twice its weekly size with 94% of its week left sat idle (north#259).
+`north fleet accounts --plan` prints the order with each source's reason. Order never refuses. An API grant ranks behind every plan account, whatever its deadline or a plan's spent
 week, unless the owner sets `[accounts.claude] api_beside_plans = true`, which ranks grants beside the plan accounts
 by this same order (north#1054).
 

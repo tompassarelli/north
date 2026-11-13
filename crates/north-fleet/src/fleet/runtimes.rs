@@ -41,4 +41,12 @@ impl Runtimes {
             None => self.roster(state_root, home, policy).account(&request.provider, &request.account),
         }
     }
+
+    /// The account `request` names as the one holding its conversation, kept when its client refused it.
+    pub fn profile(&self, state_root: &Path, home: &Path, policy: &Path, request: &LaunchRequest) -> NorthResult<Account> {
+        match &request.machine {
+            Some(_) => self.account(state_root, home, policy, request),
+            None => self.roster(state_root, home, policy).profile(&request.provider, &request.account),
+        }
+    }
 }
