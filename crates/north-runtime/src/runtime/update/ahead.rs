@@ -2,10 +2,11 @@
 //! lane's candidate tree, a build host builds it, and the promotion installs it by the tree hash the landed commit
 //! carries instead of building the same tree again after the push. An artifact is kept under
 //! `runtime-artifacts/<tree>`: the runtime programs, the commit and the host they were built from and on, and when.
-//! Each request is a file under `runtime-artifacts/requests` named by its tree. Whoever holds the one build lock drains
-//! them in order, every lander candidate oldest first and then a queued lane's hand-in, so a candidate waits behind at
-//! most one hand-in build and no candidate gives way to a newer one; none builds on this host. Each artifact is about
-//! 86 MB and the newest three are kept.
+//! Each request is a file under `runtime-artifacts/requests` named by its tree. Each build host has one slot, a lock
+//! file here, and whoever holds a slot drains the requests in order, every lander candidate oldest first and then a
+//! queued lane's hand-in, taking each off the queue so no other slot builds it: requests build side by side, one per
+//! build host, and a candidate waits only while every build host is building; none builds on this host. Each artifact
+//! is about 86 MB and the newest nine are kept, since builds side by side end three at a time.
 use super::super::build_host;
 use super::super::failure::{Failure, failed};
 use super::super::layout::{self, BUILT_FROM, BUILT_HERE, BUILT_ON, Layout, PROGRAMS};
@@ -20,10 +21,11 @@ use std::process::Command;
 use std::time::Duration;
 
 const BUILT_AT: &str = "built-at";
-const BUILD_LOCK: &str = "build.lock";
+const BUILDING: &str = "building.lock";
 const REQUESTS: &str = "requests";
 const STALE_REQUEST: Duration = Duration::from_secs(24 * 60 * 60);
-const KEPT: usize = 3;
+const SLOT_POLL: Duration = Duration::from_secs(2);
+const KEPT: usize = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
@@ -113,9 +115,11 @@ fn withdraw(layout: &Layout, tree: &str) {
 }
 
 fn building(layout: &Layout, tree: &str) -> bool {
-    let artifacts = layout.artifacts();
-    let held = File::open(artifacts.join(BUILD_LOCK)).is_ok_and(|file| flock(&file, FlockOperation::NonBlockingLockShared).is_err());
-    held && artifacts.join(format!("{tree}.part")).is_dir()
+    File::open(staging(&layout.artifacts(), tree).join(BUILDING)).is_ok_and(|file| flock(&file, FlockOperation::NonBlockingLockShared).is_err())
+}
+
+fn staging(artifacts: &Path, tree: &str) -> PathBuf {
+    artifacts.join(format!("{tree}.part"))
 }
 
 /// Installs the artifact for `tree` as `runtime`, named for the landed commit `target`, when it is ready and the commit it was built from carries `tree`; whether it did.
@@ -186,24 +190,50 @@ pub(super) fn build(layout: &Layout, checkout: &Path, ask: &Ask) -> Result<(), F
     })
 }
 
-/// Files `ask` and drains every request in order under the one build lock. This host settles the fleet while people
-/// work on it, so it never builds the release itself: with no build host answering, or the chosen one failing, nothing
-/// is kept and the promotion of the landing has a build host build it.
+/// Files `ask`, then waits for a free build host slot and drains every request in order on that host, or ends once
+/// another slot took `ask` off the queue or a promotion withdrew it, so requests build side by side, one per build host,
+/// and each still waiting has a process waiting for a slot. This host settles the fleet while people work on it, so it
+/// never builds the release itself: with no build host answering, or every one failing, nothing is kept and the
+/// promotion of the landing has a build host build it.
 fn request(layout: &Layout, ask: &Ask, hosts: impl Fn() -> Vec<BuildHost>, mut build_on: impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<(), Failure> {
     if !layout::is_sha(&ask.tree) || !layout::is_sha(&ask.commit) {
         return Err(failed(64, "build-ahead needs a tree hash and a commit hash"));
     }
     let artifacts = layout.artifacts();
     file(&artifacts, ask)?;
-    let Some(_lock) = take(&artifacts.join(BUILD_LOCK)) else {
-        println!("north runtime build-ahead: could not lock {}; leaving tree {} to the next request", artifacts.display(), layout::short(&ask.tree));
-        return Ok(());
+    let answered = match build_host::answered(hosts()) {
+        Ok(answered) => answered,
+        Err(why) => {
+            withdraw(layout, &ask.tree);
+            println!("north runtime build-ahead: {why}; this host builds no release ahead, so the promotion of tree {} has a build host build it", layout::short(&ask.tree));
+            return Ok(());
+        }
     };
-    while let Some(next) = next(&artifacts) {
-        let _ = fs::remove_file(artifacts.join(REQUESTS).join(&next.tree));
-        built_ahead(layout, &artifacts, &next, &hosts, &mut build_on)?;
+    let mut announced = false;
+    loop {
+        if let Some((held, _slot)) = answered.iter().find_map(|host| slot(&artifacts, host).map(|slot| (host, slot))) {
+            while let Some(next) = claim(&artifacts) {
+                built_ahead(layout, &artifacts, &next, held, &answered, &mut build_on)?;
+            }
+            return Ok(());
+        }
+        if !artifacts.join(REQUESTS).join(&ask.tree).is_file() {
+            return Ok(());
+        }
+        if !announced {
+            println!("north runtime build-ahead: every build host is building ahead; tree {} waits for the first to come free", layout::short(&ask.tree));
+            announced = true;
+        }
+        std::thread::sleep(SLOT_POLL);
     }
-    Ok(())
+}
+
+/// The slot of build host `host`, when no other request is building on it: one build ahead per build host, since a
+/// build host runs one `north runtime build` at a time and a second would wait there instead of here.
+fn slot(artifacts: &Path, host: &BuildHost) -> Option<File> {
+    let name: String = host.name.chars().map(|char| if char.is_ascii_alphanumeric() || char == '-' { char } else { '_' }).collect();
+    let file = File::create(artifacts.join(format!("build-{name}.lock"))).ok()?;
+    flock(&file, FlockOperation::NonBlockingLockExclusive).ok().map(|()| file)
 }
 
 /// Writes the request file named by the validated tree hash alone; a hand-in replaces the older hand-in of its lane, so
@@ -266,23 +296,32 @@ impl Filed {
     }
 }
 
-/// The request built next: the oldest candidate, else the oldest hand-in, so a candidate waits behind at most the one
-/// hand-in build already running.
-fn next(artifacts: &Path) -> Option<Ask> {
-    filed(artifacts).into_iter().min_by_key(|(_, filed)| (filed.kind == Kind::HandIn, filed.at)).map(|(tree, filed)| Ask { tree, commit: filed.commit, kind: filed.kind, lane: filed.lane })
+/// The request built next, taken off the queue so no other slot builds it: the oldest candidate, else the oldest
+/// hand-in, so a candidate waits only while every build host is building.
+fn claim(artifacts: &Path) -> Option<Ask> {
+    loop {
+        let (tree, filed) = filed(artifacts).into_iter().min_by_key(|(_, filed)| (filed.kind == Kind::HandIn, filed.at))?;
+        match fs::remove_file(artifacts.join(REQUESTS).join(&tree)) {
+            Ok(()) => return Some(Ask { tree, commit: filed.commit, kind: filed.kind, lane: filed.lane }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return None,
+        }
+    }
 }
 
-fn built_ahead(layout: &Layout, artifacts: &Path, ask: &Ask, hosts: &impl Fn() -> Vec<BuildHost>, build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<(), Failure> {
+fn built_ahead(layout: &Layout, artifacts: &Path, ask: &Ask, held: &BuildHost, answered: &[BuildHost], build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<(), Failure> {
     let (tree, commit) = (ask.tree.as_str(), ask.commit.as_str());
     if ready(layout, tree).is_some() {
         println!("north runtime build-ahead: tree {} is ready already", layout::short(tree));
         return Ok(());
     }
-    let staging = artifacts.join(format!("{tree}.part"));
+    let staging = staging(artifacts, tree);
     let _ = fs::remove_dir_all(&staging);
     fs::create_dir_all(&staging)?;
+    let building = File::create(staging.join(BUILDING))?;
+    flock(&building, FlockOperation::NonBlockingLockExclusive).map_err(std::io::Error::from)?;
     let taken = staging.join(commit);
-    let kept = build_host::build(commit, &taken, hosts(), &mut *build_on).and_then(|built| keep(&taken, &artifacts.join(tree)).map(|()| built).map_err(|error| format!("could not keep the build under {}: {error}", artifacts.display())));
+    let kept = built_on_a_slot(artifacts, commit, &taken, held, answered, build_on).and_then(|built| keep(&taken, &artifacts.join(tree)).map(|()| built).map_err(|error| format!("could not keep the build under {}: {error}", artifacts.display())));
     let _ = fs::remove_dir_all(&staging);
     match kept {
         Ok(built) => {
@@ -339,15 +378,25 @@ fn prune(artifacts: &Path) {
     }
 }
 
-/// Takes the one build-ahead slot, waiting behind an older request: a lane's artifact is worth a later build, and a
-/// request that gave up would leave its tree unbuilt with no later request for it.
-fn take(lock: &Path) -> Option<File> {
-    let file = File::create(lock).ok()?;
-    if flock(&file, FlockOperation::NonBlockingLockExclusive).is_ok() {
-        return Some(file);
+/// Builds `commit` on the build host whose slot is held, then, while one fails, on each other build host that answered
+/// and whose slot is free, so one build host's failure leaves the tree to another, never two builds on one host.
+fn built_on_a_slot(artifacts: &Path, commit: &str, taken: &Path, held: &BuildHost, answered: &[BuildHost], build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<build_host::Built, String> {
+    let mut refused = Vec::new();
+    for host in std::iter::once(held).chain(answered.iter().filter(|host| host.name != held.name)) {
+        let _slot = match host.name == held.name {
+            true => None,
+            false => match slot(artifacts, host) {
+                Some(slot) => Some(slot),
+                None => continue,
+            },
+        };
+        println!("north runtime: building {} on {}, a build host with no build ahead running ({:.0} free cores)", layout::short(commit), host.name, host.free_cpus.unwrap_or_default());
+        match build_host::take(host, commit, taken, build_on) {
+            Ok(built) => return Ok(built),
+            Err(why) => refused.push(why),
+        }
     }
-    println!("north runtime build-ahead: waiting for the release build ahead already running");
-    flock(&file, FlockOperation::LockExclusive).ok().map(|()| file)
+    Err(refused.join("; "))
 }
 
 #[cfg(test)]
@@ -405,7 +454,7 @@ mod tests {
         let ask = |tree: &str, commit: &str, kind, lane: &str| Ask { tree: tree.to_owned(), commit: commit.to_owned(), kind, lane: lane.to_owned() };
         assert!(request(&layout, &ask(&tree, &commit, Kind::Candidate, ""), || vec![host("cpx62", None), host("gex45", None)], unbuilt).is_ok(), "with no build host answering the request ends clean");
         let left: Vec<_> = fs::read_dir(layout.artifacts()).unwrap().flatten().map(|entry| entry.file_name()).collect();
-        assert!(left.iter().all(|name| name == BUILD_LOCK || name == REQUESTS), "and it built nothing here: the promotion has a build host build the tree");
+        assert!(left.iter().all(|name| name == REQUESTS), "and it built nothing here: the promotion has a build host build the tree");
         assert!(filed(&layout.artifacts()).is_empty(), "a request that found no build host is drained, not left to block the next");
         file(&layout.artifacts(), &ask(&tree, &commit, Kind::Candidate, "")).unwrap();
         assert!(!awaited(&layout, &tree), "a request still queued is not waited for, and a promotion that builds the tree itself withdraws it");
@@ -436,5 +485,20 @@ mod tests {
         assert!(super::adopt(&layout, &runtime, &tree, &landed, |built: &str| (built == commit).then(|| tree.clone())));
         assert!(fs::read_to_string(runtime.join(BUILT_ON)).unwrap().starts_with("cpx62 ") && !runtime.join(BUILT_HERE).exists(), "the promoted runtime says which host built it");
         assert_eq!(layout::built_from_own_commit(&runtime), Ok(()));
+
+        let busy = slot(&artifacts, &host("cpx62", Some(12.0))).expect("cpx62's slot is free once its drain ended");
+        let (beside, beside_commit) = ("5".repeat(40), "6".repeat(40));
+        let mut beside_on = Vec::new();
+        let beside_built = |host: &BuildHost, commit: &str, into: &Path| -> Result<(), Failure> {
+            beside_on.push(host.name.clone());
+            fs::create_dir_all(into)?;
+            for program in PROGRAMS {
+                fs::write(into.join(program), "north")?;
+            }
+            Ok(layout::stamp(into, commit)?)
+        };
+        request(&layout, &ask(&beside, &beside_commit, Kind::HandIn, "h-lane"), || vec![host("gex45", Some(4.0)), host("cpx62", Some(12.0))], beside_built).unwrap();
+        drop(busy);
+        assert_eq!(beside_on, ["gex45"], "a request filed while a build ahead holds one build host's slot builds beside it on another build host, never queued behind it");
     }
 }

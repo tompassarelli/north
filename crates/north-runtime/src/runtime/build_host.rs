@@ -19,7 +19,7 @@ pub(super) struct Built {
 }
 
 /// The build hosts that answered, most free cores first, else each host's reason.
-fn answered(hosts: Vec<BuildHost>) -> Result<Vec<BuildHost>, String> {
+pub(super) fn answered(hosts: Vec<BuildHost>) -> Result<Vec<BuildHost>, String> {
     if hosts.is_empty() {
         return Err("this host reaches no build host".to_owned());
     }
@@ -47,7 +47,7 @@ pub(super) fn build(target: &str, runtime: &Path, hosts: Vec<BuildHost>, mut bui
     Err(refused.join("; "))
 }
 
-fn take(host: &BuildHost, target: &str, runtime: &Path, build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<Built, String> {
+pub(super) fn take(host: &BuildHost, target: &str, runtime: &Path, build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<Built, String> {
     let short = layout::short(target);
     let started = Instant::now();
     let taken = build_on(host, target, runtime).map_err(|failure| failure.message).and_then(|()| layout::built_from_own_commit(runtime));
