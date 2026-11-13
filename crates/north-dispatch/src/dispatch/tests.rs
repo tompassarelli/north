@@ -95,6 +95,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         open,
         holds: BTreeMap::new(),
         box_holds: BTreeMap::new(),
+        predicted: BTreeMap::new(),
         box_tries: BTreeMap::new(),
         mainline: super::retired::Mainline::default(),
         live: BTreeSet::new(),
@@ -289,7 +290,7 @@ fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_on
 
 /// north#835: on 2026-11-08 merging issues left 14 open boxes on north#719 and 28 on north#706, run one at a time; north-740-d1801 spent a first try on a box whose window over readings had not passed, which its `(not before ...)` stamp now holds.
 #[test]
-fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_and_a_windowed_box_wait() {
+fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_a_windowed_and_a_predicted_write_hotspots_box_wait() {
     let (_, accounts) = fleet();
     let hosts = vec![host("gex45", 24, Ok(0))];
     let first = "the claims replay in `crates/north-fleet/src/fleet/claims.rs` passes";
@@ -306,6 +307,16 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_and_a_wind
     assert!(held.len() == 1 && held[0].contains("box `the ready list") && held[0].contains("both name crates/north-dispatch/src/dispatch"), "{held:?}");
     let tried = surveyed(&[first]);
     assert_eq!(boxes(&tried).len(), 2, "a box tried twice waits for the proxy alone, and its issue's other boxes still launch: {:?}", tried.skipped);
+    let predicting = |body: &str| {
+        let mut survey = survey(vec![issue("north", 835, body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
+        survey.predicted.insert("fleet session north-900-x on nexus".into(), vec!["crates/north-fleet/src/fleet/claims.rs".into()]);
+        decide(&survey, "test")
+    };
+    let predicted = predicting(&body);
+    assert_eq!(boxes(&predicted).len(), 2, "a box naming a running session's predicted write waits while the others launch: {:?}", predicted.skipped);
+    assert!(predicted.skipped.iter().any(|(_, why)| why.contains("held for fleet session north-900-x on nexus: predicted write set names crates/north-fleet/src/fleet/claims.rs")), "{:?}", predicted.skipped);
+    let alone = predicting(&format!("- [ ] {first}"));
+    assert_eq!(boxes(&alone), [first], "a box held only by a predicted write launches when nothing else is ready: {:?}", alone.skipped);
 }
 
 #[test]

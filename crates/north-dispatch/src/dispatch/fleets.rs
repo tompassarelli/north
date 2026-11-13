@@ -33,6 +33,8 @@ pub struct Session {
     pub account: Option<String>,
     /// Whether it is a Claude worker rather than the proxy or a DeepSeek harness worker, which the spend view reports as working.
     pub worker: bool,
+    /// The files its launch predicted it would write, for a brief that named none.
+    pub predicted: Vec<String>,
 }
 
 /// The issues a session's name starts with: `sc-277-d1435` holds makgora#277 and
@@ -98,7 +100,7 @@ pub fn running_sessions(listing: &Value) -> Vec<Session> {
             };
             let tasked: Vec<IssueRef> = issues::references(&task_text, "").into_iter().filter(|item| !item.repo.is_empty()).collect();
             let items = if tasked.is_empty() { named_items(&name) } else { tasked };
-            Session { claim_box: session["box"].as_str().map(str::to_owned), machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session), worker: session["role"] != "proxy" && session["provider"] == "claude" }
+            Session { claim_box: session["box"].as_str().map(str::to_owned), machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session), worker: session["role"] != "proxy" && session["provider"] == "claude", predicted: session["predicted"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect() }
         })
         .collect()
 }
@@ -157,6 +159,11 @@ pub fn tally(sessions: &[(Session, String)]) -> (BTreeMap<String, i64>, BTreeMap
         }
     }
     (elsewhere, holds)
+}
+
+/// The files each running session predicted it would write, by the holder text its claims carry.
+pub fn predicted_writes(sessions: &[(Session, String)]) -> BTreeMap<String, Vec<String>> {
+    sessions.iter().filter(|(session, _)| !session.predicted.is_empty()).map(|(session, registry)| (format!("fleet session {} on {registry}", session.name), session.predicted.clone())).collect()
 }
 
 /// The boxes the running sessions work, by item and box slug, which an issue's per-issue cap counts.

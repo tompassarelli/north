@@ -61,6 +61,7 @@ impl Fleet {
             machine: record.machine.as_ref().map(|machine| machine.name.clone()),
             tasks: record.tasks().map(str::to_owned).collect(),
             conversation: record.conversation.clone(),
+            predicted: record.predicted.as_ref().map(|predicted| predicted.writes.clone()).unwrap_or_default(),
         }
     }
 }

@@ -124,6 +124,7 @@ mod tests {
                 machine: None,
                 tasks: Vec::new(),
                 conversation: None,
+                predicted: Vec::new(),
             }])
             .unwrap();
 

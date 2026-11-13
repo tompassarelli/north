@@ -45,6 +45,8 @@ pub struct Survey {
     pub holds: BTreeMap<IssueRef, String>,
     /// The boxes workers hold, by box slug; they hold a box, not the issue.
     pub box_holds: record::BoxHolds,
+    /// The files running sessions predicted they would write, by holder; a box naming one waits unless nothing else is ready.
+    pub predicted: BTreeMap<String, Vec<String>>,
     /// The open boxes dispatch tried twice in a day without ticking, by box slug, which wait for the proxy and count toward no cap.
     pub box_tries: record::BoxHolds,
     /// The CLI verbs and deleted paths of origin/main, which hold a box whose check names one it no longer has.
@@ -450,6 +452,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let records = record::read(&record::directory());
     let stopped_sessions = fleets::stopped_names(&fleet_lists);
     holds.extend(claim_lists.iter().flat_map(|(host, listing)| claim_rows(listing, host, &stopped_sessions)));
+    let predicted = fleets::predicted_writes(&sessions);
     let mut box_holds = fleets::box_tally(&sessions);
     for (item, slug, why) in claim_lists.iter().flat_map(|(host, listing)| claim_box_rows(listing, host, &stopped_sessions)) {
         box_holds.entry(item).or_default().entry(slug).or_insert(why);
@@ -511,7 +514,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     });
     let deepseek = super::deepseek::Seen::read(&cfg, &here, laptop.as_deref(), &fleet_lists, &laptop_reports, &records, &issues, at, &mut notes);
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, box_tries, mainline, live, listed, cloud, laptop, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, deepseek, learned, at })
+    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, predicted, box_tries, mainline, live, listed, cloud, laptop, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, deepseek, learned, at })
 }
 
 pub(super) mod github;

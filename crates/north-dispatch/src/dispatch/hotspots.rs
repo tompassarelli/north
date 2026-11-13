@@ -11,12 +11,22 @@ static PATH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_.-]+(?:
 #[derive(Default)]
 pub struct Claims {
     held: Vec<(String, String)>,
+    predicted: Vec<(String, String)>,
 }
 
 impl Claims {
     /// The first of `paths` that overlaps a held path, one being the other or inside it, with its holder.
     pub fn conflict(&self, paths: &[String]) -> Option<(String, &str)> {
         paths.iter().find_map(|path| self.held.iter().find(|(held, _)| overlaps(path, held)).map(|(_, holder)| (path.clone(), holder.as_str())))
+    }
+
+    /// The first of `paths` that overlaps a predicted write of a running session, with that session.
+    pub fn predicted_conflict(&self, paths: &[String]) -> Option<(String, &str)> {
+        paths.iter().find_map(|path| self.predicted.iter().find(|(held, _)| overlaps(path, held)).map(|(_, holder)| (path.clone(), holder.as_str())))
+    }
+
+    pub fn take_predicted(&mut self, paths: &[String], holder: &str) {
+        self.predicted.extend(paths.iter().map(|path| (path.clone(), holder.to_owned())));
     }
 
     pub fn take(&mut self, paths: &[String], holder: &str) {
@@ -26,6 +36,10 @@ impl Claims {
 
 pub fn hold_reason(path: &str, holder: &str) -> String {
     format!("held for {holder}: both name {path}, and two lanes never edit one module at once")
+}
+
+pub fn predicted_reason(path: &str, holder: &str) -> String {
+    format!("held for {holder}: predicted write set names {path}")
 }
 
 /// The paths the box `box_text` of `issue` names, else those its issue's `Files:` line names; the whole issue's when no box is named.

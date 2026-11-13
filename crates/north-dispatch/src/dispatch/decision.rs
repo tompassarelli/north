@@ -49,8 +49,23 @@ fn revive_step(survey: &Survey, step: &super::revive::Step, dry_run: bool, stand
 }
 
 pub(super) fn decide_leaving(survey: &Survey, launched_by: &str) -> (Outcome, Pools) {
+    let (outcome, pools, deferred) = place_all(survey, launched_by, true);
+    if deferred && outcome.launches.is_empty() {
+        let (outcome, pools, _) = place_all(survey, launched_by, false);
+        return (outcome, pools);
+    }
+    (outcome, pools)
+}
+
+/// One placing pass; `hold_predicted` makes a box that overlaps only a running session's predicted writes wait, and the last value says whether one did.
+fn place_all(survey: &Survey, launched_by: &str, hold_predicted: bool) -> (Outcome, Pools, bool) {
     let scope = Scope::parse(&survey.cfg);
     let mut staffing = Staffing::new(survey);
+    if hold_predicted {
+        for (holder, paths) in &survey.predicted {
+            staffing.claims.take_predicted(paths, holder);
+        }
+    }
     let planned = issues::planned_predecessors(&survey.issues);
     let capacity = Capacity { accounts: &survey.accounts, charge: survey.rules.charge, ceiling: survey.rules.money_ceiling, claude_sessions: survey.rules.claude_sessions, spend: &survey.spend, scope: &scope };
     let revival = super::revive::plan(&super::revive::Inputs { strands: &survey.strands, saturated: &survey.saturated, revived: &survey.revived }, &capacity, &mut staffing.pools);
@@ -64,20 +79,21 @@ pub(super) fn decide_leaving(survey: &Survey, launched_by: &str) -> (Outcome, Po
     for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
         stage_issue(&round, issue, &mut staffing);
     }
-    (staffing.outcome, staffing.pools)
+    (staffing.outcome, staffing.pools, staffing.deferred)
 }
 
 struct Staffing {
     outcome: Outcome,
     pools: Pools,
     claims: hotspots::Claims,
+    deferred: bool,
 }
 
 impl Staffing {
     fn new(survey: &Survey) -> Self {
         let pools = Pools::new(&survey.hosts, &survey.accounts);
         let outcome = Outcome { free: pools.total(), ..Outcome::default() };
-        Self { outcome, pools, claims: hotspots::Claims::default() }
+        Self { outcome, pools, claims: hotspots::Claims::default(), deferred: false }
     }
 }
 
@@ -130,6 +146,11 @@ fn place_box(round: &Round, issue: &Issue, reference: &IssueRef, box_text: Optio
     let named = box_text.map_or_else(String::new, |text| format!("box `{text}` "));
     if let Some((path, holder)) = staffing.claims.conflict(&paths) {
         staffing.outcome.skipped.push((reference.clone(), format!("ready, not placed: {named}{}", hotspots::hold_reason(&path, holder))));
+        return Placed::Passed;
+    }
+    if let Some((path, holder)) = staffing.claims.predicted_conflict(&paths) {
+        staffing.deferred = true;
+        staffing.outcome.skipped.push((reference.clone(), format!("ready, not placed: {named}{}", hotspots::predicted_reason(&path, holder))));
         return Placed::Passed;
     }
     let (route, brief) = match screen::written(round.survey, issue, round.launched_by, box_text) {
