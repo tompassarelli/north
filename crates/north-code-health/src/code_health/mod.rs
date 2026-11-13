@@ -31,6 +31,7 @@ mod layers;
 pub use layers::{Placement, placement};
 mod report;
 mod resolver;
+mod rust_lines;
 mod rust_modules;
 mod rust_text;
 mod signal;

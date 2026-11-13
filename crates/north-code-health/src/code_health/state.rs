@@ -39,6 +39,10 @@ impl State {
         self.root.join("code-health").join(self.repo_name(repo))
     }
 
+    pub(super) fn rust_line_cache(&self) -> PathBuf {
+        self.root.join("code-health").join("rust-lines")
+    }
+
     pub(super) fn baseline(&self, repo: &Path) -> Option<serde_json::Value> {
         std::fs::read_to_string(self.directory(repo).join("baseline.json")).ok().and_then(|text| serde_json::from_str(&text).ok())
     }

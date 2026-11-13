@@ -92,6 +92,41 @@ fn a_moved_file_counts_only_the_lines_its_move_changed_so_a_crate_split_does_not
 
 const TWO_MODULES: &str = "[review]\ncommits = 0\nhand_lines_added = 0\ntest_lines_changed = 0\ndays = 0\nhidden_links = 1\n\n[[module]]\nname = \"left\"\npaths = [\"src/left/**\"]\n\n[[module]]\nname = \"right\"\npaths = [\"src/right/**\"]\n";
 
+const WRAPPED_ON_ONE_LINE: &str = r#"pub fn add(a: u32, b: u32) -> u32 { a + b }
+pub fn scaled(values: &[u32]) -> Vec<u32> { values.iter().map(|value| value * 2).filter(|value| *value > 4).collect() }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn adds() {
+        assert_eq!(add(1, 2), 3);
+    }
+}
+"#;
+
+const WRAPPED_BY_HAND: &str = r#"pub fn add(
+    a: u32,
+    b: u32,
+) -> u32 {
+    a + b
+}
+pub fn scaled(values: &[u32]) -> Vec<u32> {
+    values
+        .iter()
+        .map(|value| value * 2)
+        .filter(|value| *value > 4)
+        .collect()
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn adds() {
+        assert_eq!(add(1, 2), 3);
+    }
+}
+"#;
+
 #[test]
 fn changes_since_review_fire_on_a_hidden_link_show_in_the_budget_and_record_files_per_commit_and_the_reverted_share() {
     let repo = scratch(
@@ -121,6 +156,16 @@ fn changes_since_review_fire_on_a_hidden_link_show_in_the_budget_and_record_file
     let score = std::fs::read_to_string(repo.state.join("code-health").join(name).join("loop.txt")).unwrap();
     assert!(score.starts_with("median 2 hand files per feature commit over 5 feature commits since review "), "{score}");
     assert!(score.trim_end().ends_with(", 1 reworked (20.0%)"), "{score}");
+    let counted = |repo: &Repo| -> usize {
+        let (code, out, err) = repo.north(&["budget"]);
+        assert_eq!((code, err.as_str()), (0, ""));
+        out.strip_prefix("Rust line budget: ").and_then(|rest| rest.split(' ').next()).and_then(|count| count.parse().ok()).expect("the budget counts Rust lines")
+    };
+    repo.commit(&[("tools/wrap.rs", WRAPPED_ON_ONE_LINE.to_owned()), ("tools/evals/run.rs", "x\n".repeat(50))]);
+    let one_line = counted(&repo);
+    repo.commit(&[("tools/wrap.rs", WRAPPED_BY_HAND.to_owned())]);
+    assert_eq!(counted(&repo), one_line);
+    assert_eq!(one_line, 3 + 10, "lib.rs keeps its 3 raw lines; the wrapped file formats to 10 without its inline test module, and the evals runner is left out");
 }
 
 #[test]

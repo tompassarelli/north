@@ -2,8 +2,8 @@ use super::change_cost::ChangeCost;
 use super::config::Config;
 use super::coupling::{Coupling, VOLATILE_MIN_COMMITS, VOLATILITY_RATIO, coupling};
 use super::crate_lines;
+use super::rust_lines;
 use super::signal::{cost_line, cost_since_review};
-use super::snapshot::git;
 use super::state::State;
 use regex::Regex;
 use serde::Serialize;
@@ -15,6 +15,7 @@ const DEFAULTS: &str = "harness/defaults.toml";
 const RUST_LINE_BUDGET_KEY: &str = "rust_line_budget";
 
 static TEST_PATH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(^|/)(tests?\.rs|[a-z_]*_tests?\.rs|tests/)").expect("test path pattern"));
+static EVALS_PATH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(^|/)evals/").expect("evals path pattern"));
 
 #[derive(Serialize)]
 pub(super) struct RustLines {
@@ -33,14 +34,14 @@ pub(super) struct Budget {
 
 pub(super) fn budget(state: &State, repo: &Path, rev: &str, config: &Config) -> Result<Budget, String> {
     let (since, change_cost) = cost_since_review(state, repo, rev, config)?;
-    let rust_lines = measure_rust_lines(repo, rev)?;
+    let rust_lines = measure_rust_lines(state, repo, rev)?;
     Ok(Budget { rust_lines, crates: crate_lines::lines_at(repo, rev)?, coupling: coupling(repo, rev, config)?, since, change_cost })
 }
 
-fn measure_rust_lines(repo: &Path, rev: &str) -> Result<Option<RustLines>, String> {
+fn measure_rust_lines(state: &State, repo: &Path, rev: &str) -> Result<Option<RustLines>, String> {
     let Some(budget) = read_tunable(repo)? else { return Ok(None) };
-    let listing = git(repo, &["grep", "-c", "", rev, "--", "*.rs"])?;
-    Ok(Some(RustLines { lines: product_lines(&listing)?, budget }))
+    let lines = rust_lines::count(&state.rust_line_cache(), repo, rev, |path| !EVALS_PATH.is_match(path) && !TEST_PATH.is_match(path))?;
+    Ok(Some(RustLines { lines, budget }))
 }
 
 fn read_tunable(repo: &Path) -> Result<Option<usize>, String> {
@@ -55,17 +56,6 @@ fn parse_tunable(defaults: &str) -> Result<Option<usize>, String> {
     let document: DocumentMut = defaults.parse().map_err(|error| format!("{DEFAULTS} does not parse: {error}"))?;
     let Some(value) = document.get(RUST_LINE_BUDGET_KEY).and_then(|table| table.get("value")) else { return Ok(None) };
     value.as_integer().and_then(|value| usize::try_from(value).ok()).map(Some).ok_or_else(|| format!("{DEFAULTS} has no whole number for {RUST_LINE_BUDGET_KEY}"))
-}
-
-fn product_lines(listing: &str) -> Result<usize, String> {
-    listing
-        .lines()
-        .try_fold(0, |total, line| {
-            let (location, count) = line.rsplit_once(':').ok_or_else(|| format!("unreadable count line: {line}"))?;
-            let path = location.split_once(':').map_or(location, |(_, path)| path);
-            let lines: usize = count.parse().map_err(|error| format!("unreadable count in {line}: {error}"))?;
-            Ok(if TEST_PATH.is_match(path) { total } else { total + lines })
-        })
 }
 
 fn rust_line_budget_line(rust: &RustLines) -> String {

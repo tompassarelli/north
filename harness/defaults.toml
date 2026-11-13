@@ -1768,10 +1768,10 @@ fallback = "none: agent-config-check refuses a help.txt over it"
 consumers = ["crates/north-core/src/agent_config_check/help_surface.rs"]
 
 [rust_line_budget]
-value = 283336
+value = 413523
 allowed = { min = 1, max = 1000000 }
-unit = "non-test Rust lines: the lines of every tracked *.rs file whose path the count command keeps, `git ls-files '*.rs' | rg -v '(^|/)(tests?\\.rs|[a-z_]*_tests?\\.rs|tests/)' | xargs cat | wc -l` (inline #[cfg(test)] modules and evals/ stay in the count; code-health reads the same lines through `git grep -c`, which also counts an unterminated last line)"
-source = "north#1276 sets rust_line_budget at 283336, the count at d30fdb501d (238565 at 123532ca3e and 292705 at e5e5543a95 by the same rule; 282178 at 123532ca3e is every Rust line, tests included); the 2026-11-12 line-audit review keeps it as the alarm, and north#729 means no lane is refused for size"
+unit = "non-test Rust lines in a stable unit: for every tracked *.rs file outside evals/ and the test paths (`(^|/)(tests?\\.rs|[a-z_]*_tests?\\.rs|tests/)`), the lines left after its inline #[cfg(test)] mod blocks are cut and the rest is formatted with `rustfmt --edition 2024 --emit stdout` at its default width (a file that does not format counts as read), so wrapping does not move the count; code-health reads it through `north code-health budget`, cached by blob id"
+source = "north#1276 sets rust_line_budget at 413523, the count at 16d8df3491 under the stable unit (297253 at 16d8df3491 under the former git-grep unit, which kept evals/ and inline test modules; 283336 at d30fdb501d under that unit; 238565 at 123532ca3e and 292705 at e5e5543a95 by the same rule); the rise is rustfmt's default width re-wrapping lines the repository keeps wider; the 2026-11-12 line-audit review keeps it as the alarm, and north#729 means no lane is refused for size"
 fallback = "none: north code-health budget reports the excess; no lane is refused for size (north#729)"
 consumers = ["crates/north-code-health/src/code_health/budget.rs"]
 
