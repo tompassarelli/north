@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use std::sync::Barrier;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::catalog_init::initial_catalog;
+use super::catalog_init::catalog_from;
 use super::owner_modules::STRUCTURE_FILE;
 use super::registration_checks::{OwnerCheckRoots, canonical, check_owner_files, git_text};
 use crate::error::NorthResult;
@@ -46,7 +46,7 @@ fn checked_init(structure: &str) -> NorthResult<()> {
     git(scratch.path(), &["init", "-q", "-b", "main", north.to_str().expect("utf-8")]);
     git(&north, &["add", "."]);
     git(&north, &["commit", "-q", "-m", "fixture"]);
-    let mut catalog = initial_catalog("[[registered]]\nid = \"skill.a\"\npath = \"harness/skills/a/SKILL.md\"\n")?;
+    let mut catalog = catalog_from("[[registered]]\nid = \"skill.a\"\npath = \"harness/skills/a/SKILL.md\"\n", "")?;
     let mut keys: Vec<_> = catalog.as_object().expect("object").keys().cloned().collect();
     keys.sort();
     assert_eq!(keys, ["$schema", "activation", "baselines", "providerSupport", "registrations", "role", "rootOrder", "schema"]);

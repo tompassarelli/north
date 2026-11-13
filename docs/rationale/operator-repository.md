@@ -90,7 +90,7 @@ Three kinds hold method a newcomer would value and cannot be classed from paths 
 
 - A newcomer with no operator checkout lands unscanned: the deny-list and the judge warn and pass (`crates/north-land-scans/src/outgoing/denylist.rs:185`, `:205`). A template that writes starter lists protects them from the first landing.
 - `agents sync` refreshes three checkouts in order, the operator's, north's and the machine-configuration repository's, and publishes nothing when one cannot be fetched (`crates/north-core/src/catalog/sync_gate.rs:44` to `:47`, `:160`). A newcomer does not have the third, and a repository made a minute ago has no origin to fetch.
-- The catalog's `$schema` names a file north does not hold.
+- The catalog's `$schema` names `north:agent-catalog/catalog-config.schema.json`, and north holds that schema at `harness/agent-catalog/catalog-config.schema.json` (its `$id` is the same name); init now also names every guard unit the guard code asks for, which the owner check requires.
 - North already holds synthetic copies of two of the 15 schema files as test fixtures (`harness/lib/fixtures/orchestration.toml`, `harness/lib/fixtures/costs.toml`), so init starts from shapes the tests already exercise.
 - North's own skills and docs point into the operator repository 31 times at 14 distinct places, and [docs/onboarding.md](../onboarding.md) is the install page. Those belong to the docs boxes and the privacy sweep of north#1281.
 

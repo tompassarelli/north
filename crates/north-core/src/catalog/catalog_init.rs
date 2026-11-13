@@ -1,10 +1,21 @@
+use std::fs;
+use std::path::Path;
+
 use serde_json::{Map, Value, json};
 
 use crate::error::{NorthError, NorthResult};
 
+use super::guard_ids::{PATTERN, guard_ids_asked};
 use super::owner_modules::STRUCTURE_FILE;
+use super::registration_checks::git_text;
 
-pub fn initial_catalog(structure: &str) -> NorthResult<Value> {
+pub fn initial_catalog(north: &Path) -> NorthResult<Value> {
+    let structure = fs::read_to_string(north.join(STRUCTURE_FILE))?;
+    let guard_sources = git_text(north, &["grep", "-n", "-E", PATTERN, "--", "crates", "src"])?;
+    catalog_from(&structure, &guard_sources)
+}
+
+pub(super) fn catalog_from(structure: &str, guard_sources: &str) -> NorthResult<Value> {
     let document = structure
         .parse::<toml_edit::DocumentMut>()
         .map_err(|error| NorthError::Configuration(format!("{STRUCTURE_FILE} does not parse: {error}")))?;
@@ -20,10 +31,11 @@ pub fn initial_catalog(structure: &str) -> NorthResult<Value> {
         .iter()
         .map(|id| ((*id).to_owned(), json!({"kind": "skill", "category": "uncategorized", "owner": {"repo": "north", "module": id}})))
         .collect();
-    let activation: Map<String, Value> = ids
+    let mut activation: Map<String, Value> = ids
         .iter()
         .map(|id| ((*id).to_owned(), json!({"distributions": [{"type": "skill", "targets": ["shared"]}]})))
         .collect();
+    activation.extend(guard_ids_asked(guard_sources, "").into_iter().map(|id| (id, json!({"distributions": []}))));
     Ok(json!({
         "$schema": "north:agent-catalog/catalog-config.schema.json",
         "schema": "north.agent-catalog-config/v1",

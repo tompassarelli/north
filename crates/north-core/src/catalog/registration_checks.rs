@@ -409,8 +409,10 @@ impl OwnerCheckRoots {
         let canonical_root = canonical(root)?;
         let reference = if canonical_root == current_root {
             current_head.to_owned()
-        } else {
+        } else if git_output(root, &["remote", "get-url", "origin"]).is_ok() {
             fetch_main(root)?
+        } else {
+            git_text(root, &["rev-parse", "HEAD"])?
         };
         Ok((root.clone(), reference))
     }

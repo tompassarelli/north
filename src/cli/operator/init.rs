@@ -1,6 +1,7 @@
 //! `north config operator init DIR`: writes a working operator repository of synthetic values, with the catalog generated from north's `structure.toml`.
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 use north_core::agent_catalog::initial_catalog;
 
@@ -38,8 +39,7 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
 
 fn render() -> NorthResult<Vec<(String, String)>> {
     let north = harness::harness_root().map_err(NorthError::Configuration)?;
-    let structure = fs::read_to_string(north.join("structure.toml"))?;
-    let catalog = serde_json::to_string_pretty(&initial_catalog(&structure)?)? + "\n";
+    let catalog = serde_json::to_string_pretty(&initial_catalog(&north)?)? + "\n";
     Ok(TEMPLATE.iter().copied().chain([("agents/catalog-config.json", catalog.as_str())]).map(|(relative, content)| (relative.to_string(), content.to_string())).collect())
 }
 
@@ -53,8 +53,23 @@ fn write(directory: &Path) -> NorthResult<()> {
         fs::create_dir_all(path.parent().unwrap_or(directory))?;
         fs::write(&path, content)?;
     }
+    commit_first_revision(directory)?;
     println!("wrote {} files under {}", files.len(), directory.display());
     Ok(())
+}
+
+fn commit_first_revision(directory: &Path) -> NorthResult<()> {
+    git(directory, &["init", "-q", "-b", "main"])?;
+    git(directory, &["add", "--all"])?;
+    git(directory, &["-c", "user.name=north", "-c", "user.email=north@localhost", "commit", "-q", "-m", "Initial operator repository"])
+}
+
+fn git(directory: &Path, arguments: &[&str]) -> NorthResult<()> {
+    let status = Command::new("git").arg("-C").arg(directory).args(arguments).status()?;
+    if status.success() {
+        return Ok(());
+    }
+    Err(NorthError::Configuration(format!("git {} failed in {}", arguments.join(" "), directory.display())))
 }
 
 fn check(directory: &Path) -> NorthResult<()> {
@@ -80,6 +95,9 @@ fn check(directory: &Path) -> NorthResult<()> {
 fn list_files(root: &Path, directory: &Path, into: &mut Vec<String>) -> NorthResult<()> {
     for entry in fs::read_dir(directory)? {
         let path = entry?.path();
+        if path.file_name().is_some_and(|name| name == ".git") {
+            continue;
+        }
         if path.is_dir() {
             list_files(root, &path, into)?;
         } else if let Ok(relative) = path.strip_prefix(root) {

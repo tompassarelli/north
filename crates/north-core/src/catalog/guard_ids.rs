@@ -9,6 +9,12 @@ use super::configuration;
 pub(super) const PATTERN: &str = r#"authoring_guards_off\(|const (UNIT|ID): &str = ""#;
 const CALL: &str = "authoring_guards_off(";
 
+struct Call<'a> {
+    path: &'a str,
+    line: &'a str,
+    id: &'a str,
+}
+
 pub(super) fn require_guard_ids_named(sources: &str, reference: &str, catalog: &Value) -> NorthResult<()> {
     let named: BTreeSet<&str> = catalog
         .get("activation")
@@ -24,9 +30,21 @@ pub(super) fn require_guard_ids_named(sources: &str, reference: &str, catalog: &
     configuration(unnamed.join("\n"))
 }
 
+pub(super) fn guard_ids_asked(sources: &str, reference: &str) -> BTreeSet<String> {
+    calls(sources, reference).into_iter().map(|call| call.id.to_owned()).collect()
+}
+
 fn unnamed_guard_ids(sources: &str, reference: &str, named: &BTreeSet<&str>) -> Vec<String> {
+    calls(sources, reference)
+        .into_iter()
+        .filter(|call| !named.contains(call.id))
+        .map(|call| format!("{}:{} asks authoring_guards_off for {}, which no unit in agents/catalog-config.json names, so the guard reads as off on every host (north#722)", call.path, call.line, call.id))
+        .collect()
+}
+
+fn calls<'a>(sources: &'a str, reference: &str) -> Vec<Call<'a>> {
     let mut consts: BTreeMap<&str, BTreeMap<&str, &str>> = BTreeMap::new();
-    let mut calls: Vec<(&str, &str, &str)> = Vec::new();
+    let mut pending: Vec<(&str, &str, &str)> = Vec::new();
     for entry in sources.lines() {
         let entry = entry.strip_prefix(reference).and_then(|rest| rest.strip_prefix(':')).unwrap_or(entry);
         let mut parts = entry.splitn(3, ':');
@@ -40,24 +58,20 @@ fn unnamed_guard_ids(sources: &str, reference: &str, named: &BTreeSet<&str>) -> 
         if let Some((_, after)) = text.split_once(CALL)
             && let Some((argument, _)) = after.split_once(')')
         {
-            calls.push((path, line, argument.trim()));
+            pending.push((path, line, argument.trim()));
         }
     }
-    let mut unnamed = Vec::new();
-    for (path, line, argument) in calls {
-        let id = match argument.strip_prefix('"').and_then(|literal| literal.strip_suffix('"')) {
-            Some(literal) => literal,
-            None => match consts.get(path).and_then(|file| file.get(argument)) {
-                Some(value) => value,
-                None => continue,
-            },
-        };
-        let id = id.strip_suffix(".sh").or_else(|| id.strip_suffix(".js")).unwrap_or(id);
-        if !named.contains(id) {
-            unnamed.push(format!("{path}:{line} asks authoring_guards_off for {id}, which no unit in agents/catalog-config.json names, so the guard reads as off on every host (north#722)"));
-        }
-    }
-    unnamed
+    pending
+        .into_iter()
+        .filter_map(|(path, line, argument)| {
+            let id = match argument.strip_prefix('"').and_then(|literal| literal.strip_suffix('"')) {
+                Some(literal) => literal,
+                None => *consts.get(path)?.get(argument)?,
+            };
+            let id = id.strip_suffix(".sh").or_else(|| id.strip_suffix(".js")).unwrap_or(id);
+            Some(Call { path, line, id })
+        })
+        .collect()
 }
 
 #[cfg(test)]
