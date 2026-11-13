@@ -1,8 +1,10 @@
 //! `north config operator paths [--class CLASS]`: the paths north reads from the operator repository, one `PATH<TAB>CLASS` line each,
 //! in the order of the inventory in `docs/rationale/operator-repository.md` (north#1281).
+pub(in crate::cli) mod check;
+
 use crate::error::{NorthError, NorthResult};
 
-const USAGE: &str = "usage: north config operator paths [--class CLASS]";
+const USAGE: &str = "usage: north config operator paths [--class CLASS] | check [DIR] [--only NAME,...]";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Class {
@@ -69,6 +71,7 @@ impl Class {
 pub fn run(arguments: &[String]) -> NorthResult<()> {
     match arguments {
         [verb, rest @ ..] if verb == "paths" => paths(rest),
+        [verb, rest @ ..] if verb == "check" => check::run(rest),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
 }

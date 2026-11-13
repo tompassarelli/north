@@ -190,7 +190,7 @@ monthly_usd = "unread"
 "#;
 
     #[test]
-    fn the_manifest_keeps_each_login_plan_and_paid_service_out_of_the_machines_total() {
+    fn the_manifest_keeps_each_login_plan_and_paid_service_out_of_the_machines_total_and_its_schema_refuses_a_misspelled_key() {
         let billing = parse(MANIFEST).expect("the manifest parses");
         assert_eq!(billing.plans["a"].plan, "Ultra");
         assert!((billing.plans["a"].monthly_usd - 216.67).abs() < f64::EPSILON);
@@ -217,6 +217,14 @@ monthly_usd = "unread"
             billing.paid_services().next().is_none(),
             "a service whose price is unread is not listed as paid"
         );
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("infra")).unwrap();
+        let schema = |text: &str| {
+            std::fs::write(root.path().join("infra/manifest.toml"), text).unwrap();
+            crate::cli::operator::check::findings(root.path(), Some(&["infra"]))
+        };
+        assert!(schema(MANIFEST).is_empty());
+        assert_eq!(schema(&MANIFEST.replace("hourly_eur", "hourly_eu")), ["infra/manifest.toml: machine[2].hourly_eu: unknown key"]);
     }
 
     #[test]

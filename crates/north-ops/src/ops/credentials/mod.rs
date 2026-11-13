@@ -1,6 +1,6 @@
 mod accounts;
 mod cookies;
-mod declared;
+pub mod declared;
 mod model;
 mod registry;
 mod renew;
