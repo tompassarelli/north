@@ -1,5 +1,4 @@
 use std::process::{Command, Stdio};
-use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -7,9 +6,7 @@ use crate::foundation::clock::Timestamp;
 use crate::fleet::run_recording::{RetiredRun, RunRecording};
 use crate::providers::claude::runs::stop;
 use crate::platform::process::status_within;
-
-/// How long a host waits for the ledger to take its conversation's run before it exits and leaves the run to the timer.
-const RECORDING_LIMIT: Duration = Duration::from_secs(45);
+use north_base::platform::session_host_files::RECORDING_LIMIT;
 
 pub(in crate::cli) struct IngestRuns;
 

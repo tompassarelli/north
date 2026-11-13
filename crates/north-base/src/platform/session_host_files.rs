@@ -13,8 +13,11 @@ const SOCKET_PATH_LIMIT: usize = 107;
 /// How long a session host gives its client after SIGTERM before it kills it.
 pub const CLIENT_GRACE: Duration = Duration::from_secs(10);
 
-/// How long a stop waits for a session host to exit: its client's grace, then the run it records as it closes.
-pub const HOST_STOP: Duration = Duration::from_secs(CLIENT_GRACE.as_secs() + 10);
+/// How long a host waits for the ledger to take its conversation's run before it exits and leaves the run to the timer.
+pub const RECORDING_LIMIT: Duration = Duration::from_secs(45);
+
+/// How long a stop waits for a session host to exit: its client's grace, then the run it records as it closes, then a margin.
+pub const HOST_STOP: Duration = Duration::from_secs(CLIENT_GRACE.as_secs() + RECORDING_LIMIT.as_secs() + 5);
 
 pub fn socket_path(state_dir: &Path) -> PathBuf {
     let name = format!("{}.sock", socket_id(state_dir));
