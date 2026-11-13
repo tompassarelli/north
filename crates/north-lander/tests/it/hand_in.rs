@@ -553,7 +553,7 @@ fn finish_runs_acceptance_inside_the_pre_queue_run() {
     for entry in fs::read_dir(harness).unwrap() {
         let entry = entry.unwrap();
         if entry.file_name() != "defaults.toml" {
-            std::os::unix::fs::symlink(entry.path(), harness_home.join("harness").join(entry.file_name())).unwrap();
+            std::os::unix::fs::symlink(entry.path().canonicalize().unwrap(), harness_home.join("harness").join(entry.file_name())).unwrap();
         }
     }
     let defaults = fs::read_to_string(harness.join("defaults.toml")).unwrap().replace("[finish_acceptance_in_prequeue]\nvalue = \"off\"", "[finish_acceptance_in_prequeue]\nvalue = \"on\"");
