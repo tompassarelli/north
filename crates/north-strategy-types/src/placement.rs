@@ -90,6 +90,8 @@ pub struct Config {
 pub struct Host {
     pub name: String,
     pub ssh: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_ssh: Option<String>,
     pub serves: Vec<String>,
     pub pushes: Option<Vec<String>>,
     pub reaches: Option<Vec<String>>,

@@ -346,3 +346,15 @@ fn the_lines_waited_on_are_those_of_every_build_host_a_landing_goes_to_though_it
     assert_eq!(names("cpx62"), ["gex45", "cpx62"]);
     assert_eq!(names("whiterabbit"), ["gex45", "cpx62"]);
 }
+
+#[test]
+fn a_replayed_launch_on_a_host_with_an_agent_login_places_it_through_that_login() {
+    let host = record::Host { name: "far".into(), ssh: Some("tom@far".into()), agent_ssh: Some("agent@far".into()), launches: true, ..Default::default() };
+    let case = record::Case {
+        launch: record::Launch { name: "worker".into(), fresh: true, provider: "claude".into(), named_machine: Some("far".into()), ..Default::default() },
+        config: record::Config { hosts: vec![host], ..Default::default() },
+        ..coordinator_case([10.0, 10.0], [10.0, 10.0])
+    };
+    let decision = super::placement::case::decide(&case).unwrap();
+    assert_eq!(decision.machine.as_ref().map(Machine::session_login), Some("agent@far"), "the placed machine lost the host's agent login, so the launch dials the operator");
+}

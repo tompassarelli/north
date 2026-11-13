@@ -219,15 +219,19 @@ fn gate_value(usage: &Usage) -> Value {
 fn config(cfg: &DocumentMut, sha256: String) -> Config {
     let placement = cfg.get("placement");
     let listed = |key: &str| strings(placement.and_then(|p| p.get(key)));
-    let hosts = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter()).map(|(name, host)| Host {
+    let hosts = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter()).filter_map(|(name, host)| Some(Host {
         name: name.to_owned(),
         ssh: host.get("ssh").and_then(Item::as_str).map(str::to_owned),
+        agent_ssh: match host.get("agent_ssh") {
+            Some(login) => Some(login.as_str()?.to_owned()),
+            None => None,
+        },
         serves: strings(host.get("serves")),
         pushes: host.get("pushes").map(|_| strings(host.get("pushes"))),
         reaches: host.get("reaches").map(|_| strings(host.get("reaches"))),
         resident_cap: host.get("resident_cap").and_then(Item::as_integer),
         launches: host.get("launches").and_then(Item::as_bool) == Some(true),
-    });
+    }));
     let plans = cfg.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("plans")).and_then(Item::as_table_like);
     Config {
         sha256,
@@ -255,6 +259,9 @@ fn document(config: &Config) -> DocumentMut {
         let mut table = Table::new();
         if let Some(ssh) = &host.ssh {
             table.insert("ssh", value(ssh.as_str()));
+        }
+        if let Some(agent_ssh) = &host.agent_ssh {
+            table.insert("agent_ssh", value(agent_ssh.as_str()));
         }
         table.insert("serves", array(&host.serves));
         if let Some(pushes) = &host.pushes {
