@@ -1,14 +1,15 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 
 use super::super::model::{SessionRecord, Status, Transcript};
 use super::super::records::{read_record, write_record};
 use super::super::runtime::{Runtime, now_ms};
 use super::super::transcript::{StreamTail, stream_path};
-use super::seeded;
+use super::streams::seeded;
 use super::status::settled;
+use super::Fleet;
 
 const TUI_HISTORY_LIMIT: u64 = 256 * 1024;
 
@@ -99,6 +100,36 @@ impl Follower {
         }
         self.record.conversation = observed;
         write_record(&self.session_dir, &self.record)
+    }
+}
+
+impl Fleet {
+    pub fn follow(&self, name: &str) -> NorthResult<Follower> {
+        self.follow_with_history(name, true)
+    }
+
+    /// A retired session's transcript read from its archive: the reaper moves a session out of the registry once its report is final, and dispatch reads that report there.
+    pub fn follow_retired(&self, name: &str) -> NorthResult<Follower> {
+        let (dir, mut record) = self.retired_session(name).ok_or_else(|| NorthError::Usage(format!("no session named {name}")))?;
+        if record.host_dir == self.root.join(name) {
+            record.host_dir = dir.clone();
+        }
+        let (path, indexed_to) = self.stream_index_among(&record, || Ok(vec![record.clone()]))?;
+        Follower::open(self.runtime(&record)?, record, dir, path, indexed_to, true)
+    }
+
+    pub fn follow_recent(&self, name: &str) -> NorthResult<Follower> {
+        self.follow_with_history(name, false)
+    }
+
+    fn follow_with_history(&self, name: &str, full_history: bool) -> NorthResult<Follower> {
+        let record = self.record(name)?;
+        if record.adopted() {
+            let status = self.window_status(&record);
+            return Ok(Follower::window(self.runtime(&record)?, record, self.root.join(name), status));
+        }
+        let (path, indexed_to) = self.stream_index(&record)?;
+        Follower::open(self.runtime(&record)?, record, self.root.join(name), path, indexed_to, full_history)
     }
 }
 

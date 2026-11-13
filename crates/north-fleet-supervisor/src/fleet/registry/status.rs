@@ -19,6 +19,20 @@ impl Fleet {
         let observed = self.runtime(record).and_then(|runtime| latest_turn_status(&path, 0, record.conversation.as_deref(), &|frame| runtime.signals(frame)))?;
         Ok(observed.unwrap_or(Status::Starting))
     }
+
+    pub fn status(&self, record: &SessionRecord) -> Status {
+        if record.adopted() {
+            return self.window_status(record);
+        }
+        if record.host_dir.as_os_str().is_empty() {
+            return settled(record, Status::Starting);
+        }
+        self.status_from_index(record).unwrap_or_else(|_| settled(record, Status::Starting))
+    }
+
+    fn status_from_index(&self, record: &SessionRecord) -> NorthResult<Status> {
+        self.observed_status(record).map(|observed| settled(record, observed))
+    }
 }
 
 pub(super) fn settled(record: &SessionRecord, observed: Status) -> Status {

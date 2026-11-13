@@ -10,7 +10,7 @@ use crate::fleet::runtime::HostSpec;
 use crate::fleet::unaccepted::Unaccepted;
 
 use super::Follower;
-use super::detached;
+use crate::fleet::detached;
 use super::{Fleet, session_running};
 use super::stopping::Halt;
 

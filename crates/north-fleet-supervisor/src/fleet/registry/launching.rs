@@ -18,7 +18,8 @@ use super::grounding;
 use super::reserve;
 use super::stopping::Halt;
 use super::takeover::Predecessor;
-use super::{Fleet, OpenedHost, efforts, session_running};
+use super::starting::OpenedHost;
+use super::{Fleet, efforts, session_running};
 
 impl Fleet {
     pub fn launch(&self, request: &LaunchRequest) -> NorthResult<SessionRecord> {
@@ -74,7 +75,7 @@ impl Fleet {
             None => runtime.assign_conversation()?,
         };
         self.refuse_on_window(conversation.as_deref())?;
-        let tasks = super::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
+        let tasks = crate::fleet::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
         let spare = (claim == Claim::Fresh).then(|| self.take_spare(request, &account, runtime.as_ref(), effort)).flatten();
         let conversation = spare.as_ref().map_or(conversation, |taken| Some(taken.conversation.clone()));
         let mut record = SessionRecord::launched(request, effort, conversation.clone(), verification, now_ms());
@@ -128,7 +129,7 @@ impl Fleet {
         }
         let moved = self.revive_told(&request.name, None, request.placement.clone(), None, Some(&request.account), Some(&request.prompt));
         Some(moved.and_then(|record| {
-            let tasks = super::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
+            let tasks = crate::fleet::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
             self.claim_before_start(request, &tasks, record.verification).map(|()| record)
         }))
     }

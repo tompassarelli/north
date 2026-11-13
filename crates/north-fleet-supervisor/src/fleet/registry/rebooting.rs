@@ -8,7 +8,7 @@ use crate::fleet::stranded::reported_done;
 use crate::fleet::transcript::stream_path;
 
 use super::stranding::recent;
-use super::idle_exit;
+use super::starting::idle_exit;
 use super::Fleet;
 
 impl Fleet {

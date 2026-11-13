@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
 
-use super::seeded;
+use super::streams::seeded;
 use crate::fleet::host::alive;
 use crate::fleet::model::{EntryKind, SessionRecord, Status, Transcript};
 use crate::fleet::runtime::Runtime;

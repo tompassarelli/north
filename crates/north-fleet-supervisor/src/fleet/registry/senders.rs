@@ -9,7 +9,8 @@ use crate::fleet::sender::Sender;
 use crate::fleet::store::Spool;
 use crate::fleet::transcript::stream_len;
 
-use super::{Fleet, Sent, await_reply};
+use super::awaiting::await_reply;
+use super::{Fleet, Sent};
 
 const RIVAL_WINDOW_MS: u64 = 30 * 60 * 1000;
 
