@@ -1349,6 +1349,15 @@ stacked one landed at 4:26:22.
 Replays in crates/north-lander/tests/it/land_first.rs: three queued lanes land in one push with the checker never called; a batch carrying a bad lane is reverted to exactly that lane; a batch queued while the previous batch's after-landing run is held is pushed before that run ends.
 A lane queued six landings ago is checked alone again after the round that lands a fresh lane directly, and lands in the next round without another check.
 
+## Green ref behind main (north#1293)
+
+Verdict: dropped (2026-11-13). The idea was a ref that trails main and sits on the newest commit with no red, unreverted ancestor since its previous position. The frozen rule keeps it when p90 lag is at most 10 min and at least one red tip was hidden, and drops it when p90 lag is over 30 min or no red tip was hidden. Both readings of the rule fail the bar, so no build issue is filed.
+
+- Replay: `FIX_FORWARD=1 replay.sh ~/code/north/main ~/.local/state/safe-push/post-land.tsv "2026-11-05 17:28:16" 2026-11-12` (script and output in https://github.com/tompassarelli/north/issues/1293#issuecomment-6841139081). It reads the commit order and `Reverts` trailers from `git log origin/main` and the verdicts from the after-landing ledger `safe-push/post-land.tsv` (north rows, the commit's own run, else the next run's range verdict). Verdicts start at 2026-11-05T17:28Z, so the window is the 2,355 commits from there.
+- Literal rule (an unreverted red ancestor blocks the ref until it is reverted): the ref stalls at the first red commit that was never reverted, `d8e911988a` of 2026-11-05, and never moves again. All 2,355 commits are never reached, so p90 lag is unbounded. The ledger holds 614 red-main runs against 180 reverted commits: most red tips are fixed forward, not reverted.
+- Fix-forward reading (a later commit whose own run is green clears an unreverted red ancestor, since that run tested a tree containing it): p50 lag 5.0 min, p90 lag 40.1 min, p99 149.2 min, max 178.8 min, over the 30 min bar. The ref would have hidden 621 red tips, 19.2 h in total (12.77% of the window); the longest hold was 148.0 min behind `c1fe1d4051`. Over the full seven days, with commits before the first verdict waiting for it, p90 lag is 428.5 min, a ledger-start artifact.
+- A range-covered commit counts red when the run that covered it was red, so the 621 counts commits, not distinct red episodes.
+
 ## Lander fixes never wait behind the lander (2026-11-08, north#930)
 
 From 2026-11-04 to 2026-11-08 every lander improvement waited in the queue it was meant to fix. Land-first
