@@ -1,6 +1,6 @@
 use super::json::Obj;
 use super::request::Request;
-use super::run::{cache_server_socket, scope_command};
+use super::run::scope::{cache_server_socket, scope_command};
 
 fn server_socket(root: &std::path::Path, class: &str) -> Option<std::ffi::OsString> {
     let request = Request { name: class.to_owned(), ..Request::default() };
@@ -87,7 +87,7 @@ fn launched(root: &std::path::Path, launcher: &str) -> (crate::capacity::subject
     let status = std::process::Command::new(&program).env(crate::capacity::subject_start::ENV, &witness).stderr(std::process::Stdio::null()).status().unwrap();
     let start = crate::capacity::subject_start::start(&witness, began, super::machine::now_ms() / 1000.0);
     let exit = crate::capacity::subject_start::Exit::judge(status.code().unwrap(), &witness);
-    (exit, super::run::command_exit(&request, "land-check", &command, &admitted, exit).map(|line| line.value()), start)
+    (exit, super::run::outcome::command_exit(&request, "land-check", &command, &admitted, exit).map(|line| line.value()), start)
 }
 
 #[test]
