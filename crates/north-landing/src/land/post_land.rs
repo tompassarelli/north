@@ -274,6 +274,9 @@ pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Canc
 
 fn outcome(landed: Landed, run: Run, verdict: Verdict) -> Outcome {
     println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
+    if matches!(verdict, Verdict::Green) {
+        super::buck2_after::cargo_green(&crate::landing::check_timings::Timings::default_root(), &landed.head, send);
+    }
     if !matches!(verdict, Verdict::RedMain(_)) {
         return Outcome { verdict, search: None, failing: BTreeSet::new(), superseded: run.superseded(), log: run.log };
     }

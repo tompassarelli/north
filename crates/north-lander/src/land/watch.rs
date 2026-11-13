@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod hand_off;
@@ -81,6 +81,13 @@ struct Searching {
     cancel: Cancel,
 }
 
+struct Buck2Run {
+    head: String,
+    base: String,
+    lanes: Vec<LandedLane>,
+    run: Task<buck2_after::Finished>,
+}
+
 #[derive(Default)]
 struct Pending {
     batches: Vec<Batch>,
@@ -116,6 +123,8 @@ pub struct Watch {
     running: Vec<Running>,
     searching: Vec<Searching>,
     pending: Pending,
+    buck2: Vec<Buck2Run>,
+    reverted: BTreeSet<String>,
     hosts: Hosts,
     pub jobs: Jobs,
     pub asks: Asks,
@@ -311,7 +320,9 @@ impl Watch {
         let cancel = Cancel::default();
         moved(heads(&batch), Run::Running, &format!("its after-landing run of {} started{}", batch.head, host.as_deref().map_or_else(String::new, |host| format!(" on {host}"))));
         let run = post_land::start(lander, landed(lander, &batch), host.clone(), cancel.clone());
-        buck2_after::start(&lander.repo, &lander.queue, &lander.offload_owner, &batch.head);
+        if let Some(run) = buck2_after::start(&lander.wake, &lander.repo, &lander.queue, &lander.offload_owner, &batch.head) {
+            self.buck2.push(Buck2Run { head: batch.head.clone(), base: batch.base.clone(), lanes: batch.lanes.clone(), run });
+        }
         self.running.push(Running { batch, run, host, cancel });
         true
     }
@@ -323,6 +334,13 @@ impl Watch {
             recovered = true;
         }
         let mut settled = recovered;
+        while let Some(at) = self.buck2.iter().position(|buck2| buck2.run.is_finished()) {
+            let Buck2Run { head, base, lanes, run } = self.buck2.remove(at);
+            if let Some(done) = run.join().ok().filter(|done| buck2_after::reverts_at_once(done.exit, &base)) {
+                self.buck2_red(lander, &head, &base, &lanes, &done.log);
+            }
+            settled = true;
+        }
         while let Some(at) = self.running.iter().position(|running| running.run.is_finished()) {
             let Running { batch, run, host, cancel } = self.running.remove(at);
             self.finish(lander, batch, run, host, cancel);
@@ -334,11 +352,21 @@ impl Watch {
                 self.hosts.release(&host);
             }
             let found = search.join().unwrap_or(Found { culprits: Vec::new(), span: (epoch(), epoch()), superseded: false, cancelled_by: None, unreproduced: None });
-            conclude(lander, &batch, &outcome, &found);
+            conclude(lander, &batch, &outcome, &found, &mut self.reverted);
             settled = true;
         }
         self.start_next(lander);
         settled
+    }
+
+    fn buck2_red(&mut self, lander: &Lander, head: &str, base: &str, lanes: &[LandedLane], log: &Path) {
+        if self.reverted.contains(head) {
+            println!("north land: Buck2 is red at {head}, and the revert already queued for that landing answers it");
+            return;
+        }
+        if culprits::buck2_red(lander, head, base, lanes, log) {
+            self.reverted.insert(head.to_owned());
+        }
     }
 
     fn finish(&mut self, lander: &Lander, mut batch: Batch, run: Task<Outcome>, host: Option<String>, cancel: Cancel) {
@@ -399,7 +427,7 @@ fn landed(lander: &Lander, batch: &Batch) -> post_land::Landed {
     post_land::Landed::on(lander, &batch.base, &batch.head, heads, names, tips, ran)
 }
 
-fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {
+fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found, reverted: &mut BTreeSet<String>) {
     let (from, to) = found.span;
     record(lander, &[Span::new(&batch.head, format!("culprit search over {} landed lanes", batch.lanes.len()), Category::Lander, from, to).with(PHASE, AFTER)]);
     if found.superseded {
@@ -410,9 +438,17 @@ fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {
     } else if let Some(again) = &found.unreproduced {
         unreproduced(lander, batch, outcome, again);
     } else if let Verdict::RedMain(detail) = &outcome.verdict {
-        culprits::blame(lander, batch, &found.culprits, detail, outcome);
+        blame_once(lander, batch, &found.culprits, detail, outcome, reverted);
     }
     retire(lander, batch, "its culprit search ended");
+}
+
+fn blame_once(lander: &Lander, batch: &Batch, culprits: &[usize], detail: &str, outcome: &Outcome, reverted: &mut BTreeSet<String>) {
+    if reverted.contains(&batch.head) {
+        println!("north land: the after-landing run of {} is red, and the revert queued at Buck2's red already answers it, so no lane is reverted again", batch.head);
+    } else if culprits::blame(lander, batch, culprits, detail, outcome) {
+        reverted.insert(batch.head.clone());
+    }
 }
 
 fn unreproduced(lander: &Lander, batch: &Batch, outcome: &Outcome, again: &std::path::Path) {
