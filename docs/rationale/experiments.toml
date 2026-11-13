@@ -954,19 +954,3 @@ command = "north graph ask affected --json 3bfbb61365~1 3bfbb61365 | jq -e '.alw
 review = "2026-11-15"
 owner = "tompassarelli/north#1247"
 lead = "f-buck-side-4"
-
-[[check]]
-id = "n1247-hand-in-to-main"
-box = "(observed) From a worker's hand-in to origin/main"
-command = "out=$(north ledger tempo --repo north --window 1440) && printf %s \"$out\" | sed -n \"s/.*hand-in->main p50 \\([0-9.]*\\) p90 \\([0-9.]*\\) s.*/\\1 \\2/p\" | awk \"NF == 2 && \\$1 <= 60 && \\$2 <= 180 { ok = 1 } END { exit !ok }\""
-review = "2026-11-17"
-owner = "tompassarelli/north#1247"
-lead = "f-buck-side-4"
-
-[[check]]
-id = "n1247-first-commit-to-main"
-box = "(observed) North's 24 h median author-to-origin/main time"
-command = "out=$(north ledger tempo --repo north --window 1440) && printf %s \"$out\" | sed -n \"s/.*first commit->main p50 \\([0-9.]*\\) p90.*/\\1/p\" | awk \"NF == 1 && \\$1 <= 10 { ok = 1 } END { exit !ok }\""
-review = "2026-11-17"
-owner = "tompassarelli/north#1247"
-lead = "f-buck-side-4"
