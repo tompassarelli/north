@@ -18,6 +18,7 @@ pub mod lane_gates;
 pub mod incidents;
 pub mod jobs;
 pub mod lander;
+pub mod outbox;
 pub mod probe_slots;
 pub mod queue;
 pub mod outlive;
