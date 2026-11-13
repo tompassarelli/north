@@ -2,8 +2,8 @@
 name: debugging
 description: >-
   Diagnose a non-trivial bug, regression, crash or unexplained behavior, or after two failed fixes; unexplained agent admission, startup, death, liveness or reporting failures.
-grounded: 2026-11-10
-written: 2026-11-10
+grounded: 2026-11-13
+written: 2026-11-13
 portable: true
 ---
 
@@ -13,7 +13,7 @@ portable: true
 2. Search the exact error with product, version and platform before the second fix or the first on an unfamiliar system, because most failures are already documented.
 3. List good/bad differences and change one variable per predicted experiment, because a two-variable change cannot say which one mattered.
 4. Trace both runs identically with existing instrumentation and diff normalized output to the first divergence, because the first divergence is closer to the cause than the symptom. Name a cause only after changing that one variable flips the symptom, and call it a hypothesis until then, because a cause the next run refutes costs more than an open question.
-5. Repair that cause at its origin, not over the symptom, and run the failing and working cases once each. When a fix lands, fix every other instance of the same cause in the same change and add a check that fails on the class, because the reported case is rarely the only one.
+5. Repair that cause at its origin, not over the symptom, at the highest level that works as the [agent-policy skill](../agent-policy/SKILL.md) orders, and run the failing and working cases once each. When a fix lands, fix every other instance of the same cause in the same change and add a check that fails on the class, because the reported case is rarely the only one and a patch over one instance leaves the class open.
 6. After two failed fixes, write down the assumption both fixes shared and test it before a third fix or a model escalation, because two failures from one premise mean the premise, not the patch, is wrong. If the tested premise does not unblock the fix, stop and return one supported recommendation.
 
 Read [observation tools](references/observation-tools.md) when choosing a trace.
