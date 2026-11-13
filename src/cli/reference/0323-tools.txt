@@ -1,4 +1,5 @@
   finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...  Run the check, and only when it passes commit the named paths, queue the lane and return the ticket
+  finish --brief-trailers SESSION               Keep the brief's Item, Box and Check lines read from standard input for the session's commit messages
   finish --judge-message SESSION                Judge a commit message read from standard input for the session
   proxy [--interactive]                         Open the fleet screen on the proxy session, attaching, reviving or launching it; --interactive resumes its conversation in claude
   proxy move [--to ACCOUNT] [--effort LEVEL] [--auto]  Move the proxy session to an account with headroom

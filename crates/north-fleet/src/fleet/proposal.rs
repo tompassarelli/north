@@ -56,6 +56,17 @@ pub fn message(brief: &str) -> Option<String> {
     Some(format!("{subject}{}\n\nItem: {issue}", body.unwrap_or_default()))
 }
 
+/// What a launch keeps in the lane for its session: the first issue the brief's `Item:` line names, then, when the brief has a `Box:` line and a `Done when:` line with a backticked command, that box and the first such command as `Check:`; None without an item.
+pub fn trailers(brief: &str) -> Option<String> {
+    let issue = item_issues(brief).into_iter().next()?;
+    let mut kept = format!("Item: {issue}");
+    let check = named_line(brief, "Done when:").and_then(|line| line.split('`').nth(1)).map(str::trim).filter(|command| !command.is_empty());
+    if let (Some(box_text), Some(check)) = (boxed(brief), check) {
+        kept.push_str(&format!("\nBox: {box_text}\nCheck: {check}"));
+    }
+    Some(kept)
+}
+
 fn plain_box(line: &str) -> String {
     let quoted = line.split_once('"').and_then(|(_, rest)| rest.split_once('"')).map(|(inside, _)| inside);
     quoted.unwrap_or(line).trim().trim_end_matches('.').to_owned()
@@ -91,22 +102,35 @@ fn capitalized(text: &str) -> String {
 /// scan has answered: `Asked` with the message when the scan passed and the judge was asked, which goes on after this
 /// returns, `Refused` when the scan refused it, and `Unasked` when nothing was judged.
 pub fn judge(message: &str, session: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) -> Verdict {
+    match ask("--judge-message", session, message, cwd, north, machine).as_deref() {
+        Some(PROPOSED) => Verdict::Asked(message.to_owned()),
+        Some(REFUSED) => Verdict::Refused,
+        _ => Verdict::Unasked,
+    }
+}
+
+/// Runs `north finish --brief-trailers` in `cwd`'s lane, which keeps the brief's item, box and Done-when command for `session`, replacing what an earlier launch kept, and clearing it for a brief that names no item, so its finish and hand-in messages take them (north#1367).
+pub fn keep_trailers(brief: &str, session: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) {
+    ask("--brief-trailers", session, &trailers(brief).unwrap_or_default(), cwd, north, machine);
+}
+
+fn ask(flag: &str, session: &str, input: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) -> Option<String> {
     let mut command = match machine {
         None => {
             let mut local = Command::new(north);
-            local.args(["finish", "--judge-message", session]).current_dir(cwd);
+            local.args(["finish", flag, session]).current_dir(cwd);
             local
         }
         Some(machine) => {
             let mut ssh = Command::new(super::runtime::binary("ssh"));
-            let script = format!("cd {} && {} finish --judge-message {}", quote(&cwd.to_string_lossy()), quote(&north.to_string_lossy()), quote(session));
+            let script = format!("cd {} && {} finish {flag} {}", quote(&cwd.to_string_lossy()), quote(&north.to_string_lossy()), quote(session));
             ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &script]);
             ssh
         }
     };
-    let Ok(mut child) = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else { return Verdict::Unasked };
-    let written = child.stdin.take().is_some_and(|mut input| input.write_all(message.as_bytes()).is_ok());
-    let Some(output) = child.stdout.take().filter(|_| written) else { return Verdict::Unasked };
+    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let written = child.stdin.take().is_some_and(|mut stdin| stdin.write_all(input.as_bytes()).is_ok());
+    let output = child.stdout.take().filter(|_| written)?;
     let (said, heard) = mpsc::channel();
     std::thread::spawn(move || {
         let mut line = String::new();
@@ -114,11 +138,7 @@ pub fn judge(message: &str, session: &str, cwd: &Path, north: &Path, machine: Op
         let _ = said.send(line);
         let _ = child.wait();
     });
-    match heard.recv_timeout(SCAN_WAIT).as_deref().map(str::trim) {
-        Ok(PROPOSED) => Verdict::Asked(message.to_owned()),
-        Ok(REFUSED) => Verdict::Refused,
-        _ => Verdict::Unasked,
-    }
+    heard.recv_timeout(SCAN_WAIT).ok().map(|line| line.trim().to_owned())
 }
 
 /// The brief as the worker reads it, with what the launch-time verdict decided about the proposed message.
@@ -129,3 +149,7 @@ pub fn told(brief: &str, verdict: &Verdict) -> String {
         Verdict::Unasked => brief.to_owned(),
     }
 }
+
+#[cfg(test)]
+#[path = "proposal_tests.rs"]
+mod tests;

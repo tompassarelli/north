@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them, and rebases a lane behind its destination onto it, with its uncommitted changes, when that applies without a conflict (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged, passing the call's message as the landing message a squashed lane lands under (north#1247). `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running a portable one as one more check of the lane's run before queueing on the would-be head's tree, in the same slot and keyed and recorded as the lander's own run, so the safe-push it hands the lane to reuses that run and a hand-in takes one build-host admission (north#1230, north#1036; the switch `finish_acceptance_in_prequeue` off runs it alone first, as a command that is not portable always runs), and returns at the ticket (north#1194), refusing first while a lane of the same name in a project beside its own holds a commit not on that repository's main, since each repository a task changes is handed in from its own lane (north#1233), and when the road's checks before queueing then judge that lane and fail it, the finish record turns failed and the attempt is kept as for a failed check (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them, and rebases a lane behind its destination onto it, with its uncommitted changes, when that applies without a conflict (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged, passing the call's message as the landing message a squashed lane lands under (north#1247). `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running a portable one as one more check of the lane's run before queueing on the would-be head's tree, in the same slot and keyed and recorded as the lander's own run, so the safe-push it hands the lane to reuses that run and a hand-in takes one build-host admission (north#1230, north#1036; the switch `finish_acceptance_in_prequeue` off runs it alone first, as a command that is not portable always runs), and returns at the ticket (north#1194), refusing first while a lane of the same name in a project beside its own holds a commit not on that repository's main, since each repository a task changes is handed in from its own lane (north#1233), and when the road's checks before queueing then judge that lane and fail it, the finish record turns failed and the attempt is kept as for a failed check (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239). `finish --brief-trailers` keeps a launch's brief item, box and Done-when command for its session, and a finish or hand-in call from that session adds `Item:` to a message that names no item, and a finish whose check is that Done-when command also adds `Box:` unless the message has one (north#1367).
 
 use std::fs;
 use std::io;
@@ -18,9 +18,11 @@ const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 const ATTEMPT: &str = "north-attempt.json";
 
 pub const USAGE: &str = "usage: north hand-in --message TEXT [--] PATH...";
-pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH... | north finish --judge-message SESSION < MESSAGE";
+pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH... | north finish --judge-message SESSION < MESSAGE | north finish --brief-trailers SESSION < TRAILERS";
 const JUDGE_MESSAGE: &str = "--judge-message";
 const PROPOSAL_FILE: &str = "north-proposed-message";
+const TRAILERS_FILE: &str = "north-brief-trailers";
+const BRIEF_TRAILERS: &str = "--brief-trailers";
 const PROPOSALS: &str = "north/land/proposed-messages.jsonl";
 pub const PROPOSED: &str = "proposed";
 pub const REFUSED: &str = "refused";
@@ -99,6 +101,11 @@ pub fn finish(arguments: &[String], road: impl Road) -> u8 {
         && flag == JUDGE_MESSAGE
     {
         return judge_message(session);
+    }
+    if let [flag, session] = arguments
+        && flag == BRIEF_TRAILERS
+    {
+        return keep_trailers(session);
     }
     let (check, message, rest) = match arguments {
         [check_flag, check, message_flag, message, rest @ ..] if check_flag == "--check" && message_flag == "--message" => (check, message, rest),
@@ -266,6 +273,10 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     if request.check.is_some() && proposed_message(&root).is_some_and(|proposed| proposed == message) {
         record_proposal(&root, "used", &message);
     }
+    let message = match kept_for_session(&root, TRAILERS_FILE) {
+        Some(kept) => north_base::platform::brief_trailers::apply(&message, &kept, request.check),
+        None => message,
+    };
     let destination = default_branch(&root);
     match git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
         Ok(branch) if branch != destination => {}
@@ -418,15 +429,34 @@ fn judge_message(session: &str) -> u8 {
     u8::from(verdict.stand != Stand::Pass)
 }
 
+fn kept_path(root: &Path, file: &str) -> Option<PathBuf> {
+    git(root, &["rev-parse", "--path-format=absolute", "--git-path", file]).ok().map(PathBuf::from)
+}
+
 fn proposal_path(root: &Path) -> Option<PathBuf> {
-    git(root, &["rev-parse", "--path-format=absolute", "--git-path", PROPOSAL_FILE]).ok().map(PathBuf::from)
+    kept_path(root, PROPOSAL_FILE)
 }
 
 fn proposed_message(root: &Path) -> Option<String> {
+    kept_for_session(root, PROPOSAL_FILE)
+}
+
+fn kept_for_session(root: &Path, file: &str) -> Option<String> {
     let own = std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.trim().is_empty())?;
-    let kept = fs::read_to_string(proposal_path(root)?).ok()?;
-    let (session, message) = kept.split_once('\n')?;
-    Some(message.to_owned()).filter(|message| session == own && !message.trim().is_empty())
+    let kept = fs::read_to_string(kept_path(root, file)?).ok()?;
+    let (session, text) = kept.split_once('\n')?;
+    Some(text.to_owned()).filter(|text| session == own && !text.trim().is_empty())
+}
+
+fn keep_trailers(session: &str) -> u8 {
+    let trailers = io::read_to_string(io::stdin()).unwrap_or_default();
+    let Some(kept) = std::env::current_dir().ok().and_then(|directory| checkout(&directory)).and_then(|root| kept_path(&root, TRAILERS_FILE)) else { return 1 };
+    let _ = fs::remove_file(&kept);
+    if trailers.trim().is_empty() || session.trim().is_empty() || session.contains('\n') || fs::write(&kept, format!("{session}\n{}", trailers.trim())).is_err() {
+        return 1;
+    }
+    println!("kept");
+    0
 }
 
 fn record_proposal(root: &Path, event: &str, message: &str) {

@@ -330,6 +330,9 @@ fn launch_verdict(request: &LaunchRequest, verification: bool) -> proposal::Verd
         Some(_) => north_base::platform::north_binary::north_binary(),
         None => north_base::platform::north_binary::own_binary(),
     };
+    if !verification {
+        proposal::keep_trailers(&request.prompt, &request.name, &request.cwd, &north, request.machine.as_ref());
+    }
     proposal::judge(&message, &request.name, &request.cwd, &north, request.machine.as_ref())
 }
 

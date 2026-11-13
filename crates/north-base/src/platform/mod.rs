@@ -10,6 +10,7 @@ pub mod agent_runtime;
 pub mod git;
 pub mod land_notice;
 pub mod land_queue;
+pub mod brief_trailers;
 pub mod finish_record;
 pub mod review_accept;
 pub mod trust_boundary;
