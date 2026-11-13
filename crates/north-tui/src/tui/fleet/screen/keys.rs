@@ -126,10 +126,17 @@ impl Screen {
         match key.code {
             KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => return self.submit(Delivery::Now),
             KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::ALT) => return self.submit(Delivery::Now),
-            KeyCode::Enter if newline_modifier(key) => self.composer.insert_newline(),
+            KeyCode::Enter if newline_modifier(key) => {
+                self.held_answer = None;
+                self.composer.insert_newline();
+            }
             KeyCode::Enter => return self.submit(Delivery::Queued),
+            KeyCode::Esc if self.held_answer.take().is_some() => {}
             KeyCode::Esc => return self.escape(),
-            _ => edit_textarea(&mut self.composer, key),
+            _ => {
+                self.held_answer = None;
+                edit_textarea(&mut self.composer, key);
+            }
         }
         None
     }

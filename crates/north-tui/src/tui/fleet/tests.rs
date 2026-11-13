@@ -311,8 +311,38 @@ fn the_digest_answers_the_selected_gate_with_an_option_or_free_text() {
     key(&mut desk, &mut screen, press(KeyCode::Char('k')));
     type_text(&mut desk, &mut screen, "rent a smaller one");
     key(&mut desk, &mut screen, press(KeyCode::Enter));
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
     let decided = |gate, decision| Command::Decide { gate, session: String::new(), decision };
     assert_eq!(desk.performed(), [decided(2, Decision::Option(1)), decided(1, Decision::Text("rent a smaller one".into()))]);
     assert!(screen.pending.is_empty(), "a gate answer is not a message to the selected session");
+}
+
+#[test]
+fn a_worded_gate_answer_waits_for_confirmation() {
+    let mut desk = desk();
+    desk.digest.gates = vec![gate(1, "parser", 0)];
+    let mut screen = screen(&desk);
+    observe(&desk, &mut screen);
+    key(&mut desk, &mut screen, control('t'));
+    key(&mut desk, &mut screen, press(KeyCode::Tab));
+    assert_eq!(screen.focus, Focus::Composer);
+    let decided = |decision| Command::Decide { gate: 1, session: String::new(), decision };
+    type_text(&mut desk, &mut screen, "1j");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    assert!(desk.performed().is_empty(), "free text is held, not sent");
+    let shown = screen.confirmation().expect("the held answer is shown for confirmation");
+    assert!(shown.contains("gate 1") && shown.contains("Rent the GPU box?") && shown.contains("1j"), "{shown}");
+    key(&mut desk, &mut screen, press(KeyCode::Esc));
+    assert!(screen.confirmation().is_none());
+    assert_eq!(screen.composer.lines().join("\n"), "1j");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    key(&mut desk, &mut screen, press(KeyCode::Char('x')));
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    assert!(desk.performed().is_empty(), "an edit starts the confirmation over");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    assert_eq!(desk.performed(), [decided(Decision::Text("1jx".into()))]);
+    type_text(&mut desk, &mut screen, "Wait");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    assert_eq!(desk.performed().last(), Some(&decided(Decision::Option(2))));
 }
 

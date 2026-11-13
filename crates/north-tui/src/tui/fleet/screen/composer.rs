@@ -1,6 +1,6 @@
 //! The composer's submit path: a gate answer, a tuning request, or a message to the selected session.
 
-use crate::fleet::gates::Decision;
+use crate::fleet::gates::{Decision, Gate};
 use crate::fleet::model::{Delivery, Effort};
 
 use super::{composer_area, Command, Notice, Screen};
@@ -11,9 +11,12 @@ impl Screen {
         if text.trim().is_empty() {
             return None;
         }
-        if self.digest.shown && self.digest.selected().is_some() {
-            self.composer = composer_area();
-            return self.decide(Decision::Text(text));
+        if self.digest.shown
+            && let Some(gate) = self.digest.selected()
+        {
+            let id = gate.id;
+            let option = chosen_option(gate, &text);
+            return self.answer_gate(id, option, text);
         }
         let Some(session) = self.selected_session() else {
             self.notice = Some(Notice::Error("no session selected; Ctrl+N starts one".into()));
@@ -27,6 +30,31 @@ impl Screen {
         }
         self.scroll = 0;
         Some(Command::Send { name, text, delivery, deepen: false })
+    }
+
+    fn answer_gate(&mut self, id: i64, option: Option<usize>, text: String) -> Option<Command> {
+        if let Some(number) = option {
+            self.held_answer = None;
+            self.composer = composer_area();
+            return self.decide(Decision::Option(number));
+        }
+        if !self.held_answer.as_ref().is_some_and(|(held, typed)| *held == id && *typed == text) {
+            self.held_answer = Some((id, text));
+            return None;
+        }
+        self.held_answer = None;
+        self.composer = composer_area();
+        self.decide(Decision::Text(text))
+    }
+
+    pub fn confirmation(&self) -> Option<String> {
+        if !self.digest.shown {
+            return None;
+        }
+        let gate = self.digest.selected()?;
+        let (held, text) = self.held_answer.as_ref()?;
+        let typed = self.composer.lines().join("\n");
+        (*held == gate.id && *text == typed).then(|| format!("Enter sends · Esc drops · gate {}: {} ← {:?}", gate.id, gate.request.question, text))
     }
 
     fn tune(&mut self, tuning: Tuning<'_>) -> Option<Command> {
@@ -62,6 +90,16 @@ impl Screen {
         }
         Some(command)
     }
+}
+
+fn chosen_option(gate: &Gate, text: &str) -> Option<usize> {
+    let text = text.trim();
+    if let Ok(number) = text.parse::<usize>()
+        && gate.option(number).is_some()
+    {
+        return Some(number);
+    }
+    gate.request.options.iter().position(|option| option.trim().eq_ignore_ascii_case(text)).map(|index| index + 1)
 }
 
 enum Tuning<'a> {

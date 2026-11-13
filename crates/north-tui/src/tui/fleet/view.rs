@@ -116,13 +116,14 @@ fn draw_composer(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
 }
 
 fn draw_status(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
-    let line = match &screen.notice {
-        Some(Notice::Error(message)) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Red))),
-        Some(Notice::Info(message)) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Yellow))),
-        None => Line::from(Span::styled("? for shortcuts", MUTED)),
+    let line = match (screen.confirmation(), &screen.notice) {
+        (Some(question), _) => Line::from(Span::styled(question, Style::default().fg(Color::Yellow))),
+        (None, Some(Notice::Error(message))) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Red))),
+        (None, Some(Notice::Info(message))) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Yellow))),
+        (None, None) => Line::from(Span::styled("? for shortcuts", MUTED)),
     };
     frame.render_widget(Paragraph::new(line), area);
-    if let Some(session) = screen.selected_session().filter(|_| screen.notice.is_none()) {
+    if let Some(session) = screen.selected_session().filter(|_| screen.notice.is_none() && screen.confirmation().is_none()) {
         frame.render_widget(Paragraph::new(Span::styled(model_label(&session.record), MUTED)).alignment(Alignment::Right), area);
     }
 }
