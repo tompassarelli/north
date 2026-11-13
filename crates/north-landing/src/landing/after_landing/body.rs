@@ -1,6 +1,6 @@
 use super::MARKER;
 
-const FIELDS: &str = "Category: bug-known-cause\nClass: a gate that runs after landing failed on a landed commit: every section below.\n";
+const FIELDS: &str = "Category: bug-known-cause\nSpec: measured\nScope: cross-module\nClass: a gate that runs after landing failed on a landed commit: every section below.\n";
 const HEADER: &str = "Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit.";
 const DROPPED: &str = "Older sections dropped: ";
 const DONE_WHEN: &str = "\n## Done when\n- [ ] No section remains below: each failed gate is fixed forward on main and its section deleted.";
