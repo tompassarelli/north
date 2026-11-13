@@ -53,7 +53,7 @@ fn a_buck2_host_builds_a_tree_s_north_with_buck2_and_calls_the_tree_broken_only_
     let side = Buck2 { tests: false, isolation: None };
     let (invocation, binary) = side.tree_binary(Path::new("/tree"), "north");
 
-    assert_eq!(invocation.words, ["buck2", "build", "--remote-only", "//:north", "--out", "/tree/buck-out/north/dev/north", "--no-remote-cache"]);
+    assert_eq!(invocation.words, ["buck2", "build", "--remote-only", "//:north", "--out", "/tree/buck-out/north/dev/north"]);
     assert_eq!(binary, Path::new("/tree/buck-out/north/dev/north"));
     assert!(side.broken(Some(3), "") && !side.broken(Some(2), "") && !side.broken(None, ""), "only exit 3, Buck2's user error, blames the tree; an engine or daemon failure gives no verdict");
 

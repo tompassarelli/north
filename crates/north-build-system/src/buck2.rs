@@ -455,7 +455,7 @@ impl BuildSystem for Buck2 {
     }
 
     fn tree_binary(&self, root: &Path, binary: &str) -> (Invocation, PathBuf) {
-        let request = Build { root, profile: Profile::Dev, binary: Some(binary), jobs: None, resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: true, timings: false };
+        let request = Build { root, profile: Profile::Dev, binary: Some(binary), jobs: None, resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, timings: false };
         (self.build(&request), self.built(&request, binary))
     }
 

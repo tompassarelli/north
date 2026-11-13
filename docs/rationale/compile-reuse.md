@@ -764,10 +764,10 @@ for a repository with no `.buckconfig` read its Cargo lines as declared and buil
 `bin/head-north` names no build tool. When no built runtime covers a tree it asks the live runtime to build north
 from the tree, `north runtime tree-build`. A host moves this build alone to Buck2 with `buck2_tree_build = true`, as
 `buck2_lint` moves the lint line (2026-11-13): the verb runs `buck2 build --remote-only //:north --out
-buck-out/north/dev/north --no-remote-cache` when the check names its base (`SAFE_PUSH_LAND_BASE`) and the tree's Buck2 configuration and
+buck-out/north/dev/north` when the check names its base (`SAFE_PUSH_LAND_BASE`) and the tree's Buck2 configuration and
 target definitions are the base's, the guards the crate split uses, and Cargo's build otherwise; it prints the line it
-runs, and when it declines Buck2 it says why. The build reads and writes no remote cache entry: the cache takes
-writes from any client, so a result another client wrote there could otherwise stand in for the tree's own compile. It reads neither `build_system` nor `here()`, which would also move the
+runs, and when it declines Buck2 it says why. The build reads the store's action results as every Buck2 line does, and what closes the old objection (any client could write a result that stood in for the tree compile) is the store lock, which takes action results from the workers only; built uncached it took 102 to 178 s on cpx62
+against Cargo's 54 s (2026-11-13). It reads neither `build_system` nor `here()`, which would also move the
 release build of the runtime every host promotes and the readers of the test selection. The Cargo side compiles north
 as the test run does (`cargo test --no-run -p north --test it`, so a tree whose tests were compiled has it already).
 The verb exits 1 when the tree itself does not build (Cargo's `could not compile`, Buck2's exit 3 for a user error);
