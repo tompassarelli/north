@@ -564,7 +564,7 @@ fn head_north_command(fixture: &Fixture, command: &str) -> Command {
 
 #[test]
 fn head_north_refuses_a_tree_that_does_not_compile_reaches_no_verdict_only_when_the_build_itself_fails_and_bootstraps_with_buck2_where_no_runtime_is() {
-    head_north_on_a_machine_with_no_runtime_bootstraps_with_buck2_where_an_engine_is_and_runs_the_trees_artifact_or_gives_no_verdict_where_none_is();
+    head_north_bootstraps_with_buck2_where_an_engine_and_no_runtime_are_and_on_a_host_with_no_engine_builds_nothing_in_the_lane_even_beside_a_live_runtime();
     let fixture = Fixture::new(&[("land.check-local", "true")]);
     live_runtime(&fixture);
     fs::create_dir_all(fixture.repo.join("bin")).unwrap();
@@ -582,7 +582,7 @@ fn head_north_refuses_a_tree_that_does_not_compile_reaches_no_verdict_only_when_
     assert_eq!(unfetched.status.code(), Some(75), "a build that failed for want of the host's crates refused the lane: {}", text(&unfetched));
 }
 
-fn head_north_on_a_machine_with_no_runtime_bootstraps_with_buck2_where_an_engine_is_and_runs_the_trees_artifact_or_gives_no_verdict_where_none_is() {
+fn head_north_bootstraps_with_buck2_where_an_engine_and_no_runtime_are_and_on_a_host_with_no_engine_builds_nothing_in_the_lane_even_beside_a_live_runtime() {
     let fixture = Fixture::new(&[("land.check-local", "true")]);
     fs::create_dir_all(fixture.repo.join("bin")).unwrap();
     shim::copy_executable(crate::support::manifest_dir().join("bin/head-north"), fixture.repo.join("bin/head-north"));
@@ -597,14 +597,16 @@ fn head_north_on_a_machine_with_no_runtime_bootstraps_with_buck2_where_an_engine
     let kept = fixture.path(&format!("cache/north/head-north/{tree}/north"));
     assert!(fs::read_to_string(&kept).is_ok_and(|north| north.contains("tree north")), "{} does not hold the north the tree built: {}", kept.display(), text(&built));
     fs::remove_dir_all(fixture.path("cache")).unwrap();
-    let missing = head_north_command(&fixture, "./bin/head-north --build").env("HEAD_NORTH_ENGINE", fixture.path("no-engine")).output().unwrap();
+    live_runtime(&fixture);
+    let missing = head_north_command(&fixture, "CARGO_TARGET_DIR=target ./bin/head-north --build").env("HEAD_NORTH_ENGINE", fixture.path("no-engine")).env("STUB_UNCOVERED", "1").output().unwrap();
     assert_eq!(missing.status.code(), Some(75), "a machine with no engine built, or ran, a tree with no artifact: {}", text(&missing));
     assert!(text(&missing).contains(&format!("no build-ahead artifact for tree {tree}")), "{}", text(&missing));
     let artifact = fixture.path(&format!("state/north/runtime-artifacts/{tree}/north"));
     fs::create_dir_all(artifact.parent().unwrap()).unwrap();
     script(&artifact, "echo artifact\n");
-    let ran = head_north_command(&fixture, "./bin/head-north --build").env("HEAD_NORTH_ENGINE", fixture.path("no-engine")).output().unwrap();
+    let ran = head_north_command(&fixture, "CARGO_TARGET_DIR=target ./bin/head-north --build").env("HEAD_NORTH_ENGINE", fixture.path("no-engine")).env("STUB_UNCOVERED", "1").output().unwrap();
     assert!(ran.status.success() && !text(&ran).contains("buck2"), "a machine with no engine did not run the tree's artifact: {}", text(&ran));
+    assert!(!fixture.trace().contains("runtime tree-build") && !fixture.repo.join("target").exists(), "a host with no engine, the laptop, built north from the tree into the lane beside its live runtime, as lane fix-dispatch-account-choice did on 2026-11-14 (north#1362): {}", fixture.trace());
 }
 
 #[test]
