@@ -21,7 +21,8 @@ use crate::fleet::limit::Parked;
 use crate::fleet::reaper;
 use crate::fleet::resume::{self, Waker};
 use crate::platform::attribution::{self, Cause};
-use crate::fleet::waits::{Probe, Registered, Run, Settled};
+use crate::fleet::spares;
+use crate::fleet::waits::{Probe, Registered, Run, Settled, runtime_holds};
 use crate::foundation::clock::Timestamp;
 use crate::grounding::distill;
 use crate::threads::incidents::corrections;
@@ -34,7 +35,7 @@ use super::row;
 use super::ledger::Ledger;
 use super::revive;
 
-const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME)";
+const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, runtime:SHA, pid:PID@START or usage:ACCOUNT@TIME)";
 const PROBE: Duration = Duration::from_secs(30);
 const API_SPENT: Duration = Duration::from_secs(14);
 const API_READING: Duration = Duration::from_secs(14);
@@ -233,6 +234,7 @@ impl Probe for Runs {
             Run::Farm(id) => farm(id, &wait.cwd),
             Run::Branch(branch) => branch_state(branch, &wait.cwd),
             Run::Capture(path) => wait.cwd.join(path).exists().then(|| "written".to_owned()),
+            Run::Runtime(sha) => runtime_holds(spares::current_runtime().as_deref(), sha, &wait.cwd),
             Run::Usage { .. } => UsageWait::of(wait)?.lifted(&self.observed.get_or_init(|| UsageTable.observed(now_ms())).readings, now_ms()),
             Run::Process { pid, started } => (!detached::alive(Path::new("/proc"), *pid, *started)).then(|| "ended".to_owned()),
         }

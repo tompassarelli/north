@@ -155,16 +155,6 @@ fn a_stopped_session_still_receives_the_answer_to_its_open_gate_but_no_message()
 }
 
 #[test]
-fn a_registration_is_refused_for_a_live_name() {
-    let (_directory, path) = ledger();
-    let mut store = Store::open(&path).unwrap();
-    store.register(&session("north-0", "nexus", "starting"), Claim::Fresh).unwrap();
-    let Err(NorthError::Refused(held)) = store.register(&session("north-0", "whiterabbit", "starting"), Claim::Fresh) else { panic!("a live name was claimed twice") };
-
-    assert_eq!(held, "the session name north-0 is held fleet-wide by a starting session on nexus");
-}
-
-#[test]
 fn a_launch_that_died_before_its_session_registered_leaves_its_name_to_a_later_fresh_claim() {
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();
@@ -172,22 +162,27 @@ fn a_launch_that_died_before_its_session_registered_leaves_its_name_to_a_later_f
     store.register(&died, Claim::Fresh).unwrap();
 
     store.register(&session("safety-lead-2", "whiterabbit", "starting"), Claim::Fresh).unwrap();
+    let Err(NorthError::Refused(held)) = store.register(&session("safety-lead-2", "nexus", "starting"), Claim::Fresh) else { panic!("a live name was claimed twice") };
 
-    let held: Vec<String> = store.sessions().unwrap().into_iter().map(|row| row.host).collect();
-    assert_eq!(held, ["whiterabbit"]);
+    let hosts: Vec<String> = store.sessions().unwrap().into_iter().map(|row| row.host).collect();
+    assert_eq!((held.as_str(), hosts), ("the session name safety-lead-2 is held fleet-wide by a starting session on whiterabbit", vec!["whiterabbit".to_owned()]));
 }
 
 #[test]
-fn a_settled_wait_leaves_its_registration_in_the_wait_history() {
+fn a_settled_wait_leaves_its_registration_in_the_wait_history_and_a_ledger_from_before_the_runtime_kind_keeps_its_waits() {
     let (_directory, path) = ledger();
+    drop(Store::open(&path).unwrap());
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch("DROP TRIGGER fleet_waits_settled; DROP TABLE fleet_waits; CREATE TABLE fleet_waits(session TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('job','farm','branch','capture')), key TEXT NOT NULL, deadline TEXT NOT NULL, created TEXT NOT NULL, PRIMARY KEY(session, kind, key)) STRICT; INSERT INTO fleet_waits VALUES ('held', 'branch', 'n1-fix', '2026-11-14T00:00:00Z', '2026-11-13T00:00:00Z');").unwrap();
+    drop(db);
     let mut store = Store::open(&path).unwrap();
-    store.wait(&WaitRequest { session: "north-730-d0351".into(), kind: WaitKind::Job, key: "n730-poolkey-landed".into(), within_secs: 60 }).unwrap();
-    store.settle("north-730-d0351", WaitKind::Job, "n730-poolkey-landed").unwrap();
+    store.wait(&WaitRequest { session: "north-730-d0351".into(), kind: WaitKind::Runtime, key: "abcd1234".into(), within_secs: 60 }).unwrap();
+    store.settle("north-730-d0351", WaitKind::Runtime, "abcd1234").unwrap();
 
     let db = Connection::open(&path).unwrap();
-    let live: i64 = db.query_row("SELECT count(*) FROM fleet_waits", [], |row| row.get(0)).unwrap();
+    let live: Vec<String> = db.prepare("SELECT key FROM fleet_waits").unwrap().query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
     let kept: Vec<(String, String)> = db.prepare("SELECT session, key FROM fleet_wait_history").unwrap().query_map([], |row| Ok((row.get(0)?, row.get(1)?))).unwrap().map(Result::unwrap).collect();
-    assert_eq!((live, kept), (0, vec![("north-730-d0351".to_owned(), "n730-poolkey-landed".to_owned())]));
+    assert_eq!((live, kept), (vec!["n1-fix".to_owned()], vec![("north-730-d0351".to_owned(), "abcd1234".to_owned())]));
 }
 
 #[test]

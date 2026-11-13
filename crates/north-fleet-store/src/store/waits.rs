@@ -16,10 +16,11 @@ pub enum WaitKind {
     Farm,
     Branch,
     Capture,
+    Runtime,
 }
 
 impl WaitKind {
-    pub const ALL: [WaitKind; 4] = [Self::Job, Self::Farm, Self::Branch, Self::Capture];
+    pub const ALL: [WaitKind; 5] = [Self::Job, Self::Farm, Self::Branch, Self::Capture, Self::Runtime];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -27,6 +28,7 @@ impl WaitKind {
             Self::Farm => "farm",
             Self::Branch => "branch",
             Self::Capture => "capture",
+            Self::Runtime => "runtime",
         }
     }
 
@@ -88,10 +90,20 @@ impl WaitRequest {
 
 pub(super) fn ensure(db: &Connection) -> NorthResult<()> {
     let kinds = WaitKind::ALL.iter().map(|kind| format!("'{}'", kind.label())).collect::<Vec<_>>().join(",");
-    db.execute_batch(&format!(
+    let declared: Option<String> = db.query_row("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'fleet_waits'", [], |row| row.get(0)).ok();
+    let stale = declared.is_some_and(|declared| !WaitKind::ALL.iter().all(|kind| declared.contains(&format!("'{}'", kind.label()))));
+    let tx = db.unchecked_transaction().map_err(sql)?;
+    if stale {
+        tx.execute_batch("DROP TRIGGER IF EXISTS fleet_waits_settled; ALTER TABLE fleet_waits RENAME TO fleet_waits_narrow;").map_err(sql)?;
+    }
+    tx.execute_batch(&format!(
         "CREATE TABLE IF NOT EXISTS fleet_waits(session TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ({kinds})), key TEXT NOT NULL, deadline TEXT NOT NULL, created TEXT NOT NULL, PRIMARY KEY(session, kind, key)) STRICT; CREATE TABLE IF NOT EXISTS fleet_wait_history(session TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, created TEXT NOT NULL, settled TEXT NOT NULL, PRIMARY KEY(session, kind, key, created)) STRICT; CREATE TRIGGER IF NOT EXISTS fleet_waits_settled AFTER DELETE ON fleet_waits BEGIN INSERT OR IGNORE INTO fleet_wait_history VALUES (old.session, old.kind, old.key, old.created, strftime('%Y-%m-%dT%H:%M:%SZ', 'now')); END;"
     ))
-    .map_err(sql)
+    .map_err(sql)?;
+    if stale {
+        tx.execute_batch("INSERT INTO fleet_waits(session, kind, key, deadline, created) SELECT session, kind, key, deadline, created FROM fleet_waits_narrow; DROP TABLE fleet_waits_narrow;").map_err(sql)?;
+    }
+    tx.commit().map_err(sql)
 }
 
 fn deadline_after(now: Timestamp, secs: u64) -> String {

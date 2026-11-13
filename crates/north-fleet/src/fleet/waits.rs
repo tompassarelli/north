@@ -4,22 +4,27 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::str::FromStr;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
+use north_base::platform::process::run_command_within;
 use north_resume::OVER;
 
 use super::runtime::now_ms;
 use super::store::{WaitKind, WaitRequest};
 
-const USAGE: &str = "a run is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME";
+const USAGE: &str = "a run is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, runtime:SHA, pid:PID@START or usage:ACCOUNT@TIME";
 const FARM_DEADLINE_SECS: u64 = 4 * 3600;
 const BRANCH_DEADLINE_SECS: u64 = 24 * 3600;
 const CAPTURE_DEADLINE_SECS: u64 = 4 * 3600;
+const RUNTIME_DEADLINE_SECS: u64 = 24 * 3600;
+const ANCESTRY: Duration = Duration::from_secs(20);
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -28,6 +33,7 @@ pub enum Run {
     Farm(String),
     Branch(String),
     Capture(PathBuf),
+    Runtime(String),
     Process { pid: u32, started: u64 },
     Usage { account: String, at_ms: u64 },
 }
@@ -46,6 +52,7 @@ impl FromStr for Run {
             "farm" => Ok(Self::Farm(id.into())),
             "branch" => Ok(Self::Branch(id.into())),
             "capture" => Ok(Self::Capture(id.into())),
+            "runtime" if (4..=40).contains(&id.len()) && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')) => Ok(Self::Runtime(id.into())),
             "pid" => {
                 let (pid, started) = id.split_once('@').ok_or_else(usage)?;
                 Ok(Self::Process { pid: pid.parse().map_err(|_| usage())?, started: started.parse().map_err(|_| usage())? })
@@ -66,6 +73,7 @@ impl Run {
             Self::Farm(id) => (WaitKind::Farm, id.clone(), FARM_DEADLINE_SECS),
             Self::Branch(branch) => (WaitKind::Branch, branch.clone(), BRANCH_DEADLINE_SECS),
             Self::Capture(path) => (WaitKind::Capture, path.display().to_string(), CAPTURE_DEADLINE_SECS),
+            Self::Runtime(sha) => (WaitKind::Runtime, sha.clone(), RUNTIME_DEADLINE_SECS),
             Self::Job { .. } | Self::Process { .. } | Self::Usage { .. } => return None,
         };
         Some(WaitRequest { session: session.to_owned(), kind, key, within_secs })
@@ -94,6 +102,7 @@ impl fmt::Display for Run {
             Self::Farm(id) => write!(out, "farm:{id}"),
             Self::Branch(branch) => write!(out, "branch:{branch}"),
             Self::Capture(path) => write!(out, "capture:{}", path.display()),
+            Self::Runtime(sha) => write!(out, "runtime:{sha}"),
             Self::Process { pid, started } => write!(out, "pid:{pid}@{started}"),
             Self::Usage { account, at_ms } => write!(out, "usage:{account}@{}", Timestamp::from_unix_millis(i64::try_from(*at_ms).unwrap_or(i64::MAX)).iso()),
         }
@@ -241,6 +250,13 @@ impl Waits {
     }
 }
 
+pub fn runtime_holds(live: Option<&Path>, sha: &str, cwd: &Path) -> Option<String> {
+    let live = live?.file_name()?.to_str()?;
+    let mut ancestry = Command::new("git");
+    ancestry.args(["merge-base", "--is-ancestor", sha, live]).current_dir(cwd);
+    run_command_within(ancestry, None, ANCESTRY).filter(|out| out.status.success()).map(|_| format!("is in the live runtime {live}"))
+}
+
 fn revival(wait: &Registered, result: &str) -> String {
     if let Run::Usage { account, .. } = &wait.run {
         return resume_message(account);
@@ -257,3 +273,7 @@ pub fn resume_message(account: &str) -> String {
          If it is, report `Done:` with the landed sha."
     )
 }
+
+#[cfg(test)]
+#[path = "waits_tests.rs"]
+mod tests;
