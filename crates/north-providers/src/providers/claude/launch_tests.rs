@@ -233,7 +233,9 @@ const STAND_IN_SSH: &str = r#"while [ $# -gt 0 ]; do case "$1" in -o|-p) shift 2
 [ -z "$NORTH_TEST_LAUNCH_THERE" ] || printf '%s\n' "$1" >> "$NORTH_TEST_LAUNCH_THERE.logins"
 shift
 [ "$1" = -- ] && shift
-exec sh -c "$(printf '%s' "$*" | sed "s#'/#'$NORTH_TEST_LAUNCH_THERE/#g")"
+DENY='cat() { [ ! -e "$NORTH_TEST_LAUNCH_THERE.denied" ] || { echo "cat: $2: Permission denied" >&2; return 1; }; command cat "$@"; }'
+exec sh -c "$DENY
+$(printf '%s' "$*" | sed "s#'/#'$NORTH_TEST_LAUNCH_THERE/#g")"
 "#;
 
 fn stand_in_ssh(scratch: &std::path::Path) -> String {
@@ -256,9 +258,20 @@ fn placed_worker_reads_its_profile_there(there: &std::path::Path) {
     assert!(env == ["CLAUDE_CODE_SHELL_PREFIX"] && ["apiKeyHelper", "awsCredentialExport", "forceLoginOrgUUID"].iter().all(|key| settings.get(key).is_none()) && settings["theme"] == "dark", "the agent user's settings file chose the worker's credential, endpoint or login: {settings}");
     let logins = std::fs::read_to_string(format!("{}.logins", there.display())).unwrap();
     assert!(!logins.is_empty() && logins.lines().all(|login| login == "agent@cpx62"), "{logins}");
+    let refusal = || Claude.host(&account, &worker, Opening::Fresh(None), "orders").err().map(|error| error.to_string()).unwrap_or_default();
+    let hooks = || crate::fleet::remote::HooksCheck::start(std::sync::Arc::new(Claude), &account, worker.machine.as_ref()).verdict().unwrap();
+    let named = "/home/agent/.local/state/north/profiles/claude-e/settings.json on cpx62 as agent@cpx62";
+
+    std::fs::write(format!("{}.denied", there.display()), "").unwrap();
+    let refused = refusal();
+    assert!(refused.contains(named) && refused.contains("unreadable there"), "{refused}");
+    assert_eq!(hooks(), None, "a file that is there but unreadable is not a profile without settings");
+    std::fs::remove_file(format!("{}.denied", there.display())).unwrap();
+
     std::fs::remove_file(there.join(home.strip_prefix("/").unwrap()).join("settings.json")).unwrap();
-    let refused = Claude.host(&account, &worker, Opening::Fresh(None), "orders").err().map(|error| error.to_string()).unwrap_or_default();
-    assert!(refused.contains("/home/agent/.local/state/north/profiles/claude-e/settings.json on cpx62 as agent@cpx62"), "{refused}");
+    let refused = refusal();
+    assert!(refused.contains(named) && refused.contains("no such file"), "{refused}");
+    assert!(hooks().is_some_and(|reason| reason.contains("has no settings.json")), "{:?}", hooks());
 }
 
 #[test]
