@@ -5,6 +5,47 @@ invocation, link or test runs twice for the same inputs on any host (north#1115,
 the external-code review of each tool the migration adopts, the toolchain design, and the before and after
 measurements.
 
+## Before: Cargo, measured 2026-11-13
+
+These four numbers were taken on Cargo before the cut-over removes Cargo's build path. The after half compares
+against them. Builds (1) and (2) ran on cpx62 in one offloaded job at 00552a8a55 (tree 3ffb117068), inside the dev
+shell under a capacity lease of 8 CPUs (`nproc` 8). The host's load average was 27 at the start and 24 at the end,
+on 16 vCPUs. The toolchain was cargo 1.102.0-nightly (c07ac2c4d 2026-11-06) and rustc 1.102.0-nightly (ac8310ba6
+2026-11-09). `CARGO_TARGET_DIR` was a new empty directory and `RUSTC_WRAPPER` and `CARGO_BUILD_RUSTC_WRAPPER` were
+empty, so sccache served nothing. The job was
+`north capacity offload run --host cpx62 --base origin/main --head HEAD --timeout 1500 -- "... north capacity dev-shell run -- bash JOB"`,
+and each number below is the wall time of one `cargo build --locked --offline` (the root's default members).
+
+1. One-line-edit rebuild: 6.8 s, 9.7 s and 6.3 s (median 6.8 s). After build (2), each run appended one line,
+   `pub const BEFORE_PROBE_N: u8 = N;`, to `crates/north-core/src/lib.rs` and ran `cargo build --locked --offline`
+   again. Host cpx62, sha 00552a8a55.
+2. Clean build on a second host: 71.9 s for `cargo build --locked --offline` into the empty target, with no
+   compiler cache. cpx62 had not built this target before. Host cpx62, sha 00552a8a55.
+3. Landing queue check time: the Cargo rows of the landing queue's check-timing record (`outcomes.tsv` under
+   `~/.local/state/safe-push/check-timings/` on whiterabbit, from checks run on gex45, cpx62 and cpx62b). Window:
+   the 7 days ending 2026-11-13 11:06 PM +07 (epoch 1793981194 to 1794585994), every candidate in it up to origin/main
+   00552a8a55. A row counts when its command runs `cargo clippy` or `cargo nextest`; its wall time is the check's run,
+   not its wait for a slot.
+   - `cargo clippy` lint: 5762 rows, median 32 s, p90 188 s.
+   - `cargo nextest` tests: 9106 rows, median 52 s, p90 414 s.
+   - Command: `awk -F'\t' -v a=1793981194 -v b=1794585994 '$1>=a && $1<b && $NF ~ "cargo nextest" {print $6}' outcomes.tsv | sort -n`,
+     and the same with `cargo clippy`. The median is row (n+1)/2 and the p90 is row 0.9n, rounded.
+4. Repeated compile work in one day: 21.85 check-hours of 88.84 (25%). The day was 2026-11-12, midnight to midnight
+   +07 (epoch 1794416400 to 1794502800), from the same record on whiterabbit, with commits up to that day's
+   origin/main. Of that day's 1835 Cargo check rows (`cargo clippy` and `cargo nextest`), 470 ran a landing sha and
+   command that an earlier row had already run. Those 470 rows took 21.85 wall-hours. 300 of them (11.97 h) repeated
+   a run that had passed; the rest followed a failed or cancelled run.
+   - The record keeps neither the host nor the CPU of an offloaded check that day. The day's rows are in the record's old
+     8-field form, which has no host column, and its CPU column is empty for offloaded checks. So this counts
+     wall-hours of whole checks (compile and test run), not compile core-hours. At that day's charge of 8 cores per
+     land check (`land_offload_cpus`), the 470 rows were charged at most 175 core-hours.
+   - This is a lower bound on repeated inputs. It counts only exact repeats of a commit and command. It misses a
+     crate that two different commits, lanes or hosts compiled from the same inputs, which is the reuse the shared
+     store serves.
+   - Command: sort the record's rows before 1794502800 that run `cargo clippy` or `cargo nextest` by start time.
+     Then count each row from 1794416400 on whose `landing` and command fields equal an earlier row's, and sum
+     their wall field (`$6`).
+
 ## Toolchain (north#1115 box 1)
 
 - Buck2 comes from the flake's nixpkgs input (`pkgs.buck2`, `unstable-2026-04-15`, upstream tag `2026-04-15`,
