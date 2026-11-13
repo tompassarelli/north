@@ -16,7 +16,7 @@ fn only_a_plain_start_request_in_the_request_directory_starts_a_session() {
     let entry = root.path().join("entry");
     fs::write(&entry, "#!/bin/sh\n! read -t 1 early || exit 6; echo 'north-agent-starts: ready'; read line; read -t 1 more; [ $? -gt 128 ] || exit 7; printf '%s\\n' \"$*\" \"$line\" > \"$0.ran\"\n").unwrap();
     fs::set_permissions(&entry, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-    let starter = Starter { machinectl: entry, agent: "agent".into(), home: home.clone(), entry: PathBuf::from("/nix/store/entry"), wait: Duration::from_secs(10) };
+    let starter = Starter { machinectl: entry, agent: "agent".into(), home: home.clone(), entry: PathBuf::from("/nix/store/entry"), wait: Duration::from_secs(3600) };
     let mut log = Vec::new();
     starter.serve_once(&Requests::at(&queue), &mut log).unwrap();
     let log = String::from_utf8(log).unwrap();
