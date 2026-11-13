@@ -252,6 +252,10 @@ fn a_session_launched_with_a_container_shell_starts_a_server_and_searches_a_tree
     }
     let (output, stood_down) = judged("task", "sops --decrypt secrets.yaml");
     assert_eq!((output.unwrap_or_default()["hookSpecificOutput"]["permissionDecision"].as_str(), stood_down.len()), (Some("deny"), 0), "a credential guard still judges a container session's command");
+    let (output, stood_down) = judged("task", "until [ -s /tmp/orig.txt ] && ! pgrep -f \"sqlite3 oewn\" >/dev/null; do sleep 5; done; wc -l /tmp/orig.txt");
+    let reason = output.unwrap_or_default()["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap_or_default().to_owned();
+    assert!(reason.contains("self-matching `pgrep -f sqlite3 oewn`"), "{reason}");
+    assert_eq!(stood_down.len(), 0, "a self-match is a fact about the call's own command line, so a container session meets it too");
 }
 
 #[test]

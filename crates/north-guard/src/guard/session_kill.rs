@@ -59,6 +59,19 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     evaluate_with(input, user_bus())
 }
 
+pub fn evaluate_self_match(input: &HookInput) -> Verdict {
+    let hits: Vec<Hit> = input.command().map(decide).unwrap_or_default().into_iter().filter(is_self_match).collect();
+    if hits.is_empty() { Verdict::Allow } else { Verdict::Deny(reason(&hits)) }
+}
+
+fn is_self_match(hit: &Hit) -> bool {
+    matches!(hit, Hit::SelfMatch { .. })
+}
+
+fn host_hits(command: &str) -> Vec<Hit> {
+    decide(command).into_iter().filter(|hit| !is_self_match(hit)).collect()
+}
+
 fn user_bus() -> bool {
     let runtime = std::env::var("XDG_RUNTIME_DIR")
         .ok()
@@ -68,7 +81,7 @@ fn user_bus() -> bool {
 }
 
 fn evaluate_with(input: &HookInput, bus: bool) -> Verdict {
-    let hits = input.command().map(decide).unwrap_or_default();
+    let hits = input.command().map(host_hits).unwrap_or_default();
     if hits.is_empty() {
         return Verdict::Allow;
     }
@@ -91,7 +104,7 @@ fn managed(input: &HookInput, hits: &[Hit]) -> Option<Value> {
     }
     let command = input.tool_input["command"].as_str()?;
     let candidate = background::rewrite(command)?;
-    if !decide(&candidate).is_empty() {
+    if !host_hits(&candidate).is_empty() {
         return None;
     }
     let mut updated = input.tool_input.clone();
@@ -142,8 +155,10 @@ fn teardown(
         .into_iter()
         .map(|body| source[body].to_owned());
     let mut previous: Option<(Vec<String>, Vec<String>)> = None;
-    for segment in segments(&tokens(&text)) {
+    let parsed = segments(&tokens(&text));
+    for (at, segment) in parsed.iter().enumerate() {
         let mut input = redirected_input(&segment.words, &mut heredocs);
+        hits.extend(written_script_hits(&parsed, at, &input, host, depth, ctx));
         if input.is_empty() {
             input = match (&previous, segment.piped) {
                 (Some((words, input)), true) => produced(words, input),
@@ -272,6 +287,38 @@ fn scripts(stdin: &[String], host: Option<&str>, depth: usize, ctx: &Context) ->
         .iter()
         .flat_map(|script| teardown(script, host, depth + 1, &[], ctx))
         .collect()
+}
+
+fn written_script_hits(parsed: &[Segment], at: usize, input: &[String], host: Option<&str>, depth: usize, ctx: &Context) -> Vec<Hit> {
+    let run_here = written_script(&parsed[at], input)
+        .is_some_and(|file| parsed.iter().enumerate().any(|(other, run)| other != at && run.words.contains(&file)));
+    if !run_here {
+        return Vec::new();
+    }
+    input
+        .iter()
+        .flat_map(|body| {
+            let script = Context { root: ctx.root, own: ctx.own.clone(), pgrep_consumed: CONSUMER.is_match(body) };
+            teardown(body, host, depth + 1, &[], &script)
+        })
+        .collect()
+}
+
+fn written_script(segment: &Segment, input: &[String]) -> Option<String> {
+    if input.is_empty() {
+        return None;
+    }
+    let words = &segment.words[shell::command(&segment.words, TEARDOWN_PREFIXES)..];
+    let tee = words.first().is_some_and(|name| shell::basename(name) == "tee");
+    let mut target = None;
+    for (index, word) in words.iter().enumerate() {
+        if let Some(file) = word.strip_prefix(">>").or_else(|| word.strip_prefix('>')) {
+            target = if file.is_empty() { words.get(index + 1).cloned() } else { Some(file.to_owned()) };
+        } else if tee && index > 0 && !word.starts_with('-') && !REDIRECTION.is_match(word) {
+            target.get_or_insert_with(|| word.clone());
+        }
+    }
+    target
 }
 
 fn redirected_input(words: &[String], heredocs: &mut impl Iterator<Item = String>) -> Vec<String> {

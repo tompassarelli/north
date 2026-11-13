@@ -133,6 +133,7 @@ impl HookKind {
                 Guard("heavy-command-guard", crate::guard::heavy_command::judge, Host),
                 Guard("", crate::guard::scratch_log::evaluate, Host),
                 Guard("session-kill-guard", crate::guard::session_kill::evaluate, Host),
+                Guard("session-kill-guard", crate::guard::session_kill::evaluate_self_match, Anywhere),
                 Guard("clipboard-guard", crate::guard::clipboard::evaluate, Host),
                 Guard("worker-wait-guard", crate::guard::worker_wait::evaluate, Anywhere),
                 Guard("native-launch-guard", crate::guard::native_launch::evaluate, Host),
