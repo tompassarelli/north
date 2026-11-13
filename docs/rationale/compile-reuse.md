@@ -396,6 +396,12 @@ servers. Each license was read from the repository's own LICENSE file on 2026-11
   and hand the action to the runner. gex45 runs fewer actions at once because it also runs game clients and runners.
 - Mesh: the store traffic travels over a private network between the build hosts that forwards nothing; its
   membership is part of the private host configuration.
+- Who writes: a client reads the action cache and cannot write it; only the workers write it. Clients still upload
+  inputs to the content store, where a blob is kept under the hash of its own bytes, so an upload cannot change what
+  an existing result names. A cached result is therefore a worker's own account of an action it ran. The action
+  cache is emptied whenever the store's generation number changes, which north reads from
+  `/etc/buildbarn/store-generation` to keep each generation's local Buck2 state apart. How a worker is told from a
+  client is host security posture, kept in the private host configuration.
 - Clients: every build host gets `/etc/buckconfig.d/remote-execution`, which names the store and scheduler for every
   Buck2 project on that host, so north's own `.buckconfig` names no host address. Buck2 merges that directory below
   the repository's own files ([buckconfig](../references.md#buckconfig)).
