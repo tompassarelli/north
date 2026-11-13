@@ -106,12 +106,11 @@ fn unstall(rig: &Rig) {
     fs::remove_file(rig.root.join("stall")).unwrap();
 }
 
-const PREFIX: &str = "-o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR ledger-host";
+const PREFIX: &str = "-o ControlPath=none -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host";
 
 #[test]
 fn threads_client_spools_unreachable_writes_and_flushes_them_in_order() {
-    let mut rig = rig(&[("XDG_RUNTIME_DIR", "/run/t")]);
-    let shared = format!("-o ControlMaster=no -o ControlPath=/run/t/north-ssh-%C -o ServerAliveInterval=5 -o ServerAliveCountMax=2 {PREFIX}");
+    let mut rig = rig(&[]);
     fs::write(rig.root.join("code"), "255").unwrap();
     assert_eq!(call(&rig, &["job-run", "nightly", "--host", "laptop"], b"").0, 0);
     let (code, err) = call(&rig, &["ingest"], b"{\"type\": \"run\"}\n");
@@ -127,10 +126,10 @@ fn threads_client_spools_unreachable_writes_and_flushes_them_in_order() {
     fs::write(rig.root.join("code"), "0").unwrap();
     assert_eq!(call(&rig, &["list"], b"").0, 0);
     assert_eq!(log(&rig, "ssh.log")[attempts..], [
-        format!("{shared} north threads job-run nightly --host laptop"),
-        format!("{shared} north threads ingest"),
-        format!("{shared} env 'THREADS_ALIVE_OWNERS=[]' north threads list"),
-        "-o ControlPath=none -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR ledger-host north threads snapshot-pages".to_owned(),
+        format!("{PREFIX} north threads job-run nightly --host laptop"),
+        format!("{PREFIX} north threads ingest"),
+        format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads list"),
+        "-o ControlPath=none -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host north threads snapshot-pages".to_owned(),
     ]);
     assert_eq!(log(&rig, "ingest.log"), ["{\"type\": \"run\"}"]);
     let left: Vec<_> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().file_name()).collect();

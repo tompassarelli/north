@@ -133,20 +133,11 @@ pub fn reopen_if_dead(program: &[OsString], env: &BTreeMap<String, String>, host
 fn reopen_with(program: &[OsString], env: &BTreeMap<String, String>, host: &str, master: &mut dyn Master) -> Result<bool, String> {
     let Ok(socket) = socket(program, env, host) else { return Ok(false) };
     match std::os::unix::net::UnixStream::connect(&socket) {
-        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
-            std::fs::remove_file(&socket).map_err(|error| format!("removing {}: {error}", socket.display()))?;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {}
         _ => return Ok(false),
     }
+    std::fs::remove_file(&socket).map_err(|error| format!("removing {}: {error}", socket.display()))?;
     master.start(host)?;
-    let started = Instant::now();
-    while std::os::unix::net::UnixStream::connect(&socket).is_err() {
-        if started.elapsed() > READY_LIMIT {
-            return Err(format!("no master answered on {} within {} s of its start", socket.display(), READY_LIMIT.as_secs()));
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
     Ok(true)
 }
 

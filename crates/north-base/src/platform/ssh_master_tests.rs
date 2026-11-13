@@ -86,25 +86,36 @@ fn a_master_is_left_alone_while_a_direct_connection_is_nearly_as_slow() {
     assert!(matches!(health, Health::Loaded { .. }), "{health:?}");
 }
 
+struct Restarted(Vec<String>);
+
+impl Master for Restarted {
+    fn stop(&mut self, _host: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn start(&mut self, host: &str) -> Result<(), String> {
+        self.0.push(host.to_owned());
+        Ok(())
+    }
+}
+
 #[test]
-fn a_dead_or_missing_master_is_started_and_answers_before_the_call_is_retried_but_a_live_master_is_left() {
+fn a_control_socket_nobody_listens_on_is_dropped_and_its_unit_started_but_a_live_master_is_left() {
     let mut fixture = Fixture::new();
     let words = master_words(&fixture);
     let marker = fixture.unit("north-ssh-master-live", &words);
     fixture.wait_for_socket();
     let env = fixture.env();
     let program = [which("ssh").into()];
-    let socket = socket(&program, &env, "testhost").unwrap();
-    let mut master = Respawned { fixture: &mut fixture, marker, words };
 
-    assert_eq!(reopen_with(&program, &env, "testhost", &mut master), Ok(false));
-    for missing in [false, true] {
-        master.stop("testhost").unwrap();
-        assert!(socket.exists());
-        if missing {
-            std::fs::remove_file(&socket).unwrap();
-        }
-        assert_eq!(reopen_with(&program, &env, "testhost", &mut master), Ok(true));
-        assert!(std::os::unix::net::UnixStream::connect(&socket).is_ok(), "the reopened master did not answer");
-    }
+    let mut restarted = Restarted(Vec::new());
+    assert_eq!(reopen_with(&program, &env, "testhost", &mut restarted), Ok(false));
+    assert!(restarted.0.is_empty());
+
+    let socket = socket(&program, &env, "testhost").unwrap();
+    fixture.stop(&marker);
+    assert!(socket.exists());
+    assert_eq!(reopen_with(&program, &env, "testhost", &mut restarted), Ok(true));
+    assert!(!socket.exists());
+    assert_eq!(restarted.0, ["testhost"]);
 }

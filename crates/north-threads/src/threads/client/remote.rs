@@ -39,7 +39,7 @@ impl Client {
 
     pub(super) fn ssh(&self, dest: &str, args: &[String], input: Input, quiet: bool, err: &mut dyn Write) -> NorthResult<i32> {
         let command = self.remote_command(args);
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=ERROR", dest, &command]);
+        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
         let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
         let wait = if args.first().map(String::as_str) == Some("job-run") { self.record_wait } else { self.ssh_wait };
         match execute(&argv, input, stdout, (wait, &self.await_child))? {
@@ -53,7 +53,7 @@ impl Client {
 
     pub(super) fn ssh_capturing(&self, dest: &str, args: &[String], input: Input, quiet: bool, err: &mut dyn Write) -> NorthResult<(i32, String)> {
         let command = self.remote_command(args);
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=ERROR", dest, &command]);
+        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
         let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
         let wait = if args.first().map(String::as_str) == Some("job-run") { self.record_wait } else { self.ssh_wait };
         let (status, stderr) = execute_capturing_stderr(&argv, input, stdout, (wait, &self.await_child))?;
@@ -93,7 +93,7 @@ impl Client {
     pub(super) fn forward(&self, words: &[&str], input: &[u8], err: &mut dyn Write) -> NorthResult<Option<i32>> {
         let Some(dest) = self.ledger_remote()? else { return Ok(None) };
         let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=ERROR", &dest, &command]);
+        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
         match execute(&argv, Input::Bytes(input.to_vec()), Stdio::inherit(), (self.ssh_wait, &self.await_child))? {
             Some(status) => Ok(Some(code_of(status))),
             None => {
@@ -111,34 +111,30 @@ impl Client {
 
     fn ask_once(&self, dest: &str, command: &str, input: &[u8], link: Link) -> Reply<NorthResult<Option<Vec<u8>>>> {
         let mut options = link.options().to_vec();
-        options.extend(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=ERROR", dest, command]);
+        options.extend(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, command]);
         let argv = self.ssh_argv(&options);
         let answered = (|| {
             let mut output = tempfile::tempfile()?;
-            let (status, said) = execute_capturing_stderr(&argv, Input::Bytes(input.to_vec()), Stdio::from(output.try_clone()?), (self.ssh_wait, &self.await_child))?;
-            let _ = io::stderr().write_all(said.as_bytes());
+            let status = execute(&argv, Input::Bytes(input.to_vec()), Stdio::from(output.try_clone()?), (self.ssh_wait, &self.await_child))?;
             let mut answer = Vec::new();
             if status.is_some_and(|status| status.success()) {
                 output.seek(io::SeekFrom::Start(0))?;
                 output.read_to_end(&mut answer)?;
             }
-            NorthResult::Ok((status, answer, said))
+            NorthResult::Ok((status, answer))
         })();
         match answered {
             Err(error) => Reply { value: Err(error), exit: None, said: String::new() },
-            Ok((Some(status), answer, said)) if status.success() => Reply { value: Ok(Some(answer)), exit: Some(0), said },
-            Ok((Some(status), _, said)) => {
-                let first = said.lines().map(str::trim).find(|line| !line.is_empty()).map(|line| format!(": {line}")).unwrap_or_default();
-                Reply { value: Err(NorthError::Refused(format!("{dest} answered exit {}{first}", code_of(status)))), exit: Some(code_of(status)), said }
-            }
-            Ok((None, _, said)) => Reply { value: Err(NorthError::Refused(format!("{dest} timed out; remote outcome unknown"))), exit: None, said },
+            Ok((Some(status), answer)) if status.success() => Reply { value: Ok(Some(answer)), exit: Some(0), said: String::new() },
+            Ok((Some(status), _)) => Reply { value: Err(NorthError::Refused(format!("{dest} answered exit {}", code_of(status)))), exit: Some(code_of(status)), said: String::new() },
+            Ok((None, _)) => Reply { value: Err(NorthError::Refused(format!("{dest} timed out; remote outcome unknown"))), exit: None, said: String::new() },
         }
     }
 
     pub(super) fn ssh_argv(&self, arguments: &[&str]) -> Vec<OsString> {
-        let mut options = Vec::new();
+        let mut options = vec!["-o", crate::platform::ssh::OWN_CONNECTION];
         if let Some(identity) = self.env.get(LEDGER_IDENTITY_ENV).filter(|identity| !identity.is_empty()) {
-            options.extend(["-o", crate::platform::ssh::OWN_CONNECTION, "-F", "/dev/null", "-i", identity.as_str(), "-o", "IdentitiesOnly=yes"]);
+            options.extend(["-F", "/dev/null", "-i", identity.as_str(), "-o", "IdentitiesOnly=yes"]);
         }
         options.extend_from_slice(arguments);
         crate::platform::ssh::argv(&self.ssh, &self.env, &options)
