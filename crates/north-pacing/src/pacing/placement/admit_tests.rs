@@ -19,7 +19,7 @@ fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
 }
 
 fn decision(target: Target) -> Decision {
-    Decision { target, family: None, code_only: true, surface: "code-only box on public north".into(), verdicts: vec![verdict("claude:a", Some(60.0)), verdict("claude:c", None)], machine: None, here: "here".into(), here_lacks: None, machine_lines: Vec::new(), saturated: None, here_saturated: None, here_cpu_held: None, here_on_battery: None, crowded: Vec::new(), here_closed: None, line_held: None, open: Vec::new(), moved: None }
+    Decision { target, family: None, code_only: true, surface: "code-only box on public north".into(), verdicts: vec![verdict("claude:a", Some(60.0)), verdict("claude:c", None)], machine: None, here: "here".into(), here_lacks: None, machine_lines: Vec::new(), saturated: None, here_saturated: None, here_cpu_held: None, here_on_battery: None, crowded: Vec::new(), here_closed: None, here_excluded: None, line_held: None, open: Vec::new(), moved: None }
 }
 
 #[test]

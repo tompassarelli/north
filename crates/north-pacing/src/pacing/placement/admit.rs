@@ -66,7 +66,8 @@ pub fn admit(decision: &Decision, launch: &Launch, text: &str, overrides: &Overr
     }
     let saturated = decision.saturated.as_ref().filter(|_| machine.is_some()).map(|why| format!("{why}; it starts there once the host has room, or launch it elsewhere, or here with --local \"<reason>\""));
     let hot = decision.here_saturated.as_ref().filter(|_| machine.is_none() && overrides.local.is_none()).map(|why| format!("{why}; it starts here once the host has room, or launch from another host, or keep it here with --local \"<reason>\""));
-    if let Some(full) = saturated.or(hot) {
+    let excluded = decision.here_excluded.as_ref().filter(|_| machine.is_none()).cloned();
+    if let Some(full) = saturated.or(hot).or(excluded) {
         return Err(Refusal::Saturated(full));
     }
     let cpu = decision.here_cpu_held.as_ref().filter(|_| machine.is_none()).map(|why| format!("{why} To start it here anyway, launch with --pin \"<reason>\"."));

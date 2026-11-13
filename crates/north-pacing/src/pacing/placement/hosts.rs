@@ -64,6 +64,12 @@ pub(in crate::pacing) fn here_spawn_cpu() -> Option<SpawnCpu> {
     crate::pacing::spawn_gate::launch_capacity()
 }
 
+/// Why a fresh launch without `--local` waits for a host rather than start on one `dispatch_hosts_excluded` names; a lead or coordinator stays where it is launched.
+pub(super) fn excluded_here(case: &north_strategy_types::placement::Case, here: &str) -> Option<String> {
+    let kept = case.launch.overrides.local.is_some() || !case.launch.fresh || matches!(case.launch.role.as_deref(), Some("lead" | "proxy" | "coordinator"));
+    (!kept && case.config.hosts_excluded.iter().any(|host| host == here)).then(|| format!("{here} is in dispatch_hosts_excluded, so the launch waits for a host with room; keep it here with --local \"<reason>\""))
+}
+
 impl super::gate::Decision {
     /// Holds a box the launching host would keep when that host is saturated, or is closed to work that crowded machines turned away.
     pub fn hold_here(&mut self) {
@@ -76,7 +82,7 @@ impl super::gate::Decision {
 
     fn no_room_here(&self) -> Option<String> {
         let closed = self.here_closed.clone().filter(|_| !self.crowded.is_empty());
-        self.here_saturated.clone().or(closed)
+        self.here_saturated.clone().or(closed).or_else(|| self.here_excluded.clone())
     }
 
     pub fn held_for_room(&self) -> bool {

@@ -102,6 +102,9 @@ pub struct Config {
     /// `[accounts.claude] api_beside_plans`: the owner ranks API grants beside the plan accounts rather than behind every one.
     #[serde(default, skip_serializing_if = "core::ops::Not::not")]
     pub api_beside_plans: bool,
+    /// `dispatch_hosts_excluded`: the hosts a worker starts on only when its launch keeps it there with `--local`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hosts_excluded: Vec<String>,
 }
 
 /// The owner's hold on every API organization, as `[accounts.claude] api_hold` records it.

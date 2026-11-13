@@ -97,6 +97,7 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
     }
     decision.here_on_battery = case.here.battery.map(|percent| gate::battery_refusal(here, percent, &machines));
     decision.here_closed = gate::closed(here, case.here.playtest_hold_until, || case.here.battery, case.at as u64);
+    decision.here_excluded = hosts::excluded_here(case, here);
     if let Some(name) = case.launch.named_machine.as_deref() {
         let machine = machines.into_iter().find(|machine| machine.name == name).ok_or_else(|| format!("no [hosts.{name}] with an ssh destination"))?;
         decision.run_on(machine);
@@ -252,6 +253,7 @@ fn config(cfg: &DocumentMut, sha256: String) -> Config {
         api_hold,
         reserve,
         api_beside_plans: room::api_beside_plans(cfg),
+        hosts_excluded: strings(cfg.get("dispatch_hosts_excluded")),
     }
 }
 

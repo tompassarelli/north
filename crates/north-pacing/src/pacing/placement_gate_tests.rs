@@ -367,9 +367,9 @@ fn launch_with(waits: Vec<record::LineWait>, role: &str, overrides: record::Over
     super::placement::case::decide(&case).unwrap()
 }
 
-/// Opened by north#1036: on 2026-11-13 morning launches were admitted while every build host's landing line was past its deadline.
+/// Opened by north#1036: on 2026-11-13 morning launches were admitted while every build host's landing line was past its deadline; north#1362 added the excluded laptop.
 #[test]
-fn launch_held_over_the_wait_bar_though_every_build_host_line_was_past_its_deadline() {
+fn launch_waits_for_a_host_over_the_wait_bar_or_with_every_host_full_and_only_local_keeps_it_on_an_excluded_laptop() {
     let slow = waits(&[("cpx62", Some(212)), ("gex45", Some(95))]);
     let held = launch_with(slow.clone(), "worker", record::Overrides::default());
     let why = held.line_held.expect("every line is over 60 s");
@@ -398,6 +398,21 @@ fn launch_held_over_the_wait_bar_though_every_build_host_line_was_past_its_deadl
     };
     assert!(!held_on_cloud(None));
     assert!(held_on_cloud(Some("needs the laptop")));
+
+    let full = record::Host { name: "gex45".into(), ssh: Some("tom@gex45".into()), launches: true, resident_cap: Some(1), ..Default::default() };
+    let on_laptop = |local: Option<&str>| {
+        let mut case = coordinator_case([10.0, 10.0], [10.0, 10.0]);
+        case.launch = record::Launch { role: Some("worker".into()), overrides: record::Overrides { local: local.map(Into::into), ..Default::default() }, model: None, ..case.launch };
+        case.brief = "Item: north#1362 eval\nSurface: rust\n".into();
+        case.config = record::Config { hosts: vec![full.clone()], hosts_excluded: vec!["whiterabbit".into()], ..Default::default() };
+        case.machines = vec![record::Machine { name: "gex45".into(), live: Some(1), accounts: vec!["a".into(), "b".into()], ..Default::default() }];
+        case.here = record::Here { name: "whiterabbit".into(), ..Default::default() };
+        super::placement::case::decide(&case).unwrap()
+    };
+    let waiting = on_laptop(None);
+    assert!(waiting.held_for_room() && target(&waiting).contains("whiterabbit is in dispatch_hosts_excluded, so the launch waits for a host with room"), "on 2026-11-13 eval and sweep workers started on the excluded laptop with every host full (north#1362): {}", target(&waiting));
+    let kept = on_laptop(Some("needs the laptop"));
+    assert!(matches!(kept.target, Target::Account(_)) && kept.machine.is_none(), "{}", target(&kept));
 
     the_lines_waited_on_are_those_of_every_build_host_a_landing_goes_to_though_it_reaches_none_or_is_one_itself();
 }
