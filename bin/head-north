@@ -10,12 +10,12 @@ keep=4 hold=3600 settle=${HEAD_NORTH_SETTLE:-2}
 engine=${HEAD_NORTH_ENGINE:-/etc/buildbarn/store-generation}
 build() {
   printf 'head-north: building north from the tree: %s (git status: %s)\n' "${reason%%$'\n'*}" "$(git -C "$root" status --porcelain | head -3 | tr '\n' ' ')" >&2
-  if [ ! -f "$engine" ]; then
+  if [ ! -f "$engine" ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
     local artifact=${XDG_STATE_HOME:-$HOME/.local/state}/north/runtime-artifacts/$tree/north
     [ -n "$tree" ] && [ -x "$artifact" ] || { printf 'head-north: no build-ahead artifact for tree %s, so no verdict\n' "${tree:-of this unclean checkout}" >&2; exit 75; }
     printf '%s\n' "$artifact"; return
   fi
-  [ -x "$live" ] || { local out=$root/buck-out/north/head-north; mkdir -p "${out%/*}"; rm -f "$out"; printf 'head-north: buck2 build --remote-only //:north --out %s\n' "$out" >&2; "$root/bin/land-shell" --dev -- buck2 build --remote-only //:north --out "$out" >&2 || { [ $? != 3 ] || { printf 'head-north: north does not compile from this tree, so the check fails\n' >&2; exit 1; }; printf 'head-north: building north from the tree failed, so no older north runs in its place\n' >&2; exit 75; }; printf '%s\n' "$out"; return; }
+  [ -x "$live" ] || { local out=$root/buck-out/north/head-north remote=(--remote-only) wrapper=("$root/bin/land-shell" --dev --); [ "${GITHUB_ACTIONS:-}" != true ] || { remote=(); wrapper=(); }; mkdir -p "${out%/*}"; rm -f "$out"; printf 'head-north: buck2 build %s //:north --out %s\n' "${remote[*]}" "$out" >&2; "${wrapper[@]}" buck2 build "${remote[@]}" //:north --out "$out" >&2 || { [ $? != 3 ] || { printf 'head-north: north does not compile from this tree, so the check fails\n' >&2; exit 1; }; printf 'head-north: building north from the tree failed, so no older north runs in its place\n' >&2; exit 75; }; printf '%s\n' "$out"; return; }
   local built status=0; built=$("$live" runtime tree-build) || status=$?
   case $status in 0) printf '%s\n' "${built##*$'\n'}"; return ;; 1 | 75) exit "$status" ;; esac
   printf 'head-north: the live runtime %s could not build north from the tree (exit %s), so no older north runs in its place\n' "$live" "$status" >&2; exit 75
