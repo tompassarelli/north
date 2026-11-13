@@ -190,7 +190,7 @@ monthly_usd = "unread"
 "#;
 
     #[test]
-    fn the_manifest_keeps_each_login_plan_and_paid_service_out_of_the_machines_total_and_its_schema_refuses_a_misspelled_key() {
+    fn the_manifest_keeps_each_login_plan_and_paid_service_out_of_the_machines_total_and_its_schemas_refuse_a_misspelled_key() {
         let billing = parse(MANIFEST).expect("the manifest parses");
         assert_eq!(billing.plans["a"].plan, "Ultra");
         assert!((billing.plans["a"].monthly_usd - 216.67).abs() < f64::EPSILON);
@@ -235,6 +235,13 @@ monthly_usd = "unread"
         let tiers = "[tiers.\"claude:haiku\"]\nmodel = \"m\"\neffort = \"high\"\n";
         assert!(accounts(tiers).is_empty());
         assert_eq!(accounts(&tiers.replace("effort", "effor")), ["agents/orchestration.toml: tiers.claude:haiku.effort: required key is missing", "agents/orchestration.toml: tiers.claude:haiku.effor: unknown key"]);
+        let orchestration = |text: &str| {
+            std::fs::write(root.path().join("agents/orchestration.toml"), text).unwrap();
+            crate::cli::operator::check::findings(root.path(), Some(&["orchestration"]))
+        };
+        let hosts = "mode = \"claude-only\"\n[hosts.nexus]\nresident_cap = 4\n[hosts.nexus.disk_budget_gib]\ncargo_target = 20\n";
+        assert!(orchestration(hosts).is_empty());
+        assert_eq!(orchestration(&hosts.replace("resident_cap", "resident_cp")), ["agents/orchestration.toml: hosts.nexus.resident_cp: unknown key"]);
     }
 
     #[test]

@@ -14,6 +14,8 @@ enum Ty {
     Number,
     Money,
     Day,
+    Flag,
+    List,
     Nested,
     Any,
 }
@@ -33,7 +35,7 @@ struct Schema {
     values: Option<Values>,
 }
 
-use Ty::{Any, Day, Money, Nested, Number, Text};
+use Ty::{Any, Day, Flag, List, Money, Nested, Number, Text};
 
 const SCHEMAS: &[Schema] = &[
     Schema {
@@ -155,6 +157,21 @@ const SCHEMAS: &[Schema] = &[
             Table { path: "on_request.*", keys: &[("model", Text), ("effort", Text), ("detail", Text)], required: &["model", "effort"] },
         ],
     },
+    Schema {
+        name: "orchestration",
+        file: "agents/orchestration.toml",
+        values: None,
+        tables: &[
+            Table { path: "", keys: &[("mode", Text), ("dispatch_providers", List), ("dispatch_hosts_excluded", List), ("hosts", Nested), ("dispatch", Nested), ("placement", Nested), ("projects", Nested), ("accounts", Any), ("tiers", Any), ("on_request", Any)], required: &[] },
+            Table { path: "hosts", keys: &[("*", Nested)], required: &[] },
+            Table { path: "hosts.*", keys: &[("resident_cap", Number), ("deploy_ssh", Text), ("builds_runtime", Flag), ("publishes_host_facts", Flag), ("fleet_reports", Flag), ("pulls_spool", Flag), ("warcraft_clients", Number), ("lease_builds", Flag), ("offload_builds", Flag), ("runtime_source", Flag), ("ssh", Text), ("agent_ssh", Text), ("launches", Flag), ("serves", List), ("disk_free_gib", Number), ("buck2_lint", Flag), ("buck2_test_crates", List), ("pushes", List), ("reaches", List), ("settles_fleet", Flag), ("disk_budget_gib", Nested)], required: &[] },
+            Table { path: "hosts.*.disk_budget_gib", keys: &[("*", Number)], required: &[] },
+            Table { path: "dispatch", keys: &[("triage_lead", Text)], required: &[] },
+            Table { path: "placement", keys: &[("order", List), ("cloud_credit", Text), ("cloud_host", Text), ("dispatch_host", Text), ("codex_cloud", Flag), ("claude_session_target", Number), ("claude_session_ceiling", Number), ("private_repos", List)], required: &[] },
+            Table { path: "projects", keys: &[("*", Nested)], required: &[] },
+            Table { path: "projects.*", keys: &[("priority", Number), ("paused", Flag), ("repos", List), ("dispatch_repos", List), ("target", Day), ("goal", List), ("drain", Any), ("status_command", List)], required: &["priority", "repos"] },
+        ],
+    },
 ];
 
 const GROUPS: &[(&str, &[&str])] = &[("policy", &["frozen-topics", "operating-point", "watch", "rules", "private-kinds"])];
@@ -170,6 +187,8 @@ fn matches(ty: Ty, item: &Item) -> bool {
         Number => value.is_some_and(|value| value.is_integer() || value.is_float()),
         Money => value.is_some_and(|value| value.is_integer() || value.is_float() || value.is_str()),
         Day => value.is_some_and(|value| value.is_datetime() || value.is_str()),
+        Flag => value.is_some_and(Value::is_bool),
+        List => value.is_some_and(Value::is_array),
         Nested | Any => true,
     }
 }
