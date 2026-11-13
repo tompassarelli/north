@@ -15,6 +15,8 @@ pub const NUDGE: &str = "Continue with your best judgment; the task text is comp
 const LIMIT_S: f64 = 2700.0;
 const SETTLED_S: f64 = 45.0;
 const POLL_S: u64 = 5;
+const ROOM_LIMIT_S: f64 = 300.0;
+const SATURATED: i32 = 75;
 
 pub struct Plan {
     pub level: usize,
@@ -42,11 +44,12 @@ pub struct Run {
     pub resolved: Option<(f64, String)>,
     pub settled_since: Option<f64>,
     pub load_at_launch: Value,
+    pub queued_at_launch: Option<u32>,
     pub wave: &'static str,
 }
 
-fn header(model: &str, effort: &str) -> String {
-    format!("Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: cpx62\nModel: {model} at {effort} effort, pinned so Eval B holds the model fixed as Eval A does.\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n")
+fn header(host: &str, model: &str, effort: &str) -> String {
+    format!("Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: {host}\nModel: {model} at {effort} effort, pinned so Eval B holds the model fixed as Eval A does.\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n")
 }
 
 pub fn prompt(task: &Value) -> String {
@@ -64,16 +67,20 @@ pub fn unseen(task: &Value, nonce: &str) -> Value {
     marked
 }
 
-fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wave: &'static str) -> Run {
+fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wave: &'static str, (launch_start, queued_at_launch): (f64, Option<u32>)) -> Run {
     let cwd = scratch::worktree(branch);
-    let text = header(&plan.model, &plan.effort) + &prompt(task);
+    let text = header(&plan.hosts[0], &plan.model, &plan.effort) + &prompt(task);
     let tier_reason = format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort);
+    let pin = format!("Eval B runs every arm on {}", plan.hosts[0]);
     let args = [
         "fleet", "launch", "--provider", "claude", "--account", account, "--model", &plan.model, "--effort", &plan.effort, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
-        "--tier-reason", &tier_reason, "--cwd", &cwd, "--gates-aside", "--no-wait", &text,
+        "--tier-reason", &tier_reason, "--pin", &pin, "--cwd", &cwd, "--gates-aside", "--no-wait", &text,
     ];
-    let launch_start = now();
-    let ran = run("north", &args, None);
+    let mut ran = run("north", &args, None);
+    while ran.code == SATURATED && now() - launch_start < ROOM_LIMIT_S {
+        wait_for_room(&plan.hosts[0]);
+        ran = run("north", &args, None);
+    }
     Run {
         task: task.clone(),
         account: account.to_owned(),
@@ -87,6 +94,7 @@ fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wa
         resolved: if ran.ok() { None } else { Some((now(), "launch-refused".to_owned())) },
         settled_since: None,
         load_at_launch: crate::proc::host_loads(&plan.hosts),
+        queued_at_launch,
         wave,
     }
 }
@@ -132,6 +140,17 @@ fn step(run: &mut Run, status: Option<&String>, landed: Option<f64>, at: f64) {
     run.settled_since = None;
 }
 
+fn wait_for_room(host: &str) -> Option<u32> {
+    let began = now();
+    loop {
+        let queued = crate::proc::ssh(host, "north capacity host status 2>/dev/null | jq '.queued | length'").out.trim().parse::<u32>().ok();
+        if queued.is_some_and(|queued| queued <= 2) || now() - began > ROOM_LIMIT_S {
+            return queued;
+        }
+        thread::sleep(std::time::Duration::from_secs(2));
+    }
+}
+
 pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
     let mut pending: Vec<&Value> = plan.tasks.iter().rev().collect();
     let mut active: Vec<Run> = Vec::new();
@@ -147,6 +166,8 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
             (Some(_), None) => "burst",
         };
         let batch: Vec<&Value> = (0..free).filter_map(|_| pending.pop()).collect();
+        let wave_start = now();
+        let room = (wave_start, if batch.is_empty() { None } else { wait_for_room(&plan.hosts[0]) });
         let launched: Vec<Run> = thread::scope(|scope| {
             let handles: Vec<_> = batch
                 .iter()
@@ -156,7 +177,7 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
                     let name = format!("evalb-l{}-{id}-{stamp}", plan.level);
                     let index = plan.tasks.iter().position(|t| t["id"] == task["id"]).unwrap_or_default();
                     let account = &plan.accounts[index % plan.accounts.len()];
-                    scope.spawn(move || launch(plan, task, account, &branch, &name, wave))
+                    scope.spawn(move || launch(plan, task, account, &branch, &name, wave, room))
                 })
                 .collect();
             handles.into_iter().filter_map(|h| h.join().ok()).collect()

@@ -66,7 +66,7 @@ fn pair(flags: &BTreeMap<String, String>, key: &str) -> Result<Option<(usize, u6
 }
 
 fn hosts(flags: &BTreeMap<String, String>) -> Vec<String> {
-    flags.get("hosts").map_or("gex45,cpx62,cpx62b", String::as_str).split(',').map(str::to_owned).collect()
+    flags.get("hosts").map_or("cpx62,gex45,cpx62b", String::as_str).split(',').map(str::to_owned).collect()
 }
 
 fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
@@ -84,7 +84,7 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     let plan = ladder::Plan { level, tasks, accounts: flags.get("account").map_or_else(|| vec!["d".to_owned()], |list| list.split(',').map(str::to_owned).collect()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), model: flags.get("model").cloned().unwrap_or_else(|| ladder::PINNED_MODEL.to_owned()), effort: flags.get("effort").cloned().unwrap_or_else(|| ladder::PINNED_EFFORT.to_owned()), checks_on: flags.get("checks-on").cloned() };
     let kill = pair(flags, "kill-lander")?;
     let branches: Vec<String> = plan.tasks.iter().map(|t| format!("{}-l{level}", t["id"].as_str().unwrap_or_default())).collect();
-    scratch::prepare_laptop(&dir.join("repo"), &plan.hosts, &branches)?;
+    scratch::prepare_laptop(&dir.join("repo"), &branches)?;
     std::thread::scope(|scope| {
         let handles: Vec<_> = plan.hosts.iter().map(|h| scope.spawn(|| scratch::prepare_host(h, &branches))).collect();
         handles.into_iter().try_for_each(|h| h.join().unwrap_or_else(|_| Err("a host setup panicked".to_owned())))
@@ -104,7 +104,8 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     let stop = AtomicBool::new(false);
     let restart_log = plan.work.join("lander-restart.log");
     let (runs, outage) = std::thread::scope(|scope| {
-        let (lander, restart_log, stop) = (&mut lander, &restart_log, &stop);
+        let (lander, restart_log, stop, hosts) = (&mut lander, &restart_log, &stop, &plan.hosts);
+        scope.spawn(move || scratch::mirror(hosts, stop));
         let watcher = kill.map(|(queued, down)| scope.spawn(move || lander.kill_when_queued(restart_log, queued, down, stop)));
         let runs = ladder::drive(&plan, &stamp);
         stop.store(true, Ordering::Relaxed);

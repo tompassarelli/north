@@ -15,17 +15,17 @@ beside the repository; the runner compares each landed test file with them (the 
 
 `eval-b ladder --level N` runs one level end to end:
 
-1. Lays out a scratch project at `/tmp/eval-b`: on the laptop a bare origin and the lander's checkout, on every
-   build host a mirror origin, a main checkout and one prepared lane per task. The laptop origin's post-receive hook
-   pushes main to each host's mirror, standing in for a shared remote.
-2. Starts a scratch lander (`north land serve --repo /tmp/eval-b/main`, a child of the runner), which pulls each host's outbox like the production landers do.
-3. Launches N workers at once through `north fleet launch` (claude-opus-5-5 at medium, `--prompt north`, placement
-   left to north), keeps N in flight until the level's tasks are all resolved, and gives each stalled worker at most
+1. Lays out a scratch project at `~/code/eval-b`, under the code directory because the worker sandbox's broker serves a lane's requests only from there, and resets it through git at each start and end: on the laptop a bare origin and the lander's checkout, on every
+   build host a mirror origin, a main checkout and one prepared lane per task. While a level runs, the runner pushes the
+   laptop origin's main to each host's mirror within a quarter second of each landing, standing in for a shared remote.
+2. Starts a scratch lander (`north land serve --repo ~/code/eval-b/main`, a child of the runner), which pulls each host's outbox like the production landers do.
+3. Launches N workers at once through `north fleet launch` (claude-opus-5-5 at medium, `--prompt north`, pinned with `--pin` to
+   the first host of `--hosts`, so every arm runs on one machine) once that host has at most two jobs queued in its capacity admission (placement refuses a pinned launch at four); the wait is polled every 2 s for at most five minutes and counts in each task's time. It keeps N in flight until the level's tasks are all resolved, and gives each stalled worker at most
    two scripted nudges as Eval A does.
 4. Collects each session's record, spend and transcript, stops and forgets it, checks the landed main, writes one
-   row per task to the results file and removes the scratch project from every host.
+   row per task to the results file and removes the lanes from every host; the scratch project's origin and main checkout stay for the next run.
 
-Every brief carries `Needs: cpx62`, so placement prefers the build host reserved for the ladder. Every task's text
+Every brief carries `Needs:` with the first host of `--hosts` (cpx62 by default), so placement prefers the build host the ladder runs on. Every task's text
 also asks for one line at the end of its source, `export const RUN_ID = "<stamp>-l<level>-<task>";`, and its
 acceptance command greps for it, and every brief carries the line
 `Commit message: Do ladder task <task> (Run: <stamp>-l<level>-<task>)`, which the launch proposes, judges and keeps

@@ -3,30 +3,51 @@ use std::path::{Path, PathBuf};
 
 use crate::proc::{TOOLPATH, git, must, run, sh, ssh};
 
-pub const ROOT: &str = "/tmp/eval-b";
+// The worker sandbox's broker serves a request only from CODE/PROJECT/main or CODE/PROJECT/worktrees/NAME under the home's code directory.
+pub fn root() -> String {
+    format!("{}/code/eval-b", std::env::var("HOME").unwrap_or_default())
+}
 
 pub fn origin() -> PathBuf {
-    Path::new(ROOT).join("origin.git")
+    Path::new(&root()).join("origin.git")
 }
 
 pub fn checkout() -> PathBuf {
-    Path::new(ROOT).join("main")
+    Path::new(&root()).join("main")
 }
 
 pub fn host_verify() -> String {
-    format!("{ROOT}/verify")
+    "/tmp/eval-b/verify".to_owned()
 }
 
 pub fn worktree(branch: &str) -> String {
-    format!("{ROOT}/worktrees/{branch}")
+    format!("{}/worktrees/{branch}", root())
 }
 
-fn mirror_hook(hosts: &[String]) -> String {
-    let pushes: String = hosts
-        .iter()
-        .map(|h| format!("( flock /tmp/eval-b-mirror-{h}.lock git push -q --force ssh://tom@{h}{ROOT}/origin.git main:main ) >/dev/null 2>&1 </dev/null &\n"))
-        .collect();
-    format!("#!/bin/sh\n{pushes}")
+pub fn mirror(hosts: &[String], stop: &std::sync::atomic::AtomicBool) {
+    let root = root();
+    let tip = || git(&origin(), &["rev-parse", "main"]).out;
+    let mut sent = tip();
+    while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+        let now = tip();
+        if now != sent && hosts.iter().all(|host| git(&origin(), &["push", "-q", "--force", &format!("ssh://tom@{host}{root}/origin.git"), "main:main"]).ok()) {
+            sent = now;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+}
+
+fn reset(root: &str) -> String {
+    format!(
+        "set -e\nmkdir -p {root}\n[ -d {root}/origin.git ] || git init -q --bare -b main {root}/origin.git\ngit -C {root}/origin.git for-each-ref --format='%(refname)' | while read -r ref; do [ \"$ref\" = refs/heads/main ] || git -C {root}/origin.git update-ref -d \"$ref\"; done\nif [ -d {root}/main/.git ]; then\n  git -C {root}/main worktree prune\n  git -C {root}/main worktree list --porcelain | sed -n 's/^worktree //p' | while read -r lane; do [ \"$lane\" = {root}/main ] || git -C {root}/main worktree remove --force \"$lane\"; done\n  git -C {root}/main checkout -q -f main\n  git -C {root}/main for-each-ref --format='%(refname:short)' refs/heads | while read -r branch; do [ \"$branch\" = main ] || git -C {root}/main branch -q -D \"$branch\"; done\nfi\n"
+    )
+}
+
+fn lanes(root: &str, branches: &[String]) -> String {
+    let adds: String = branches.iter().map(|b| format!("git -C {root}/main worktree add -q -b {b} {} origin/main\n", worktree(b))).collect();
+    format!(
+        "set -e\nif [ -d {root}/main/.git ]; then git -C {root}/main fetch -q origin; git -C {root}/main reset -q --hard origin/main; else git clone -q {root}/origin.git {root}/main; fi\nfor kv in user.name=eval-b user.email=eval-b@example.invalid commit.gpgsign=false; do git -C {root}/main config \"${{kv%%=*}}\" \"${{kv#*=}}\"; done\n{adds}"
+    )
 }
 
 pub fn commit_workload(repo: &Path) -> Result<String, String> {
@@ -36,35 +57,19 @@ pub fn commit_workload(repo: &Path) -> Result<String, String> {
         .map(|out| out.trim().to_owned())
 }
 
-pub fn prepare_laptop(workload: &Path, hosts: &[String], branches: &[String]) -> Result<(), String> {
-    must(sh(&format!("rm -rf {ROOT}/origin.git {ROOT}/main {ROOT}/worktrees && mkdir -p {ROOT}")), "clear the laptop scratch")?;
-    must(git(Path::new(ROOT), &["clone", "-q", "--bare", &workload.to_string_lossy(), "origin.git"]), "make the scratch origin")?;
-    let hook = origin().join("hooks/post-receive");
-    fs::write(&hook, mirror_hook(hosts)).map_err(|e| e.to_string())?;
-    must(sh(&format!("chmod +x '{}'", hook.display())), "arm the mirror hook")?;
-    must(git(Path::new(ROOT), &["clone", "-q", &origin().to_string_lossy(), "main"]), "clone the lander checkout")?;
-    identity(&checkout())?;
-    for branch in branches {
-        must(git(&checkout(), &["worktree", "add", "-q", "-b", branch, &worktree(branch), "origin/main"]), "make the laptop lanes")?;
-    }
-    Ok(())
-}
-
-fn identity(dir: &Path) -> Result<(), String> {
-    for (key, value) in [("user.name", "eval-b"), ("user.email", "eval-b@example.invalid"), ("commit.gpgsign", "false")] {
-        must(git(dir, &["config", key, value]), "set the clone's identity")?;
-    }
-    Ok(())
+pub fn prepare_laptop(workload: &Path, branches: &[String]) -> Result<(), String> {
+    let root = root();
+    must(sh(&reset(&root)), "reset the laptop's scratch project")?;
+    must(git(&origin(), &["fetch", "-q", "--force", &workload.to_string_lossy(), "main:main"]), "seed the scratch origin")?;
+    let _ = fs::remove_file(origin().join("hooks/post-receive"));
+    must(sh(&lanes(&root, branches)), "make the laptop lanes").map(|_| ())
 }
 
 pub fn prepare_host(host: &str, branches: &[String]) -> Result<(), String> {
-    must(ssh(host, &format!("set -e; rm -rf {ROOT}; mkdir -p {ROOT}; git init -q --bare -b main {ROOT}/origin.git")), &format!("clear {host}"))?;
-    must(git(&origin(), &["push", "-q", "--force", &format!("ssh://tom@{host}{ROOT}/origin.git"), "main:main"]), &format!("seed {host}'s origin"))?;
-    let adds: String = branches.iter().map(|b| format!("git -C {ROOT}/main worktree add -q -b {b} {} origin/main\n", worktree(b))).collect();
-    let script = format!(
-        "set -e\ngit clone -q {ROOT}/origin.git {ROOT}/main\nfor kv in user.name=eval-b user.email=eval-b@example.invalid commit.gpgsign=false; do git -C {ROOT}/main config \"${{kv%%=*}}\" \"${{kv#*=}}\"; done\n{adds}cd {} && PATH={TOOLPATH}:$PATH bun test >/dev/null 2>&1\n",
-        worktree(&branches[0])
-    );
+    let root = root();
+    must(ssh(host, &reset(&root)), &format!("reset {host}'s scratch project"))?;
+    must(git(&origin(), &["push", "-q", "--force", &format!("ssh://tom@{host}{root}/origin.git"), "main:main"]), &format!("seed {host}'s origin"))?;
+    let script = format!("{}cd {} && PATH={TOOLPATH}:$PATH bun test >/dev/null 2>&1\n", lanes(&root, branches), worktree(&branches[0]));
     must(ssh(host, &script), &format!("make {host}'s lanes")).map(|_| ())
 }
 
@@ -135,11 +140,13 @@ pub fn queue_dir() -> Option<PathBuf> {
 }
 
 pub fn teardown(hosts: &[String]) {
+    let root = root();
     for host in hosts {
-        let _ = ssh(host, &format!("rm -rf {ROOT}"));
-        let retired = run("north", &["spare-retire", host, ROOT], None);
+        let _ = ssh(host, &reset(&root));
+        let retired = run("north", &["spare-retire", host, &root], None);
         eprint!("{}{}", retired.out, retired.err);
     }
+    let _ = sh(&reset(&root));
 }
 
 fn waiting(queue: &Path) -> Vec<String> {
