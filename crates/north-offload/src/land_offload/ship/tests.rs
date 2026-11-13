@@ -1018,6 +1018,10 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
     north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script("code-p-main", super::SlotClass::LandCheck);
+    let started = home.path().join("started");
+    fs::create_dir(&started).unwrap();
+    let side_by_side = super::SLOTS - 1;
+    let command = format!("mktemp {0}/XXXXXX >/dev/null; until [ \"$(ls {0} | wc -l)\" -ge {side_by_side} ]; do sleep 0.02; done", super::quote(&started.display().to_string()));
     let mut jobs: Vec<std::process::Child> = (0..6)
         .map(|index| {
             let job_ref = format!("refs/land-offload/job-{index}");
@@ -1026,7 +1030,7 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
             git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), &job_ref]);
             git(&repo, &["update-ref", "-d", &job_ref]);
             Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "sleep 8", &job_ref, "SAFE_PUSH_LANDING='1'", "land-check"])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, &job_ref, "SAFE_PUSH_LANDING='1'", "land-check"])
                 .env("HOME", home.path())
                 .env("NORTH_OFFLOAD_SETTLE_SECONDS", "30")
                 .env("PATH", &path)
@@ -1046,7 +1050,7 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
         }
     }
     let statuses: Vec<_> = jobs.iter_mut().map(|job| job.wait().unwrap()).collect();
-    assert!(all_ended && statuses.iter().all(std::process::ExitStatus::success), "six 8 s land checks queued at once on an idle host did not run side by side within 20 s, inside one 30 s settle window: {statuses:?}");
+    assert!(all_ended && statuses.iter().all(std::process::ExitStatus::success), "six land checks queued at once on an idle host did not run {side_by_side} side by side within 20 s, inside one 30 s settle window ({} started): {statuses:?}", fs::read_dir(&started).unwrap().count());
 }
 
 fn slot_run(slot: &Path, (base, head): (&str, &str), command: &str) -> Output {
