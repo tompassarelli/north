@@ -24,7 +24,7 @@ Builds north from the checkout around the current directory, or uses --north PAT
 looked up on PATH), then walks the spine end to end: `north land serve` serves a scratch repository,
 a Claude haiku worker writes its change there and hands it in with one `hand-in` tool call,
 the lander lands it on the scratch origin, and `north ledger worker` records the run; then it cleans up. Exits nonzero on any failure.
-Defaults: the Claude account `north config agents plan --place` picks.";
+Defaults: the Claude account `north config agents plan --roomiest` names, the one with the most headroom that no reservation holds.";
 
 struct Options {
     north: Option<String>,

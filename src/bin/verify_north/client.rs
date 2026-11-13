@@ -15,16 +15,7 @@ const QUERY_WAIT: Duration = Duration::from_secs(30);
 const PLACEMENT_WAIT: Duration = Duration::from_secs(90);
 const PLACEMENT_HOLD_WAIT: Duration = Duration::from_mins(20);
 const PLACEMENT_HOLD_RETRY: Duration = Duration::from_secs(60);
-const PLACEMENT_BRIEF: &str = "Surface: shell\nNeeds: laptop\n";
 const JUDGED_NORTH: [&str; 3] = ["AGENT_CAPACITY_NORTH", "NORTH_BIN", "NORTH_LAND_NORTH"];
-
-fn placed_account(listing: &str) -> Result<String, String> {
-    let target = listing.lines().find_map(|line| line.split_once(": target ").map(|(_, rest)| rest)).ok_or_else(|| format!("`north config agents plan --place` printed no target: {}", listing.trim()))?;
-    let mut words = target.split_whitespace();
-    let host = words.next().unwrap_or_default();
-    let account = words.next().and_then(|word| word.strip_prefix("claude:")).filter(|_| !host.ends_with(':'));
-    account.map(str::to_owned).ok_or_else(|| format!("placement launches no Claude session here: {target}"))
-}
 
 pub struct North {
     program: PathBuf,
@@ -92,16 +83,17 @@ impl North {
     }
 
     pub fn placed_claude_account(&self) -> Result<String, String> {
-        let brief = tempfile::Builder::new().prefix("verify-north-brief").suffix(".md").tempfile().map_err(|error| format!("brief file: {error}"))?;
-        std::fs::write(brief.path(), PLACEMENT_BRIEF).map_err(|error| format!("brief file: {error}"))?;
-        let path = brief.path().to_string_lossy().into_owned();
         let deadline = Instant::now() + PLACEMENT_HOLD_WAIT;
         loop {
-            let listing = self.run(&["config", "agents", "plan", "--place", &path], PLACEMENT_WAIT)?;
-            match placed_account(&listing) {
-                Err(problem) if problem.contains(" held: ") && Instant::now() < deadline => thread::sleep(PLACEMENT_HOLD_RETRY),
-                placed => return placed,
+            let said = self.output_with(&["config", "agents", "plan", "--roomiest"], &[], PLACEMENT_WAIT)?;
+            if let Some(label) = said.strip_prefix("exit 0: ").and_then(|out| out.lines().next()).map(str::trim).filter(|label| !label.is_empty()) {
+                return Ok(label.to_owned());
             }
+            if !said.starts_with("exit 1: ") || Instant::now() >= deadline {
+                return Err(format!("`north config agents plan --roomiest` placed no worker: {}", said.trim()));
+            }
+            eprintln!("verify-north: no account to place the worker on yet: {}", said.trim());
+            thread::sleep(PLACEMENT_HOLD_RETRY);
         }
     }
 

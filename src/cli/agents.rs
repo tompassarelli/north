@@ -27,6 +27,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
         Verb::Sync => exit(sync_gate::run(arguments)),
         Verb::Busy => agents::busy(rest),
         Verb::Routines => agents::routines::run(rest),
+        Verb::Plan if rest.first().is_some_and(|flag| flag == "--roomiest") => roomiest(),
         Verb::Plan => with_harness(|root| {
             plan::run(
                 rest,
@@ -36,6 +37,23 @@ pub(super) fn run(arguments: &[String]) -> u8 {
                 },
             )
         }),
+    }
+}
+
+fn roomiest() -> u8 {
+    match fleet::roster().map_err(|error| error.to_string()).and_then(|roster| pacing::placement::case::roomiest(&roster)) {
+        Ok(Some(label)) => {
+            println!("{label}");
+            0
+        }
+        Ok(None) => {
+            eprintln!("no Claude account here has headroom");
+            1
+        }
+        Err(error) => {
+            eprintln!("north config agents plan --roomiest: {error}");
+            2
+        }
     }
 }
 

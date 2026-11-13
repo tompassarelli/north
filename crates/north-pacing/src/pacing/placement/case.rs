@@ -326,6 +326,11 @@ pub fn accounts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
     Ok(gate::verdicts(&gate_value, roster, &basis).into_iter().filter(|verdict| verdict.owners.is_empty()).collect())
 }
 
+/// The plan account run here with the most headroom that placement keeps open to workers: no reserve or hold names it.
+pub fn roomiest(roster: &Roster) -> Result<Option<String>, String> {
+    Ok(gate::roomiest_account(&accounts(roster)?))
+}
+
 /// Every account and api grant as placement judges it, the available ones first in placement order.
 pub fn verdicts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
     let at = storage::now();

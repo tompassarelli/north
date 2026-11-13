@@ -246,7 +246,12 @@ pub(super) fn has_floor_headroom(verdict: &Verdict) -> bool {
 /// None when every one is at its provider's limit.
 pub fn roomiest_here(gate: &Value, roster: &Roster) -> Option<String> {
     let here: Vec<Verdict> = standing_verdicts(gate, &standings(gate, roster), None).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
-    best(&here, |_| true, |a, b| a.headroom.total_cmp(&b.headroom)).map(|best| best.account.trim_start_matches("claude:").to_owned())
+    roomiest_account(&here)
+}
+
+/// The label of the available plan account among `verdicts` with the most headroom; never an API organization.
+pub fn roomiest_account(verdicts: &[Verdict]) -> Option<String> {
+    best(verdicts, |label| !label.starts_with("api:"), |a, b| a.headroom.total_cmp(&b.headroom)).map(|best| best.account.trim_start_matches("claude:").to_owned())
 }
 
 pub fn live_gate() -> Value {
