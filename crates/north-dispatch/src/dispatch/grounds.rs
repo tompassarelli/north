@@ -99,13 +99,14 @@ impl Ledger {
     /// What the brief for `item`, whose issue body is `body` and which was opened at `created` unix
     /// seconds, says on top of its facets; a report from before `created` was about an earlier
     /// issue that held the same item name.
-    pub fn grounds(&self, item: &str, created: f64, body: &str, route: &Route) -> Grounds {
+    pub fn grounds(&self, item: &str, created: f64, body: &str, route: &Route, family: &'static str) -> Grounds {
         let prior = self.prior.get(item).into_iter().flatten().filter(|prior| prior.ended > created).take(PRIOR_REPORTS).map(|prior| prior.report.clone()).collect();
         Grounds {
-            figures: self.closed.as_ref().and_then(|closed| closed.figures(route.tier.family(), &route.category)),
-            eta_cell: self.tuned.figure("eta_minutes", route),
-            budget_cell: self.tuned.figure("budget_usd", route),
-            eta_scale: self.eta_scales.get(&route.tier).cloned(),
+            figures: self.closed.as_ref().and_then(|closed| closed.figures(family, &route.category)),
+            eta_cell: self.tuned.figure("eta_minutes", family, route),
+            budget_cell: self.tuned.figure("budget_usd", family, route),
+            eta_scale: self.eta_scales.get(&route.tier).filter(|_| route.tier.family() == family).cloned(),
+            family,
             floor: self.closed.as_ref().and_then(ClosedReport::median_box_usd),
             set_aside: self.set_aside.clone(),
             prior,
@@ -142,6 +143,8 @@ impl SetAside {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Grounds {
+    /// The model family whose cells size the box: its tier's, or fable for a hand-named fable model.
+    pub family: &'static str,
     pub figures: Option<Figures>,
     /// North tune's `eta_minutes` and `budget_usd` cells for the box's tier family and category.
     pub eta_cell: Option<Figure>,
@@ -180,7 +183,7 @@ impl Grounds {
         }
         let (minutes, source) = match (&self.eta_cell, &self.figures) {
             (Some(tuned), _) => (tuned.value.ceil(), format!("tune cell, {}", tuned.date)),
-            (None, Some(figures)) => (eta_minutes(figures), format!("p75 of n={} runs, {}", figures.runs, cell(route))),
+            (None, Some(figures)) => (eta_minutes(figures), format!("p75 of n={} runs, {}", figures.runs, self.cell(route))),
             (None, None) => return declared.map_or_else(|| UNCALIBRATED.to_owned(), str::to_owned),
         };
         let scale = self.eta_scale.as_ref().map_or_else(String::new, |scale| format!("; {minutes:.0} min {}", scale.label));
@@ -204,6 +207,10 @@ impl Grounds {
         self.eta_cell.as_ref().map(|tuned| tuned.value.ceil()).or_else(|| self.figures.as_ref().map(eta_minutes))
     }
 
+    fn cell(&self, route: &Route) -> String {
+        format!("cell {} on {}, ledger {WINDOW}", route.category, self.family)
+    }
+
     pub fn measured(&self) -> bool {
         self.figures.is_some() || self.eta_cell.is_some() || self.budget_cell.is_some() || self.set_aside.eta.is_some() || self.set_aside.budget.is_some()
     }
@@ -212,7 +219,7 @@ impl Grounds {
         let (p50, p90, source) = match (&self.set_aside.budget, &self.budget_cell, &self.figures) {
             (Some(constant), _, figures) => (figures.as_ref().map(|figures| figures.median_usd), constant.value, format!("the p90 of every worker run, ledger 7d; {}", constant.why)),
             (None, Some(tuned), figures) => (figures.as_ref().map(|figures| figures.median_usd), tuned.value, format!("tune cell, {}", tuned.date)),
-            (None, None, Some(figures)) => (Some(figures.median_usd), figures.p90_usd, format!("p50 and p90 of n={} closed boxes, {}", figures.closed, cell(route))),
+            (None, None, Some(figures)) => (Some(figures.median_usd), figures.p90_usd, format!("p50 and p90 of n={} closed boxes, {}", figures.closed, self.cell(route))),
             (None, None, None) => return None,
         };
         let (p50, source) = match &self.set_aside.cost {
@@ -276,10 +283,6 @@ fn carried(report: &str, home: Option<&Path>) -> String {
 /// The minutes a brief's ETA gives a box in a cell with these figures.
 pub fn eta_minutes(figures: &Figures) -> f64 {
     figures.p75_minutes.ceil()
-}
-
-fn cell(route: &Route) -> String {
-    format!("cell {} on {}, ledger {WINDOW}", route.category, route.tier.family())
 }
 
 /// The issue's Not required lines: those under a `Not required` heading, and `Not required: TEXT` lines.

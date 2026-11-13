@@ -25,7 +25,7 @@ pub(super) fn written(survey: &Survey, issue: &Issue, launched_by: &str, box_tex
 }
 
 pub(super) fn written_as(survey: &Survey, issue: &Issue, launched_by: &str, box_text: Option<&str>, route: tier::Route) -> Result<(tier::Route, String), String> {
-    let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route).carrying(issue.stop.climb.as_ref().map(|climb| climb.report.as_str()).or(issue.stop.relay.as_ref().map(|relay| relay.report.as_str())));
+    let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route, route.tier.family()).carrying(issue.stop.climb.as_ref().map(|climb| climb.report.as_str()).or(issue.stop.relay.as_ref().map(|relay| relay.report.as_str())));
     let boxed = box_text.map(|text| Issue { needs: super::host_needs::of_box(issue, text, &survey.learned, survey.at), ..issue.clone() });
     let brief = brief::brief(boxed.as_ref().unwrap_or(issue), launched_by, &route, &grounds, box_text);
     match crate::router::brief::class_refusal(&brief).or_else(|| crate::router::brief::facet_refusal(&brief)).or_else(|| crate::router::brief::grounding_refusal(&brief)).or_else(|| crate::platform::signin::brief_refusal(&brief)) {

@@ -1,6 +1,6 @@
 //! The cells a tick decides from the ledger: the ETA and budget of each tier family and category with a closed box, each with its evidence.
 use crate::ledger::ClosedReport;
-use crate::dispatch::{BUDGET_TIMES, LEDGER_WINDOW, Tier, eta_minutes};
+use crate::dispatch::{BUDGET_TIMES, FAMILIES, LEDGER_WINDOW, eta_minutes};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,30 +23,28 @@ pub struct Decided {
     pub basis: Basis,
 }
 
-const FAMILIES: [Tier; 3] = [Tier::Haiku, Tier::Sonnet, Tier::Opus];
-
 /// Decides the cells; `times` holds each category's budget multiplier and its basis where the
 /// stored Budgets' p90 set one, every other category taking `BUDGET_TIMES`.
 pub fn decide(week: &ClosedReport, times: &BTreeMap<String, (f64, String)>) -> Vec<Decided> {
     let mut decided: Vec<Decided> = Vec::new();
-    let families: BTreeSet<(Tier, &str)> = week
+    let families: BTreeSet<(&str, &str)> = week
         .cells
         .iter()
-        .filter_map(|cell| Some((FAMILIES.into_iter().find(|tier| cell.tier.contains(tier.family()))?, cell.category.as_str())))
+        .filter_map(|cell| Some((FAMILIES.into_iter().find(|family| cell.tier.contains(family))?, cell.category.as_str())))
         .collect();
-    for (tier, category) in families {
-        let Some(figures) = week.figures(tier.family(), category) else { continue };
+    for (family, category) in families {
+        let Some(figures) = week.figures(family, category) else { continue };
         let rows = figures.runs;
         let (low, high) = figures.minutes_interval;
         decided.push(Decided {
-            cell: format!("eta_minutes {} {category}", tier.family()),
+            cell: format!("eta_minutes {family} {category}"),
             value: json!(eta_minutes(&figures)),
             basis: Basis { rows, n: figures.closed, interval: Some((low, high)), why: format!("p75 run wall {:.1} min of n={rows} runs", figures.p75_minutes) },
         });
         let (low, high) = figures.usd_interval;
         let (multiplier, source) = times.get(category).map_or_else(|| (BUDGET_TIMES, "the constant".to_owned()), |(times, source)| (*times, source.clone()));
         decided.push(Decided {
-            cell: format!("budget_usd {} {category}", tier.family()),
+            cell: format!("budget_usd {family} {category}"),
             value: json!(round_cents(figures.median_usd * multiplier)),
             basis: Basis {
                 rows,

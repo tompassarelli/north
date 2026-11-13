@@ -34,7 +34,7 @@ pub struct Start {
     pub needs: Vec<String>,
 }
 
-pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger: &BTreeMap<String, Evidence>, grounds: &dyn Fn(&Route) -> Grounds) -> Result<Start, String> {
+pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger: &BTreeMap<String, Evidence>, grounds: &dyn Fn(&Route, &'static str) -> Grounds) -> Result<Start, String> {
     if ask.worker && !body.trim().is_empty() && let Some(why) = super::issues::no_box_refusal(ask.item, body) {
         return Err(why);
     }
@@ -73,8 +73,9 @@ pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger
         (Some(_), Some(given)) => [Tier::Haiku, Tier::Sonnet, Tier::Opus].into_iter().find(|tier| tier.serves(given)),
         _ => Some(route.tier),
     };
+    let family = launched.map(Tier::family).or_else(|| overridden.as_ref().and(ask.model).and_then(tier::family_of));
     let priced = Route { tier: launched.unwrap_or(route.tier), ..route.clone() };
-    let prompt = stamped(ask.prompt, &priced, stamp, launched.is_some(), &grounds(&priced));
+    let prompt = stamped(ask.prompt, &priced, stamp, family.is_some(), &grounds(&priced, family.unwrap_or_else(|| priced.tier.family())));
     let prompt = if ask.worker { with_facets(&prompt) } else { prompt };
     let (prompt, route) = context_armed(ask, prompt, route, overridden.is_some(), history, ledger);
     Ok(Start { item: ask.item.to_owned(), route, model, effort, prompt, overridden, routed: named.is_some(), needs: Vec::new() })
@@ -225,7 +226,7 @@ pub fn begin(ask: &Ask, issue: Result<(String, f64), String>) -> Result<Start, S
     let grounds = grounds::Ledger::recorded(&mut notes);
     let needs = IssueRef::parse(ask.item).filter(|_| ask.places).map(|item| super::host_needs::for_launch(&item, &body, facets::declared_in(ask.brief, "Box"), placement::now(), &mut notes)).unwrap_or_default();
     notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
-    start(ask, &body, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, created, &body, route)).map(|start| Start { needs, ..start })
+    start(ask, &body, &cfg, &history, &ledger, &|route, family| grounds.grounds(ask.item, created, &body, route, family)).map(|start| Start { needs, ..start })
 }
 
 /// The tier route() picks for a worker brief, for a spawn guard that compares it with the tier asked for.

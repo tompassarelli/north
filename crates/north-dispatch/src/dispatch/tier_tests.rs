@@ -108,7 +108,7 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     assert_eq!(xhigh.invocation(&cfg).unwrap(), ["--model", "claude-sonnet-5-5", "--effort", "high"], "a Sonnet launch never passes the xhigh the launcher refuses");
     let hand = |category: &str| {
         let brief = format!("Item: north#7\nCategory: {category}");
-        start(&Ask { item: "north#7", brief: &brief, prompt: &format!("{brief}\n\nDo the box."), model: None, reason: None, worker: true, places: false }, "", &cfg, &History::default(), &unread, &|_| super::grounds::Grounds::default())
+        start(&Ask { item: "north#7", brief: &brief, prompt: &format!("{brief}\n\nDo the box."), model: None, reason: None, worker: true, places: false }, "", &cfg, &History::default(), &unread, &|_, _| super::grounds::Grounds::default())
     };
     for (category, tier) in [("tooling", Tier::Sonnet), ("feature", Tier::Sonnet), ("bug-known-cause", Tier::Sonnet), ("docs-policy", Tier::Sonnet), ("debugging-unknown-cause", Tier::Opus), ("mechanical", Tier::Haiku)] {
         let picked = hand(category).unwrap().route;
@@ -136,7 +136,7 @@ fn a_task_launch_without_a_model_draws_its_category_arm() {
     let launched = |category: &str, model: Option<&str>, reason: Option<&str>| {
         let brief = format!("Item: north#991\nCategory: {category}\n\nStaff the box.");
         let ask = Ask { item: "north#991", brief: &brief, prompt: &brief, model, reason, worker: true, places: false };
-        start(&ask, "", &cfg, &History::default(), &unread, &|_| super::grounds::Grounds::default()).unwrap()
+        start(&ask, "", &cfg, &History::default(), &unread, &|_, _| super::grounds::Grounds::default()).unwrap()
     };
     let facet = |category: &str| {
         let category = category.to_owned();
@@ -178,7 +178,7 @@ fn a_hand_launch_on_an_issue_with_no_open_done_when_box_is_refused() {
     use std::collections::BTreeMap;
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
     let brief = "Item: north#928\nCategory: tooling";
-    let launch = |body: &str| start(&Ask { item: "north#928", brief, prompt: &format!("{brief}\n\nDo the box."), model: None, reason: None, worker: true, places: false }, body, &cfg, &History::default(), &BTreeMap::new(), &|_| super::grounds::Grounds::default());
+    let launch = |body: &str| start(&Ask { item: "north#928", brief, prompt: &format!("{brief}\n\nDo the box."), model: None, reason: None, worker: true, places: false }, body, &cfg, &History::default(), &BTreeMap::new(), &|_, _| super::grounds::Grounds::default());
     let drift = "`north tune` keeps this issue while any tier and category's median ratio of actual to estimated minutes or cost over the last 7 days sits outside 0.67-1.5x.\n\n## haiku mechanical\n\n- minutes: actual over estimate median 0.40x p90 2.35x inside 78% (n 45)\n";
     let refused = launch(drift).unwrap_err();
     assert!(refused.contains("north#928") && refused.contains("no open Done-when box"), "{refused}");
@@ -197,7 +197,7 @@ fn a_hand_launched_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_la
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
     let launch = |brief: &str, worker: bool| {
         let ask = Ask { item: "north#636", brief, prompt: brief, model: None, reason: None, worker, places: false };
-        start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_| super::grounds::Grounds::default()).unwrap()
+        start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_, _| super::grounds::Grounds::default()).unwrap()
     };
     let scratch = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(scratch.path().join("home")).unwrap();
@@ -260,8 +260,12 @@ fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_ru
     use super::tuned::Figure;
     use std::collections::BTreeMap;
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
-    let cells = |route: &super::tier::Route| {
-        let (eta, usd) = if route.tier == Tier::Opus { (102.0, 50.68) } else { (52.0, 19.02) };
+    let cells = |route: &super::tier::Route, family: &'static str| {
+        let (eta, usd) = match family {
+            "fable" => (77.0, 33.3),
+            _ if route.tier == Tier::Opus => (102.0, 50.68),
+            _ => (52.0, 19.02),
+        };
         Grounds { eta_cell: Some(Figure { value: eta, date: "2026-11-08".into() }), budget_cell: Some(Figure { value: usd, date: "2026-11-08".into() }), ..Grounds::default() }
     };
     let brief = "Item: north#706\nCategory: feature\nTier: sonnet-high\nSpec: measured\n\nDo the box.";
@@ -276,6 +280,11 @@ fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_ru
     for facet in ["Scope: module", "Surface: ts", "Verify: local-test"] {
         assert!(head.contains(&facet), "{facet} missing: {head:?}");
     }
+    let fable = Ask { model: Some("claude-fable-5-2"), reason: Some("the proxy staffs this box on Fable"), ..ask };
+    let sized = start(&fable, "", &cfg, &History::default(), &BTreeMap::new(), &cells).unwrap();
+    let head: Vec<&str> = sized.prompt.lines().take_while(|line| !line.is_empty()).collect();
+    assert!(head.iter().any(|line| line.starts_with("ETA: 77 min (tune cell, 2026-11-08")) && head.iter().any(|line| line.starts_with("Budget: E p90 $33.30 (tune cell, 2026-11-08")), "a fable launch is sized by the fable family: {head:?}");
+    assert_eq!(sized.route.tier, Tier::Sonnet, "sizing a fable launch routes nothing: {:?}", sized.route);
 }
 
 #[test]
@@ -319,7 +328,7 @@ fn a_hand_launch_with_a_model_draws_a_context_window() {
     let brief = "Item: north#636\nCategory: feature\nSpec: measured\n\nDo the box.";
     let launch = |model: &str, worker: bool| {
         let ask = Ask { item: "north#636", brief, prompt: brief, model: Some(model), reason: Some("the proxy staffs this box on that model"), worker, places: false };
-        start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_| Grounds::default()).unwrap()
+        start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_, _| Grounds::default()).unwrap()
     };
     for (model, worker) in [("claude-opus-5-5", true), ("claude-sonnet-5-5", true), ("claude-opus-5-5", false)] {
         let launched = launch(model, worker);

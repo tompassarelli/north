@@ -46,11 +46,15 @@ impl Tier {
     }
 
     pub fn serves(self, model: &str) -> bool {
-        let family = match self {
-            Self::Haiku => "haiku",
-            Self::Sonnet => "sonnet",
-            Self::Opus => "opus",
-        };
-        model.to_lowercase().contains(family)
+        model.to_lowercase().contains(self.family())
     }
+}
+
+/// The model families the ledger sizes a launch by. Fable is sized but is no `Tier`, so routing never picks it.
+pub const FAMILIES: [&str; 4] = ["haiku", "sonnet", "opus", "fable"];
+
+/// The sizing family a model name falls in.
+pub fn family_of(model: &str) -> Option<&'static str> {
+    let model = model.to_lowercase();
+    FAMILIES.into_iter().find(|family| model.contains(family))
 }

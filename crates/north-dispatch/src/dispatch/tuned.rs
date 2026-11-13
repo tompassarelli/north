@@ -37,9 +37,9 @@ impl Tuned {
         north_graph_loops::read(&north_graph_loops::graph_path(), WRITER).map_or_else(|_| Self::default(), |learned| Self::from_learned(learned, SystemTime::now()))
     }
 
-    /// The `<name> <family> <category>` cell for the route's tier family and category.
-    pub fn figure(&self, name: &str, route: &Route) -> Option<Figure> {
-        let value = self.cells.get(&format!("{name} {} {}", route.tier.family(), route.category))?.as_f64()?;
+    /// The `<name> <family> <category>` cell for the sizing family and the route's category.
+    pub fn figure(&self, name: &str, family: &str, route: &Route) -> Option<Figure> {
+        let value = self.cells.get(&format!("{name} {family} {}", route.category))?.as_f64()?;
         Some(Figure { value, date: self.date.clone() })
     }
 }

@@ -53,9 +53,9 @@ fn a_brief_carries_no_prior_report_from_before_its_issue_was_opened() {
     let stale = reported(BEFORE, "Not done: makgora-dev#192's feature index waits on Tom");
     let at_opening = reported(OPENED, "Not done: reported the second the issue opened");
     let ledger = ledger(&[("wisp#83", vec![reported(AFTER, "Not done: the pair stayed leased"), at_opening, stale.clone(), stale])]);
-    let grounds = ledger.grounds("wisp#83", OPENED, BODY, &route());
+    let grounds = ledger.grounds("wisp#83", OPENED, BODY, &route(), "sonnet");
     assert_eq!(grounds.prior, ["Not done: the pair stayed leased"], "only reports that ended after the issue opened are carried");
-    assert_eq!(ledger.grounds("wisp#83", BEFORE - 1.0, BODY, &route()).prior.len(), 2, "an issue opened before every report still carries its newest two");
+    assert_eq!(ledger.grounds("wisp#83", BEFORE - 1.0, BODY, &route(), "sonnet").prior.len(), 2, "an issue opened before every report still carries its newest two");
 }
 
 /// n1054-d1217: dispatch carried north#722's report naming /home/tom/code/north/worktrees/n722-gate-debt into a brief after

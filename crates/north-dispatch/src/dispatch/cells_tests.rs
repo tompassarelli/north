@@ -81,7 +81,7 @@ fn a_model_and_effort_name_the_cell_and_a_hand_launch_records_it() {
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
     let brief = "Item: north#939\nCategory: feature";
     let ask = Ask { item: "north#939", brief, prompt: &format!("{brief}\n\nDo the box."), model: None, reason: None, worker: true, places: false };
-    let started = start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_| super::grounds::Grounds::default()).unwrap();
+    let started = start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_, _| super::grounds::Grounds::default()).unwrap();
     let entry = started.entry("gex45", "claude:b", "n939-d0000").unwrap();
     let cell = started.route.cell.expect("a drawn cell").name();
     assert_eq!((entry.cell.as_deref(), entry.cell_role.as_deref()), (Some(cell.as_str()), started.route.cell_role));

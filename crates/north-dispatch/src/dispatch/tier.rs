@@ -17,7 +17,7 @@ use super::spin::Signal;
 use crate::ledger::closed::{ArmBox, ClosedReport};
 pub use crate::router::brief::{ART, known_category as known};
 use crate::router::settle::Outcome;
-pub use crate::router::tier::Tier;
+pub use crate::router::tier::{FAMILIES, Tier, family_of};
 use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::DocumentMut;
 
