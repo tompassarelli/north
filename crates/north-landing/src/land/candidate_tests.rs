@@ -126,6 +126,7 @@ fn rebase_compile_scenario(dir: &Path) {
         fs::write(repo.join(format!("crates/{name}/src/lib.rs")), source).unwrap();
     }
     fs::write(repo.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"3\"\n").unwrap();
+    fs::write(repo.join("Cargo.lock"), "version = 4\n\n[[package]]\nname = \"a\"\nversion = \"0.1.0\"\n\n[[package]]\nname = \"b\"\nversion = \"0.1.0\"\ndependencies = [\"a\"]\n").unwrap();
     git(&repo, &["init", "-q", "-b", "main"]).unwrap();
     for (key, value) in [("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
         git(&repo, &["config", key, value]).unwrap();
@@ -154,4 +155,20 @@ fn rebase_compile_scenario(dir: &Path) {
     fs::write(&offline, "#!/bin/sh\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) echo 'error: no matching package named `a` found' >&2; exit 101 ;;\nesac\n").unwrap();
     fs::set_permissions(&offline, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     assert!(rebase_compile::judge(&rebased, &offline, &logs, "lane").unwrap().is_none(), "cargo exits 101 for a resolver failure too, which says nothing about the lane");
+    fs::write(repo.join("crates/b/Cargo.toml"), "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\na = { path = \"../a\" }\nuncached-on-the-lander = \"1\"\n").unwrap();
+    commit_all(&repo, "Depend on a crate the lander has never fetched");
+    let uncached = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    let new_dependency = Rebased { tree: &repo, checked_on: Some(&checked_on), picked_onto: &moved, head: &uncached, shipped_from: &moved };
+    assert!(rebase_compile::judge(&new_dependency, &offline, &logs, "lane").unwrap().is_none(), "a lane adding a dependency the lander's offline index lacks is not a manifest cargo cannot read");
+    git(&repo, &["checkout", "-q", "HEAD~", "--", "crates/b/Cargo.toml"]).unwrap();
+    fs::write(repo.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"3\"\n\n[workspace.dependencies]\nthiserror = \"2\"\nthiserror = \"2\"\n").unwrap();
+    commit_all(&repo, "Add thiserror to the workspace a second time");
+    let unreadable = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    let plain = dir.join("plain");
+    fs::create_dir_all(&plain).unwrap();
+    let no_cargo = Rebased { tree: &plain, checked_on: Some(&checked_on), picked_onto: &moved, head: &head, shipped_from: &moved };
+    assert!(rebase_compile::judge(&no_cargo, &offline, &logs, "lane").unwrap().is_none(), "a repository with no Cargo.toml, such as nixos-config, has no manifest for cargo to read");
+    let broken = Rebased { tree: &repo, checked_on: Some(&checked_on), picked_onto: &moved, head: &unreadable, shipped_from: &moved };
+    let refused = rebase_compile::judge(&broken, &offline, &logs, "lane").unwrap().expect("a rebased tree whose manifest cargo cannot read is refused");
+    assert!(refused.verdict.contains("duplicate key") && refused.verdict.contains("--> Cargo.toml:7:1"), "on 2026-11-13 e62678a196 left main's Cargo.toml with a second thiserror key; the compile after the rebase could not read which crates it reached and landed it with no verdict: {}", refused.verdict);
 }
