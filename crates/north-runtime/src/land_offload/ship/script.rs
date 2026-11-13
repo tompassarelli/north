@@ -314,11 +314,11 @@ leased() {
   if command -v north >/dev/null 2>&1; then @SUBJECT_ENV@="$script" @OWNER_ENV@="${owner:-}" north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
 checked() {
-  if [ -z "${confined:-}" ]; then leased bash -euo pipefail "$script"; return; fi
+  if ! confined_here; then leased bash -euo pipefail "$script"; return; fi
   printf '%s\n' "$fill_text" >"$script_directory/fill.sh"
   leased sh -c '. "$0" && confine "$@"' "$script_directory/fill.sh" bash -euo pipefail "$script"
 }
-[ -z "${confined:-}" ] || command -v bwrap >/dev/null 2>&1 || { echo "offload: refusing to run: bwrap is missing on this host, so the check would run with the shared git directory writable" >&2; exit @TRANSPORT_FAILED@; }
+! confined_here || command -v bwrap >/dev/null 2>&1 || { echo "offload: refusing to run: bwrap is missing on this host, so the check would run with the home and the shared git directory writable" >&2; exit @TRANSPORT_FAILED@; }
 if [ -n "${nested:-}" ]; then
   watching=$root/watch.$$.up
   rm -f "$watching"

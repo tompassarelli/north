@@ -11,9 +11,18 @@ place() {
   if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree remove --force "$slot" 2>/dev/null || true; git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
   git -C "$slot" clean -ffdxq -e /target
 }
+confined_here() {
+  [ -z "${confined:-}" ] || return 0
+  [ -r /etc/north/operator ] || return 1
+  [ "$(cat /etc/north/operator)" != "$(id -un)" ]
+}
 confine() {
-  common=$(git rev-parse --path-format=absolute --git-common-dir) && own=$(git rev-parse --absolute-git-dir) || return 1
-  command -v bwrap >/dev/null 2>&1 || { echo "offload: refusing to run: bwrap is missing, so the check would run with the shared git directory writable" >&2; return 1; }
-  touch "$HOME/.gitconfig" && mkdir -p "$HOME/.config/git" || return 1
-  bwrap --dev-bind / / --ro-bind "$common" "$common" --bind "$own" "$own" --ro-bind "$HOME/.gitconfig" "$HOME/.gitconfig" --ro-bind "$HOME/.config/git" "$HOME/.config/git" --die-with-parent -- "$@"
+  slot_top=$(git rev-parse --show-toplevel) && common=$(git rev-parse --path-format=absolute --git-common-dir) || return 1
+  command -v bwrap >/dev/null 2>&1 || { echo "offload: refusing to run: bwrap is missing, so the check would run with the home and the shared git directory writable" >&2; return 1; }
+  set -- -- "$@"
+  for cache in .cargo/registry .cargo/git .cache/sccache .cache/nix; do
+    mkdir -p "$HOME/$cache" || return 1
+    set -- --bind "$HOME/$cache" "$HOME/$cache" "$@"
+  done
+  bwrap --dev-bind / / --die-with-parent --ro-bind "$HOME" "$HOME" --ro-bind "$common" "$common" --bind "$slot_top" "$slot_top" --ro-bind "$slot_top/.git" "$slot_top/.git" "$@"
 }
