@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 
-pub use north_fleet_store::runtime::{PROXY, ROLE_ENV, SESSION_ENV, SPOOLED_ENV, binary, now_ms};
+pub use north_fleet_store::runtime::{PROXY, ROLE_ENV, SESSION_ENV, binary, now_ms};
 use super::gates::Question;
 use super::model::{Account, Effort, LaunchRequest, Machine, ProviderName, Quota, Transcript};
 use super::roster::Roster;

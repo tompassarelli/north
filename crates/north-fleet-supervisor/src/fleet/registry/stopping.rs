@@ -225,13 +225,8 @@ mod tests {
         assert!(fleet.record("n757-leases").unwrap().ended(), "the stop never ran once the builds had");
     }
 
-    fn recorded(root: &std::path::Path, caller: &str, cwd: &std::path::Path, words: &[String]) -> std::io::Result<()> {
-        fs::write(root.join("started"), format!("{caller} in {}: {}", cwd.display(), words.join(" ")))
-    }
-
     #[test]
-    fn a_sandboxed_lead_launches_holds_and_forgets_through_the_spool() {
-        use std::os::unix::fs::PermissionsExt;
+    fn a_forgotten_session_holds_no_claim_in_the_ledger_including_boxes_it_claimed_itself() {
         use crate::fleet::claims::Rows;
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
@@ -239,52 +234,10 @@ mod tests {
         fleet.claims.hold("north#870@the first box", "n870-a", &Default::default()).unwrap();
         fleet.claims.hold("north#870@the second box", "n870-a", &Default::default()).unwrap();
         fleet.claims.hold("north#871@another box", "n871-b", &Default::default()).unwrap();
+
         fleet.forget("n870-a").unwrap();
+
         let items = ["north#870".to_owned(), "north#871".to_owned()];
         assert_eq!(fleet.claims.holders(Rows::Items(&items)).unwrap(), [("north#871@another box".to_owned(), "n871-b".to_owned())]);
-        live(&fleet, "n870-lead");
-        super::super::fixtures::live_under(&fleet, "n870-child", Some("n870-lead"));
-        let spool = fleet.root.join("spool/sessions/n870-lead");
-        fs::create_dir_all(&spool).unwrap();
-        fs::set_permissions(&fleet.root, fs::Permissions::from_mode(0o555)).unwrap();
-        assert!(!fleet.writes_records(), "the fleet root stayed writable, as it does to root, so no sandbox was simulated");
-        let lead = Fleet { spools_as: Some("n870-lead".into()), ..fleet.clone() };
-        let spooled = |kind: RowKind| -> FleetRow {
-            let rows: Vec<FleetRow> = fs::read_dir(&spool).unwrap().flatten().map(|file| serde_json::from_slice(&fs::read(file.path()).unwrap()).unwrap()).filter(|row: &FleetRow| row.kind == kind).collect();
-            assert_eq!(rows.len(), 1, "{kind:?}: {rows:?}");
-            FleetRow { sender: Sender::Session("n870-lead".into()), spooled_by: Some("n870-lead".into()), ..rows[0].clone() }
-        };
-        let forgotten = lead.forget_unless_queued("n870-child", None, None).unwrap();
-        lead.hold_task("n870-lead", "north#872").unwrap();
-        lead.spool_launch("n870-lead", "n870-new", &["--name".into(), "n870-new".into(), "brief".into()]).unwrap();
-        fs::set_permissions(&fleet.root, fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(matches!(forgotten.controlled, Controlled::Spooled(_)));
-        assert!(fleet.record("n870-child").is_ok(), "the sandbox forgot the session itself");
-        assert!(!fleet.record("n870-lead").unwrap().tasks().any(|task| task == "north#872"), "the sandbox wrote the lead's own record");
-        let (forget, hold, launch) = (spooled(RowKind::Control), spooled(RowKind::Hold), spooled(RowKind::Launch));
-        let tick = Fleet { starts: recorded, ..fleet.clone() };
-        let other = |row: &FleetRow| FleetRow { sender: Sender::Session("n870-other".into()), spooled_by: Some("n870-other".into()), ..row.clone() };
-        let named = |row: &FleetRow, name: &str| FleetRow { id: format!("{}-again", row.id), text: row.text.replace("n870-new", name), ..row.clone() };
-        tick.deliver_row(&other(&forget)).unwrap();
-        assert!(fleet.record("n870-child").is_ok(), "a forget from a session that is not the child's parent forgot it");
-        assert!(tick.deliver_row(&other(&launch)).is_err());
-        assert!(!fleet.root.join("started").exists(), "a launch row that names another session started a session");
-        for (id, flag) in [("path-a", "--cwd\",\"/home/.ssh"), ("path-b", "--system-prompt\",\"/home/.ssh/id_ed25519"), ("urgent", "--priority\",\"urgent"), ("aside", "--gates-aside")] {
-            let carrying = FleetRow { id: id.into(), text: launch.text.replace("\"brief\"", &format!("\"{flag}\",\"brief\"")), ..launch.clone() };
-            tick.deliver_row(&carrying).unwrap();
-            assert!(!fleet.root.join("started").exists(), "a spooled launch carrying {flag} started");
-        }
-        tick.deliver_row(&FleetRow { id: "unspooled".into(), spooled_by: None, ..launch.clone() }).unwrap();
-        tick.deliver_row(&FleetRow { id: "unspooled-hold".into(), spooled_by: None, ..hold.clone() }).unwrap();
-        assert!(!fleet.root.join("started").exists(), "a launch row no spool carried started a session");
-        assert!(!fleet.record("n870-lead").unwrap().tasks().any(|task| task == "north#872"), "a hold row no spool carried took effect");
-        tick.deliver_row(&named(&launch, "n870-lead")).unwrap();
-        assert!(!fleet.root.join("started").exists(), "a launch took the name of a session that is not the lead's child");
-        tick.deliver_row(&forget).unwrap();
-        tick.deliver_row(&hold).unwrap();
-        tick.deliver_row(&launch).unwrap();
-        assert!(fleet.record("n870-child").is_err(), "the lead's forget of its own child never ran");
-        assert!(fleet.record("n870-lead").unwrap().tasks().any(|task| task == "north#872"));
-        assert_eq!(fs::read_to_string(fleet.root.join("started")).unwrap(), "n870-lead in /tmp: --name n870-new brief");
     }
 }

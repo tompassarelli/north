@@ -4,7 +4,6 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::launch_queue::Priority;
 use crate::fleet::model::{Effort, LaunchRequest, ProviderName, Role};
 use crate::fleet::prompt::PromptMode;
-use crate::fleet::registry;
 use crate::fleet::runtime::{PROXY, new_uuid};
 use crate::fleet::route::Route;
 
@@ -147,22 +146,21 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
     let mut flags = LaunchFlags::default();
     let mut index = 0;
     while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
-        if registry::BARE_FLAGS.contains(flag) {
-            match *flag {
-                "--test" => flags.verification = true,
-                "--gates-aside" => flags.gates_aside = true,
-                "--container-shell" => flags.container_shell = true,
-                "--take-over" => flags.take_over = true,
-                "--dispatched" => flags.dispatched = true,
-                "--wait" | "--no-wait" => flags.wait = Some(*flag == "--wait"),
-                _ => return Err(usage()),
+        match *flag {
+            "--test" => flags.verification = true,
+            "--gates-aside" => flags.gates_aside = true,
+            "--container-shell" => flags.container_shell = true,
+            "--take-over" => flags.take_over = true,
+            "--dispatched" => flags.dispatched = true,
+            "--wait" | "--no-wait" => flags.wait = Some(*flag == "--wait"),
+            _ => {
+                let value = words.get(index + 1).filter(|value| !value.starts_with("--")).map(|value| (*value).to_owned()).ok_or_else(usage)?;
+                flags.set(providers, flag, value)?;
+                index += 2;
+                continue;
             }
-            index += 1;
-            continue;
         }
-        let value = words.get(index + 1).filter(|value| !value.starts_with("--")).map(|value| (*value).to_owned()).ok_or_else(usage)?;
-        flags.set(providers, flag, value)?;
-        index += 2;
+        index += 1;
     }
     let wait = lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
     let (overrides, take_over, priority) = (std::mem::take(&mut flags.overrides), flags.take_over, flags.priority);

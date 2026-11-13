@@ -199,10 +199,6 @@ pub(in crate::cli) fn fleet_load() -> NorthResult<std::collections::BTreeMap<Str
 }
 
 pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    super::spooled_launch::or_spool(fleet, words, launch_here)
-}
-
-fn launch_here(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);

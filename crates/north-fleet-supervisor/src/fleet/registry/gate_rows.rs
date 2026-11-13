@@ -59,8 +59,6 @@ impl Fleet {
             RowKind::GateAnswer => self.apply_gate_answer(row),
             RowKind::Wait => self.register_wait_row(row),
             RowKind::Spend => self.answer_spend_row(row),
-            RowKind::Hold => self.apply_hold(row),
-            RowKind::Launch => self.apply_launch(row),
             kind => Err(NorthError::Usage(format!("a {} row is not delivered into a session", kind.label()))),
         }
     }

@@ -32,11 +32,6 @@ impl Spool {
         Ok(Self { writes: dir.join(SESSIONS_DIR).join(location(session)?), dir })
     }
 
-    /// The directory this spool writes its rows into.
-    pub fn location(&self) -> &Path {
-        &self.writes
-    }
-
     pub fn put(&self, row: &FleetRow) -> NorthResult<()> {
         row.validate()?;
         FleetRow::check_id(&row.id)?;
