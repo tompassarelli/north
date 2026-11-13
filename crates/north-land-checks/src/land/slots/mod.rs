@@ -5,6 +5,7 @@ pub mod graph_selection;
 pub mod guard_suites;
 pub mod infer;
 pub mod it_modules;
+pub mod lane_selection;
 pub mod lint_gate;
 pub mod listed_crates;
 pub mod runner;

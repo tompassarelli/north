@@ -11,6 +11,7 @@ Command { name: "replay", usage: "north land replay --base REV [--repo DIR] [--c
 Command { name: "requeue", usage: "north land requeue TICKET --reason TEXT [--repo DIR]", run: requeue::run },
 Command { name: "sandbox", usage: "north land sandbox exec|child", run: north_land_sandbox::run },
 Command { name: "scan", usage: "north land scan dep-gate|generated-registry|tool-removal|test-integrity BASE..HEAD", run: scans::run },
+Command { name: "selection", usage: "north land selection --host HOST --base BASE --head HEAD -- COMMAND", run: slots::lane_selection::run },
 Command { name: "serve", usage: "north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--app-token PROGRAM]", run: serve::run },
 Command { name: "shadow", usage: "north land shadow tick [--repo DIR]", run: shadow::run },
 Command { name: "status", usage: "north land status TICKET [--repo DIR]", run: status::run },
