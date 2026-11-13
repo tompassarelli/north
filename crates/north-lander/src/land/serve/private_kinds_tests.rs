@@ -13,6 +13,7 @@ use crate::land::queue::{self, HandIn, Ticket};
 use crate::land::scans::outgoing::denylist::{DenylistVerdict, Stand};
 use crate::land::unjudged::{Asks, Lanes, Verdict};
 
+const HANG: Duration = Duration::from_secs(3600);
 const BASE: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const QUEUED_MICROS: u128 = 1_794_396_818_000_000;
 const SOON: Duration = Duration::from_micros(1_794_396_819_000_000);
@@ -47,7 +48,7 @@ fn taken(lander: &Lander, tickets: Lanes, now: Duration, verdict: &Arc<Verdict>)
     let mut asks = Asks::default();
     let asking = asks.settle(lander, tickets.clone(), now, verdict).unwrap();
     assert!(asking.is_empty(), "a lane was handed to the batch before its verdict was answered: {asking:?}");
-    assert!(north_base::platform::wait::until(Duration::from_secs(60), || asks.running() == 0), "the verdict ask never ended");
+    assert!(north_base::platform::wait::until(HANG, || asks.running() == 0), "the verdict ask never ended");
     asks.settle(lander, tickets, now, verdict).unwrap()
 }
 

@@ -28,7 +28,20 @@ esac
 exit 1
 "#;
 const JUDGE_FINDS_AN_ADDRESS: &str = "#!/bin/sh\ntext=$(cat)\ncase \"$text\" in\n  *'lives at'*) printf 'address\\tthe owner lives at 1 Example Road\\n'; exit 1 ;;\nesac\nexit 0\n";
-const JUDGE_ASKS_A_MODEL_ONCE_A_TEXT: &str = "#!/bin/sh\nkey=$(sha256sum | cut -c1-64)\n[ -e \"$0.verdicts/$key\" ] && exit 0\nsleep 1\nmkdir -p \"$0.verdicts\" && touch \"$0.verdicts/$key\"\nexit 0\n";
+const JUDGE_ASKS_A_MODEL_ONCE_A_TEXT: &str = "#!/bin/sh\ntext=$(cat)\nkey=$(printf %s \"$text\" | sha256sum | cut -c1-64)\nif [ ! -e \"$0.verdicts/$key\" ]; then\n  sleep 1\n  mkdir -p \"$0.verdicts\" && touch \"$0.verdicts/$key\"\nfi\nprintf '%s\\n' \"$text\" | tr '\\n' ' ' >> \"$HOME/judge-answered\"\necho >> \"$HOME/judge-answered\"\nexit 0\n";
+
+fn hold_script(world: &World) -> String {
+    let root = world.path().display();
+    format!("#!/bin/sh\nneedle=$(sed -n 1p {root}/judge-hold 2>/dev/null)\nwant=$(sed -n 2p {root}/judge-hold 2>/dev/null)\n[ -n \"$want\" ] || exit 0\nwhile :; do\n  have=$(grep -cF -- \"$needle\" {root}/judge-answered 2>/dev/null)\n  [ \"${{have:-0}}\" -lt \"$want\" ] || break\n  sleep 0.05\ndone\n")
+}
+
+fn answered(world: &World, note: &str) -> usize {
+    fs::read_to_string(world.path().join("judge-answered")).map_or(0, |text| text.lines().filter(|line| line.contains(note)).count())
+}
+
+fn hold_check_for(world: &World, note: &str, judges: usize) {
+    fs::write(world.path().join("judge-hold"), format!("{note}\n{}\n", answered(world, note) + judges)).unwrap();
+}
 
 fn scanned_world(judge: &str) -> (World, Repository) {
     let world = World::new();
@@ -222,7 +235,9 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     }
     let (world, north) = scanned_world(JUDGE_ASKS_A_MODEL_ONCE_A_TEXT);
     write_executable(&world.path().join("bin/north"), VERDICT_NORTH);
-    fs::write(north.checkout.join(".safe-push"), "[landing]\n\tpush-app = lander\n[land]\n\tcheck = ** :: test ! -e red.txt && sleep 3\n").unwrap();
+    write_executable(&world.path().join("bin/hold-judges"), hold_script(&world));
+    let held = format!("test ! -e red.txt && {}", world.path().join("bin/hold-judges").display());
+    fs::write(north.checkout.join(".safe-push"), format!("[landing]\n\tpush-app = lander\n[land]\n\tcheck = ** :: {held}\n")).unwrap();
     git(&north.checkout, &["commit", "-qam", "Run a land check before queueing"]);
     git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
     git(&north.checkout, &["fetch", "-q", "origin"]);
@@ -265,7 +280,9 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "another session's empty-message finish call queued: {}", report(&stale));
     fs::write(lane.join("named.txt"), "the finished change, checked\n").unwrap();
     let ran = world.path().join("check-ran");
+    hold_check_for(&world, "Add the proposed note", 2);
     let passed = finish(&world, "proposer", &format!("test -e named.txt && touch {}", ran.display()), "", &lane.join("named.txt"));
+    fs::remove_file(world.path().join("judge-hold")).unwrap();
     let text = report(&passed);
     assert_eq!(passed.status.code(), Some(0), "{text}");
     assert!(ran.exists(), "the check did not run in the lane: {text}");
@@ -286,9 +303,11 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     let south = south_with_a_denylist(&world);
     let counted = worktree(&north, "facts");
     fs::write(counted.join("facts.txt"), "a change whose facts are counted\n").unwrap();
-    let mut counting = finishing(&world, "facts", "test ! -e red.txt && sleep 3", "Add the counted note (north#1239)", &counted.join("facts.txt"));
+    hold_check_for(&world, "Add the counted note", 1);
+    let mut counting = finishing(&world, "facts", &held, "Add the counted note (north#1239)", &counted.join("facts.txt"));
     let counted_text = report(&counting.env_remove("SAFE_PUSH_DENYLIST").env("SAFE_PUSH_SOUTH", &south).output().unwrap());
     assert!(counted_text.lines().any(|line| line.starts_with("Done: queued")), "{counted_text}");
+    fs::remove_file(world.path().join("judge-hold")).unwrap();
     let (fetches, lookups) = (calls(&world, "git"), calls(&world, "gh"));
     let count = |calls: &[String], kind: &str| calls.iter().filter(|call| call.contains(kind)).count();
     let tally = (count(&fetches, "refs/remotes/origin/main"), count(&fetches, "refs/south/main"), count(&fetches, "public-denylist.toml"), fetches.len(), count(&lookups, "repo view"));

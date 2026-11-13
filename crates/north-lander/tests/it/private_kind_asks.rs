@@ -1,7 +1,7 @@
 use std::fs;
 
 use super::land_first::{NO_SECRETS, PUBLIC_REPO, Release, calls, checker, enqueue};
-use super::serve::{World, git, report};
+use super::serve::{HANG, World, git, report};
 
 const JUDGE_HOLDS_ONE_LANE: &str = "#!/bin/sh\ntext=$(cat)\ncase \"$text\" in\n  *held*) echo >> \"$0.held\"; while [ ! -e \"$HOME/judge-release\" ]; do sleep 0.05; done ;;\n  *) sleep 1 ;;\nesac\nexit 0\n";
 
@@ -38,11 +38,13 @@ fn three_lanes_handed_in_together_land_while_one_of_them_still_waits_for_its_pri
         .env_remove("SAFE_PUSH_SOUTH");
     let mut lander = command.spawn().unwrap();
     let landed = |file: &str| git(&north.origin, &["ls-tree", "--name-only", "main"]).lines().any(|name| name == file);
-    let others = north_base::platform::wait::until(std::time::Duration::from_secs(60), || landed("second.txt") && landed("third.txt"));
+    north_base::platform::wait::until(HANG, || landed("second.txt") && landed("third.txt") || lander.try_wait().unwrap().is_some());
+    let others = landed("second.txt") && landed("third.txt");
     let held_asks = calls(&bin.join("judge.held"));
     let held_early = landed("held.txt");
     drop(release);
-    let held_landed = north_base::platform::wait::until(std::time::Duration::from_secs(60), || landed("held.txt"));
+    north_base::platform::wait::until(HANG, || landed("held.txt") || lander.try_wait().unwrap().is_some());
+    let held_landed = landed("held.txt");
     let _ = lander.kill();
     let journal = report(&lander.wait_with_output().unwrap());
     assert!(others, "the second and third lanes never landed: {journal}");

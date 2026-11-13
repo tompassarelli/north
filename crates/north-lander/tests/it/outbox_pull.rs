@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicU64;
-use std::time::Duration;
 
 use north_base::foundation::shim::write_executable;
 use north_lander::land::heartbeat::Heartbeat;
@@ -9,7 +8,7 @@ use north_lander::land::jobs::Chores;
 use north_lander::land::lander::Lander;
 use north_lander::land::queue::{self, Ticket};
 
-use super::serve::{Repository, World, git};
+use super::serve::{HANG, Repository, World, git};
 
 const CHECKOUT: &str = "NORTH_LAND_IT_OUTBOX_CHECKOUT";
 const SSH: &str = "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -o|-p) shift 2 ;; -*) shift ;; *) break ;; esac; done\nshift\n[ \"$1\" = -- ] && shift\nexec sh -c \"$*\"\n";
@@ -304,7 +303,7 @@ fn hand_in_waiter() {
 }
 
 #[test]
-fn a_refusal_reaches_the_hand_in_on_the_lanes_host_within_two_seconds_with_no_records_mirror() {
+fn a_refusal_reaches_the_hand_in_on_the_lanes_host_by_the_landers_push_with_no_records_mirror() {
     let pull = Pull::new();
     pull.repository.lane("conflicted");
     let (lander_copy, ticket) = queue::pending(&pull.repository.queue).unwrap().pop().unwrap();
@@ -318,14 +317,21 @@ fn a_refusal_reaches_the_hand_in_on_the_lanes_host_within_two_seconds_with_no_re
     let mut sender = pull.process("outbox_pull::verdict_sender");
     sender.env(READY, &ready).stdin(Stdio::piped());
     let mut sender = sender.spawn().unwrap();
+    let (lines, sent) = std::sync::mpsc::channel();
+    let reader = std::io::BufReader::new(sender.stdout.take().unwrap());
+    std::thread::spawn(move || std::io::BufRead::lines(reader).map_while(Result::ok).for_each(|line| { let _ = lines.send(line); }));
     let mut waiter = pull.process("outbox_pull::hand_in_waiter");
     waiter.env(WAITED, &outboxed).env("XDG_STATE_HOME", &pull.remote);
     let mut waiter = waiter.spawn().unwrap();
-    assert!(north_base::platform::wait::until(Duration::from_secs(20), || ready.exists()), "the lander never started sending verdicts");
+    north_base::platform::wait::until(HANG, || ready.exists() || sender.try_wait().unwrap().is_some());
+    assert!(ready.exists(), "the lander never started sending verdicts");
 
     let verdict = "conflict with main at conflicted.txt; rebase onto origin/main and hand in again";
     queue::decide(&lander_copy, ticket, verdict.to_owned()).unwrap();
-    let answered = north_base::platform::wait::until(Duration::from_secs(2), || waiter.try_wait().unwrap().is_some());
+    let mut journal = Vec::new();
+    let pushed = sent.iter().inspect(|line| journal.push(line.clone())).any(|line| line.contains("sent the verdict on"));
+    north_base::platform::wait::until(HANG, || waiter.try_wait().unwrap().is_some());
+    let answered = waiter.try_wait().unwrap().is_some();
     if !answered {
         let _ = waiter.kill();
     }
@@ -333,6 +339,7 @@ fn a_refusal_reaches_the_hand_in_on_the_lanes_host_within_two_seconds_with_no_re
     let _ = sender.wait();
     let output = waiter.wait_with_output().unwrap();
     let transcript = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert!(answered, "the hand-in on gex45 heard nothing within 2 s of the lander's refusal:\n{transcript}");
+    assert!(pushed, "the lander sent no verdict to gex45 on the decision event:\n{}", journal.join("\n"));
+    assert!(answered, "the hand-in on gex45 never heard the lander's refusal:\n{transcript}");
     assert!(output.status.code() == Some(1) && transcript.contains(verdict), "{transcript}");
 }

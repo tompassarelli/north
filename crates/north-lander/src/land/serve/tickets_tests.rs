@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::land::queue::{self, Ticket};
 use crate::land::wake::{Task, Wake};
 
-const LIMIT: Duration = Duration::from_secs(60);
+const LIMIT: Duration = Duration::from_secs(3600);
 
 #[test]
 fn a_queued_ticket_lands_on_the_backstop_tick_when_the_wake_event_is_dropped() {

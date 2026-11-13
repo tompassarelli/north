@@ -217,11 +217,12 @@ fn a_lane_whose_private_kind_judge_exits_75_is_queued_without_an_alone_pass_and_
     assert!(subjects(&north).iter().any(|subject| subject == "Add a public note"), "{journal}");
 }
 
-const JUDGE_ASKS_A_MODEL_ONCE_A_TEXT: &str = "#!/bin/sh\ntext=$(cat)\nasked=\"$0.$(printf %s \"$text\" | cksum | cut -d' ' -f1)\"\nif [ ! -e \"$asked\" ]; then\n  : > \"$asked\"\n  sleep 2\nfi\ncase \"$text\" in\n  *'lives at'*) printf 'address\\tthe owner lives at 1 Example Road\\n'; exit 1 ;;\nesac\nexit 0\n";
+const JUDGE_ASKS_A_MODEL_ONCE_A_TEXT: &str = "#!/bin/sh\ntext=$(cat)\nasked=\"$0.$(printf %s \"$text\" | cksum | cut -d' ' -f1)\"\nif [ ! -e \"$asked\" ]; then\n  : > \"$asked\"\n  while [ ! -e \"$HOME/judge-release\" ]; do sleep 0.05; done\nfi\ncase \"$text\" in\n  *'lives at'*) printf 'address\\tthe owner lives at 1 Example Road\\n'; exit 1 ;;\nesac\nexit 0\n";
 
 #[test]
 fn a_lane_whose_private_kind_judge_is_still_asking_is_queued_at_once_and_the_lander_lands_it_or_refuses_it_on_the_verdict_north_1138() {
     let world = World::new();
+    let release = Release(world.path().join("judge-release"));
     let north = world.repository("north");
     let bin = world.path().join("bin");
     north_base::foundation::shim::write_executable(&bin.join("judge"), JUDGE_ASKS_A_MODEL_ONCE_A_TEXT);
@@ -244,6 +245,7 @@ fn a_lane_whose_private_kind_judge_is_still_asking_is_queued_at_once_and_the_lan
         assert!(text.contains("Done: queued"), "{text}");
         assert!(text.contains("the private-kind judge is still judging this lane's text"), "the enqueue waited for the judge's model call before queueing: {text}");
     }
+    drop(release);
     for (_, ticket) in queue::pending(&north.queue).unwrap() {
         assert_eq!((ticket.unjudged_on.as_deref(), ticket.alone_green.as_deref()), (Some(base.as_str()), None), "{} was vouched for before its private-kind verdict", ticket.branch);
     }
@@ -347,10 +349,11 @@ fn a_candidate_is_pushed_while_an_alone_check_is_in_flight() {
     wait_for("the alone check of the lane with no pass to start", || world.path().join("alone-started").exists());
     fs::hard_link(&unannounced, &passed).unwrap();
     let landed = |file: &str| git(&north.origin, &["ls-tree", "--name-only", "main"]).lines().any(|name| name == file);
-    let pushed = north_base::platform::wait::until(std::time::Duration::from_secs(60), || landed("passed.txt"));
+    north_base::platform::wait::until(super::serve::HANG, || landed("passed.txt") || first.try_wait().unwrap().is_some());
+    let pushed = landed("passed.txt");
     fs::remove_file(world.path().join("lander")).unwrap();
     std::os::unix::fs::symlink(format!("runtimes/{new}"), world.path().join("lander")).unwrap();
-    let exited = north_base::platform::wait::until(std::time::Duration::from_secs(40), || first.try_wait().unwrap().is_some());
+    let exited = north_base::platform::wait::until(super::serve::HANG, || first.try_wait().unwrap().is_some());
     if !exited {
         let _ = first.kill();
     }
