@@ -417,7 +417,7 @@ fn a_red_fix_then_a_lander_placed_hand_in_takes_the_first_freed_slot_ahead_of_ea
         Queued { label: "after", name: "code-p-main", carried: "SAFE_PUSH_LANDING='after'", red_fix: "", owner: "land-check", urgent: "", hold: false, class: super::SlotClass::LandCheck },
     ]);
     let foreground: Vec<&str> = order.iter().map(String::as_str).filter(|event| *event != "start-sweep").collect();
-    assert_eq!(foreground, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-after", "end-after", "start-land", "end-land", "start-worker", "end-worker", "start-forged-land", "end-forged-land", "start-forged", "end-forged", "end-sweep"], "the red fix took the slot first, the lander's after-landing job next and its hand-in land check after that, then the worker builds in arrival order with the hand-in word that carries no lander owner among them, and the sweep outlasted them all");
+    assert_eq!(foreground, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-land", "end-land", "start-after", "end-after", "start-worker", "end-worker", "start-forged-land", "end-forged-land", "start-forged", "end-forged", "end-sweep"], "the red fix took the slot first, the lander's hand-in land check next and its after-landing job queued after it at the same rank after that, which leaves the lander's first-in-line rank to its pre-push checks, then the worker builds in arrival order with the hand-in word that carries no lander owner among them, and the sweep outlasted them all");
     let at = |event: &str| order.iter().position(|seen| seen == event);
     assert!(at("start-sweep") < at("end-holder"), "the sweep ran in its own slot beside the holder, outside the one-job cap: {order:?}");
 }
@@ -495,6 +495,40 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0} {1}", slot.display(), super::script::slot_ports("code-p-main")[0].1));
     assert_eq!(fs::read_to_string(home.path().join("marker")).unwrap(), "built\n", "a later job in the slot builds on the target the job before it left");
     assert!(!home.path().join("ssh-calls").exists(), "a job for this host runs the slot script here and never reaches ssh");
+    let root = home.path().join(".cache/land-offload");
+    let held: Vec<fs::File> = (0..super::SLOTS - 1).map(|index| if index == 0 { "code-p-main".to_owned() } else { format!("code-p-main-{index}") }).map(|name| fs::File::create(root.join(format!("{name}.lock"))).unwrap()).collect();
+    for lock in &held {
+        rustix::fs::flock(lock, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
+    }
+    let stray_seen = home.path().join("stray-seen");
+    let mut stray = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &format!("printf '%s' \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, stray_seen.display()), "refs/land-offload/job", "SAFE_PUSH_LANDING='after'", "land-check", "", "", "", "", ""], &[])
+        .env("HOME", home.path())
+        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+        .env("PATH", &path)
+        .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
+        .env_remove("NORTH_OFFLOAD_MAX_JOBS")
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .env_remove(north_base::foundation::offload::SLOT_ENV)
+        .stdin(fs::File::open(&bundle).unwrap())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stray_said = std::io::BufReader::new(stray.stderr.take().unwrap());
+    let mut said = String::new();
+    loop {
+        let mut line = String::new();
+        assert!(std::io::BufRead::read_line(&mut stray_said, &mut line).unwrap() > 0, "the after-landing run ended before it waited: {said}");
+        said.push_str(&line);
+        if line.starts_with("offload: waiting for a slot") {
+            break;
+        }
+    }
+    assert!(!stray_seen.exists(), "on 2026-11-13 the lander's compile after a rebase waited 539 s while after-landing runs filled every slot, its reserved one too; with the other slots full an after-landing run waits and leaves the lander's slot free");
+    drop(held);
+    std::io::Read::read_to_string(&mut stray_said, &mut said).unwrap();
+    assert!(stray.wait().unwrap().success(), "{said}");
+    assert_ne!(fs::read_to_string(&stray_seen).unwrap(), root.join("code-p-main-5").display().to_string());
 }
 
 #[test]
@@ -1224,7 +1258,7 @@ fn a_job_whose_host_line_would_keep_it_past_its_deadline_leaves_at_once_with_the
     let admitted = job(&format!("SAFE_PUSH_LANDING='1' {}='45'", north_base::foundation::carry::LINE_WITHIN));
     assert!(admitted.status.success(), "{}", String::from_utf8_lossy(&admitted.stderr));
     let asks = fs::read_to_string(home.path().join("line-asks")).unwrap();
-    assert!(asks.lines().last().unwrap().starts_with("--rank 2 --ticket ") && asks.lines().last().unwrap().ends_with(&format!(" --name code-p-main --slots {} --within 45", super::SLOTS)), "{asks}");
+    assert!(asks.lines().last().unwrap().starts_with("--rank 2 --ticket ") && asks.lines().last().unwrap().ends_with(&format!(" --name code-p-main --slots {} --within 45", super::SLOTS - 1)), "a job other than the lander's waits for one of the slots its reserved one leaves: {asks}");
     let calls = fs::read_to_string(home.path().join("line-calls")).unwrap();
     let events: Vec<&str> = calls.lines().map(|line| line.split(' ').next().unwrap_or("")).collect();
     assert_eq!(events, ["queued", "started", "ended"], "{calls}");

@@ -15,7 +15,7 @@ const WATCH_START_POLLS: u32 = 100;
 const BACKGROUND_SUFFIX: &str = ".background";
 const BACKGROUND_RANK: u8 = 4;
 
-/// Whether the host starts this job now: a floor job (a red fix, the lander's own slot) at once; a landing-rank land check (a hand-in's check) while the host's `capacity host admit-job` admits one, since its lease is a landing lease, whose start the pressure reading counts and which opens no settle window; any other job, an after-landing run among them at rank 3 for its first minutes, also once the job last admitted here has settled or already ended, so the next pressure reading includes it; `NORTH_OFFLOAD_MAX_JOBS` caps the host's jobs for safety.
+/// Whether the host starts this job now: a floor job (a red fix, the lander's own slot) at once; a landing-rank land check (a hand-in's check, or the lander's after-landing run) while the host's `capacity host admit-job` admits one, since its lease is a landing lease, whose start the pressure reading counts and which opens no settle window; any other job also once the job last admitted here has settled or already ended, so the next pressure reading includes it; `NORTH_OFFLOAD_MAX_JOBS` caps the host's jobs for safety.
 pub(super) const ADMIT: &str = r#"host_cap=${NORTH_OFFLOAD_MAX_JOBS:-}
 admitted=$root/admitted why=
 north_bin=
@@ -228,14 +228,13 @@ const TAKE: &str = r#"nearest=$(
   done | sort -n -s -k1,1 | cut -d ' ' -f2
 )
 reserved=$name
-[ @SLOTS@ -le 1 ] || reserved=$name-$((@SLOTS@ - 1))
-nearest=$(printf '%s\n' $nearest | { grep -vx "$reserved" || true; }; echo "$reserved")
+[ @SLOTS@ -le 1 ] || { reserved=$name-$((@SLOTS@ - 1)); nearest=$(printf '%s\n' $nearest | { grep -vx "$reserved" || true; }); }
 [ -z "$holding" ] || nearest=$(printf '%s\n' $nearest | { grep -vx "$reserved" || true; })
 queue=$root/queue
 mkdir -p "$queue"
 rank=3
 # The hand-in and after-landing words name a rank only on the lander's own jobs: a worker's offload request drops the owner word, so no word it carries can claim one.
-case " $carried " in *" SAFE_PUSH_LANDING='1' "*) [ -z "$owner" ] || rank=2 ;; *" SAFE_PUSH_LANDING='after' "*) [ -z "$owner" ] || rank=1 ;; esac
+case " $carried " in *" SAFE_PUSH_LANDING='1' "*) [ -z "$owner" ] || rank=2 ;; *" SAFE_PUSH_LANDING='after' "*) [ -z "$owner" ] || rank=2 ;; esac
 [ -z "$urgent" ] || rank=1
 [ "$lander_slot" != 1 ] || rank=1
 [ -z "$red_fix" ] || rank=0
@@ -252,6 +251,7 @@ find "$root/inflight" -type f -mmin +1440 -delete 2>/dev/null || true
 if [ -z "$nested" ] && [ -n "$north_bin" ]; then
   rc=0
   line_slots=@SLOTS@
+  [ "$lander_slot" = 1 ] || [ "$line_slots" -le 1 ] || line_slots=$((line_slots - 1))
   [ -z "$host_cap" ] || [ "$host_cap" -ge "$line_slots" ] || line_slots=$host_cap
   told=$("$north_bin" capacity offload line wait --rank "$rank" --ticket "$ticket" --name "$name" --slots "$line_slots" ${within:+--within "$within"} 2>&1 </dev/null) || rc=$?
   [ "$rc" -ne @SLOTS_BUSY@ ] || { echo "offload: $told; this job leaves the line at once, so place it on another host" >&2; exit @SLOTS_BUSY@; }
