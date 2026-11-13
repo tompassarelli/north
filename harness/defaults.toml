@@ -1823,6 +1823,14 @@ source = "north#1022 (2026-11-13): a reviewer's hold on a landed commit was a me
 fallback = "any value but off reads as on"
 consumers = ["crates/north-runtime/src/runtime/review_hold.rs"]
 
+[after_landing_green]
+value = "off"
+allowed = { one_of = ["on", "off"] }
+unit = "on: `north runtime order`, the slot and Live-fix promotions, the walk's ship to the other hosts and the lander link on the host that settles the fleet each refuse a head whose own fresh after-landing run in safe-push/post-land.tsv (or, with none of its own, the batch tip's run that covered it) did not end green, or is still recorded as running, or never ran, naming the run and its state; off reads no after-landing verdict"
+source = "north#1022 (2026-11-13): no host's runtime may take a head whose after-landing run has not ended green, the rule the per-crate test selection rests on, and it was kept by hand through a held promotion lock"
+fallback = "any value but off reads as on"
+consumers = ["crates/north-runtime/src/runtime/after_landing.rs", "crates/north-runtime/src/runtime/review_hold.rs"]
+
 [proxy_read_streak]
 value = 15
 allowed = { min = 3, max = 200 }

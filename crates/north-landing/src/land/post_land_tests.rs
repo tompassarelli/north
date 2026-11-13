@@ -78,10 +78,14 @@ fn an_after_landing_run_past_its_deadline_is_killed_with_its_group_reaches_no_ve
     record(&stuck, &landed, &Verdict::Green, false, 1);
     let marked = std::fs::read_to_string(&stuck.ledger).unwrap();
     assert!(marked.lines().all(|row| { let row: Vec<&str> = row.split('\t').collect(); row[3] == "green" && row[9] == "no-test" }), "a green landing that ran no test says so in a column after the ones the readers use: {marked}");
+    assert!(marked.lines().all(|row| row.split('\t').nth(10) == Some("")), "a run that may reuse verdicts is not marked fresh: {marked}");
     std::fs::write(&stuck.outcome, "selected\tb\td\t{\"tests\":[\"x\"],\"added\":[],\"modules\":[]}\n").unwrap();
     std::fs::remove_file(&stuck.ledger).unwrap();
+    stuck.runner.push("--fresh".to_owned());
     record(&stuck, &landed, &Verdict::Green, false, 1);
-    assert!(std::fs::read_to_string(&stuck.ledger).unwrap().lines().all(|row| row.split('\t').nth(9) == Some("")), "a landing that ran its tests carries no mark");
+    let fresh = std::fs::read_to_string(&stuck.ledger).unwrap();
+    assert!(fresh.lines().all(|row| row.split('\t').nth(9) == Some("")), "a landing that ran its tests carries no mark");
+    assert!(fresh.lines().all(|row| row.split('\t').nth(10) == Some("fresh")), "a run with no reused verdicts is marked fresh, the only row a promotion counts green: {fresh}");
 }
 
 #[test]

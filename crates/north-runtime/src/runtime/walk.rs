@@ -6,6 +6,7 @@ use super::live::Swap;
 use super::cadence;
 use super::pin::{Event, note, now};
 use super::probe::Shell;
+use super::review_hold::{self, Screen};
 use crate::platform::host;
 use std::fs;
 use std::process::Command;
@@ -85,9 +86,9 @@ pub(super) fn walk_of(layout: &Layout, host: &str, live: Option<&str>, judged: O
     }
 }
 
-/// Ships the walked runtime to the other hosts, or nothing when it has not walked the spine here.
-pub(super) fn ship_if_walked<T>(walk: Result<String, String>, ship: impl FnOnce(&str) -> Result<T, Failure>) -> Result<Option<T>, Failure> {
-    match walk {
+/// Ships the walked runtime to the other hosts, or nothing when it has not walked the spine here or `screen` refuses it (a reviewer's hold, or an after-landing run not ended green).
+pub(super) fn ship_if_walked<T>(walk: Result<String, String>, screen: &Screen, ship: impl FnOnce(&str) -> Result<T, Failure>) -> Result<Option<T>, Failure> {
+    match walk.and_then(|sha| screen.promotion(&sha, review_hold::now()).map(|_| sha)) {
         Ok(sha) => ship(&sha).map(Some),
         Err(why) => {
             println!("north runtime: not shipped to the other hosts: {why}");

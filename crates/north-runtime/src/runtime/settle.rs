@@ -7,6 +7,7 @@ use super::layout::{self, Layout};
 use super::lifecycle::{self, Judge, Judgement};
 use super::pin;
 use super::verdict;
+use super::review_hold::Screen;
 use super::walk;
 use super::watch;
 use super::follow;
@@ -112,7 +113,7 @@ fn walk_and_ship(layout: &Layout, hosts: &[Shell], checkout: &Path) -> probe::Fa
     let follow = walk.is_ok();
     let shipped = std::thread::scope(|scope| {
         let following = follow.then(|| scope.spawn(|| follow::follow_lander(layout)));
-        let shipped = walk::ship_if_walked(walk, |here| {
+        let shipped = walk::ship_if_walked(walk, &Screen::here(checkout), |here| {
             ship_behind(&hosts[1..], here, &layout.runtime(here), checkout);
             Ok(())
         });

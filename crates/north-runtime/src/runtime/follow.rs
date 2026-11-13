@@ -1,5 +1,6 @@
 use super::failure::{Failure, failed};
 use super::layout::{Layout, TREE};
+use super::review_hold::{self, Screen};
 use super::{deploy, update, walk};
 use crate::land_offload;
 use crate::platform::process;
@@ -98,7 +99,7 @@ fn walked_and_shipped(layout: &Layout) -> Result<(), Failure> {
     let follow = walked.is_ok();
     std::thread::scope(|scope| {
         let following = follow.then(|| scope.spawn(|| follow_lander(layout)));
-        let shipped = walk::ship_if_walked(walked, |_| deploy::deploy_live(layout)).map(|_| ());
+        let shipped = walk::ship_if_walked(walked, &Screen::here(&update::checkout()), |_| deploy::deploy_live(layout)).map(|_| ());
         let followed = following.map(|handle| handle.join().unwrap_or_else(|_| Err(failed(1, "the lander link follow panicked"))));
         match followed {
             Some(result) => shipped.and(result),
@@ -137,6 +138,9 @@ pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {
     if fs::symlink_metadata(layout.lander()).is_err() {
         return Ok(());
     }
+    if land_offload::settles_fleet_here() {
+        lander_cleared(layout, &Screen::here(&update::checkout()))?;
+    }
     request_newest(layout);
     let mut retaking = Duration::ZERO;
     loop {
@@ -155,6 +159,12 @@ pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {
         println!("north runtime lander: current moved to {} during the replay, so the newest replays next", newest.as_deref().map_or_else(String::new, |link| link.display().to_string()));
         retaking = LANDER_RETAKE;
     }
+}
+
+/// The lander link on the host that settles the fleet follows only a live runtime `screen` lets go live, so a head whose after-landing run has not ended green, or that a reviewer holds, leaves the link where it is; every other host only runs what the settling host shipped after the same screen.
+pub(super) fn lander_cleared(layout: &Layout, screen: &Screen) -> Result<(), Failure> {
+    let Some(live) = layout.live_sha() else { return Ok(()) };
+    screen.promotion(&live, review_hold::now()).map(|_| ()).map_err(|why| failed(1, format!("north runtime lander: the lander link stays where it is: {why}")))
 }
 
 /// A follow that let go of the lock to read `current` again takes it back within `within`: a child another thread is starting holds a copy of every open descriptor until it execs, the lock just released among them, so a first refusal is not yet another promotion.

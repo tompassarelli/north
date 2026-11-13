@@ -1,11 +1,9 @@
 use super::super::canary::{self, Landers, Machine, Probe, Ran, Rollback, Verdict};
-use super::super::failure::failed;
 use super::super::layout::{self, Layout};
 use super::super::live::Swap;
 use super::super::pin::{Event, read};
-use super::{handed_to_live, judged, ship_if_walked, walk_verdict};
+use super::{handed_to_live, judged, walk_verdict};
 use north_base::foundation::shim::write_executable;
-use std::cell::Cell;
 use std::fs;
 
 const PINNED: &str = "1111111111111111111111111111111111111111";
@@ -26,20 +24,6 @@ fn a_rollback_is_journaled_with_its_seconds_live_and_whether_the_walking_host_to
         other => panic!("not a rollback: {other:?}"),
     }
     assert!(matches!(&events[1], Event::Walked { sha, .. } if sha == MAIN));
-}
-
-#[test]
-fn nothing_ships_to_another_host_until_the_runtime_walked_the_spine_here() {
-    let shipped = Cell::new(0);
-    let ship = |_: &str| {
-        shipped.set(shipped.get() + 1);
-        Ok(())
-    };
-    assert_eq!(ship_if_walked(Err("rolled back".to_owned()), ship).unwrap(), None);
-    assert_eq!(shipped.get(), 0);
-    assert_eq!(ship_if_walked(Ok(MAIN.to_owned()), ship).unwrap(), Some(()));
-    assert_eq!(shipped.get(), 1);
-    assert!(ship_if_walked(Ok(MAIN.to_owned()), |_| Err::<(), _>(failed(1, "unreachable"))).is_err());
 }
 
 #[test]

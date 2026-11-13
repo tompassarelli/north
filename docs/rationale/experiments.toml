@@ -716,3 +716,11 @@ command = "grep -A1 '^\\[review_holds\\]' harness/defaults.toml | grep -q 'value
 review = "2026-11-27"
 owner = "tompassarelli/north#1022"
 lead = "f-flow-lead"
+
+[[check]]
+id = "n1022-after-landing-green-off"
+box = "No host's runtime takes a head whose after-landing run has not ended green"
+command = "grep -A1 '^\\[after_landing_green\\]' harness/defaults.toml | grep -q 'value = \"off\"'"
+review = "2026-11-27"
+owner = "tompassarelli/north#1022"
+lead = "f-flow-lead"

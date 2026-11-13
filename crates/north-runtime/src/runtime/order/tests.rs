@@ -3,6 +3,7 @@ use super::super::failure::Failure;
 use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Canarying};
 use super::super::pin::{Event, read};
+use super::super::after_landing::Landing;
 use super::super::review_hold::{Ask, Caller, Holds, Screen, in_checkout, landed_in, lane_of, now};
 use super::super::update::{self, Flight};
 use super::{Host, Order, run};
@@ -322,7 +323,7 @@ fn landings(lane: &str) -> Result<Vec<String>, String> {
 }
 
 fn screen_of(holds: Holds, contains: fn(&str, &str) -> Result<bool, String>, landed: fn(&str) -> Result<Vec<String>, String>) -> Screen {
-    Screen { holds, contains: Box::new(contains), landed: Box::new(landed) }
+    Screen { holds, contains: Box::new(contains), landed: Box::new(landed), after_landing: Box::new(|_| Landing::Green) }
 }
 
 #[test]
@@ -382,7 +383,7 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
         ("an entry that is no hold", screen_of(Holds(unparsed), squashed, landings), "broken.json"),
         ("an entry not named for its hold", screen_of(Holds(misnamed), squashed, landings), "not the hold its name says"),
         ("git failing", screen_of(Holds(store.clone()), |_, _| Err("fatal: no such object".to_owned()), landings), "no such object"),
-        ("a push ledger that does not exist", Screen { holds: Holds(store), contains: Box::new(|_, _| Ok(false)), landed: landed_in(state.path().join("pushes.tsv")) }, "pushes.tsv"),
+        ("a push ledger that does not exist", Screen { holds: Holds(store), contains: Box::new(|_, _| Ok(false)), landed: landed_in(state.path().join("pushes.tsv")), after_landing: Box::new(|_| Landing::Green) }, "pushes.tsv"),
     ];
     for (case, screen, says) in failing {
         let refused = screen.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));

@@ -20,6 +20,8 @@ use crate::land::slots::graph_selection::{SELECTED, Selected};
 use crate::land::telemetry;
 
 const NO_TEST_MARK: &str = "no-test";
+const FRESH_MARK: &str = "fresh";
+const FRESH_FLAG: &str = "--fresh";
 
 pub(crate) struct Checked {
     pub(super) verdict: Verdict,
@@ -161,7 +163,8 @@ pub(super) fn record(run: &Run, landed: &Landed, verdict: &Verdict, expired: boo
     let tests = fs::read_to_string(&run.log).ok().and_then(|text| test_run_seconds(&text)).map(|seconds| seconds.to_string()).unwrap_or_default();
     let covered_by = |head: &str| if head == landed.head { "" } else { landed.head.as_str() };
     let mark = if ran_no_test(&run.outcome) { NO_TEST_MARK } else { "" };
-    let lines: String = landed.heads.iter().map(|head| format!("{}\t{}\t{head}\t{class}\t{}\t{}\t{seconds}\t{}\t{tests}\t{mark}\n", telemetry::seconds(), landed.repository, detail.replace(['\t', '\n'], " "), landed.lanes.join(","), covered_by(head))).collect();
+    let fresh = if run.runner.iter().any(|argument| argument == FRESH_FLAG) { FRESH_MARK } else { "" };
+    let lines: String = landed.heads.iter().map(|head| format!("{}\t{}\t{head}\t{class}\t{}\t{}\t{seconds}\t{}\t{tests}\t{mark}\t{fresh}\n", telemetry::seconds(), landed.repository, detail.replace(['\t', '\n'], " "), landed.lanes.join(","), covered_by(head))).collect();
     if let Err(error) = OpenOptions::new().create(true).append(true).open(&run.ledger).and_then(|mut file| file.write_all(lines.as_bytes())) {
         eprintln!("north land: could not record the post-land verdict of {}: {error}", landed.head);
     }

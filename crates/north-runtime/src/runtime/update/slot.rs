@@ -22,7 +22,7 @@ pub(super) fn target(layout: &Layout, checkout: &Path, main: &str) -> String {
     cadence::target(layout, checkout, main, &ready, &mut build)
 }
 
-/// The head this pass promotes. On the host that settles the fleet it is the one the cadence names, unless `screen` finds a reviewer's hold it holds (review_hold.rs). A host that follows origin/main itself while another host settles the fleet, or that cannot read the configuration saying whether one does, takes no head of its own, since only the settling host keeps the holds and the push ledger they are read by, and this host's own would read as missing; with no settling host anywhere no hold can be placed, and the host takes origin/main.
+/// The head this pass promotes. On the host that settles the fleet it is the one the cadence names, unless `screen` finds a reviewer's hold it holds or an after-landing run of it that has not ended green (review_hold.rs). A host that follows origin/main itself while another host settles the fleet, or that cannot read the configuration saying whether one does, takes no head of its own, since only the settling host keeps the holds and the push ledger they are read by, and this host's own would read as missing; with no settling host anywhere no hold can be placed, and the host takes origin/main.
 pub(in super::super) fn screened(layout: &Layout, checkout: &Path, main: String, settles: bool, settled_elsewhere: Result<bool, String>, screen: &Screen) -> Option<String> {
     if !settles {
         return unsettled(main, settled_elsewhere);
@@ -49,7 +49,7 @@ fn unsettled(main: String, settled_elsewhere: Result<bool, String>) -> Option<St
     None
 }
 
-/// Why the slot or Live-fix promotion of `target` on the host that settles the fleet stays off, when `screen` finds a reviewer's hold on a commit it contains that the live runtime does not already hold; the refusal is the slot's recorded outcome, so status names it.
+/// Why the slot or Live-fix promotion of `target` on the host that settles the fleet stays off, when `screen` finds an after-landing run of it that has not ended green or a reviewer's hold on a commit it contains that the live runtime does not already hold; the refusal is the slot's recorded outcome, so status names it.
 pub(in super::super) fn held_by_review(layout: &Layout, screen: &Screen, target: &str) -> Option<String> {
     if layout.live_sha().as_deref() == Some(target) {
         return None;
