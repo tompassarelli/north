@@ -33,6 +33,7 @@ pub mod lease_lifecycle;
 pub mod warcraft;
 pub mod saturation;
 pub mod disk_line;
+pub mod line_wait;
 pub mod land_claim;
 pub mod desktop_aperture;
 pub mod effects;

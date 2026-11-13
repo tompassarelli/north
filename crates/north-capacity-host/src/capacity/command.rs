@@ -5,7 +5,7 @@ use serde_json::json;
 use super::admission::{self, Facts};
 use super::effects::Host;
 use super::enrich::admit_enriched;
-use super::{agent_load, carry, deadline, dev_shell, game_reserve, gaming, gate, host, laptop_auto, mode_command, native_hold, sandbox, seat_idle, unleased, warcraft, watchdog};
+use super::{agent_load, carry, deadline, dev_shell, game_reserve, gaming, gate, host, laptop_auto, line, mode_command, native_hold, sandbox, seat_idle, unleased, warcraft, watchdog};
 
 fn route(arguments: &[String], host: &Host) -> Option<u8> {
     let status = match arguments.first().map(String::as_str) {
@@ -18,7 +18,7 @@ fn route(arguments: &[String], host: &Host) -> Option<u8> {
             status
         }
         Some("seat-idle-hint") => seat_idle::run(&arguments[1..]),
-        Some("offload") => (host.offload)(&arguments[1..]),
+        Some("offload") => line::or_offload(&arguments[1..], host.offload),
         Some("pull") => host::pull(&arguments[1..]),
         Some("actions-pull") => host::actions_pull(&arguments[1..]),
         Some("reap-orphans") if arguments.len() == 1 => {

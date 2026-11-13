@@ -31,6 +31,7 @@ pub const LOCAL_ENV: &str = "NORTH_LAND_CHECKS_LOCAL";
 pub const OFF_HOST_ENV: &str = "NORTH_LAND_CHECKS_OFF_HOST";
 /// The longest a land check runs, the ceiling of its deadline, and so the longest run a worker command may ask the outside broker for.
 pub const RUN_SECONDS_CEILING: u64 = 2100;
+pub const LAND_LINE_DEADLINE_SECONDS: u64 = 600;
 /// The ssh and the git an offload starts, as absolute programs: the outside broker resolves them from its own `PATH` and names them here for the run it starts for a worker command, so no program on a `PATH` the worker wrote runs outside its domain (south#118).
 pub const SSH_ENV: &str = "NORTH_OFFLOAD_SSH";
 pub const GIT_ENV: &str = "NORTH_OFFLOAD_GIT";

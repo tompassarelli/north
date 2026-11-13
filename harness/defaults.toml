@@ -1967,3 +1967,11 @@ unit = "seconds of expected wait for a landing slot above which a build host's l
 source = "prior: owner's bar of hand-in to origin/main in 60 s at the median (north#1247, 2026-11-13)"
 fallback = "60"
 consumers = ["crates/north-pacing/src/pacing/placement/line_wait.rs"]
+
+[capacity_line_wait]
+value = true
+allowed = {}
+unit = "whether a build host's slot line answers a job's expected wait, so a landing or ordinary check expected past its deadline is refused at once"
+source = "prior: capacity scheduler box A1a (north#1036), 2026-11-13"
+fallback = "false answers every line wait with 0 s, so each job waits in line up to its deadline as before"
+consumers = ["crates/north-capacity-host/src/capacity/line.rs"]
