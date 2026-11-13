@@ -118,6 +118,7 @@ pub(super) fn run(arguments: &[String]) -> Result<(), String> {
             }
         }
         act(&dir, &stepped.incidents, &stepped.terms);
+        super::frozen::sweep_live(&dir, now_ms());
         if once && measured {
             return Ok(());
         }

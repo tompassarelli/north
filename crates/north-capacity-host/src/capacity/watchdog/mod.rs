@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 
 mod act;
 mod detect;
+mod frozen;
 mod owners;
 mod report;
 mod report_command;
@@ -15,6 +16,8 @@ mod rest_live;
 mod sampler;
 mod sampling;
 mod snapshot;
+#[cfg(test)]
+mod frozen_tests;
 #[cfg(test)]
 mod sampler_tests;
 #[cfg(test)]
@@ -32,7 +35,8 @@ sample      every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clie
             capacity scopes to samples.jsonl (rotated daily); log an incident for an unleased process tree over 4 cores
             for 2 minutes and SIGTERM git maintenance/gc/repack outside capacity scopes and the nightly timer. Each
             sample also goes through step, which on sustained overload names the top process trees by fleet session,
-            caps the offending session scope and sends the owner and coordinators.
+            caps the offending session scope and sends the owner and coordinators. A north-session-*.scope frozen over
+            5 minutes and not listed in the capacity gaming-frozen.json holds is thawed and logged as an incident.
 report      summarize the last N minutes (default 5 and 30) of samples and incidents with flags. A Codex turn in the
             window that failed with \"Selected model is at capacity\" flags provider-capacity codex.
 replay      run recorded overload samples through the overload decision core and print its actions; with --snapshots,

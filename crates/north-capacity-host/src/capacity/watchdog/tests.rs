@@ -102,14 +102,10 @@ fn caps(actions: &[Action]) -> Vec<&str> {
 }
 
 #[test]
-fn a_fleet_sessions_ssh_scope_is_capped_ahead_of_a_smaller_fleet_unit() {
+fn a_fleet_sessions_ssh_scope_is_capped_ahead_of_a_smaller_fleet_unit_unless_a_larger_offender_cannot_be_capped() {
     let actions = replayed(&gex45_ssh_overload("app.slice/north-ssh-n-626-repro-0a1b2c3d.scope"), &mut BTreeMap::new(), Settings::bundled(GEX45_CPUS));
     assert_eq!(caps(&actions), ["north-ssh-n-626-repro-0a1b2c3d.scope"], "{actions:#?}");
     assert!(sends(&actions).contains(&"n-626-repro"), "{actions:#?}");
-}
-
-#[test]
-fn a_larger_attributed_offender_the_watchdog_cannot_cap_leaves_the_smaller_fleet_unit_uncapped() {
     let mut owners = BTreeMap::from([("session-61845.scope".to_owned(), Owner { session: "n-626-repro".to_owned(), parent: None })]);
     let actions = replayed(&gex45_ssh_overload("user.slice/user-1000.slice/session-61845.scope"), &mut owners, Settings::bundled(GEX45_CPUS));
     assert!(caps(&actions).is_empty(), "{actions:#?}");
