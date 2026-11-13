@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use super::{Fixture, git, north_enqueue_with, stub_gh, written};
+use super::{Fixture, git, north_enqueue_with, only_refusal_records, stub_gh, written};
 
 const PRIVATE_TERM: &str = "zebra-quokka-7731";
 
@@ -31,7 +31,7 @@ fn a_named_missing_south_is_refused_rather_than_passing_unscanned() {
     assert!(!output.status.success(), "{stdout}{stderr}");
     assert!(stdout.contains("SAFE_PUSH_SOUTH") && stdout.contains("so a PUBLIC push cannot be checked") && stdout.contains("NOT pushed."), "{stdout}{stderr}");
     assert!(stderr.contains("deny-list scan refused the landing") && stderr.contains("NOT queued"), "{stderr}");
-    assert!(!fixture.state.exists(), "a refused lane writes nothing to the state directory: {:?}", written(&fixture.state));
+    assert!(only_refusal_records(&fixture.state), "a refused lane writes only its refusal records to the state directory: {:?}", written(&fixture.state));
 }
 
 fn a_deny_listed_value_is_refused() {
@@ -48,7 +48,7 @@ fn a_deny_listed_value_is_refused() {
     assert!(stdout.contains("denylist: fake-private-term") && stdout.contains("for a PUBLIC repository"), "{stdout}{stderr}");
     assert!(stderr.contains("deny-list scan refused the landing") && stderr.contains("NOT queued"), "{stderr}");
     assert!(!stdout.contains(PRIVATE_TERM) && !stderr.contains(PRIVATE_TERM));
-    assert!(!fixture.state.exists(), "a refused lane writes nothing to the state directory: {:?}", written(&fixture.state));
+    assert!(only_refusal_records(&fixture.state), "a refused lane writes only its refusal records to the state directory: {:?}", written(&fixture.state));
 }
 
 fn a_lane_the_secret_scan_flags_is_refused() {
@@ -62,6 +62,6 @@ fn a_lane_the_secret_scan_flags_is_refused() {
     let output = north_enqueue_with(&fixture, &[("PATH", &path)]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("secret scan refused the landing"), "{}", String::from_utf8_lossy(&output.stderr));
-    assert!(!fixture.state.exists(), "a refused lane writes no ticket: {:?}", written(&fixture.state));
+    assert!(only_refusal_records(&fixture.state), "a refused lane writes no ticket: {:?}", written(&fixture.state));
 }
 

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use super::{AFTER, COVERED_BY, Category, PHASE, Span, VERDICT};
+use super::{AFTER, COVERED_BY, Category, PHASE, REFUSED, Span, VERDICT};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Split {
@@ -75,6 +75,15 @@ impl<'a> Trace<'a> {
         let mut landings: Vec<&Span> = self.spans.iter().copied().filter(|span| span.category == Category::Landing && span.end >= since).collect();
         landings.sort_by(|left, right| left.end.total_cmp(&right.end));
         landings
+    }
+
+    pub fn refusals(&self, since: f64, last: Option<usize>) -> Vec<&'a Span> {
+        let mut refused: Vec<&Span> = self.spans.iter().copied().filter(|span| span.attribute(REFUSED).is_some() && span.end >= since).collect();
+        refused.sort_by(|left, right| left.end.total_cmp(&right.end));
+        if let Some(last) = last {
+            refused.drain(..refused.len().saturating_sub(last));
+        }
+        refused
     }
 
     pub fn latest(&self, since: f64, last: Option<usize>) -> Vec<&'a Span> {

@@ -6,6 +6,8 @@ use serde_json::json;
 
 use super::Denylist;
 use super::refuse::refuse_static_gates;
+use crate::land::slots::runner::{QueueRefusal, STOPPED, Stop};
+use super::QueueChecks;
 
 fn run(repo: &Path, args: &[&str]) -> String {
     let output = Command::new("git").arg("-C").arg(repo).args(["-c", "commit.gpgsign=false", "-c", "user.name=Gate fixture", "-c", "user.email=fixture@example.invalid"]).args(args).output().unwrap();
@@ -44,6 +46,7 @@ struct Lane {
     dir: tempfile::TempDir,
     repo: std::path::PathBuf,
     base: String,
+    queue_checks: QueueChecks,
 }
 
 impl Lane {
@@ -61,7 +64,7 @@ impl Lane {
         run(&repo, &["push", "-q", "origin", "main"]);
         run(&repo, &["switch", "-q", "-c", "lane"]);
         run(&repo, &["commit", "-q", "--allow-empty", "-m", "outgoing"]);
-        Self { dir, repo, base }
+        Self { dir, repo, base, queue_checks: crate::land::slots::runner::judge_queue_checks_until }
     }
 
     fn commit(&self, subject: &str, trailers: &[&str]) {
@@ -88,7 +91,7 @@ impl Lane {
 
     fn try_enqueue_scanning(&self, host: &str, shape: super::Shape, facts: Option<super::Facts>, denylist: &Denylist) -> Result<super::Queued, String> {
         let state = self.dir.path().join("state");
-        let environment = super::Environment { called_micros: 0, state_home: &state, host, session: None, waits: false, denylist };
+        let environment = super::Environment { called_micros: 0, state_home: &state, host, session: None, waits: false, denylist, queue_checks: self.queue_checks };
         super::enqueue(&self.repo, shape, false, &environment, facts)
     }
 
@@ -196,7 +199,7 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
     assert!(refused.contains("conflicts with origin/main") && refused.contains("on content.txt"), "{refused}");
     let queue = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
-    assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.next().is_none()), "a conflicting lane left a ticket in {}", queue.display());
+    assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.all(|entry| entry.is_ok_and(|entry| entry.path().extension().is_none_or(|extension| extension != "json")))), "a conflicting lane left a ticket in {}", queue.display());
 
     let lane = Lane::new();
     run(&lane.repo, &["switch", "-q", "main"]);
@@ -222,8 +225,9 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
     assert!(refused.contains("a check before queueing exited 1"), "a lane breaking a land.check test that no selection reads was vouched for without running it: {refused}");
     let queue = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
-    assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.next().is_none()), "a lane red on its land check left a ticket in {}", queue.display());
+    assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.all(|entry| entry.is_ok_and(|entry| entry.path().extension().is_none_or(|extension| extension != "json")))), "a lane red on its land check left a ticket in {}", queue.display());
     assert_eq!(run(&lane.dir.path().join("origin.git"), &["rev-parse", "main"]), main);
+    static_gates_judge_the_lane_before_its_checks_take_a_build_host_slot_and_a_privacy_refusal_stops_the_checks_already_placed();
 }
 
 #[test]
@@ -248,7 +252,7 @@ fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queue
     let lane = Lane::new();
     let (state, denylist) = (lane.dir.path().join("state"), without_south(lane.dir.path()));
     let enqueue_as = |session: &str| {
-        let environment = super::Environment { called_micros: 0, state_home: &state, host: "fixture-host", session: Some(session), waits: false, denylist: &denylist };
+        let environment = super::Environment { called_micros: 0, state_home: &state, host: "fixture-host", session: Some(session), waits: false, denylist: &denylist, queue_checks: crate::land::slots::runner::judge_queue_checks_until };
         super::enqueue(&lane.repo, super::Shape::OneCommit { message: None }, false, &environment, None)
     };
     let queued = enqueue_as("worker-1").unwrap();
@@ -540,4 +544,64 @@ fn the_enqueue_gate_scans_a_deny_list_fetched_after_it_began_not_the_copy_held_f
     commit(&south_origin, "an entry added after the call began");
     let refused = lane.try_enqueue_scanning("fixture-host", super::Shape::OneCommit { message: None }, Some(facts), &denylist).err().unwrap_or_default();
     assert!(refused.contains("deny-list scan refused the landing"), "an entry added to the list after the call's first instant must refuse the lane at the gate: {refused:?}");
+}
+
+fn placed_marker(root: &Path, _base: &str, _head: &str, _stop: &Stop) -> Result<(), QueueRefusal> {
+    fs::write(root.parent().unwrap().join("placed"), "").unwrap();
+    Ok(())
+}
+
+fn placed_until_stopped(root: &Path, _base: &str, _head: &str, stop: &Stop) -> Result<(), QueueRefusal> {
+    north_base::platform::wait::until(std::time::Duration::from_secs(20), || stop.stopped());
+    fs::write(root.parent().unwrap().join("stopped"), stop.stopped().to_string()).unwrap();
+    if stop.stopped() { Err(QueueRefusal::Unjudged(STOPPED.to_owned())) } else { Ok(()) }
+}
+
+fn static_gates_judge_the_lane_before_its_checks_take_a_build_host_slot_and_a_privacy_refusal_stops_the_checks_already_placed() {
+    let mut lane = Lane::new();
+    lane.queue_checks = placed_marker;
+    fs::create_dir_all(lane.repo.join("src")).unwrap();
+    fs::write(lane.repo.join("src/t.rs"), "#[test]\nfn x() {}\n").unwrap();
+    lane.commit("add a test whose contract names no listed category", &["Test-contract: x; category: bogus"]);
+    let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).err().unwrap_or_default();
+    assert!(refused.contains("test admission"), "{refused:?}");
+    assert!(!lane.dir.path().join("placed").exists(), "the checks were placed on a build host before test admission refused the lane");
+
+    let mut lane = Lane::new();
+    lane.queue_checks = placed_until_stopped;
+    lane.commit("note zebra-quokka-7731 in the lane", &[]);
+    let south_origin = lane.dir.path().join("south-origin");
+    run(lane.dir.path(), &["init", "-q", "-b", "main", south_origin.to_str().unwrap()]);
+    fs::create_dir_all(south_origin.join("privacy")).unwrap();
+    fs::write(south_origin.join("privacy/public-denylist.toml"), "title = \"fixture\"\n[[rules]]\nid = \"fake-private-term\"\nregex = '''zebra-quokka-7731'''\n").unwrap();
+    commit(&south_origin, "rules");
+    let south = lane.dir.path().join("south");
+    fs::create_dir_all(&south).unwrap();
+    run(&south, &["clone", "-q", south_origin.to_str().unwrap(), "main"]);
+    let denylist = Denylist { south, south_named: true, config: None, kinds: None, mirror: Some(lane.dir.path().join("mirror.git")) };
+    let refused = lane.try_enqueue_scanning("fixture-host", super::Shape::OneCommit { message: None }, None, &denylist).err().unwrap_or_default();
+    assert!(refused.contains("deny-list scan refused the landing"), "{refused:?}");
+    assert!(fs::read_to_string(lane.dir.path().join("stopped")).is_ok_and(|text| text == "true") || !lane.dir.path().join("stopped").exists(), "the checks ran on after the privacy refusal");
+    let queues = lane.dir.path().join("state/north/land-queue");
+    let recorded: String = fs::read_dir(&queues).unwrap().filter_map(|entry| fs::read_to_string(entry.unwrap().path().join("logs/spans.jsonl")).ok()).collect();
+    assert!(recorded.contains("\"refused\":\"deny-list scan refused the landing\""), "the refusal's seconds from hand-in were not recorded: {recorded}");
+    let spans: Vec<crate::land::trace::Span> = fs::read_dir(&queues).unwrap().flat_map(|entry| crate::land::trace::Spans::beside(&entry.unwrap().path().join("logs")).read()).collect();
+    let printed = crate::land::trace::report::render_refusals(&crate::land::trace::profile::Trace::of(&spans).refusals(0.0, None));
+    assert!(printed.contains("hand-in refusals: 1") && printed.contains("s after hand-in: deny-list scan refused the landing"), "{printed}");
+
+    let lane = Lane::new();
+    let marks = lane.dir.path().to_owned();
+    fs::write(lane.repo.join("hold.sh"), format!("trap 'touch {0}/stopped; exit 143' TERM\ntouch {0}/placed\nsleep 600 &\nwait\n", marks.display())).unwrap();
+    fs::write(lane.repo.join(".safe-push"), "[land]\n\tcheck = ** :: sh hold.sh\n").unwrap();
+    lane.commit("add a land check that waits", &[]);
+    let head = run(&lane.repo, &["rev-parse", "HEAD"]);
+    let stop = Stop::new();
+    let judged = std::thread::scope(|scope| {
+        let judging = scope.spawn(|| crate::land::slots::runner::judge_queue_checks_until(&lane.repo, &lane.base, &head, &stop));
+        assert!(north_base::platform::wait::until(std::time::Duration::from_secs(120), || marks.join("placed").exists()), "the land check was never placed");
+        stop.stop();
+        judging.join().unwrap()
+    });
+    assert!(matches!(judged, Err(QueueRefusal::Unjudged(ref why)) if why == STOPPED), "{judged:?}");
+    assert!(marks.join("stopped").exists(), "the stopped land check was not signalled");
 }

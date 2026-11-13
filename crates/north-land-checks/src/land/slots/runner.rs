@@ -37,9 +37,11 @@ mod queue_checks;
 mod selection;
 mod spawn;
 mod steps;
+mod stop;
 mod timeout_row;
 mod verdict;
-pub use queue_checks::{Accepted, Judged, QueueRefusal, joins_queue_run, judge_queue_checks, judge_with_acceptance, queue_commands, refuse_queue_checks};
+pub use queue_checks::{Accepted, Judged, QueueRefusal, joins_queue_run, judge_queue_checks, judge_queue_checks_until, judge_with_acceptance, queue_commands, refuse_queue_checks};
+pub use stop::{STOPPED, Stop};
 pub use steps::taken as queue_steps;
 pub use steps::{LINE_WAIT, Window, windows as queue_windows};
 use crate::platform::north_binary::land_north as program;
@@ -74,6 +76,7 @@ struct Shared {
     actions_down: bool,
     paths: String,
     fail_fast: bool,
+    stoppable: bool,
     scope: Option<Scope>,
     it: Option<String>,
     selected_paths: Option<String>,
@@ -250,6 +253,7 @@ async fn run_set_on(root: PathBuf, arguments: Arguments, config: Config, environ
         trees,
         paths,
         fail_fast: false,
+        stoppable: false,
         workflow: config.workflow.clone(),
         outcome: Outcome(arguments.outcome.clone()),
         root,
@@ -378,10 +382,10 @@ pub(super) struct Added {
 }
 
 async fn run_added(root: PathBuf, arguments: Arguments, config: Config, commands: Vec<String>) -> i32 {
-    run_added_avoiding(root, arguments, config, commands, None, &[]).await.status
+    run_added_avoiding(root, arguments, config, commands, None, &[], &Stop::new()).await.status
 }
 
-async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Config, commands: Vec<String>, watched: Option<&str>, failed: &[String]) -> Added {
+async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Config, commands: Vec<String>, watched: Option<&str>, failed: &[String], stop: &Stop) -> Added {
     let mut environment = Environment::load();
     if environment.capacity.is_empty() {
         environment.capacity = config.capacity.clone().unwrap_or_default();
@@ -401,11 +405,11 @@ async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Con
     let host = arguments.runner_host.clone();
     let commands = steps::awaited("coverage", async { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() }).await;
     let watched = rewritten(&root, &arguments, watched).await;
-    let (_cancel_sender, cancel) = watch::channel(false);
+    let cancel = stop.watch();
     let Selections { scope, it, .. } = steps::timed("selection", || selections(&root, &arguments, &commands, None, &arguments.runner_host));
     let (trees, paths) = steps::timed("trees", || (Trees::of(&root, &arguments.base, &arguments.head), path_class(&root, &arguments.base, &arguments.head)));
     let outcome = Outcome(arguments.outcome.clone());
-    let shared = Arc::new(Shared { root, arguments, environment, config, outcome, cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome, cancel, workflow: String::new(), trees, paths, fail_fast: false, stoppable: true, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
     let pending = steps::awaited("key lookup", shared.cached(&commands)).await;
     let status = if pending.is_empty() { 0 } else { shared.run_list(&pending).await.status() };
     let accepted = shared.passed(&watched, status).await;

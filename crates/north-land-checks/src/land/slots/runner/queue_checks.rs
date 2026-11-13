@@ -3,7 +3,7 @@ use std::path::Path;
 use super::super::clippy_first;
 use super::super::verdict_key;
 use super::line_refusals::Refusals;
-use super::{Arguments, Config, affected, block_on, run_added_avoiding, say, shared_build, steps, warn};
+use super::{Arguments, Config, Stop, affected, block_on, run_added_avoiding, say, shared_build, steps, warn};
 use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 use north_base::platform::finish_record::acceptance_in_prequeue;
 
@@ -54,7 +54,11 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), St
 }
 
 pub fn judge_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), QueueRefusal> {
-    judge(root, base, head, None).run
+    judge_queue_checks_until(root, base, head, &Stop::new())
+}
+
+pub fn judge_queue_checks_until(root: &Path, base: &str, head: &str, stop: &Stop) -> Result<(), QueueRefusal> {
+    judge(root, base, head, None, stop).run
 }
 
 /// What became of a finish call's acceptance command in a run before queueing (north#1036): it passed, its own run
@@ -112,10 +116,10 @@ pub fn joins_queue_run(root: &Path, base: &str, head: &str, command: &str) -> bo
 /// (spread over the hosts the caller's placement names, this host's own offload slots among them); it reaches no
 /// verdict when any of its checks would run outside the offload.
 pub fn judge_with_acceptance(root: &Path, base: &str, head: &str, command: &str, on: Option<&str>) -> Judged {
-    judge(root, base, head, Some((command.trim(), on.unwrap_or_default())))
+    judge(root, base, head, Some((command.trim(), on.unwrap_or_default())), &Stop::new())
 }
 
-fn judge(root: &Path, base: &str, head: &str, acceptance: Option<(&str, &str)>) -> Judged {
+fn judge(root: &Path, base: &str, head: &str, acceptance: Option<(&str, &str)>, stop: &Stop) -> Judged {
     steps::begin();
     let (config, clippy, mut commands) = match steps::timed("commands", || listed(root, base, head)) {
         Ok(listed) => listed,
@@ -135,7 +139,7 @@ fn judge(root: &Path, base: &str, head: &str, acceptance: Option<(&str, &str)>) 
     say(&format!("safe-push: running {} check(s) before queueing the lane: {}", commands.len(), commands.join("; ")));
     let outcome = command.and_then(|_| tempfile::NamedTempFile::new().ok());
     let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), one_lane: true, runner_host: host.to_owned(), outcome: outcome.as_ref().map(|file| file.path().to_owned()), ..Arguments::default() };
-    let (status, passed) = match attempts(root, &arguments, &config, &commands, command) {
+    let (status, passed) = match attempts(root, &arguments, &config, &commands, (command, stop)) {
         Ok(ran) => ran,
         Err(text) => return Judged::unjudged(text),
     };
@@ -153,15 +157,18 @@ fn listed(root: &Path, base: &str, head: &str) -> Result<Listed, String> {
 }
 
 /// The run's exit status and whether `watched` passed in it, running it again on another host when one reached no verdict, up to `ATTEMPTS` times; why it cannot run when no build host answers.
-fn attempts(root: &Path, arguments: &Arguments, config: &Config, commands: &[String], watched: Option<&str>) -> Result<(i32, Option<bool>), String> {
+fn attempts(root: &Path, arguments: &Arguments, config: &Config, commands: &[String], (watched, stop): (Option<&str>, &Stop)) -> Result<(i32, Option<bool>), String> {
     let mut failed: Vec<String> = Vec::new();
     let (mut status, mut passed) = (NO_VERDICT_STATUS, None);
     let mut attempt = 1;
     let mut lines = Refusals::new();
     while attempt <= ATTEMPTS {
         let arguments = Arguments { line_within: Some(lines.left()), ..arguments.clone() };
-        let ran = block_on(run_added_avoiding(root.to_owned(), arguments, config.clone(), commands.to_vec(), watched, &lines.avoiding(&failed))).map_err(|error| error.to_string())?;
+        let ran = block_on(run_added_avoiding(root.to_owned(), arguments, config.clone(), commands.to_vec(), watched, &lines.avoiding(&failed), stop)).map_err(|error| error.to_string())?;
         (status, passed) = (ran.status, ran.accepted);
+        if stop.stopped() {
+            return Err(super::STOPPED.to_owned());
+        }
         if ran.unanswered {
             return Err("no build host answers over ssh, so the checks before queueing cannot run; the lane is not queued uncompiled, so run safe-push again once a build host is back".to_owned());
         }

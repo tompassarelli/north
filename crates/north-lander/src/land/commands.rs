@@ -14,6 +14,7 @@ Command { name: "scan", usage: "north land scan dep-gate|generated-registry|tool
 Command { name: "selection", usage: "north land selection --host HOST --base BASE --head HEAD -- COMMAND", run: slots::lane_selection::run },
 Command { name: "serve", usage: "north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--app-token PROGRAM]", run: serve::run },
 Command { name: "shadow", usage: "north land shadow tick [--repo DIR]", run: shadow::run },
+Command { name: "static-gates", usage: "north land static-gates [--repo DIR]", run: enqueue::static_gates },
 Command { name: "status", usage: "north land status TICKET [--repo DIR]", run: status::run },
 Command { name: "urgent", usage: "north land urgent TICKET --reason TEXT [--repo DIR]", run: urgent::run },
 Command { name: "clear-withdrawal", usage: "north land clear-withdrawal TICKET --reason TEXT [--repo DIR] [--noticed-by WHO]", run: scans::withdrawal::run },

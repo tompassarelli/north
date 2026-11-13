@@ -20,16 +20,19 @@ mod facts;
 mod refuse;
 mod verdict;
 use verdict::Verdict;
+mod static_first;
+pub(super) use static_first::judge_static_first;
+pub use static_first::{QueueChecks, static_gates};
 mod timings;
 use timings::Timings;
 mod alone;
 use alone::{check_lane, checked_alone};
 pub use facts::Facts;
-use refuse::{judge_lane_gates, refused_finish, refuse_archived, refuse_conflict, refuse_nothing_to_land, refuse_stale_revert};
+use refuse::{DiffOnly, refused_finish, refuse_archived, refuse_conflict, refuse_diff_only, refuse_nothing_to_land};
 use super::scans::outgoing;
 use crate::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen};
-use crate::land::slots::runner;
+use crate::land::slots::runner::{self, STOPPED, Stop};
 use crate::landing_refusals;
 
 const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane] [--wait]";
@@ -56,6 +59,7 @@ pub struct Environment<'a> {
     pub session: Option<&'a str>,
     pub waits: bool,
     pub denylist: &'a Denylist,
+    pub queue_checks: QueueChecks,
 }
 
 pub(super) fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
@@ -231,7 +235,17 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         let ticket = queued.path.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
         timings.record(&queue::directory(environment.state_home, &queued.ticket.origin).join("logs"), &queued.ticket.head, &queued.ticket.branch, &ticket, environment.host);
     }
+    if let Err(why) = &queued {
+        record_refused(repo, (environment.state_home, environment.host), &timings, why);
+    }
     queued
+}
+
+fn record_refused(repo: &Path, (state_home, host): (&Path, &str), timings: &Timings, why: &str) {
+    let Ok((root, branch)) = checkout(repo) else { return };
+    let (Ok(origin), Ok(head)) = (git(&root, &["remote", "get-url", "--push", "origin"]), git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])) else { return };
+    let summary: String = why.lines().next().unwrap_or_default().chars().take(160).collect();
+    timings.record_refused(&queue::directory(state_home, &origin).join("logs"), &head, &branch, host, &summary);
 }
 
 fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment, timings: &Timings, facts: Option<Facts>) -> Result<Queued, String> {
@@ -245,17 +259,19 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
     timings.stage("nothing to land", || refuse_nothing_to_land(&root, &base, &destination))?;
     timings.stage("conflict", || refuse_conflict(&root, &base, &destination))?;
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-    timings.stage("generated registry", || super::scans::generated_registry::check(&root, &base, &lane_head))?;
     let folded = timings.stage("merge fold", || crate::landing::merge_continue::fold(&root, &root.join(crate::landing::merge_set::DEFAULT_CONFIG), &base))?;
     if !folded.is_empty() {
         println!("safe-push: sorted {} and folded the result into the lane", folded.join(", "));
     }
     let lander_host = setting::landing(&root, &remote_ref, "landing.lander-host");
     let outbox = is_other_host(&lander_host, environment.host);
+    let stop = Stop::new();
     std::thread::scope(|scope| {
         let secrets = scope.spawn(|| timings.stage("secret scan", || outgoing::enqueue_secrets(&root, (&base, &lane_head))));
-        let checked_tree = check_lane(&root, &base, &branch, environment, timings)?;
-        let queue_checks = scope.spawn(|| timings.stage_in_steps("queue checks", || runner::judge_queue_checks(&root, &base, &lane_head).map_err(|refusal| refused_finish(environment.session, &root, &lane_head, refusal)), || (runner::queue_steps(), runner::queue_windows())));
+        let checked_tree = check_lane(&root, &base, timings)?;
+        let gates_first = static_first::enabled();
+        let run_checks = || timings.stage_in_steps("queue checks", || (environment.queue_checks)(&root, &base, &lane_head, &stop).map_err(|refusal| refused_finish(environment.session, &root, &lane_head, refusal)), || (runner::queue_steps(), runner::queue_windows()));
+        let early = (!gates_first).then(|| scope.spawn(run_checks));
         let first_commit_secs = first_commit::seconds(&root, &branch, &base);
         let (squash, several_commits) = timings.stage("squash", || Ok::<_, String>(match shape {
             Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
@@ -268,19 +284,39 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         let asked_micros = micros();
         let settled = AtomicBool::new(false);
         let ((gate, ran, answered), gated_from, (red_fix, lander_fix, urgent)) = std::thread::scope(|inner| {
-            let judge = inner.spawn(|| timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination, seen, &|| !settled.load(Ordering::Acquire)).map(|(gate, ran)| (gate, ran, micros()))));
+            let judge = inner.spawn(|| {
+                let asked = timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination, seen, &|| !settled.load(Ordering::Acquire)).map(|(gate, ran)| (gate, ran, micros())));
+                if asked.is_err() && gates_first {
+                    stop.stop();
+                }
+                asked
+            });
             let rest = (|| {
                 timings.stage("requeue", || super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session))?;
-                let gated_from = timings.stage("lane gates", || judge_lane_gates(environment, &root, &branch, &base, &head, lander_ledger_at(&lander_host, &queue, environment)))?;
-                judged(environment, &root, &branch, &head, "revert guard", timings.stage("revert guard", || refuse_stale_revert(&root, &base, &head)))?;
+                let gated_from = refuse_diff_only(DiffOnly { environment, timings, root: &root, branch: &branch, base: &base, head: &head, ledger: lander_ledger_at(&lander_host, &queue, environment), record: true })?;
+                let (checks, secrets) = match early {
+                    Some(checks) => (checks, Some(secrets)),
+                    None => {
+                        secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
+                        if stop.stopped() {
+                            return Err(STOPPED.to_owned());
+                        }
+                        (scope.spawn(run_checks), None)
+                    }
+                };
                 let marks = timings.stage("marks", || marks(&root, &base, &head, &destination))?;
-                queue_checks.join().map_err(|_| "the checks before queueing panicked".to_owned())??;
-                secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
+                checks.join().map_err(|_| "the checks before queueing panicked".to_owned())??;
+                if let Some(secrets) = secrets {
+                    secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
+                }
                 Ok::<_, String>((gated_from, marks))
             })();
+            if rest.is_err() && gates_first {
+                stop.stop();
+            }
             settled.store(true, Ordering::Release);
             let asked = judge.join().map_err(|_| "the private-kind ask panicked".to_owned());
-            let (gated_from, marks) = rest?;
+            let (gated_from, marks) = static_first::settled(rest, asked.as_ref().ok().and_then(|asked| asked.as_ref().err()))?;
             let (gate, ran, answered) = asked??;
             Ok::<_, String>(((gate, ran, answered), gated_from, marks))
         })?;
@@ -353,7 +389,7 @@ pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
     let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|name| !name.is_empty());
     let state_home = state_home();
     let sources = Denylist::from_env();
-    let environment = Environment { called_micros, state_home: &state_home, host: &host, session: session.as_deref(), waits: parsed.wait, denylist: &sources };
+    let environment = Environment { called_micros, state_home: &state_home, host: &host, session: session.as_deref(), waits: parsed.wait, denylist: &sources, queue_checks: runner::judge_queue_checks_until };
     match enqueue(repo, parsed.shape(), parsed.keep_lane, &environment, Facts::kept()) {
         Ok(queued) => {
             match &queued.squash {

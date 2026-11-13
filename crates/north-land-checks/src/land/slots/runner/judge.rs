@@ -35,7 +35,7 @@ impl Shared {
             return ran.status;
         }
         self.trace_line(command, ran, cpu, parent);
-        if self.fail_fast && *self.cancel.borrow() {
+        if self.cancelling() {
             let _ = fs::remove_file(&ran.log);
             return self.cancelled(command, started, ran.status, ran.seconds, cpu);
         }
