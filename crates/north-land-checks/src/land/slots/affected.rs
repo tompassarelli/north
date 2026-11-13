@@ -301,9 +301,8 @@ fn shared_closure(metadata: &str, lane: &[String], moved: &[String]) -> Result<O
     Ok(Some(Scope::Packages { affected: lane.union(&shared).map(|name| (*name).to_owned()).collect(), changed: lane.iter().map(|name| (*name).to_owned()).collect() }))
 }
 
-pub fn rebase_scope(root: &Path, checked_on: &str, picked_onto: &str, head: &str) -> Result<Option<Scope>, String> {
-    let metadata = north_build_system::here().workspace(root)?;
-    shared_closure(&metadata, &changed(root, picked_onto, head, &[])?, &changed(root, checked_on, picked_onto, &[])?)
+pub fn rebase_scope(root: &Path, metadata: &str, checked_on: &str, picked_onto: &str, head: &str) -> Result<Option<Scope>, String> {
+    shared_closure(metadata, &changed(root, picked_onto, head, &[])?, &changed(root, checked_on, picked_onto, &[])?)
 }
 
 pub fn scope(root: &Path, base: &str, head: &str) -> Result<Scope, String> {

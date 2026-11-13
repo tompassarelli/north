@@ -138,14 +138,19 @@ fn rebase_compile_scenario(dir: &Path) {
     fs::write(repo.join("crates/b/src/lib.rs"), "pub fn context() -> a::Context { a::Context { user: 2 } }\n").unwrap();
     commit_all(&repo, "Build the context in the lane");
     let head = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    let tree = dir.join("tree");
+    git(&repo, &["checkout", "-q", "--detach", &moved]).unwrap();
+    git(&repo, &["worktree", "add", "-q", "--detach", tree.to_str().unwrap(), &head]).unwrap();
+    fs::create_dir_all(tree.join(".cargo")).unwrap();
+    fs::write(tree.join(".cargo/config.toml"), "[build\nrustc = \"the lane's own program\"\n").unwrap();
     let north = dir.join("north");
     fs::write(&north, format!("#!/bin/sh\necho \"$NORTH_OFFLOAD_LANDER_SLOT $*\" >> {}\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) printf 'error[E0063]: missing field `user_runtime` in initializer of `a::Context`\\n --> crates/b/src/lib.rs:1:35\\nerror: could not compile `b`\\n' >&2; exit 101 ;;\nesac\n", dir.join("asked").display())).unwrap();
     fs::set_permissions(&north, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     let logs = dir.join("logs");
     let unmoved = Rebased { tree: &repo, checked_on: Some(&moved), picked_onto: &moved, head: &head, shipped_from: &moved };
     assert!(rebase_compile::judge(&unmoved, &north, &logs, "lane").unwrap().is_none() && !dir.join("asked").exists(), "a lane checked on the main it is picked onto compiles nothing");
-    let rebased = Rebased { tree: &repo, checked_on: Some(&checked_on), picked_onto: &moved, head: &head, shipped_from: &moved };
-    let refused = rebase_compile::judge(&rebased, &north, &logs, "lane").unwrap().expect("the lane rebased onto the moved main does not compile");
+    let rebased = Rebased { tree: &tree, checked_on: Some(&checked_on), picked_onto: &moved, head: &head, shipped_from: &moved };
+    let refused = rebase_compile::judge(&rebased, &north, &logs, "lane").unwrap().expect("the lane rebased onto the moved main does not compile, its manifest read from the repository's main checkout, where neither the lane's cargo config, which cargo cannot parse, nor its flake's dev shell applies");
     assert_eq!(refused.gates, crate::landing_refusals::REBASE_COMPILE);
     assert!(refused.verdict.contains("error[E0063]: missing field `user_runtime`") && refused.verdict.contains("--> crates/b/src/lib.rs:1:35"), "on 2026-11-13 80b143969c, checked on an older main, was pushed onto 68f3121884 without a compile and main stayed red with E0063: {}", refused.verdict);
     assert!(fs::read_to_string(dir.join("asked")).unwrap().contains("cargo check --all-targets --locked --offline -p a -p b"), "the base changed crate a, which the lane's crate b depends on, so both are checked");
@@ -154,4 +159,14 @@ fn rebase_compile_scenario(dir: &Path) {
     fs::write(&offline, "#!/bin/sh\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) echo 'error: no matching package named `a` found' >&2; exit 101 ;;\nesac\n").unwrap();
     fs::set_permissions(&offline, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     assert!(rebase_compile::judge(&rebased, &offline, &logs, "lane").unwrap().is_none(), "cargo exits 101 for a resolver failure too, which says nothing about the lane");
+    fs::write(repo.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"3\"\n\n[workspace.dependencies]\nthiserror = \"2\"\nthiserror = \"2\"\n").unwrap();
+    commit_all(&repo, "Add thiserror to the workspace a second time");
+    let unreadable = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    let plain = dir.join("plain");
+    fs::create_dir_all(&plain).unwrap();
+    let no_cargo = Rebased { tree: &plain, checked_on: Some(&checked_on), picked_onto: &moved, head: &head, shipped_from: &moved };
+    assert!(rebase_compile::judge(&no_cargo, &offline, &logs, "lane").unwrap().is_none(), "a repository with no Cargo.toml, such as nixos-config, has no manifest for cargo to read");
+    let broken = Rebased { tree: &repo, checked_on: Some(&checked_on), picked_onto: &moved, head: &unreadable, shipped_from: &moved };
+    let refused = rebase_compile::judge(&broken, &offline, &logs, "lane").unwrap().expect("a rebased tree whose manifest cargo cannot read is refused");
+    assert!(refused.verdict.contains("duplicate key") && refused.verdict.contains("--> Cargo.toml:7:1"), "on 2026-11-13 e62678a196 left main's Cargo.toml with a second thiserror key; the compile after the rebase could not read which crates it reached and landed it with no verdict: {}", refused.verdict);
 }
