@@ -37,7 +37,7 @@ fn account() -> Account {
 }
 
 #[test]
-fn rows_keep_their_places_as_output_arrives_from_different_sessions() {
+fn main_view_has_no_sessions_pane_and_no_glance_banner() {
     let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
     let start = |statuses: [Status; 6], activity: [u64; 6]| {
         let mut sessions = vec![
@@ -69,6 +69,14 @@ fn rows_keep_their_places_as_output_arrives_from_different_sessions() {
     }
     screen.sync(start([Idle, Idle, Idle, Idle, Idle, Idle], [1; 6]));
     assert_eq!(names(&screen), ["proxy", "gone", "kid-a", "grand", "kid-b", "solo"], "a session leaving the exited state may move");
+    let mut terminal = Terminal::new(TestBackend::new(200, 50)).unwrap();
+    let mut painter = TranscriptPainter::default();
+    terminal.draw(|frame| draw(frame, &mut screen, None, &mut painter, 0)).unwrap();
+    let buffer = terminal.backend().buffer();
+    let rows: Vec<String> = buffer.content().chunks(200).map(|row| row.iter().map(|cell| cell.symbol()).collect()).collect();
+    let text = rows.join("\n");
+    assert!(!text.contains("sessions") && !text.contains("glance:"));
+    assert!(rows[0].starts_with("╭") && rows[0].trim_end().ends_with("╮") && rows[0].trim_end().chars().count() == 200);
 }
 
 

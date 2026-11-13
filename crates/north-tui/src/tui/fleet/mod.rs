@@ -46,17 +46,17 @@ use screen::{Command, Screen};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// `board` reads the four-panel snapshot the digest shows; `glance` reads layer 0's one line, which the top segment shows.
-pub fn run(fleet: Fleet, board: fn(&Fleet) -> Board, glance: fn() -> Vec<String>) -> NorthResult<()> {
-    run_focused(fleet, None, board, glance)
+/// `board` reads the four-panel snapshot the digest shows.
+pub fn run(fleet: Fleet, board: fn(&Fleet) -> Board) -> NorthResult<()> {
+    run_focused(fleet, None, board)
 }
 
-pub fn run_on(fleet: Fleet, session: &str, board: fn(&Fleet) -> Board, glance: fn() -> Vec<String>) -> NorthResult<()> {
-    run_focused(fleet, Some(session.to_owned()), board, glance)
+pub fn run_on(fleet: Fleet, session: &str, board: fn(&Fleet) -> Board) -> NorthResult<()> {
+    run_focused(fleet, Some(session.to_owned()), board)
 }
 
-fn run_focused(fleet: Fleet, session: Option<String>, board: fn(&Fleet) -> Board, glance: fn() -> Vec<String>) -> NorthResult<()> {
-    let mut desk = FleetDesk::new(fleet, board, glance);
+fn run_focused(fleet: Fleet, session: Option<String>, board: fn(&Fleet) -> Board) -> NorthResult<()> {
+    let mut desk = FleetDesk::new(fleet, board);
     let mut screen = Screen::new(env::current_dir()?, desk.accounts());
     screen.selected = session;
     screen.offer(desk.choices());
@@ -159,7 +159,6 @@ fn refresh<D: SessionDesk>(desk: &mut D, screen: &mut Screen) -> bool {
             screen.observe(desk.digest(), facts);
             screen.digest.project_status = desk.project_status();
             screen.digest.board = desk.board();
-            screen.glance = desk.glance();
             true
         }
         Err(error) => {

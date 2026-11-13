@@ -1,4 +1,4 @@
-//! `north glance` (layer 0): the one line that says whether anything is broken, whether money is all right and whether anything waits on Tom; the fleet screen's top segment prints the same line.
+//! `north glance` (layer 0): the one line that says whether anything is broken, whether money is all right and whether anything waits on Tom.
 use serde::Deserialize;
 
 use crate::error::{NorthError, NorthResult};
@@ -17,10 +17,6 @@ pub fn run(words: &[String]) -> NorthResult<()> {
         }
         _ => Err(NorthError::Usage(USAGE.into())),
     }
-}
-
-pub fn lines() -> Vec<String> {
-    vec![line()]
 }
 
 pub fn line() -> String {

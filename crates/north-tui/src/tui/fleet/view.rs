@@ -2,58 +2,41 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 
 use crate::fleet::model::{SessionRecord, Status, Transcript};
 
-use super::desk::SessionSummary;
 use super::form::{Field, LaunchForm};
 use super::screen::{Dialog, Focus, Notice, Screen};
-use super::digest_view::{draw_digest, span};
+use super::digest_view::draw_digest;
 use super::help_view::{draw_help, rows as help_rows};
 use super::painter::TranscriptPainter;
 
 const MUTED: Style = Style::new().fg(Color::DarkGray);
 const COMPOSER: Style = Style::new().fg(Color::Rgb(229, 231, 235));
-const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Transcript>, painter: &mut TranscriptPainter, now_ms: u64) {
     let width = frame.area().width.saturating_sub(4).max(1);
-    let glance: u16 = if screen.glance.is_empty() { 0 } else { 1 };
     let composer_rows = screen.composer.measure(width).preferred_rows.clamp(1, 8);
-    let ceiling = frame.area().height.saturating_sub(composer_rows + 2 + 1 + 6 + glance).max(6);
-    let panel_rows = help_rows(screen, ceiling).min(frame.area().height.saturating_sub(composer_rows + 2 + 1 + 3 + glance));
-    let mut constraints = vec![Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)];
-    if glance == 1 {
-        constraints.insert(0, Constraint::Length(1));
-    }
-    let rows = Layout::default().direction(Direction::Vertical).constraints(constraints).split(frame.area());
-    let top = usize::from(glance);
-    let panes = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(32), Constraint::Min(20)])
-        .split(rows[top]);
-    draw_sessions(frame, screen, panes[0], now_ms);
+    let ceiling = frame.area().height.saturating_sub(composer_rows + 2 + 1 + 6).max(6);
+    let panel_rows = help_rows(screen, ceiling).min(frame.area().height.saturating_sub(composer_rows + 2 + 1 + 3));
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)])
+        .split(frame.area());
     if screen.digest.shown {
-        draw_digest(frame, screen, panes[1], now_ms);
+        draw_digest(frame, screen, rows[0], now_ms);
     } else {
-        draw_transcript(frame, screen, transcript, painter, panes[1]);
+        draw_transcript(frame, screen, transcript, painter, rows[0]);
     }
-    draw_composer(frame, screen, rows[top + 1]);
-    draw_help(frame, screen, rows[top + 2]);
-    draw_status(frame, screen, rows[top + 3]);
-    if glance == 1 {
-        draw_glance(frame, screen, rows[0]);
-    }
+    draw_composer(frame, screen, rows[1]);
+    draw_help(frame, screen, rows[2]);
+    draw_status(frame, screen, rows[3]);
     match &screen.dialog {
         Some(Dialog::Launch(form)) => draw_launch_form(frame, form),
         Some(Dialog::ConfirmStop(name)) => draw_confirm_stop(frame, name),
         None => {}
     }
-}
-
-fn draw_glance(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
-    frame.render_widget(Paragraph::new(Line::from(Span::styled(format!(" {}", screen.glance[0]), Style::default().fg(Color::Cyan)))), area);
 }
 
 fn pane(title: Line<'static>, focused: bool) -> Block<'static> {
@@ -62,50 +45,6 @@ fn pane(title: Line<'static>, focused: bool) -> Block<'static> {
         .border_type(BorderType::Rounded)
         .border_style(if focused { Style::default().fg(Color::Cyan) } else { MUTED })
         .title(title)
-}
-
-fn draw_sessions(frame: &mut Frame<'_>, screen: &Screen, area: Rect, now_ms: u64) {
-    let title = Line::from(vec![Span::styled(" sessions ", Style::default().add_modifier(Modifier::BOLD)), Span::styled(format!("{} ", screen.sessions.len()), MUTED)]);
-    let block = pane(title, screen.focus == Focus::List && screen.dialog.is_none());
-    if screen.sessions.is_empty() {
-        frame.render_widget(Paragraph::new(Span::styled("no sessions · Ctrl+N starts one", MUTED)).block(block).wrap(Wrap { trim: true }), area);
-        return;
-    }
-    let items: Vec<ListItem<'static>> = screen.sessions.iter().map(|session| session_item(session, marker(screen, &session.record.name, now_ms), now_ms)).collect();
-    let mut state = ListState::default();
-    state.select(screen.selected.as_deref().and_then(|name| screen.sessions.iter().position(|session| session.record.name == name)));
-    let list = List::new(items).block(block).highlight_style(Style::default().bg(Color::Rgb(52, 58, 62)));
-    frame.render_stateful_widget(list, area, &mut state);
-}
-
-fn marker(screen: &Screen, name: &str, now_ms: u64) -> Span<'static> {
-    if screen.busy.contains_key(name) {
-        let frame = SPINNER[usize::try_from(now_ms / 120).unwrap_or(0) % SPINNER.len()];
-        Span::styled(format!("{frame} "), Style::default().fg(Color::Cyan))
-    } else if screen.unread.contains(name) {
-        Span::styled("● ", Style::default().fg(Color::Magenta))
-    } else {
-        Span::raw("  ")
-    }
-}
-
-fn session_item(session: &SessionSummary, marker: Span<'static>, now_ms: u64) -> ListItem<'static> {
-    let record = &session.record;
-    let headline = Line::from(vec![
-        marker,
-        Span::raw("  ".repeat(session.depth)),
-        Span::styled(record.name.clone(), Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" "),
-        Span::styled(session.status.label(), status_style(session.status)),
-        Span::styled(format!(" · {}", span(now_ms.saturating_sub(record.created_ms))), MUTED),
-    ]);
-    let directory = record.cwd.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| record.cwd.display().to_string());
-    let mut detail = vec![Span::raw("  ".repeat(session.depth + 1))];
-    if session.status == Status::Exited {
-        detail.push(Span::styled("type to resume · ", Style::default().fg(Color::Yellow)));
-    }
-    detail.push(Span::styled(format!("{}·{} · {directory}", record.provider.label(), record.account), MUTED));
-    ListItem::new(vec![headline, Line::from(detail)])
 }
 
 pub fn status_style(status: Status) -> Style {

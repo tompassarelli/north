@@ -10,7 +10,7 @@ them, and records the first fact moved to a single producer: an api organization
 
 Tom left the layer names to the coordinator (2026-11-10). They are plain words for what each layer is:
 
-- **Glance** (layer 0): one line, `north glance`, and the same line as the fleet screen's top segment. It answers
+- **Glance** (layer 0): one line, `north glance`. It answers
   three questions: is anything broken, is money all right, does anything wait on Tom.
 - **Board** (layer 1): the fleet screen (`north`) and `north dash`, one panel per concern, each opening on its
   headline numbers. The panels are **Work**, **Accounts**, **Infra** and **Health**.
