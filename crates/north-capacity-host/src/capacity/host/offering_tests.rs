@@ -1,5 +1,5 @@
 use super::json::Obj;
-use super::offering::{Declines, HELD_HOST, deferred_session_build, held_build_refusal, session_build_refusal};
+use super::offering::{Declines, HELD_HOST, SESSION_BUILDS_OFF, deferred_session_build, held_build_refusal, session_build_refusal, session_builds_off};
 use super::request::Create;
 use crate::capacity::build_offload::{Candidate, Declined, Job};
 use crate::capacity::effects::Host;
@@ -26,6 +26,7 @@ fn laptop(own_build_refusal: fn() -> Option<String>) -> Host {
         lease_builds: || false,
         build_host: || false,
         own_build_refusal,
+        session_builds: || true,
         reclaim_disk: || None,
         tend_disk: || {},
         keep_disk: || {},
@@ -33,8 +34,12 @@ fn laptop(own_build_refusal: fn() -> Option<String>) -> Host {
     }
 }
 
-#[test]
-fn a_session_compile_no_build_host_took_waits_here_when_this_host_has_room_and_is_refused_only_when_it_has_none() {
+fn every_host_full(_: &Candidate, _: &Job, _: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
+    Err(Some(Declined::NoRoom(vec!["gex45: land check waiting".to_owned(), "cpx62: land check waiting".to_owned()])))
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_session_compile_no_build_host_took_waits_here_with_room_and_is_refused_without_room_or_under_session_builds_false() {
     let create = Create { kind: "run", owner: "worker".to_owned(), timeout_seconds: Some(60) };
     let cargo = ["cargo".to_owned(), "test".to_owned()];
     let full = Declined::NoRoom(vec!["gex45: land check waiting".to_owned(), "ccx33: land check waiting".to_owned()]);
@@ -43,6 +48,17 @@ fn a_session_compile_no_build_host_took_waits_here_when_this_host_has_room_and_i
     let detail = refused.get("detail").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
     assert!(detail.contains("gex45: land check waiting") && detail.contains("this host: 2.0 cores free of 14"), "{detail}");
     assert!(session_build_refusal(&laptop(|| Some("full".to_owned())), &cargo, None, &create).is_none(), "a build host took it or was never asked");
+    let off = Host { session_builds: || false, build_offload: every_host_full, ..laptop(|| None) };
+    let request = super::request::Request { name: "heavy".to_owned(), ..super::request::Request::default() };
+    let mut declined = Declines::new();
+    let waiting = super::offering::Waiting { root: std::path::Path::new("/nonexistent"), ticket: None, request: &request, create: &create, command: &cargo, began: super::machine::now_ms(), declined: &mut declined };
+    assert_eq!(super::offering::try_offload(waiting, false, &off, &mut super::terminations::Terminations::none(), None).await, None, "every build host declined");
+    let refused = session_builds_off(&off, &cargo, &create).expect("session_builds = false refuses the compile here");
+    assert_eq!(refused.get("decision").and_then(serde_json::Value::as_str), Some("REFUSED"));
+    assert_eq!(refused.get("reason").and_then(serde_json::Value::as_str), Some(SESSION_BUILDS_OFF));
+    let key = format!("[hosts.{}] session_builds = false", crate::platform::host::name());
+    assert_eq!(refused.get("detail").and_then(serde_json::Value::as_str), Some(key.as_str()));
+    assert!(session_builds_off(&laptop(|| None), &cargo, &create).is_none(), "key absent or true: the compile runs here");
 }
 
 #[test]

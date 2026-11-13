@@ -122,6 +122,11 @@ pub fn builds_ahead(cfg: &DocumentMut, host: &str) -> bool {
     switch(cfg, host, "build_ahead")
 }
 
+/// Whether `HOST` compiles a fleet session's Rust build that no build host took; `[hosts.HOST] session_builds = false` refuses it there.
+pub fn builds_for_sessions(cfg: &DocumentMut, host: &str) -> bool {
+    switch(cfg, host, "session_builds")
+}
+
 fn switch(cfg: &DocumentMut, host: &str, key: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get(key)?.as_bool()).unwrap_or(true)
 }

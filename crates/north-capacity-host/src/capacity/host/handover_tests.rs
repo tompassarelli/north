@@ -133,6 +133,7 @@ fn host() -> Host {
         lease_builds: || true,
         build_host: || false,
         own_build_refusal: || None,
+        session_builds: || true,
         reclaim_disk: || None,
         tend_disk: || {},
         keep_disk: || {},

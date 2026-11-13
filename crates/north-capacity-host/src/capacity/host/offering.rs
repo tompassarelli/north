@@ -21,6 +21,7 @@ use crate::foundation::clock::Timestamp;
 const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
 pub(super) const NO_BUILD_HOST: &str = "NO_BUILD_HOST";
 pub(super) const HELD_HOST: &str = "HELD_HOST";
+pub(super) const SESSION_BUILDS_OFF: &str = "SESSION_BUILDS_OFF";
 const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
 const OFFER_PENDING: u8 = 0;
 const OFFER_STARTED: u8 = 1;
@@ -178,6 +179,15 @@ fn no_build_host(missing: &Declined, here: &str, create: &Create) -> Obj {
     Obj::new().put("decision", "REFUSED").put("reason", NO_BUILD_HOST).put("detail", format!("{}: {}; this host: {here}", missing.reason(), missing.detail())).put("owner", create.owner.as_str())
 }
 
+/// The refusal a fleet session's Rust compile gets on a host whose operator entry sets `session_builds = false`: once no build host took it, whatever this host's room or lease.
+pub(super) fn session_builds_off(host: &Host, command: &[String], create: &Create) -> Option<Obj> {
+    if (host.session_builds)() || !crate::capacity::gate::compiles_rust(command) {
+        return None;
+    }
+    let key = format!("[hosts.{}] session_builds = false", crate::platform::host::name());
+    Some(Obj::new().put("decision", "REFUSED").put("reason", SESSION_BUILDS_OFF).put("detail", key).put("owner", create.owner.as_str()))
+}
+
 /// The refusal a fleet session's Rust compile gets on a host that does not compile for sessions: only once every build host declined it for want of a host and this host has no room beyond its reserves either.
 pub(super) fn session_build_refusal(host: &Host, command: &[String], missing: Option<&Declined>, create: &Create) -> Option<Obj> {
     if (host.lease_builds)() || !crate::capacity::gate::compiles_rust(command) {
@@ -213,6 +223,9 @@ pub(super) async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminati
     if offered_before {
         if let Some(code) = try_offload(waiting.again(), false, host, terminations, None).await {
             return Some(Admitted::Offloaded(code));
+        }
+        if let Some(refused) = session_builds_off(host, waiting.command, create) {
+            return Some(Admitted::Here(refused));
         }
         if let Some(refused) = session_build_refusal(host, waiting.command, waiting.declined.missing_host.as_ref(), create) {
             return Some(Admitted::Here(refused));

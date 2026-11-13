@@ -103,6 +103,9 @@ pub fn local_gpu_slots() -> Option<u32> {
 pub fn local_lease_builds() -> bool {
     sampling::config().ok().and_then(|cfg| cfg.get("hosts")?.get(local())?.get("lease_builds")?.as_bool()).unwrap_or(false) || crate::capacity::mode::leases_own_builds()
 }
+pub fn local_session_builds() -> bool {
+    north_base::platform::orchestration::read().ok().is_none_or(|cfg| north_base::platform::orchestration::builds_for_sessions(&cfg, &local()))
+}
 pub fn machine(name: &str) -> Option<crate::fleet::model::Machine> {
     let machine = gate::machines(&sampling::config().ok()?).into_iter().find(|machine| machine.name == name)?;
     Some(crate::fleet::model::Machine { name: machine.name, ssh: machine.ssh, agent_ssh: machine.agent_ssh })

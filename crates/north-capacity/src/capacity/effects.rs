@@ -23,6 +23,8 @@ pub struct Host {
     pub build_host: fn() -> bool,
     /// Why this host has no room for a fleet session's build that no build host took, by the rule the capacity taker applies before it runs a pulled run here; None when it has room.
     pub own_build_refusal: fn() -> Option<String>,
+    /// Whether this host may compile a fleet session's Rust build that no build host took (`[hosts.NAME] session_builds`, absent means it may).
+    pub session_builds: fn() -> bool,
     pub reclaim_disk: fn() -> Option<f64>,
     /// Starts the disk pass as its own unit, which outlives the lease reaper's 25 s start timeout.
     pub tend_disk: fn(),

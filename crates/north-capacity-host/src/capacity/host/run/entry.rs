@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::super::json::{Obj, text};
 use super::super::machine::read_signals;
-use super::super::offering::{Admitted, HELD_HOST, NO_BUILD_HOST};
+use super::super::offering::{Admitted, HELD_HOST, NO_BUILD_HOST, SESSION_BUILDS_OFF};
 use super::outcome::run_admitted;
 use super::super::policy::batch_class;
 use super::super::quiet_holds::quiet_owners;
@@ -24,6 +24,9 @@ fn refusal(admitted: &Obj) -> Option<String> {
     let view = admitted.value();
     if text(&view, "reason") == Some(NO_BUILD_HOST) {
         return Some(format!("refused: this host does not compile for fleet sessions and no build host took the job ({}); the detail names what to change or wait for", text(&view, "detail").unwrap_or_default()));
+    }
+    if text(&view, "reason") == Some(SESSION_BUILDS_OFF) {
+        return Some(format!("refused: {} keeps fleet sessions' Rust compiles off this host and no build host took the job; run it on a build host with `north capacity offload run --host <build host> --base origin/main --head HEAD --timeout SECS -- \"COMMAND\"`", text(&view, "detail").unwrap_or_default()));
     }
     if text(&view, "reason") == Some(HELD_HOST) {
         return Some(format!("refused: this host is under a hold that keeps heavy work off it, and the offload declined this build ({}), so it never runs here; run it on a build host with `north capacity offload run --host <build host> --base origin/main --head HEAD --timeout SECS -- \"COMMAND\"`, which ships the tree and runs the command there", text(&view, "detail").unwrap_or_default()));
