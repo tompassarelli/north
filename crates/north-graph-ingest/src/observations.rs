@@ -8,11 +8,14 @@ use crate::facts::{Facts, text};
 use crate::places::Places;
 
 const LANDER: &str = "lander";
+const CHECKER: &str = "checker";
 const GIT: &str = "git";
 const LANDED_ON: &str = "landed-on";
 const ANCESTOR_OF: &str = "ancestor-of";
 const MAIN: &str = "main";
 const ORIGIN_MAIN: &str = "origin/main";
+const IN_TREE_OF: &str = "in-tree-of";
+const NOT_IN_TREE_OF: &str = "not-in-tree-of";
 
 #[derive(Debug, Default)]
 pub struct Appended {
@@ -27,7 +30,9 @@ pub fn append(graph: &mut Graph, places: &Places) -> Result<Appended, String> {
     let landed = fresh(&landings(places, &mut appended.notes), &subjects(graph, LANDER, LANDED_ON)?, &mut appended);
     let known = subjects(graph, GIT, ANCESTOR_OF)?;
     let mut unseen: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (repo, sha) in claimed(graph)? {
+    let candidates = ordered(graph)?;
+    let heads = candidates.iter().map(|(repo, _, head)| (repo.clone(), head.clone()));
+    for (repo, sha) in claimed(graph)?.into_iter().chain(heads) {
         if known.contains(&sha) {
             appended.unchanged += 1;
         } else {
@@ -41,10 +46,14 @@ pub fn append(graph: &mut Graph, places: &Places) -> Result<Appended, String> {
             Err(why) => appended.notes.push(format!("no ancestry of {} claimed commits of {repo}: {why}", shas.len())),
         }
     }
+    let on_main: HashSet<String> = known.iter().cloned().chain(ancestors.iter().cloned()).collect();
+    let trees = in_trees(graph, places, &candidates, &on_main, &mut appended)?;
     let told = |shas: &[String], predicate: &str, object: &str| -> Vec<Action> { shas.iter().map(|sha| Action::assert(Triple::new(text(sha), Term::keyword(predicate), text(object)))).collect() };
     let (landed, ancestors) = (told(&landed, LANDED_ON, MAIN), told(&ancestors, ANCESTOR_OF, ORIGIN_MAIN));
-    appended.asserted += landed.len() + ancestors.len();
-    graph.apply_batches(&[(LANDER, &landed), (GIT, &ancestors)]).map_err(|why| why.to_string())?;
+    let trees = trees.into_iter().map(|(claimed, head, holds)| Action::assert(Triple::new(text(claimed), Term::keyword(if holds { IN_TREE_OF } else { NOT_IN_TREE_OF }), text(head))));
+    let ancestry: Vec<Action> = ancestors.into_iter().chain(trees).collect();
+    appended.asserted += landed.len() + ancestry.len();
+    graph.apply_batches(&[(LANDER, &landed), (GIT, &ancestry)]).map_err(|why| why.to_string())?;
     Ok(appended)
 }
 
@@ -149,6 +158,44 @@ fn claimed(graph: &Graph) -> Result<BTreeSet<(String, String)>, String> {
 
 fn repo(node: &str) -> Option<&str> {
     node.strip_prefix("box:")?.split_once('#').map(|(repo, _)| repo)
+}
+
+fn in_trees(graph: &Graph, places: &Places, candidates: &BTreeSet<(String, String, String)>, on_main: &HashSet<String>, appended: &mut Appended) -> Result<Vec<(String, String, bool)>, String> {
+    let mut known = pairs(graph, GIT, IN_TREE_OF)?;
+    known.extend(pairs(graph, GIT, NOT_IN_TREE_OF)?);
+    let mut told = Vec::new();
+    for (repo, claimed, head) in candidates.iter().cloned() {
+        if !on_main.contains(&claimed) || !on_main.contains(&head) || known.contains(&(claimed.clone(), head.clone())) {
+            continue;
+        }
+        let checkout = places.code.join(&repo).join("main");
+        match Command::new("git").arg("-C").arg(&checkout).args(["merge-base", "--is-ancestor", &claimed, &head]).status().map(|status| status.code()) {
+            Ok(Some(code @ (0 | 1))) => told.push((claimed, head, code == 0)),
+            Ok(code) => appended.notes.push(format!("no ordering of {claimed} and {head} in {}: git exited {code:?}", checkout.display())),
+            Err(why) => appended.notes.push(format!("no ordering of {claimed} and {head} in {}: {why}", checkout.display())),
+        }
+    }
+    Ok(told)
+}
+
+fn pairs(graph: &Graph, writer: &str, predicate: &str) -> Result<HashSet<(String, String)>, String> {
+    let rule = serde_json::json!({"head": {"rel": "seen", "args": [{"var": "s"}, {"var": "o"}]}, "body": [
+        {"rel": "assertion", "args": [writer, {"var": "s"}, ["keyword", predicate], {"var": "o"}]}]});
+    let rows = strings(graph, &serde_json::json!({"find": "seen", "rules": [rule]}))?;
+    Ok(rows.into_iter().filter_map(|row| Some((row.first()?.clone(), row.get(1)?.clone()))).collect())
+}
+
+fn ordered(graph: &Graph) -> Result<BTreeSet<(String, String, String)>, String> {
+    let rule = serde_json::json!({"head": {"rel": "ordered", "args": [{"var": "box"}, {"var": "sha"}, {"var": "head"}]}, "body": [
+        {"rel": "assertion", "args": [{"var": "who"}, {"var": "speaker"}, ["keyword", "claims"], {"var": "q"}]},
+        {"pred": "eq", "args": [{"var": "who"}, {"var": "speaker"}]},
+        {"rel": "quoted", "args": [{"var": "q"}, {"var": "box"}, ["keyword", "done-at"], {"var": "sha"}]},
+        {"rel": "assertion", "args": ["mirror", {"var": "box"}, ["keyword", "done-when"], {"var": "command"}]},
+        {"rel": "assertion", "args": ["mirror", {"var": "issue"}, ["keyword", "has-box"], {"var": "box"}]},
+        {"rel": "assertion", "args": [CHECKER, {"var": "issue"}, ["keyword", "passed-check"], {"var": "p"}]},
+        {"rel": "quoted", "args": [{"var": "p"}, {"var": "command"}, ["keyword", "on"], {"var": "head"}]}]});
+    let rows = strings(graph, &serde_json::json!({"find": "ordered", "rules": [rule]}))?;
+    Ok(rows.into_iter().filter_map(|row| Some((repo(row.first()?)?.to_owned(), row.get(1)?.clone(), row.get(2)?.clone()))).collect())
 }
 
 fn string(term: &Term) -> Option<String> {

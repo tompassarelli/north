@@ -252,13 +252,18 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     let box_text = "Corroborated rewards: the staffed box of an umbrella";
     let node = crate::threads::claims::box_node("north#882", box_text).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("graph.db");
-    let mut graph = Graph::open(&path).unwrap();
-    let mut tell = |writer: &str, t1: Term, t2: &str, t3: Term| graph.tell(writer, north_graph::Triple::new(t1, Term::keyword(t2), t3)).unwrap();
-    tell("n882-worker", Term::string("n882-worker"), "claims", Term::triple(Term::string(&node), Term::keyword("done-at"), Term::string(SHA)));
-    tell("mirror", Term::string("north#882"), "has-box", Term::string(&node));
-    tell("mirror", Term::string(&node), "done-when", Term::string(COMMAND));
-    tell("push-log", Term::string(SHA), "landed-by", Term::string("n882-worker"));
+    let seeded = |name: &str| {
+        let path = directory.path().join(name);
+        let mut graph = Graph::open(&path).unwrap();
+        let mut tell = |writer: &str, t1: Term, t2: &str, t3: Term| graph.tell(writer, north_graph::Triple::new(t1, Term::keyword(t2), t3)).unwrap();
+        tell("n882-worker", Term::string("n882-worker"), "claims", Term::triple(Term::string(&node), Term::keyword("done-at"), Term::string(SHA)));
+        tell("mirror", Term::string("north#882"), "has-box", Term::string(&node));
+        tell("mirror", Term::string(&node), "done-when", Term::string(COMMAND));
+        tell("push-log", Term::string(SHA), "landed-by", Term::string("n882-worker"));
+        tell("git", Term::string(SHA), "ancestor-of", Term::string("origin/main"));
+        path
+    };
+    let path = seeded("graph.db");
     let forged = format!("- [x] {box_text}. Done when: `{COMMAND}` exits 0. Evidence: `{COMMAND}` passed on main 59ff4fb9c2d2 on 2026-11-08, exit 0.\n");
     let closed: std::collections::HashMap<String, String> = [("north#882".to_owned(), forged)].into();
     let run = super::closed::SpendRun {
@@ -287,25 +292,42 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
         report.arms[0].verified
     };
     assert!(!verified(&path), "a self-ticked box whose own stamp claims a pass reads unverified while no checker assertion corroborates it");
-    let checked = |sha: &str, issue: &str, passed: bool| {
-        let mut graph = Graph::open(&path).unwrap();
-        let mut tell = |subject: &str, relation: &str, object: &str| graph.tell("checker", north_graph::Triple::new(Term::string(subject), Term::keyword(relation), Term::string(object))).unwrap();
-        tell(sha, if passed { "check-passed" } else { "check-failed" }, COMMAND);
-        tell(sha, "checked-for", issue);
+    let checked = |path: &std::path::Path, sha: &str, issue: &str, passed: bool| {
+        let mut graph = Graph::open(path).unwrap();
+        let mut tell = |subject: &str, relation: &str, object: Term| graph.tell("checker", north_graph::Triple::new(Term::string(subject), Term::keyword(relation), object)).unwrap();
+        tell(sha, if passed { "check-passed" } else { "check-failed" }, Term::string(COMMAND));
+        tell(sha, "checked-for", Term::string(issue));
         if passed {
-            tell(issue, "passed-check", COMMAND);
+            tell(issue, "passed-check", Term::triple(Term::string(COMMAND), Term::keyword("on"), Term::string(sha)));
         }
     };
+    let contains = |path: &std::path::Path, claimed: &str, head: &str| Graph::open(path).unwrap().tell("git", north_graph::Triple::new(Term::string(claimed), Term::keyword("in-tree-of"), Term::string(head))).unwrap();
     let main = "211159d7ca5b0e8f0c4d6a1e2b3c4d5e6f708192";
-    checked("0840a94290aa1b2c3d4e5f60718293a4b5c6d7e8", "north#9", true);
+    let lane = "7a7a1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7";
+    let on_main = |path: &std::path::Path, sha: &str| Graph::open(path).unwrap().tell("git", north_graph::Triple::new(Term::string(sha), Term::keyword("ancestor-of"), Term::string("origin/main"))).unwrap();
+    let before = "3c1d9e0a47b5f2861d0c9e8b7a6f5e4d3c2b1a09";
+    checked(&path, "0840a94290aa1b2c3d4e5f60718293a4b5c6d7e8", "north#9", true);
     assert!(!verified(&path), "a pass of the box's command checked for another issue does not corroborate it");
     Graph::open(&path).unwrap().tell("n882-worker", north_graph::Triple::new(Term::string("north#9"), Term::keyword("has-box"), Term::string(&node))).unwrap();
     assert!(!verified(&path), "a has-box the worker tells to join its box to another issue's pass does not corroborate it");
-    checked(main, "north#9", true);
-    checked(main, "north#882", false);
+    checked(&path, main, "north#9", true);
+    checked(&path, main, "north#882", false);
+    contains(&path, SHA, main);
     assert!(!verified(&path), "another issue's pass on the main head the box's own check failed on does not corroborate it");
-    checked(main, "north#882", true);
-    assert!(verified(&path), "the checker passing the box's Done-when command on the later main head it ran on corroborates the claim");
+    checked(&path, before, "north#882", true);
+    assert!(!verified(&path), "the box's own pass on a commit before the claimed one, which does not hold the claimed change, does not corroborate it");
+    checked(&path, lane, "north#882", true);
+    contains(&path, SHA, lane);
+    assert!(!verified(&path), "the box's own pass on a checkout head that is not on origin/main, though it holds the claimed commit, does not corroborate it");
+    checked(&path, main, "north#882", true);
+    assert!(!verified(&path), "a later head git has not told to be on origin/main does not corroborate it");
+    on_main(&path, main);
+    assert!(verified(&path), "the checker passing the box's Done-when command on a later main head than the claimed commit corroborates the claim");
+    let exact = seeded("exact.db");
+    checked(&exact, SHA, "north#882", true);
+    assert!(!verified(&exact), "a pass on the claimed commit corroborates only once git tells the commit is in that tree");
+    contains(&exact, SHA, SHA);
+    assert!(verified(&exact), "the checker passing the box's Done-when command on the claimed commit itself corroborates the claim");
     assert!(verified(&directory.path().join("absent.db")), "where no graph exists the box's stamp is read");
 }
 

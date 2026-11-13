@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
-use north_graph::Telling;
+use north_graph::{Telling, Term};
 use north_threads::threads::claims;
 use rusqlite::{Connection, OpenFlags};
 
 use crate::boxes::{self, Item};
-use crate::facts::{Facts, issue_ref, text};
+use crate::facts::{Facts, issue_ref, keyword, text};
 use crate::issues;
 use crate::places::Places;
 
@@ -57,7 +57,7 @@ pub fn check(facts: &mut Facts, task: &str, sha: &str, command: String, exit: i6
     if let Some(issue) = issue_ref(task) {
         facts.tell(CHECKER, text(&sha), "checked-for", text(&issue));
         if exit == 0 {
-            facts.tell(CHECKER, text(&issue), "passed-check", text(command));
+            facts.tell(CHECKER, text(&issue), "passed-check", Term::triple(text(command), keyword("on"), text(&sha)));
         }
     }
 }

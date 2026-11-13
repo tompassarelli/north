@@ -149,7 +149,7 @@ query can join a claim to the checks of the commit it names.
   `north#N`, `north#N box K` or `north#N boxes K, L and M`; any other DAG line is printed as `cannot parse a wait in
   backlog-ranking.md`. It reads the file from `~/code/north/main` and the box ids from the mirror, so it runs after `mirror`.
 - `ledger` (writers `checker`, `ledger` and `threads`): `(SHA :check-passed|:check-failed COMMAND)`, `(SHA :checked-for north#634)`
-  and, for a passing row, `(north#634 :passed-check COMMAND)` by `checker`, from the ledger's checks; `(SESSION :works-on north#634)` and `(north#634 :landed-as SHA)` by `ledger`; `(OWNER :holds box:...|north#634)` by `threads` from the threads claims table (see Guards).
+  and, for a passing row, `(north#634 :passed-check <<COMMAND :on HEAD>>)` by `checker`, HEAD the head of the checkout the check ran in (it may be a lane's), from the ledger's checks; `(SESSION :works-on north#634)` and `(north#634 :landed-as SHA)` by `ledger`; `(OWNER :holds box:...|north#634)` by `threads` from the threads claims table (see Guards).
 - `pushes` (writer `push-log`): per pushed commit `:repo`, `:branch`, `:pushed-at`, `(SESSION :pushed SHA)`, and for a
   commit that reached main `:landed-as`, `:landed-by` and `:landed-at`.
 - `touches` (writer `git`): `(SHA :touched FILE)` for each commit the push log landed in the last 30 days, from `git log
@@ -181,12 +181,12 @@ query can join a claim to the checks of the commit it names.
   tells as `checker`'s `:check-passed` or `:check-failed`. The host that ran the check also queues it as a `done_check` row on
   its threads spool, so the ledger host's threads database holds every host's verdicts in `done_checks`, and `observations`
   tells them as the same `checker` facts; a fact both sources tell is asserted once.
+  `observations` also tells `(CLAIMED :in-tree-of HEAD)` or `(CLAIMED :not-in-tree-of HEAD)` by `git`: for each claimed commit on origin/main and each HEAD a `checker` `:passed-check` of the box's own `:done-when` command for its issue names, by `git merge-base --is-ancestor CLAIMED HEAD` (a commit is in its own tree); an answered pair is never asked again, a pair git cannot answer (an absent object) is named in the run's notes and asked again, and a HEAD not on origin/main is skipped. It also tells `(HEAD :ancestor-of "origin/main")` for each HEAD a pass names. The ordering is git's, over the commit the checker already records, so it needs no check time and no new collector.
 
 A worker's claim counts only when a mechanical writer corroborates it. `harness/graph-rules/corroborated.json` derives
 `corroborated(BOX, SHA, WRITER)`: a quoted `(BOX :done-at SHA)` claim whose SHA is not `:none`, with `checker` asserting
-`(ISSUE :passed-check CMD)` for the box's own `:done-when` CMD and the issue that holds it, `(ISSUE :has-box
-BOX)`, both read only as `mirror`'s assertions so no other writer can join a box to a pass: one fact keys the pass to the issue it ran for, so a pass for another issue on the same main head never counts (the
-checker runs a box's check on the main head of its run, not at the claimed commit), or with `lander` asserting `(SHA :landed-on "main")` and `git`
+`(ISSUE :passed-check <<CMD :on HEAD>>)` (HEAD the head of the checkout the check ran in, counted only when `git` tells it `:ancestor-of "origin/main"`) for the box's own `:done-when` CMD and the issue that holds it, `(ISSUE :has-box
+BOX)`, both read only as `mirror`'s assertions so no other writer can join a box to a pass: one fact keys the pass to the issue it ran for and to the head it ran on, so a pass for another issue on the same head never counts; the pass counts only when `git` tells `(CLAIMED :in-tree-of HEAD)`, the claimed commit, on origin/main, being that head or an ancestor of it (the checker runs a box's check on the head of its own checkout, not at the claimed commit, and a pass on an older head did not run the claimed change), or with `lander` asserting `(SHA :landed-on "main")` and `git`
 asserting `(SHA :ancestor-of "origin/main")`. The closed-box report (`north dash --closed`, dispatch's arm shares) marks a
 kept box checker-verified only when the rule holds by `checker` for the box its run's brief named; the
 `Evidence:` stamp in the issue body, which any writer of the body can type, is read only on a host with no graph.

@@ -49,6 +49,8 @@ fn a_box_closes_and_an_arm_is_rewarded_only_on_a_mechanical_assertion_corroborat
     let mut graph = Graph::open(&path).unwrap();
     graph.tell("checker", Triple::new(Term::string(SHA), Term::keyword("check-passed"), Term::string(COMMAND))).unwrap();
     graph.tell("checker", Triple::new(Term::string(SHA), Term::keyword("checked-for"), Term::string("north#882"))).unwrap();
-    graph.tell("checker", Triple::new(Term::string("north#882"), Term::keyword("passed-check"), Term::string(COMMAND))).unwrap();
+    graph.tell("checker", Triple::new(Term::string("north#882"), Term::keyword("passed-check"), Term::triple(Term::string(COMMAND), Term::keyword("on"), Term::string(SHA)))).unwrap();
+    graph.tell("git", Triple::new(Term::string(SHA), Term::keyword("ancestor-of"), Term::string("origin/main"))).unwrap();
+    graph.tell("git", Triple::new(Term::string(SHA), Term::keyword("in-tree-of"), Term::string(SHA))).unwrap();
     assert!(rewarded(&path), "the checker passing the box's Done-when at the claimed commit rewards the arm");
 }
