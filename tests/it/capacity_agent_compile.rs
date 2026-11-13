@@ -143,9 +143,8 @@ fn refused_through_the_hook(host: &Host) {
         let mut hook = fleet(host, crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         hook.env("NORTH_AGENT_ACTIVE", host.path("activation.active"));
         hook.env("AGENT_HOOK_ERRORS", host.path("hook-errors.tsv"));
-        let hooked = hook.args(["hook", "pre-bash"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
-        std::io::Write::write_all(&mut hooked.stdin.as_ref().unwrap(), request.to_string().as_bytes()).unwrap();
-        let output = hooked.wait_with_output().unwrap();
+        fs::write(host.path("hook-request.json"), request.to_string()).unwrap();
+        let output = hook.args(["hook", "pre-bash"]).stdin(fs::File::open(host.path("hook-request.json")).unwrap()).output_exclusive().unwrap();
         let routed = serde_json::from_slice::<serde_json::Value>(&output.stdout).ok().and_then(|answer| answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().map(str::to_owned)).unwrap_or_else(|| panic!("{typed}: the hook did not route it: {}\nstdout: {}\nstderr: {}\nhook errors: {}", output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr), fs::read_to_string(host.path("hook-errors.tsv")).unwrap_or_default()));
         assert!(routed.starts_with("north capacity host run "), "{typed}: {routed}");
         let ran = fleet(host, "bash").args(["-c", &routed.replacen("north", crate::support::bin_exe!("CARGO_BIN_EXE_north"), 1)]).output_exclusive().unwrap();
