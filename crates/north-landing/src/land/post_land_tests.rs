@@ -411,10 +411,10 @@ fn a_landing_check_that_fails_on_a_stale_host_token_is_not_a_red_main() {
 fn a_red_lane_scoped_check_over_a_batch_range_enters_no_blame() {
     let scratch = tempfile::tempdir().unwrap();
     let outcome = scratch.path().join("post-land.outcome");
-    std::fs::write(&outcome, "failed-step\tland scan test-admission kills\t/kills.log\tlane-b\nfailed-step\tcargo clippy\t/clippy.log\n").unwrap();
-    let failing = std::collections::BTreeSet::from([Failure::Step("land scan test-admission kills".to_owned()), Failure::Step("cargo clippy".to_owned())]);
+    std::fs::write(&outcome, "failed-step\tland scan test-admission kills\t/kills.log\tlane-b\nfailed-step\tcargo clippy\t/clippy.log\nfailed-step\tcargo nextest run\t/nextest.log\t\n").unwrap();
+    let failing = std::collections::BTreeSet::from([Failure::Step("land scan test-admission kills".to_owned()), Failure::Step("cargo clippy".to_owned()), Failure::Step("cargo nextest run".to_owned())]);
     let lanes = ["lane-a".to_owned(), "lane-b".to_owned()];
     let (blamed, named) = apart(failing, &outcome, &lanes);
-    assert_eq!(blamed, std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned())]), "the lane-scoped check is not a failure the batch is searched for");
+    assert_eq!(blamed, std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned()), Failure::Step("cargo nextest run".to_owned())]), "a lane-scoped check naming a lane is not a failure the batch is searched for, one naming none stays");
     assert_eq!(named, [1], "the red names the lane whose own range failed");
 }

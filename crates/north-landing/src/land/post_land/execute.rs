@@ -185,7 +185,7 @@ pub(crate) fn apart(failing: BTreeSet<Failure>, outcome: &Path, lanes: &[String]
     let scoped: Vec<(&str, &str)> = text.lines().filter_map(|line| line.strip_prefix("failed-step\t")).filter_map(|rest| {
         let mut fields = rest.split('\t');
         Some((fields.next()?, fields.nth(1)?))
-    }).collect();
+    }).filter(|(_, names)| !names.is_empty()).collect();
     let mut named: Vec<usize> = scoped.iter().flat_map(|(_, names)| names.split(',')).filter_map(|name| lanes.iter().position(|lane| lane == name)).collect();
     named.sort_unstable();
     named.dedup();
