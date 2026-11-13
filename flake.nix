@@ -78,7 +78,7 @@
                       [ -e "$checkout/.git" ] || checkout=$PWD
                       if [ -n "$CARGO_TARGET_DIR" ] && [ "$(realpath -m "$CARGO_TARGET_DIR")" != "$(realpath -m "$checkout/target")" ]; then export RUSTFLAGS="-Cmetadata=checkout:$checkout"; fi
                       export PATH=${builtins.head packages}/bin:$PATH
-                      if [ -e "$checkout/.buckconfig" ]; then ln -sfn ${buck2Toolchain} "$checkout/.buckconfig.flake"; fi
+                      if [ -e "$checkout/.buckconfig" ] && [ "$(readlink "$checkout/.buckconfig.flake")" != ${buck2Toolchain} ]; then ln -sfn ${buck2Toolchain} "$checkout/.buckconfig.flake"; fi
                     '';
                   };
                 }
