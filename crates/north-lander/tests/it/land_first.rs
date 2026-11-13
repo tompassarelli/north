@@ -21,7 +21,7 @@ done
 failed=
 [ -e bad.txt ] && failed="$failed bad.txt"
 [ -e worse.txt ] && failed="$failed worse.txt"
-case " $* " in *" --fresh "*) ;; *) [ -e flaky.txt ] && failed="$failed flaky.txt" ;; esac
+case " $* " in *" --command "*) ;; *) [ -e flaky.txt ] && failed="$failed flaky.txt" ;; esac
 [ -z "$failed" ] && exit 0
 for file in $failed; do
   printf "event\tafter\tfailed\t%s check\nfailed-step\t%s check\t\n" "$file" "$file" >> "$outcome"

@@ -184,7 +184,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     let landed = git(&rig.origin, &["rev-parse", "refs/heads/main"]);
     assert_ne!(landed, base, "{said}");
     assert!(said.contains(&format!("worker ({lane_head}): landed {landed}")), "{said}");
-    assert_eq!(fs::read_to_string(rig.root.join("checks")).unwrap(), "checked", "the land check ran exactly once, on the lane before queueing");
+    assert_eq!(fs::read_to_string(rig.root.join("checks")).unwrap(), "checkedchecked", "the land check ran on the lane before queueing and again from scratch on the landed tree");
     assert!(Command::new("git").arg("-C").arg(&rig.origin).args(["merge-base", "--is-ancestor", &landed, "refs/heads/main"]).status().unwrap().success());
     assert_eq!(git(&rig.origin, &["rev-parse", &format!("{landed}^")]), base, "the landing is the one lane commit on the old main");
     assert_eq!(git(&rig.origin, &["rev-parse", &format!("{landed}^{{tree}}")]), git(&rig.lane, &["rev-parse", "HEAD^{tree}"]), "main holds exactly the lane's tree");

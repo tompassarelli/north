@@ -36,7 +36,7 @@ const AFTER_RUNNER: &str = r#"[ "$1" = land ] || { echo "$*" >> "$HOME/north-cal
 eval outcome=\${$#}
 while [ -e "$HOME/stall" ]; do echo $$ > "$HOME/stalled"; sleep 0.05; done
 [ -e "$HOME/transient" ] && exit 75
-case " $* " in *" --fresh "*) ;; *) git rev-parse HEAD >> "$HOME/after-runs" ;; esac
+case " $* " in *" --command "*) ;; *) git rev-parse HEAD >> "$HOME/after-runs" ;; esac
 if [ -e bad.txt ]; then printf "event\tafter\tfailed\tbad.txt check\nfailed-step\tbad.txt check\t\n" > "$outcome"; exit 1; fi
 "#;
 

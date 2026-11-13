@@ -211,7 +211,7 @@ impl Landed {
 fn after_run(lander: &Lander, landed: &Landed, host: Option<String>, cancel: Arc<AtomicBool>, deadline: Duration) -> Run {
     let head = landed.head.as_str();
     Run {
-        runner: vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--dry".to_owned(), "1".to_owned()],
+        runner: vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--fresh".to_owned(), "--dry".to_owned(), "1".to_owned()],
         worktree: lander.queue.join("post-land"),
         log: lander.queue.join("logs").join("post-land"),
         outcome: lander.queue.join("logs").join("post-land"),
