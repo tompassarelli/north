@@ -3,5 +3,5 @@ name = "north-fleet-supervisor"
 layer = 4
 family = "sessions"
 paths = ["crates/north-fleet-supervisor/src/**"]
-may_use = ["north-fleet", "north-resume", "north-session-host", "north-graph-loops", "north-runtime-follow"]
+may_use = ["north-agent-starts", "north-fleet", "north-resume", "north-session-host", "north-graph-loops", "north-runtime-follow"]
 

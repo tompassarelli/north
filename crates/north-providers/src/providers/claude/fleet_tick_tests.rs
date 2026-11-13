@@ -52,7 +52,7 @@ impl Host {
     }
 
     fn pulls(&self) -> Pulls {
-        Pulls { spools: Arc::new(Nobody), always: Vec::new() }
+        Pulls { spools: Arc::new(Nobody), always: Vec::new(), starts: None }
     }
 
     fn tick(&self) -> Ticked {
@@ -228,7 +228,7 @@ fn far_host(name: &str) -> FarHost {
 fn a_row_pulled_from_a_far_spool_is_dropped_there_only_after_the_ledger_host_commits_it() {
     let host = host("nexus");
     let far = Arc::new(Far::holding("tom@gex45", vec![far_message("m-far", "gex45")]));
-    let pulls = Pulls { spools: far.clone(), always: vec![far_host("gex45")] };
+    let pulls = Pulls { spools: far.clone(), always: vec![far_host("gex45")], starts: None };
 
     assert!(tick(&host.fleet, &open_ledger(|| Ok(Unreachable)), &pulls, &NoProbes, NOW_MS, BUDGET).is_err());
     assert_eq!(far.left_on("tom@gex45"), ["m-far"], "a row whose commit is unknown stays on its machine");
@@ -246,7 +246,7 @@ fn a_row_this_build_cannot_decode_is_set_aside_on_its_machine_with_a_notice_and_
     let host = host("nexus");
     let far = Arc::new(Far::holding("tom@gex45", vec![far_message("m-ok", "gex45")]));
     far.undecodable.lock().unwrap().insert("tom@gex45".into(), vec!["m-old-answer".into()]);
-    let pulls = Pulls { spools: far.clone(), always: vec![far_host("gex45")] };
+    let pulls = Pulls { spools: far.clone(), always: vec![far_host("gex45")], starts: None };
 
     let ticked = tick(&host.fleet, &host.opened(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
 
@@ -503,7 +503,7 @@ impl FarSpools for HungTake {
 #[test]
 fn a_tick_whose_ledger_exchange_placement_take_far_and_a_probe_hang_past_their_budgets_finishes_naming_each_deferred_stage_while_a_probe_with_its_own_budget_runs_beside_them() {
     let host = host("nexus");
-    let pulls = Pulls { spools: Arc::new(HungTake), always: vec![far_host("gex45")] };
+    let pulls = Pulls { spools: Arc::new(HungTake), always: vec![far_host("gex45")], starts: None };
 
     let ticked = tick(&host.fleet, &open_ledger(|| Ok(HungLedger)), &pulls, &Sleepy, NOW_MS, Budgets::each(Duration::from_secs(1))).unwrap();
 

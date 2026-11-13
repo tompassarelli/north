@@ -91,7 +91,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         })
     };
     let _pass = pass();
-    let pulls = Pulls { spools: std::sync::Arc::new(OverSsh::default()), always: always_pulled(fleet) };
+    let pulls = Pulls { spools: std::sync::Arc::new(OverSsh::default()), always: always_pulled(fleet), starts: None };
     let ticked = tick(fleet, &ledger, &pulls, &probes, now_ms(), Budgets::TICK);
     let reviving = Instant::now();
     let (revived, reviving_cpu) = metered(|| rebooted::revive_within(fleet, rebooted::REVIVE_BUDGET.min(Budgets::TICK.worst().saturating_sub(began.elapsed()))));

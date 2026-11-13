@@ -28,6 +28,7 @@ rust_library(
     features = FEATURES,
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
+        "//crates/north-agent-starts:north-agent-starts",
         "//crates/north-base:north-base",
         "//crates/north-fleet:north-fleet",
         "//crates/north-graph-loops:north-graph-loops",
@@ -54,6 +55,7 @@ north_rust_test(
     features = FEATURES,
     rustc_flags = RUSTC_FLAGS,
     deps = [
+        "//crates/north-agent-starts:north-agent-starts",
         "//crates/north-base:north-base",
         "//crates/north-fleet:north-fleet",
         "//crates/north-graph-loops:north-graph-loops",

@@ -1346,6 +1346,7 @@ dependencies = [
 name = "north-fleet-supervisor"
 version = "0.1.0"
 dependencies = [
+ "north-agent-starts",
  "north-base",
  "north-fleet",
  "north-graph-loops",

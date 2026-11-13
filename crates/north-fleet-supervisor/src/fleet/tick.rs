@@ -7,7 +7,10 @@ use super::model::SessionRecord;
 
 mod cpu;
 mod far;
+mod starts;
+pub use starts::StartWriter;
 pub use cpu::{Cpu, detach_metered, metered};
+use starts::write_starts;
 use far::{cache_far, deliver_far, drop_far, far_hosts, take_far};
 use super::registry::{Fleet, HandedIn};
 use super::stage::{Detached, Late, detach};
@@ -77,6 +80,8 @@ pub struct Ticked {
     pub unsettled: Option<String>,
     pub uncached: Vec<(String, String)>,
     pub far_failed: Vec<(String, String)>,
+    pub started: Vec<String>,
+    pub unstarted: Vec<(String, String)>,
     pub wall: Duration,
     pub cpu: Duration,
     pub steps: Vec<Step>,
@@ -99,6 +104,7 @@ pub struct FarHost {
 pub struct Pulls {
     pub spools: Arc<dyn FarSpools + Send>,
     pub always: Vec<FarHost>,
+    pub starts: Option<StartWriter>,
 }
 
 pub struct Probed {
@@ -201,6 +207,8 @@ impl Ticked {
         let unregistered = self.unregistered.iter().map(|(name, why)| format!("left on {name} until the ledger lists the session: {why}"));
         let uncached = self.uncached.iter().map(|(name, why)| format!("fleet table not cached on {name}: {why}"));
         let undelivered = self.far_failed.iter().map(|(name, why)| format!("not delivered to the registry on {name}: {why}"));
+        let started = self.started.iter().map(|name| format!("wrote the agent start request for {name}"));
+        let unstarted = self.unstarted.iter().map(|(name, why)| format!("no agent start request for {name}: {why}"));
         let counts = format!("flushed {}, pulled {}, delivered {}, already {}, deferred {}, pruned {}", self.flushed, self.pulled, self.delivered.len(), self.already, self.deferred, self.pruned);
         let unsettled = self.unsettled.iter().map(|why| format!("waits not settled in the store: {why}"));
         delivered
@@ -213,6 +221,8 @@ impl Ticked {
             .chain(unregistered)
             .chain(uncached)
             .chain(undelivered)
+            .chain(started)
+            .chain(unstarted)
             .chain(self.probed.iter().cloned())
             .chain(self.put_off.iter().cloned())
             .chain(unsettled)
@@ -313,6 +323,9 @@ fn exchange_and_hand_in(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, clock
     });
     let (mut rows, records) = (rows?, records?);
     let spooled: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+    if let Some(writer) = &pulls.starts {
+        clock.time("agent_starts", || write_starts(writer, &records, ticked));
+    }
     let (taken, registered) = std::thread::scope(|scope| {
         let building = scope.spawn(|| clock.time("registry", || registry(fleet, &records, now_ms)));
         let taken = clock.time("take_far", || take_far(fleet, &records, cached, pulls, &mut rows, ticked, (now_ms, budgets.take_far)));
