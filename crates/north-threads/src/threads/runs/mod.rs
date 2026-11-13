@@ -6,7 +6,6 @@ mod costs;
 pub mod hook_rules;
 pub mod hooks;
 mod labels;
-mod lane;
 pub mod landed_issues;
 mod record;
 pub use record::CLOUD_ORIGIN;

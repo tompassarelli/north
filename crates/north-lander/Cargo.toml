@@ -19,7 +19,6 @@ north-land-scans = { path = "../north-land-scans" }
 north-land-sandbox = { path = "../north-land-sandbox" }
 north-landing = { path = "../north-landing" }
 north-strategy-types = { path = "../north-strategy-types" }
-rusqlite.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true

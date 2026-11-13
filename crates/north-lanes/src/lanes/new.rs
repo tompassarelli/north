@@ -11,7 +11,7 @@ const USAGE: &str = "usage: north lane new --issue REPO#N [--from REF] [--draft 
 Creates the lane LANE, a directory named by its absolute path directly under a project's
 worktrees/ (~/code/<project>/worktrees/SLUG), on a new branch SLUG from REF (default
 refs/remotes/origin/main, else refs/heads/main), and records the issue it serves under the project repository's
-.git/north/lane-issues/SLUG, and the fleet session that runs it under .git/north/lane-sessions/SLUG, which the run ledger reads to name the lane a run works in. The branch does not track REF, so concurrent lanes never write
+.git/north/lane-issues/SLUG. The branch does not track REF, so concurrent lanes never write
 the repository's shared git config. REPO#N names the issue (north#995); #N names one in the
 project's own origin repository. lane gc reads that record first to decide the lane's fate
 by its issue's state and lists the lane under it while it is open. --draft marks the lane as the draft NAME
@@ -103,7 +103,6 @@ pub fn create(lane: &Path, issue: &str, from: Option<&str>) -> Result<String, St
         git_checked(&main, &["worktree", "add", "-q", "--no-track", "-b", slug, &lane.to_string_lossy(), &base])?;
     }
     lane_issue::record(&main, slug, &item)?;
-    lane_issue::record_session(&main, slug)?;
     Ok(item)
 }
 

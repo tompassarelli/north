@@ -10,7 +10,6 @@ mod break_glass;
 mod claims;
 mod claim_box;
 mod claude_only;
-mod committed_lanes;
 mod hops;
 mod desktop;
 mod dispatch_tick;

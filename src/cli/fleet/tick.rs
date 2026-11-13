@@ -118,9 +118,6 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let expiring = Instant::now();
     let (expired, expiring_cpu) = metered(|| crate::cli::machines::expire(Timestamp::now()));
     ticked.steps.push(Step { name: "expire", began: expiring - began, took: expiring.elapsed(), cpu: Some(expiring_cpu) });
-    let handing = Instant::now();
-    let (handed, handing_cpu) = metered(|| super::committed_lanes::pass(fleet));
-    ticked.steps.push(Step { name: "committed_lanes", began: handing - began, took: handing.elapsed(), cpu: Some(handing_cpu) });
     let (refreshed, ended, refreshing_cpu) = kept_fresh(fleet, &refreshing, began);
     ticked.steps.push(Step { name: "shared_config", began: Duration::ZERO, took: ended - began, cpu: refreshing_cpu });
     let dispatching = Instant::now();
@@ -128,7 +125,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     ticked.steps.push(Step { name: "dispatch", began: dispatching - began, took: dispatching.elapsed(), cpu: dispatching_cpu });
     ticked.wall = began.elapsed();
     ticked.cpu = spent.spent();
-    ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).chain(&expired).chain(&handed).chain(&refreshed).for_each(|line| println!("{line}"));
+    ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).chain(&expired).chain(&refreshed).for_each(|line| println!("{line}"));
     println!("{}", ticked.timing());
     if let Some(line) = dispatch_line(&dispatched) {
         println!("{line}");
