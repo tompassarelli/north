@@ -84,7 +84,8 @@ pub(super) fn ready(layout: &Layout, tree: &str) -> Option<PathBuf> {
 
 /// Whether the artifact for `tree` is ready, waiting while a build host builds it now: a coordinator orders main's head
 /// minutes after it lands, often while its build ahead still runs, and a second build would cost the order those minutes
-/// again. A request still queued, or one whose holder is gone, is not waited for.
+/// again. A request still queued is withdrawn rather than waited for: the promotion builds the tree itself, and the queued
+/// request would build it a second time once the promotion ends, holding the build lock meanwhile.
 pub(super) fn awaited(layout: &Layout, tree: &str) -> bool {
     let started = std::time::Instant::now();
     let mut announced = false;
@@ -92,7 +93,11 @@ pub(super) fn awaited(layout: &Layout, tree: &str) -> bool {
         if ready(layout, tree).is_some() {
             return true;
         }
-        if !building(layout, tree) || started.elapsed() >= AWAIT {
+        if !building(layout, tree) {
+            withdraw(layout, tree);
+            return false;
+        }
+        if started.elapsed() >= AWAIT {
             return false;
         }
         if !announced {
@@ -101,6 +106,10 @@ pub(super) fn awaited(layout: &Layout, tree: &str) -> bool {
         }
         std::thread::sleep(Duration::from_secs(1));
     }
+}
+
+fn withdraw(layout: &Layout, tree: &str) {
+    let _ = fs::remove_file(layout.artifacts().join(REQUESTS).join(tree));
 }
 
 fn building(layout: &Layout, tree: &str) -> bool {
@@ -398,6 +407,9 @@ mod tests {
         let left: Vec<_> = fs::read_dir(layout.artifacts()).unwrap().flatten().map(|entry| entry.file_name()).collect();
         assert!(left.iter().all(|name| name == BUILD_LOCK || name == REQUESTS), "and it built nothing here: the promotion has a build host build the tree");
         assert!(filed(&layout.artifacts()).is_empty(), "a request that found no build host is drained, not left to block the next");
+        file(&layout.artifacts(), &ask(&tree, &commit, Kind::Candidate, "")).unwrap();
+        assert!(!awaited(&layout, &tree), "a request still queued is not waited for, and a promotion that builds the tree itself withdraws it");
+        assert!(filed(&layout.artifacts()).is_empty(), "so no build ahead builds the tree a second time");
 
         let mut asked = Vec::new();
         let built = |host: &BuildHost, commit: &str, into: &Path| -> Result<(), Failure> {
