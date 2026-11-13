@@ -25,6 +25,7 @@ use north_build_system::{Cases, CrateTests, TestRun};
 use super::affected::PACKAGES_ENV;
 use super::it_modules::IT_ENV;
 use super::unit_reuse::quote;
+use crate::foundation::check_log::{Failure, failures};
 use crate::land::trace::check_log;
 
 const USAGE: &str = "north land crate-tests available | north land crate-tests host-cases [PACKAGE...] | north land crate-tests after-landing | north land crate-tests -- COMMAND";
@@ -37,6 +38,12 @@ const SUMMARY: &str = "Tests finished:";
 /// The line cargo-nextest ends a run on: `Summary [ T s] N tests run: P passed, ...`, `1 test run` for one case.
 const NEXTEST_SUMMARY: &str = "Summary [";
 const FAILED: u8 = 1;
+/// The line Buck2 prints when a remote worker lost an action, before any test in it ran (north#1115).
+const REMOTE_EXECUTION_ERROR: &str = "Remote Execution Error";
+/// The end of an action whose deadline ran out, which is the test's own timeout and so a red, not infrastructure (north#1115).
+const DEADLINE_EXCEEDED: &str = "deadline exceeded";
+/// The mark Buck2 puts before each target it counts as failed: `  ✗ root//crates/NAME:TARGET`.
+const FAILED_MARK: &str = "✗ ";
 /// Keys a nextest verdict that Buck2 may have decided part of apart from the one the run after a landing looks up.
 pub const BEFORE_LANDING: (&str, &str) = ("NORTH_LAND_TEST", "buck2-before-landing");
 pub const AFTER_LANDING: (&str, &str) = ("NORTH_LAND_TEST", "buck2-after-landing");
@@ -90,31 +97,60 @@ fn passed(runs: &[TestRun], owner: &dyn Fn(&str) -> Option<String>, caseless: &B
     summed.into_iter().filter(|(name, cases)| cases.is_some_and(|cases| (cases.run > 0 || caseless.contains(name)) && cases.failed == 0)).map(|(name, _)| name).collect()
 }
 
-/// What Buck2 said of the crates of one run, from its exit status, its summary line and its own record of the run, whose targets `owner` assigns to the crates. The record counts only when it holds a run for each target the summary counts as passed.
-fn verdict(status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>, owner: &dyn Fn(&str) -> Option<String>, caseless: &BTreeSet<String>) -> Verdict {
+/// What Buck2 said of the crates of one run, from its exit status, its summary line and its own record of the run, whose targets `owner` assigns to the crates. The record counts only when it holds a run for each target the summary counts as passed. A failure `infrastructure` names is no test's, so it gives no verdict and the crates stay on the declared line.
+fn verdict(status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>, owner: &dyn Fn(&str) -> Option<String>, caseless: &BTreeSet<String>, infrastructure: bool) -> Verdict {
     let counts = |label| summary.and_then(|summary| counted(summary, label));
     let recorded = runs.filter(|runs| u64::try_from(runs.len()).ok() == counts("Pass"));
     match (status, counts("Fail"), recorded) {
         (Some(0), Some(0), Some(runs)) => Verdict::Passed(passed(runs, owner, caseless)),
         (Some(BUILD_FAILED), ..) => Verdict::Failed,
-        (Some(TESTS_FAILED), Some(failed), _) if failed > 0 => Verdict::Failed,
+        (Some(TESTS_FAILED), Some(failed), _) if failed > 0 && !infrastructure => Verdict::Failed,
         _ => Verdict::Passed(BTreeSet::new()),
     }
 }
 
-/// Runs `line` with `environment` set and its output passed through, and returns its exit status and the last line it printed holding `summary`.
-fn observed(line: &str, environment: &[(&str, &str)], summary: &str) -> (Option<i32>, Option<String>) {
+/// The first remote execution error in `output`, when Buck2 counts a failed target, no case of any test is named as
+/// failed and no deadline or test timeout ran out: a remote worker cancelled or lost the action before a result, so the
+/// failure is infrastructure (north#1115).
+fn remote_error(output: &[String]) -> Option<&str> {
+    let error = output.iter().map(|line| line.trim()).find(|line| line.contains(REMOTE_EXECUTION_ERROR))?;
+    let named = failures(&output.join("\n")).iter().any(|failure| matches!(failure, Failure::Cargo(_)));
+    let timed_out = output.iter().any(|line| line.contains(DEADLINE_EXCEEDED) || (line.contains(SUMMARY) && counted(line, "Timeout").is_some_and(|timeouts| timeouts > 0)));
+    (!named && !timed_out && !failed_targets(output).is_empty()).then_some(error)
+}
+
+/// The targets Buck2 printed as failed, each as `root//crates/NAME:TARGET`.
+fn failed_targets(output: &[String]) -> Vec<&str> {
+    output.iter().filter_map(|line| line.trim().strip_prefix(FAILED_MARK)).filter(|target| target.starts_with("root//")).collect()
+}
+
+/// The commit this checkout is at, for the record of an infrastructure failure.
+fn head() -> String {
+    Command::new("git").args(["rev-parse", "--short", "HEAD"]).output().ok().map_or_else(|| "unknown".to_owned(), |output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+/// The last line of `output` holding `summary`.
+fn last_with(output: &[String], summary: &str) -> Option<String> {
+    output.iter().rev().find(|printed| printed.contains(summary)).cloned()
+}
+
+/// Runs `line` with `environment` set and its output passed through, and returns its exit status and every line it printed.
+fn run_printing(line: &str, environment: &[(&str, &str)]) -> (Option<i32>, Vec<String>) {
     let mut command = Command::new("bash");
     command.args(["-euo", "pipefail", "-c", &format!("{{ {line}\n}} 2>&1")]).envs(environment.iter().copied()).stdout(Stdio::piped());
-    let Ok(mut child) = command.spawn() else { return (None, None) };
-    let mut last = None;
+    let Ok(mut child) = command.spawn() else { return (None, Vec::new()) };
+    let mut output = Vec::new();
     for printed in child.stdout.take().map(BufReader::new).into_iter().flat_map(BufRead::lines).map_while(Result::ok) {
         eprintln!("{printed}");
-        if printed.contains(summary) {
-            last = Some(printed);
-        }
+        output.push(printed);
     }
-    (child.wait().ok().and_then(|status| status.code()), last)
+    (child.wait().ok().and_then(|status| status.code()), output)
+}
+
+/// Runs `line` with `environment` set and its output passed through, and returns its exit status and the last line it printed holding `summary`.
+fn observed(line: &str, environment: &[(&str, &str)], summary: &str) -> (Option<i32>, Option<String>) {
+    let (status, output) = run_printing(line, environment);
+    (status, last_with(&output, summary))
 }
 
 /// How many cases nextest's closing line says ran.
@@ -205,10 +241,12 @@ fn execute(declared: &str) -> u8 {
     let split = std::env::current_dir().ok().and_then(|root| north_build_system::crate_tests(&root, base.as_deref(), line, PACKAGES_ENV, selected.as_deref()));
     let Some(split) = split else { return declared_line(declared, None) };
     eprintln!("north land crate-tests: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
-    let (status, summary) = observed(&split.line, &[], SUMMARY);
+    let (status, output) = run_printing(&split.line, &[]);
+    let summary = last_with(&output, SUMMARY);
     let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| record.runs(Path::new(".")).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of the run: {why}")).ok());
     let owner = |label: &str| split.owner(label).map(str::to_owned);
-    let Verdict::Passed(mut passed) = verdict(status, summary.as_deref(), record.as_deref(), &owner, &split.caseless) else { return FAILED };
+    let error = remote_error(&output);
+    let Verdict::Passed(mut passed) = verdict(status, summary.as_deref(), record.as_deref(), &owner, &split.caseless, error.is_some()) else { return FAILED };
     for name in split.moved.iter().filter(|name| !passed.contains(*name)) {
         let cases: u64 = record.iter().flatten().filter(|run| split.owner(&run.target) == Some(name.as_str())).filter_map(TestRun::cases).map(|cases| cases.run).sum();
         eprintln!("north land crate-tests: Buck2 gave no verdict on {name} (exit {}, {cases} case(s) of it in its record), so the declared line tests it", status.map_or_else(|| "on a signal".to_owned(), |code| code.to_string()));
@@ -223,7 +261,12 @@ fn execute(declared: &str) -> u8 {
         }
     }
     eprintln!("{}", check_log::crates_split_line(passed.len(), split.declared_crates(&passed)));
-    split.left(&passed).map_or(0, |packages| declared_line(&split.left_line(line, &passed), Some(&packages)))
+    let rerun = split.left(&passed).map_or(0, |packages| declared_line(&split.left_line(line, &passed), Some(&packages)));
+    if let Some(error) = error {
+        let outcome = if rerun == 0 { "passed" } else { "failed" };
+        eprintln!("north land crate-tests: infrastructure: head={} target={} error={error} outcome={outcome} on the declared line, run once more", head(), failed_targets(&output).join(", "));
+    }
+    rerun
 }
 
 /// `north land crate-tests host-cases [PACKAGE...]`: the host cases of `packages`, every crate of the class when none, run
@@ -250,10 +293,11 @@ fn after_landing() -> u8 {
         return NO_VERDICT;
     };
     eprintln!("north land crate-tests after-landing: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
-    let (status, summary) = observed(&split.line, &[], SUMMARY);
+    let (status, output) = run_printing(&split.line, &[]);
+    let summary = last_with(&output, SUMMARY);
     let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| record.runs(Path::new(".")).map_err(|why| eprintln!("north land crate-tests after-landing: cannot read Buck2's record of the run: {why}")).ok());
     let owner = |label: &str| split.owner(label).map(str::to_owned);
-    match verdict(status, summary.as_deref(), record.as_deref(), &owner, &split.caseless) {
+    match verdict(status, summary.as_deref(), record.as_deref(), &owner, &split.caseless, remote_error(&output).is_some()) {
         Verdict::Failed => FAILED,
         Verdict::Passed(passed) if passed.is_empty() => NO_VERDICT,
         Verdict::Passed(passed) => {
