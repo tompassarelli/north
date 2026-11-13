@@ -771,4 +771,15 @@ fn the_buck_check_answers_infrastructure_when_cargo_cannot_run_and_refuses_cargo
     assert!(text(&shadowed).contains("would refuse (shadow): third-party/BUCK builds serde_json 1.0.151 without float_roundtrip"), "{}", text(&shadowed));
     let logged = fs::read_to_string(fixture.path("state/north/gates/buck-targets-drift.jsonl")).unwrap_or_default();
     assert!(logged.contains(r#""would_refuse":true"#) && logged.contains("float_roundtrip"), "the shadow decision was not logged: {logged}");
+
+    fs::create_dir_all(fixture.repo.join("build")).unwrap();
+    fs::write(fixture.repo.join("build/host-cases.list"), "alpha t::a\n").unwrap();
+    git(&fixture.repo, &["add", "build/host-cases.list"]);
+    git(&fixture.repo, &["commit", "-qm", "list"]);
+    let base = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    fs::write(fixture.repo.join("build/host-cases.list"), "# none\n").unwrap();
+    let alpha = serde_json::json!({"id": "alpha", "name": "alpha", "version": "0.1.0", "manifest_path": fixture.repo.join("crates/alpha/Cargo.toml"), "features": {}, "targets": [{"name": "alpha", "kind": ["lib"], "src_path": fixture.repo.join("crates/alpha/src/lib.rs"), "edition": "2024"}], "metadata": {"north": {"buck": {"host-cases": [{"name": "t::a", "reason": "needs openat2"}]}}}});
+    fs::write(&metadata, serde_json::json!({"packages": [alpha], "workspace_members": ["alpha"], "workspace_root": fixture.repo, "resolve": {"nodes": [{"id": "alpha", "deps": [], "features": []}]}}).to_string()).unwrap();
+    let dropped = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["buck", "targets", "--check", "--root"]).arg(&fixture.repo).env("PATH", &path).env("XDG_STATE_HOME", fixture.path("state")).env("SAFE_PUSH_LAND_BASE", &base).output().unwrap();
+    assert!(text(&dropped).contains("alpha: host case t::a of alpha is in the landing base's build/host-cases.list but not in the lane's own copy"), "a list line dropped while its manifest entry stays was not refused: {}", text(&dropped));
 }

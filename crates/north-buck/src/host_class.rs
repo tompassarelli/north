@@ -72,8 +72,8 @@ pub fn skipped(package: &Package, target: &Target, unittest: bool) -> Vec<String
     package.host_cases.iter().filter(runs_here).map(|case| case.name.clone()).collect()
 }
 
-/// Refuses a manifest host case that `listed`, the class of the landing base, lacks and a case whose test target the package lacks. A listed case no manifest names yet is one whose list line landed first, and its manifest entry follows in a later lane.
-pub fn check(workspace: &Workspace, listed: &BTreeSet<Member>) -> Result<(), String> {
+/// Refuses a manifest host case that `listed`, the class of the landing base, lacks or that `own`, the lane's own copy of the list, lacks, and a case whose test target the package lacks. A listed case no manifest names yet is one whose list line landed first, and its manifest entry follows in a later lane; a case leaves the list only after its manifest entry, in the same or an earlier change.
+pub fn check(workspace: &Workspace, listed: &BTreeSet<Member>, own: &BTreeSet<Member>) -> Result<(), String> {
     for package in &workspace.packages {
         for case in &package.host_cases {
             if !package.targets.iter().any(|target| holds(case, target)) {
@@ -82,6 +82,9 @@ pub fn check(workspace: &Workspace, listed: &BTreeSet<Member>) -> Result<(), Str
             let (binary, name) = member(&package.name, case.test.as_deref(), &case.name);
             if !listed.contains(&(binary.clone(), name.clone())) {
                 return Err(format!("{}: host case {name} of {binary} is not in the reviewed list {LIST} of the landing base; a case enters the class by a change to that list alone, and its manifest entry follows once that change has landed", package.name));
+            }
+            if !own.contains(&(binary.clone(), name.clone())) {
+                return Err(format!("{}: host case {name} of {binary} is in the landing base's {LIST} but not in the lane's own copy; a lane that drops a case from the list takes its manifest entry out in the same or an earlier change", package.name));
             }
         }
     }

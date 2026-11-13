@@ -122,7 +122,7 @@ pub struct Planned {
 
 pub fn generate(dir: &Path, base: Option<&str>, manifests: Manifests) -> Result<Planned, String> {
     let workspace = workspace::parse(&manifests(dir, PLATFORM)?)?;
-    host_class::check(&workspace, &host_class::reviewed(&workspace.root, base)?)?;
+    host_class::check(&workspace, &host_class::reviewed(&workspace.root, base)?, &host_class::reviewed(&workspace.root, None)?)?;
     let workspace_lints = lints::workspace_table(&workspace.root)?;
     let mut lint_flags = BTreeMap::new();
     for package in &workspace.packages {
