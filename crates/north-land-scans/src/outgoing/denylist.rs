@@ -10,6 +10,7 @@ use north_base::platform::private_text::{self, Finding};
 use crate::landing::denylist::{self, Fault};
 use crate::landing::step::cancelled;
 use crate::landing::step::{Refused, Step};
+use super::private_file;
 use crate::slug::slug_of;
 
 const SOUTH_ENV: &str = "SAFE_PUSH_SOUTH";
@@ -244,6 +245,16 @@ impl Denylist {
     }
 
     fn findings_from(&self, root: &Path, (base, head, tag): (&str, &str, &str), held: Option<&Held>) -> Result<BTreeSet<String>, Fault> {
+        let mut found = self.value_findings(root, (base, head, tag), held)?;
+        found.extend(self.private_files(root, base, head)?);
+        Ok(found)
+    }
+
+    fn private_files(&self, root: &Path, base: &str, head: &str) -> Result<BTreeSet<String>, Fault> {
+        Ok(private_file::outgoing(root, &self.south.join("main"), &private_file::cache_dir(), (base, head))?)
+    }
+
+    fn value_findings(&self, root: &Path, (base, head, tag): (&str, &str, &str), held: Option<&Held>) -> Result<BTreeSet<String>, Fault> {
         match &self.config {
             Some(config) => Ok(denylist::scan_range(root, config, base, head, Some(tag))?),
             None => {
@@ -283,10 +294,19 @@ impl Denylist {
             }
         };
         let source = self.config.as_ref().map_or_else(|| format!("in {} origin/main", self.south.display()), |config| config.display().to_string());
-        let mut lines: Vec<String> = found.iter().map(|finding| format!("denylist: {finding}")).collect();
-        lines.push(format!(
-            "safe-push: ✗ PRIVATE VALUE for a {visibility} repository matched the deny-list {source} — it belongs in south; NOT pushed."
-        ));
+        let (files, values): (Vec<&String>, Vec<&String>) = found.iter().partition(|finding| finding.starts_with(private_file::PREFIX));
+        let mut lines: Vec<String> = values.iter().map(|finding| format!("denylist: {finding}")).collect();
+        lines.extend(files.iter().map(|finding| (*finding).clone()));
+        if !values.is_empty() {
+            lines.push(format!(
+                "safe-push: ✗ PRIVATE VALUE for a {visibility} repository matched the deny-list {source} — it belongs in south; NOT pushed."
+            ));
+        }
+        if !files.is_empty() {
+            lines.push(format!(
+                "safe-push: ✗ PRIVATE FILE for a {visibility} repository: each path above is byte for byte a file in the operator repository's history; name the path in agents/approved-moves.toml there to approve the move; NOT pushed."
+            ));
+        }
         DenylistVerdict::refuse(lines)
     }
 }

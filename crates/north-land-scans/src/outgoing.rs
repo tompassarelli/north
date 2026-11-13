@@ -12,6 +12,7 @@ pub mod denylist;
 pub mod email;
 pub mod language;
 pub mod native_ref;
+pub mod private_file;
 pub mod secrets;
 
 use self::denylist::{Denylist, Stand};
@@ -125,6 +126,7 @@ fn dispatch(dir: &Path, command: &str, rest: &[String]) -> Option<Step> {
         ("private-kinds", [base, head, reference, wait]) => private_kinds(dir, (base, head, reference), Some(wait)),
         ("commit-email", revisions) => commit_email_scan(dir, &revisions.iter().map(|revision| (*revision).to_owned()).collect::<Vec<_>>()),
         ("secrets", [range]) => secrets(dir, range),
+        ("private-file", ["--range", range]) => private_file::range_scan(dir, &Denylist::from_env().south.join("main"), range),
         ("publication", [base, head]) => publication(dir, base, head),
         _ => return None,
     })

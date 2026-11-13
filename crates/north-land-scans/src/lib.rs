@@ -43,7 +43,7 @@ pub mod withdrawal;
 
 use std::path::{Path, PathBuf};
 
-pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|incident-test|test-admission|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan push-jobs BASE..HEAD\n       north land scan test-admission run BASE..HEAD\n       north land scan test-admission kills [--host NAME] [--remote-north COMMAND] [--here] BASE..HEAD\n       north land scan boxes BASE..HEAD\n       north land scan docs-owners BASE..HEAD
+pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|incident-test|test-admission|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan push-jobs BASE..HEAD\n       north land scan test-admission run BASE..HEAD\n       north land scan test-admission kills [--host NAME] [--remote-north COMMAND] [--here] BASE..HEAD\n       north land scan private-file --range BASE..HEAD\n       north land scan boxes BASE..HEAD\n       north land scan docs-owners BASE..HEAD
        north land scan doc-links BASE..HEAD
        north land scan gate-shadow BASE..HEAD
        north land scan generated-registry BASE..HEAD
