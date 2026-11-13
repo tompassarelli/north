@@ -14,7 +14,7 @@ fn script(dir: &Path, name: &str, body: &str) -> String {
 }
 
 #[test]
-fn a_red_test_fails_the_run_while_every_other_test_still_runs_and_reports_its_own_output() {
+fn a_red_test_fails_the_run_while_every_other_test_still_runs_and_a_libtest_binary_yields_one_row_per_case() {
     let dir = tempfile::tempdir().unwrap();
     let red = script(dir.path(), "red.test.sh", "echo red says why\nexit 3\n");
     let green = script(dir.path(), "green.test.py", "print('green ran under python')\n");
@@ -26,6 +26,36 @@ fn a_red_test_fails_the_run_while_every_other_test_still_runs_and_reports_its_ow
     assert!(out.contains(&format!("land check: {red}\nred says why\nland check: {red} exited 3 after ")), "{out}");
     assert!(out.contains(&format!("land check: {green}\ngreen ran under python\nland check: {green} passed")), "{out}");
     assert!(out.contains(&format!("land check: {later}\nlater ran\nland check: {later} passed")), "{out}");
+    let log = "running 4 tests\ntest a::ok_one ... ok\ntest a::bad ... FAILED\ntest a::skipped ... ignored\ntest a::slow ... ok <0.5s>\n\nfailures:\n---- a::bad stdout ----\n";
+    assert_eq!(
+        rows(&outcome("units-1", 101, log)),
+        vec![("a::ok_one".into(), true), ("a::bad".into(), false), ("a::slow".into(), true)]
+    );
+}
+
+#[test]
+fn the_online_cpu_list_counts_ranges_and_singles() {
+    assert_eq!(online_cpus("0-19\n"), Some(20));
+    assert_eq!(online_cpus("0,2-3"), Some(3));
+    assert_eq!(online_cpus("garbage"), None);
+    assert_eq!(online_cpus(""), None);
+}
+
+#[test]
+fn a_built_test_executable_runs_with_the_hosts_cpu_count_not_the_callers_affinity() {
+    use rustix::process::{CpuSet, sched_getaffinity, sched_setaffinity};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let stub = script(dir.path(), "stub", "#!/bin/sh\nprintf '%s' \"$RUST_TEST_THREADS\"\n");
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let allowed = sched_getaffinity(None).unwrap();
+    let one = (0..CpuSet::MAX_CPU).find(|cpu| allowed.is_set(*cpu)).unwrap();
+    let mut pinned = CpuSet::new();
+    pinned.set(one);
+    sched_setaffinity(None, &pinned).unwrap();
+    let printed = String::from_utf8(run_one(&stub, &ChildEnv::default()).output).unwrap();
+    let expected = std::env::var("RUST_TEST_THREADS").unwrap_or_else(|_| host_cpus().to_string());
+    assert_eq!(printed, expected);
 }
 
 fn outcome(test: &str, status: i32, output: &str) -> Outcome {
@@ -34,13 +64,4 @@ fn outcome(test: &str, status: i32, output: &str) -> Outcome {
 
 fn rows(outcome: &Outcome) -> Vec<(String, bool)> {
     cases(outcome).into_iter().map(|case| (case.name, case.passed)).collect()
-}
-
-#[test]
-fn a_libtest_binary_yields_one_row_per_case_and_skips_ignored_ones() {
-    let log = "running 4 tests\ntest a::ok_one ... ok\ntest a::bad ... FAILED\ntest a::skipped ... ignored\ntest a::slow ... ok <0.5s>\n\nfailures:\n---- a::bad stdout ----\n";
-    assert_eq!(
-        rows(&outcome("units-1", 101, log)),
-        vec![("a::ok_one".into(), true), ("a::bad".into(), false), ("a::slow".into(), true)]
-    );
 }

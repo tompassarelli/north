@@ -96,7 +96,7 @@ pub fn selection_of(command: &str) -> Option<(Scope, Only)> {
 }
 
 fn parse(arguments: &[String]) -> Option<Request<'_>> {
-    let mut jobs = thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
+    let mut jobs = host_cpus();
     let mut cases = false;
     let mut scope = None;
     let mut only = Only::Both;
@@ -120,6 +120,23 @@ fn parse(arguments: &[String]) -> Option<Request<'_>> {
         _ => return None,
     };
     Some(Request { jobs, cases, tests })
+}
+
+fn host_cpus() -> NonZeroUsize {
+    std::fs::read_to_string("/sys/devices/system/cpu/online")
+        .ok()
+        .and_then(|text| online_cpus(&text))
+        .and_then(NonZeroUsize::new)
+        .or_else(|| thread::available_parallelism().ok())
+        .unwrap_or(NonZeroUsize::MIN)
+}
+
+fn online_cpus(text: &str) -> Option<usize> {
+    text.trim().split(',').try_fold(0usize, |total, part| {
+        let (first, last) = part.split_once('-').unwrap_or((part, part));
+        let (first, last): (usize, usize) = (first.parse().ok()?, last.parse().ok()?);
+        (last >= first).then(|| total + last - first + 1)
+    })
 }
 
 fn run_all(tests: &[String], jobs: NonZeroUsize, env: &ChildEnv, out: &mut impl Write) -> Vec<Outcome> {
@@ -200,7 +217,13 @@ fn execute(test: &str, env: &ChildEnv) -> io::Result<(Option<i32>, Vec<u8>)> {
     let mut command = match Path::new(test).extension().and_then(|extension| extension.to_str()) {
         Some("py") => interpreted("python3", test),
         Some("sh") => interpreted("bash", test),
-        None => Command::new(test),
+        None => {
+            let mut command = Command::new(test);
+            if std::env::var_os("RUST_TEST_THREADS").is_none() {
+                command.env("RUST_TEST_THREADS", host_cpus().to_string());
+            }
+            command
+        }
         Some(_) => return Err(io::Error::new(io::ErrorKind::InvalidInput, "a land-check test is a .sh or .py file or a built test executable")),
     };
     let mut log = tempfile::tempfile()?;
