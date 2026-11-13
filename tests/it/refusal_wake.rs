@@ -54,7 +54,7 @@ fn a_session_whose_finish_call_returned_at_the_queue_is_kept_past_its_report_and
     fixture(root, "report");
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
-    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", brief.to_str().unwrap(), "start the box"]);
+    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--system-prompt", brief.to_str().unwrap(), "start the box"]);
     assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
     assert!(wait::until(Duration::from_secs(20), || shown(root).contains("Done: fake report")), "the session never made its closing report: {}", shown(root));
 

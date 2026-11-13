@@ -153,7 +153,7 @@ fn session(handoffs: &Path) -> String {
         launch.arg("--account").arg(account);
     }
     let launched = launch
-        .args(["--parent", "none", "--model", "claude-opus-5-5", "--tier-reason", "skill and policy prose goes to Opus, never a cheaper tier", "--name", &name])
+        .args(["--model", "claude-opus-5-5", "--tier-reason", "skill and policy prose goes to Opus, never a cheaper tier", "--name", &name])
         .arg(brief(handoffs))
         .stderr(Stdio::inherit())
         .output();

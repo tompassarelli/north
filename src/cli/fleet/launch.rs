@@ -95,7 +95,7 @@ impl LaunchFlags {
             (None, _) => default_name(&provider, &account)?,
         };
         let dispatched = lineage::dispatched(self.dispatched, caller.as_deref())?;
-        let parent = lineage::parent(self.parent, caller, proxy, &name, self.role);
+        let parent = lineage::parent(self.parent, caller, proxy, &name, self.role, self.verification)?;
         Ok(LaunchRequest {
             verification: self.verification,
             gates_aside: self.gates_aside,

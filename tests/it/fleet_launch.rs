@@ -104,7 +104,7 @@ fn launch_on(root: &Path, host: &str) -> Output {
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
     let brief = brief.display().to_string();
-    north_on(root, host, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", &brief, "start the box"])
+    north_on(root, host, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--system-prompt", &brief, "start the box"])
 }
 
 /// A verification launch skips placement and the spend check, so a first turn can be fed on an account whatever
@@ -159,7 +159,7 @@ fn a_120_character_session_name_launches_and_answers_its_first_turn() {
     let name: String = format!("north-1042-d0432-{}", "the-machine-refusal-detector-reads-the-refused-machine-".repeat(3)).chars().take(120).collect();
     assert_eq!(name.len(), 120);
 
-    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", &name, "--parent", "none", "--system-prompt", &brief, "start the box"]);
+    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", &name, "--system-prompt", &brief, "start the box"]);
     let stderr = text(&launched.stderr);
     let mut shown = String::new();
     let answered = north_core::platform::wait::until(std::time::Duration::from_secs(20), || {

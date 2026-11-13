@@ -83,7 +83,7 @@ impl Fleet {
             return Err(LaunchError::Held(format!("held: dispatch is paused on this host: {reason}")));
         }
         let mut command = Command::new(north_program());
-        command.args(["fleet", "launch", "--provider", "claude", "--account", launch.account, "--parent", "none", "--name", launch.name]);
+        command.args(["fleet", "launch", "--provider", "claude", "--account", launch.account, "--name", launch.name]);
         if let Some(model) = launch.model {
             command.args(["--model", model]);
         }

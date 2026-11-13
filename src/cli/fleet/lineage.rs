@@ -1,6 +1,6 @@
 //! Who hears a launched session's reports: the calling fleet session, else the proxy for a
 //! launch from outside the fleet (dispatch, timers, a bare terminal), unless `--parent` names
-//! another or `none`.
+//! another; `none` is the proxy's and a `--test` probe's alone.
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{LaunchRequest, Role};
 use crate::fleet::registry::Fleet;
@@ -18,14 +18,20 @@ pub(super) fn proxy_reachable(fleet: &Fleet, caller: Option<&str>, words: &[&str
     reached.is_ok()
 }
 
-pub(super) fn parent(flag: Option<String>, caller: Option<String>, proxy: bool, name: &str, role: Option<Role>) -> Option<String> {
+/// The parent a launch reports to; the proxy is the one root of the org, so `--parent none` is the proxy's own and a `--test` probe's.
+pub(super) fn parent(flag: Option<String>, caller: Option<String>, proxy: bool, name: &str, role: Option<Role>, probe: bool) -> NorthResult<Option<String>> {
     let is_proxy = role == Some(Role::Proxy) || name == PROXY;
-    match flag.as_deref() {
-        Some("none") => None,
+    Ok(match flag.as_deref() {
+        Some("none") if is_proxy || probe => None,
+        Some("none") => {
+            return Err(NorthError::Usage(format!(
+                "--parent none leaves {name} outside the org, whose one root is the proxy; drop it so {name} reports to its caller or the proxy, or name another --parent"
+            )));
+        }
         Some(_) => flag,
         None if is_proxy => None,
         None => caller.filter(|caller| !caller.is_empty()).or_else(|| proxy.then(|| PROXY.to_owned())),
-    }
+    })
 }
 
 /// `--wait` or `--no-wait` when given; a launch from outside the fleet does not hold for admission under its fallback parent.
