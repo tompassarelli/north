@@ -1,12 +1,13 @@
 //! The session tree follows the issue tree (north#1137): a parent issue whose subtree holds more ready or running work
 //! than one session's reports can be read for gets one lead, named `lead-REPO-N`; every box and leaf under a live lead
-//! launches with that lead as its parent; and a lead stops once its parent closes or nothing under it is ready and no
-//! child of it lives.
+//! launches with that lead as its parent; and a lead dispatch launched stops once its parent closes or nothing under it
+//! is ready and no child of it lives. Dispatch staffs and stops leads only while the orchestration config sets both bounds.
 use super::fleets::Session;
 use super::issues::{Issue, IssueRef, OWNER};
 use super::record::BoxHolds;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use toml_edit::DocumentMut;
 
 const PREFIX: &str = "lead-";
 const REFERENCE: &str = "harness/skills/workers/references/lead.md";
@@ -29,7 +30,8 @@ fn named(session: &str) -> Option<IssueRef> {
     (!repo.is_empty()).then(|| IssueRef::new(repo, number))
 }
 
-/// `dispatch_lead_reports` and `dispatch_leads` from harness/defaults.toml.
+/// The orchestration config's `[dispatch] lead_reports`, the load over which a parent gets a lead, and `[dispatch]
+/// leads`, the leads dispatch launched that live at once.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bounds {
     pub reports: usize,
@@ -37,9 +39,10 @@ pub struct Bounds {
 }
 
 impl Bounds {
-    pub fn configured() -> Self {
-        let number = crate::platform::harness::default_number;
-        Self { reports: number("dispatch_lead_reports") as usize, leads: number("dispatch_leads") as usize }
+    /// The bounds `cfg` sets, none while either key is unset.
+    pub fn configured(cfg: &DocumentMut) -> Option<Self> {
+        let number = |key: &str| cfg.get("dispatch")?.get(key)?.as_integer().and_then(|value| usize::try_from(value).ok());
+        Some(Self { reports: number("lead_reports")?, leads: number("leads")? })
     }
 }
 
@@ -95,11 +98,13 @@ struct Loads {
 
 impl Tree {
     /// Reads each open parent's load: the boxes and leaves of it and its descendants that `ready` admits this run or a
-    /// live dispatched session holds, less those under a deeper parent with its own live lead.
-    pub fn read(inputs: &Inputs, ready: impl Fn(&Issue) -> bool, bounds: Bounds) -> Self {
+    /// live dispatched session holds, less those under a deeper parent with its own live lead. With no bounds the tree is
+    /// empty, so dispatch staffs, stops and reparents nothing.
+    pub fn read(inputs: &Inputs, ready: impl Fn(&Issue) -> bool, bounds: Option<Bounds>) -> Self {
+        let Some(bounds) = bounds else { return Self::default() };
         let up: BTreeMap<IssueRef, IssueRef> = inputs.issues.iter().filter_map(|issue| issue.parent.as_ref().filter(|parent| parent.owner == OWNER).map(|parent| (issue.reference(), IssueRef::new(&parent.repo, parent.number)))).collect();
-        let live: BTreeMap<IssueRef, (&str, &str)> = inputs.sessions.iter().filter_map(|(session, registry)| led_by(session).map(|item| (item, (session.name.as_str(), registry.as_str())))).collect();
-        let mut leading: BTreeMap<IssueRef, String> = live.iter().map(|(item, (name, _))| (item.clone(), (*name).to_owned())).collect();
+        let live: BTreeMap<IssueRef, (&Session, &str)> = inputs.sessions.iter().filter_map(|(session, registry)| led_by(session).map(|item| (item, (session, registry.as_str())))).collect();
+        let mut leading: BTreeMap<IssueRef, String> = live.iter().map(|(item, (session, _))| (item.clone(), session.name.clone())).collect();
         let loads = loads(inputs, &up, &leading, ready);
         let mut over: Vec<Over> = inputs
             .issues
@@ -112,7 +117,7 @@ impl Tree {
         over.dedup();
         let stops = stops(inputs, &live, &loads.ready);
         leading.retain(|_, name| !stops.iter().any(|stop| stop.name == *name));
-        let dispatched = live.values().filter(|(name, _)| named(name).is_some()).count();
+        let dispatched = live.values().filter(|(session, _)| session.dispatched).count();
         let room = bounds.leads.saturating_sub(dispatched - stops.len());
         Self { over, stops, room, up, leading }
     }
@@ -148,19 +153,20 @@ fn loads(inputs: &Inputs, up: &BTreeMap<IssueRef, IssueRef>, leading: &BTreeMap<
     loads
 }
 
-/// The dispatched leads whose parent is closed, or under which nothing is ready and no child lives; a hand-launched lead
-/// stays, and so does a lead of a repository the survey read no issue of, since its parent's state is unread.
-fn stops(inputs: &Inputs, live: &BTreeMap<IssueRef, (&str, &str)>, ready: &BTreeMap<IssueRef, usize>) -> Vec<Stop> {
+/// The leads dispatch launched whose parent is closed, or under which nothing is ready and no child lives; a lead without
+/// dispatch's launch mark stays whatever its name, and so does a lead of a repository the survey read no issue of, since
+/// its parent's state is unread.
+fn stops(inputs: &Inputs, live: &BTreeMap<IssueRef, (&Session, &str)>, ready: &BTreeMap<IssueRef, usize>) -> Vec<Stop> {
     let surveyed: BTreeSet<&str> = inputs.issues.iter().map(|issue| issue.repo.as_str()).collect();
     let mut stops = Vec::new();
-    for (item, (name, registry)) in live.iter().filter(|(item, (name, _))| surveyed.contains(item.repo.as_str()) && named(name).is_some()) {
-        let quiet = ready.get(item).copied().unwrap_or(0) == 0 && !inputs.sessions.iter().any(|(session, _)| session.parent.as_deref() == Some(*name));
+    for (item, (lead, registry)) in live.iter().filter(|(item, (lead, _))| surveyed.contains(item.repo.as_str()) && lead.dispatched) {
+        let quiet = ready.get(item).copied().unwrap_or(0) == 0 && !inputs.sessions.iter().any(|(session, _)| session.parent.as_deref() == Some(lead.name.as_str()));
         let why = match (inputs.open.contains(item), quiet) {
             (false, _) => format!("its parent {item} is closed"),
             (true, true) => format!("nothing under {item} is ready and no child of it lives"),
             (true, false) => continue,
         };
-        stops.push(Stop { name: (*name).to_owned(), registry: (*registry).to_owned(), why });
+        stops.push(Stop { name: lead.name.clone(), registry: (*registry).to_owned(), why });
     }
     stops
 }

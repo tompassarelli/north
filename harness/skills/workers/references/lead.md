@@ -5,7 +5,7 @@ Read this when you are a lead, or when you staff or hand over one. The design is
 ## What a lead is
 
 - A lead holds one parent issue and its claim. It reviews and rules on the work in that parent's subtree, restaffs the stops dispatch does not take back, and writes no code itself.
-- Once dispatch staffs leads (north#1137 box S1a), it staffs one for a parent whose ready or held boxes and leaves exceed `dispatch_lead_reports`, at most `dispatch_leads` at once. Until then the coordinator launches one by hand for a parent over that bound with `north fleet launch --role lead --task REPO#N --name lead-REPO-N`, the name by which dispatch recognises a live lead, so another name makes it plan a second. Either way the brief carries `Category: review` and `ETA: n/a`, because a lead ends with its subtree.
+- Once dispatch staffs leads (north#1137 box S1a), it staffs one for a parent whose ready or held boxes and leaves exceed `[dispatch] lead_reports`, at most `[dispatch] leads` at once. Until then the coordinator launches one by hand for a parent over that bound with `north fleet launch --role lead --task REPO#N --name lead-REPO-N`, the name by which dispatch recognises a live lead, so another name makes it plan a second. Either way the brief carries `Category: review` and `ETA: n/a`, because a lead ends with its subtree.
 - A lead never launches a lead; a child parent over the bound gets its own lead, parented to this one, from dispatch once it staffs leads and else from the coordinator.
 
 ## Staff and restaff
@@ -13,7 +13,7 @@ Read this when you are a lead, or when you staff or hand over one. The design is
 - Once dispatch staffs a lead's subtree, it staffs every box and leaf under the parent and parents each session to the lead, and the lead launches no first try there. Until then the lead staffs them itself, one task per worker, with `--parent` set to its own name.
 - Restaff a stop dispatch does not take back as one task per worker, from a brief started with `north work brief new`, at the tier the routing gives, with `Follows: <agent id and tier>` and the failed evidence.
 - Before each launch of its own the lead checks the measured-wait launch hold and `dispatch_claude_sessions`, because no guard enforces them on a lead's launches yet; a lead raises no cap.
-- When the parent's own leaves alone exceed `dispatch_lead_reports`, group them under child issues; the filing guard bounds those by `worker_children_per_session`.
+- When the parent's own leaves alone exceed `[dispatch] lead_reports`, group them under child issues; the filing guard bounds those by `worker_children_per_session`.
 
 ## Rule, or send upward
 

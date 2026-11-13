@@ -77,7 +77,7 @@ fn place_all(survey: &Survey, launched_by: &str, hold_predicted: bool) -> (Outco
     staffing.outcome.skipped.extend(stale);
     let world = issues::World { open: &survey.open, holds: &holds, box_holds: &box_holds, box_tries: &survey.box_tries, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
     let inputs = leads::Inputs { issues: &survey.issues, open: &survey.open, sessions: &survey.sessions, holds: &holds, box_holds: &box_holds, at: survey.at };
-    let tree = Tree::read(&inputs, |issue| screen::admitted(survey, issue, &world).is_ok(), leads::Bounds::configured());
+    let tree = Tree::read(&inputs, |issue| screen::admitted(survey, issue, &world).is_ok(), leads::Bounds::configured(&survey.cfg));
     let round = Round { survey, scope: &scope, capacity: &capacity, world: &world, launched_by, tree: &tree };
     stage_leads(&round, &mut staffing);
     for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
@@ -267,7 +267,7 @@ fn open_boxes(issue: &Issue, running: &BTreeMap<String, String>, tried: &BTreeMa
     boxes
 }
 
-/// Places one lead for each parent over the bound, the largest load first, while `dispatch_leads` leaves room; a lead
+/// Places one lead for each parent over the bound, the largest load first, while `[dispatch] leads` leaves room; a lead
 /// takes its slot, cap and spend admission through `plan::place` as a box does.
 fn stage_leads(round: &Round, staffing: &mut Staffing) {
     let mut room = round.tree.room;

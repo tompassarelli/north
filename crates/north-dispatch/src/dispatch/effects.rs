@@ -52,7 +52,7 @@ pub(super) fn command_in(launch: &Launch, name: &str, survey: &Survey, north: &s
         .map(str::to_owned)
         .into();
     if launch.lineage.lead {
-        words.extend(["--role".to_owned(), "lead".to_owned()]);
+        words.extend(["--role", "lead", "--dispatched"].map(str::to_owned));
     }
     if let Some(parent) = &launch.lineage.parent {
         words.extend(["--parent".to_owned(), parent.clone()]);

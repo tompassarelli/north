@@ -391,7 +391,7 @@ Plan of 2026-11-13 for the box on north#1137 under 'The session tree follows the
 designs and edits no code. The decision it plans: the session tree comes from the issue tree. A parent issue
 with more work in flight than one session can follow gets a lead. Dispatch staffs that lead from a reference
 in the workers skill, the same rule repeats down the issue tree, and a lead ends when its subtree is done.
-The coordinator's limits on the decision govern it: every bound is a `harness/defaults.toml` key, a lead
+The coordinator's limits on the decision govern it: every bound is a stated key (the two lead bounds in the orchestration config, see below), a lead
 counts toward the caps and holds that bind a worker, the plan raises no cap, existing rules are reused first,
 and lead staffing lives in north-dispatch.
 
@@ -450,7 +450,7 @@ and lead staffing lives in north-dispatch.
 - Load. Each dispatch run computes a load for every open parent: its own and its descendants' boxes and
   leaves that are ready or held by a live dispatched session, less those under a deeper parent that has its
   own lead.
-- Staffing. A parent whose load exceeds `dispatch_lead_reports` gets one lead, at most `dispatch_leads`
+- Staffing. A parent whose load exceeds `[dispatch] lead_reports` gets one lead, at most `[dispatch] leads`
   at once, largest load first. Dispatch launches `north fleet launch --role lead --task OWNER/REPO#N --name
   lead-REPO-N --parent L`. L is the lead of the nearest ancestor that has one, else the proxy. The lead claims
   its parent. Dispatch never staffs a parent as work, so that claim conflicts with nothing, and with the name
@@ -475,27 +475,28 @@ and lead staffing lives in north-dispatch.
 - Route. The lead brief carries `Category: lead`, which the router maps to Opus at medium effort, as every
   lead of 2026-11-13 ran. That is one row in `crates/north-pace/src/router/brief.rs`, not a hand-picked model.
 
-### The bounds, as harness keys
+### The bounds, as orchestration config keys
 
-- `dispatch_lead_reports`, value 8: the load over which a parent gets a lead. Its unit is boxes and leaves
-  ready or held in a parent's subtree. Its source is a prior: today's leads kept 6 or 7 working, and 8 is one
-  build host's resident cap. Its fallback is none, since it is a stated bound. Its consumer is
-  `crates/north-dispatch/src/dispatch/leads.rs`. It settles when 5 dispatched leads have ended with their
-  peak direct reports and, after S5, their median message wait. A lead of a few hours carries hundreds of
-  messages, so 5 ends give enough rows, where 20 ends at one lead at a time would take weeks. It is then
-  re-set to the largest direct-report count at which that wait stays under the key S5 adds (prior 5 minutes).
-- `dispatch_leads`, value 1 in S1a: leads dispatch itself launched that are live at once. Hand-launched leads
-  do not count toward it, though they cover their parent as above. Its source is a prior, one lead until the
-  first is seen to work, and it settles on the same 5 ends. S2 sets its own prior of 3 in the same key: a
-  nested lead under a top lead, plus the second top lead the morning of 2026-11-13 ran at once.
-- Both keys settle through one counter, `count_lead_runs`, over dispatch's records of lead launches and ends.
-  The counter goes in `crates/north-ops/src/ops/defaults_measure/priors.rs`, in S1a.
+Dispatch staffs and stops leads only while the private orchestration config sets both keys under `[dispatch]`;
+with either unset it plans no lead and stops none, so promoting the runtime turns nothing on (2026-11-13 review).
+
+- `[dispatch] lead_reports`, suggested value 8: the load over which a parent gets a lead. Its unit is boxes and
+  leaves ready or held in a parent's subtree. The suggestion is a prior: today's leads kept 6 or 7 working, and
+  8 is one build host's resident cap. Its consumer is `crates/north-dispatch/src/dispatch/leads.rs`. It is
+  revisited once 5 dispatched leads have ended with their peak direct reports and, after S5, their median
+  message wait, and re-set to the largest direct-report count at which that wait stays under the key S5 adds
+  (prior 5 minutes).
+- `[dispatch] leads`, suggested value 1 in S1a: leads dispatch itself launched that are live at once. Dispatch
+  marks each lead it launches (`north fleet launch --dispatched`, kept in the session record) and counts and
+  stops only marked leads, so a hand-launched lead, whatever its name, never counts toward it and is never
+  stopped by dispatch, though it covers its parent as above. The suggestion is one lead until the first is seen
+  to work. S2 suggests 3: a nested lead under a top lead, plus the second top lead the morning of 2026-11-13 ran.
 - Context is not a bound. A lead at its checkpoint hands over (S4) and is not split.
 
 ### Splitting and ending, without a person
 
 - Split. When a lead's direct reports (its live child sessions plus the ready items it would receive) exceed
-  `dispatch_lead_reports`, dispatch staffs a lead for its child parent with the largest load of at least 2.
+  `[dispatch] lead_reports`, dispatch staffs a lead for its child parent with the largest load of at least 2.
   New launches under that child go to the new lead. Live sessions keep their parent until they end, within one
   box length, so nothing moves mid-turn. When a parent's own leaves alone exceed the bound, no child can take
   them. Dispatch then holds that parent's direct work at the bound, and the lead reference tells the lead to
@@ -537,7 +538,7 @@ and lead staffing lives in north-dispatch.
 ### What must not happen, and the check for each
 
 - Leads staffing leads without bound. Only dispatch, or the proxy by hand, launches `--role lead`. S3's
-  launch refusal covers a lead or worker trying it, and `dispatch_leads` covers dispatch. Check: S3's test and
+  launch refusal covers a lead or worker trying it, and `[dispatch] leads` covers dispatch. Check: S3's test and
   S1a's cap case.
 - A tree deeper than the issue tree. A lead's parent is the lead of an ancestor issue and there is one lead
   per issue, so the session depth cannot exceed the issue depth. Check: S2's test, plus a dry-run line for any
@@ -565,7 +566,7 @@ and lead staffing lives in north-dispatch.
 - Price, priced as the code-health reviews price. The cost is about 80 agent-minutes: S1a one Opus lane of
   about 45, S1b about 20, review about 15. The saving per use is about 10 coordinator-minutes, a first guess
   for one lead brief, its launch and the first relays, plus the stream's wait for a lead, which on
-  2026-11-13 ran hours for the flow stream. At `dispatch_leads` 1, with a lead lasting hours, uses run about 3
+  2026-11-13 ran hours for the flow stream. At `[dispatch] leads` 1, with a lead lasting hours, uses run about 3
   a day, so payback is about 3 days on the coordinator-minutes alone, at the bar. S2's prior of 3 brings uses
   back to the 4 a day of 2026-11-13 (burn-down twice, flow, evals) and payback to about 2 days.
 
@@ -575,14 +576,13 @@ S1 is two boxes on north#1137, the coordinator's text:
 
 - S1a. Dispatch staffs one lead for a parent whose load (its own and its descendants' boxes and leaves that
   are ready or held by a live dispatched session, less those under a deeper parent with its own lead) is over
-  dispatch_lead_reports, at most dispatch_leads at once, largest load first; launches under that parent carry
+  [dispatch] lead_reports, at most [dispatch] leads at once, largest load first; launches under that parent carry
   the lead as their parent; the lead is stopped in the run that finds its parent closed or its subtree with
   nothing ready and no live child; a lead takes a slot under dispatch_claude_sessions and passes the money
   ceiling like a worker; a second lead for one parent is refused.
   Files: `crates/north-dispatch/src/dispatch/leads.rs` (new), `plan.rs`, `effects.rs`, `brief.rs`,
-  `report.rs` and `tests.rs` in that directory; `harness/defaults.toml`; the `lead` row in
-  `crates/north-pace/src/router/brief.rs`; `count_lead_runs` in
-  `crates/north-ops/src/ops/defaults_measure/priors.rs`. Test: `cargo nextest run -p north-dispatch -E
+  `report.rs` and `tests.rs` in that directory; the `lead` row in `crates/north-pace/src/router/brief.rs`;
+  the `dispatched` field of the fleet session record. Test: `cargo nextest run -p north-dispatch -E
   'test(/a_parent_over_the_bound_gets_one_lead_and_loses_it_when_its_subtree_closes/)'`. Its cases, after the
   commit review: a parent with 9 ready items gets one lead and its launches carry `--parent`; a second run with
   the lead live staffs none; a hand-launched lead with role worker or none, whose child holds a leaf of the
@@ -601,7 +601,7 @@ S1 is two boxes on north#1137, the coordinator's text:
 
 After S1, each slice with its files, test, size and reviewer:
 
-- S2, recursion and split. Nested leads, and a lead over the bound split along its children. `dispatch_leads`
+- S2, recursion and split. Nested leads, and a lead over the bound split along its children. `[dispatch] leads`
   takes S2's prior of 3, then moves only on its settled reading. Files: `crates/north-dispatch/src/dispatch/leads.rs`, `tests.rs`.
   Test: `a_lead_over_the_bound_is_split_along_its_children_and_never_deeper_than_the_issue_tree`. Size: about
   30 minutes. Reviewer: commit-reviewer.
@@ -613,7 +613,7 @@ After S1, each slice with its files, test, size and reviewer:
 - S4, a lead's hand-over at its checkpoint. Files: `crates/north-fleet/src/fleet/checkpoint.rs` and the
   session host's checkpoint call. Test: `a_lead_at_its_checkpoint_is_taken_over_under_its_name`. Size: about
   45 minutes. Reviewer: commit-reviewer.
-- S5, a message's taken time is recorded, so `dispatch_lead_reports` settles. Files: the message row in
+- S5, a message's taken time is recorded, so `[dispatch] lead_reports` settles. Files: the message row in
   `crates/north-fleet-store` and its delivery in the fleet tick, plus a `lead_message_wait_min` key (prior 5).
   Test: `a_message_row_records_when_its_session_took_it`. Size: about 30 minutes. Reviewer: commit-reviewer.
 - S6, the coordinator speaks to top leads only. A coordinator message to a session under a lead is refused,

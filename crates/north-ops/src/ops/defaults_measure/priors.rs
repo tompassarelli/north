@@ -58,7 +58,6 @@ fn counter(db: &Connection, context: &Context, name: &str) -> Result<Count, Stri
             let rows = jsonl_rows(&context.state_dir().join("spawn-gate-denials.jsonl"));
             Ok((rows.iter().filter(|row| row["gate"] == "capacity" && truthy(&row["at"])).count(), None))
         }
-        "count_lead_runs" => Ok((db.query_row("SELECT count(*) FROM runs WHERE agent LIKE 'lead-%'", [], |row| row.get::<_, i64>(0)).map_err(sql)? as usize, None)),
         "count_meter_test_haiku_runs" => Ok(meter_test_haiku_runs(&context.state_dir().join("replay"))),
         other => Err(format!("settles_when count {other:?} is not a defaults-measure counter")),
     }

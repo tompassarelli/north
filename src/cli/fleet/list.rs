@@ -200,6 +200,7 @@ pub(super) fn session_json(record: &SessionRecord, status: Status, waits: &Waits
         "host_pid": record.host_pid,
         "ended": record.phase().and_then(Phase::ending),
         "placement": record.placement,
+        "dispatched": record.dispatched,
         "machine": record.machine.as_ref().map(|machine| &machine.name),
         "waiting": waits.of(&record.name).iter().map(|wait| wait.run.to_string()).collect::<Vec<_>>(),
     })

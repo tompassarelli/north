@@ -36,6 +36,7 @@ struct LaunchFlags {
     take_over: bool,
     priority: Priority,
     route: Option<String>,
+    dispatched: bool,
 }
 
 impl LaunchFlags {
@@ -93,6 +94,7 @@ impl LaunchFlags {
             (None, Some(Role::Proxy)) => PROXY.to_owned(),
             (None, _) => default_name(&provider, &account)?,
         };
+        let dispatched = lineage::dispatched(self.dispatched, caller.as_deref())?;
         let parent = lineage::parent(self.parent, caller, proxy, &name, self.role);
         Ok(LaunchRequest {
             verification: self.verification,
@@ -120,6 +122,7 @@ impl LaunchFlags {
             role: self.role,
             resume: None,
             compact_window: None,
+            dispatched,
             route: self.route,
         })
     }
@@ -148,6 +151,7 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
             "--gates-aside" => flags.gates_aside = true,
             "--container-shell" => flags.container_shell = true,
             "--take-over" => flags.take_over = true,
+            "--dispatched" => flags.dispatched = true,
             "--wait" | "--no-wait" => flags.wait = Some(*flag == "--wait"),
             _ => {
                 let value = words.get(index + 1).filter(|value| !value.starts_with("--")).map(|value| (*value).to_owned()).ok_or_else(usage)?;

@@ -33,6 +33,14 @@ pub(super) fn wait(flag: Option<bool>, parent: Option<&str>, caller: Option<&str
     flag.or((parent.is_none() && outside(caller)).then_some(false))
 }
 
+/// `--dispatched`, which marks a launch `north fleet dispatch` makes from outside the fleet, so a fleet session's launch is refused it.
+pub(super) fn dispatched(asked: bool, caller: Option<&str>) -> NorthResult<bool> {
+    if asked && !outside(caller) {
+        return Err(NorthError::Refused("--dispatched marks a launch north fleet dispatch makes, so a fleet session's launch never carries it".to_owned()));
+    }
+    Ok(asked)
+}
+
 fn outside(caller: Option<&str>) -> bool {
     caller.is_none_or(str::is_empty)
 }

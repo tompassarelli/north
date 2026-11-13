@@ -294,24 +294,6 @@ source = "prior: about a third of the 38 session slots the hosts declare, so dis
 fallback = "none: a stated bound, not a measurement"
 consumers = ["crates/north-dispatch/src/dispatch/plan.rs", "crates/north-pace/src/spend/mod.rs"]
 
-[dispatch_lead_reports]
-value = 8
-allowed = { min = 1, max = 100 }
-unit = "ready or running boxes and leaves under one parent issue, past which dispatch staffs that parent a lead"
-source = "prior: set from 2026-11-13, when two hand-launched leads held 11 and 16 sessions and a third started five lanes in five minutes, so one session reads about eight children's reports in time (north#1137)"
-settles_when = { need = 20, count = "count_lead_runs", what = "dispatched lead runs (sessions named lead-REPO-N), each read against how many child reports its lead answered within a tick" }
-fallback = "none: a stated bound, not a measurement"
-consumers = ["crates/north-dispatch/src/dispatch/leads.rs"]
-
-[dispatch_leads]
-value = 1
-allowed = { min = 0, max = 20 }
-unit = "dispatched leads live at once; dispatch staffs the parent with the largest load first"
-source = "prior: one lead in the first slice, set from 2026-11-13, when two hand-launched leads held 11 and 16 sessions and a third started five lanes in five minutes, so a second dispatched lead waits on the first one's record (north#1137)"
-settles_when = { need = 20, count = "count_lead_runs", what = "dispatched lead runs (sessions named lead-REPO-N), each read against how many child reports its lead answered within a tick" }
-fallback = "none: a stated bound, not a measurement"
-consumers = ["crates/north-dispatch/src/dispatch/leads.rs"]
-
 [dispatch_freeze_alarm_min]
 value = 15
 allowed = { min = 5, max = 240 }

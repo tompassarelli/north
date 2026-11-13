@@ -496,33 +496,48 @@ fn dispatch_staffs_open_leaf_issues_under_their_parent() {
     assert_eq!(launched, ["north#3", "north#5"], "the open leaf and the box of an issue whose sub-issues all hold boxes are staffed: {:?}", outcome.skipped);
 }
 
-#[test]
-fn a_parent_over_the_bound_gets_one_lead_and_loses_it_when_its_subtree_closes() {
-    use super::issues::{Children, OWNER, ParentRef};
-    let parent = |number: u64, leaves: u64| Issue { children: Children { total: leaves, ..Children::default() }, ..issue("north", number, "- [ ] every sub-issue is closed", &["roadmap"]) };
-    let leaf = |of: u64, number: u64| Issue { parent: Some(ParentRef::new(OWNER, "north", of)), ..issue("north", number, "Spec: exact", &[]) };
-    let mut issues = vec![parent(1000, 9), parent(2000, 10)];
-    issues.extend((1..=9).map(|n| leaf(1000, 1000 + n)));
-    issues.extend((1..=10).map(|n| leaf(2000, 2000 + n)));
+fn over_bound_parent(number: u64, leaves: u64) -> Issue {
+    let children = super::issues::Children { total: leaves, ..super::issues::Children::default() };
+    Issue { children, ..issue("north", number, "- [ ] every sub-issue is closed", &["roadmap"]) }
+}
+
+fn leaf_under(of: u64, number: u64) -> Issue {
+    Issue { parent: Some(super::issues::ParentRef::new(super::issues::OWNER, "north", of)), ..issue("north", number, "Spec: exact", &[]) }
+}
+
+fn lead_bounded(issues: Vec<Issue>) -> Survey {
     let (_, accounts) = fleet();
-    let hosts = vec![host("gex45", 24, Ok(0)), host("nexus", 6, Ok(0))];
-    let quiet = survey(issues.clone(), hosts.clone(), accounts.clone());
+    let mut world = survey(issues, vec![host("gex45", 24, Ok(0)), host("nexus", 6, Ok(0))], accounts);
+    world.cfg = format!("{CONFIG}\n[dispatch]\nlead_reports = 8\nleads = 1\n").parse().unwrap();
+    world
+}
+
+#[test]
+fn a_parent_over_the_bound_gets_one_lead_and_loses_it_when_its_subtree_closes_and_a_hand_launched_lead_is_never_stopped_by_dispatch() {
+    let mut issues = vec![over_bound_parent(1000, 9), over_bound_parent(2000, 10)];
+    issues.extend((1..=9).map(|n| leaf_under(1000, 1000 + n)));
+    issues.extend((1..=10).map(|n| leaf_under(2000, 2000 + n)));
+    let mut quiet = lead_bounded(issues.clone());
+    let bounded = std::mem::replace(&mut quiet.cfg, CONFIG.parse().unwrap());
+    let unset = decide(&quiet, "north fleet dispatch on nexus");
+    assert!(unset.tree.over.is_empty() && !unset.launches.iter().any(|launch| launch.lineage.lead), "with no lead bound in the orchestration config dispatch staffs no lead");
+    quiet.cfg = bounded;
 
     let first = decide(&quiet, "north fleet dispatch on nexus");
     let over: Vec<String> = first.tree.over.iter().map(ToString::to_string).collect();
     assert_eq!(over, ["lead north#2000: load 10 over 8", "lead north#1000: load 9 over 8"], "a dry run names each parent over the bound, the largest first");
     let leads: Vec<_> = first.launches.iter().filter(|launch| launch.lineage.lead).collect();
-    assert_eq!(leads.len(), 1, "dispatch_leads admits one lead at a time: {leads:?}");
+    assert_eq!(leads.len(), 1, "[dispatch] leads admits one lead at a time: {leads:?}");
     assert_eq!((leads[0].item.to_string(), super::effects::session_name(leads[0], 0.0), leads[0].lineage.parent.clone()), ("north#2000".to_owned(), "lead-north-2000".to_owned(), None));
     assert!(leads[0].brief.contains("Category: review") && leads[0].brief.contains("references/lead.md"), "{}", leads[0].brief);
     let leaf = first.launches.iter().find(|launch| launch.item.number == 1001).expect("an open leaf under a parent launches whole");
     assert!(leaf.brief.lines().any(|line| line.starts_with("Item: north#1001 ")) && !leaf.brief.lines().any(|line| line.starts_with("Box: ")), "{}", leaf.brief);
     assert!(leaf.brief.lines().any(|line| line.starts_with("Done when: north#1001 is closed by its check")), "{}", leaf.brief);
 
-    let hand = super::fleets::Session { name: "burn-lead".into(), items: vec![super::IssueRef::new("north", 2000)], claim_box: None, machine: None, working: true, account: Some("claude:a".into()), worker: true, predicted: Vec::new(), parent: None, lead: true };
-    let mut led = survey(issues.clone(), hosts.clone(), accounts.clone());
+    let hand = hand_lead("burn-lead");
+    let mut led = lead_bounded(issues.clone());
     led.sessions = vec![(hand.clone(), "nexus".into())];
-    led.live.insert(hand.name.clone());
+    led.live.insert(hand.name);
     led.holds.insert(super::IssueRef::new("north", 2000), "fleet session burn-lead on nexus".into());
     let second = decide(&led, "north fleet dispatch on nexus");
     let staffed: Vec<String> = second.launches.iter().filter(|launch| launch.lineage.lead).map(|launch| launch.item.to_string()).collect();
@@ -531,11 +546,26 @@ fn a_parent_over_the_bound_gets_one_lead_and_loses_it_when_its_subtree_closes() 
     assert!(!under.is_empty() && under.iter().all(|launch| launch.lineage.parent.as_deref() == Some("burn-lead")), "{under:?}");
     assert!(second.tree.stops.is_empty());
 
-    let mut closed = survey(issues[..10].iter().cloned().chain([parent(2000, 10)]).collect(), hosts, accounts);
-    let lead = super::fleets::Session { name: "lead-north-2000".into(), lead: true, ..hand };
+    led.cfg = CONFIG.parse().unwrap();
+    assert!(decide(&led, "north fleet dispatch on nexus").launches.iter().all(|launch| launch.lineage == super::plan::Lineage::default()), "with no lead bound dispatch staffs no lead and parents no launch under one");
+
+    let mut closed = lead_bounded(issues[..11].to_vec());
+    closed.sessions = vec![(hand_lead("lead-north-2000"), "nexus".into())];
+    let kept = decide(&closed, "north fleet dispatch on nexus");
+    let staffed: Vec<String> = kept.launches.iter().filter(|launch| launch.lineage.lead).map(|launch| launch.item.to_string()).collect();
+    assert!(kept.tree.stops.is_empty(), "a lead dispatch did not launch stays whatever its name: {:?}", kept.tree.stops);
+    assert_eq!(staffed, ["north#1000"], "a hand-launched lead under the dispatched name counts toward no dispatched lead's room");
+    let lead = super::fleets::Session { dispatched: true, ..hand_lead("lead-north-2000") };
     closed.sessions = vec![(lead.clone(), "nexus".into())];
     let stops: Vec<String> = decide(&closed, "north fleet dispatch on nexus").tree.stops.iter().map(|stop| stop.why.clone()).collect();
     assert_eq!(stops, ["nothing under north#2000 is ready and no child of it lives"]);
-    closed.sessions.push((super::fleets::Session { name: "north-2003-d0100".into(), parent: Some(lead.name.clone()), lead: false, ..lead }, "nexus".into()));
+    closed.sessions.push((super::fleets::Session { name: "north-2003-d0100".into(), parent: Some(lead.name.clone()), lead: false, dispatched: false, ..lead.clone() }, "nexus".into()));
     assert!(decide(&closed, "north fleet dispatch on nexus").tree.stops.is_empty(), "a lead with a live child stays");
+    closed.sessions = vec![(lead, "nexus".into())];
+    closed.cfg = CONFIG.parse().unwrap();
+    assert!(decide(&closed, "north fleet dispatch on nexus").tree.stops.is_empty(), "with no lead bound in the orchestration config dispatch stops no lead");
+}
+
+fn hand_lead(name: &str) -> super::fleets::Session {
+    super::fleets::Session { name: name.into(), items: vec![super::IssueRef::new("north", 2000)], claim_box: None, machine: None, working: true, account: Some("claude:a".into()), worker: true, predicted: Vec::new(), parent: None, lead: true, dispatched: false }
 }

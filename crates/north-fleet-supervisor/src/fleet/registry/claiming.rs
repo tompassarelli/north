@@ -237,6 +237,7 @@ mod launch_tests {
             role: None,
             resume: None,
             compact_window: None,
+            dispatched: false,
             route: None,
                     }
     }
@@ -297,6 +298,7 @@ mod ghost_tests {
             role: None,
             resume: None,
             compact_window: None,
+            dispatched: false,
             route: None,
         }
     }
@@ -401,6 +403,7 @@ mod queued_claim_tests {
             role: None,
             resume: None,
             compact_window: None,
+            dispatched: false,
             route: None,
         }
     }

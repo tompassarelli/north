@@ -127,6 +127,9 @@ pub struct LaunchRequest {
     /// The auto-compact window a relaunch keeps from the session it restarts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_window: Option<u64>,
+    /// `north fleet dispatch` started it (`--dispatched`), the only kind of session dispatch stops.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dispatched: bool,
     /// The two-rung route `--route` names (north#1233); a brief's own text never sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route: Option<String>,
@@ -392,6 +395,9 @@ pub struct SessionRecord {
     pub last_sender: Option<LastSender>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_window: Option<u64>,
+    /// `north fleet dispatch` started it (`--dispatched`), the only kind of session dispatch stops.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dispatched: bool,
     /// Whether Claude Code compacts the session on idle (on by default since v2.1.299), recorded beside its window so the window arm's cost can be read with and without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_compaction: Option<bool>,
@@ -478,6 +484,7 @@ impl SessionRecord {
             capacity_need: request.capacity_need.clone(),
             last_sender: None,
             compact_window: request.window(),
+            dispatched: request.dispatched,
             idle_compaction: super::compaction::idle_compaction(request.provider.label()),
             eta_min: request.eta_min(),
             addressed_since_ms: None,
@@ -595,6 +602,7 @@ impl SessionRecord {
             role: Some(self.role()),
             resume: None,
             compact_window: self.compact_window,
+            dispatched: self.dispatched,
             route: None,
         }
     }
