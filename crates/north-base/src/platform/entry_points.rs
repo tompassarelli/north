@@ -3,6 +3,7 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::platform::harness::TREE;
 
@@ -61,10 +62,13 @@ pub fn linked_beside(north: &Path, point: EntryPoint) -> io::Result<PathBuf> {
     let target = north.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, format!("{} names no file", north.display())))?;
     let path = north.with_file_name(point.name());
     if !path.is_file() {
-        let staged = path.with_file_name(format!(".{}-{}", point.name(), std::process::id()));
-        let _ = fs::remove_file(&staged);
-        symlink(target, &staged)?;
-        fs::rename(&staged, &path)?;
+        static STAGED: AtomicU64 = AtomicU64::new(0);
+        let staged = path.with_file_name(format!(".{}-{}-{}", point.name(), std::process::id(), STAGED.fetch_add(1, Ordering::Relaxed)));
+        match symlink(target, &staged) {
+            Ok(()) => fs::rename(&staged, &path)?,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
     }
     if path.is_file() { Ok(path) } else { Err(io::Error::new(io::ErrorKind::NotFound, format!("{} leads to no file", path.display()))) }
 }
