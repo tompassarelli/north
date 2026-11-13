@@ -8,7 +8,6 @@ use regex::Regex;
 use serde::Serialize;
 use toml_edit::{DocumentMut, Item, Table};
 
-const MANIFEST: &str = "code/south/main/infra/manifest.toml";
 const LOGIN_PREFIX: &str = "anthropic-";
 
 #[derive(Clone, Debug, Serialize)]
@@ -69,7 +68,7 @@ impl Billing {
 }
 
 pub fn path() -> PathBuf {
-    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(MANIFEST)
+    north_base::platform::shared_config::operator_root(&PathBuf::from(std::env::var_os("HOME").unwrap_or_default())).join("infra/manifest.toml")
 }
 
 pub fn read() -> Result<Billing, String> {

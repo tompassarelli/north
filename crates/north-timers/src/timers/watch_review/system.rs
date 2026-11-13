@@ -12,7 +12,7 @@ pub(super) struct System {
 impl System {
     pub fn from_env() -> Self {
         let home = home();
-        Self { toml: env_or("WATCH_TOML", || home.join("code/south/main/agents/watch.toml")), fleet: Fleet { south: env_or("WATCH_SOUTH", || home.join("code/south/main")), home } }
+        Self { toml: env_or("WATCH_TOML", || crate::platform::shared_config::operator_root(&home).join("agents/watch.toml")), fleet: Fleet { south: env_or("WATCH_SOUTH", || crate::platform::shared_config::operator_root(&home)), home } }
     }
 }
 

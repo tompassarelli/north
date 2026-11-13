@@ -12,7 +12,7 @@ pub fn key(root: &Path, base: &str, tree: &str, command: &str, scope_environment
     let mut environment: Vec<(String, String)> = [("SAFE_PUSH_LAND_BASE", base), ("SAFE_PUSH_LAND_HEAD", tree), ("SAFE_PUSH_LAND_RUNTIME_HEAD", tree)].into_iter().map(|(name, value)| (name.to_owned(), value.to_owned())).collect();
     environment.extend(scope_environment.iter().cloned());
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let (south, nixos) = (home.join("code/south/main"), home.join("code/nixos-config/main"));
+    let (south, nixos) = (north_base::platform::shared_config::operator_root(&home), home.join("code/nixos-config/main"));
     let machine_repos: [(&str, &Path); 2] = [("south", &south), ("nixos-config", &nixos)];
     verdict_cache::key(&Check { repo: root, tree, command, runtime: &verdict_cache::runtime_identity(), environment: &environment, machine_repos: &machine_repos })
 }

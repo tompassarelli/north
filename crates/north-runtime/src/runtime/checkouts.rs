@@ -163,14 +163,14 @@ mod tests {
         git(directory, &["rev-parse", "HEAD"])
     }
 
-    /// An origin with one commit, and the `~/code/south/main` clone a host keeps of it with HOME under `root`.
+    /// An origin with one commit, and the operator checkout a host keeps of it with HOME under `root`.
     fn host(root: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
         let origin = root.join("origin");
         std::fs::create_dir_all(&origin).expect("origin");
         git(&origin, &["init", "-q", "-b", "main"]);
         commit(&origin, "one");
         let home = root.join("home");
-        let checkout = home.join("code/south/main");
+        let checkout = crate::platform::shared_config::checkout(&home);
         std::fs::create_dir_all(checkout.parent().expect("parent")).expect("code");
         let status = Command::new("git").args(["clone", "-q"]).arg(&origin).arg(&checkout).status().expect("clone");
         assert!(status.success());
@@ -189,7 +189,7 @@ mod tests {
         let (origin, home) = host(scratch.path());
         let ahead = commit(&origin, "two");
         assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: fast-forwarded 1 commits\n");
-        assert_eq!(git(&home.join("code/south/main"), &["rev-parse", "HEAD"]), ahead);
+        assert_eq!(git(&crate::platform::shared_config::checkout(&home), &["rev-parse", "HEAD"]), ahead);
         assert_eq!(run(&super::script(&[("south", String::new())]), &home), "", "a checkout already at origin/main says nothing");
     }
 
@@ -197,7 +197,7 @@ mod tests {
     fn an_uncommitted_change_or_a_branch_other_than_main_is_named_and_left_alone() {
         let scratch = tempfile::tempdir().expect("scratch");
         let (origin, home) = host(scratch.path());
-        let checkout = home.join("code/south/main");
+        let checkout = crate::platform::shared_config::checkout(&home);
         std::fs::write(checkout.join("one"), "edited").expect("edit");
         commit(&origin, "two");
         let before = git(&checkout, &["rev-parse", "HEAD"]);
@@ -212,7 +212,7 @@ mod tests {
     fn a_detached_checkout_at_an_ancestor_returns_to_main_and_fast_forwards() {
         let scratch = tempfile::tempdir().expect("scratch");
         let (origin, home) = host(scratch.path());
-        let checkout = home.join("code/south/main");
+        let checkout = crate::platform::shared_config::checkout(&home);
         let ahead = commit(&origin, "two");
         git(&checkout, &["checkout", "-q", "--detach"]);
         assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: fast-forwarded 1 commits\n");
@@ -224,7 +224,7 @@ mod tests {
     fn lane_sync_fast_forwards_a_main_with_no_commits() {
         let scratch = tempfile::tempdir().expect("scratch");
         let (origin, home) = host(scratch.path());
-        let checkout = home.join("code/south/main");
+        let checkout = crate::platform::shared_config::checkout(&home);
         std::fs::remove_dir_all(&checkout).expect("remove");
         std::fs::create_dir_all(&checkout).expect("checkout");
         git(&checkout, &["init", "-q", "-b", "main"]);

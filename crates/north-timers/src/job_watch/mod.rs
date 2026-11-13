@@ -25,7 +25,7 @@ impl Options {
         let home = PathBuf::from(env::var("HOME").unwrap_or_default());
         let state_dir = env::var("STATE_DIRECTORY").map_or_else(|_| home.join(".local/state/job-watch"), PathBuf::from);
         let mut options = Self {
-            registry: home.join("code/south/main/agents/routines"),
+            registry: crate::platform::shared_config::operator_root(&home).join("agents/routines"),
             peers: PathBuf::from("/run/nexus/peers.json"),
             state: state_dir.join("state.json"),
             dry_run: false,

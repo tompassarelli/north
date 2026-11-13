@@ -10,7 +10,6 @@ use std::time::{Duration, SystemTime};
 
 const RECORD_LIMIT: Duration = Duration::from_secs(120);
 const REFRESH_AFTER: Duration = Duration::from_secs(15 * 60);
-const PRIVATE_CHECKOUT: &str = "code/south/main";
 const FACTS_DIR: &str = "host-facts";
 const UNPUBLISHED: &str = "unpublished";
 
@@ -40,7 +39,7 @@ fn record(north: &Path, announce_missing_checkout: bool) -> bool {
     if land_offload::publishes_host_facts_here() {
         let Some(repo) = private_checkout() else {
             if announce_missing_checkout {
-                println!("north runtime: no ~/{PRIVATE_CHECKOUT} checkout; this host's config facts stay unpublished");
+                println!("north runtime: no operator checkout; this host's config facts stay unpublished");
             }
             return true;
         };
@@ -61,7 +60,7 @@ fn record(north: &Path, announce_missing_checkout: bool) -> bool {
 
 pub(super) fn relay(layout: &Layout, north: &Path, destination: &str, host: &str) {
     let Some(repo) = private_checkout() else {
-        println!("north runtime deploy: {destination}: no ~/{PRIVATE_CHECKOUT} checkout here, so {host}'s config facts stay unpublished");
+        println!("north runtime deploy: {destination}: no operator checkout here, so {host}'s config facts stay unpublished");
         return;
     };
     let path = format!(".local/state/north/{FACTS_DIR}/{host}.json");
@@ -109,7 +108,7 @@ fn note(layout: &Layout, host: &str, published: bool) {
 
 fn private_checkout() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    Some(home.join(PRIVATE_CHECKOUT)).filter(|repo| repo.join(".git").exists())
+    Some(crate::platform::shared_config::operator_root(&home)).filter(|repo| repo.join(".git").exists())
 }
 
 fn newest_age(directory: &Path) -> Option<Duration> {

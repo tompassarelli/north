@@ -16,7 +16,7 @@ impl System {
         let home = home();
         Self {
             state: env_or("INCIDENT_RETRO_STATE", || home.join(".local/state/agents/incident-retro")),
-            fleet: Fleet { south: env_or("INCIDENT_RETRO_SOUTH", || home.join("code/south/main")), home },
+            fleet: Fleet { south: env_or("INCIDENT_RETRO_SOUTH", || crate::platform::shared_config::operator_root(&home)), home },
         }
     }
 }

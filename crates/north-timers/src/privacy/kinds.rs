@@ -29,10 +29,10 @@ pub fn load(named: Option<&str>) -> Result<Kinds, String> {
 
 fn from_south() -> Result<String, String> {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let south = std::env::var_os(SOUTH_ENV).filter(|value| !value.is_empty()).map_or_else(|| home.join("code/south"), PathBuf::from);
-    let output = Command::new("git").arg("-C").arg(south.join("main")).args(["show", KINDS_IN_SOUTH]).output().map_err(|error| format!("cannot run git: {error}"))?;
+    let south = std::env::var_os(SOUTH_ENV).filter(|value| !value.is_empty()).map_or_else(|| north_base::platform::shared_config::operator_root(&home), |root| PathBuf::from(root).join("main"));
+    let output = Command::new("git").arg("-C").arg(&south).args(["show", KINDS_IN_SOUTH]).output().map_err(|error| format!("cannot run git: {error}"))?;
     if !output.status.success() {
-        return Err(format!("the private-kinds list is missing from {} {KINDS_IN_SOUTH}", south.join("main").display()));
+        return Err(format!("the private-kinds list is missing from {} {KINDS_IN_SOUTH}", south.display()));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }

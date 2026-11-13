@@ -38,7 +38,7 @@ pub fn routines_dir() -> PathBuf {
     }
     let operator = std::env::var_os("AGENTS_OPERATOR_DIR")
         .filter(|dir| !dir.is_empty())
-        .map_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code/south/main/agents"), PathBuf::from);
+        .map_or_else(|| crate::platform::shared_config::operator_root(&PathBuf::from(std::env::var_os("HOME").unwrap_or_default())).join("agents"), PathBuf::from);
     operator.join("routines")
 }
 
