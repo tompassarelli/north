@@ -5,7 +5,7 @@ use super::scope::{Scope, provider_of};
 use super::slots::{Account, Charge, Pools};
 use super::tier::Route;
 use crate::pacing::placement::room::Rank;
-use crate::spend::{Refusal, Starter, View};
+use crate::spend::{Starter, View};
 use std::cmp::Ordering;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -59,10 +59,12 @@ impl Capacity<'_> {
         Charge { five_hour: self.charge / account.plan.five_hour, week: self.charge / account.plan.week }
     }
 
-    /// Whether `account` takes one more worker: not the operational reserve, not at its provider's limit and under the money ceiling.
-    fn admits(&self, account: &Account) -> Result<(), Refusal> {
-        self.spend.admit(&account.name, Starter::Worker)?;
-        self.spend.under_ceiling(&account.name, self.ceiling)
+    /// Whether `account` takes one more worker: not excluded from dispatch, not the operational reserve, not at its provider's limit and under the money ceiling.
+    fn admits(&self, account: &Account) -> Result<(), String> {
+        if self.scope.excludes_account(&account.name) {
+            return Err(self.scope.why_not_account(&account.name));
+        }
+        self.spend.admit(&account.name, Starter::Worker).and_then(|()| self.spend.under_ceiling(&account.name, self.ceiling)).map_err(|refusal| refusal.to_string())
     }
 }
 
@@ -76,9 +78,9 @@ fn best_account<'a>(capacity: &'a Capacity, pools: &Pools, host: &str) -> Option
     capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0 && capacity.admits(account).is_ok()).max_by(|a, b| rank(pools, a, b))
 }
 
-/// Why each account signed in on `host` takes no worker, by the spend rule.
+/// Why each account signed in on `host` takes no worker, by dispatch_accounts_excluded and the spend rule.
 fn refused_on(capacity: &Capacity, pools: &Pools, host: &str) -> Vec<String> {
-    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0).filter_map(|account| capacity.admits(account).err()).map(|refusal| refusal.to_string()).collect()
+    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0).filter_map(|account| capacity.admits(account).err()).collect()
 }
 
 fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account) -> Launch {
@@ -104,7 +106,7 @@ pub fn revive(capacity: &Capacity, pools: &mut Pools, host: &str, account: &str)
     if pools.pair(host, account) == 0 {
         return Err(format!("{account} is not signed in on {host}"));
     }
-    capacity.admits(chosen).map_err(|refusal| refusal.to_string())?;
+    capacity.admits(chosen)?;
     pools.take(host);
     pools.charge(account, capacity.charge(chosen));
     Ok(())

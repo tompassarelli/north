@@ -143,7 +143,7 @@ const SCHEMAS: &[Schema] = &[
         file: "agents/orchestration.toml",
         values: None,
         tables: &[
-            Table { path: "", keys: &[("accounts", Nested), ("tiers", Nested), ("on_request", Nested), ("mode", Any), ("dispatch_providers", Any), ("dispatch_hosts_excluded", Any), ("hosts", Any), ("dispatch", Any), ("placement", Any), ("projects", Any)], required: &[] },
+            Table { path: "", keys: &[("accounts", Nested), ("tiers", Nested), ("on_request", Nested), ("mode", Any), ("dispatch_providers", Any), ("dispatch_hosts_excluded", Any), ("dispatch_accounts_excluded", Any), ("hosts", Any), ("dispatch", Any), ("placement", Any), ("projects", Any)], required: &[] },
             Table { path: "accounts", keys: &[("codex", Nested), ("claude", Nested)], required: &[] },
             Table { path: "accounts.codex", keys: &[("profiles", Any), ("target_left", Number), ("band", Any), ("thursday", Any), ("source", Text)], required: &[] },
             Table { path: "accounts.claude", keys: &[("labels", Any), ("plans", Any), ("target_left", Number), ("reserve", Any), ("api_hold", Any), ("source", Text), ("profiles", Nested), ("api_keys", Nested), ("api_orgs", Nested)], required: &[] },
@@ -162,7 +162,7 @@ const SCHEMAS: &[Schema] = &[
         file: "agents/orchestration.toml",
         values: None,
         tables: &[
-            Table { path: "", keys: &[("mode", Text), ("dispatch_providers", List), ("dispatch_hosts_excluded", List), ("hosts", Nested), ("dispatch", Nested), ("placement", Nested), ("projects", Nested), ("accounts", Any), ("tiers", Any), ("on_request", Any)], required: &[] },
+            Table { path: "", keys: &[("mode", Text), ("dispatch_providers", List), ("dispatch_hosts_excluded", List), ("dispatch_accounts_excluded", List), ("hosts", Nested), ("dispatch", Nested), ("placement", Nested), ("projects", Nested), ("accounts", Any), ("tiers", Any), ("on_request", Any)], required: &[] },
             Table { path: "hosts", keys: &[("*", Nested)], required: &[] },
             Table { path: "hosts.*", keys: &[("resident_cap", Number), ("deploy_ssh", Text), ("builds_runtime", Flag), ("publishes_host_facts", Flag), ("fleet_reports", Flag), ("pulls_spool", Flag), ("warcraft_clients", Number), ("lease_builds", Flag), ("offload_builds", Flag), ("runtime_source", Flag), ("ssh", Text), ("agent_ssh", Text), ("launches", Flag), ("serves", List), ("disk_free_gib", Number), ("buck2_lint", Flag), ("buck2_test_crates", List), ("buck2_caseless_crates", List), ("pushes", List), ("reaches", List), ("settles_fleet", Flag), ("disk_budget_gib", Nested)], required: &[] },
             Table { path: "hosts.*.disk_budget_gib", keys: &[("*", Number)], required: &[] },
