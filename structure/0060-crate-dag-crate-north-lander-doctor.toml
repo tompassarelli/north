@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-lander-doctor"
+layer = 6
 paths = ["crates/north-lander-doctor/src/**"]
 may_use = ["north-base", "north-check-environment", "north-graph-loops", "north-lander"]
 

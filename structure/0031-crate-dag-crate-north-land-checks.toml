@@ -1,5 +1,7 @@
 [[crate_dag.crate]]
 name = "north-land-checks"
+layer = 4
+family = "landing"
 paths = ["crates/north-land-checks/src/**"]
 may_use = ["north-base", "north-coverage", "north-diff-gates", "north-landing-gates", "north-build-system", "north-buck"]
 

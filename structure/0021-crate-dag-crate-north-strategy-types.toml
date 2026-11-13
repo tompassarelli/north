@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-strategy-types"
+layer = 1
 paths = ["crates/north-strategy-types/src/**"]
 may_use = []
 

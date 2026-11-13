@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-context-pack"
+layer = 3
 paths = ["crates/north-context-pack/src/**"]
 may_use = ["north-code-health", "north-coverage", "north-graph-ground"]
 

@@ -1,5 +1,7 @@
 [[crate_dag.crate]]
 name = "north-land-sandbox"
+layer = 4
+family = "landing"
 paths = ["crates/north-land-sandbox/src/**"]
 may_use = ["north-base"]
 

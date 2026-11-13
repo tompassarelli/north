@@ -1,5 +1,7 @@
 [[crate_dag.crate]]
 name = "north-capacity-host"
-paths = ["crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**", "crates/north-capacity-host/src/**"]
+layer = 4
+family = "capacity"
+paths = ["crates/north-capacity-host/src/**"]
 may_use = ["north-capacity", "north-fleet", "north-calibration", "north-graph-loops", "north-runtime-follow"]
 

@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-graph-change"
+layer = 2
 paths = ["crates/north-graph-change/src/**"]
 may_use = ["north-base", "north-coverage", "north-graph"]
 

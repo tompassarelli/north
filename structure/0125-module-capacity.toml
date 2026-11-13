@@ -2,5 +2,5 @@
 name = "capacity"
 paths = ["crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs", "crates/north-capacity/src/capacity/**", "crates/north-capacity/src/lib.rs"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
-may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops", "verdict_cache", "runtime_follow"]
+may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops", "verdict_cache", "runtime_follow", "platform.store", "platform.git"]
 

@@ -1,4 +1,5 @@
 [[crate_dag.crate]]
 name = "north-cli-reference"
+layer = 1
 paths = ["crates/north-cli-reference/src/**"]
 may_use = []

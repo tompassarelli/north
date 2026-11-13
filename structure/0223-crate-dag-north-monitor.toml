@@ -1,4 +1,5 @@
 [[crate_dag.crate]]
 name = "north-monitor"
+layer = 7
 paths = ["crates/north-tui/monitor/src/**"]
 may_use = []

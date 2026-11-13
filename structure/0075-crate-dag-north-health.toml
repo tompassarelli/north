@@ -1,0 +1,6 @@
+[[crate_dag.crate]]
+name = "north-health"
+paths = ["crates/north-health/src/**"]
+layer = 6
+may_use = ["north-base", "north-pace", "north-calibration", "north-threads"]
+

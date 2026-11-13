@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-capacity"
-paths = ["crates/*/src/capacity.rs", "crates/*/src/capacity/**"]
+layer = 3
+paths = ["crates/north-capacity/src/**"]
 may_use = ["north-base"]
 

@@ -107,26 +107,31 @@ re_exports = ["crates/*/src/lib.rs"]
 
 [[crate_dag.crate]]
 name = "north-strategy-types"
+layer = 1
 paths = ["crates/north-strategy-types/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
 name = "north-publish"
+layer = 1
 paths = ["crates/north-publish/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
 name = "north-build-system"
+layer = 1
 paths = ["crates/north-build-system/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-ssh-spare"
+layer = 1
 paths = ["crates/north-ssh-spare/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-agent-starts"
+layer = 1
 paths = ["crates/north-agent-starts/src/**"]
 may_use = []
 
@@ -137,281 +142,356 @@ responsibility = "Local agent starts: a start request the fleet tick admitted, r
 may_use = []
 [[crate_dag.crate]]
 name = "north-git-locks"
+layer = 1
 paths = ["crates/north-git-locks/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
 name = "north-runtime-follow"
+layer = 1
 paths = ["crates/north-runtime-follow/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
 name = "north-buck"
+layer = 1
 paths = ["crates/north-buck/src/**"]
 may_use = []
 [[crate_dag.crate]]
 name = "north-broker"
+layer = 1
 paths = ["crates/north-broker/src/**"]
 may_use = ["north-base", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-claude-stream"
+layer = 4
+family = "sessions"
 paths = ["crates/north-claude-stream/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
 name = "north-shared-config"
+layer = 1
 paths = ["crates/north-shared-config/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
 name = "north-cli-reference"
+layer = 1
 paths = ["crates/north-cli-reference/src/**"]
 may_use = []
 [[crate_dag.crate]]
 name = "north-foundation"
+layer = 1
 paths = ["crates/north-foundation/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
 name = "north-base"
+layer = 1
 paths = ["crates/north-base/src/**"]
 may_use = ["north-strategy-types", "north-shared-config", "north-foundation"]
 
 [[crate_dag.crate]]
 name = "north-diff-gates"
+layer = 3
 paths = ["crates/north-diff-gates/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-landing-gates"
+layer = 3
 paths = ["crates/north-landing-gates/src/**"]
 may_use = ["north-base", "north-diff-gates", "north-graph-loops", "north-mutants"]
 
 [[crate_dag.crate]]
 name = "north-land-scans"
+layer = 3
 paths = ["crates/north-land-scans/src/**"]
 may_use = ["north-base", "north-cli-reference", "north-diff-gates", "north-github-mirror", "north-landing-gates", "north-build-system", "north-buck"]
 
 [[crate_dag.crate]]
 name = "north-land-checks"
+layer = 4
+family = "landing"
 paths = ["crates/north-land-checks/src/**"]
 may_use = ["north-base", "north-coverage", "north-diff-gates", "north-landing-gates", "north-build-system", "north-buck"]
 
 [[crate_dag.crate]]
 name = "north-landing"
+layer = 4
+family = "landing"
 paths = ["crates/north-landing/src/**"]
 may_use = ["north-base", "north-diff-gates", "north-github-mirror", "north-concerns", "north-mutants", "north-landing-gates", "north-land-scans", "north-check-environment", "north-land-checks", "north-git-locks"]
 
 [[crate_dag.crate]]
 name = "north-land-watch"
+layer = 6
 paths = ["crates/north-land-watch/src/**"]
 may_use = ["north-base", "north-land-scans", "north-landing-gates"]
 
 [[crate_dag.crate]]
 name = "north-lander"
-paths = ["crates/north-lander/src/**", "crates/north-check-environment/src/**"]
+layer = 4
+family = "landing"
+paths = ["crates/north-lander/src/**"]
 may_use = ["north-base", "north-check-environment", "north-git-locks", "north-concerns", "north-land-sandbox", "north-land-scans", "north-landing", "north-strategy-types", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-safe-push"
+layer = 4
+family = "landing"
 paths = ["crates/north-safe-push/src/**"]
 may_use = ["north-base", "north-lander", "north-landing"]
 
 [[crate_dag.crate]]
 name = "north-tui"
+layer = 7
 paths = ["crates/north-tui/src/**"]
 may_use = ["north-providers"]
 
 [[crate_dag.crate]]
 name = "north-guard"
+layer = 3
 paths = ["crates/north-guard/src/**"]
 may_use = ["north-dispatch", "north-github-mirror", "north-graph-ground", "north-code-health"]
 
 [[crate_dag.crate]]
 name = "north-check-environment"
+layer = 3
 paths = ["crates/north-check-environment/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-machine-model"
+layer = 1
 paths = ["crates/north-machine-model/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-land-sandbox"
+layer = 4
+family = "landing"
 paths = ["crates/north-land-sandbox/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-code-health"
+layer = 3
 paths = ["crates/north-code-health/src/**"]
 may_use = ["north-base", "north-build-system", "north-graph-loops", "north-implicit-state", "north-registries"]
 
 [[crate_dag.crate]]
 name = "north-lanes"
+layer = 4
+family = "workspace"
 paths = ["crates/north-lanes/src/**"]
 may_use = ["north-base", "north-git-locks", "north-github-mirror"]
 
 [[crate_dag.crate]]
 name = "north-capacity-host"
-paths = ["crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**", "crates/north-capacity-host/src/**"]
+layer = 4
+family = "capacity"
+paths = ["crates/north-capacity-host/src/**"]
 may_use = ["north-capacity", "north-fleet", "north-calibration", "north-graph-loops", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-capacity"
-paths = ["crates/*/src/capacity.rs", "crates/*/src/capacity/**"]
+layer = 3
+paths = ["crates/north-capacity/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-github-mirror"
+layer = 2
 paths = ["crates/north-github-mirror/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-concerns"
+layer = 3
 paths = ["crates/north-concerns/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-mutants"
+layer = 3
 paths = ["crates/north-mutants/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-implicit-state"
+layer = 3
 paths = ["crates/north-implicit-state/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-coverage"
+layer = 2
 paths = ["crates/north-coverage/src/**"]
 may_use = ["north-base", "north-build-system"]
 
 [[crate_dag.crate]]
 name = "north-context-pack"
+layer = 3
 paths = ["crates/north-context-pack/src/**"]
 may_use = ["north-code-health", "north-coverage", "north-graph-ground"]
 
 [[crate_dag.crate]]
 name = "north-graph"
+layer = 2
 paths = ["crates/north-graph/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
 name = "north-graph-ingest"
+layer = 6
 paths = ["crates/north-graph-ingest/src/**"]
 may_use = ["north-base", "north-coverage", "north-fleet", "north-github-mirror", "north-graph", "north-threads"]
 
 [[crate_dag.crate]]
 name = "north-graph-change"
+layer = 2
 paths = ["crates/north-graph-change/src/**"]
 may_use = ["north-base", "north-coverage", "north-graph"]
 
 [[crate_dag.crate]]
 name = "north-graph-ground"
+layer = 2
 paths = ["crates/north-graph-ground/src/**"]
 may_use = ["north-base", "north-graph"]
 
 [[crate_dag.crate]]
 name = "north-graph-loops"
+layer = 2
 paths = ["crates/north-graph-loops/src/**"]
 may_use = ["north-base", "north-graph"]
 
 [[crate_dag.crate]]
 name = "north-dispatch"
+layer = 5
 paths = ["crates/north-dispatch/src/**"]
 may_use = ["north-cli-reference", "north-capacity", "north-fleet-supervisor", "north-providers", "north-threads", "north-github-mirror", "north-graph-ground", "north-pacing", "north-graph-loops"]
 
 [[crate_dag.crate]]
 name = "north-pacing"
+layer = 5
 paths = ["crates/north-pacing/src/**"]
 may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-ssh-spare", "north-threads"]
 
 [[crate_dag.crate]]
 name = "north-tune"
+layer = 6
 paths = ["crates/north-tune/src/**"]
 may_use = ["north-dispatch", "north-graph-loops"]
 
 [[crate_dag.crate]]
 name = "north-replay"
+layer = 6
 paths = ["crates/north-replay/src/**"]
 may_use = ["north-base", "north-capacity", "north-dispatch", "north-landing"]
 
 [[crate_dag.crate]]
 name = "north-lander-doctor"
+layer = 6
 paths = ["crates/north-lander-doctor/src/**"]
 may_use = ["north-base", "north-check-environment", "north-graph-loops", "north-lander"]
 
 [[crate_dag.crate]]
 name = "north-runtime"
+layer = 5
 paths = ["crates/north-runtime/src/**"]
 may_use = ["north-build-system", "north-capacity-host", "north-dispatch", "north-lanes", "north-providers", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-convo"
+layer = 6
 paths = ["crates/north-convo/src/**"]
 may_use = ["north-base", "north-fleet", "north-threads"]
 
 [[crate_dag.crate]]
 name = "north-ops"
-paths = ["crates/*/src/ops.rs", "crates/*/src/ops/**", "crates/*/src/health.rs", "crates/*/src/health/**"]
+layer = 6
+paths = ["crates/north-ops/src/**"]
 may_use = ["north-dispatch", "north-threads", "north-github-mirror", "north-lanes", "north-registries", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-pace"
-paths = ["crates/*/src/pace.rs", "crates/*/src/pace/**", "crates/*/src/spend/**", "crates/*/src/router.rs", "crates/*/src/router/**", "crates/*/src/usage.rs", "crates/*/src/usage/**"]
+layer = 3
+paths = ["crates/north-pace/src/**"]
 may_use = ["north-base", "north-strategy-types"]
 
 [[crate_dag.crate]]
 name = "north-calibration"
+layer = 3
 paths = ["crates/north-calibration/src/**"]
 may_use = ["north-threads"]
 
 [[crate_dag.crate]]
 name = "north-threads"
-paths = ["crates/*/src/threads.rs", "crates/*/src/threads/**"]
+layer = 2
+paths = ["crates/north-threads/src/**"]
 may_use = ["north-strategy-types", "north-publish"]
 
 [[crate_dag.crate]]
 name = "north-session-host"
+layer = 4
+family = "sessions"
 paths = ["crates/north-session-host/src/**"]
 may_use = ["north-base", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-resume"
+layer = 4
+family = "sessions"
 paths = ["crates/north-resume/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-fleet-store"
+layer = 2
 paths = ["crates/north-fleet-store/src/**"]
 may_use = ["north-base", "north-strategy-types", "north-publish"]
 
 [[crate_dag.crate]]
 name = "north-fleet"
+layer = 4
+family = "sessions"
 paths = ["crates/north-fleet/src/**"]
 may_use = ["north-claude-stream", "north-fleet-store", "north-pace", "north-resume", "north-session-host"]
 
 [[crate_dag.crate]]
 name = "north-fleet-supervisor"
+layer = 4
+family = "sessions"
 paths = ["crates/north-fleet-supervisor/src/**"]
 may_use = ["north-fleet", "north-resume", "north-session-host", "north-graph-loops", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-providers"
-paths = ["crates/*/src/providers.rs", "crates/*/src/providers/**", "crates/*/src/codex.rs", "crates/*/src/codex/**", "crates/*/src/ledger.rs", "crates/*/src/ledger/**"]
+layer = 4
+family = "sessions"
+paths = ["crates/north-providers/src/**"]
 may_use = ["north-claude-stream", "north-fleet-supervisor", "north-calibration", "north-graph"]
 
 [[crate_dag.crate]]
 name = "north-core"
+layer = 6
 paths = ["crates/north-core/src/**"]
 may_use = ["north-claude-stream", "north-fleet-supervisor", "north-git-locks", "north-graph", "north-graph-ground", "north-graph-loops", "north-threads", "north-registries", "north-build-system"]
 
 [[crate_dag.crate]]
 name = "north-flow"
+layer = 6
 paths = ["crates/north-flow/src/**"]
 may_use = ["north-base", "north-capacity-host", "north-dispatch", "north-fleet", "north-graph-loops", "north-ops", "north-pace", "north-providers", "north-threads"]
+
+[[crate_dag.crate]]
+name = "north-health"
+paths = ["crates/north-health/src/**"]
+layer = 6
+may_use = ["north-base", "north-pace", "north-calibration", "north-threads"]
 
 [review]
 commits = 600
@@ -528,13 +608,13 @@ may_use = ["strategy_types", "foundation", "platform.harness"]
 
 [[module]]
 name = "platform.store"
-paths = ["crates/north-base/src/platform/sqlite.rs", "crates/north-base/src/platform/usage_table.rs", "crates/north-base/src/platform/run_roles.rs", "crates/north-base/src/platform/pystats.rs", "crates/north-base/src/platform/toml_json.rs"]
+paths = ["crates/north-base/src/platform/sqlite.rs", "crates/north-base/src/platform/usage_table.rs", "crates/north-base/src/platform/run_roles.rs", "crates/north-base/src/platform/pystats.rs", "crates/north-base/src/platform/toml_json.rs", "crates/north-base/src/json_text.rs"]
 responsibility = "The SQLite adapter and its tables, and the JSON and TOML value codecs."
 may_use = ["strategy_types", "foundation", "platform"]
 
 [[module]]
 name = "platform.git"
-paths = ["crates/north-base/src/platform/git.rs", "crates/north-base/src/platform/lane_layout.rs", "crates/north-base/src/platform/store_refs.rs", "crates/north-base/src/platform/push_ledger.rs", "crates/north-base/src/platform/records_mirror*.rs", "crates/north-base/src/platform/ast_grep.rs", "crates/north-base/src/platform/betterleaks.rs"]
+paths = ["crates/north-base/src/platform/git.rs", "crates/north-base/src/platform/lane_layout.rs", "crates/north-base/src/platform/store_refs.rs", "crates/north-base/src/platform/push_ledger.rs", "crates/north-base/src/platform/records_mirror*.rs", "crates/north-base/src/platform/ast_grep.rs", "crates/north-base/src/platform/betterleaks.rs", "crates/north-base/src/store_pins.rs"]
 responsibility = "The git adapter and the repository tools run over a tree: refs, the push ledger, the records mirror, ast-grep and betterleaks."
 may_use = ["strategy_types", "foundation", "platform.process", "platform.host"]
 
@@ -715,7 +795,7 @@ may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.landing",
 name = "catalog"
 paths = ["crates/north-core/src/catalog/**", "crates/north-core/src/agent_catalog.rs", "crates/north-core/src/agent_policy_contract.rs", "crates/north-core/src/agent_policy_contract/**", "crates/north-core/src/agent_config_check/**"]
 responsibility = "Agent catalog, activation generations, projection port and policy checks; agent_config_check reads south agents/ policy files from the checkout, not the fetched snapshot, because it gates publishing that checkout."
-may_use = ["domain", "foundation", "crate-roots", "lifecycle", "git_locks"]
+may_use = ["domain", "foundation", "crate-roots", "lifecycle", "git_locks", "platform.store"]
 
 [[module]]
 name = "proxy"
@@ -733,7 +813,7 @@ may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "li
 name = "capacity"
 paths = ["crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs", "crates/north-capacity/src/capacity/**", "crates/north-capacity/src/lib.rs"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
-may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops", "verdict_cache", "runtime_follow"]
+may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops", "verdict_cache", "runtime_follow", "platform.store", "platform.git"]
 
 [[module]]
 name = "lanes"
@@ -811,7 +891,7 @@ may_use = ["crate-roots", "graph", "platform.harness"]
 name = "ops"
 paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/lib.rs", "crates/north-runtime/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**", "crates/north-pacing/src/laptop/**", "crates/north-pacing/src/lib.rs", "crates/north-pacing/src/pacing/**", "crates/north-pacing/src/resident_cap/**", "crates/north-tune/src/lib.rs", "crates/north-tune/src/loops/**", "crates/north-tune/src/tune/**", "crates/north-runtime/src/worker_sandbox/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.ssh", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow", "registries", "build_system"]
+may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.ssh", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow", "registries", "build_system", "platform.store", "platform.git"]
 
 [[module.limit]]
 commit = "90042c896d"
@@ -822,7 +902,7 @@ reason = "north#1137 runs a build-host box's Done-when command through the offlo
 name = "usage"
 paths = ["crates/*/src/usage/**"]
 responsibility = "Account usage readings: the latest reading of each account window from the threads ledger."
-may_use = ["domain", "foundation", "crate-roots", "lifecycle", "platform.harness"]
+may_use = ["domain", "foundation", "crate-roots", "lifecycle", "platform.harness", "platform.store"]
 
 [[module]]
 name = "code_health"
@@ -858,7 +938,7 @@ may_use = ["threads", "domain", "foundation", "crate-roots", "lifecycle"]
 name = "providers"
 paths = ["crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/rpc.rs", "crates/north-providers/src/codex.rs", "crates/north-providers/src/providers/**"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection."
-may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "platform.process", "platform.harness", "land_ticket", "shell"]
+may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "platform.process", "platform.harness", "land_ticket", "shell", "platform.store"]
 
 [[module]]
 name = "tui"
@@ -1159,6 +1239,7 @@ may_use = ["crate-roots"]
 
 [[crate_dag.crate]]
 name = "north-registries"
+layer = 1
 paths = ["crates/north-registries/src/**"]
 may_use = []
 [[implicit_state.allow]]
@@ -1175,6 +1256,7 @@ path = "crates/north-shared-config/src/lib.rs"
 reason = "the suffix names the temporary file a stamp is written to before its atomic rename, a file name and not a lifecycle phase (north#722)"
 [[crate_dag.crate]]
 name = "north-test-cases"
+layer = 1
 paths = ["crates/north-test-cases/src/**"]
 may_use = []
 
@@ -1186,6 +1268,7 @@ may_use = []
 
 [[crate_dag.crate]]
 name = "north-monitor"
+layer = 7
 paths = ["crates/north-tui/monitor/src/**"]
 may_use = []
 [[module]]

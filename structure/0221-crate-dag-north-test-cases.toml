@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-test-cases"
+layer = 1
 paths = ["crates/north-test-cases/src/**"]
 may_use = []
 

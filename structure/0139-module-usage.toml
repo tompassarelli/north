@@ -2,5 +2,5 @@
 name = "usage"
 paths = ["crates/*/src/usage/**"]
 responsibility = "Account usage readings: the latest reading of each account window from the threads ledger."
-may_use = ["domain", "foundation", "crate-roots", "lifecycle", "platform.harness"]
+may_use = ["domain", "foundation", "crate-roots", "lifecycle", "platform.harness", "platform.store"]
 

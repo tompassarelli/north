@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-mutants"
+layer = 3
 paths = ["crates/north-mutants/src/**"]
 may_use = ["north-base"]
 

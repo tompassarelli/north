@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-base"
+layer = 1
 paths = ["crates/north-base/src/**"]
 may_use = ["north-strategy-types", "north-shared-config", "north-foundation"]
 

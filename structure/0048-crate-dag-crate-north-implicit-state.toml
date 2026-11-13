@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-implicit-state"
+layer = 3
 paths = ["crates/north-implicit-state/src/**"]
 may_use = ["north-base"]
 

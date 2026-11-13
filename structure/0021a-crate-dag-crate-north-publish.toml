@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-publish"
+layer = 1
 paths = ["crates/north-publish/src/**"]
 may_use = []
 

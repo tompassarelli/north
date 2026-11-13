@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-git-locks"
+layer = 1
 paths = ["crates/north-git-locks/src/**"]
 may_use = []
 

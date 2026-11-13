@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-machine-model"
+layer = 1
 paths = ["crates/north-machine-model/src/**"]
 may_use = ["north-base"]
 

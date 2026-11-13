@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-graph"
+layer = 2
 paths = ["crates/north-graph/src/**"]
 may_use = []
 

@@ -2,5 +2,5 @@
 name = "providers"
 paths = ["crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/rpc.rs", "crates/north-providers/src/codex.rs", "crates/north-providers/src/providers/**"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection."
-may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "platform.process", "platform.harness", "land_ticket", "shell"]
+may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "platform.process", "platform.harness", "land_ticket", "shell", "platform.store"]
 

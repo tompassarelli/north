@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-convo"
+layer = 6
 paths = ["crates/north-convo/src/**"]
 may_use = ["north-base", "north-fleet", "north-threads"]
 
