@@ -6,7 +6,7 @@ fn launched(provider: &str) -> SessionRecord {
         "foreground_cap_secs": null, "prompt_mode": "north", "idle_exit_minutes": null, "parent": null, "task_ref": null, "placement": null, "machine": null
     }))
     .unwrap();
-    SessionRecord::launched(&request, None, None, false, 0)
+    request.record(None, None, false, 0)
 }
 
 #[test]

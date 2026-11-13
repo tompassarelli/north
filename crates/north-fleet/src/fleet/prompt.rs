@@ -2,7 +2,6 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
@@ -25,23 +24,7 @@ const PROXY_REACH: &str = "As Tom's proxy you hear Tom directly, typed in the fl
 const MEMBER_REACH: &str = "Tom and the proxy reach you only through fleet messages.";
 const ORDERS_FILE: &str = "standing-orders.md";
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PromptMode {
-    #[default]
-    North,
-    Vanilla,
-}
-
-impl PromptMode {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "north" => Some(PromptMode::North),
-            "vanilla" => Some(PromptMode::Vanilla),
-            _ => None,
-        }
-    }
-}
+pub use north_fleet_store::prompt_mode::PromptMode;
 
 pub struct StandingOrders {
     path: PathBuf,

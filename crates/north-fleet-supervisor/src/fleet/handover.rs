@@ -127,7 +127,7 @@ pub fn hand_over(
             prompt: record.conversation.as_ref().map_or_else(|| brief(record, lane, &to.0), |_| proxy::resumed(record, &to.0)),
             placement: Some(format!("handed over from account {}", record.account)),
             resume: record.conversation.clone(),
-            ..record.relaunch_request()
+            ..LaunchRequest::relaunching(record)
         };
         match take_over(&request) {
             Ok(_) => {

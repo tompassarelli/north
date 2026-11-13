@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
-use crate::fleet::model::{Entry, SessionRecord, Status};
+use crate::fleet::model::{Entry, LaunchRequest, SessionRecord, Status};
 use crate::fleet::runtime::HostSpec;
 use crate::fleet::unaccepted::Unaccepted;
 
@@ -31,7 +31,7 @@ impl Fleet {
             return Err(NorthError::Usage(format!("{name}'s conversation lives on {}; run the interactive UI there", machine.name)));
         }
         let conversation = record.conversation.clone().ok_or_else(|| NorthError::State(format!("{name} never started a conversation")))?;
-        let request = record.relaunch_request();
+        let request = LaunchRequest::relaunching(&record);
         let runtime = self.runtime(&record)?;
         let account = self.account(&request)?;
         runtime.prepare_interactive(&account, &request)?;
@@ -72,7 +72,7 @@ impl Fleet {
 
     /// Completes the first-run answers north can write for `name`'s profile, then names any prompt its interactive UI would still stop at; `Err` when the profile cannot be written.
     pub fn interactive_prompt(&self, name: &str) -> NorthResult<Option<String>> {
-        let (record, request) = (self.record(name)?, self.record(name)?.relaunch_request());
+        let (record, request) = (self.record(name)?, LaunchRequest::relaunching(&self.record(name)?));
         let runtime = self.runtime(&record)?;
         let account = self.account(&request)?;
         runtime.prepare_interactive(&account, &request)?;

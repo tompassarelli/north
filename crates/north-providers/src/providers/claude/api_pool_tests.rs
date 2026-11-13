@@ -376,7 +376,7 @@ fn a_session_placed_before_its_host_set_an_agent_login_revives_and_settles_under
         "machine": {"name": "far", "ssh": "far"}
     }))
     .unwrap();
-    let account = crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]).account(&home.path().join(".local/state/north"), home.path(), &far, &placed.relaunch_request()).unwrap();
+    let account = crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]).account(&home.path().join(".local/state/north"), home.path(), &far, &crate::fleet::model::LaunchRequest::relaunching(&placed)).unwrap();
     assert_eq!(account.home, home.path().join(".claude-main"));
     assert_eq!(account.token_file, Some(home.path().join("a.token")));
 

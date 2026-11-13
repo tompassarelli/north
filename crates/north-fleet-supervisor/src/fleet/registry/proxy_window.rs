@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
-use crate::fleet::model::{Account, Role, SessionRecord};
+use crate::fleet::model::{Account, LaunchRequest, Role, SessionRecord};
 use crate::fleet::runtime::Runtime;
 
 use super::Fleet;
@@ -62,7 +62,7 @@ impl Fleet {
         let why = match &record.machine {
             Some(machine) => Some(format!("its conversation lives on {}, away from Tom's desktop", machine.name)),
             None => {
-                let request = record.relaunch_request();
+                let request = LaunchRequest::relaunching(record);
                 runtime.prepare_interactive(account, &request)?;
                 runtime.interactive_prompt(account, &request).map(|prompt| format!("its window would stop at a prompt: {prompt}")).or_else(|| self.desk.closed())
             }

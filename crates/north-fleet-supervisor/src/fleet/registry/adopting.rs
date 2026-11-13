@@ -80,7 +80,7 @@ impl Fleet {
             dispatched: false,
             route: None,
                     };
-        let mut record = SessionRecord::launched(&request, None, Some(conversation.to_owned()), false, now_ms());
+        let mut record = request.record(None, Some(conversation.to_owned()), false, now_ms());
         record.adopted_ms = Some(record.created_ms);
         let row = SessionRow { status: Status::Idle.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         self.registrar.register(&row, Claim::TakeOver)?;

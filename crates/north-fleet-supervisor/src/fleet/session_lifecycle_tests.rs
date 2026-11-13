@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use north_base::foundation::clock::Timestamp;
 use north_base::lifecycle::{FaultKind, Store};
-use north_session_host::session_lifecycle::{Session, store_path};
+use crate::fleet::session_lifecycle::{Session, store_path};
 use serde_json::json;
 
 use crate::error::NorthError;
@@ -154,7 +154,7 @@ fn a_retired_session_with_no_done_report_reopens_as_a_new_launch_of_its_own_conv
 /// replays the model, and a launch that stops claiming the name atomically fails it.
 fn fleet_session_model_is_sound() {
     use north_machine_model::{Promises, Together, explore_together};
-    use north_session_host::session_lifecycle::claim;
+    use crate::fleet::session_lifecycle::claim;
     let together = Together {
         alone: &[Phase::Live, Phase::Parked, Phase::IdleExited, Phase::HostEnded, Phase::Stopped, Phase::Adopted],
         admits: |other| match other {

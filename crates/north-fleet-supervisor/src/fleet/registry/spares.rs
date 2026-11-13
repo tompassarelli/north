@@ -30,7 +30,7 @@ impl Fleet {
         let record = self.record(name)?;
         let machine = record.machine.clone().filter(|_| record.role() == Role::Worker).ok_or_else(|| NorthError::Usage(format!("{name} is not a worker on a build host, so no spare serves launches like it")))?;
         let runtime = self.runtime(&record)?;
-        let template = spares::template(record.relaunch_request(), spares::spare_name()?);
+        let template = spares::template(LaunchRequest::relaunching(&record), spares::spare_name()?);
         let account = self.account(&template)?;
         if let Some(line) = reserve::refusal(&reserve::declared(&self.policy), &account, Role::Worker, template.parent.as_deref(), None) {
             return Err(NorthError::Refused(line));
@@ -66,9 +66,9 @@ impl Fleet {
     }
 
     fn worker_spec(&self, request: &LaunchRequest, account: &Account, runtime: &dyn Runtime, effort: Option<Effort>, conversation: &str) -> NorthResult<HostSpec> {
-        let record = SessionRecord::launched(request, effort, Some(conversation.to_owned()), false, 0);
+        let record = request.record(effort, Some(conversation.to_owned()), false, 0);
         let (instructions, _) = self.instructions(&record)?;
-        runtime.host(account, &record.relaunch_request(), Opening::Fresh(Some(conversation)), &instructions)
+        runtime.host(account, &LaunchRequest::relaunching(&record), Opening::Fresh(Some(conversation)), &instructions)
     }
 }
 

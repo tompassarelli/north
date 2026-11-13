@@ -27,7 +27,7 @@ fn a_parked_fleet_session_holds_its_item_and_box_as_its_threads_claim_does_so_di
 
 #[test]
 fn a_hand_launch_whose_brief_opens_with_its_issue_holds_it_so_dispatch_refuses_north_855_d2226_beside_frontier_run() {
-    use crate::fleet::model::{LaunchRequest, SessionRecord};
+    use crate::fleet::model::LaunchRequest;
     use north_providers::providers::claude::fleet::Claude;
     use crate::fleet::runtime::Runtime;
     let prompt = "\nCategory: feature\nTier: sonnet-high\nArm: context-300k\nSpec: exact\nScope: module\nSurface: ts\nVerify: local-test\n\nnorth#855: run the frontier scoreboard's headline. Read docs/rationale/frontier.md and north#730's first comment first.\nRepository: north\n";
@@ -60,7 +60,7 @@ fn a_hand_launch_whose_brief_opens_with_its_issue_holds_it_so_dispatch_refuses_n
         dispatched: false,
         route: None,
             };
-    let record = SessionRecord::launched(&request, None, None, false, 1_794_090_424_000);
+    let record = request.record(None, None, false, 1_794_090_424_000);
     let laptop = serde_json::json!([{"name": record.name, "status": "working", "tasks": record.tasks().collect::<Vec<_>>()}]);
     let sessions: Vec<_> = super::fleets::running_sessions(&laptop).into_iter().map(|session| (session, "whiterabbit".to_owned())).collect();
 

@@ -1,6 +1,6 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::handover::family_of;
-use crate::fleet::model::{Delivery, Effort, EntryKind, ProviderName, SessionRecord, Status, Transcript};
+use crate::fleet::model::{Delivery, Effort, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
 use crate::fleet::records::write_record;
 use crate::fleet::remote::HooksCheck;
 use crate::fleet::runtime::Opening;
@@ -91,7 +91,7 @@ impl Fleet {
     /// Starts `name` on the fresh conversation its record now holds, which records the system prompt as it stands instead of resuming the one the old model wrote.
     fn start_fresh(&self, name: &str) -> NorthResult<SessionRecord> {
         let mut record = self.record(name)?;
-        let account = self.account(&record.relaunch_request())?;
+        let account = self.account(&LaunchRequest::relaunching(&record))?;
         let conversation = record.conversation.clone();
         let hooks = HooksCheck::start(self.runtime(&record)?, &account, record.machine.as_ref());
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()), hooks)?;

@@ -43,9 +43,9 @@ impl Fleet {
         let Some(_launching) = self.try_start_lock(&request.name)? else {
             return Err(NorthError::Usage(format!("a launch of {} is in progress; --take-over waits for it and then replaces its session", request.name)));
         };
-        let mut claimed = north_session_host::session_lifecycle::claim(&session_dir);
+        let mut claimed = crate::fleet::session_lifecycle::claim(&session_dir);
         if matches!(&claimed, Err(error) if error.kind() == io::ErrorKind::AlreadyExists) && self.clear_ghost(&request.name)? {
-            claimed = north_session_host::session_lifecycle::claim(&session_dir);
+            claimed = crate::fleet::session_lifecycle::claim(&session_dir);
         }
         match claimed {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -78,7 +78,7 @@ impl Fleet {
         let tasks = crate::fleet::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
         let spare = (claim == Claim::Fresh).then(|| self.take_spare(request, &account, runtime.as_ref(), effort)).flatten();
         let conversation = spare.as_ref().map_or(conversation, |taken| Some(taken.conversation.clone()));
-        let mut record = SessionRecord::launched(request, effort, conversation.clone(), verification, now_ms());
+        let mut record = request.record(effort, conversation.clone(), verification, now_ms());
         record.overlay = runtime.overlay(&request.name);
         record.account = account.recorded_label();
         record.reserve_caller = caller;
@@ -163,7 +163,7 @@ impl Fleet {
     fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck, opened: Option<NorthResult<OpenedHost>>, prompt: impl FnOnce() -> (String, Option<Predicted>)) -> NorthResult<()> {
         let opening = match (&request.resume, predecessor) {
             (Some(kept), Some(predecessor)) => {
-                remote::carry_conversation(self.runtime(record)?.as_ref(), request.machine.as_ref(), &self.account(&LaunchRequest { machine: request.machine.clone(), ..predecessor.record().relaunch_request() })?, account, kept)?;
+                remote::carry_conversation(self.runtime(record)?.as_ref(), request.machine.as_ref(), &self.account(&LaunchRequest { machine: request.machine.clone(), ..LaunchRequest::relaunching(predecessor.record()) })?, account, kept)?;
                 Opening::Resume(kept)
             }
             _ => fresh_opening(request, conversation),
@@ -219,7 +219,7 @@ impl Fleet {
     fn revive_told(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>, account: Option<&str>, note: Option<&str>) -> NorthResult<SessionRecord> {
         let record = self.reopened(name)?;
         let on_limit = self.recent(self.runtime(&record)?.as_ref(), &record).is_ok_and(|transcript| stopped_on_limit(&transcript, !session_running(&record) && !record.ended()));
-        let onto = account.map(|to| self.account(&LaunchRequest { account: to.to_owned(), ..record.relaunch_request() })).transpose()?.filter(|onto| onto.recorded_label() != record.account);
+        let onto = account.map(|to| self.account(&LaunchRequest { account: to.to_owned(), ..LaunchRequest::relaunching(&record) })).transpose()?.filter(|onto| onto.recorded_label() != record.account);
         let Some(onto) = onto else {
             let reserve = reserve::declared(&self.policy);
             if reserve::on_reserve(&reserve, &record) {
@@ -239,7 +239,7 @@ impl Fleet {
         let cut_short = self.halt_cut_short(name, self.ordered_by(self.caller().as_deref(), Halt::MovedAccount))?;
         let revived = {
             let _start = self.start_lock(name)?;
-            remote::carry_conversation(self.runtime(&record)?.as_ref(), record.machine.as_ref(), &self.account(&record.relaunch_request())?, &onto, &conversation)?;
+            remote::carry_conversation(self.runtime(&record)?.as_ref(), record.machine.as_ref(), &self.account(&LaunchRequest::relaunching(&record))?, &onto, &conversation)?;
             self.set_account(name, &onto.recorded_label())?;
             self.revive_held(name, system_prompt, placement, effort).or_else(|error| self.set_account(name, &record.account).and(Err(error)))?
         };
@@ -294,7 +294,7 @@ impl Fleet {
             .conversation
             .clone()
             .ok_or_else(|| NorthError::State(format!("{name} never started a conversation")))?;
-        let account = self.account(&record.relaunch_request())?;
+        let account = self.account(&LaunchRequest::relaunching(&record))?;
         let hooks = HooksCheck::start(self.runtime(&record)?, &account, record.machine.as_ref());
         self.start(&mut record, &account, Opening::Resume(&conversation), hooks)?;
         Ok(record)

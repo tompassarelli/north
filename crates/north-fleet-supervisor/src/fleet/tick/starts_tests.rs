@@ -7,7 +7,7 @@ fn record(name: &str, parent: Option<&str>, task: Option<&str>, login: Option<&s
         "foreground_cap_secs": null, "prompt_mode": "north", "idle_exit_minutes": null, "parent": parent, "task_ref": task, "placement": null, "machine": null, "role": null
     }))
     .unwrap();
-    let mut record = SessionRecord::launched(&request, None, None, false, 0);
+    let mut record = request.record(None, None, false, 0);
     record.machine = login.map(|login| Machine { name: "laptop".to_owned(), ssh: "op@host".to_owned(), agent_ssh: Some(login.to_owned()) });
     record.brief = Some(PathBuf::from("/home/op/briefs/b.md"));
     record

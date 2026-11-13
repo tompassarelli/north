@@ -228,7 +228,7 @@ fn a_session_launched_with_a_container_shell_starts_a_server_and_searches_a_tree
     let fleet = tempfile::tempdir().unwrap();
     for (session, container_shell) in [("task", true), ("host", false)] {
         let launch = json!({"verification": true, "name": session, "provider": "claude", "account": "a", "cwd": "/app", "prompt": "Serve the packages.", "prompt_mode": "north", "container_shell": container_shell});
-        let record = crate::fleet::model::SessionRecord::launched(&serde_json::from_value(launch).unwrap(), None, None, true, 1);
+        let record = serde_json::from_value::<crate::fleet::model::LaunchRequest>(launch).unwrap().record(None, None, true, 1);
         std::fs::create_dir(fleet.path().join(session)).unwrap();
         crate::fleet::records::write_record(&fleet.path().join(session), &record).unwrap();
     }
@@ -266,7 +266,7 @@ fn a_file_tool_path_under_a_container_sessions_container_directory_reaches_the_s
     std::os::unix::fs::symlink("/etc", own.join("outside")).unwrap();
     for (session, container_shell, container_dir) in [("task", true, Some("/app")), ("host", false, Some("/app")), ("undeclared", true, None)] {
         let launch = json!({"verification": true, "name": session, "provider": "claude", "account": "a", "cwd": own, "prompt": "Fix it.", "prompt_mode": "north", "container_shell": container_shell, "container_dir": container_dir});
-        let record = crate::fleet::model::SessionRecord::launched(&serde_json::from_value(launch).unwrap(), None, None, true, 1);
+        let record = serde_json::from_value::<crate::fleet::model::LaunchRequest>(launch).unwrap().record(None, None, true, 1);
         std::fs::create_dir(fleet.path().join(session)).unwrap();
         crate::fleet::records::write_record(&fleet.path().join(session), &record).unwrap();
     }

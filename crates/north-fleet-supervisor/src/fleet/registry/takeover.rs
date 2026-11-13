@@ -217,7 +217,7 @@ mod tests {
         let held = serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "kept", "task_ref": "north#1115", "host_dir": dir, "stream_offset": 0});
         std::fs::write(dir.join("session.json"), held.to_string()).unwrap();
         let record = fleet.session("worker").unwrap();
-        let request = LaunchRequest { account: "b".into(), prompt: "carry on".into(), placement: Some("handed over from account a".into()), resume: record.conversation.clone(), ..record.relaunch_request() };
+        let request = LaunchRequest { account: "b".into(), prompt: "carry on".into(), placement: Some("handed over from account a".into()), resume: record.conversation.clone(), ..LaunchRequest::relaunching(&record) };
 
         let refused = fleet.take_over(&request);
 
@@ -227,7 +227,7 @@ mod tests {
 
         live(&fleet, "steady");
         let working = fleet.session("steady").unwrap();
-        let successor = LaunchRequest { account: "b".into(), prompt: "carry on".into(), resume: None, ..working.relaunch_request() };
+        let successor = LaunchRequest { account: "b".into(), prompt: "carry on".into(), resume: None, ..LaunchRequest::relaunching(&working) };
 
         let refused = fleet.take_over(&successor);
 

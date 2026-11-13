@@ -59,7 +59,7 @@ const MACHINES: &[Machine] = &[
         ],
         sweep: None,
         explore: Some(|| {
-            use north_session_host::session_lifecycle::{Phase, Session};
+            use north_fleet_store::session_lifecycle::{Phase, Session};
             explore_together::<Session>(&Promises { ends: &[Phase::Retired], repeats: &[Phase::Live, Phase::Stopped, Phase::Adopted] }, &session_together())
         }),
     },
@@ -225,13 +225,13 @@ pub(super) fn expire(at: Timestamp) -> Vec<String> {
 }
 
 fn claims(path: &Path) -> bool {
-    north_session_host::session_lifecycle::claim(path).is_ok()
+    north_fleet_store::session_lifecycle::claim(path).is_ok()
 }
 
 /// Two launches of one session name: the name is claimed by `create_dir`, so the guard refuses a sequential second
 /// launch, and two launches racing for an empty name must leave exactly one winner.
-fn session_together() -> Together<north_session_host::session_lifecycle::Phase> {
-    use north_session_host::session_lifecycle::Phase;
+fn session_together() -> Together<north_fleet_store::session_lifecycle::Phase> {
+    use north_fleet_store::session_lifecycle::Phase;
     Together {
         alone: &[Phase::Live, Phase::Parked, Phase::IdleExited, Phase::HostEnded, Phase::Stopped, Phase::Adopted],
         admits: |other| match other {

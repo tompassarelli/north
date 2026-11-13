@@ -94,7 +94,7 @@ pub fn advance(fleet: &Fleet, record: &SessionRecord, to: &str, family: Option<M
     let conversation = record.conversation.as_deref();
     let asked_ms = desk.asked(conversation);
     let request = |prompt: String, resume: Option<String>| {
-        let mut request = LaunchRequest { account: to.to_owned(), prompt, placement: Some(format!("handed over from account {from}")), resume, ..record.relaunch_request() };
+        let mut request = LaunchRequest { account: to.to_owned(), prompt, placement: Some(format!("handed over from account {from}")), resume, ..LaunchRequest::relaunching(record) };
         if let Some(family) = family {
             request.model = Some(model_name(family).to_owned());
             request.effort = Some(Effort::High);

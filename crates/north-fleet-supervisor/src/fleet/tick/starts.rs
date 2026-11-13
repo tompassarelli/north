@@ -21,7 +21,7 @@ impl StartWriter {
 
     /// The request for `launch`, None when its record does not say it runs as a local agent login. Its asker is its parent's record: only a lead with a task asks for a start, whatever the spool file's location, the brief's text or any path the asker supplies; the fields come from the launch record alone.
     fn request(&self, launch: &SessionRecord, asker: Option<&SessionRecord>) -> Result<Option<(StartRequest, PathBuf)>, String> {
-        let Some(machine) = launch.machine.as_ref().filter(|machine| matches!(machine.session_dial(), Some(Login::Local(_)))) else { return Ok(None) };
+        let Some(machine) = launch.machine.as_ref().filter(|machine| matches!(Login::of(machine.session_login()), Some(Login::Local(_)))) else { return Ok(None) };
         let home = machine.session_home(&self.operator_home).ok_or_else(|| "its machine names no agent home".to_owned())?;
         let asker = asker.ok_or_else(|| "no fleet record of the session that asked for it".to_owned())?;
         if asker.role() != Role::Lead || asker.task_ref.is_none() {

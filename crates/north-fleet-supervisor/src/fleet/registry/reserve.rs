@@ -121,7 +121,7 @@ mod tests {
             "foreground_cap_secs": null, "prompt_mode": "north", "idle_exit_minutes": null, "parent": parent, "task_ref": null, "placement": null, "machine": null, "role": role
         }))
         .unwrap();
-        let mut record = SessionRecord::launched(&request, None, None, true, 0);
+        let mut record = request.record(None, None, true, 0);
         record.account = "api:fixture-reserve-org".to_owned();
         record.reserve_caller = caller.map(str::to_owned);
         record

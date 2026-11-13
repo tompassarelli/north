@@ -209,9 +209,9 @@ fn a_finished_session_retires_at_close_or_at_its_idle_limit_though_its_cli_still
     let (launched, told) = escalations(Some(false), true, Some("small-first"), false);
     assert!(launched.is_empty() && told.iter().any(|text| text.contains("the second rung was not started")), "a first rung outside any checkout started its second rung anyway: {launched:?} {told:?}");
     let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "task_ref": "north#1"})).unwrap();
-    let written = LaunchRequest { prompt: "Route: small-first\nItem: north#1".into(), ..record.relaunch_request() };
-    assert_eq!(SessionRecord::launched(&written, None, None, false, 1).first_attempt, None, "a Route: line in the brief's text routed the launch without the flag");
-    assert!(SessionRecord::launched(&LaunchRequest { route: Some("small-first".into()), ..written }, None, None, false, 1).first_attempt.is_some(), "the --route flag did not route the launch");
+    let written = LaunchRequest { prompt: "Route: small-first\nItem: north#1".into(), ..LaunchRequest::relaunching(&record) };
+    assert_eq!(written.record(None, None, false, 1).first_attempt, None, "a Route: line in the brief's text routed the launch without the flag");
+    assert!(LaunchRequest { route: Some("small-first".into()), ..written }.record(None, None, false, 1).first_attempt.is_some(), "the --route flag did not route the launch");
 }
 
 struct Working(usize);

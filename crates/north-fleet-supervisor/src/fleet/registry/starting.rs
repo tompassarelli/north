@@ -10,7 +10,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::claims;
 use crate::fleet::host::Host;
 use crate::fleet::hops;
-use crate::fleet::model::{Account, SessionRecord};
+use crate::fleet::model::{Account, LaunchRequest, SessionRecord};
 use crate::fleet::prompt::{PromptInputs, prompt_sha, render};
 use crate::fleet::records::{CLAIMS_RELEASED, PLACED, write_record};
 use crate::fleet::remote::{self, HooksCheck};
@@ -48,7 +48,7 @@ impl Fleet {
         self.refuse_reserve(record, account)?;
         let (instructions, sha) = self.instructions(record)?;
         let trace = hops::trace_in(&self.root.join(&record.name));
-        let spec = runtime.host(account, &record.relaunch_request(), opening, &instructions)?;
+        let spec = runtime.host(account, &LaunchRequest::relaunching(record), opening, &instructions)?;
         let spec = match (spare, &record.machine) {
             (Some(taken), Some(machine)) => remote::attached(spec, machine, &taken.running, &record.name, &trace)?,
             _ => remote::placed(spec, record, &trace)?,
@@ -67,7 +67,7 @@ impl Fleet {
     pub(super) fn go_live(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost) -> NorthResult<()> {
         let OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms, held_unit } = opened;
         record.held_unit = held_unit;
-        let request = record.relaunch_request();
+        let request = LaunchRequest::relaunching(record);
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);
         if let Some(reason) = hooks.verdict()? {

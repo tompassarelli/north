@@ -80,7 +80,7 @@ mod tests {
             dispatched: false,
             route: None,
                     };
-        let record = SessionRecord::launched(&request, None, None, false, 2);
+        let record = request.record(None, None, false, 2);
         (request, record)
     }
 
