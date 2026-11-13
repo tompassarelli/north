@@ -57,12 +57,16 @@ fn collecting_old_runtimes_keeps_the_runtime_a_lander_rollback_would_go_back_to(
 }
 
 #[test]
-fn collecting_old_runtimes_keeps_the_runtime_a_live_session_was_launched_on() {
+fn collecting_old_runtimes_keeps_the_runtime_a_live_session_was_launched_on_and_the_one_rooting_what_the_agent_link_names() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_path_buf() };
     let shas: Vec<String> = (0..8).map(|digit| digit.to_string().repeat(40)).collect();
+    let agent = state.path().join("published-agent-runtime");
     for sha in &shas {
         fs::create_dir_all(layout.runtime(sha)).unwrap();
+        if sha == &shas[1] {
+            std::os::unix::fs::symlink(&agent, layout.runtime(sha).join("agent-runtime")).unwrap();
+        }
         ticks_past(state.path(), &layout.runtime(sha));
     }
     std::os::unix::fs::symlink(layout::link(&shas[7]), layout.current()).unwrap();
@@ -70,9 +74,10 @@ fn collecting_old_runtimes_keeps_the_runtime_a_live_session_was_launched_on() {
     fs::create_dir_all(proc.path().join("42")).unwrap();
     let north = layout.runtime(&shas[0]).join("north");
     fs::write(proc.path().join("42/cmdline"), format!("claude\0--mcp-config\0{{\"command\":\"{}\"}}\0", north.display())).unwrap();
-    collect::collect_beside(&layout, &shas[7], None, proc.path()).unwrap();
+    collect::collect_beside(&layout, &shas[7], None, proc.path(), &[agent]).unwrap();
     assert!(layout.runtime(&shas[0]).is_dir());
-    assert!(!layout.runtime(&shas[1]).exists());
+    assert!(layout.runtime(&shas[1]).is_dir(), "the runtime rooting the store path the agent link names was collected");
+    assert!(!layout.runtime(&shas[2]).exists());
 }
 
 #[test]
@@ -202,15 +207,27 @@ fn a_runtime_taken_from_a_build_host_has_its_tree_although_the_main_checkout_mov
 }
 
 #[test]
-fn an_update_by_a_caller_who_cannot_write_the_agent_link_is_refused() {
+fn an_update_by_a_caller_who_cannot_write_the_agent_link_is_refused_and_a_rollback_that_cannot_move_it_leaves_a_record_until_it_moves() {
     use std::os::unix::fs::PermissionsExt;
     let directory = tempfile::tempdir().unwrap();
     let link = directory.path().join("agent");
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_path_buf() };
+    let (failed, previous) = ("f".repeat(40), layout.runtime(&"e".repeat(40)));
+    fs::create_dir_all(&previous).unwrap();
+    let published = directory.path().join("published-agent-runtime");
+    std::os::unix::fs::symlink(&published, previous.join("agent-runtime")).unwrap();
     fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o500)).unwrap();
     let refused = agent_link::require_writable(&link);
+    agent_link::roll_back_at(&layout, Some(&link), &previous, &failed);
     fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
     assert!(refused.unwrap_err().message.contains("cannot write the agent runtime link"));
     assert!(agent_link::require_writable(&link).is_ok());
+    let stuck = fs::read_to_string(layout.agent_link_stuck()).expect("a rollback that could not move the agent link left no record of it");
+    assert!(stuck.starts_with(&format!("{failed} ")), "{stuck}");
+    agent_link::roll_back_at(&layout, Some(&link), &previous, &failed);
+    assert_eq!(fs::read_link(&link).unwrap(), published);
+    assert!(!layout.agent_link_stuck().exists(), "the link moved, yet its stuck record stayed");
 }
 
 #[test]
@@ -237,7 +254,7 @@ fn a_host_names_its_agent_link_by_variable_else_by_the_first_line_of_a_file_only
     let state = tempfile::tempdir().unwrap();
     assert!(agent_link::guard().is_ok());
     assert_eq!(agent_link::publish(state.path()).unwrap(), None);
-    assert!(agent_link::follow(None).is_ok());
-    assert!(agent_link::follow_runtime(state.path()).is_ok());
+    assert!(agent_link::follow(&Layout { state: state.path().to_path_buf() }, None).is_ok());
+    agent_link::roll_back(&Layout { state: state.path().to_path_buf() }, state.path(), &"f".repeat(40));
     assert_eq!(fs::read_dir(state.path()).unwrap().count(), 0);
 }

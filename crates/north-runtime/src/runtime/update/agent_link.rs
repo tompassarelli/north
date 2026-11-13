@@ -1,5 +1,5 @@
 use super::super::failure::{Failure, failed};
-use super::super::layout::PROGRAMS;
+use super::super::layout::{self, Layout, PROGRAMS};
 use super::super::store;
 use super::sync::relink;
 use rustix::fs::{Access, access};
@@ -72,16 +72,38 @@ pub(super) fn publish(runtime: &Path) -> Result<Option<PathBuf>, Failure> {
     added.map(Some)
 }
 
-pub(super) fn follow(published: Option<&Path>) -> Result<(), Failure> {
-    let (Some(link), Some(path)) = (configured(), published) else { return Ok(()) };
-    relink(&link, path).map_err(Into::into)
+/// The store paths the host's agent links name, which no runtime collection may take the root of.
+pub(super) fn targets() -> Vec<PathBuf> {
+    configured().and_then(|link| fs::read_link(link).ok()).into_iter().collect()
+}
+
+pub(super) fn follow(layout: &Layout, published: Option<&Path>) -> Result<(), Failure> {
+    follow_at(layout, configured().as_deref(), published)
+}
+
+/// A link that moves clears the record a rollback left of it, naming the runtime it left behind.
+fn follow_at(layout: &Layout, link: Option<&Path>, published: Option<&Path>) -> Result<(), Failure> {
+    let (Some(link), Some(path)) = (link, published) else { return Ok(()) };
+    relink(link, path)?;
+    if let Ok(stuck) = fs::read_to_string(layout.agent_link_stuck()) {
+        println!("north runtime: the agent runtime link follows {} again, off the runtime a rollback left it on: {}", path.display(), stuck.trim());
+        fs::remove_file(layout.agent_link_stuck())?;
+    }
+    Ok(())
 }
 
 /// Moves the link back to a runtime already published, as a rollback moves `current`.
-pub(super) fn follow_runtime(runtime: &Path) -> Result<(), Failure> {
-    if configured().is_none() {
-        return Ok(());
+pub(super) fn roll_back(layout: &Layout, runtime: &Path, failed_sha: &str) {
+    roll_back_at(layout, configured().as_deref(), runtime, failed_sha);
+}
+
+/// A link the rollback cannot move is written to `agent-link-stuck` as `FAILED_SHA WHY`, which the next update clears once it moves the link and `north land doctor` pages until then.
+pub(super) fn roll_back_at(layout: &Layout, link: Option<&Path>, runtime: &Path, failed_sha: &str) {
+    let Some(link) = link else { return };
+    let published = fs::read_link(runtime.join(ROOT)).map_err(|error| failed(1, format!("{} was never published for the agent: {error}", runtime.display())));
+    let Err(failure) = published.and_then(|published| follow_at(layout, Some(link), Some(&published))) else { return };
+    eprintln!("north runtime rollback: the agent link stays on {}: {}", layout::short(failed_sha), failure.message);
+    if let Err(error) = fs::write(layout.agent_link_stuck(), format!("{failed_sha} {}\n", failure.message)) {
+        eprintln!("north runtime rollback: the stuck agent link was not recorded in {}: {error}", layout.agent_link_stuck().display());
     }
-    let published = fs::read_link(runtime.join(ROOT)).map_err(|error| failed(1, format!("{} was never published for the agent: {error}", runtime.display())))?;
-    follow(Some(&published))
 }

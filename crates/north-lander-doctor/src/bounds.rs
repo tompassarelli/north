@@ -37,6 +37,7 @@ pub enum Bound {
     NoVerdict,
     BaseBroken,
     Reach,
+    AgentLink,
 }
 
 impl Bound {
@@ -57,6 +58,7 @@ impl Bound {
             Bound::NoVerdict => "promotion-no-verdict",
             Bound::BaseBroken => "base-broken",
             Bound::Reach => "lander-reach",
+            Bound::AgentLink => "agent-link-stuck",
         }
     }
 
@@ -70,7 +72,7 @@ impl Bound {
             Bound::BaseBroken => minutes(BASE_BROKEN_SECS),
             Bound::SlotHold => minutes(SLOT_DEADLINE_SECS),
             Bound::DiskFree => format!("{DISK_FREE_PERCENT:.0}% free"),
-            Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues | Bound::OrphanQueues | Bound::SourceBuilds | Bound::NoVerdict | Bound::Reach => "0".to_owned(),
+            Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues | Bound::OrphanQueues | Bound::SourceBuilds | Bound::NoVerdict | Bound::Reach | Bound::AgentLink => "0".to_owned(),
         }
     }
 }
@@ -210,6 +212,7 @@ pub fn judge(facts: &Facts, book: &Book, now: u64) -> Vec<Finding> {
     if let Some(link) = &facts.link {
         findings.extend(judge_link(link));
     }
+    findings.push(agent_link(facts.agent_link_stuck.as_deref()));
     for place in &facts.places {
         findings.extend(judge_place(place));
     }
@@ -404,4 +407,10 @@ fn judge_place(place: &PlaceFacts) -> Vec<Finding> {
         findings.push(Finding::over(Bound::StaleWorktrees, &format!("{subject}:{}", repo.display()), count.to_string(), known("missing registered worktree", remedy)));
     }
     findings
+}
+
+fn agent_link(stuck: Option<&str>) -> Finding {
+    let Some(line) = stuck else { return Finding::healthy(Bound::AgentLink, "agent", "0".to_owned()) };
+    let (runtime, why) = line.split_once(' ').unwrap_or((line, "no reason recorded"));
+    Finding::over(Bound::AgentLink, "agent", "1".to_owned(), State::Unknown(format!("a rollback could not move the agent runtime link off {runtime}, the runtime that failed its promotion, so agent sessions still start on it: {why}; the next runtime update that moves the link clears this")))
 }

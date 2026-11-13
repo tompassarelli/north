@@ -53,6 +53,8 @@ pub struct Facts {
     pub reach_deferred: bool,
     /// The stray queues the probe found on the offload hosts, with the host each sits on.
     pub orphaned_remote: Vec<(Place, PathBuf)>,
+    /// The line a runtime rollback left when it could not move the agent runtime link off the runtime that failed its promotion.
+    pub agent_link_stuck: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -475,4 +477,8 @@ pub fn offload_places() -> Vec<Place> {
     let listed = Command::new(follow::program()).args(["capacity", "offload", "hosts"]).stdin(Stdio::null()).stderr(Stdio::null()).output();
     let text = listed.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).into_owned()).unwrap_or_default();
     text.lines().filter_map(|line| line.split_once(' ')).map(|(name, ssh)| Place { name: name.to_owned(), reach: Reach::Ssh(ssh.trim().to_owned()) }).collect()
+}
+
+pub fn agent_link_stuck(home: &Path) -> Option<String> {
+    fs::read_to_string(home.join(north_base::platform::harness::AGENT_LINK_STUCK)).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty())
 }

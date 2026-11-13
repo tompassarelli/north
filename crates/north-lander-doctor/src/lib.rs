@@ -162,7 +162,8 @@ pub fn examine(now: u64) -> Facts {
             Err(error) => (Vec::new(), Some(error)),
         }
     };
-    Facts { queues, link, places, unserved: discovery.unserved, orphaned: discovery.orphaned, orphaned_remote, unreachable, reach_error, reach_deferred }
+    let agent_link_stuck = facts::agent_link_stuck(&state.join("north"));
+    Facts { queues, link, places, unserved: discovery.unserved, orphaned: discovery.orphaned, orphaned_remote, unreachable, reach_error, reach_deferred, agent_link_stuck }
 }
 
 fn project(checkout: &Path) -> String {

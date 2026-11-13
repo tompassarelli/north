@@ -6,6 +6,8 @@ use std::sync::{LazyLock, Mutex, PoisonError};
 use toml_edit::DocumentMut;
 
 pub const TREE: &str = "tree";
+/// The file beside a host's runtime `current` link that names the runtime a rollback could not move the agent runtime link off, and why, until an update moves the link; `north land doctor` pages while it stands.
+pub const AGENT_LINK_STUCK: &str = "agent-link-stuck";
 const REFUSED: i32 = 78;
 pub const DEFAULTS: &str = "harness/defaults.toml";
 pub const MODEL_CATALOG: &str = "harness/model-catalog.toml";

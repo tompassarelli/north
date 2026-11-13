@@ -147,7 +147,7 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
 }
 
 #[test]
-fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_the_report_prints_each_bound() {
+fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_the_report_prints_each_bound_and_pages_a_stuck_agent_link() {
     let probe = facts::parse_probe("disk 750 250\nslot code-north-main-1 3600 991 locked\nslot code-wisp-main 10 - free\nprunable 3 /home/tom/code/north/main\n").unwrap();
     assert_eq!(probe.free_percent, 25.0);
     assert_eq!(probe.slots, [SlotHold { slot: "code-north-main-1".to_owned(), held: 3600, pgid: Some(991), locked: true }, SlotHold { slot: "code-wisp-main".to_owned(), held: 10, pgid: None, locked: false }]);
@@ -162,12 +162,17 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
     let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places, orphaned: vec![stray.clone()], ..Facts::default() };
     let hands = Fake::default();
     let text = render(&cure(&facts, &mut Book::default(), &hands, NOW));
-    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-behind lander: on current", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "orphan-queues lander/8733aa0a99314382: 1", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0", "base-broken north: passes", "lander-reach lander: 0"] {
+    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-behind lander: on current", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "orphan-queues lander/8733aa0a99314382: 1", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0", "base-broken north: passes", "lander-reach lander: 0", "agent-link-stuck agent: 0"] {
         assert!(text.contains(&format!("bound {bound}")), "{bound} missing from:\n{text}");
     }
     assert_eq!(*hands.applied.borrow(), vec![Remedy::RemoveQueue { queue: stray.clone() }]);
     assert_eq!(hands.incidents.borrow()[0].0, "lander-stray-queue");
     assert!(!stray.exists(), "the stray queue is removed");
+    fs::write(scratch.path().join(north_base::platform::harness::AGENT_LINK_STUCK), format!("{} the agent link's directory is not writable\n", "f".repeat(40))).unwrap();
+    let stuck = Facts { agent_link_stuck: facts::agent_link_stuck(scratch.path()), ..Facts::default() };
+    let paged = Fake::default();
+    assert!(render(&cure(&stuck, &mut Book::default(), &paged, NOW)).contains("bound agent-link-stuck agent: 1 (limit 0): over: unknown state"));
+    assert!(paged.pages.borrow().iter().any(|page| page.contains(&format!("off {}", "f".repeat(40)))), "{:?}", paged.pages.borrow());
 }
 
 #[test]

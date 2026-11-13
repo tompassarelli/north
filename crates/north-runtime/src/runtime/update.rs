@@ -180,7 +180,7 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
         relink(&layout.lander(), &layout::link(&previous))?;
         println!("north runtime: lander link rolled back with current to {previous}");
     }
-    agent_link::follow_runtime(&layout.runtime(&previous)).unwrap_or_else(|failure| eprintln!("north runtime rollback: the agent link stays on {}: {}", layout::short(failed_sha), failure.message));
+    agent_link::roll_back(layout, &layout.runtime(&previous), failed_sha);
     lifecycle::move_to::<Promoting>(layout, failed_sha, Promotion::RolledBack, "rolled back on this host after promotion")?;
     lifecycle::move_to::<Promoting>(layout, &previous, Promotion::Live, &format!("rolled back to after {} failed", layout::short(failed_sha)))?;
     println!("north runtime rolled back to {previous}");
@@ -360,7 +360,7 @@ fn install(layout: &Layout, target: &str, runtime: &Path, previous: Option<&Path
     }
     super::deploy::stage_for_lander(layout, target, runtime);
     let synced = sync(layout, previous, target, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))?;
-    agent_link::follow(published.as_deref())?;
+    agent_link::follow(layout, published.as_deref())?;
     Ok(synced)
 }
 

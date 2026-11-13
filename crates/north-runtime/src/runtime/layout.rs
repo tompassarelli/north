@@ -55,6 +55,10 @@ impl Layout {
         self.state.join(north_runtime_follow::LANDER_ROLLBACK)
     }
 
+    pub fn agent_link_stuck(&self) -> PathBuf {
+        self.state.join(north_base::platform::harness::AGENT_LINK_STUCK)
+    }
+
     pub fn swaps(&self) -> PathBuf {
         self.state.join("runtime-swaps.jsonl")
     }
