@@ -506,8 +506,8 @@ may_use = ["strategy_types", "foundation", "platform.process", "platform", "plat
 
 [[module]]
 name = "platform.ssh"
-paths = ["crates/north-base/src/platform/ssh*.rs"]
-responsibility = "The ssh adapter: sessions, the control master and its test fixture."
+paths = ["crates/north-base/src/platform/ssh*.rs", "crates/north-base/src/platform/login.rs"]
+responsibility = "The ssh adapter: sessions, the control master, its test fixture, and the login transport that reaches a session's user over ssh or in its own manager on this host."
 may_use = ["strategy_types", "foundation", "platform.process", "platform"]
 
 [[module]]

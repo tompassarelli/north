@@ -51,6 +51,7 @@ pub mod shared_target;
 pub mod sqlite;
 pub mod usage_table;
 pub mod wayland_idle;
+pub mod login;
 pub mod ssh;
 pub mod ssh_master;
 pub mod ssh_retry;

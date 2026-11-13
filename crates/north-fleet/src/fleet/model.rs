@@ -78,6 +78,10 @@ impl Machine {
         let home = PathBuf::from(format!("/home/{user}"));
         (operator_home.is_absolute() && home != operator_home).then_some(home)
     }
+
+    pub fn session_dial(&self) -> Option<crate::platform::login::Login<'_>> {
+        crate::platform::login::Login::of(self.session_login())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
