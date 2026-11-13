@@ -13,6 +13,7 @@ use crate::threads::verb::{Failure, immediate};
 
 const COLUMNS: [&str; 10] = ["ts", "provider", "account", "kind", "name", "used_pct", "window_min", "resets_at", "amount", "source"];
 const COST_WINDOWS: [&str; 3] = ["week", "weekly_all", "Gemini Models/weekly"];
+pub const FREE_MODEL: &str = "opencode/deepseek-v4.1-flash-free";
 const SAME_WINDOW_NANOS: i128 = 60_000_000_000;
 const DAY_SECONDS: i64 = 86_400;
 const WIDEST_LOOKBACK_DAYS: i64 = 64;
@@ -124,10 +125,11 @@ impl Costs {
 
 /// Re-prices the intervals of each touched account that end at or after its touch, or every interval
 /// when the prices differ from the ones the stored intervals were priced at, then the cost_usd of each
-/// run those intervals or the ingest touched, writing only rows whose value changed.
+/// run those intervals or the ingest touched, writing only rows whose value changed. A run on the free
+/// model has no interval and costs its price, 0.
 pub fn allocate(db: &mut Connection, prices: &BTreeMap<String, f64>, touched: &Touched) -> Result<(), Failure> {
     let tx = immediate(db)?;
-    let total = "(SELECT SUM(cost_usd) FROM run_costs WHERE agent = runs.agent)";
+    let total = &format!("coalesce((SELECT SUM(cost_usd) FROM run_costs WHERE agent = runs.agent), CASE WHEN model = '{FREE_MODEL}' THEN 0 END)");
     if repriced(&tx, prices)? {
         let fresh = intervals(&tx, prices, None)?;
         let stored: Vec<Key> = tx.prepare("SELECT account, started, ended, agent FROM run_costs")?.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?.collect::<Result<_, _>>()?;

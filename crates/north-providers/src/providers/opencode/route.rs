@@ -3,7 +3,7 @@ use time::{Date, Month, OffsetDateTime};
 pub const GO_PROVIDER: &str = "opencode-go";
 pub const FREE_PROVIDER: &str = "opencode";
 pub const GO_MODEL: &str = "opencode-go/deepseek-v4.1-flash";
-pub const FREE_MODEL: &str = "opencode/deepseek-v4.1-flash-free";
+pub use north_threads::threads::runs::FREE_MODEL;
 pub const MODELS: &[&str] = &[GO_MODEL, FREE_MODEL];
 pub const GO_ORIGIN: &str = "https://opencode.ai";
 pub const GO_API_PATH: &str = "/inference/go/openai/v1";

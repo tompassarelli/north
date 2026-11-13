@@ -3,6 +3,7 @@
 pub mod brief;
 mod columns;
 mod costs;
+pub use costs::FREE_MODEL;
 pub mod hook_rules;
 pub mod hooks;
 mod labels;
