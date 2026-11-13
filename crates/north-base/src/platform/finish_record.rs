@@ -7,8 +7,11 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::platform::harness::{DEFAULTS, document};
+
 const STORE_ENV: &str = "NORTH_VERDICT_CACHE_DIR";
 const DIR: &str = "finished";
+const SWITCH: &str = "finish_acceptance_in_prequeue";
 const REMOTE_DIR: &str = "\"${XDG_STATE_HOME:-$HOME/.local/state}/north/verdict-cache\"";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,4 +65,9 @@ pub fn parse(session: &str, text: &str) -> Option<Finished> {
 
 pub fn remote_read(session: &str) -> Option<String> {
     named(session).then(|| format!("cat {REMOTE_DIR}/{DIR}/{session}.json"))
+}
+
+/// Whether a finish call runs a portable acceptance command as one more check of its own run before queueing, read from `finish_acceptance_in_prequeue`; only `off` turns it off.
+pub fn acceptance_in_prequeue() -> bool {
+    document(DEFAULTS)[SWITCH]["value"].as_str() != Some("off")
 }

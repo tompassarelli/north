@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them, and rebases a lane behind its destination onto it, with its uncommitted changes, when that applies without a conflict (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running it as the check before queueing on the would-be head's tree, keyed and recorded as the lander's own run, when the lane's checks before queueing hold that command, so the safe-push it hands the lane to reuses that run (north#1230), and returns at the ticket (north#1194), refusing first while a lane of the same name in a project beside its own holds a commit not on that repository's main, since each repository a task changes is handed in from its own lane (north#1233), and when the road's checks before queueing then judge that lane and fail it, the finish record turns failed and the attempt is kept as for a failed check (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them, and rebases a lane behind its destination onto it, with its uncommitted changes, when that applies without a conflict (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running a portable one as one more check of the lane's run before queueing on the would-be head's tree, in the same slot and keyed and recorded as the lander's own run, so the safe-push it hands the lane to reuses that run and a hand-in takes one build-host admission (north#1230, north#1036; the switch `finish_acceptance_in_prequeue` off runs it alone first, as a command that is not portable always runs), and returns at the ticket (north#1194), refusing first while a lane of the same name in a project beside its own holds a commit not on that repository's main, since each repository a task changes is handed in from its own lane (north#1233), and when the road's checks before queueing then judge that lane and fail it, the finish record turns failed and the attempt is kept as for a failed check (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
 
 use std::fs;
 use std::io;
@@ -10,6 +10,7 @@ use crate::land::slots::runner;
 use north_base::platform::finish_record::{FinishRecords, Finished};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen, Stand};
 
+mod acceptance;
 mod lane_sync;
 mod other_lanes;
 
@@ -156,19 +157,7 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
     if let (Some(head), Some(facts)) = (&head, &facts) {
         ask_early(&named, head.clone(), facts.clone());
     }
-    let landed = request.check.zip(head.as_deref()).and_then(|(check, head)| as_land_check(&named.lane, check, head, facts.as_ref()));
-    let mut recorded = false;
-    let checked = match (request.check, landed) {
-        (_, Some(ran)) => ran.map_err(|refusal| ("failed as a check before queueing".to_owned(), refusal)),
-        (Some(check), None) => match road.check(&named.lane.root, check, head.as_deref()) {
-            Some(verdict) => {
-                recorded = true;
-                verdict
-            }
-            None => passes(&named.lane.root, check),
-        },
-        (None, None) => Ok(()),
-    };
+    let (checked, recorded) = acceptance::verdict(&road, &named.lane, request.check.zip(head.as_deref()), request.check, facts.as_ref());
     if let Some(check) = request.check.filter(|_| !recorded && road.writes_finish_records()) {
         record_finished(check, head.as_deref(), checked.is_ok());
     }
@@ -233,33 +222,6 @@ fn rebase_onto_destination(lane: &Lane, facts: Option<&Facts>) -> Option<String>
         return None;
     }
     Some(format!("rebased the lane's {commits} commit(s) and its uncommitted changes onto origin/{} at {}, which moved on without a conflict", lane.destination, &base[..base.len().min(10)]))
-}
-
-fn as_land_check(lane: &Lane, check: &str, head: &str, facts: Option<&Facts>) -> Option<Result<(), String>> {
-    git(&lane.root, &["show", &format!("{head}:.safe-push")]).ok().filter(|config| config.contains(check.trim()))?;
-    let (_, base) = facts?.base().or_else(|_| fetch_base(&lane.root, &lane.destination)).ok()?;
-    let commands = runner::queue_commands(&lane.root, &base, head).ok()?;
-    commands.iter().any(|command| command.trim() == check.trim()).then(|| runner::refuse_queue_checks(&lane.root, &base, head))
-}
-
-fn passes(root: &Path, check: &str) -> Result<(), (String, String)> {
-    if check.trim().is_empty() {
-        return Err(("is empty".to_owned(), String::new()));
-    }
-    let unstarted = |error: io::Error| (format!("did not start: {error}"), String::new());
-    let mut log = tempfile::tempfile().map_err(unstarted)?;
-    let (out, err) = (log.try_clone().map_err(unstarted)?, log.try_clone().map_err(unstarted)?);
-    let status = Command::new("sh").arg("-c").arg(check).current_dir(root).stdin(Stdio::null()).stdout(out).stderr(err).status().map_err(unstarted)?;
-    let mut output = String::new();
-    let _ = io::Seek::rewind(&mut log).and_then(|()| io::Read::read_to_string(&mut log, &mut output));
-    match status.code() {
-        Some(0) => {
-            eprint!("{output}");
-            Ok(())
-        }
-        Some(code) => Err((format!("exited {code}"), output)),
-        None => Err(("was killed by a signal".to_owned(), output)),
-    }
 }
 
 fn record_finished(check: &str, head: Option<&str>, passed: bool) {

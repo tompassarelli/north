@@ -37,7 +37,7 @@ mod spawn;
 mod steps;
 mod timeout_row;
 mod verdict;
-pub use queue_checks::{QueueRefusal, judge_queue_checks, queue_commands, refuse_queue_checks};
+pub use queue_checks::{Accepted, Judged, QueueRefusal, joins_queue_run, judge_queue_checks, judge_with_acceptance, queue_commands, refuse_queue_checks};
 pub use steps::taken as queue_steps;
 pub use steps::{Window, windows as queue_windows};
 use crate::platform::north_binary::land_north as program;
@@ -47,7 +47,7 @@ use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_S
 
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
 pub const BASE_FAILS: &str = "and also fails on base tree";
-const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--tree TREE] [--outcome FILE] [--fresh]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
+const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--tree TREE] [--outcome FILE] [--fresh]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]\n       north land checks --accept COMMAND (--joins | [--runner-host HOST]) --base BASE --head HEAD";
 const OFFLOAD_GRACE: u64 = 900;
 const BATCH_GRACE: u64 = 30;
 const REAP: Duration = Duration::from_secs(5);
@@ -162,6 +162,13 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     if lander != 0 { lander } else { built }
 }
 
+/// `command` as the run that holds it runs it, rewritten as `lander_only` rewrites the run's own commands.
+async fn rewritten(root: &Path, arguments: &Arguments, command: Option<&str>) -> Vec<String> {
+    let Some(command) = command else { return Vec::new() };
+    let (here, built) = lander_only(root, arguments, arguments.runner_host.is_empty(), vec![command.to_owned()]).await;
+    [here, built].concat()
+}
+
 async fn lander_only(root: &Path, arguments: &Arguments, local: bool, commands: Vec<String>) -> (Vec<String>, Vec<String>) {
     let (mut here, mut built) = (Vec::new(), Vec::new());
     for command in commands {
@@ -269,6 +276,9 @@ pub fn run(arguments: &[String]) -> u8 {
     if parsed.replay {
         return replay(&parsed);
     }
+    if let Some(command) = &parsed.accept {
+        return accept(&parsed, command);
+    }
     if let Some(code) = start_stage(&parsed) {
         return code;
     }
@@ -281,6 +291,25 @@ pub fn run(arguments: &[String]) -> u8 {
     });
     trace::record(&[Span { end: epoch(), ..root }.with("exit", code.to_string())]);
     u8::try_from(code).unwrap_or(1)
+}
+
+/// A finish call's acceptance `command` run as one more check before queueing `head` (north#1036), as the outside broker asks it for a sandboxed session: with `--joins`, exit 0 when the command joins that run; else run it, on `--runner-host` alone when given, and exit with `Judged::status`.
+fn accept(arguments: &Arguments, command: &str) -> u8 {
+    let Some(root) = toplevel() else { return 1 };
+    if arguments.base.is_empty() {
+        eprintln!("{USAGE}");
+        return 64;
+    }
+    if arguments.joins {
+        return u8::from(!joins_queue_run(&root, &arguments.base, &arguments.head, command));
+    }
+    let on = (!arguments.runner_host.is_empty()).then_some(arguments.runner_host.as_str());
+    let judged = judge_with_acceptance(&root, &arguments.base, &arguments.head, command, on);
+    let status = judged.status();
+    if let Err(refusal) = judged.run {
+        warn(&format!("safe-push: {}", refusal.into_text()));
+    }
+    status
 }
 
 fn root_span(arguments: &Arguments) -> Span {
@@ -324,35 +353,39 @@ pub(super) struct Added {
     pub(super) status: i32,
     pub(super) host: String,
     pub(super) unanswered: bool,
+    pub(super) accepted: Option<bool>,
 }
 
 async fn run_added(root: PathBuf, arguments: Arguments, config: Config, commands: Vec<String>) -> i32 {
-    run_added_avoiding(root, arguments, config, commands, &[]).await.status
+    run_added_avoiding(root, arguments, config, commands, None, &[]).await.status
 }
 
-async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Config, commands: Vec<String>, failed: &[String]) -> Added {
+async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Config, commands: Vec<String>, watched: Option<&str>, failed: &[String]) -> Added {
     let mut environment = Environment::load();
     if environment.capacity.is_empty() {
         environment.capacity = config.capacity.clone().unwrap_or_default();
     }
     let wanted = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
-    if !wanted.is_empty() {
+    if !wanted.is_empty() && arguments.runner_host.is_empty() {
         match steps::awaited("placement", build_host::placed(&program(), &wanted, &north_base::platform::host::name(), failed)).await {
             build_host::Placed::Host(host) => arguments.runner_host = host,
             build_host::Placed::Here => warn("safe-push: no build host has room, so the checks before queueing run on this host under the land-check capacity lease"),
             build_host::Placed::Unanswered => {
                 warn(&format!("safe-push: no build host answered for {} minutes, and the checks before queueing never run uncompiled on a busy laptop", OFF_HOST_PATIENCE.as_secs() / 60));
-                return Added { status: NO_VERDICT_STATUS, host: String::new(), unanswered: true };
+                return Added { status: NO_VERDICT_STATUS, host: String::new(), unanswered: true, accepted: None };
             }
         }
     }
     let host = arguments.runner_host.clone();
     let commands = steps::awaited("coverage", async { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() }).await;
+    let watched = rewritten(&root, &arguments, watched).await;
     let (_cancel_sender, cancel) = watch::channel(false);
     let Selections { scope, it, .. } = steps::timed("selection", || selections(&root, &arguments, &commands, None, &arguments.runner_host));
     let (trees, paths) = steps::timed("trees", || (Trees::of(&root, &arguments.base, &arguments.head), path_class(&root, &arguments.base, &arguments.head)));
-    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
+    let outcome = Outcome(arguments.outcome.clone());
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome, cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
     let pending = steps::awaited("key lookup", shared.cached(&commands)).await;
     let status = if pending.is_empty() { 0 } else { shared.run_list(&pending).await.status() };
-    Added { status, host, unanswered: false }
+    let accepted = shared.passed(&watched, status).await;
+    Added { status, host, unanswered: false, accepted }
 }

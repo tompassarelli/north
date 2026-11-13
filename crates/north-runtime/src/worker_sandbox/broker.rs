@@ -383,7 +383,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
 
 /// Runs the acceptance command `asked` names for the finish call of the caller's own session, in the lane the request was placed in (finish_request.rs), relaying its output to the client; the broker records the verdict from the command's exit code, never from a word of the request. A refusal is told to the client and logged.
 fn run_finish_check(north: &Path, asked: Result<finish_request::Check, String>, checkout: &request_checkout::Checkout, streams: Vec<OwnedFd>, stream: &UnixStream, cgroup: Option<&str>, host: &Host) -> Result<u8, String> {
-    let granted = match asked.and_then(|check| finish_request::granted(check, checkout, cgroup.unwrap_or_default(), host, &runtime(), &own_homes())) {
+    let granted = match asked.and_then(|check| finish_request::granted(check, checkout, cgroup.unwrap_or_default(), host, &runtime(), &own_homes()).map(|granted| granted.joining(north))) {
         Ok(granted) => granted,
         Err(why) => return Err(format!("refused a finish check: {}", refuse(streams, why))),
     };

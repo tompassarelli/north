@@ -77,6 +77,14 @@ impl Shared {
         self.lookup(commands).await.0
     }
 
+    /// Whether the `watched` commands passed in a run that exited `status`: all of them when it passed, else as their keyed verdicts say; `None` when nothing is watched.
+    pub(super) async fn passed(&self, watched: &[String], status: i32) -> Option<bool> {
+        if watched.is_empty() {
+            return None;
+        }
+        Some(status == 0 || self.cached(watched).await.is_empty())
+    }
+
     async fn lookup(&self, commands: &[String]) -> (Vec<String>, Vec<(String, String)>) {
         let inputs = Inputs::of(self);
         let land = keys(&inputs, commands).await;

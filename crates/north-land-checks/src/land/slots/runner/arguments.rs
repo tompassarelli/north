@@ -35,6 +35,8 @@ pub(super) struct Arguments {
     pub(super) commands: Vec<String>,
     pub(super) span: String,
     pub(super) batch: Batch,
+    pub(super) accept: Option<String>,
+    pub(super) joins: bool,
 }
 
 pub(super) fn parse(arguments: &[String]) -> Option<Arguments> {
@@ -48,7 +50,8 @@ pub(super) fn parse(arguments: &[String]) -> Option<Arguments> {
             "--fresh" => parsed.fresh = true,
             "--leased" => parsed.leased = true,
             "--replay" => parsed.replay = true,
-            "--base" | "--head" | "--tree" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--destination" | "--event-log" | "--wait-event" | "--published" | "--runner-host" | "--command" | "--records" | "--since" | "--until" | "--lane" | "--ran" => {
+            "--joins" => parsed.joins = true,
+            "--base" | "--head" | "--tree" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--destination" | "--event-log" | "--wait-event" | "--published" | "--runner-host" | "--command" | "--records" | "--since" | "--until" | "--lane" | "--ran" | "--accept" => {
                 let value = rest.next()?.clone();
                 match flag.as_str() {
                     "--base" => parsed.base = value,
@@ -68,6 +71,7 @@ pub(super) fn parse(arguments: &[String]) -> Option<Arguments> {
                     "--until" => parsed.until = value.parse().ok()?,
                     "--lane" => parsed.batch.lanes.push(value),
                     "--ran" => parsed.batch.ran.push(value),
+                    "--accept" => parsed.accept = Some(value),
                     _ => parsed.commands.push(value),
                 }
             }

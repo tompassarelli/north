@@ -28,7 +28,7 @@ esac
 exit 1
 "#;
 const JUDGE_FINDS_AN_ADDRESS: &str = "#!/bin/sh\ntext=$(cat)\ncase \"$text\" in\n  *'lives at'*) printf 'address\\tthe owner lives at 1 Example Road\\n'; exit 1 ;;\nesac\nexit 0\n";
-const JUDGE_ASKS_A_MODEL: &str = "#!/bin/sh\ncat > /dev/null\nsleep 1\nexit 0\n";
+const JUDGE_ASKS_A_MODEL_ONCE_A_TEXT: &str = "#!/bin/sh\nkey=$(sha256sum | cut -c1-64)\n[ -e \"$0.verdicts/$key\" ] && exit 0\nsleep 1\nmkdir -p \"$0.verdicts\" && touch \"$0.verdicts/$key\"\nexit 0\n";
 
 fn scanned_world(judge: &str) -> (World, Repository) {
     let world = World::new();
@@ -220,7 +220,7 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
         let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string()]);
         std::process::exit(i32::from(hand_in::finish(&arguments, road)));
     }
-    let (world, north) = scanned_world(JUDGE_ASKS_A_MODEL);
+    let (world, north) = scanned_world(JUDGE_ASKS_A_MODEL_ONCE_A_TEXT);
     write_executable(&world.path().join("bin/north"), VERDICT_NORTH);
     fs::write(north.checkout.join(".safe-push"), "[landing]\n\tpush-app = lander\n[land]\n\tcheck = ** :: test ! -e red.txt && sleep 3\n").unwrap();
     git(&north.checkout, &["commit", "-qam", "Run a land check before queueing"]);
@@ -263,6 +263,7 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     let stale = finish(&world, "later", "true", "", &lane.join("named.txt"));
     assert_eq!(stale.status.code(), Some(1), "another session's finish call committed the proposal kept for an earlier one: {}", report(&stale));
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "another session's empty-message finish call queued: {}", report(&stale));
+    fs::write(lane.join("named.txt"), "the finished change, checked\n").unwrap();
     let ran = world.path().join("check-ran");
     let passed = finish(&world, "proposer", &format!("test -e named.txt && touch {}", ran.display()), "", &lane.join("named.txt"));
     let text = report(&passed);
@@ -351,6 +352,7 @@ fn a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_writt
         std::process::exit(i32::from(hand_in::finish(&arguments, road)));
     }
     let (world, north) = scanned_world(JUDGE_PASSES);
+    write_executable(&world.path().join("bin/north"), VERDICT_NORTH);
     let lane = worktree(&north, "files");
     let start = git(&lane, &["rev-parse", "HEAD"]);
     let (inside, outside, readme) = (lane.join("notes/new.txt"), north.checkout.join("outside.txt"), lane.join("README"));
@@ -389,7 +391,6 @@ fn a_finish_call_writes_its_files_only_inside_its_own_lane_and_leaves_them_writt
     assert!(text.contains(&format!("{}: carries both whole content and replacements", inside.display())), "{text}");
     assert!(fs::read_to_string(&inside).unwrap() == "the red draft\n" && fs::read_to_string(&readme).unwrap() == first_readme, "a call with an entry carrying both forms wrote a file: {text}");
 
-    write_executable(&world.path().join("bin/north"), VERDICT_NORTH);
     let runs = world.path().join("runs");
     let (config, count) = (whole("[landing]\n\tpush-app = lander\n[land]\n\tcheck = ** :: sh count.sh\n"), whole(&format!("grep -q green notes/new.txt || exit 1\necho ran >> {}\n", runs.display())));
     let passed = finish_files(&world, &lane, "sh count.sh", &[(inside, lines(&[("red draft", "green note")])), (readme, whole("the rewritten readme\n")), (lane.join(".safe-push"), config), (lane.join("count.sh"), count)]);
@@ -528,4 +529,52 @@ fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_a_stopped_rebase_o
     assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
     let kept = if confined.exists() { git(&confined, &["ls-files", "--others", "--exclude-standard"]) } else { String::new() };
     assert!(!confined.exists(), "a landed lane whose hand-in may not remove files in it was kept, holding untracked {kept:?}: {text}");
+}
+
+const PREQUEUE: &str = "hand_in::finish_runs_acceptance_inside_the_pre_queue_run";
+const PREQUEUE_ARGUMENTS: &str = "NORTH_FINISH_PREQUEUE_IT_ARGUMENTS";
+
+#[test]
+fn finish_runs_acceptance_inside_the_pre_queue_run() {
+    if let Ok(arguments) = std::env::var(PREQUEUE_ARGUMENTS) {
+        let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
+        let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string()]);
+        std::process::exit(i32::from(hand_in::finish(&arguments, road)));
+    }
+    let (world, north) = scanned_world(JUDGE_PASSES);
+    write_executable(&world.path().join("bin/north"), VERDICT_NORTH);
+    let (queued, accepted) = (world.path().join("queued-runs"), world.path().join("accepted-runs"));
+    fs::write(north.checkout.join(".safe-push"), format!("[landing]\n\tpush-app = lander\n[land]\n\tcheck = ** :: echo ran >> {}\n", queued.display())).unwrap();
+    git(&north.checkout, &["commit", "-qam", "Run a land check before queueing"]);
+    git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    git(&north.checkout, &["fetch", "-q", "origin"]);
+    let store = north_base::platform::finish_record::FinishRecords(world.path().join("verdicts").join("finished"));
+    let count = |path: &Path| fs::read_to_string(path).unwrap_or_default().lines().count();
+    for (code, session) in [(3, "red"), (0, "green")] {
+        let check = format!("grep -q 'the {session} note' note.txt && echo ran >> {} && exit {code}", accepted.display());
+        let lane = worktree(&north, session);
+        fs::write(lane.join("note.txt"), format!("the {session} note\n")).unwrap();
+        let (queued_before, accepted_before) = (count(&queued), count(&accepted));
+        let mut call = queueing(&world, PREQUEUE, PREQUEUE_ARGUMENTS, &["--check", &check, "--message", "Add the note (north#1036)", "--", lane.join("note.txt").to_str().unwrap()]);
+        let output = call.env("NORTH_FLEET_SESSION", session).env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts")).output().unwrap();
+        let text = report(&output);
+        let runs: Vec<&str> = text.lines().filter(|line| line.contains("check(s) before queueing the lane") && line.contains(&check)).collect();
+        assert!(matches!(runs[..], [run] if run.contains(&check)), "the acceptance command did not run as one more check of one run before queueing: {text}");
+        assert_eq!((count(&queued) - queued_before, count(&accepted) - accepted_before), (1, 1), "a hand-in ran its checks before queueing or its acceptance command more than once: {text}");
+        assert_eq!(output.status.code(), Some(i32::from(code != 0)), "{text}");
+        let recorded = store.read(session).unwrap_or_else(|| panic!("the finish call wrote no finish record: {text}"));
+        assert_eq!((recorded.passed, recorded.command.as_str()), (code == 0, check.as_str()), "the finish record is not the acceptance command's verdict: {text}");
+    }
+    assert_eq!(queue::pending(&north.queue).unwrap().len(), 1, "the passing call did not queue its lane, or the failing one did");
+
+    let pinned = worktree(&north, "pinned");
+    let marker = world.path().join("ran-here");
+    let local = format!("touch {}", marker.display());
+    fs::write(pinned.join(".safe-push"), format!("[landing]\n\tpush-app = lander\n[land]\n\tlocal-only = it reads this host :: {local}\n")).unwrap();
+    git(&pinned, &["commit", "-qam", "Run a check only on this host"]);
+    let (base, head) = (git(&pinned, &["rev-parse", "origin/main"]), git(&pinned, &["rev-parse", "HEAD"]));
+    let judged = north_lander::land::slots::runner::judge_with_acceptance(&pinned, &base, &head, &local, Some("builder"));
+    assert_eq!(judged.accepted, north_lander::land::slots::runner::Accepted::Unjudged, "{judged:?}");
+    assert!(judged.run.as_ref().is_err_and(|refusal| format!("{refusal:?}").contains("would run on this host rather than on builder")), "a run pinned to a build host started with a check that runs on this host: {judged:?}");
+    assert!(!marker.exists(), "a run pinned to a build host ran a local-only check here");
 }

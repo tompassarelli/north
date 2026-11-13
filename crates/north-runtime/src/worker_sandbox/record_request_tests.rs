@@ -77,6 +77,7 @@ pub(super) fn a_worker_lane_writes_its_slot_and_finish_records_through_the_broke
         .output()
         .unwrap();
     assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    super::super::finish_request::tests::joins_only_on_a_build_host_the_brokers_own_placement_names();
 }
 
 fn serve(root: &Path) {

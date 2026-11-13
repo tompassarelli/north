@@ -1817,6 +1817,14 @@ source = "proxy: on 2026-11-07 Tom asked the fleet to be bolder; north land gate
 fallback = "any value but enforce reads as shadow"
 consumers = ["crates/north-diff-gates/src/landing_refusals.rs"]
 
+[finish_acceptance_in_prequeue]
+value = "on"
+allowed = { one_of = ["on", "off"] }
+unit = "on: a finish call runs a portable acceptance command as one more check of its own run before queueing, on the would-be head's tree in the same build-host slot, and writes the finish record from that check's keyed verdict, so the safe-push it hands the lane to reuses the run; off runs the command alone first and leaves the checks before queueing to safe-push"
+source = "prior: one build-host admission per hand-in (north#1036 slice B1, north#1247): the pre-queue check waited 361 s median and 602 s at night for a slot, and a finish call took a second slot for its own check"
+fallback = "any value but off reads as on"
+consumers = ["crates/north-base/src/platform/finish_record.rs"]
+
 [proxy_read_streak]
 value = 15
 allowed = { min = 3, max = 200 }
