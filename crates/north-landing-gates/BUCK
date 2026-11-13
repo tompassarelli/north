@@ -24,6 +24,7 @@ rust_library(
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
+        "//crates/north-build-system:north-build-system",
         "//crates/north-diff-gates:north-diff-gates",
         "//crates/north-graph-loops:north-graph-loops",
         "//crates/north-mutants:north-mutants",
@@ -47,6 +48,7 @@ north_rust_test(
     rustc_flags = RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
+        "//crates/north-build-system:north-build-system",
         "//crates/north-diff-gates:north-diff-gates",
         "//crates/north-graph-loops:north-graph-loops",
         "//crates/north-mutants:north-mutants",

@@ -7,6 +7,9 @@
 mod buck2;
 mod cargo;
 mod cargo_metadata;
+mod rerun;
+
+pub use rerun::rerun_steps;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader};
@@ -168,6 +171,7 @@ pub fn host_case_runs(root: &Path, target: &str, cases: &BTreeMap<String, Vec<St
     side.enter(root);
     buck2::host_runs(root, &Invocation::new(root, Shell::LandShell, Vec::new()).words, &side.host_cases_daemon(), target, &buck2::packages(root)?, cases)
 }
+
 
 /// Whether `command` is a nextest line of `.safe-push` whose listed crates a host's `buck2_test_crates` moves: one that
 /// reads its selection from the environment variable `variable`, or names its packages itself with `-p NAME` words.

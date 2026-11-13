@@ -9,41 +9,20 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use super::rerun::{self, crate_root};
+
 const USAGE: &str = "usage: north land red-check --main SHA --log FILE [--lane BRANCH]";
 const GH_LIMIT: Duration = Duration::from_secs(60);
 const OFFLOAD_SECONDS: u64 = 1800;
 const RANGE_LIMIT: usize = 200;
 const UNKNOWN: u8 = 2;
 
-fn quote(word: &str) -> String {
-    format!("'{}'", word.replace('\'', r"'\''"))
+pub fn rerun_command(failed: &BTreeSet<Failure>) -> Option<String> {
+    rerun::rerun_command(failed, &test_file)
 }
 
-pub fn rerun_command(failed: &BTreeSet<Failure>) -> Option<String> {
-    let cargo: Vec<String> = failed.iter().filter_map(|failure| match failure {
-        Failure::Cargo(name) => Some(quote(name)),
-        _ => None,
-    }).collect();
-    let harness: Vec<&str> = failed.iter().filter_map(|failure| match failure {
-        Failure::Harness(path) => Some(path.as_str()),
-        _ => None,
-    }).collect();
-    if cargo.is_empty() && harness.is_empty() {
-        return None;
-    }
-    let mut steps = vec!["status=0".to_owned()];
-    if !cargo.is_empty() {
-        steps.push(format!(
-            "CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo test --locked --offline --workspace --no-fail-fast -- --exact {} 2>&1 || status=1",
-            cargo.join(" ")
-        ));
-    }
-    if !harness.is_empty() {
-        let paths: Vec<String> = harness.iter().map(|path| quote(path)).collect();
-        steps.push(format!("env -u SAFE_PUSH_LAND_HEAD -u SAFE_PUSH_LAND_RUNTIME_HEAD ./bin/head-north land tests {} 2>&1 || status=1", paths.join(" ")));
-    }
-    steps.push("exit $status".to_owned());
-    Some(steps.join("; "))
+pub fn rerun_on(host: &str, failed: &BTreeSet<Failure>) -> Option<String> {
+    rerun::rerun_on(host, failed, &test_file)
 }
 
 struct Request {
@@ -101,8 +80,8 @@ fn verdicts_on_main(main: &str, tree: &str, failed: &BTreeSet<Failure>) -> Optio
     if failed.iter().all(|failure| known.contains_key(&failure.key())) {
         return Some((failed.iter().map(|failure| (failure.key(), known[&failure.key()])).collect(), "recorded result"));
     }
-    let command = rerun_command(failed)?;
     let host = std::env::var("NORTH_RED_CHECK_HOST").unwrap_or_else(|_| "gex45".to_owned());
+    let command = rerun_on(&host, failed)?;
     println!("red check: running the {} failing test(s) on main's own tree {} on {host}", failed.len(), &main[..main.len().min(12)]);
     let output = Command::new("north")
         .args(["capacity", "offload", "run", "--host", &host, "--base", main, "--head", main, "--timeout", &OFFLOAD_SECONDS.to_string(), "--", &command])
@@ -139,20 +118,6 @@ fn test_file(failure: &Failure) -> Option<String> {
         }
         Failure::Line(_) | Failure::Step(_) => None,
     }
-}
-
-fn crate_root(file: &str) -> String {
-    let mut directory = Path::new(file).parent();
-    while let Some(candidate) = directory {
-        if candidate.as_os_str().is_empty() {
-            break;
-        }
-        if candidate.join("Cargo.toml").is_file() {
-            return format!("{}/", candidate.display());
-        }
-        directory = candidate.parent();
-    }
-    "src/".to_owned()
 }
 
 pub fn quoted_paths(source: &str) -> BTreeSet<String> {

@@ -106,7 +106,8 @@ pub(super) fn rerun_red(landed: &Landed, run: &Run, rerun: impl Fn(&str) -> Stri
     if episode.ended_by(&fs::read_to_string(&run.log).unwrap_or_default(), &landed.repo, &landed.head) {
         return;
     }
-    let Some(command) = episode.rerun_command() else { return };
+    let host = run.host.clone().unwrap_or_else(north_base::platform::host::name);
+    let Some(command) = episode.rerun_command(&host) else { return };
     let names: Vec<&str> = episode.named().into_iter().map(Failure::label).collect();
     println!("north land: main has been red since {}, so the after-landing run of {} reruns {}", episode.head, landed.head, names.join(", "));
     let log = rerun(&command);

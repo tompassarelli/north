@@ -337,12 +337,20 @@ fn at_the_tip(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> Result
         println!("north land: the failed checks of {} ended {:?} when rerun at the tip, so no lane is blamed", landed.head, rerun.verdict);
         return Err(again.log);
     }
-    let reproduced: BTreeSet<Failure> = failing.iter().filter(|failure| !probe.runs(failure) || rerun.failing.contains(failure.label())).cloned().collect();
-    if failing.iter().any(|failure| probe.runs(failure)) && !reproduced.iter().any(|failure| probe.runs(failure)) {
-        println!("north land: none of the failed checks of {} failed again when rerun at the tip, so no lane is blamed", landed.head);
-        return Err(again.log);
+    match reproduced(failing, |failure| probe.runs(failure), &rerun.failing) {
+        Some(reproduced) => Ok(reproduced),
+        None => {
+            println!("north land: none of the failed checks of {} failed again when rerun at the tip, so no lane is blamed", landed.head);
+            Err(again.log)
+        }
     }
-    Ok(reproduced)
+}
+
+/// The failing checks a rerun at the tip reproduces: a check the rerun did not run stays failing, and one it ran is
+/// reproduced only when `reached` names it. `None` when the rerun ran some failing check and reproduced none of them.
+pub fn reproduced(failing: &BTreeSet<Failure>, runs: impl Fn(&Failure) -> bool, reached: &BTreeSet<String>) -> Option<BTreeSet<Failure>> {
+    let reproduced: BTreeSet<Failure> = failing.iter().filter(|failure| !runs(failure) || reached.contains(failure.label())).cloned().collect();
+    (!failing.iter().any(&runs) || reproduced.iter().any(&runs)).then_some(reproduced)
 }
 
 

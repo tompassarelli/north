@@ -18,6 +18,7 @@ pub mod lane_target;
 pub mod merge_continue;
 pub mod merge_set;
 pub mod red_check;
+mod rerun;
 pub mod removed_surface;
 pub mod host_calls;
 mod rust_calls;

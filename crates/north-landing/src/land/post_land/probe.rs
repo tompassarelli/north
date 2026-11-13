@@ -82,8 +82,8 @@ fn tested(landed: &Landed, run: &Run, tree: &str, tests: &BTreeSet<Failure>) -> 
         })
         .cloned()
         .collect();
-    let Some(command) = red_check::rerun_command(&present) else { return blame::Probe { verdict: Verdict::Green, failing: BTreeSet::new() } };
     let host = run.host.clone().unwrap_or_else(north_base::platform::host::name);
+    let Some(command) = red_check::rerun_on(&host, &present) else { return blame::Probe { verdict: Verdict::Green, failing: BTreeSet::new() } };
     let timeout = run.deadline.as_secs().to_string();
     let ran = Command::new(follow::program())
         .args(["capacity", "offload", "run", "--host", &host, "--base", tree, "--head", tree, "--timeout", &timeout, "--", &command])

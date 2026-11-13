@@ -1669,6 +1669,7 @@ name = "north-landing-gates"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-build-system",
  "north-diff-gates",
  "north-graph-loops",
  "north-mutants",

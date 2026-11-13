@@ -59,8 +59,8 @@ impl Episode {
         self.covered_by(green_log) || reverted_since(repo, &self.head, head)
     }
 
-    pub fn rerun_command(&self) -> Option<String> {
-        red_check::rerun_command(&self.named().into_iter().cloned().collect())
+    pub fn rerun_command(&self, host: &str) -> Option<String> {
+        red_check::rerun_on(host, &self.named().into_iter().cloned().collect())
     }
 
     pub fn named(&self) -> Vec<&Failure> {
