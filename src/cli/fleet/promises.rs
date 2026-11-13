@@ -1,7 +1,7 @@
 use north_dispatch::laptop::Zone;
 
 use crate::fleet::model::Delivery;
-use crate::fleet::promises::{Book, Promise, When};
+use crate::fleet::promises::{Book, Promise, Reckon, When};
 use crate::fleet::registry::{Fleet, root_here};
 use crate::fleet::sender::Sender;
 use crate::foundation::clock::Timestamp;
@@ -30,19 +30,30 @@ fn tell(fleet: &Fleet, parent: &str, text: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn due_ms(promise: &Promise, zone: &Zone) -> Option<u64> {
-    let due = match promise.when {
-        When::Utc { at_ms } => at_ms,
+pub(super) struct Laptop;
+
+impl Reckon for Laptop {
+    fn moment(&self, when: &When, said_ms: u64) -> Option<u64> {
+        moment(when, said_ms, &Zone::laptop())
+    }
+}
+
+fn moment(when: &When, said_ms: u64, zone: &Zone) -> Option<u64> {
+    match *when {
+        When::Utc { at_ms } => Some(at_ms),
         When::Wall { hour, minute, date } => {
-            let said = i64::try_from(promise.said_ms / 1000).ok()?;
+            let said = i64::try_from(said_ms / 1000).ok()?;
             let at = match date {
                 Some((month, day)) => zone.dated(said, month, day, hour.into(), minute.into())?,
                 None => zone.nearest(said, hour.into(), minute.into())?,
             };
-            u64::try_from(at).ok()? * 1000
+            u64::try_from(at).ok()?.checked_mul(1000)
         }
-    };
-    (due > promise.said_ms).then_some(due)
+    }
+}
+
+pub(super) fn due_ms(promise: &Promise, zone: &Zone) -> Option<u64> {
+    moment(&promise.when, promise.said_ms, zone).filter(|due| *due > promise.said_ms)
 }
 
 pub(super) fn remind(promise: &Promise, due_ms: u64, tell: &dyn Fn(&str, &str) -> Result<(), String>) -> String {

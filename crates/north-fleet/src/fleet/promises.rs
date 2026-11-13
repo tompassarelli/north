@@ -9,12 +9,16 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use crate::error::NorthResult;
+use super::checkpoint::Answer;
+use super::runtime::PROXY;
 
 const FILE: &str = "promises.jsonl";
 const CHECKED: &str = "promises-checked.jsonl";
 const FENCES: [&str; 2] = ["```", "~~~"];
 const BOX_MARKER: &str = "Done when:";
 const STOP: &str = "Stop:";
+const SENTENCE_ENDS: [char; 4] = ['.', '!', '?', ';'];
+const QUOTE_CHARS: usize = 240;
 const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 static UTC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::\d{2})?Z\b").expect("utc time pattern"));
 static WALL: LazyLock<Regex> = LazyLock::new(|| {
@@ -44,8 +48,29 @@ pub struct Promise {
     pub parent: String,
 }
 
+pub trait Reckon: Send + Sync {
+    fn moment(&self, when: &When, said_ms: u64) -> Option<u64>;
+}
+
+pub struct Unreckoned;
+
+impl Reckon for Unreckoned {
+    fn moment(&self, _when: &When, _said_ms: u64) -> Option<u64> {
+        None
+    }
+}
+
 impl Promise {
     pub fn key(&self) -> String {
+        let time = match self.when {
+            When::Utc { at_ms } => at_ms.to_string(),
+            When::Wall { hour, minute, date: Some((month, day)) } => format!("{month}-{day}T{hour}:{minute}"),
+            When::Wall { hour, minute, date: None } => format!("{hour}:{minute}"),
+        };
+        format!("{}:{}@{time}", self.session, self.command)
+    }
+
+    fn turn_key(&self) -> String {
         match self.when {
             When::Wall { date: Some((month, day)), .. } => format!("{}:{}:{}@{month}-{day}", self.session, self.turn, self.command),
             _ => format!("{}:{}:{}", self.session, self.turn, self.command),
@@ -54,7 +79,7 @@ impl Promise {
 
     pub fn dated(mut self) -> Self {
         if matches!(self.when, When::Wall { date: None, .. })
-            && let Some(when @ When::Wall { .. }) = when(&self.line)
+            && let Some((when @ When::Wall { .. }, _)) = read(&self.line)
         {
             self.when = when;
         }
@@ -68,7 +93,7 @@ pub struct Claim {
     pub command: Option<String>,
 }
 
-pub fn promised(reply: &str, resolves: &dyn Fn(&str) -> bool) -> Vec<Claim> {
+pub fn promised(reply: &str, said_ms: u64, reckon: &dyn Reckon, resolves: &dyn Fn(&str) -> bool) -> Vec<Claim> {
     let mut fenced = false;
     reply
         .lines()
@@ -77,15 +102,16 @@ pub fn promised(reply: &str, resolves: &dyn Fn(&str) -> bool) -> Vec<Claim> {
                 fenced = !fenced;
                 return None;
             }
-            if fenced || line.trim_start().starts_with(STOP) {
+            if fenced || line.trim_start().starts_with(STOP) || Answer::parse(line).is_some() {
                 return None;
             }
             let spans = spans(command_text(line));
             if spans.is_empty() {
                 return None;
             }
-            let command = spans.into_iter().rev().map(str::trim).find(|span| span.split_whitespace().next().is_some_and(resolves)).map(str::to_owned);
-            Some(Claim { line: line.trim().to_owned(), when: when(line)?, command })
+            let command = spans.into_iter().rev().map(str::trim).find(|span| runnable(span, resolves)).map(str::to_owned);
+            let (when, at) = when(line, said_ms, reckon)?;
+            Some(Claim { line: sentence(line, at), when, command })
         })
         .collect()
 }
@@ -166,16 +192,39 @@ fn command_text(line: &str) -> &str {
     }
 }
 
-fn when(line: &str) -> Option<When> {
+fn runnable(span: &str, resolves: &dyn Fn(&str) -> bool) -> bool {
+    let mut words = span.split_whitespace();
+    let Some(program) = words.next() else { return false };
+    resolves(program) && (program.contains('/') || words.next().is_some())
+}
+
+/// The sentence of `line` holding byte `at`, at most `QUOTE_CHARS` long: what a note may quote of a report.
+fn sentence(line: &str, at: usize) -> String {
+    let ends = |index: usize, text: &str| text[index..].chars().next().is_some_and(|letter| SENTENCE_ENDS.contains(&letter)) && text[index + 1..].chars().next().is_none_or(char::is_whitespace);
+    let start = line[..at].char_indices().rfind(|(index, _)| ends(*index, line)).map_or(0, |(index, _)| index + 1);
+    let end = line[at..].char_indices().find(|(index, _)| ends(at + index, line)).map_or(line.len(), |(index, _)| at + index + 1);
+    line[start..end].trim().chars().take(QUOTE_CHARS).collect()
+}
+
+fn when(line: &str, said_ms: u64, reckon: &dyn Reckon) -> Option<(When, usize)> {
+    let (when, at) = read(line)?;
+    let moment = match when {
+        When::Utc { at_ms } => Some(at_ms),
+        When::Wall { .. } => reckon.moment(&when, said_ms),
+    };
+    moment.is_none_or(|at_ms| at_ms > said_ms).then_some((when, at))
+}
+
+fn read(line: &str) -> Option<(When, usize)> {
     if let Some(found) = UTC.captures(line) {
         let at = crate::foundation::clock::Timestamp::parse(&format!("{}:00Z", &found[1])).ok()?;
-        return u64::try_from(at.unix_millis()).ok().map(|at_ms| When::Utc { at_ms });
+        return u64::try_from(at.unix_millis()).ok().map(|at_ms| (When::Utc { at_ms }, found.get(0).map_or(0, |whole| whole.start())));
     }
     let found = WALL.captures(line)?;
     let date = found.get(1).and_then(|month| Some((MONTHS.iter().position(|name| month.as_str().eq_ignore_ascii_case(name))? as u8 + 1, found[2].parse().ok()?)));
     let hour: u8 = found[3].parse().ok()?;
     let afternoon = found[5].eq_ignore_ascii_case("p");
-    Some(When::Wall { hour: hour % 12 + if afternoon { 12 } else { 0 }, minute: found[4].parse().ok()?, date })
+    Some((When::Wall { hour: hour % 12 + if afternoon { 12 } else { 0 }, minute: found[4].parse().ok()?, date }, found.get(0).map_or(0, |whole| whole.start())))
 }
 
 pub struct Book {
@@ -188,12 +237,19 @@ impl Book {
     }
 
     pub fn keep(&self, promises: &[Promise]) -> NorthResult<()> {
-        append(&self.root.join(FILE), promises)
+        let to_leads: Vec<&Promise> = promises.iter().filter(|promise| promise.parent != PROXY).collect();
+        append(&self.root.join(FILE), &to_leads)
     }
 
     pub fn open(&self) -> Vec<Promise> {
         let checked: BTreeSet<String> = lines(&self.root.join(CHECKED)).collect();
-        lines(&self.root.join(FILE)).filter_map(|line| serde_json::from_str::<Promise>(&line).ok()).map(Promise::dated).filter(|promise| !checked.contains(&promise.key())).collect()
+        let mut seen = BTreeSet::new();
+        lines(&self.root.join(FILE))
+            .filter_map(|line| serde_json::from_str::<Promise>(&line).ok())
+            .map(Promise::dated)
+            .filter(|promise| !checked.contains(&promise.key()) && !checked.contains(&promise.turn_key()))
+            .filter(|promise| seen.insert(promise.key()))
+            .collect()
     }
 
     pub fn checked(&self, keys: &[String]) -> NorthResult<()> {

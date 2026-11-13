@@ -22,7 +22,7 @@ use super::jobs::{HeldLeases, JobLeases};
 use super::landings::{self, push_log};
 use super::model::{Delivery, Entry, EntryKind, Machine, Phase, Phases, Role, SessionRecord, Transcript};
 use super::prompt::is_deepened;
-use super::promises::{Book, Promise, promised, resolver};
+use super::promises::{Book, Promise, Reckon, Unreckoned, promised, resolver};
 use super::receipts::{Courier, Report, deliver_report, is_final, retires};
 use super::records::{find_session, host_sessions, parents_live};
 use super::silent::{self, Quiet, Silence, State};
@@ -66,6 +66,7 @@ pub struct TurnWatch {
     usage: Arc<dyn UsageSink>,
     recording: Arc<dyn RunRecording>,
     verdicts: PathBuf,
+    reckon: Arc<dyn Reckon>,
 }
 
 struct NoLanes;
@@ -202,6 +203,7 @@ impl TurnWatch {
             usage: Arc::new(NoUsage),
             recording: Arc::new(NoRecording),
             verdicts: north_base::platform::finish_record::FinishRecords::here().0,
+            reckon: Arc::new(Unreckoned),
         }
     }
 
@@ -232,6 +234,11 @@ impl TurnWatch {
 
     pub fn recording_runs(mut self, recording: Arc<dyn RunRecording>) -> Self {
         self.recording = recording;
+        self
+    }
+
+    pub fn reckoning_with(mut self, reckon: Arc<dyn Reckon>) -> Self {
+        self.reckon = reckon;
         self
     }
 
@@ -401,7 +408,7 @@ impl TurnWatch {
     fn keep_promises(&self, record: &SessionRecord, parent: &str, turn: &Turn, number: u64, reply: &str) {
         let mut promises = Vec::new();
         let search = std::env::var_os("PATH").unwrap_or_default();
-        for claim in promised(reply, &resolver(&record.cwd, &search)) {
+        for claim in promised(reply, turn.ended_ms, self.reckon.as_ref(), &resolver(&record.cwd, &search)) {
             match claim.command {
                 Some(command) => promises.push(Promise { session: record.name.clone(), turn: number, line: claim.line, command, when: claim.when, said_ms: turn.ended_ms, parent: parent.to_owned() }),
                 None => eprintln!("north fleet: {}'s line {:?} names a time but no backticked command whose program resolves, so it holds no promise to remind its parent of", record.name, claim.line),

@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use super::*;
-use crate::fleet::promises::promised;
+use crate::fleet::promises::{Unreckoned, promised};
 use crate::foundation::clock::Timestamp;
 
 fn unix_ms(text: &str) -> u64 {
@@ -14,7 +14,7 @@ fn a_due_promise_is_a_message_to_the_reporting_sessions_parent_and_its_quoted_co
     let marker = scratch.path().join("started");
     let reply = format!("Not done: the spend reading is refreshed.\nLaunches on b open by 2:16 AM: `touch {}`\nLanded at 1:50 AM: `git merge-base --is-ancestor HEAD origin/main`\nStop: capacity\n", marker.display());
     let said_ms = unix_ms("2026-11-07T19:00:00Z");
-    let kept: Vec<Promise> = promised(&reply, &|_| true)
+    let kept: Vec<Promise> = promised(&reply, said_ms, &Unreckoned, &|_| true)
         .into_iter()
         .map(|claim| Promise { session: "gex45-lead-b".into(), turn: 4, line: claim.line, command: claim.command.unwrap(), when: claim.when, said_ms, parent: "night-lead".into() })
         .collect();
@@ -42,7 +42,7 @@ fn a_due_promise_is_a_message_to_the_reporting_sessions_parent_and_its_quoted_co
 #[test]
 fn a_promise_naming_a_date_is_due_on_that_date_not_on_the_nearest_day_with_that_time() {
     let line = "Check after Tue Nov 10, 3:00 PM (when account d's week resets): `north fleet accounts --plan`";
-    let claim = promised(line, &|_| true).remove(0);
+    let claim = promised(line, 0, &Unreckoned, &|_| true).remove(0);
     assert_eq!(claim.when, When::Wall { hour: 15, minute: 0, date: Some((11, 10)) });
     let promise = Promise { session: "staffing-rules".into(), turn: 3, line: line.into(), command: "true".into(), when: claim.when, said_ms: unix_ms("2026-11-09T03:00:00Z"), parent: "proxy".into() };
     let tom = Zone::named(Some("Etc/GMT-7"));

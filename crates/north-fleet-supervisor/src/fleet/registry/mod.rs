@@ -27,6 +27,7 @@ use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime
 use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
+use super::promises::{Reckon, Unreckoned};
 use super::run_recording::{NoRecording, RunRecording};
 use lanes::OverSshLanes;
 pub use lanes::{RemoteLane, RemoteLanes};
@@ -123,6 +124,7 @@ pub struct Fleet {
     recording: Arc<dyn RunRecording>,
     remote_lanes: Arc<dyn RemoteLanes>,
     desk: Arc<dyn ProxyDesk>,
+    reckon: Arc<dyn Reckon>,
     spools_as: Option<String>,
 }
 
@@ -153,7 +155,7 @@ impl Fleet {
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
         let kept = root.join(lanes::KEPT_LANES);
-        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), desk: Arc::new(NoDesk), spools_as: None };
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), desk: Arc::new(NoDesk), reckon: Arc::new(Unreckoned), spools_as: None };
         fleet.adopt_journals()?;
         Ok(fleet)
     }
@@ -168,6 +170,11 @@ impl Fleet {
         self
     }
 
+    pub fn reckoning_with(mut self, reckon: Arc<dyn Reckon>) -> Self {
+        self.reckon = reckon;
+        self
+    }
+
     /// Shows the proxy on `desk`, the desktop Tom types on; a fleet without one starts no proxy.
     pub fn showing_proxy_on(mut self, desk: Arc<dyn ProxyDesk>) -> Self {
         self.desk = desk;
@@ -175,7 +182,7 @@ impl Fleet {
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
-        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).writing_usage(self.usage.clone()).recording_runs(self.recording.clone()).reading_tickets(Arc::new(tickets::LandQueue::here())).reading_jobs(Arc::new(SpooledLeases::new(self.leases.clone(), Spool::at(&self.root)).reading_far(Arc::new(OverSsh::default())))).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
+        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).writing_usage(self.usage.clone()).recording_runs(self.recording.clone()).reckoning_with(self.reckon.clone()).reading_tickets(Arc::new(tickets::LandQueue::here())).reading_jobs(Arc::new(SpooledLeases::new(self.leases.clone(), Spool::at(&self.root)).reading_far(Arc::new(OverSsh::default())))).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
     }
 
     /// Every phase move of this host's sessions, in the lifecycle store beside the fleet root.
