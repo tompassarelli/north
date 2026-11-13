@@ -7,6 +7,8 @@ const MINT_LIMIT: Duration = Duration::from_secs(90);
 const LAUNCH_LIMIT: Duration = Duration::from_secs(150);
 const VERIFY_NORTH_LIMIT: Duration = Duration::from_secs(600);
 const SCRATCH_LANDING_LIMIT: Duration = Duration::from_secs(240);
+const LAND_CHECK_LIMIT: Duration = Duration::from_secs(180);
+const OFFLOADED_LAND_CHECK_PROBE: &str = "an offloaded land check placed on this host returns a verdict";
 const DEPBOX_LIMIT: Duration = Duration::from_secs(60);
 const FETCH: &str = "for file in \"$HOME\"/code/*/main/.safe-push; do\n  [ -f \"$file\" ] || continue\n  git -C \"$(dirname \"$file\")\" ls-remote origin HEAD >/dev/null || { echo \"$file: fetch failed\" >&2; exit 1; }\ndone";
 pub(super) const PROVIDERS: [&str; 3] = ["claude", "opencode", "pi"];
@@ -114,6 +116,25 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hu
     }
     CoreLoop { probes: judging(sha, probes), not_applicable }
 }
+
+/// A land check the judged runtime offloads onto `host` itself, in the host's own slots as the login the canary dials, run from one of the checkouts the host keeps; a host that cannot place and run it returns no verdict, as cpx62 returned none to any offloaded land check from 4:10 to 5:12 AM on 2026-11-13 after a runtime that passed its three probes.
+pub(super) fn offloaded_land_check(host: &str, sha: &str) -> Probe {
+    let runtime = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"");
+    let name = host.rsplit_once('@').map_or(host, |(_, name)| name);
+    let script = OFFLOADED_LAND_CHECK.replace("__NORTH__", &format!("{runtime}/north")).replace("__HOST__", name);
+    judging(sha, vec![probe(OFFLOADED_LAND_CHECK_PROBE, script, LAND_CHECK_LIMIT)]).remove(0)
+}
+
+const OFFLOADED_LAND_CHECK: &str = r#"set -uo pipefail
+north=__NORTH__
+for checkout in "$HOME"/code/*/main; do
+  if [ -e "$checkout/.git" ]; then cd "$checkout" && break; fi
+done
+"$north" capacity offload run --host __HOST__ --base "" --head HEAD --timeout 120 -- true && exit 0
+code=$?
+echo "the offloaded land check on __HOST__ returned no verdict (exit $code)" >&2
+exit 1
+"#;
 
 /// Every process a probe starts follows a link naming the judged runtime, so a resident one such as a probe worker's
 /// session host stays on the build being judged instead of moving onto whichever runtime `current` or the lander link

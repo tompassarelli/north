@@ -116,6 +116,11 @@ pub(crate) fn warms_slots_here() -> bool {
     config().map_or(true, |cfg| destinations::warms_slots(&cfg, &crate::platform::host::name()))
 }
 
+/// Whether the configuration names `host` as one that takes offloaded builds, whichever host asks.
+pub fn offloads_builds_in(host: &str) -> bool {
+    config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, host))
+}
+
 pub fn builds_for_peers() -> bool {
     config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, &crate::platform::host::name()))
 }

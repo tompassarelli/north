@@ -55,6 +55,7 @@ pub(super) trait Machine: Sync {
     fn launchable_providers(&self) -> Vec<String>;
     fn sessions_reach_hub(&self, host: &str) -> bool;
     fn settles_fleet(&self, host: &str) -> bool;
+    fn takes_land_checks(&self, host: &str) -> bool;
     fn lander_repositories(&self) -> Option<Landers>;
     /// The probes runtime `sha` judges itself by on `host`, or why it printed none; a machine that asks no runtime answers with the list compiled into the running north.
     fn listed_by(&self, host: &str, sha: &str) -> Result<CoreLoop, String>
@@ -77,7 +78,11 @@ pub(super) enum Verdict {
 
 pub(super) fn compiled(host: &str, sha: &str, machine: &impl Machine) -> CoreLoop {
     let landers = machine.lander_repositories();
-    probes::core_loop(host, sha, &machine.launchable_providers(), machine.sessions_reach_hub(host), machine.settles_fleet(host), landers.as_ref())
+    let mut plan = probes::core_loop(host, sha, &machine.launchable_providers(), machine.sessions_reach_hub(host), machine.settles_fleet(host), landers.as_ref());
+    if machine.takes_land_checks(host) {
+        plan.probes.push(probes::offloaded_land_check(host, sha));
+    }
+    plan
 }
 
 fn listed(host: &str, sha: &str, short: &str, machine: &impl Machine) -> CoreLoop {
@@ -312,6 +317,11 @@ impl Machine for Live<'_> {
 
     fn settles_fleet(&self, _host: &str) -> bool {
         matches!(self.host, super::probe::Shell::Here(_)) && crate::land_offload::settles_fleet_here()
+    }
+
+    fn takes_land_checks(&self, host: &str) -> bool {
+        let name = host.rsplit_once('@').map_or(host, |(_, name)| name);
+        crate::land_offload::offloads_builds_in(name)
     }
 
     fn lander_repositories(&self) -> Option<Landers> {

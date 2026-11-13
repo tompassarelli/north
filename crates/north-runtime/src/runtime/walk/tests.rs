@@ -104,6 +104,10 @@ impl Machine for FailsTheWalk {
         true
     }
 
+    fn takes_land_checks(&self, _host: &str) -> bool {
+        false
+    }
+
     fn lander_repositories(&self) -> Option<Landers> {
         None
     }

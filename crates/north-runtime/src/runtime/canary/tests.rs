@@ -17,6 +17,7 @@ struct Fleet<'a> {
     launchable: Vec<String>,
     reaches_hub: bool,
     settles: bool,
+    builds: bool,
     landers: Option<probes::Landers>,
     depbox_host: Option<std::path::PathBuf>,
     services: Option<String>,
@@ -75,6 +76,10 @@ impl Machine for Fleet<'_> {
         self.settles
     }
 
+    fn takes_land_checks(&self, _host: &str) -> bool {
+        self.builds
+    }
+
     fn lander_repositories(&self) -> Option<probes::Landers> {
         self.landers.clone()
     }
@@ -103,7 +108,7 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, settles: false, landers: None, depbox_host: None, services: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, settles: false, builds: false, landers: None, depbox_host: None, services: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
     }
 
     fn settling(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
@@ -154,6 +159,13 @@ fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming
     assert!(matches!(update::hold::verdict(&host.layout, PROMOTED, true).unwrap(), update::hold::Verdict::Held(_)));
     assert_eq!(lifecycle::state_of::<Canarying>(&host.layout, &format!("nexus/{PROMOTED}")).unwrap(), Some(Canary::RolledBack));
     assert!(pin::read(&host.layout.state).iter().any(|event| matches!(event, Event::Canaried { sha, host, seconds, .. } if sha == PROMOTED && host == "nexus" && *seconds < 60)), "the canary journals the stage seconds the scoreboard reads");
+
+    let host = Host::promoted();
+    let fleet = Fleet { builds: true, ..host.fleet(Some(("an offloaded land check placed on this host", exited(1, "the offloaded land check on cpx62 returned no verdict (exit 75)\n")))) };
+    assert_eq!(check(&host.layout, "cpx62", PROMOTED, &fleet), Verdict::RolledBack, "on 2026-11-13 order 45 passed cpx62's three probes and no offloaded land check there returned a verdict for an hour");
+    assert_eq!(host.current(), layout::link(PREVIOUS));
+    let alarms = fleet.alarms.lock().unwrap();
+    assert!(alarms[0].contains("probe `an offloaded land check placed on this host returns a verdict` exited 1"), "{}", alarms[0]);
 }
 
 #[test]

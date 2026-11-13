@@ -62,6 +62,10 @@ impl Machine for Probes {
         false
     }
 
+    fn takes_land_checks(&self, _host: &str) -> bool {
+        false
+    }
+
     fn lander_repositories(&self) -> Option<canary::Landers> {
         None
     }
