@@ -34,7 +34,7 @@ placement = "global"
 fixes = "comments that narrate the code and go stale"
 
 [[rule]]
-id = "additions-point-to-evidence"
+id = "additions-need-evidence"
 section = "Evidence"
 text = "Add a scenario, limit, guard, gate or check only for something you can point to: a line in the request, a real report or a reproduced failure."
 placement = "global"
