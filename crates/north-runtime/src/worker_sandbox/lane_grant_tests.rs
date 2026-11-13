@@ -117,7 +117,7 @@ fn a_lane_only_session_lands_its_own_lane_on_main_and_nothing_else() {
     let finished = std::sync::OnceLock::new();
     std::thread::scope(|scope| {
         scope.spawn(|| finished.set(fixture.ask(&["safe-push", "--to", "main"], &fixture.lane)).is_ok());
-        assert!(north_base::platform::wait::until(std::time::Duration::from_secs(4), || finished.get().is_some()), "the landing's output stayed open while a helper it left running lived, so the caller never read its end");
+        assert!(north_base::platform::wait::until(std::time::Duration::from_secs(3600), || finished.get().is_some()), "the landing's output stayed open while a helper it left running lived, so the caller never read its end");
     });
     let landed = finished.into_inner().unwrap();
     assert_eq!(landed.code, 0, "{}", landed.stderr);

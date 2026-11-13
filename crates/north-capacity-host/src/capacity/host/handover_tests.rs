@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use north_base::platform::wait;
 
+const HANG: Duration = Duration::from_secs(3600);
+
 use super::handover::{Listening, REPUBLISH_AFTER, release, socket_path};
 use super::json::Obj;
 use super::offering::{Declines, Waiting, try_offload};
@@ -17,7 +19,7 @@ use crate::capacity::handover::{Frame, Received, receive};
 
 fn enqueue_later(root: &std::path::Path, ticket: Obj) -> String {
     let mark = super::machine::now_ms();
-    wait::until(Duration::from_secs(5), || super::machine::now_ms() > mark);
+    wait::until(HANG, || super::machine::now_ms() > mark);
     enqueue(root, ticket)
 }
 
@@ -85,7 +87,7 @@ async fn capacity_a_run_is_claimed_once_by_racing_peers_withdrawn_on_local_admis
     let _first = oldest_door.accept().await.unwrap();
     let (_, newer_peer) = claims.pop().unwrap();
     drop(newer_door);
-    newer_peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    newer_peer.set_read_timeout(Some(HANG)).unwrap();
     let ended = (&newer_peer).read_to_end(&mut Vec::new());
     assert!(matches!(&ended, Ok(0)) || ended.as_ref().is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionReset), "a run admitted here first ends its claimant's connection instead of leaving it waiting: {ended:?}");
     let later = queue(&root, "heavy", true);

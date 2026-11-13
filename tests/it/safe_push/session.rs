@@ -38,7 +38,7 @@ fn sigint_cancels_a_dry_run_during_its_land_check_with_exit_130_no_false_landed_
     assert!(output.lines().any(|line| line.starts_with(named.as_str()) && line.ends_with(')')), "missing a cancelled receipt naming the sending pid {sender}: {output}");
     assert!(!output.lines().any(|line| line.starts_with("safe-push: landed ")), "a cancelled dry run falsely reported the base as landed: {output}");
     let check = read(&pid_file);
-    let gone = wait_until(Duration::from_secs(5), || !alive(&check));
+    let gone = wait_until(Duration::from_secs(3600), || !alive(&check));
     if !gone {
         let _ = Command::new("kill").arg(&check).status();
     }

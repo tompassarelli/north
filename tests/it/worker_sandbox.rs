@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+const HANG: std::time::Duration = std::time::Duration::from_secs(3600);
 const CHILD: &str = "NORTH_706_REMOVE_COMPUTED";
 
 fn git(directory: &Path, arguments: &[&str]) {
@@ -495,7 +496,7 @@ impl Worker {
         let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
         let socket = runtime.path().join("north-outside/broker.sock");
         let broker = Broker(Command::new(north).args(["--worker-sandbox", "--broker"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("XDG_RUNTIME_DIR", runtime.path()).spawn().unwrap());
-        assert!(north_core::platform::wait::until(std::time::Duration::from_secs(5), || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
+        assert!(north_core::platform::wait::until(HANG, || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
         Self { home, runtime, _broker: broker }
     }
 
@@ -544,7 +545,7 @@ fn a_sandboxed_worker_fast_forwards_a_main_checkout_through_the_broker() {
     let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
     let socket = runtime.path().join("north-outside/broker.sock");
     let _broker = Broker(Command::new(north).args(["--worker-sandbox", "--broker"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("XDG_RUNTIME_DIR", runtime.path()).spawn().unwrap());
-    assert!(north_core::platform::wait::until(std::time::Duration::from_secs(5), || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
+    assert!(north_core::platform::wait::until(HANG, || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
     let origin = home.path().join("origin");
     std::fs::create_dir_all(&origin).unwrap();
     git(&origin, &["init", "-q", "-b", "main"]);

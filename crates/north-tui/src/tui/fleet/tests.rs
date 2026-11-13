@@ -20,6 +20,8 @@ use super::runner::Runner;
 use super::screen::{Command, Dialog, Focus, Screen};
 use super::{apply_event, drive};
 
+const HANG: Duration = Duration::from_secs(3600);
+
 #[derive(Default)]
 struct ActionsFake {
     performed: Mutex<Vec<Command>>,
@@ -56,7 +58,7 @@ impl SessionActions for ActionsFake {
 
     fn stop(&self, name: &str) -> NorthResult<()> {
         if let Some(gate) = self.stop_gate.lock().unwrap().as_ref() {
-            gate.recv_timeout(Duration::from_secs(5)).unwrap();
+            gate.recv_timeout(HANG).unwrap();
         }
         self.record(Command::Stop(name.into()))
     }
@@ -210,7 +212,7 @@ fn key(desk: &mut DeskFake, screen: &mut Screen, event: KeyEvent) {
     let mut runner = Runner::new(desk.actions());
     runner.start(command);
     let mut completions = Vec::new();
-    assert!(north_base::platform::wait::until(Duration::from_secs(5), || {
+    assert!(north_base::platform::wait::until(HANG, || {
         completions = runner.completed();
         !completions.is_empty()
     }), "command did not complete");

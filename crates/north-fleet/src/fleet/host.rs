@@ -282,15 +282,14 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let mut old_host = Command::new("sh").args(["-c", "sleep 300 & wait"]).process_group(0).stdin(Stdio::null()).spawn().unwrap();
         let mut run = sleeper("301");
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let child = loop {
+        let mut child = None;
+        let started = north_base::platform::wait::until(Duration::from_secs(3600), || {
             let children = fs::read_to_string(format!("/proc/{0}/task/{0}/children", old_host.id())).unwrap_or_default();
-            if let Some(child) = children.split_whitespace().next().and_then(|pid| pid.parse::<u32>().ok()) {
-                break child;
-            }
-            assert!(Instant::now() < deadline, "the old host never started its child");
-            std::thread::sleep(POLL);
-        };
+            child = children.split_whitespace().next().and_then(|pid| pid.parse::<u32>().ok());
+            child.is_some()
+        });
+        assert!(started, "the old host never started its child");
+        let child = child.unwrap();
         for pid in [old_host.id(), child, run.id()] {
             enroll(&proc, pid, "north-session-old.scope");
         }

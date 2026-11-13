@@ -26,7 +26,7 @@ fn host_pid(child: &Child) -> u32 {
 }
 
 fn exited(child: &mut Child) -> bool {
-    north_base::platform::wait::until(Duration::from_secs(5), || child.try_wait().unwrap().is_some())
+    north_base::platform::wait::until(Duration::from_secs(3600), || child.try_wait().unwrap().is_some())
 }
 
 fn host(root: &Path, proc: &Path) -> Host {

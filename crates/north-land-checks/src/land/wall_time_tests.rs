@@ -3,6 +3,7 @@
 //! comparing a measured duration to a threshold (north#892).
 use std::path::Path;
 use std::process::Command;
+use std::sync::LazyLock;
 
 use regex::Regex;
 
@@ -16,7 +17,13 @@ const JUDGED_BY_COST: [&str; 1] = ["crates/north-replay/src/"];
 const COST_TIMING: &str = r"Instant::now\(|\.elapsed\(\)|SystemTime::now\(|/proc/loadavg|/proc/pressure";
 const SUB_SECOND_BUDGET: &str = r"[(,]\s*Duration::from_millis\(\s*\d{1,3}\s*\)\s*[,)]";
 const INJECTED_CLOCK: &str = r"&\|\|";
-const SUB_SECOND_BUDGET_TESTS: [(&str, &str); 2] = [
+const CONTRACT_DEADLINES: [(&str, &str); 3] = [
+    ("crates/north-core/src/grounding/prompt_hook.rs", "the case hands within() a 100 ms deadline and a decider that sleeps 5 s; abandoning it at that deadline is the contract, and load can only make the abandonment later, never make the decider answer"),
+    ("crates/north-runtime/src/runtime/bounded.rs", "the case hands the command a 200 ms limit over a 30 s sleep; the kill at the limit is the contract, and its 10 s ceiling is a hang guard 20 times under the sleep"),
+    ("src/cli/fleet/claims.rs", "the case hands a claim a 300 ms bound over a 30 s sleep; spooling past that bound is the contract, and its 10 s ceiling is a hang guard under the sleep"),
+];
+const SUB_SECOND_BUDGET_TESTS: [(&str, &str); 3] = [
+    ("crates/north-base/src/platform/process.rs", "a negative wait: load can only end the 200 ms wait later, never make the gated command finish, so the assertion holds at any budget"),
     ("crates/north-fleet/src/fleet/rebooted_tests.rs", "the revive is held until its release, so the 100 ms budget only bounds how promptly the pass returns and the deferral does not depend on it"),
     ("crates/north-capacity-host/src/capacity/watchdog/sampler_tests.rs", "a negative wait: load can only end the 200 ms wait later, never make the process left alone exit, so the assertion holds at any budget"),
 ];
@@ -38,8 +45,40 @@ fn rust_files() -> Vec<String> {
     String::from_utf8(listed.stdout).unwrap().split('\0').filter(|path| !path.is_empty()).map(str::to_owned).collect()
 }
 
+fn inline_test_modules(text: &str) -> String {
+    static MODULE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(pub(\([a-z]+\))? )?mod \w+ \{$").unwrap());
+    let (mut armed, mut inside) = (false, false);
+    let kept: Vec<&str> = text
+        .lines()
+        .map(|line| {
+            if inside {
+                inside = line != "}";
+                return line;
+            }
+            if line == "#[cfg(test)]" || (armed && line.starts_with("#[")) {
+                armed = true;
+                return "";
+            }
+            inside = armed && MODULE.is_match(line);
+            armed = false;
+            if inside { line } else { "" }
+        })
+        .collect();
+    kept.join("\n")
+}
+
+fn test_text(path: &str) -> String {
+    let text = std::fs::read_to_string(root().join(path)).unwrap_or_default();
+    static TEST_PATH: LazyLock<Regex> = LazyLock::new(|| Regex::new(TEST_CODE).unwrap());
+    if TEST_PATH.is_match(path) { text } else { inline_test_modules(&text) }
+}
+
 fn found(paths: &[String], pattern: &Regex) -> Vec<String> {
     paths.iter().flat_map(|path| found_in(path, &std::fs::read_to_string(root().join(path)).unwrap_or_default(), pattern)).collect()
+}
+
+fn found_in_tests(paths: &[String], pattern: &Regex) -> Vec<String> {
+    paths.iter().flat_map(|path| found_in(path, &test_text(path), pattern)).collect()
 }
 
 fn sub_second_budgets(path: &str, text: &str) -> Vec<String> {
@@ -49,7 +88,7 @@ fn sub_second_budgets(path: &str, text: &str) -> Vec<String> {
 }
 
 fn found_sub_second(paths: &[String]) -> Vec<String> {
-    paths.iter().flat_map(|path| sub_second_budgets(path, &std::fs::read_to_string(root().join(path)).unwrap_or_default())).collect()
+    paths.iter().flat_map(|path| sub_second_budgets(path, &test_text(path))).collect()
 }
 
 fn duration_threshold() -> Regex {
@@ -61,13 +100,15 @@ fn no_land_check_or_test_reads_wall_time_or_host_load() {
     let rust = rust_files();
     assert!(rust.len() > 100, "listed {} Rust files", rust.len());
     let test_code = Regex::new(TEST_CODE).unwrap();
-    let tests: Vec<String> = rust.iter().filter(|path| test_code.is_match(path) && !path.starts_with(RECORDED_LOGS) && *path != THIS_FILE).cloned().collect();
+    let tests: Vec<String> = rust.iter().filter(|path| !path.starts_with(RECORDED_LOGS) && *path != THIS_FILE && !CONTRACT_DEADLINES.iter().any(|(allowed, _)| path.as_str() == *allowed)).cloned().collect();
+    let inline = tests.iter().filter(|path| !test_code.is_match(path) && !test_text(path).trim().is_empty()).count();
+    assert!(inline > 20, "only {inline} files with an inline test module were scanned");
     let checks: Vec<String> = rust.iter().filter(|path| JUDGED_BY_COST.iter().any(|check| path.starts_with(check)) && !test_code.is_match(path)).cloned().collect();
     assert!(!checks.is_empty(), "no source under {JUDGED_BY_COST:?}");
-    let timed_tests = found(&tests, &Regex::new(TEST_TIMING).unwrap());
+    let timed_tests = found_in_tests(&tests, &Regex::new(TEST_TIMING).unwrap());
     assert!(timed_tests.is_empty(), "test code reads the wall clock or the host's load; wait on the event through north_base::platform::wait or inject the clock:\n{}", timed_tests.join("\n"));
     let judged: Vec<String> = tests.iter().filter(|path| path.as_str() != REAL_BUDGETS.0).cloned().collect();
-    let thresholds = found(&judged, &duration_threshold());
+    let thresholds = found_in_tests(&judged, &duration_threshold());
     assert!(thresholds.is_empty(), "a test compares a measured duration to a threshold, so it passes or fails on host load; decide by events through an injected clock or sampler:\n{}", thresholds.join("\n"));
     let budgeted: Vec<String> = tests.iter().filter(|path| !SUB_SECOND_BUDGET_TESTS.iter().any(|(allowed, _)| path.as_str() == *allowed)).cloned().collect();
     let budgets = found_sub_second(&budgeted);

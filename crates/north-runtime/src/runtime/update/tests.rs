@@ -4,7 +4,7 @@ use super::sync::swap;
 fn ticks_past(directory: &std::path::Path, mark: &std::path::Path) {
     let probe = directory.join(".tick");
     let modified = |path: &std::path::Path| fs::symlink_metadata(path).unwrap().modified().unwrap();
-    let past = north_base::platform::wait::until(Duration::from_secs(5), || {
+    let past = north_base::platform::wait::until(Duration::from_secs(3600), || {
         fs::write(&probe, "").unwrap();
         modified(&probe) > modified(mark)
     });

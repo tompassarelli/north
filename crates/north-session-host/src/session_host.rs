@@ -580,15 +580,9 @@ mod socket {
     }
 
     async fn stream_lines(root: &Path, count: usize) -> Vec<String> {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            let text = fs::read_to_string(root.join("g1/stream.jsonl")).unwrap_or_default();
-            let lines = text.lines().map(String::from).collect::<Vec<_>>();
-            if lines.len() >= count || Instant::now() > deadline {
-                return lines;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+        let read = || fs::read_to_string(root.join("g1/stream.jsonl")).unwrap_or_default().lines().map(String::from).collect::<Vec<_>>();
+        north_base::platform::wait::until_async(Duration::from_secs(3600), || read().len() >= count).await;
+        read()
     }
 
     fn user(n: usize) -> String {

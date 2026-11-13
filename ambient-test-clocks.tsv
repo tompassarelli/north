@@ -2,7 +2,6 @@ crates/north-convo/src/convo/tests.rs	2
 crates/north-core/src/grounding/prompt_hook.rs	2
 crates/north-fleet-supervisor/src/fleet/reaper_tests.rs	1
 crates/north-fleet-supervisor/src/fleet/resume_tests.rs	1
-crates/north-fleet/src/fleet/host.rs	3
 crates/north-graph/examples/ask_scale.rs	3
 crates/north-guard/src/guard/subagent_teardown_tests.rs	1
 crates/north-lander-doctor/src/tests.rs	2
@@ -13,7 +12,6 @@ crates/north-lanes/src/lanes/rescue_tests.rs	2
 crates/north-lanes/src/lanes/unpushed_tests.rs	1
 crates/north-runtime/src/runtime/bounded.rs	1
 crates/north-runtime/src/runtime/update/tests.rs	1
-crates/north-session-host/src/session_host.rs	3
 src/bin/fake_claude.rs	1
 src/cli/fleet/claims.rs	1
 tests/it/follows_release.rs	2

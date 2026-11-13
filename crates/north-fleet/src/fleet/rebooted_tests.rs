@@ -50,7 +50,7 @@ struct Slow(Mutex<std::sync::mpsc::Receiver<()>>);
 
 impl Resumer for Slow {
     fn revive(&self, _name: &str) -> NorthResult<Revived> {
-        let _ = self.0.lock().unwrap().recv_timeout(Duration::from_secs(5));
+        let _ = self.0.lock().unwrap().recv_timeout(Duration::from_secs(3600));
         Ok(Revived::Started)
     }
 

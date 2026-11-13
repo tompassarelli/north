@@ -2,5 +2,5 @@
 name = "fleet"
 paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/session_host/**", "crates/north-session-host/src/row_delivery.rs", "crates/north-session-host/src/held.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
-may_use = ["agent_starts", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "platform.git", "platform.process", "platform.records", "fleet_store", "platform.harness", "graph_loops", "runtime_follow"]
+may_use = ["agent_starts", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "platform.git", "platform.process", "platform.records", "fleet_store", "platform", "platform.harness", "graph_loops", "runtime_follow"]
 
