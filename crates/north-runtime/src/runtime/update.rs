@@ -54,7 +54,7 @@ use hold::Verdict;
 use ordered::unordered;
 pub(super) use ordered::{build_ordered, go_live_ordered, order_handed_over, order_marked, order_waiting, update_ordered_to};
 use shipped::{Shipped, shipped};
-use sync::{relink, republish_if_unpublished, swap, sync};
+use sync::{relink, republish_if_unpublished, swap_back, sync};
 pub(super) use sync::{alert_proxy, page_proxy};
 
 enum Pass {
@@ -174,7 +174,7 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     let Some(previous) = lifecycle::previous(layout, failed_sha, |sha| layout::has_programs(&layout.runtime(sha)))? else {
         return Err(failed(DEFERRED, format!("no previous runtime to roll {} back to; nothing to roll back", layout::short(failed_sha))));
     };
-    swap(layout, &layout::link(&previous))?;
+    swap_back(layout, &layout::link(&previous))?;
     if fs::read_link(layout.lander()).is_ok_and(|lander| lander == layout::link(failed_sha)) {
         relink(&layout.lander(), &layout::link(&previous))?;
         println!("north runtime: lander link rolled back with current to {previous}");

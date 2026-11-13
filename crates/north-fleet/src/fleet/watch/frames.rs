@@ -113,7 +113,10 @@ impl TurnWatch {
         }
         match step {
             Step::Wait => self.checkpoint_frames().map_or(Rest::Wait, Rest::Send),
-            Step::Park => Rest::End,
+            Step::Park => {
+                self.park();
+                Rest::End
+            }
             Step::Compact => {
                 self.rolled_over = true;
                 self.runtime.compact(None).map_or(Rest::Wait, |frame| Rest::Send(vec![frame]))

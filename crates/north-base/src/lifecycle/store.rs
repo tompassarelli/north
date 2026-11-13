@@ -423,8 +423,16 @@ fn release<L: Lifecycle>(transaction: &Transaction, who: &Owner, liveness: &dyn 
         return Ok(if to.is_some_and(|to| L::preempts(record.state, to)) { Ok(Some(record)) } else { Err(Refusal::Held { state: record.state, owner }) });
     }
     let orphan = L::orphan(record.state).ok_or_else(|| NorthError::State(format!("{} {} is held in {}, which has no orphan state", L::NAME, record.instance, record.state.name())))?;
-    Ok(Ok(Some(write::<L>(transaction, (who, who), &record, orphan, &format!("the holder, {owner}, is gone"), at, None)?)))
+    Ok(Ok(Some(write::<L>(transaction, (who, who), &record, orphan, &orphaned(&owner), at, None)?)))
 }
+
+/// The cause the store logs when it moves a state whose holding process is gone to its orphan state.
+pub fn orphaned(owner: &Owner) -> String {
+    format!("the holder, {owner}, is gone")
+}
+
+/// The SQL `LIKE` pattern every [`orphaned`] cause matches, so a reader of the move log tells the store's own move for a dead holder from a move someone asked for.
+pub const ORPHANED_LIKE: &str = "the holder, %, is gone";
 
 fn write<L: Lifecycle>(transaction: &Transaction, (who, holder): (&Owner, &Owner), from: &Record<L::State>, to: L::State, cause: &str, at: Timestamp, deadline: Option<Timestamp>) -> NorthResult<Record<L::State>> {
     let previous = (from.seq > 0).then(|| from.state.name());

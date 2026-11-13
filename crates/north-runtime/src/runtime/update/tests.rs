@@ -1,4 +1,5 @@
 use super::*;
+use super::sync::swap;
 
 fn ticks_past(directory: &std::path::Path, mark: &std::path::Path) {
     let probe = directory.join(".tick");

@@ -15,10 +15,19 @@ const LOG_TAIL: usize = 8;
 const AGENTS_SYNC: &str = "agents sync";
 
 pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
+    point_current(layout, link, false)
+}
+
+/// [`swap`] back to a runtime live before, recorded as a rollback, so the watch never rolls its window back again.
+pub(super) fn swap_back(layout: &Layout, link: &Path) -> std::io::Result<()> {
+    point_current(layout, link, true)
+}
+
+fn point_current(layout: &Layout, link: &Path, rollback: bool) -> std::io::Result<()> {
     let moved = fs::read_link(layout.current()).ok().as_deref() != Some(link);
     relink(&layout.current(), link)?;
     if moved {
-        live::note_swap(layout, link);
+        live::note_swap(layout, link, rollback);
     }
     Ok(())
 }
@@ -65,7 +74,7 @@ pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, ste
         return Ok(logged.lines().map(|line| crate::foundation::redact::redact(line) + "\n").collect());
     };
     match previous {
-        Some(previous) => swap(layout, previous)?,
+        Some(previous) => swap_back(layout, previous)?,
         None => match fs::remove_file(layout.current()) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
             _ => {}

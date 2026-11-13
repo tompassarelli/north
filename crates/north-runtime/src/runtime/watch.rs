@@ -7,7 +7,7 @@ use super::update;
 use crate::foundation::clock::Timestamp;
 use crate::land_offload;
 use crate::platform::host;
-use north_base::lifecycle::Store;
+use north_base::lifecycle::{ORPHANED_LIKE, Store};
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::HashSet;
@@ -46,17 +46,17 @@ impl Window {
     }
 }
 
-/// The sessions whose host stopped in `span` and went on running nothing: a host the supervisor started again within `RESTART_S` is a restart, as a promotion moving hosts onto the new runtime makes, and a session the fleet stopped within `RESTART_S` (`north fleet stop`, forget, retire, or a launch whose first turn the account limit refused) is stopped by order, and a `vn-*` session is the canary walk's own scratch host, so none is an exit, and a stop younger than `RESTART_S` at `judged` is not yet known to be any of them; a session in `parked`, which the fleet parked for capacity such as its account reaching its limit, is a decision rather than an exit.
+/// The sessions whose host stopped in `span` with nobody asking and went on running nothing: only the store's own move for a holder that is gone counts, so a session its host parked at its idle limit, as every idle session is after `--idle-exit`, is asked for and no exit; a host the supervisor started again within `RESTART_S` is a restart, as a promotion moving hosts onto the new runtime makes, and a session the fleet stopped within `RESTART_S` (`north fleet stop`, forget, retire, or a launch whose first turn the account limit refused) is stopped by order, and a `vn-*` session is the canary walk's own scratch host, so none is an exit, and a stop younger than `RESTART_S` at `judged` is not yet known to be any of them; a session in `parked`, which the fleet parked for capacity such as its account reaching its limit, is a decision rather than an exit.
 fn lasting_host_exits(ledger: &Path, (start, end): (Timestamp, Timestamp), judged: Timestamp, parked: &HashSet<String>) -> Vec<String> {
     let Ok(db) = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY) else { return Vec::new() };
     let Ok(mut statement) = db.prepare(
-        "SELECT stop.instance FROM lifecycle_moves stop WHERE stop.machine = 'fleet-session' AND stop.from_state = 'live' AND stop.to_state = 'parked' AND stop.refused = 0 \
+        "SELECT stop.instance FROM lifecycle_moves stop WHERE stop.machine = 'fleet-session' AND stop.from_state = 'live' AND stop.to_state = 'parked' AND stop.refused = 0 AND stop.cause LIKE ?6 \
          AND stop.at_ms >= ?1 AND stop.at_ms < ?2 AND stop.at_ms <= ?3 - ?4 AND substr(stop.instance, 1, length(?5)) <> ?5 \
          AND NOT EXISTS (SELECT 1 FROM lifecycle_moves again WHERE again.machine = stop.machine AND again.instance = stop.instance AND again.to_state IN ('live', 'stopped') AND again.refused = 0 AND again.move_id > stop.move_id AND again.at_ms <= stop.at_ms + ?4) ORDER BY stop.instance",
     ) else {
         return Vec::new();
     };
-    let stopped = statement.query_map(rusqlite::params![start.unix_millis(), end.unix_millis(), judged.unix_millis(), RESTART_S * 1000, SCRATCH], |row| row.get::<_, String>(0));
+    let stopped = statement.query_map(rusqlite::params![start.unix_millis(), end.unix_millis(), judged.unix_millis(), RESTART_S * 1000, SCRATCH, ORPHANED_LIKE], |row| row.get::<_, String>(0));
     let sessions = stopped.map(|rows| rows.filter_map(Result::ok).map(|instance| instance.split_once('@').map_or(instance.clone(), |(name, _)| name.to_owned())).collect::<Vec<_>>()).unwrap_or_default();
     sessions.into_iter().filter(|name| !parked.contains(name)).collect()
 }
@@ -114,31 +114,58 @@ pub(super) fn risen(since: &Window, prior: &Window, watched: i64) -> Vec<&'stati
     .collect()
 }
 
-/// For `WATCH_S` after the live runtime's swap, rolls it back when launch failures, session-host exits or land refusals rose over the hour before the swap; only `current` moves, so running session hosts keep the runtime they started on.
+/// What the watch makes of the live runtime's window: nothing, a rollback of a runtime a promotion or an order made live, or one report of a window a rollback opened, which never rolls back again, so one signal cannot walk the runtime back step after step.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Verdict {
+    Quiet,
+    RollBack { why: String, seconds: i64 },
+    Report { why: String, swapped: i64 },
+}
+
+/// Judges, at `at`, the first `WATCH_S` after the newest swap to `live` in `swaps` on the host `name`: rolls back when launch failures, session-host exits or land refusals rose over the hour before the swap, unless a rollback made that swap.
+pub(super) fn judge(layout: &Layout, live: &str, swaps: &[Swap], at: i64, name: &str) -> Verdict {
+    let Some(swap) = swaps.iter().rev().find(|swap| swap.runtime == live) else { return Verdict::Quiet };
+    let trusted = lifecycle::state_of::<Canarying>(layout, &format!("{name}/{live}")).ok().flatten() == Some(Canary::Trusted);
+    if at - swap.at > WATCH_S || trusted {
+        return Verdict::Quiet;
+    }
+    let (since, prior) = (Window::read(layout, swap.at, at, at), Window::read(layout, swap.at - PRIOR_S, swap.at, at));
+    let risen = risen(&since, &prior, at - swap.at);
+    if risen.is_empty() {
+        return Verdict::Quiet;
+    }
+    let came = if swap.rollback { "came back by rollback" } else { "went live" };
+    let why = format!("{} rose in the {}s since {} {came} on {name}, over the hour before", named(&risen, &since, &prior), at - swap.at, layout::short(live));
+    match swap.rollback {
+        true => Verdict::Report { why, swapped: swap.at },
+        false => Verdict::RollBack { why, seconds: at - swap.at },
+    }
+}
+
+/// For `WATCH_S` after the live runtime's swap, acts on [`judge`]; only `current` moves, so running session hosts keep the runtime they started on.
 pub(super) fn watch(layout: &Layout) {
     let Some(live) = layout.live_sha() else { return };
     let swaps: Vec<Swap> = fs::read_to_string(layout.swaps()).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
-    let Some(swapped) = swaps.iter().rev().find(|swap| swap.runtime == live).map(|swap| swap.at) else { return };
-    let at = now();
-    let name = host::name();
-    let trusted = lifecycle::state_of::<Canarying>(layout, &format!("{name}/{live}")).ok().flatten() == Some(Canary::Trusted);
-    if at - swapped > WATCH_S || trusted {
-        return;
-    }
-    let (since, prior) = (Window::read(layout, swapped, at, at), Window::read(layout, swapped - PRIOR_S, swapped, at));
-    let risen = risen(&since, &prior, at - swapped);
-    if risen.is_empty() {
-        return;
-    }
+    let (at, name) = (now(), host::name());
     let short = layout::short(&live);
-    let why = format!("{} rose in the {}s since {short} went live on {name}, over the hour before", named(&risen, &since, &prior), at - swapped);
-    match update::roll_back(layout, &live) {
-        Ok(previous) => {
-            note(layout, &Event::RolledBack { sha: live.clone(), host: name, at, seconds: at - swapped, walker: land_offload::settles_fleet_here() });
-            update::alert_proxy(&format!("north runtime watch: {why}; rolled back to {} and quarantined {short}", layout::short(&previous)));
+    match judge(layout, &live, &swaps, at, &name) {
+        Verdict::Quiet => {}
+        Verdict::Report { why, swapped } => {
+            let window = format!("{live} {swapped}");
+            if fs::read_to_string(layout.watch_reported()).is_ok_and(|reported| reported == window) {
+                return;
+            }
+            let _ = fs::write(layout.watch_reported(), &window);
+            update::alert_proxy(&format!("north runtime watch: {why}; a rollback's window rolls nothing back, so {short} stays live"));
         }
-        Err(failure) if failure.code == DEFERRED => println!("north runtime watch: {why}; rollback deferred: {}", failure.message),
-        Err(failure) => update::alert_proxy(&format!("north runtime watch: {why}; could not roll back: {}", failure.message)),
+        Verdict::RollBack { why, seconds } => match update::roll_back(layout, &live) {
+            Ok(previous) => {
+                note(layout, &Event::RolledBack { sha: live.clone(), host: name, at, seconds, walker: land_offload::settles_fleet_here() });
+                update::alert_proxy(&format!("north runtime watch: {why}; rolled back to {} and quarantined {short}", layout::short(&previous)));
+            }
+            Err(failure) if failure.code == DEFERRED => println!("north runtime watch: {why}; rollback deferred: {}", failure.message),
+            Err(failure) => update::alert_proxy(&format!("north runtime watch: {why}; could not roll back: {}", failure.message)),
+        },
     }
 }
 

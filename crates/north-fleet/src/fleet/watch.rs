@@ -346,6 +346,14 @@ impl TurnWatch {
         true
     }
 
+    fn park(&self) {
+        let sessions = host_sessions(&self.root, &self.host_dir);
+        let moved = Phases::open(&self.root).and_then(|mut phases| sessions.iter().filter(|record| record.live()).try_for_each(|record| phases.moved(record.launch(), Phase::Parked, "its host parked it at its idle limit").map(drop)));
+        if let Err(error) = moved {
+            eprintln!("north session-host: its sessions were not marked parked: {}", error.user_message());
+        }
+    }
+
     fn landed_all(&self, session: &str) -> bool {
         match self.tickets.unlanded(session) {
             Ok(unlanded) => unlanded.is_empty(),

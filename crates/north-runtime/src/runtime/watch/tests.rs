@@ -1,7 +1,9 @@
-use super::{RESTART_S, Window, capacity_parked, launch_failures, lasting_host_exits, named, risen};
+use super::super::layout::Layout;
+use super::super::live::Swap;
+use super::{RESTART_S, Verdict, Window, capacity_parked, judge, launch_failures, lasting_host_exits, named, risen};
 use std::collections::HashSet;
 use north_base::foundation::clock::Timestamp;
-use north_base::lifecycle::{Lifecycle, State, Store};
+use north_base::lifecycle::{Lifecycle, Liveness, Owner, State, Store};
 use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,8 +39,8 @@ impl Lifecycle for Session {
         None
     }
 
-    fn orphan(_: Phase) -> Option<Phase> {
-        None
+    fn orphan(state: Phase) -> Option<Phase> {
+        (state == Phase::Live).then_some(Phase::Parked)
     }
 }
 
@@ -66,7 +68,7 @@ fn a_session_host_restarted_onto_the_new_runtime_is_not_an_exit_and_one_that_sta
     let at = |seconds: i64| Timestamp::from_unix_seconds(1_800_000_000 + seconds);
     let mut stops = |session: &str, stopped: i64, started_again: Option<i64>| {
         store.transition::<Session>(session, Phase::Live, "launched", at(stopped - 100)).unwrap().unwrap();
-        store.transition::<Session>(session, Phase::Parked, "the holder is gone", at(stopped)).unwrap().unwrap();
+        store.transition::<Session>(session, Phase::Parked, "the holder, pid 1 on laptop, is gone", at(stopped)).unwrap().unwrap();
         if let Some(again) = started_again {
             store.transition::<Session>(session, Phase::Live, "revived", at(again)).unwrap().unwrap();
         }
@@ -139,53 +141,74 @@ fn the_2026_11_11_rollback_of_ca9d6ae1_does_not_happen() {
     assert!(named(&["launch failures"], &since, &prior).contains("provider limit: claude:e is at its provider's five-hour limit"));
 }
 
-/// On 2026-11-11 at about 8:56 AM +07 the watch rolled 7c3b1b1b back for "session-host exits" that were the fleet parking account d's sessions at its limit.
-#[test]
-fn a_session_parked_by_its_account_limit_is_not_a_session_host_exit() {
-    let directory = tempfile::tempdir().unwrap();
-    let lifecycle = directory.path().join("ledger.db");
-    let mut store = Store::open(&lifecycle).unwrap();
-    let at = |seconds: i64| Timestamp::from_unix_seconds(1_800_000_000 + seconds);
-    for (session, stopped) in [("n1106-no-diagnosis@1", 100), ("n1022-depbox@1", 110), ("north-3@1", 120)] {
-        store.transition::<Session>(session, Phase::Live, "launched", at(stopped - 50)).unwrap().unwrap();
-        store.transition::<Session>(session, Phase::Parked, "the holder is gone", at(stopped)).unwrap().unwrap();
+struct Gone;
+
+impl Liveness for Gone {
+    fn alive(&self, owner: &Owner) -> Option<bool> {
+        Some(owner.pid != 10)
     }
-    let (_threads, threads) = ledger(&[]);
-    let db = rusqlite::Connection::open(&threads).unwrap();
-    for session in ["n1106-no-diagnosis", "n1022-depbox"] {
-        db.execute("INSERT INTO boundary_causes VALUES (?1, 'fleet', 'capacity', 'parked until account d has usage again', ?2)", [session, &at(105).iso()]).unwrap();
-    }
-    let parked = capacity_parked(&threads, &at(0).iso(), &at(400).iso());
-    assert_eq!(lasting_host_exits(&lifecycle, (at(0), at(400)), at(400), &parked), ["north-3"],"only north-3 stopped on its own");
 }
 
-/// On 2026-11-11 from 9:35 AM +07 the watch rolled whiterabbit back four times for "session-host exits" that were sessions the fleet stopped with `north fleet stop` and hosts whose only turn the account's five-hour limit refused.
+/// Each rolled whiterabbit back for exits someone asked for: on 2026-11-11 at about 8:56 AM +07 the fleet parking account d's sessions at its limit, from 9:35 AM sessions `north fleet stop` ended and hosts whose only turn the account's five-hour limit refused, and on 2026-11-13 at 4:33 PM +07 finished sessions their hosts parked at `--idle-exit`.
 #[test]
-fn a_session_stopped_by_order_or_refused_by_its_account_limit_is_not_a_runtime_exit() {
+fn asked_for_exits_do_not_roll_a_runtime_back() {
     let directory = tempfile::tempdir().unwrap();
-    let ledger = directory.path().join("ledger.db");
-    let mut store = Store::open(&ledger).unwrap();
+    let lifecycle = directory.path().join("ledger.db");
+    let process = |pid: u32| Owner { host: "laptop".into(), pid, started: 1, booted_ms: 1 };
     let at = |seconds: i64| Timestamp::from_unix_seconds(1_800_000_000 + seconds);
-    let mut ended = |session: &str, host_ended: i64, then: Option<(i64, &str)>| {
-        store.transition::<Session>(session, Phase::Live, "a session host started for it", at(host_ended - 100)).unwrap().unwrap();
-        store.transition::<Session>(session, Phase::Parked, "the holder is gone", at(host_ended)).unwrap().unwrap();
+    let mut host = Store::open_as(&lifecycle, process(10), Box::new(Gone)).unwrap();
+    let mut reader = Store::open_as(&lifecycle, process(11), Box::new(Gone)).unwrap();
+    let mut died = |session: &str, host_ended: i64, then: Option<(i64, &str)>| {
+        host.transition::<Session>(session, Phase::Live, "a session host started for it", at(host_ended - 100)).unwrap().unwrap();
+        reader.settle::<Session>(session, at(host_ended)).unwrap();
         if let Some((later, cause)) = then {
-            store.transition::<Session>(session, Phase::Stopped, cause, at(later)).unwrap().unwrap();
+            reader.transition::<Session>(session, Phase::Stopped, cause, at(later)).unwrap().unwrap();
         }
     };
-    ended("n1022-depbox@1", 100, Some((108, "north fleet stop or forget ended the turn")));
-    ended("n1081-reexec@1", 120, Some((123, "stopped after its first turn failed to start")));
-    ended("n1063-views@1", 140, Some((150, "retired")));
-    ended("north-9@1", 160, None);
-    ended("north-8@1", 180, Some((180 + RESTART_S + 30, "retired")));
-    let (span, judged, none) = ((at(0), at(500)), at(500), HashSet::new());
-    let exits = lasting_host_exits(&ledger, span, judged, &none);
-    assert_eq!(exits, ["north-8", "north-9"], "a host that stopped on its own is an exit, even when the fleet retired its session minutes later");
+    died("n1022-depbox@1", 100, Some((108, "north fleet stop or forget ended the turn")));
+    died("n1081-reexec@1", 120, Some((123, "stopped after its first turn failed to start")));
+    died("n1063-views@1", 140, Some((150, "retired")));
+    died("north-9@1", 160, None);
+    died("north-8@1", 180, Some((180 + RESTART_S + 30, "retired")));
+    died("n1106-no-diagnosis@1", 200, None);
+    for (session, parked) in [("f-agent-opus-a@1", 220), ("f-rebase-gap@1", 240)] {
+        host.transition::<Session>(session, Phase::Live, "a session host started for it", at(parked - 100)).unwrap().unwrap();
+        host.transition::<Session>(session, Phase::Parked, "its host parked it at its idle limit", at(parked)).unwrap().unwrap();
+    }
+    let (_threads, threads) = ledger(&[]);
+    rusqlite::Connection::open(&threads).unwrap().execute("INSERT INTO boundary_causes VALUES ('n1106-no-diagnosis', 'fleet', 'capacity', 'parked until account d has usage again', ?1)", [&at(205).iso()]).unwrap();
+    let parked = capacity_parked(&threads, &at(0).iso(), &at(500).iso());
+    let exits = |end: i64| lasting_host_exits(&lifecycle, (at(0), at(end)), at(500), &parked);
+    assert_eq!(exits(500), ["north-8", "north-9"], "a host that died unasked is an exit, even when the fleet retired its session minutes later");
 
-    let ordered = Window { host_exits: lasting_host_exits(&ledger, (at(0), at(155)), at(500), &none), ..Window::default() };
-    assert_eq!(risen(&ordered, &Window::default(), 155), Vec::<&str>::new(), "stops by order and a limit-refused host roll nothing back");
-    let since = Window { host_exits: exits, ..Window::default() };
+    let window = |start: i64, end: i64| Window { host_exits: lasting_host_exits(&lifecycle, (at(start), at(end)), at(500), &parked), ..Window::default() };
+    assert_eq!(risen(&window(0, 155), &Window::default(), 155), Vec::<&str>::new(), "stops by order and a limit-refused host roll nothing back");
+    assert_eq!(risen(&window(195, 300), &Window::default(), 105), Vec::<&str>::new(), "a capacity park and two sessions their hosts parked at idle roll nothing back");
+    let since = Window { host_exits: exits(500), ..Window::default() };
     let risen = risen(&since, &Window::default(), 500);
     assert_eq!(risen, ["session-host exits"]);
     assert_eq!(named(&risen, &since, &Window::default()), "session-host exits (north-8, north-9)");
+}
+
+/// On 2026-11-13 the watch rolled cd052409 back at 4:33 PM +07, then 439abac8, which that rollback had made live, at 4:35 PM, and the window that opened rolled the runtime back again at 4:43 PM; here the exits of those windows are hosts nobody stopped.
+#[test]
+fn a_window_a_rollback_opened_is_reported_and_rolls_nothing_back() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_path_buf() };
+    let process = |pid: u32| Owner { host: "whiterabbit".into(), pid, started: 1, booted_ms: 1 };
+    let at = Timestamp::from_unix_seconds;
+    let mut host = Store::open_as(&layout.ledger(), process(10), Box::new(Gone)).unwrap();
+    let exits = [("f-agent-opus-a@1", 1_794_562_237), ("f-rebase-gap@1", 1_794_562_313), ("f-queue-wait@1", 1_794_562_429), ("burnb2-fin-op16@1", 1_794_562_465)];
+    for (session, _) in exits {
+        host.transition::<Session>(session, Phase::Live, "a session host started for it", at(1_794_560_000)).unwrap().unwrap();
+    }
+    let mut reader = Store::open_as(&layout.ledger(), process(11), Box::new(Gone)).unwrap();
+    for (session, ended) in exits {
+        reader.settle::<Session>(session, at(ended)).unwrap();
+    }
+    let (cd05, rolled_back_to) = ("cd052409c8e80a3d4489e48e0f4b0e00d52754b9", "439abac812037a75dbfcb407aa81b4f5f18667a5");
+    let swaps = [Swap { runtime: cd05.into(), at: 1_794_561_807, estimated: false, rollback: false }, Swap { runtime: rolled_back_to.into(), at: 1_794_562_394, estimated: false, rollback: true }];
+    assert!(matches!(judge(&layout, cd05, &swaps[..1], 1_794_562_394, "whiterabbit"), Verdict::RollBack { seconds: 587, .. }), "a promoted runtime still rolls back on exits nobody asked for");
+    let Verdict::Report { why, .. } = judge(&layout, rolled_back_to, &swaps, 1_794_562_542, "whiterabbit") else { panic!("the window the rollback opened rolled back again") };
+    assert_eq!(why, "session-host exits (burnb2-fin-op16, f-queue-wait) rose in the 148s since 439abac8 came back by rollback on whiterabbit, over the hour before");
 }

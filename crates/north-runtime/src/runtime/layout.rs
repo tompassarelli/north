@@ -63,6 +63,11 @@ impl Layout {
         self.state.join("runtime-swaps.jsonl")
     }
 
+    /// The rollback window the runtime watch last reported, as `SHA SWAPPED_AT`, so it reports each window once.
+    pub fn watch_reported(&self) -> PathBuf {
+        self.state.join("runtime-watch-reported")
+    }
+
     pub fn build_logs(&self) -> PathBuf {
         self.state.join("runtime-build-logs")
     }

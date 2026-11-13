@@ -13,7 +13,7 @@ const MAIN: &str = "2222222222222222222222222222222222222222";
 fn a_rollback_is_journaled_with_its_seconds_live_and_whether_the_walking_host_took_it() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_owned() };
-    let swaps = vec![Swap { runtime: PINNED.to_owned(), at: 10, estimated: false }, Swap { runtime: MAIN.to_owned(), at: super::super::pin::now() - 90, estimated: false }];
+    let swaps = vec![Swap { runtime: PINNED.to_owned(), at: 10, estimated: false, rollback: false }, Swap { runtime: MAIN.to_owned(), at: super::super::pin::now() - 90, estimated: false, rollback: false }];
     judged(&layout, "tom@gex45", MAIN, &Verdict::RolledBack, &swaps);
     judged(&layout, "tom@gex45", MAIN, &Verdict::Passed, &swaps);
     judged(&layout, &crate::platform::host::name(), MAIN, &Verdict::Passed, &swaps);

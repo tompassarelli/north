@@ -13,11 +13,14 @@ pub(super) struct Swap {
     pub(super) at: i64,
     #[serde(skip)]
     pub(super) estimated: bool,
+    /// A rollback made this swap, so the watch only reports its window and one signal never walks the runtime back step after step.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) rollback: bool,
 }
 
-pub(super) fn note_swap(layout: &Layout, link: &Path) {
+pub(super) fn note_swap(layout: &Layout, link: &Path, rollback: bool) {
     let Some(runtime) = layout::linked_sha(link) else { return };
     let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs() as i64);
-    let Ok(line) = serde_json::to_string(&Swap { runtime: runtime.to_owned(), at, estimated: false }) else { return };
+    let Ok(line) = serde_json::to_string(&Swap { runtime: runtime.to_owned(), at, estimated: false, rollback }) else { return };
     let _ = fs::OpenOptions::new().create(true).append(true).open(layout.swaps()).and_then(|mut file| writeln!(file, "{line}"));
 }
