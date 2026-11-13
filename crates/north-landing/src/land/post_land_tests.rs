@@ -42,6 +42,19 @@ fn a_post_land_run_is_red_main_only_when_a_check_recorded_a_failing_verdict_what
     assert_eq!(super::settle::rerun_result(&red, &switched.outcome, &["cargo clippy".to_owned()]), Some(std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned())])), "the requested step failing is a verdict on it");
     assert_eq!(super::settle::rerun_result(&red, &switched.outcome, &["cargo nextest".to_owned()]), None, "a runner that ran steps the sheriff did not ask for reached no verdict on the one it asked for");
     assert_eq!(judged(ExitStatus::from_raw(0), &run()), Verdict::Green);
+
+    let cancelled = |sender: Option<&str>| {
+        let cancelled = run();
+        if let Some(sender) = sender {
+            cancelled.cancel.request(sender);
+        }
+        match super::superseded(&landed(&["b"]), &cancelled) {
+            Verdict::Transient(detail) => detail,
+            other => panic!("a cancelled run reached {other:?}"),
+        }
+    };
+    assert!(cancelled(Some("9999 landed past the lander")).starts_with("9999 landed past the lander changed the check lines"), "the cancel record names the landing that cancelled the run");
+    assert!(cancelled(None).contains("whose name the lander did not record"), "a run no lander named as its canceller says so rather than blaming a nameless landing");
 }
 
 fn landed(heads: &[&str]) -> Landed {

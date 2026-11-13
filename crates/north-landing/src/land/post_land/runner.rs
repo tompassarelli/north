@@ -3,14 +3,12 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use rustix::process::Pid;
 use serde::{Deserialize, Serialize};
 
-use super::{Checked, Landed, Outcome, POLL, Run, Verdict, judged, superseded};
+use super::{Cancel, Checked, Landed, Outcome, POLL, Run, Verdict, judged, superseded};
 use super::super::after::send;
 use super::super::candidate::git;
 use super::super::lander::Lander;
@@ -108,7 +106,7 @@ pub(super) fn adopted(landed: &Landed, run: &Run, record: &Record) -> Checked {
     checked
 }
 
-pub fn adopt(lander: &Lander, landed: Landed, record: Record, cancel: Arc<AtomicBool>) -> Task<Outcome> {
+pub fn adopt(lander: &Lander, landed: Landed, record: Record, cancel: Cancel) -> Task<Outcome> {
     println!("north land: adopting the after-landing run of {} that a stopped lander started; its runner is still alive or ended with a status", landed.head);
     let run = super::after_run(lander, &landed, record.host.clone(), cancel, Duration::from_secs(record.deadline));
     Task::spawn(&lander.wake, move || {
@@ -121,7 +119,7 @@ pub fn adopt(lander: &Lander, landed: Landed, record: Record, cancel: Arc<Atomic
 pub(super) fn ended(supervised: std::io::Result<Ended>, program: &str, landed: &Landed, run: &Run) -> Checked {
     match supervised {
         Ok(Ended::Exited(status)) => judged(status, run).into(),
-        Ok(Ended::Cancelled) => superseded(landed).into(),
+        Ok(Ended::Cancelled) => superseded(landed, run).into(),
         Ok(Ended::Expired) => Checked { verdict: Verdict::Transient(format!("post-land checks passed their {} s deadline and were killed with their process group, so they reached no verdict; log: {}", run.deadline.as_secs(), run.log.display())), expired: true },
         Err(error) => Verdict::Transient(format!("{program}: {error}")).into(),
     }
@@ -133,12 +131,12 @@ pub(super) enum Ended {
     Cancelled,
 }
 
-pub(super) fn supervise(group: rustix::process::Pid, deadline: Instant, cancel: &AtomicBool, mut exited: impl FnMut() -> std::io::Result<Option<ExitStatus>>) -> std::io::Result<Ended> {
+pub(super) fn supervise(group: rustix::process::Pid, deadline: Instant, cancel: &Cancel, mut exited: impl FnMut() -> std::io::Result<Option<ExitStatus>>) -> std::io::Result<Ended> {
     loop {
         if let Some(status) = exited()? {
             return Ok(Ended::Exited(status));
         }
-        let cancelled = cancel.load(Ordering::Relaxed);
+        let cancelled = cancel.requested();
         if cancelled || Instant::now() >= deadline {
             let _ = rustix::process::kill_process_group(group, rustix::process::Signal::Kill);
             return Ok(if cancelled { Ended::Cancelled } else { Ended::Expired });

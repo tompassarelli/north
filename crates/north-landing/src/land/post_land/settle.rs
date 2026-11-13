@@ -3,12 +3,11 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::time::Instant;
 use north_base::foundation::offload::OWNER_ENV;
 use north_base::lifecycle::Store;
 
-use super::{ALARMED, EPISODE, Checked, Landed, Run, check, deadline, failing, ledger_path, record, steps};
+use super::{ALARMED, Cancel, EPISODE, Checked, Landed, Run, check, deadline, failing, ledger_path, record, steps};
 use crate::landing::red_check::Failure;
 use crate::platform::push_ledger;
 use crate::land::after::follow;
@@ -40,7 +39,7 @@ pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String],
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
         deadline: deadline(&lander.repo, &ledger_path(), &landed.repository, tree),
         host: Some(host.to_owned()),
-        cancel: Arc::default(),
+        cancel: Cancel::default(),
         adoptable: false,
     };
     rerun_result(&check(&landed, tree, &run).verdict, &run.outcome, failing)

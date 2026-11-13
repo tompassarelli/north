@@ -51,27 +51,31 @@ fn issued(side: &dyn north_build_system::BuildSystem, entry: &str) -> String {
 }
 
 impl Blob {
-    fn read(repo: &Path, head: &str) -> Self {
-        let blob = format!("{head}:.safe-push");
-        let Ok(output) = Command::new("git").arg("-C").arg(repo).args(["config", "--blob", &blob, "--list", "-z"]).output() else {
-            return Self(Vec::new());
-        };
-        if !output.status.success() {
-            return Self(Vec::new());
+    /// The `.safe-push` of `head`, or None when this repository does not hold that commit: a head it has not fetched
+    /// is unknown, never a head that carries no entries, so a caller comparing two heads never takes an unread head
+    /// for a landing that dropped every line (north#1247). A commit it holds with no `.safe-push` reads as no entries.
+    fn try_read(repo: &Path, head: &str) -> Option<Self> {
+        let known = Command::new("git").arg("-C").arg(repo).args(["cat-file", "-e", &format!("{head}^{{commit}}")]).output().is_ok_and(|output| output.status.success());
+        if !known {
+            return None;
         }
+        let blob = format!("{head}:.safe-push");
+        let Some(output) = Command::new("git").arg("-C").arg(repo).args(["config", "--blob", &blob, "--list", "-z"]).output().ok().filter(|output| output.status.success()) else {
+            return Some(Self(Vec::new()));
+        };
         let text = String::from_utf8_lossy(&output.stdout);
         let side = north_build_system::for_tree(repo);
         let side = side.as_ref();
-        Self(text.split('\0').filter_map(|entry| entry.split_once('\n')).flat_map(|(key, value)| value.lines().map(move |line| (key.to_owned(), issued(side, line)))).collect())
+        Some(Self(text.split('\0').filter_map(|entry| entry.split_once('\n')).flat_map(|(key, value)| value.lines().map(move |line| (key.to_owned(), issued(side, line)))).collect()))
+    }
+
+    fn read(repo: &Path, head: &str) -> Self {
+        Self::try_read(repo, head).unwrap_or_else(|| Self(Vec::new()))
     }
 
     fn values(&self, key: &str) -> Vec<String> {
         self.0.iter().filter(|(name, _)| name == key).map(|(_, value)| value.clone()).collect()
     }
-}
-
-fn blob_values(repo: &Path, head: &str, key: &str) -> Vec<String> {
-    Blob::read(repo, head).values(key)
 }
 
 /// Expands one `STORE@PINS` host input into the store root and the entries the check's head pins:
@@ -121,8 +125,10 @@ impl Config {
         Self { checks: self.checks.iter().filter(|entry| !earlier.checks.contains(entry)).cloned().collect(), inferred: Vec::new(), ..self.clone() }
     }
 
-    pub fn after_lines(repo: &Path, head: &str) -> Vec<String> {
-        blob_values(repo, head, "land.after")
+    /// The `land.after` lines of `head`; None when this repository cannot read that head's `.safe-push`, so the
+    /// lander never cancels an after-landing run for a landing whose lines it could not compare (north#1247).
+    pub fn after_lines(repo: &Path, head: &str) -> Option<Vec<String>> {
+        Blob::try_read(repo, head).map(|blob| blob.values("land.after"))
     }
 
     pub fn after_set(&self) -> Self {

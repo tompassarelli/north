@@ -766,6 +766,12 @@ then S2b and S2c in parallel; then S3 and S4.
   check all of them on the newest head. A run cancelled during its culprit search keeps its red
   verdict and blames no lane. On 2026-11-06 a 50-minute rerun of a firn check line that be08ad55
   had replaced built gcc from source on ccx33 and held firn's verdict.
+  Sender of a cancel (2026-11-13): the lander's cancel record carries the landing that changed the
+  check lines, and its log line, the journaled move of each affected head and the run's no-verdict
+  text name it, so a cancelled after-landing run says who cancelled it rather than that a later
+  landing did. A landing whose `.safe-push` this repository cannot read, such as one whose hand-off
+  arrived before its fetch, compares no lines and cancels nothing, so no run is killed and its
+  tests run again on inputs that did not change (north#1247).
   Failure verdict (2026-11-05): a check that exits nonzero inside a lander round reruns once on
   the base tree, on the same host and through the same wrapper, with `SAFE_PUSH_LAND_HEAD` naming
   the tree it runs on and `SAFE_PUSH_LAND_RUNTIME_HEAD` still naming the lane, so `bin/head-north`

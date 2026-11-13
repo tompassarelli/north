@@ -36,7 +36,7 @@ impl From<Verdict> for Checked {
 
 pub(super) fn check(landed: &Landed, tree: &str, run: &Run) -> Checked {
     if run.superseded() {
-        return superseded(landed).into();
+        return superseded(landed, run).into();
     }
     let Some((program, prefix)) = run.runner.split_first() else { return Verdict::Transient("no post-land runner".to_owned()).into() };
     if let Err(error) = clear(&landed.repo, &run.worktree) {

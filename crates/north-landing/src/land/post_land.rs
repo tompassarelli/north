@@ -2,8 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use crate::landing::red_check::Failure;
@@ -66,7 +65,31 @@ pub struct Found {
     pub culprits: Vec<usize>,
     pub span: (f64, f64),
     pub superseded: bool,
+    pub cancelled_by: Option<String>,
     pub unreproduced: Option<PathBuf>,
+}
+
+/// An after-landing run's cancel record: set once, by the lander that supersedes the run, naming the landing whose
+/// check lines replaced its own, so the run's verdict, the lander's log and its journaled move say who cancelled it
+/// rather than only that a later landing did (north#1247). A run no lander has cancelled holds no sender, and so does
+/// one adopted from a lander older than this record.
+#[derive(Clone, Default)]
+pub struct Cancel(Arc<OnceLock<String>>);
+
+impl Cancel {
+    /// Cancels the run on behalf of `sender`: the landing whose check lines made this run's stale.
+    pub fn request(&self, sender: &str) {
+        let _ = self.0.set(sender.to_owned());
+    }
+
+    pub fn requested(&self) -> bool {
+        self.0.get().is_some()
+    }
+
+    /// The landing that cancelled the run; None while none has, or when the lander that did recorded no name.
+    pub fn sender(&self) -> Option<&str> {
+        self.0.get().map(String::as_str)
+    }
 }
 
 #[derive(Clone)]
@@ -81,7 +104,7 @@ pub struct Run {
     pub capacity: String,
     pub deadline: Duration,
     pub host: Option<String>,
-    pub cancel: Arc<AtomicBool>,
+    pub cancel: Cancel,
     pub adoptable: bool,
 }
 
@@ -159,7 +182,7 @@ impl Run {
             capacity: self.capacity.clone(),
             deadline: self.deadline,
             host: self.host.clone(),
-            cancel: Arc::clone(&self.cancel),
+            cancel: self.cancel.clone(),
             adoptable: self.adoptable && adoptable,
         }
     }
@@ -171,12 +194,16 @@ fn short(sha: &str) -> String {
 
 impl Run {
     fn superseded(&self) -> bool {
-        self.cancel.load(Ordering::Relaxed)
+        self.cancel.requested()
     }
 }
 
-fn superseded(landed: &Landed) -> Verdict {
-    Verdict::Transient(format!("a later landing changed the check lines of the after-landing run of {}, so it was cancelled as superseded and reached no verdict", landed.head))
+fn cancelled_by(run: &Run) -> &str {
+    run.cancel.sender().unwrap_or("a later landing whose name the lander did not record")
+}
+
+fn superseded(landed: &Landed, run: &Run) -> Verdict {
+    Verdict::Transient(format!("{} changed the check lines of the after-landing run of {}, so the lander cancelled it as superseded and it reached no verdict", cancelled_by(run), landed.head))
 }
 
 pub fn ledger_path() -> PathBuf {
@@ -208,7 +235,7 @@ impl Landed {
     }
 }
 
-fn after_run(lander: &Lander, landed: &Landed, host: Option<String>, cancel: Arc<AtomicBool>, deadline: Duration) -> Run {
+fn after_run(lander: &Lander, landed: &Landed, host: Option<String>, cancel: Cancel, deadline: Duration) -> Run {
     let head = landed.head.as_str();
     Run {
         runner: vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--fresh".to_owned(), "--dry".to_owned(), "1".to_owned()],
@@ -227,7 +254,7 @@ fn after_run(lander: &Lander, landed: &Landed, host: Option<String>, cancel: Arc
     .at(head, head)
 }
 
-pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Arc<AtomicBool>) -> Task<Outcome> {
+pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Cancel) -> Task<Outcome> {
     let run = after_run(lander, &landed, host, cancel, deadline(&lander.repo, &ledger_path(), &landed.repository, &landed.head));
     Task::spawn(&lander.wake, move || {
         let verdict = settle(&landed, &run, send);
@@ -251,9 +278,9 @@ pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
         let Search { landed, run, failing } = search;
         let started = telemetry::epoch();
         let reproduced = at_the_tip(&landed, &run, &failing);
-        let stopped = |unreproduced| Found { culprits: Vec::new(), span: (started, telemetry::epoch()), superseded: run.superseded(), unreproduced };
+        let stopped = |unreproduced| Found { culprits: Vec::new(), span: (started, telemetry::epoch()), superseded: run.superseded(), cancelled_by: run.cancel.sender().map(str::to_owned), unreproduced };
         if run.superseded() {
-            println!("north land: the culprit search of {} stopped because a later landing changed its check lines", landed.head);
+            println!("north land: the culprit search of {} stopped because {} changed its check lines", landed.head, cancelled_by(&run));
             return stopped(None);
         }
         let failing = match reproduced {
@@ -262,14 +289,14 @@ pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
         };
         let culprits = locate(&landed, &run, &failing);
         if run.superseded() {
-            println!("north land: the culprit search of {} stopped because a later landing changed its check lines", landed.head);
+            println!("north land: the culprit search of {} stopped because {} changed its check lines", landed.head, cancelled_by(&run));
             return stopped(None);
         }
         for &at in &culprits {
             let probed = run.at(&landed.head, &landed.tips[at]).log;
             judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], if probed.exists() { &probed } else { &run.log });
         }
-        Found { culprits, span: (started, telemetry::epoch()), superseded: false, unreproduced: None }
+        Found { culprits, span: (started, telemetry::epoch()), superseded: false, cancelled_by: None, unreproduced: None }
     })
 }
 

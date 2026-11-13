@@ -72,7 +72,7 @@ fn checked(landed: &Landed, tree: &str, run: &Run) -> blame::Probe {
 /// Cargo test, since an exact filter naming no test runs none.
 fn tested(landed: &Landed, run: &Run, tree: &str, tests: &BTreeSet<Failure>) -> blame::Probe {
     if run.superseded() {
-        return blame::Probe { verdict: superseded(landed), failing: BTreeSet::new() };
+        return blame::Probe { verdict: superseded(landed, run), failing: BTreeSet::new() };
     }
     let present: BTreeSet<Failure> = tests
         .iter()
