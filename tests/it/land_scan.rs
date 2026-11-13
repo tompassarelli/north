@@ -166,46 +166,126 @@ fn test_integrity() {
     fixture.commit(&["skip outside tests"]);
     assert_eq!(fixture.scan("test-integrity").status, 0);
     fixture.reset();
-    write(&fixture.repo.join("tests/it/slow.rs"), &format!("{WALL_CLOCK}\n"));
+    write(
+        &fixture.repo.join("tests/it/slow.rs"),
+        &format!("{WALL_CLOCK}\n"),
+    );
     fixture.commit(&["a test that sleeps"]);
     let slept = fixture.scan("test-integrity");
     assert_eq!(slept.status, 1);
-    assert!(slept.stdout.starts_with(concat!("safe-push: ✗ tests/it/slow.rs adds the wall-clock read sl", "eep(")), "{}", slept.stdout);
+    assert!(
+        slept.stdout.starts_with(concat!(
+            "safe-push: ✗ tests/it/slow.rs adds the wall-clock read sl",
+            "eep("
+        )),
+        "{}",
+        slept.stdout
+    );
     fixture.reset();
-    write(&fixture.repo.join("src/pace.rs"), &format!("{WALL_CLOCK}\n"));
+    write(
+        &fixture.repo.join("src/pace.rs"),
+        &format!("{WALL_CLOCK}\n"),
+    );
     fixture.commit(&["sleep outside tests"]);
     assert_eq!(fixture.scan("test-integrity").status, 0);
+    fixture.reset();
+    let current_system = concat!("/run/current-", "system");
+    let switch = concat!(
+        "{ pkgs, ... }:\n",
+        "{\n",
+        "  testScript = ''\n",
+        "    machine.succeed(\"specialisation --switch /run/current-",
+        "system/specialisation/next\")\n",
+        "  '';\n",
+        "}\n",
+    );
+    write(
+        &fixture.repo.join("modules/specialisation.test.nix"),
+        switch,
+    );
+    fixture.commit(&["a guest command switches a specialisation"]);
+    let guest = fixture.scan("test-integrity");
+    assert_eq!(guest.status, 0, "{}", guest.stdout);
+    fixture.reset();
+    write(
+        &fixture.repo.join("modules/specialisation.test.nix"),
+        &switch.replace("}\n", &format!("  hostPath = {current_system};\n}}\n")),
+    );
+    fixture.commit(&["a host path in a VM test's host code"]);
+    let host = fixture.scan("test-integrity");
+    assert_eq!(host.status, 1, "{}", host.stdout);
+    assert!(
+        host.stdout.contains(&format!(
+            "adds the host path {current_system}:   hostPath = {current_system};"
+        )),
+        "{}",
+        host.stdout
+    );
+    assert!(
+        !host.stdout.contains("specialisation --switch"),
+        "{}",
+        host.stdout
+    );
 }
 
 const RUST_TEST: &str = concat!("#[te", "st]\nfn retries() {}\n");
 
 fn admission_scan(fixture: &Fixture) -> Scan {
-    let output = fixture.north(&fixture.repo, &["land", "scan", "test-admission", &format!("{}..{}", fixture.base, fixture.head())]);
-    Scan { status: output.status.code().unwrap_or(-1), stdout: String::from_utf8_lossy(&output.stdout).into_owned() }
+    let output = fixture.north(
+        &fixture.repo,
+        &[
+            "land",
+            "scan",
+            "test-admission",
+            &format!("{}..{}", fixture.base, fixture.head()),
+        ],
+    );
+    Scan {
+        status: output.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+    }
 }
 
 fn trail(fixture: &Fixture, trailer: &str) {
-    git(&fixture.repo, &["commit", "-q", "--amend", "-m", "add a test", "-m", trailer]);
+    git(
+        &fixture.repo,
+        &["commit", "-q", "--amend", "-m", "add a test", "-m", trailer],
+    );
 }
 
 fn verification_takes(fixture: &Fixture, seconds: u64) {
     let green = format!("1\tremote\tabc\tgreen\t\tlane\t900\t\t{seconds}\n").repeat(3);
     let red = "1\tremote\tdef\tred-main\tcheck\tlane\t900\n".repeat(4);
-    write(&fixture.root.path().join("state/safe-push/post-land.tsv"), &(green + &red));
+    write(
+        &fixture.root.path().join("state/safe-push/post-land.tsv"),
+        &(green + &red),
+    );
 }
 
 #[test]
-fn added_tests_are_refused_under_an_unlisted_contract_or_over_the_verification_budget_without_a_deletion() {
+fn added_tests_are_refused_under_an_unlisted_contract_or_over_the_verification_budget_without_a_deletion()
+ {
     let mut fixture = Fixture::new("remote.git");
-    write(&fixture.repo.join(".safe-push"), "[test-admission]\n\tcontract = lua-determinism :: Lua evaluation order\n");
+    write(
+        &fixture.repo.join(".safe-push"),
+        "[test-admission]\n\tcontract = lua-determinism :: Lua evaluation order\n",
+    );
     write(&fixture.repo.join("src/lib.rs"), "pub fn retry() {}\n");
     write(&fixture.repo.join("tests/old.test.ts"), "{}\n");
     fixture.commit(&["library"]);
     fixture.mark_base();
     write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
     fixture.commit(&["add the retry test"]);
-    assert_eq!(admission_scan(&fixture).status, 0, "no claim and no measured budget");
-    for (claim, status) in [("retries; category: lua-determinism", 0), ("retries; category: netcode-replay", 1), ("other; category: lua-determinism", 1)] {
+    assert_eq!(
+        admission_scan(&fixture).status,
+        0,
+        "no claim and no measured budget"
+    );
+    for (claim, status) in [
+        ("retries; category: lua-determinism", 0),
+        ("retries; category: netcode-replay", 1),
+        ("other; category: lua-determinism", 1),
+    ] {
         trail(&fixture, &format!("Test-contract: {claim}"));
         let scan = admission_scan(&fixture);
         assert_eq!(scan.status, status, "{claim}: {}", scan.stdout);
@@ -217,10 +297,29 @@ fn added_tests_are_refused_under_an_unlisted_contract_or_over_the_verification_b
         let scan = admission_scan(&fixture);
         assert_eq!(scan.status, status, "{seconds} s: {}", scan.stdout);
     }
-    git(&fixture.repo, &["commit", "-q", "--amend", "-m", "add a test", "-m", "Test-contract: retries; category: lua-determinism", "-m", "Co-Authored-By: a worker <worker@example.com>"]);
+    git(
+        &fixture.repo,
+        &[
+            "commit",
+            "-q",
+            "--amend",
+            "-m",
+            "add a test",
+            "-m",
+            "Test-contract: retries; category: lua-determinism",
+            "-m",
+            "Co-Authored-By: a worker <worker@example.com>",
+        ],
+    );
     let contracted = admission_scan(&fixture);
     assert_eq!(contracted.status, 0, "{}", contracted.stdout);
-    for path in ["tests/fixtures/case.json", "tests/with space/case.json", "web/retry.test.ts", "scripts/retry_test.lua", "src/testdata/snapshots/retry.txt"] {
+    for path in [
+        "tests/fixtures/case.json",
+        "tests/with space/case.json",
+        "web/retry.test.ts",
+        "scripts/retry_test.lua",
+        "src/testdata/snapshots/retry.txt",
+    ] {
         fixture.reset();
         write(&fixture.repo.join(path), "{}\n");
         fixture.commit(&["add a test file"]);
@@ -228,17 +327,26 @@ fn added_tests_are_refused_under_an_unlisted_contract_or_over_the_verification_b
         assert_eq!(scan.status, 1, "{path}: {}", scan.stdout);
     }
     fixture.reset();
-    write(&fixture.repo.join("src/lib.rs"), &format!("pub fn retry() {{}}\n{RUST_TEST}"));
+    write(
+        &fixture.repo.join("src/lib.rs"),
+        &format!("pub fn retry() {{}}\n{RUST_TEST}"),
+    );
     fixture.commit(&["add a test to an existing source file"]);
     assert_eq!(admission_scan(&fixture).status, 1);
     fixture.reset();
     fs::remove_file(fixture.repo.join("tests/old.test.ts")).unwrap();
-    write(&fixture.repo.join("tests/new.test.ts"), "test(\"retries\");\n");
+    write(
+        &fixture.repo.join("tests/new.test.ts"),
+        "test(\"retries\");\n",
+    );
     fixture.commit(&["replace a test"]);
     let replaced = admission_scan(&fixture);
     assert_eq!(replaced.status, 0, "{}", replaced.stdout);
     fixture.reset();
-    write(&fixture.repo.join("src/lib.rs"), &format!("pub fn retry() {{}}\n{RUST_TEST}"));
+    write(
+        &fixture.repo.join("src/lib.rs"),
+        &format!("pub fn retry() {{}}\n{RUST_TEST}"),
+    );
     fixture.commit(&["a source file with an inline test"]);
     fixture.mark_base();
     write(&fixture.repo.join("src/lib.rs"), "pub fn retry() {}\n");
@@ -246,15 +354,25 @@ fn added_tests_are_refused_under_an_unlisted_contract_or_over_the_verification_b
     fixture.commit(&["move the test out of the source file"]);
     assert_eq!(admission_scan(&fixture).status, 0);
     fixture.reset();
-    write(&fixture.repo.join("bin/suite.test.sh"), "printf 'PASS: retries\\n'\nprintf 'PASS: backoff\\n'\n");
+    write(
+        &fixture.repo.join("bin/suite.test.sh"),
+        "printf 'PASS: retries\\n'\nprintf 'PASS: backoff\\n'\n",
+    );
     fixture.commit(&["a bash suite"]);
     fixture.mark_base();
     write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
     fixture.commit(&["add a test without removing a scenario"]);
-    assert_eq!(admission_scan(&fixture).status, 1, "a new test beside every bash scenario");
+    assert_eq!(
+        admission_scan(&fixture).status,
+        1,
+        "a new test beside every bash scenario"
+    );
     fixture.reset();
     write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
-    write(&fixture.repo.join("bin/suite.test.sh"), "printf 'PASS: backoff\\n'\n");
+    write(
+        &fixture.repo.join("bin/suite.test.sh"),
+        "printf 'PASS: backoff\\n'\n",
+    );
     fixture.commit(&["move a scenario to cargo"]);
     let moved = admission_scan(&fixture);
     assert_eq!(moved.status, 0, "{}", moved.stdout);
@@ -266,38 +384,73 @@ const IDLE: &str = "#[test]\nfn idle() {}\n";
 
 fn fail_to_pass(fixture: &Fixture) -> Scan {
     let range = format!("{}..{}", fixture.base, fixture.head());
-    let output = fixture.north(&fixture.repo, &["land", "scan", "test-admission", "run", &range]);
-    Scan { status: output.status.code().unwrap_or(-1), stdout: String::from_utf8_lossy(&output.stdout).into_owned() }
+    let output = fixture.north(
+        &fixture.repo,
+        &["land", "scan", "test-admission", "run", &range],
+    );
+    Scan {
+        status: output.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+    }
 }
 
 #[test]
 fn an_added_test_that_passes_without_the_fix_is_refused_after_the_push() {
     let mut fixture = Fixture::new("remote.git");
-    write(&fixture.repo.join(".safe-push"), "[mutant]\n\trun = sh harness/runner.sh\n");
+    write(
+        &fixture.repo.join(".safe-push"),
+        "[mutant]\n\trun = sh harness/runner.sh\n",
+    );
     write(&fixture.repo.join("harness/runner.sh"), STUB_RUNNER);
-    write(&fixture.repo.join("src/lib.rs"), "pub fn f() {}\nfn g() {}\n");
+    write(
+        &fixture.repo.join("src/lib.rs"),
+        "pub fn f() {}\nfn g() {}\n",
+    );
     fixture.commit(&["library"]);
     fixture.mark_base();
-    write(&fixture.repo.join("src/lib.rs"), "pub fn f() { /* fixed */ }\nfn g() {}\n");
-    write(&fixture.repo.join("tests/bug.rs"), &format!("{GUARDS}{IDLE}"));
+    write(
+        &fixture.repo.join("src/lib.rs"),
+        "pub fn f() { /* fixed */ }\nfn g() {}\n",
+    );
+    write(
+        &fixture.repo.join("tests/bug.rs"),
+        &format!("{GUARDS}{IDLE}"),
+    );
     fixture.commit(&["fix f"]);
     let idle = fail_to_pass(&fixture);
     assert_eq!(idle.status, 1, "{}", idle.stdout);
-    assert!(idle.stdout.contains("so none guards the change: idle;"), "{}", idle.stdout);
+    assert!(
+        idle.stdout.contains("so none guards the change: idle;"),
+        "{}",
+        idle.stdout
+    );
     fixture.reset();
-    write(&fixture.repo.join("src/lib.rs"), "pub fn f() { /* fixed */ }\nfn g() {}\n");
+    write(
+        &fixture.repo.join("src/lib.rs"),
+        "pub fn f() { /* fixed */ }\nfn g() {}\n",
+    );
     write(&fixture.repo.join("tests/bug.rs"), GUARDS);
     fixture.commit(&["fix f"]);
     let guarded = fail_to_pass(&fixture);
     assert_eq!(guarded.status, 0, "{}", guarded.stdout);
     fixture.reset();
-    write(&fixture.repo.join("src/lib.rs"), &format!("pub fn f() {{ /* fixed */ }}\nfn g() {{}}\n{IDLE}{GUARDS}"));
+    write(
+        &fixture.repo.join("src/lib.rs"),
+        &format!("pub fn f() {{ /* fixed */ }}\nfn g() {{}}\n{IDLE}{GUARDS}"),
+    );
     fixture.commit(&["fix f with inline tests"]);
     let inline = fail_to_pass(&fixture);
     assert_eq!(inline.status, 1, "{}", inline.stdout);
-    assert!(inline.stdout.contains("so none guards the change: idle;"), "{}", inline.stdout);
+    assert!(
+        inline.stdout.contains("so none guards the change: idle;"),
+        "{}",
+        inline.stdout
+    );
     fixture.reset();
-    write(&fixture.repo.join("src/lib.rs"), "pub fn f() { /* fixed */ }\nfn g() {}\n");
+    write(
+        &fixture.repo.join("src/lib.rs"),
+        "pub fn f() { /* fixed */ }\nfn g() {}\n",
+    );
     write(&fixture.repo.join("tests/bug.rs"), IDLE);
     fixture.commit(&["refactor f", "Behavior: unchanged"]);
     assert_eq!(fail_to_pass(&fixture).status, 0);
@@ -306,17 +459,26 @@ fn an_added_test_that_passes_without_the_fix_is_refused_after_the_push() {
     fixture.commit(&["pin f"]);
     assert_eq!(fail_to_pass(&fixture).status, 0);
     fixture.reset();
-    write(&fixture.repo.join("src/lib.rs"), "pub fn f() {}\nfn g() { /* fixed */ }\n#[test]\nfn guards() {}\n");
+    write(
+        &fixture.repo.join("src/lib.rs"),
+        "pub fn f() {}\nfn g() { /* fixed */ }\n#[test]\nfn guards() {}\n",
+    );
     fixture.commit(&["fix g next to its test"]);
     let adjacent = fail_to_pass(&fixture);
     assert_eq!(adjacent.status, 0, "{}", adjacent.stdout);
     fixture.reset();
-    write(&fixture.repo.join("src/lib.rs"), "pub fn f() {}\n#[test]\nfn guards() {}\nfn g() { /* fixed */ }\n");
+    write(
+        &fixture.repo.join("src/lib.rs"),
+        "pub fn f() {}\n#[test]\nfn guards() {}\nfn g() { /* fixed */ }\n",
+    );
     fixture.commit(&["fix g after its test"]);
     let after = fail_to_pass(&fixture);
     assert_eq!(after.status, 0, "{}", after.stdout);
     fixture.reset();
-    write(&fixture.repo.join("src/lib.rs"), &format!("pub fn f() {{}}\nfn g() {{}}\n{IDLE}"));
+    write(
+        &fixture.repo.join("src/lib.rs"),
+        &format!("pub fn f() {{}}\nfn g() {{}}\n{IDLE}"),
+    );
     fixture.commit(&["pin f inline"]);
     assert_eq!(fail_to_pass(&fixture).status, 0);
 }

@@ -765,8 +765,10 @@ Done when:
 Category: tooling. Scope: single-module. Surface: rust. Verify: local-test. Files: a lint in `north land scan`, a
 `test_env` helper for tests, `tests/it/dev_shell_target.rs`.
 The lint refuses `/nix/store/<hash>`, `/run/current-system`, `/nix/var` and `~/.nix-profile` in test code outside an
-allowlist of recorded-log fixtures. Tests that need a minimal PATH build it from `command -v` through the helper. The
-dev-shell test gains the case of two checkouts at different paths sharing `RUSTFLAGS` for their own `target`.
+allowlist of recorded-log fixtures. In a NixOS VM test (`*.test.nix`), a path inside a string is guest text, so only a
+bare path in the file's host code is refused. Tests that need a minimal PATH build it from `command -v` through the
+helper. The dev-shell test gains the case of two checkouts at different paths sharing `RUSTFLAGS` for their own
+`target`.
 
 Done when:
 - Replay north#272: the lint refuses the fixture at 747d84a50's parent, naming `/run/current-system`.
