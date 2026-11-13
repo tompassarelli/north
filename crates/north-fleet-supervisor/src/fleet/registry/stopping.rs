@@ -230,13 +230,32 @@ mod tests {
         fs::write(root.join("started"), format!("{caller} in {}: {}", cwd.display(), words.join(" ")))
     }
 
-    #[test]
-    fn a_worker_role_writer_spooling_a_lead_launch_is_refused_by_the_tick() {
+    struct SpooledLead {
+        fleet: Fleet,
+        tick: Fleet,
+        forget: FleetRow,
+        hold: FleetRow,
+        launch: FleetRow,
+        revive: FleetRow,
+    }
+
+    fn words(text: &str) -> Vec<String> {
+        text.split(' ').map(str::to_owned).collect()
+    }
+
+    fn asking(row: &FleetRow, id: &str, text: &str) -> FleetRow {
+        FleetRow { id: id.into(), text: serde_json::json!({"words": words(text)}).to_string(), ..row.clone() }
+    }
+
+    fn recorded_start(fleet: &Fleet) -> Option<String> {
+        fs::read_to_string(fleet.root.join("started")).ok()
+    }
+
+    /// A lead in a sandbox that may not write the fleet's records, whose forget, hold, launch and revive wait in its spool, and a tick that records what it starts.
+    fn spooled_lead(home: &std::path::Path) -> SpooledLead {
         use std::os::unix::fs::PermissionsExt;
         use crate::fleet::claims::Rows;
-        let tempdir = tempfile::tempdir().unwrap();
-        let home = tempdir.path().canonicalize().unwrap();
-        let fleet = fleet(&home);
+        let fleet = fleet(home);
         live(&fleet, "n870-a");
         fleet.claims.hold("north#870@the first box", "n870-a", &Default::default()).unwrap();
         fleet.claims.hold("north#870@the second box", "n870-a", &Default::default()).unwrap();
@@ -250,7 +269,6 @@ mod tests {
         let stopped = fleet.root.join("n870-stopped");
         fs::create_dir_all(&stopped).unwrap();
         fs::write(stopped.join("session.json"), serde_json::json!({"name": "n870-stopped", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "n870-stopped", "parent": "n870-lead", "host_dir": stopped, "stream_offset": 0}).to_string()).unwrap();
-        let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
         let spool = fleet.root.join("spool/sessions/n870-lead");
         fs::create_dir_all(&spool).unwrap();
         fs::set_permissions(&fleet.root, fs::Permissions::from_mode(0o555)).unwrap();
@@ -271,9 +289,16 @@ mod tests {
         assert!(!fleet.record("n870-lead").unwrap().tasks().any(|task| task == "north#872"), "the sandbox wrote the lead's own record");
         let (forget, hold, launch, revive) = (spooled(RowKind::Control), spooled(RowKind::Hold), spooled(RowKind::Launch), spooled(RowKind::Revive));
         let tick = Fleet { starts: recorded, ..fleet.clone() };
-        let started = || fs::read_to_string(fleet.root.join("started")).ok();
+        SpooledLead { fleet, tick, forget, hold, launch, revive }
+    }
+
+    #[test]
+    fn a_worker_role_writer_spooling_its_verbs_is_refused_by_the_tick_and_so_is_a_lead_asking_outside_its_grant() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let home = tempdir.path().canonicalize().unwrap();
+        let SpooledLead { fleet, tick, forget, hold, launch, revive } = spooled_lead(&home);
+        let started = || recorded_start(&fleet);
         let from = |row: &FleetRow, writer: &str| FleetRow { id: format!("{}-{writer}", row.id), to: writer.into(), sender: Sender::Session(writer.into()), spooled_by: Some(writer.into()), ..row.clone() };
-        let asking = |row: &FleetRow, id: &str, text: &str| FleetRow { id: id.into(), text: serde_json::json!({"words": words(text)}).to_string(), ..row.clone() };
         tick.deliver_row(&FleetRow { sender: Sender::Session("n870-other".into()), spooled_by: Some("n870-other".into()), ..forget.clone() }).unwrap();
         assert!(fleet.record("n870-child").is_ok(), "a forget from a session that is not the child's parent forgot it");
         assert!(tick.deliver_row(&FleetRow { sender: Sender::Session("n870-other".into()), spooled_by: Some("n870-other".into()), ..launch.clone() }).is_err());
@@ -309,11 +334,20 @@ mod tests {
         tick.deliver_row(&FleetRow { id: "other-project-hold".into(), text: "hold makgora#2".into(), ..hold.clone() }).unwrap();
         assert!(!fleet.record("n870-lead").unwrap().tasks().any(|task| task == "makgora#2"), "a lead's spooled hold took an issue of another project");
         tick.deliver_row(&FleetRow { id: "unspooled".into(), spooled_by: None, ..launch.clone() }).unwrap();
-        tick.deliver_row(&FleetRow { id: "unspooled-hold".into(), spooled_by: None, ..hold.clone() }).unwrap();
+        tick.deliver_row(&FleetRow { id: "unspooled-hold".into(), spooled_by: None, ..hold }).unwrap();
         assert_eq!(started(), None, "a launch row no spool carried started a session");
         assert!(!fleet.record("n870-lead").unwrap().tasks().any(|task| task == "north#872"), "a hold row no spool carried took effect");
         tick.deliver_row(&FleetRow { id: "taken".into(), text: launch.text.replace("n870-new", "n870-lead"), ..launch.clone() }).unwrap();
         assert_eq!(started(), None, "a launch took the name of a session that is not the lead's child");
+    }
+
+    #[test]
+    fn a_sandboxed_lead_launches_holds_and_forgets_through_the_spool() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let home = tempdir.path().canonicalize().unwrap();
+        let SpooledLead { fleet, tick, forget, hold, launch, revive } = spooled_lead(&home);
+        let started = || recorded_start(&fleet);
+        let main_text = home.join("code/north/main").display().to_string();
         tick.deliver_row(&forget).unwrap();
         tick.deliver_row(&hold).unwrap();
         tick.deliver_row(&launch).unwrap();
