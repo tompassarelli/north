@@ -24,3 +24,15 @@ survivor = "A. 35 of the 44 rows join to run rows and all 35 are the free model 
 owned = "none: no open issue lists provider errors on the opencode free route; north#1041 owns the outside-provider road and north#259 the Claude usage-limit stops"
 mechanism = "none filed: the route fix (c42af2b6b1) landed before this turn and was not built from it; the 9 launch-time losses with no run row are an idea under tompassarelli/north#1041"
 registry = "none: the surviving mechanism pre-dates the turn and no bar on a class or repository it was not built from can be set from these rows"
+
+[[turn]]
+date = 2026-11-13
+loss = "first-try-lost:halted"
+figure = "19 of 1,805 first tries lost as halted in 168 h to 2026-11-13T17:19Z, the second class of 85 harness losses (north dash losses --since 7d); 14 read 'north fleet stop or forget ended the turn', 3 'stopped after its first turn failed to start', 2 'retired mid-turn', 1 'a launch took over its name mid-turn' (the fleet's Halt causes in crates/north-fleet-supervisor/src/fleet/registry/stopping.rs)"
+explanation_a = "The halts are cancelled launches: a stop lands within seconds of the try's start, before the session has done work, and the box is taken by a later try, so the class counts launches a coordinator withdrew rather than work cut short."
+explanation_b = "The halts cut real work short: the stop lands after the session has run for minutes, and the box loses that turn's work."
+separating = "For each halted row of north dash losses --since 7d, the seconds from the try's start to the halt it records, and the state of the issue it worked (gh issue view). Under A nearly every gap is under a minute and the issues close afterwards; under B the gaps run to minutes or hours."
+survivor = "A. 17 of 19 gaps are 2 to 17 s (15 of them 2 to 6 s); one, north-744-d0351, is 284 s, the only one long enough to have done work. The 5 dispatch launches of 2026-11-11 20:07Z to 20:09Z were stopped 5 s each after starting, 30 s apart, and their issues (north#1169, north#1170, north#1179) closed by 2026-11-12 09:12Z, as did north#1120, north#1125 and north#1324. One row, ds-989, records its halt 23,171 s before its try started, so the loss join attaches a halt to a try it did not end. Not separated: who ordered each stop, since none of the 19 sessions has a run row in this host's ledger (north ledger runs --json, 7,078 rows) and the fleet records sit on the control host, which a worker sandbox cannot reach."
+owned = "none: no open issue owns halted first tries; north#1054 owns launch admission in general"
+mechanism = "none filed: the survivor is a reading of the class, not a mechanism, and a change to how dash losses counts a stop seconds after launch would edit what scores the loop; the misjoined ds-989 row and the stop-within-seconds pattern are ideas under tompassarelli/north#1054"
+registry = "none: no mechanism, so no discovery- entry is registered"
