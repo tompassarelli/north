@@ -25,6 +25,13 @@ const TIMED_OUT: &str = "ledger host timed out";
 const JOINED_TIMED_OUT: &str = "the joined usage batch timed out, so each goes on its own";
 /// How many sends of one spooled batch may time out before the flush sets it aside, so a batch the ledger host never answers in time stops holding every batch behind it.
 const SET_ASIDE_AFTER: usize = 3;
+/// How the record of a batch the flush set aside begins, which the health check counts.
+pub const SET_ASIDE: &str = "set aside after";
+
+/// Whether `fault` is a spooled batch the flush set aside after its sends kept timing out.
+pub fn set_aside(fault: &north_base::lifecycle::Fault) -> bool {
+    fault.machine == SpooledWrite::NAME && fault.state == Phase::Refused.name() && fault.cause.starts_with(SET_ASIDE)
+}
 
 /// Where a write spooled on a mirrored client stands on its way to the ledger host.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -215,11 +222,12 @@ impl Spool {
         Ok(self.store.history(SpooledWrite::NAME, name)?.iter().rev().filter(|logged| logged.to == Phase::Queued.name() && logged.cause != JOINED_TIMED_OUT).take_while(|logged| logged.cause == TIMED_OUT).count())
     }
 
-    /// Removes the file of every write recorded sent, which a flush that died between the record and the removal left behind.
-    fn sweep_sent(&self) -> NorthResult<()> {
+    /// Removes the file of every write recorded sent, which a flush that died between the record and the removal left behind; a file it cannot remove is logged and left to the next flush, never stopping this one.
+    fn sweep_sent(&self, err: &mut dyn Write) -> NorthResult<()> {
         for record in self.store.instances::<SpooledWrite>()?.into_iter().filter(|record| record.state == Phase::Sent) {
-            if self.holds(&record.instance) {
-                fs::remove_file(self.directory.join(&record.instance))?;
+            let path = self.directory.join(&record.instance);
+            if self.holds(&record.instance) && let Err(error) = fs::remove_file(&path) {
+                writeln!(err, "NorthThreads: could not remove the sent spool file {}: {error}; the next flush tries again", path.display())?;
             }
         }
         Ok(())
@@ -330,7 +338,7 @@ impl Client {
     fn send_queued(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>, usage: Usage) -> NorthResult<Flush> {
         let mut spool = self.spool_records()?;
         let started = Instant::now();
-        spool.sweep_sent()?;
+        spool.sweep_sent(err)?;
         let mut names = spool.queued((self.clock)())?;
         names.sort_by_cached_key(|name| !self.claim_or_release(name));
         let mut usage_names = Vec::new();
@@ -485,7 +493,7 @@ impl Client {
             for name in names {
                 if code == TIMED_OUT_STATUS && self.one_chunk(name)? && spool.timeouts_in_a_row(name)? + 1 >= SET_ASIDE_AFTER {
                     let path = self.spool.join(name);
-                    spool.refuse(name, &format!("set aside after {SET_ASIDE_AFTER} sends in a row timed out with the outcome unknown; {} is kept and can be sent again", path.display()), (self.clock)())?;
+                    spool.refuse(name, &format!("{SET_ASIDE} {SET_ASIDE_AFTER} sends in a row timed out with the outcome unknown; {} is kept and can be sent again", path.display()), (self.clock)())?;
                     writeln!(err, "NorthThreads: {SET_ASIDE_AFTER} sends in a row of {} timed out; it is set aside, kept and not sent again", path.display())?;
                     continue;
                 }

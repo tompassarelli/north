@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use north_base::dispatch_pause::RECORD;
 use north_base::lifecycle::Fault;
+use north_threads::threads::client::spool;
 
 use crate::foundation::clock::Timestamp;
 
@@ -124,7 +125,7 @@ impl World {
     }
 
     pub fn judge(&self) -> Vec<Flow> {
-        vec![self.probes(), self.recording(), self.snapshot(), self.policy(), self.hooks(), self.dispatch(), self.landing(), self.lifecycles()]
+        vec![self.probes(), self.recording(), self.snapshot(), self.policy(), self.hooks(), self.dispatch(), self.landing(), self.lifecycles(), self.set_aside()]
     }
 
     fn probes(&self) -> Flow {
@@ -247,12 +248,27 @@ impl World {
                 Lifecycles::Unreadable(why) => faults.push(format!("{name}: its lifecycle store is unreadable: {why}")),
                 Lifecycles::Read(found) => {
                     let (refused, rest): (Vec<&Fault>, Vec<&Fault>) = found.iter().partition(|fault| fault.machine == "threads-spool" && fault.state == "refused");
+                    let refused: Vec<&Fault> = refused.into_iter().filter(|fault| !spool::set_aside(fault)).collect();
                     faults.extend(rest.into_iter().map(|fault| format!("{name}: {}", fault.line(now))));
                     faults.extend(refused_lines(name, &refused, now));
                 }
             }
         }
         flow("state-machines", Some(0.0), faults)
+    }
+
+    /// The spooled batches a flush set aside after their sends kept timing out: each holds rows the ledger never took, and the flush logs it only to a stderr nobody reads.
+    fn set_aside(&self) -> Flow {
+        let now = Timestamp::from_unix_seconds_f64(self.now).unix_millis();
+        let mut faults = Vec::new();
+        for (name, facts) in self.reached() {
+            let Lifecycles::Read(found) = &facts.lifecycles else { continue };
+            let aside: Vec<&Fault> = found.iter().filter(|fault| spool::set_aside(fault)).collect();
+            let Some(oldest) = aside.iter().map(|fault| fault.since_ms).min() else { continue };
+            let age = (now - oldest).max(0) as f64 / 1000.0;
+            faults.push(format!("{name}: {} threads-spool batches set aside, oldest {} ago: {}", aside.len(), minutes(age), aside[0].cause.lines().next().unwrap_or_default().chars().take(300).collect::<String>()));
+        }
+        flow("spool-set-aside", Some(0.0), faults)
     }
 }
 
