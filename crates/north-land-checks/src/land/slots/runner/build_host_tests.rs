@@ -1,7 +1,7 @@
 use north_base::foundation::shim::write_script;
 
 use super::super::{OFF_HOST_PATIENCE, OFF_HOST_RETRY};
-use super::super::arguments::Environment;
+use super::super::arguments::{Environment, off_host};
 use super::{Placed, chosen, placed, runner_host};
 
 #[tokio::test]
@@ -42,4 +42,16 @@ async fn a_check_before_queueing_gives_up_only_when_no_build_host_answers_and_ru
     assert_eq!(runner_host(answers.to_str().unwrap(), &replay, None, &[]).await.as_deref(), Some("gex45"), "on 2026-11-12 a promotion replay with no runner configured was placed on the lander's host, and its test listing ran cargo there before any host was chosen");
     assert_eq!(runner_host(silent.to_str().unwrap(), &replay, Some("build-host"), &[]).await, None, "an off-host replay with no build host answering reaches no verdict rather than building on the lander's host");
     assert_eq!(runner_host(silent.to_str().unwrap(), &Environment::local("north".to_owned()), None, &[]).await.as_deref(), Some(""), "a set that is not off-host and names no runner runs where it is");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_host_closed_by_runs_no_checks_never_runs_its_check_here_when_no_remote_answers_north_1036() {
+    let directory = tempfile::tempdir().unwrap();
+    let silent = directory.path().join("silent");
+    write_script(&silent, "echo 'north capacity offload: no host has room: gex45: unreachable or unreadable' >&2\nexit 1\n");
+    let cfg: toml_edit::DocumentMut = "[hosts.laptop]\nruns_no_checks = true\n\n[hosts.gex45]\noffload_builds = true\n".parse().unwrap();
+    assert!(off_host(false, Some(&cfg), "laptop"));
+    assert!(!off_host(false, Some(&cfg), "gex45"), "the switch defaults off");
+    let closed = Environment { off_host: off_host(false, Some(&cfg), "laptop"), ..Environment::local("north".to_owned()) };
+    assert_eq!(runner_host(silent.to_str().unwrap(), &closed, None, &[]).await, None, "with no remote readable the closed laptop's check reaches no verdict rather than running on the laptop");
 }

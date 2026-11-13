@@ -107,6 +107,11 @@ pub fn build_hosts(cfg: &DocumentMut) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Whether `[hosts.HOST] runs_no_checks = true` closes the host to land checks and offloaded builds.
+pub fn runs_no_checks(cfg: &DocumentMut, host: &str) -> bool {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("runs_no_checks")).and_then(Item::as_bool) == Some(true)
+}
+
 /// Whether `[hosts.HOST]` builds north with Buck2 (`build_system = "buck2"`, the key the build seam reads); a host without the key builds with Cargo.
 pub fn builds_with_buck2(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get("build_system")?.as_str()) == Some("buck2")

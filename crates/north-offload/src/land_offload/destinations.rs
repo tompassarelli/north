@@ -98,7 +98,7 @@ pub(super) fn opts_out_of_builds(cfg: &DocumentMut, host: &str) -> bool {
 }
 
 pub(super) fn runs_no_checks(cfg: &DocumentMut, host: &str) -> bool {
-    cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("runs_no_checks")).and_then(Item::as_bool) == Some(true)
+    north_base::platform::orchestration::runs_no_checks(cfg, host)
 }
 
 pub(super) fn takes_land_checks(cfg: &DocumentMut, standing: super::room::Standing, host: &str) -> bool {

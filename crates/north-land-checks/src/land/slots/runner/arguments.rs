@@ -3,7 +3,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use north_base::foundation::offload::{LANDER_SLOT_ENV, LOCAL_ENV, OFF_HOST_ENV};
-use north_base::platform::harness;
+use north_base::platform::{harness, orchestration};
+use toml_edit::DocumentMut;
 
 use crate::land::slots::graph_selection::Batch;
 use crate::land::slots::judged;
@@ -133,7 +134,7 @@ impl Environment {
             offload_host: text("SAFE_PUSH_LAND_OFFLOAD_HOST"),
             timeout: text("SAFE_PUSH_LAND_CHECK_TIMEOUT").parse().ok(),
             runner: std::env::var("SAFE_PUSH_LAND_RUNNER").ok().filter(|runner| !runner.is_empty()),
-            off_host: std::env::var(OFF_HOST_ENV).is_ok_and(|value| value == "1"),
+            off_host: off_host(std::env::var(OFF_HOST_ENV).is_ok_and(|value| value == "1"), orchestration::read().ok().as_ref(), &north_base::platform::host::name()),
             local: std::env::var(LOCAL_ENV).is_ok_and(|value| value == "1"),
             lander_slot: std::env::var(LANDER_SLOT_ENV).is_ok_and(|value| value == "1"),
             record_reuse: std::env::var(RECORD_ENV).is_ok_and(|value| value == "1"),
@@ -141,6 +142,11 @@ impl Environment {
             north,
         }
     }
+}
+
+/// A host that `runs_no_checks` places every check on a build host the way an off-host set is, so no answering host leaves it waiting or without a verdict rather than running the check here.
+pub(super) fn off_host(requested: bool, cfg: Option<&DocumentMut>, here: &str) -> bool {
+    requested || cfg.is_some_and(|cfg| orchestration::runs_no_checks(cfg, here))
 }
 
 #[derive(Clone)]
