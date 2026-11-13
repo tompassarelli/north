@@ -200,7 +200,7 @@ fn a_brief_on_a_context_arm_launches_claude_with_that_auto_compact_window_and_an
 }
 
 #[test]
-fn a_profile_without_the_harness_settings_is_named_unguarded_so_its_launch_is_refused() {
+fn launched_worker_settings_disable_unsandboxed_commands() {
     let scratch = tempfile::tempdir().unwrap();
     let home = scratch.path().join("profiles/claude-api");
     std::fs::create_dir_all(&home).unwrap();
@@ -208,13 +208,14 @@ fn a_profile_without_the_harness_settings_is_named_unguarded_so_its_launch_is_re
     let here = |path: &std::path::Path| std::fs::read_to_string(path).map_or(Seen::Absent, Seen::Text);
 
     assert!(Claude.unguarded(&account, &here).is_some_and(|reason| reason.contains("no settings.json")));
-    std::fs::write(home.join("settings.json"), HOOKED).unwrap();
+    std::fs::write(home.join("settings.json"), r#"{"hooks": {"PreToolUse": [{}]}, "sandbox": {"allowUnsandboxedCommands": true}}"#).unwrap();
     assert_eq!(Claude.unguarded(&account, &here), None);
     let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), ..request() };
     std::fs::write(home.join("CLAUDE.md"), "owner policy\n").unwrap();
     let argv = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap().argv;
     let settings: serde_json::Value = serde_json::from_str(&argv[argv.iter().position(|arg| arg == "--settings").unwrap() + 1]).unwrap();
     assert_eq!(settings["hooks"], serde_json::from_str::<serde_json::Value>(HOOKED).unwrap()["hooks"], "a worker's hooks come from the checked settings.json: {argv:?}");
+    assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false, "a worker's Bash tool may not leave the sandbox: {argv:?}");
     assert_eq!(argv.iter().filter(|arg| *arg == "--settings").count(), 1, "Claude Code keeps only the last --settings: {argv:?}");
     assert!(argv.windows(2).any(|pair| pair == ["--setting-sources", "project,local"]) && argv.windows(2).any(|pair| pair == ["--system-prompt", "orders\n\nowner policy"]), "a worker's system prompt carries the profile's policy file: {argv:?}");
     let research = LaunchRequest { prompt: "Item: north#1\nCategory: research\n".into(), ..worker };

@@ -41,7 +41,7 @@ fn worker_settings(account: &Account, request: &LaunchRequest, prefix: &Path) ->
     if !profile.is_object() {
         return Err(NorthError::State(format!("{}{}: its top level is not a JSON object", path.display(), on(request))));
     }
-    Ok(with_prefix(without_credentials(profile), prefix).to_string())
+    Ok(with_prefix(without_unsandboxed_commands(without_credentials(profile)), prefix).to_string())
 }
 
 /// `settings` without what would pick the session's credential, endpoint or login, which an agent user's own profile file could carry: its whole env block, whose one entry the launch needs it writes itself, and the settings that run a credential command or steer the login.
@@ -52,6 +52,15 @@ fn without_credentials(mut settings: Value) -> Value {
             settings.remove(key);
         }
     }
+    settings
+}
+
+/// `settings` with the Bash tool's unsandboxed option switched off whatever the profile says, so every command of a worker stays inside the worker sandbox.
+fn without_unsandboxed_commands(mut settings: Value) -> Value {
+    if !settings["sandbox"].is_object() {
+        settings["sandbox"] = json!({});
+    }
+    settings["sandbox"]["allowUnsandboxedCommands"] = json!(false);
     settings
 }
 
