@@ -12,12 +12,13 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS done_checks(
   exit INTEGER NOT NULL,
   ran_ms INTEGER NOT NULL,
   PRIMARY KEY(host, ran_ms, head_sha, command)
-) STRICT";
+) STRICT;
+CREATE INDEX IF NOT EXISTS done_checks_task_ref ON done_checks(task_ref, exit, ran_ms)";
 
 pub const KIND: &str = "done_check";
 
 pub fn ensure(db: &Connection) -> Result<(), Failure> {
-    db.execute(SCHEMA, [])?;
+    db.execute_batch(SCHEMA)?;
     Ok(())
 }
 

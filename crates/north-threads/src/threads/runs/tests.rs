@@ -347,6 +347,7 @@ fn settle_split_reads_the_boxes_a_session_ticked_beside_the_boxes_it_left_open()
     Connection::open(&ledger.path).unwrap().execute("INSERT INTO events(ts, item, kind, actor, data) VALUES ('2026-10-28T08:01:00Z', 'north#872', 'claim', 'w1', '{\"box\": \"second-box\"}')", []).unwrap();
     ledger.ingest(&[check, issue(&format!("{}- [ ] Second box. Done when: `true` exits 0.\n", first("111111111111"))), worker("finished")]);
     assert_eq!(outcome(), read("done"), "its check passed, and the box ticked cites another commit");
+    assert_eq!(ledger.rows("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'done_checks' AND name = 'done_checks_task_ref'"), read("done_checks_task_ref"), "the settle reads the checks of each run through the index, not a scan per run");
     ledger.ingest(&[issue(&format!("{}- [ ] Second box. Done when: `true` exits 0.\n", first("abcdef123456")))]);
     assert_eq!(outcome(), read("split"));
     ledger.ingest(&[issue(&format!("{}{}", first("abcdef123456"), "- [x] Second box. Evidence: `true` passed on main abcdef123456 on 2026-10-28.\n"))]);
