@@ -64,6 +64,15 @@ guarded_at = "2026-11-06T21:00:47Z"
 not_structural = "how heavy a chosen path is lives in a plan's prose, which no graph fact measures"
 
 [[class]]
+name = "unevidenced-addition"
+pattern = '''what edge cases|what \w+ hardening|(verification|test|security) (\w+ )?(theat(re|er)|paranoia)|(contrived|speculative) (scenario|case|limit|guard|path|test|criteri|check)'''
+paraphrase = "Tom said the work added scenarios, limits, guards or checks that nothing real called for."
+owner = "north#1335"
+guard = "The operator's global rule additions-point-to-evidence: a scenario, limit, guard, gate, fallback, code path or Done-when check is added only for something that can be pointed to (docs/rationale/evidence-for-additions.md)."
+guarded_at = "2026-11-13T11:03:03Z"
+not_structural = "whether an addition has anything behind it lies in what the request and the diff mean, which no graph fact holds"
+
+[[class]]
 name = "ungrounded-design"
 pattern = '''under-?specified|not (really )?grounded (on|in)|heavier doesn'?t mean'''
 paraphrase = "Tom said the design was not grounded in evidence."

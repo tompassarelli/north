@@ -653,6 +653,21 @@ after = ["2026-11-09", "2026-11-23"]
 review = "2026-11-25"
 owner = "tompassarelli/south#78"
 
+[[experiment]]
+id = "evidence-for-additions"
+change = "The global rule additions-point-to-evidence in south agents/rules.toml: add a scenario, limit, guard, gate, fallback, code path or Done-when check only for something that can be pointed to, leave the rest out and file nothing for it, label a number that must exist as a guess with what would settle it, and keep checks of what the request asks for (south 42c81e0899)"
+landed = "42c81e0899"
+note = "docs/rationale/evidence-for-additions.md"
+rule = "Overturned by: a blind sample of 20 worker lanes landed in the 14 days before 2026-11-13 and 20 landed in the 14 days after, each judged for an added scenario, limit, guard, gate, fallback, code path or Done-when check that nothing in its brief or issue points to, showing no drop of a quarter or more in the share of lanes with one, or the rework rate of finished worker runs rising by 0.02 or more between those windows."
+metric = "none"
+measure = "a blind sample of 20 worker lanes landed from 2026-10-30 to 2026-11-13 and 20 landed from 2026-11-13 to 2026-11-27, each judged against its brief and issue for an added scenario, limit, guard, gate, fallback, code path or Done-when check that nothing there points to: keep the rule when the share of lanes with one falls by a quarter or more, and bring it to Tom with both counts otherwise or when north ledger flow shows the rework rate rising by 0.02 or more between the windows"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-13", "2026-11-27"]
+review = "2026-11-29"
+owner = "tompassarelli/north#1335"
+
 [[check]]
 id = "n873-context-pack-verdict"
 box = "Keep or revert: at the review, the settle rule keeps the pack only when it is cheaper per kept box with no lower kept share."
