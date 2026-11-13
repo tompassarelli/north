@@ -193,7 +193,7 @@ fn drive(lander: &Lander, state: &mut Watch) -> Vec<String> {
         if queue::pending(&lander.queue).unwrap().is_empty() && state.in_flight() == 0 {
             return true;
         }
-        rounds.push(format!("{:?}", lander.round(state)));
+        rounds.push(format!("{:?}", Serve::new(lander).round(state)));
         false
     });
     assert!(drained, "the queue never drained: {:?}", &rounds[rounds.len().saturating_sub(5)..]);
@@ -298,7 +298,7 @@ fn stopped_mid_after_run(world: &World) {
         let mut watch = Watch::resume(&lander);
         let parent = rustix::process::getppid();
         wait::until(HANG, || {
-            let _ = lander.round(&mut watch);
+            let _ = Serve::new(&lander).round(&mut watch);
             rustix::process::getppid() != parent
         });
         return;
@@ -324,7 +324,7 @@ fn stopped_mid_after_run(world: &World) {
     let mut watch = Watch::resume(&restarted);
     assert_eq!(watch.journaled(), 1);
     wait_for("the restarted lander to settle the adopted run and land the revert", || {
-        let _ = restarted.round(&mut watch);
+        let _ = Serve::new(&restarted).round(&mut watch);
         watch.in_flight() == 0 && queue::pending(&restarted.queue).unwrap().is_empty() && world.landed_subjects().iter().any(|subject| subject.starts_with("Revert "))
     });
     assert_eq!(journaled(&restarted), 0);
@@ -352,7 +352,7 @@ fn restarted_while_waiting_out_a_rerun(world: &World) {
     let mut watch = Watch::default();
     let unsettled = |head: &str| north_base::lifecycle::Store::host().unwrap().history("after-landing-run", head).unwrap().iter().any(|logged| logged.to == "unsettled");
     wait_for("the after-landing run to end without a verdict", || {
-        let _ = lander.round(&mut watch);
+        let _ = Serve::new(&lander).round(&mut watch);
         unsettled(&run(&world.origin, &["rev-parse", "main"]))
     });
     let head = run(&world.origin, &["rev-parse", "main"]);
@@ -361,7 +361,7 @@ fn restarted_while_waiting_out_a_rerun(world: &World) {
     let restarted = world.lander();
     let mut watch = Watch::resume(&restarted);
     wait_for("the restarted lander to reach the after-landing verdict", || {
-        let _ = restarted.round(&mut watch);
+        let _ = Serve::new(&restarted).round(&mut watch);
         watch.in_flight() == 0
     });
     assert_eq!(verdicts(&head), ["green"]);
@@ -410,7 +410,7 @@ fn stalled_chores(world: &World) {
     let a = world.enqueue(&lander, &world.lane("a"));
     let mut watch = Watch::default();
     assert!(wait::until(HANG, || {
-        let _ = lander.round(&mut watch);
+        let _ = Serve::new(&lander).round(&mut watch);
         queue::pending(&lander.queue).unwrap().is_empty()
     }), "the queued lane waited behind the sheriff and the recovery");
     landed(&world.settled(&lander, &[&a]));

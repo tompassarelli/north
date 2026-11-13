@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{ATTEMPTS, Round, ahead, alone, micros};
-use super::round::{Landing, Pushing};
+use super::{ATTEMPTS, Round, Serve, ahead, alone, micros};
+use super::round::Landing;
 use crate::land::after;
 use crate::land::alone_flight;
 use crate::land::bisect;
@@ -59,21 +59,12 @@ pub(super) struct Attempt<'a> {
     pub(super) built: &'a Built,
 }
 
-pub(super) trait Batching {
-    fn batch(&self, watch: &mut Watch) -> Result<Round, String>;
-    fn attempt(&self, watch: &mut Watch, pass: &mut Pass, logs: &Path) -> Result<Flow, String>;
-    fn gate(&self, pass: &mut Pass, queued: &[(PathBuf, Ticket)], empty: bool) -> Option<Flow>;
-    fn sort_picks<'a>(&self, pass: &mut Pass, attempt: &Attempt<'a>) -> Result<(Vec<Entry<'a>>, Option<String>), String>;
-    fn land_fresh(&self, watch: &mut Watch, pass: &mut Pass, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<Flow, String>;
-    fn recheck(&self, watch: &mut Watch, pass: &mut Pass, lane: &(PathBuf, Ticket), queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<(), String>;
-}
-
 pub(super) fn batch(lander: &Lander, watch: &mut Watch) -> Result<Round, String> {
-    Batching::batch(lander, watch)
+    Serve::new(lander).batch(watch)
 }
 
-impl Batching for Lander {
-    fn batch(&self, watch: &mut Watch) -> Result<Round, String> {
+impl Serve<'_> {
+    pub(super) fn batch(&self, watch: &mut Watch) -> Result<Round, String> {
         let logs = self.queue.join("logs");
         let mut pass = Pass::new();
         self.round.store(u64::try_from(micros()).unwrap_or(u64::MAX), std::sync::atomic::Ordering::Relaxed);

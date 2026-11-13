@@ -94,10 +94,11 @@ fn land(lander: &Lander, path: &Path, ticket: &Ticket, reason: &str) -> Result<S
     if outgoing::publication(&lander.worktree, &base, head).is_err() {
         return Err(format!("the secret scan or the privacy judge refused {base}..{head}; nothing pushed"));
     }
-    let token = lander.push_token(&base)?;
+    let serve = Serve::new(lander);
+    let token = serve.push_token(&base)?;
     let mut stages = Stages::start();
     stages.pushing();
-    match lander.push(head, &base, token.as_deref())? {
+    match serve.push(head, &base, token.as_deref())? {
         Pushed::Landed => {}
         Pushed::Moved => return Err(format!("main moved from {base} before the push; nothing pushed, run it again")),
         Pushed::Refused(Refusal::Terminal(line) | Refusal::Retry(line)) => return Err(format!("origin refused the push of {head}: {line}")),

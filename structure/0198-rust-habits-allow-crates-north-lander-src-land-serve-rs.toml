@@ -1,5 +1,0 @@
-[[rust_habits.allow]]
-rule = "single-impl-trait"
-path = "crates/north-lander/src/land/serve.rs"
-reason = "Serve carries the serve loop's methods on Lander, which north-landing defines; an inherent impl outside its crate is E0116, so the methods live on a trait in the crate that uses them (north#840)."
-

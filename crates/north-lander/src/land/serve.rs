@@ -60,18 +60,32 @@ fn micros() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros())
 }
 
-pub trait Serve {
-    fn push_token(&self, base: &str) -> Result<Option<String>, String>;
-    fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<Pushed, String>;
-    fn round(&self, watch: &mut Watch) -> Result<Round, String>;
+/// The serving view of one lander: the methods `north land serve` layers on it,
+/// which no crate but this one may add to `Lander` itself.
+pub struct Serve<'a> {
+    lander: &'a Lander,
 }
 
-impl Serve for Lander {
-    fn push_token(&self, base: &str) -> Result<Option<String>, String> {
+impl<'a> Serve<'a> {
+    pub fn new(lander: &'a Lander) -> Self {
+        Self { lander }
+    }
+}
+
+impl std::ops::Deref for Serve<'_> {
+    type Target = Lander;
+
+    fn deref(&self) -> &Lander {
+        self.lander
+    }
+}
+
+impl Serve<'_> {
+    pub fn push_token(&self, base: &str) -> Result<Option<String>, String> {
         credential::for_push(&self.worktree, base, &self.app_token)
     }
 
-    fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<Pushed, String> {
+    pub fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<Pushed, String> {
         let mut push = std::process::Command::new("git");
         push.arg("-C").arg(&self.worktree);
         if let Some(token) = token {
@@ -96,7 +110,7 @@ impl Serve for Lander {
         Ok(Pushed::Moved)
     }
 
-    fn round(&self, watch: &mut Watch) -> Result<Round, String> {
+    pub fn round(&self, watch: &mut Watch) -> Result<Round, String> {
         self.heartbeat.enter(Step::Settle);
         if watch.settle(self) || alone::settle(self, watch)? {
             return Ok(Round::Progress);
@@ -156,7 +170,7 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
         if retire.load(Ordering::Relaxed) {
             return handover::hand_over(lander, &watch);
         }
-        let round = lander.round(&mut watch);
+        let round = Serve::new(lander).round(&mut watch);
         lander.heartbeat.enter(Step::Watchdog);
         watchdog::after_round(lander, &round);
         lander.heartbeat.enter(Step::Between);

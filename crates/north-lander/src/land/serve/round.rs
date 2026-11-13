@@ -8,7 +8,6 @@ use crate::land::bisect::{self, Judgement};
 use crate::land::candidate::git;
 use crate::land::checks::Verdict;
 use crate::land::heartbeat::Step;
-use crate::land::lander::Lander;
 use crate::land::push_refusal::Refusal;
 use crate::land::records::{self, Candidate, Decision};
 use crate::land::steps;
@@ -21,13 +20,8 @@ pub(super) struct Landing<'a> {
     pub(super) worktree: &'a Path,
 }
 
-pub(super) trait Pushing {
-    fn land_batch(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, lanes: &[Entry], landing: &Landing) -> Result<Flow, String>;
-    fn land(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, landing: &Landing, included: &[Entry], stages: Stages) -> Result<ControlFlow<Flow>, String>;
-}
-
-impl Pushing for Lander {
-    fn land_batch(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, lanes: &[Entry], landing: &Landing) -> Result<Flow, String> {
+impl Serve<'_> {
+    pub(super) fn land_batch(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, lanes: &[Entry], landing: &Landing) -> Result<Flow, String> {
         let id = steps::batch(&pass.round(attempt, std::collections::BTreeMap::new(), 0), lanes, None);
         println!("north land: candidate {} carries {} lanes that passed their checks before queueing, onto main@{}; pushing it", landing.head, lanes.len(), attempt.base);
         let mut stages = Stages::start();

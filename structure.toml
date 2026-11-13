@@ -1082,21 +1082,6 @@ fixtures = ["crates/north-dispatch/src/dispatch/queued.rs", "crates/north-land-s
 fixture = "start it in a tempdir and set NORTH_TEST_ROOT to that directory before the launch, as tests/it/fleet_launch.rs and tests/it/land_serve/mod.rs do, so a write outside it is refused before the session or lander writes; each file in fixtures only reads the words and starts no process"
 
 [[rust_habits.allow]]
-rule = "single-impl-trait"
-path = "crates/north-lander/src/land/serve.rs"
-reason = "Serve carries the serve loop's methods on Lander, which north-landing defines; an inherent impl outside its crate is E0116, so the methods live on a trait in the crate that uses them (north#840)."
-
-[[rust_habits.allow]]
-rule = "single-impl-trait"
-path = "crates/north-lander/src/land/serve/batch.rs"
-reason = "Batching carries the batch round's methods on Lander, which north-landing defines; an inherent impl outside its crate is E0116 (north#840)."
-
-[[rust_habits.allow]]
-rule = "single-impl-trait"
-path = "crates/north-lander/src/land/serve/round.rs"
-reason = "Pushing carries the probe round's methods on Lander, which north-landing defines; an inherent impl outside its crate is E0116 (north#840)."
-
-[[rust_habits.allow]]
 rule = "shared-mutability"
 path = "crates/north-fleet-supervisor/src/fleet/registry/fixtures.rs"
 reason = "Test fixture, doc(hidden) and public since 895bb0e6f so north-tui's tests reach it; a fake session's frames are shared between its reader thread and the test."
