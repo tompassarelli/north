@@ -32,8 +32,7 @@ pub enum Route {
 impl Route {
     pub fn of(visibility: Visibility) -> Self {
         match visibility {
-            Visibility::Public => Self::Free,
-            Visibility::Private | Visibility::Unknown => Self::Go,
+            Visibility::Public | Visibility::Private | Visibility::Unknown => Self::Go,
         }
     }
 

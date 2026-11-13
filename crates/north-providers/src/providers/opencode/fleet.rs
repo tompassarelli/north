@@ -69,12 +69,18 @@ impl Deepseek {
 
     fn route(&self, request: &LaunchRequest, brief: &str) -> NorthResult<Route> {
         let settings = harness::document(SETTINGS);
-        let route = Route::of((self.visibility)(&request.cwd));
+        let visibility = (self.visibility)(&request.cwd);
+        let route = match request.model.as_deref() {
+            Some(route::FREE_MODEL) if visibility == Visibility::Public => Route::Free,
+            _ => Route::of(visibility),
+        };
         if let Some(model) = request.model.as_deref().filter(|model| *model != route.model()) {
             return Err(NorthError::Refused(format!("the launcher fixes this lane's model to {}; {model} was asked for", route.model())));
         }
         let until = route::date(settings["go"]["zero_retention_until"].as_str().unwrap_or_default()).map_err(NorthError::State)?;
-        route::admits(route, (self.today)(), until).map_err(NorthError::Refused)?;
+        if visibility != Visibility::Public {
+            route::admits(route, (self.today)(), until).map_err(NorthError::Refused)?;
+        }
         if let Some(effort) = request.effort.filter(|_| !self.harness.effort_arms().is_empty()).filter(|effort| !self.harness.effort_arms().contains(effort)) {
             return Err(NorthError::Refused(format!("{} runs only at {} effort, not {}", self.harness.provider(), self.harness.effort_arms().iter().map(|effort| effort.label()).collect::<Vec<_>>().join(" or "), effort.label())));
         }
@@ -217,7 +223,7 @@ impl Runtime for Deepseek {
                 transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
                 push(transcript, EntryKind::User, frame["text"].as_str().unwrap_or_default().to_owned());
             }
-            Some(Phase::Fallback) => push(transcript, EntryKind::Notice, format!("the free model failed ({}); this turn runs again on paid Go Flash", frame["reason"].as_str().unwrap_or("no reason given"))),
+            Some(Phase::Fallback) => push(transcript, EntryKind::Notice, format!("the free model failed ({}); this turn runs again on the Go plan's Flash model", frame["reason"].as_str().unwrap_or("no reason given"))),
             Some(Phase::End) => observe_end(frame, transcript),
             None => {
                 for (kind, text) in self.harness.entries(frame) {

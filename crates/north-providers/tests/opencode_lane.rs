@@ -40,7 +40,7 @@ fn request(cwd: &Path, prompt: &str) -> LaunchRequest {
         provider: Deepseek::opencode().provider(),
         account: "go".into(),
         cwd: cwd.into(),
-        model: None,
+        model: Some(route::FREE_MODEL.into()),
         effort: None,
         prompt: prompt.into(),
         system_prompt: None,

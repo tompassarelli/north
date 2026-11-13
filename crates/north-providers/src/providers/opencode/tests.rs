@@ -139,14 +139,14 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     let prompt = signals.iter().position(|signal| matches!(signal, TurnSignal::Prompt { .. })).unwrap();
     let ended = signals.iter().position(|signal| matches!(signal, TurnSignal::Ended { .. })).unwrap();
     assert!(signals[prompt + 1..ended].iter().any(|signal| matches!(signal, TurnSignal::Started { .. })), "a launch waits for a signal after the prompt, and a turn over 120 s ended its own session when only the turn's end gave one: {signals:?}");
-    a_free_model_that_is_limited_runs_the_turn_again_on_paid_go_flash();
-    a_private_a_public_and_an_unreadable_repo_pick_go_free_and_go();
+    a_free_model_that_is_limited_runs_the_turn_again_on_the_go_plans_flash_model();
+    a_private_a_public_and_an_unreadable_repo_pick_go_and_only_a_public_one_asking_for_the_free_model_gets_it();
     a_brief_naming_a_private_repo_or_a_secret_is_refused_for_the_free_model_and_not_for_go();
     the_launched_config_lists_only_the_one_chosen_provider_and_model();
     past_the_zero_retention_date_a_private_lane_launch_is_refused_and_a_public_one_is_admitted();
 }
 
-fn a_free_model_that_is_limited_runs_the_turn_again_on_paid_go_flash() {
+fn a_free_model_that_is_limited_runs_the_turn_again_on_the_go_plans_flash_model() {
     let home = tempfile::tempdir().unwrap();
     let runtime = seeing(Visibility::Public, day("2026-11-10"));
 
@@ -162,7 +162,7 @@ fn a_free_model_that_is_limited_runs_the_turn_again_on_paid_go_flash() {
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Ended { exit: TurnExit::Completed, .. })));
 }
 
-fn a_private_a_public_and_an_unreadable_repo_pick_go_free_and_go() {
+fn a_private_a_public_and_an_unreadable_repo_pick_go_and_only_a_public_one_asking_for_the_free_model_gets_it() {
     let home = tempfile::tempdir().unwrap();
     let account = account(home.path());
     let picked = |visibility| {
@@ -171,10 +171,16 @@ fn a_private_a_public_and_an_unreadable_repo_pick_go_free_and_go() {
     };
 
     assert_eq!(picked(Visibility::Private), "go");
-    assert_eq!(picked(Visibility::Public), "free");
+    assert_eq!(picked(Visibility::Public), "go");
+    let asked_free = LaunchRequest { model: Some(route::FREE_MODEL.into()), ..request(home.path()) };
+    let spec = seeing(Visibility::Public, day("2026-11-10")).host(&account, &asked_free, Opening::Fresh(Some("ses_x")), "").unwrap();
+    assert_eq!(argument(&spec.argv, "--route").as_deref(), Some("free"));
+    let asked_go = LaunchRequest { model: Some(route::GO_MODEL.into()), ..request(home.path()) };
+    assert!(seeing(Visibility::Public, day("2026-11-10")).host(&account, &asked_go, Opening::Fresh(Some("ses_x")), "").is_ok());
     assert_eq!(picked(Visibility::Unknown), "go");
     let delivered = |visibility| {
-        let spec = seeing(visibility, day("2026-11-10")).host(&account, &request(home.path()), Opening::Fresh(Some("ses_x")), "LIVE-ORDER-OF-THE-OPERATOR").unwrap();
+        let asked = LaunchRequest { model: (visibility == Visibility::Public).then(|| route::FREE_MODEL.into()), ..request(home.path()) };
+        let spec = seeing(visibility, day("2026-11-10")).host(&account, &asked, Opening::Fresh(Some("ses_x")), "LIVE-ORDER-OF-THE-OPERATOR").unwrap();
         std::fs::read_to_string(argument(&spec.argv, "--instructions").unwrap()).unwrap()
     };
     let (public, private) = (delivered(Visibility::Public), delivered(Visibility::Private));
@@ -188,7 +194,7 @@ fn a_private_a_public_and_an_unreadable_repo_pick_go_free_and_go() {
 fn a_brief_naming_a_private_repo_or_a_secret_is_refused_for_the_free_model_and_not_for_go() {
     let home = tempfile::tempdir().unwrap();
     let account = account(home.path());
-    let launch = |visibility, prompt: &str| seeing(visibility, day("2026-11-10")).host(&account, &LaunchRequest { prompt: prompt.into(), ..request(home.path()) }, Opening::Fresh(Some("ses_x")), "");
+    let launch = |visibility, prompt: &str| seeing(visibility, day("2026-11-10")).host(&account, &LaunchRequest { prompt: prompt.into(), model: (visibility == Visibility::Public).then(|| route::FREE_MODEL.into()), ..request(home.path()) }, Opening::Fresh(Some("ses_x")), "");
 
     for prompt in ["Copy ~/code/south/main/README.md into the lane", "Follow tompassarelli/south#94", "use sk-ant-api03-abcdefghijklmnopqrstuvwx", "-----BEGIN OPENSSH PRIVATE KEY-----"] {
         assert!(launch(Visibility::Public, prompt).is_err_and(|error| error.user_message().contains("free model may train")), "{prompt}");
