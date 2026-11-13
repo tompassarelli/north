@@ -7,7 +7,7 @@ use crate::land::wake::{Task, Wake};
 const LIMIT: Duration = Duration::from_secs(60);
 
 #[test]
-fn the_idle_lander_wakes_on_a_ticket_written_to_its_queue_and_on_a_check_exiting_before_its_next_round() {
+fn a_queued_ticket_lands_on_the_backstop_tick_when_the_wake_event_is_dropped() {
     let queue_directory = tempfile::tempdir().unwrap();
     let wake = Arc::new(Wake::default());
     let _watcher = super::watch(queue_directory.path(), &wake);
@@ -20,4 +20,10 @@ fn the_idle_lander_wakes_on_a_ticket_written_to_its_queue_and_on_a_check_exiting
     let answer = Task::spawn(&wake, || 7);
     assert!(wake.wait(LIMIT) && answer.is_finished(), "the lander slept through a check thread ending, or woke before its result was ready");
     assert_eq!(answer.join().unwrap(), 7);
+    let dropped_directory = tempfile::tempdir().unwrap();
+    let unwired = Arc::new(Wake::default());
+    let _quiet = super::start(dropped_directory.path(), || {});
+    queue::write(&dropped_directory.path().join("2-lane.json"), &Ticket::default()).unwrap();
+    assert!(!unwired.wait(super::super::POLL), "the lander woke on a ticket whose event was dropped");
+    assert_eq!(queue::pending(dropped_directory.path()).unwrap().len(), 1, "the backstop round does not find the queued ticket");
 }

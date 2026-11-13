@@ -20,19 +20,24 @@ impl Drop for Watcher {
 }
 
 pub fn watch(queue: &Path, wake: &Arc<Wake>) -> Watcher {
+    let waking = Arc::clone(wake);
+    start(queue, move || waking.ring())
+}
+
+fn start(queue: &Path, ring: impl Fn() + Send + 'static) -> Watcher {
     let stop = Arc::new(AtomicBool::new(false));
-    let (stopping, waking, watched) = (Arc::clone(&stop), Arc::clone(wake), queue.to_owned());
+    let (stopping, watched) = (Arc::clone(&stop), queue.to_owned());
     let started = inotify::init(CreateFlags::CLOEXEC)
         .and_then(|queue_events| inotify::add_watch(&queue_events, &watched, WatchFlags::MOVED_TO | WatchFlags::MOVED_FROM | WatchFlags::DELETE).map(|_| queue_events))
         .map_err(|error| error.to_string())
-        .and_then(|queue_events| std::thread::Builder::new().name("land queue tickets".into()).spawn(move || follow(&queue_events, &stopping, &waking)).map_err(|error| error.to_string()));
+        .and_then(|queue_events| std::thread::Builder::new().name("land queue tickets".into()).spawn(move || follow(&queue_events, &stopping, &ring)).map_err(|error| error.to_string()));
     if let Err(error) = started {
         println!("north land: could not start watching {} for new tickets, so they wait for the next round: {error}", queue.display());
     }
     Watcher { stop }
 }
 
-fn follow(queue_events: &impl std::os::fd::AsFd, stop: &AtomicBool, wake: &Wake) {
+fn follow(queue_events: &impl std::os::fd::AsFd, stop: &AtomicBool, ring: &impl Fn()) {
     let mut buffer = [MaybeUninit::<u8>::uninit(); 4096];
     let mut reader = Reader::new(queue_events, &mut buffer);
     let mut queued: HashSet<String> = HashSet::new();
@@ -49,7 +54,7 @@ fn follow(queue_events: &impl std::os::fd::AsFd, stop: &AtomicBool, wake: &Wake)
         if !event.events().contains(ReadFlags::MOVED_TO) {
             queued.remove(name);
         } else if queued.insert(name.to_owned()) {
-            wake.ring();
+            ring();
         }
     }
 }
