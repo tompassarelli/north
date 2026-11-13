@@ -19,6 +19,7 @@ pub mod turns;
 mod tests;
 
 pub use accounts::{LABEL as ACCOUNT, key_file};
+pub use config::KEY_ENV;
 pub use fleet::{Deepseek, PROVIDER};
 pub use shared::Shared;
 pub use lane::Making;

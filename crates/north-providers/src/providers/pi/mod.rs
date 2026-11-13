@@ -7,7 +7,7 @@ pub(crate) mod windows;
 #[path = "tests.rs"]
 mod tests;
 
-pub use harness::{PI, PROVIDER};
+pub use harness::{KEY_ENV, PI, PROVIDER};
 
 use crate::error::NorthResult;
 

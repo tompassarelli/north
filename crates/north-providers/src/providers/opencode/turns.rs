@@ -236,7 +236,7 @@ fn spawn(host: &Host, route: Route, text: &str) -> NorthResult<Child> {
 fn command_shell(host: &Host) -> PathBuf {
     let path = host.scratch.join("shell");
     let north = north_base::platform::north_binary::north_binary();
-    let script = format!("exec env SHELL=/bin/sh {} --worker-sandbox --outside -- {} --worker-sandbox --lane -- /bin/sh \"$@\"\n", north.display(), north.display());
+    let script = format!("exec env -u {} SHELL=/bin/sh {} --worker-sandbox --outside -- {} --worker-sandbox --lane -- /bin/sh \"$@\"\n", host.harness.key_env(), north.display(), north.display());
     north_base::foundation::shim::write_script(&path, &script);
     path
 }

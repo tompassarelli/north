@@ -4,6 +4,7 @@ use north_base::platform::session_scope::REMOVAL_ROOTS;
 use north_base::platform::{git_credential, session_scope};
 use north_base::foundation::offload;
 use north_base::verdict_cache;
+use north_providers::providers::{opencode, pi};
 
 use super::lane_grant;
 use super::{CONFINED, HOSTS_HIDDEN, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDDEN};
@@ -25,7 +26,7 @@ fn builds(name: &str) -> bool {
 }
 
 fn unsafe_name(name: &str) -> bool {
-    name == MARK || name == SOCKETS_HIDDEN || name == CONFINED || name == HOSTS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name)
+    name == MARK || name == SOCKETS_HIDDEN || name == CONFINED || name == HOSTS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name) || [opencode::KEY_ENV, pi::KEY_ENV].contains(&name)
 }
 
 /// The programs a brokered safe-push runs, `None` for every other request: the `PATH` in `own`, the broker's environment, behind `home`'s gh shims, `north`, the broker's own build, as every north it starts, and the compiler, wrapper, flags, cache and test runner `own` sets, since the programs its checks before queueing run, the north whose `verdict hit` decides which of them run, how they build and where they run decide the verdict a ticket carries.
@@ -98,7 +99,7 @@ pub(super) fn request_homes(arguments: &[String], cgroup: Option<&str>, sent: &[
     }).chain(store).collect()
 }
 
-/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), the variables that name a file or store a guard on the landing path trusts (the verdict store, the orchestration policy, the privacy denylist's sources), and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). The XDG homes and `HOME` are `homes`, the broker's own apart from a safe-push's state home (`request_homes`): a client's scratch homes would take the state, cache and data a brokered build writes with it (north#1030), and `north home move` takes the broker's `HOME` as the top of its moves (north#992). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
+/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), the variables that name a file or store a guard on the landing path trusts (the verdict store, the orchestration policy, the privacy denylist's sources), the paid key an opencode or pi session's commands must not read, and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). The XDG homes and `HOME` are `homes`, the broker's own apart from a safe-push's state home (`request_homes`): a client's scratch homes would take the state, cache and data a brokered build writes with it (north#1030), and `north home move` takes the broker's `HOME` as the top of its moves (north#992). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
 pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>, runtime: &Path, homes: &[(String, String)]) -> Vec<(String, String)> {
     let lane_only = cgroup.is_none_or(session_scope::lane_only_cgroup);
     let path = |value: &str| std::env::join_paths(std::env::split_paths(value).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();

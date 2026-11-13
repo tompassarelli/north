@@ -49,6 +49,9 @@ pub trait Harness: Send + Sync {
         &[]
     }
 
+    /// The variable that carries the paid key to its child, which no command its shell tool runs may read.
+    fn key_env(&self) -> &'static str;
+
     /// The variables its child needs on `route`, given the paid key when the route is Go.
     fn environment(&self, host: &Host, route: Route, key: Option<&str>) -> Vec<(String, String)>;
 
@@ -100,6 +103,10 @@ impl Harness for OpenCode {
 
     fn effort_arms(&self) -> &'static [Effort] {
         &[Effort::High, Effort::Max]
+    }
+
+    fn key_env(&self) -> &'static str {
+        config::KEY_ENV
     }
 
     fn environment(&self, host: &Host, route: Route, key: Option<&str>) -> Vec<(String, String)> {

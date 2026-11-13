@@ -10,6 +10,7 @@ use super::super::opencode::turns::Host;
 use super::events;
 
 pub const PROVIDER: &str = "pi";
+pub const KEY_ENV: &str = "OPENCODE_API_KEY";
 const PUBLIC_KEY: &str = "public";
 const SETTINGS_FILE: &str = "settings.json";
 
@@ -35,6 +36,10 @@ impl Harness for Pi {
         ["--mode", "json", "--offline", "--no-approve", "--no-mcp", "--provider", route.provider(), "--model", model, "--session-id", session, "--", text].map(str::to_owned).into()
     }
 
+    fn key_env(&self) -> &'static str {
+        KEY_ENV
+    }
+
     fn environment(&self, host: &Host, _route: Route, key: Option<&str>) -> Vec<(String, String)> {
         let agent = host.scratch.join("agent");
         vec![
@@ -42,7 +47,7 @@ impl Harness for Pi {
             ("PI_OFFLINE".to_owned(), "1".to_owned()),
             ("PI_SKIP_VERSION_CHECK".to_owned(), "1".to_owned()),
             ("PI_TELEMETRY".to_owned(), "0".to_owned()),
-            ("OPENCODE_API_KEY".to_owned(), key.unwrap_or(PUBLIC_KEY).to_owned()),
+            (KEY_ENV.to_owned(), key.unwrap_or(PUBLIC_KEY).to_owned()),
         ]
     }
 
