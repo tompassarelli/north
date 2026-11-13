@@ -4,7 +4,8 @@
 //! `runtime-artifacts/<tree>`: the runtime programs, the commit and the host they were built from and on, and when.
 //! Each request is a file under `runtime-artifacts/requests` named by its tree. Each build host has one slot, a lock
 //! file here, and whoever holds a slot drains the requests in order, every lander candidate oldest first and then a
-//! queued lane's hand-in, taking each off the queue so no other slot builds it: requests build side by side, one per
+//! queued lane's hand-in, taking each off the queue so no other slot builds it, while a newer request withdraws every older
+//! one still waiting, so only the newest waiting tree is built ahead: requests build side by side, one per
 //! build host, and a candidate waits only while every build host is building; none builds on this host. Each artifact
 //! is about 86 MB and the newest nine are kept, since builds side by side end three at a time.
 use super::super::build_host;
@@ -236,20 +237,20 @@ fn slot(artifacts: &Path, host: &BuildHost) -> Option<File> {
     flock(&file, FlockOperation::NonBlockingLockExclusive).ok().map(|()| file)
 }
 
-/// Writes the request file named by the validated tree hash alone; a hand-in replaces the older hand-in of its lane, so
-/// a lane has at most one build asked, and a hand-in for a tree a candidate asked for leaves the candidate first in line.
+/// Writes the request file named by the validated tree hash alone, and withdraws every other request still waiting: only
+/// the newest waiting tree is built ahead, since an older one is a head the lander has since superseded or reverted, and its
+/// build would run to the end for a landing that never comes. A hand-in never withdraws a candidate, and a hand-in for a
+/// tree a candidate asked for leaves the candidate first in line.
 fn file(artifacts: &Path, ask: &Ask) -> Result<(), Failure> {
     let requests = artifacts.join(REQUESTS);
     fs::create_dir_all(&requests)?;
-    if ask.kind == Kind::HandIn {
-        let filed = filed(artifacts);
-        for (tree, filed) in &filed {
-            if filed.kind == Kind::HandIn && filed.lane == ask.lane && *tree != ask.tree {
-                let _ = fs::remove_file(requests.join(tree));
-            }
-        }
-        if filed.iter().any(|(tree, filed)| *tree == ask.tree && filed.kind == Kind::Candidate) {
-            return Ok(());
+    let filed = filed(artifacts);
+    if ask.kind == Kind::HandIn && filed.iter().any(|(tree, filed)| *tree == ask.tree && filed.kind == Kind::Candidate) {
+        return Ok(());
+    }
+    for (tree, filed) in &filed {
+        if *tree != ask.tree && !(ask.kind == Kind::HandIn && filed.kind == Kind::Candidate) {
+            let _ = fs::remove_file(requests.join(tree));
         }
     }
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
@@ -475,9 +476,11 @@ mod tests {
         file(&artifacts, &ask(&older, &older, Kind::Candidate, "")).unwrap();
         file(&artifacts, &ask(&older, &older, Kind::HandIn, "g-lane")).unwrap();
         file(&artifacts, &ask(&lane_new, &lane_new, Kind::HandIn, "f-lane")).unwrap();
+        assert_eq!(filed(&artifacts).len(), 2, "a lane's newer hand-in replaces its older one and a hand-in of a candidate's tree leaves it a candidate");
         file(&artifacts, &ask(&newer, &newer, Kind::Candidate, "")).unwrap();
+        assert_eq!(filed(&artifacts).into_iter().map(|(tree, _)| tree).collect::<Vec<_>>(), [newer], "a candidate withdraws every older request");
         request(&layout, &ask(&tree, &commit, Kind::Candidate, ""), || vec![host("gex45", Some(4.0)), host("cpx62", Some(12.0))], built).unwrap();
-        assert_eq!(asked, [&older, &newer, &commit, &lane_new].map(|built| format!("cpx62 {built}")), "every candidate builds, oldest first and none given way to a newer one, before the hand-in, and a lane's newer hand-in replaces its older one, and a hand-in of a candidate's tree leaves it a candidate; promotion on landing promotes each landed tree, so a dropped candidate was a build the promotion paid again");
+        assert_eq!(asked, [format!("cpx62 {commit}")], "a newer candidate withdraws every older request still waiting, candidate or hand-in, so only the newest waiting tree is built and a superseded head's build never starts; a hand-in never withdraws a candidate");
         let artifact = ready(&layout, &tree).expect("the build host's release is kept by the candidate's tree");
         assert_eq!(fs::read_to_string(artifact.join("north")).unwrap(), "north built on cpx62");
         let landed = "e".repeat(40);
