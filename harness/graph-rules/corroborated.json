@@ -7,7 +7,7 @@
   [{"head": {"rel": "corroborated", "args": [{"var": "box"}, {"var": "sha"}, {"var": "writer"}]}, "body": [
      {"rel": "claim", "args": [{"var": "box"}, {"var": "sha"}]},
      {"rel": "triple", "args": [{"var": "box"}, ["keyword", "done-when"], {"var": "command"}]},
-     {"rel": "assertion", "args": [{"var": "writer"}, {"var": "sha"}, ["keyword", "check-passed"], {"var": "command"}]},
+     {"rel": "assertion", "args": [{"var": "writer"}, {"var": "checked"}, ["keyword", "check-passed"], {"var": "command"}]},
      {"pred": "eq", "args": [{"var": "writer"}, "checker"]}]},
    {"head": {"rel": "corroborated", "args": [{"var": "box"}, {"var": "sha"}, {"var": "writer"}]}, "body": [
      {"rel": "claim", "args": [{"var": "box"}, {"var": "sha"}]},

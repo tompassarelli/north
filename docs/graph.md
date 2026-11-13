@@ -184,7 +184,8 @@ query can join a claim to the checks of the commit it names.
 
 A worker's claim counts only when a mechanical writer corroborates it. `harness/graph-rules/corroborated.json` derives
 `corroborated(BOX, SHA, WRITER)`: a quoted `(BOX :done-at SHA)` claim whose SHA is not `:none`, with `checker` asserting
-`(SHA :check-passed CMD)` for the box's own `:done-when` CMD, or with `lander` asserting `(SHA :landed-on "main")` and `git`
+`(CHECKED :check-passed CMD)` for the box's own `:done-when` CMD on any commit it checked on main (it runs a box's check on
+the main head of its run, not at the claimed commit), or with `lander` asserting `(SHA :landed-on "main")` and `git`
 asserting `(SHA :ancestor-of "origin/main")`. The closed-box report (`north dash --closed`, dispatch's arm shares) marks a
 kept box checker-verified only when the rule holds by `checker` for the box its run's brief named; the
 `Evidence:` stamp in the issue body, which any writer of the body can type, is read only on a host with no graph.
@@ -295,7 +296,7 @@ graph as fresh as its last `north graph ingest`, and a host with no graph answer
 - `dropped-thread`: a box whose wait names something the ingest cannot resolve (`unparsed-wait`), until the box names
   `north#N box K` or a sibling label.
 - `unverified-tick`: a worker's Done claim on a ticked box whose commit landed or was pushed over 24 h ago and that
-  `corroborated` (a checker passing the box's `Done when:` command at that commit, or the lander's landing on main) does
+  `corroborated` (a checker passing the box's `Done when:` command on main, or the lander's landing on main) does
   not confirm. A claim that names no commit is never corroborated and never found here, since it has no time to wait from.
 - `duplicate-claim`: each holder of an unticked box another session also holds. The `ledger` source tells
   `(OWNER :holds box:...)` under writer `threads` for each claim in the threads claims table on an open issue's box (the

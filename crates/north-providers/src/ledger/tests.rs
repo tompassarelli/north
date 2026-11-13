@@ -285,8 +285,8 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     };
     assert!(!verified(&path), "a self-ticked box whose own stamp claims a pass reads unverified while no checker assertion corroborates it");
     let mut graph = Graph::open(&path).unwrap();
-    graph.tell("checker", north_graph::Triple::new(Term::string(SHA), Term::keyword("check-passed"), Term::string(COMMAND))).unwrap();
-    assert!(verified(&path), "the checker passing the box's Done-when command at the claimed commit corroborates the claim");
+    graph.tell("checker", north_graph::Triple::new(Term::string("211159d7ca5b0e8f0c4d6a1e2b3c4d5e6f708192"), Term::keyword("check-passed"), Term::string(COMMAND))).unwrap();
+    assert!(verified(&path), "the checker passing the box's Done-when command on the later main head it ran on corroborates the claim");
     assert!(verified(&directory.path().join("absent.db")), "where no graph exists the box's stamp is read");
 }
 
