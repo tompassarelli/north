@@ -33,6 +33,8 @@ pub enum Event {
     Paged { sha: String, at: i64 },
     /// One host of an ordered promotion: who ordered the commit and why, what that host's canary said before it went live, and whether it did.
     Ordered { sha: String, host: String, orderer: String, reason: String, canary: String, live: bool, at: i64 },
+    /// A host an order left out: it was shipped nothing, ran no canary and stays on the runtime it had, held on it until an order includes it again.
+    LeftOut { sha: String, host: String, orderer: String, reason: String, at: i64 },
     /// How long a landing waited for its release runtime after the lander pushed: 0 s when the lander built the tree ahead while the lane queued.
     #[serde(rename = "artifact-ready")]
     ArtifactReady { sha: String, tree: String, seconds: i64, at: i64 },
@@ -62,7 +64,7 @@ impl std::fmt::Display for Outcome {
 impl Event {
     pub fn at(&self) -> i64 {
         match self {
-            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::Ordered { at, .. } | Self::ArtifactReady { at, .. } | Self::Canaried { at, .. } | Self::Shipped { at, .. } | Self::Slotted { at, .. } => *at,
+            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::Ordered { at, .. } | Self::LeftOut { at, .. } | Self::ArtifactReady { at, .. } | Self::Canaried { at, .. } | Self::Shipped { at, .. } | Self::Slotted { at, .. } => *at,
         }
     }
 }
@@ -198,6 +200,29 @@ pub(super) fn events_here_or_mirrored(state: &Path, reader: &str) -> Vec<Event> 
     }
 }
 
+/// The hosts an order left out and nothing since has shipped to, judged or ordered, each with the row that left it out.
+pub(super) fn held(events: &[Event]) -> Vec<&Event> {
+    let mut held: Vec<&Event> = Vec::new();
+    for event in events {
+        match event {
+            Event::Ordered { host: moved, .. } | Event::Shipped { host: moved, .. } | Event::Canaried { host: moved, .. } => held.retain(|held| !matches!(held, Event::LeftOut { host, .. } if host == moved)),
+            Event::LeftOut { host: left, .. } => {
+                held.retain(|held| !matches!(held, Event::LeftOut { host, .. } if host == left));
+                held.push(event);
+            }
+            _ => {}
+        }
+    }
+    held
+}
+
+fn held_lines(events: &[Event]) -> String {
+    held(events).into_iter().filter_map(|event| match event {
+        Event::LeftOut { sha, host, orderer, reason, .. } => Some(format!("held: {host} on its own runtime, left out of the order of {} by {orderer}: {reason}\n", layout::short(sha))),
+        _ => None,
+    }).collect()
+}
+
 pub fn status(state: &Path, live: Option<&str>) -> String {
     let events = events_here_or_mirrored(state, "north runtime status");
     let promoted = live.and_then(|live| events.iter().rev().find_map(|event| match event {
@@ -207,14 +232,16 @@ pub fn status(state: &Path, live: Option<&str>) -> String {
     let walked = live.is_some_and(|live| events.iter().any(|event| matches!(event, Event::Walked { sha, .. } if sha == live)));
     let waiting = waiting_since(&events).map_or_else(|| "landings waiting since: none\n".to_owned(), |since| format!("landings waiting since: {} (unix {since})\n", iso(since)));
     let walked = format!("spine walked: {}\n", if walked { "yes" } else { "no" });
-    match (live, promoted) {
+    let held = held_lines(&events);
+    let body = match (live, promoted) {
         (None, _) => "pinned: none (no live runtime on this host)\n".to_owned(),
         (Some(live), Some(at)) => format!("pinned: {live}\npromoted at: {} (unix {at})\n{walked}{waiting}", iso(at)),
         (Some(live), None) => match recorded_promotion(state, live) {
             Some(at) => format!("pinned: {live}\npromoted at: {} (unix {at}, recorded on this host)\n{walked}{waiting}", iso(at)),
             None => format!("pinned: {live}\npromoted at: unrecorded on this host (the settling host records promotions)\n{waiting}"),
         },
-    }
+    };
+    format!("{body}{held}")
 }
 
 pub(super) fn iso(at: i64) -> String {

@@ -137,7 +137,7 @@ fn an_ordered_promotion_of_a_landed_commit_runs_the_canary_then_goes_live_on_the
     let (settling, builder) = (host("whiterabbit", None), host("gex45", Some("depbox")));
     let order = Order { sha: NEW.to_owned(), reason: "the lander cannot take a landing".to_owned(), orderer: "f-promote-order".to_owned() };
 
-    let refused = run(&layout, &order, &settling, &[&builder], || Ok(()), |()| Ok(false)).unwrap_err();
+    let refused = run(&layout, &order, &settling, &[&builder], &["nexus".to_owned()], || Ok(()), |()| Ok(false)).unwrap_err();
 
     assert!(refused.message.contains("gex45 stays on its old runtime") && refused.message.contains("depbox"), "{}", refused.message);
     let steps = steps.lock().unwrap();
@@ -156,6 +156,17 @@ fn an_ordered_promotion_of_a_landed_commit_runs_the_canary_then_goes_live_on_the
     let row = |host: &str| rows.iter().find(|row| row.0 == host).unwrap_or_else(|| panic!("no row for {host}: {rows:?}"));
     assert!(row("whiterabbit").1 == "passed" && row("whiterabbit").2);
     assert!(row("gex45").1.starts_with("failed: probe `a worker command's depbox run") && !row("gex45").2);
+    assert!(rows.iter().all(|row| row.0 != "nexus") && steps.iter().all(|step| !step.starts_with("nexus")), "a host left out is shipped, judged and promoted nothing: {steps:?}");
+    let left_out: Vec<(String, String)> = read(&layout.state).into_iter().filter_map(|event| match event {
+        Event::LeftOut { host, orderer, reason, .. } => Some((host, format!("{orderer}: {reason}"))),
+        _ => None,
+    }).collect();
+    assert_eq!(left_out, [("nexus".to_owned(), "f-promote-order: the lander cannot take a landing".to_owned())]);
+    assert!(super::super::pin::status(&layout.state, None).contains("held: nexus"));
+    let deployment = crate::land_offload::Deployment { destinations: vec!["tom@gex45".to_owned(), "nexus".to_owned()], names: vec!["gex45".to_owned(), "nexus".to_owned()], ..Default::default() };
+    let named = |except: &[&str]| super::leave_out(&deployment, &except.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>(), "whiterabbit");
+    assert_eq!(named(&["nexus"]).unwrap(), (vec!["tom@gex45".to_owned()], vec!["nexus".to_owned()]));
+    assert!(named(&["whiterabbit"]).is_err() && named(&["nowhere"]).is_err() && named(&["gex45", "nexus"]).is_err());
 }
 
 struct Contended<'a> {
@@ -211,7 +222,7 @@ fn an_order_holds_the_promotion_lock_while_its_canary_runs() {
     let host = Contended { layout: &layout, held: &held };
     let order = Order { sha: NEW.to_owned(), reason: "the lander cannot take a landing".to_owned(), orderer: "f-runtime-tree".to_owned() };
 
-    run(&layout, &order, &host, &[], || Ok(()), |()| {
+    run(&layout, &order, &host, &[], &[], || Ok(()), |()| {
         host.note("hold restored");
         Ok(false)
     })
@@ -235,6 +246,7 @@ fn a_promotion_that_takes_the_lock_between_the_holds_release_and_the_order_leave
         &layout,
         &order,
         &host,
+        &[],
         &[],
         || {
             between = Some(update::flight(&layout, &mut || panic!("a promotion inside an order's window promoted")));
@@ -261,7 +273,7 @@ fn an_order_names_a_host_kept_on_a_newer_runtime_and_does_not_report_it_live() {
     let kept = Rehearsal { layout: &layout, name: "gex45", failing: None, retired: None, live: Mutex::new(NEWER.to_owned()), pin: Mutex::new(Some(NEWER.to_owned())), steps: &steps, stays: true };
     let order = Order { sha: NEW.to_owned(), reason: "main's head holds a change under review".to_owned(), orderer: "f-canary-chain".to_owned() };
 
-    let refused = run(&layout, &order, &settling, &[&kept], || Ok(()), |()| Ok(false)).unwrap_err();
+    let refused = run(&layout, &order, &settling, &[&kept], &[], || Ok(()), |()| Ok(false)).unwrap_err();
 
     assert!(refused.message.contains("gex45") && refused.message.contains("is not live") && refused.message.contains(layout::short(NEWER)), "on 2026-11-12 an order reported four hosts live on its commit that had stayed on a newer one: {}", refused.message);
     assert_eq!(kept.pin.lock().unwrap().as_deref(), Some(NEWER), "a host that is not on the ordered commit keeps its stable pin");
@@ -285,7 +297,7 @@ fn an_order_promotes_a_candidate_failing_only_a_probe_it_retired_and_refuses_one
     let (settling, builder) = (host("whiterabbit", Some("depbox")), host("gex45", Some("ssh reaches no host")));
     let order = Order { sha: NEW.to_owned(), reason: "the depbox probe is retired".to_owned(), orderer: "f-canary-chain".to_owned() };
 
-    let refused = run(&layout, &order, &settling, &[&builder], || Ok(()), |()| Ok(false)).unwrap_err();
+    let refused = run(&layout, &order, &settling, &[&builder], &[], || Ok(()), |()| Ok(false)).unwrap_err();
 
     assert_eq!(settling.live.lock().unwrap().as_str(), NEW, "the order's own list still held the depbox probe, which the candidate retired and would fail");
     let judged = lifecycle::record_of::<Canarying>(&layout, &format!("whiterabbit/{NEW}")).unwrap().unwrap().cause;

@@ -6,6 +6,7 @@ use toml_edit::{DocumentMut, Item};
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Deployment {
     pub destinations: Vec<String>,
+    pub names: Vec<String>,
     pub skipped: Vec<String>,
     pub relays_facts: Vec<Relayed>,
 }
@@ -38,6 +39,7 @@ pub(super) fn deploy(cfg: &DocumentMut, here: &str) -> Deployment {
                 plan.relays_facts.push(Relayed { destination: destination.to_owned(), host: name.to_owned() });
             }
             plan.destinations.push(destination.to_owned());
+            plan.names.push(name.to_owned());
         }
     }
     plan

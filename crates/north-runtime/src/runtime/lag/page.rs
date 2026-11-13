@@ -18,6 +18,9 @@ use std::time::Duration;
 
 const KEY: &str = "runtime-lag";
 pub(super) const PAGE_AFTER_S: i64 = 300;
+
+/// How long a host an order left out reads as held rather than behind: past it the host's real lag pages again, so a forgotten `--except` cannot hide an old broker.
+const HELD_SILENCE_S: i64 = 6 * 60 * 60;
 const EPISODES: &str = "runtime-lag-episodes.json";
 const LOCK: &str = "runtime-lag.lock";
 const STARTED: &str = "runtime-lag.started";
@@ -83,7 +86,22 @@ fn send(key: &str, text: &str, cleared: bool) -> bool {
 
 pub(super) fn objects(layout: &Layout, probed: &[Value]) -> Vec<Value> {
     let checkout = update::checkout();
-    behind::objects(&super::ask::seen(layout, probed), super::ask::pin(layout).as_ref(), pin::now(), |landed, runtime| landed == runtime || crate::runtime::settle::ancestor(&checkout, landed, runtime))
+    let mut objects = behind::objects(&super::ask::seen(layout, probed), super::ask::pin(layout).as_ref(), pin::now(), |landed, runtime| landed == runtime || crate::runtime::settle::ancestor(&checkout, landed, runtime));
+    let events = pin::read(&layout.state);
+    let now = pin::now();
+    let held: Vec<(&str, i64)> = pin::held(&events).into_iter().filter_map(|event| match event {
+        pin::Event::LeftOut { host, at, .. } => Some((host.as_str(), now - at)),
+        _ => None,
+    }).collect();
+    for object in &mut objects {
+        let Some(&(_, age)) = held.iter().find(|(host, _)| object["host"].as_str() == Some(host)) else { continue };
+        object["held"] = Value::Bool(true);
+        object["held_seconds"] = Value::from(age);
+        if age <= HELD_SILENCE_S {
+            object["seconds"] = Value::from(0);
+        }
+    }
+    objects
 }
 
 fn over(object: &Value) -> bool {

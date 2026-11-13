@@ -10,7 +10,7 @@ use crate::land_offload;
 
 mod hold;
 
-const USAGE: &str = "usage: north runtime order --reason REASON [--commit REV]  promote REV (default origin/main's head), a commit already on origin/main, to this host and every deploy host at once: each host builds or fetches that runtime, runs its canary probes against it before it is live, goes live only on a pass and rewrites its stable pin, and one row per host in runtime-pins.jsonl names the commit, who ordered it, the reason and the canary verdict; a host whose canary fails keeps its runtime and the probe that failed is named; every host, this one included, is moved to the commit even back from a newer runtime, and a host that stays on another runtime is named, recorded as not live and fails the order; run it as the coordinator's step on the host that settles the fleet, since it stops north-stable-hold.service for the run and starts it again";
+const USAGE: &str = "usage: north runtime order --reason REASON [--commit REV] [--except HOST]...  promote REV (default origin/main's head), a commit already on origin/main, to this host and every deploy host at once: each host builds or fetches that runtime, runs its canary probes against it before it is live, goes live only on a pass and rewrites its stable pin, and one row per host in runtime-pins.jsonl names the commit, who ordered it, the reason and the canary verdict; a host whose canary fails keeps its runtime and the probe that failed is named; every host, this one included, is moved to the commit even back from a newer runtime, and a host that stays on another runtime is named, recorded as not live and fails the order; --except HOST (repeatable) leaves a deploy host out: it is shipped nothing, runs no canary, gets one left-out row in runtime-pins.jsonl, and status names it held until an order includes it again; this host, a name that is no deploy host and an order that would leave no deploy host are refused; run it as the coordinator's step on the host that settles the fleet, since it stops north-stable-hold.service for the run and starts it again";
 const PIN: &str = "channel/stable";
 
 pub(super) struct Order {
@@ -31,7 +31,7 @@ pub(super) trait Host: Sync {
 }
 
 pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
-    let (commit, reason) = parse(flags)?;
+    let (commit, reason, except) = parse(flags)?;
     if !land_offload::settles_fleet_here() {
         return Err(failed(64, format!("this host does not settle the fleet; run it on the host that does\n{USAGE}")));
     }
@@ -39,28 +39,48 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> 
     let sha = resolve(&checkout, commit.as_deref())?;
     let order = Order { sha, reason, orderer: orderer() };
     let name = crate::platform::host::name();
-    let here = Here { layout, shell: Shell::Here(name) };
+    let here = Here { layout, shell: Shell::Here(name.clone()) };
     let deployment = land_offload::deployment();
     if let Some(line) = deployment.skip_line() {
         println!("{line}");
     }
-    let others: Vec<Elsewhere> = deployment.destinations.iter().map(|destination| Elsewhere { layout, shell: Shell::Ssh(destination.clone()) }).collect();
+    let (kept, left_out) = leave_out(&deployment, &except, &name)?;
+    let others: Vec<Elsewhere> = kept.iter().map(|destination| Elsewhere { layout, shell: Shell::Ssh(destination.clone()) }).collect();
     let others: Vec<&dyn Host> = others.iter().map(|other| other as &dyn Host).collect();
-    run(layout, &order, &here, &others, hold::release, hold::restore)
+    run(layout, &order, &here, &others, &left_out, hold::release, hold::restore)
 }
 
-fn parse(flags: &[String]) -> Result<(Option<String>, String), Failure> {
-    let (mut commit, mut reason) = (None, None);
+fn leave_out(deployment: &land_offload::Deployment, except: &[String], here: &str) -> Result<(Vec<String>, Vec<String>), Failure> {
+    let mut left_out = Vec::new();
+    for name in except {
+        if name == here {
+            return Err(failed(64, format!("--except {name}: this is the host that settles the fleet and runs the order, which promotes it\n{USAGE}")));
+        }
+        let Some(position) = deployment.names.iter().position(|deploy| deploy == name) else {
+            return Err(failed(64, format!("--except {name}: no deploy host of that name; the deploy hosts are {}\n{USAGE}", deployment.names.join(", "))));
+        };
+        left_out.push(deployment.destinations[position].clone());
+    }
+    let kept: Vec<String> = deployment.destinations.iter().filter(|destination| !left_out.contains(destination)).cloned().collect();
+    match kept.is_empty() {
+        true => Err(failed(64, format!("--except would leave no deploy host to promote\n{USAGE}"))),
+        false => Ok((kept, left_out)),
+    }
+}
+
+fn parse(flags: &[String]) -> Result<(Option<String>, String, Vec<String>), Failure> {
+    let (mut commit, mut reason, mut except) = (None, None, Vec::new());
     let mut rest = flags.iter();
     while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next()) {
             ("--commit", Some(value)) => commit = Some(value.clone()),
             ("--reason", Some(value)) => reason = Some(value.clone()),
+            ("--except", Some(value)) => except.push(value.clone()),
             _ => return Err(failed(64, USAGE)),
         }
     }
     match reason.filter(|reason| !reason.trim().is_empty()) {
-        Some(reason) => Ok((commit, reason)),
+        Some(reason) => Ok((commit, reason, except)),
         None => Err(failed(64, USAGE)),
     }
 }
@@ -80,7 +100,7 @@ fn orderer() -> String {
 }
 
 /// The order marks itself in runtime-order.lock before `release` stops the hold unit, so a promotion that takes the promotion lock in the moment between that stop and the order's own take leaves it to the order (north#1171); the order then holds the promotion lock from before the build until `restore` has put the hold unit back, which queues on that lock, and keeps its mark until that unit is seen holding it.
-pub(super) fn run<Held>(layout: &Layout, order: &Order, settling: &dyn Host, others: &[&dyn Host], release: impl FnOnce() -> Result<Held, Failure>, restore: impl FnOnce(Held) -> Result<bool, Failure>) -> Result<(), Failure> {
+pub(super) fn run<Held>(layout: &Layout, order: &Order, settling: &dyn Host, others: &[&dyn Host], left_out: &[String], release: impl FnOnce() -> Result<Held, Failure>, restore: impl FnOnce(Held) -> Result<bool, Failure>) -> Result<(), Failure> {
     let ordering = update::order_marked(layout)?;
     let released = release()?;
     let promoting = match update::order_waiting(layout) {
@@ -90,6 +110,9 @@ pub(super) fn run<Held>(layout: &Layout, order: &Order, settling: &dyn Host, oth
             return Err(failure);
         }
     };
+    for host in left_out {
+        pin::note(layout, &Event::LeftOut { sha: order.sha.clone(), host: host.clone(), orderer: order.orderer.clone(), reason: order.reason.clone(), at: pin::now() });
+    }
     let ordered = promote_everywhere(layout, order, settling, others);
     let restored = restore(released);
     drop(promoting);
