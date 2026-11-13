@@ -16,6 +16,7 @@ pub(super) const USAGE: &str = "usage: north code-health <command> [--repo DIR] 
   check FILE               edit-time check of one worktree file against HEAD (prints nothing when clean)
   signal                   FIRE <reason> lines for REV (exit 0) or quiet (exit 1) for the recurring review; --record writes the review loop record
   budget [REV]             each crate against its line budget, the coupling signals and the change cost since the last review
+  over-budget              read `budget --json` on stdin and keep the one 'North is over the Rust line budget' issue: filed or edited while over, closed once within
   review-done [--sha SHA]  record the review marker
   imports                  resolve imports of files given as JSON on stdin
   habits [--repo DIR] [--base REV [--head REV] [--shadow]]  the Rust habit checks; --base reports the code comments added since REV instead

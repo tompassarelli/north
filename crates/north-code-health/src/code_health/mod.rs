@@ -29,6 +29,7 @@ mod imports;
 mod imports_tests;
 mod layers;
 pub use layers::{Placement, placement};
+mod over_budget;
 mod report;
 mod resolver;
 mod rust_lines;
@@ -46,6 +47,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Some("habits") => habits_command(&arguments[1..]),
         Some("crate-lines") => crate_lines::run(&arguments[1..]),
         Some("layers") => layers::run(&arguments[1..]),
+        Some("over-budget") => over_budget::run(&arguments[1..]),
         None => crate_lines::run(&[]),
         _ => cli::run(arguments),
     }
