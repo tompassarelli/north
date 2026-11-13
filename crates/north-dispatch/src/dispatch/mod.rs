@@ -36,6 +36,7 @@ mod from_draft;
 mod drafts_tests;
 mod effects;
 mod facets;
+pub use facets::launch_header;
 pub(crate) mod fleets;
 pub use fleets::workers as fleet_workers;
 mod freeze;

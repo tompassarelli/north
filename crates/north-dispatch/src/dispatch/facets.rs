@@ -30,6 +30,13 @@ pub fn native(issue: &Issue) -> bool {
         })
 }
 
+/// The header a hand launch's brief checks read: the first block of each of `texts` (the system prompt, the prompt and
+/// the named brief), a block left empty dropped so it cannot end the header at its blank line.
+pub fn launch_header(texts: &[&str]) -> String {
+    let blocks = texts.iter().map(|text| text.trim_start().lines().take_while(|line| !line.trim().is_empty()).collect::<Vec<_>>().join("\n"));
+    blocks.filter(|block| !block.is_empty()).collect::<Vec<_>>().join("\n")
+}
+
 pub fn default(key: &str) -> &'static str {
     FACETS.iter().find(|(name, _)| *name == key).map_or("", |(_, default)| default)
 }
@@ -40,11 +47,12 @@ pub fn category(issue: &Issue) -> Option<String> {
     named.filter(|word| !word.is_empty()).or_else(labelled).map(|category| settled(category.to_lowercase(), &issue.body))
 }
 
-/// A facet the issue declares, else `native` for Verify on a native box, else the default; `Repro` is
-/// the repro the body names, empty when none.
+/// A facet the issue declares with a first word in its vocabulary, else `native` for Verify on a native box,
+/// else the default, so prose on a facet line never reaches a brief; `Repro` is the repro the body names,
+/// empty when none.
 pub fn facet(issue: &Issue, key: &str) -> String {
     let default = default(key);
-    match (key, declared(issue, key)) {
+    match (key, declared(issue, key).filter(|value| crate::router::brief::facet_known(key, value))) {
         ("Category", _) => category(issue).unwrap_or_else(|| default.into()),
         ("Repro", _) => repro(&issue.body).unwrap_or_default(),
         (_, Some(value)) => value.to_owned(),

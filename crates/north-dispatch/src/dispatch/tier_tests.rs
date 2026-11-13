@@ -280,11 +280,19 @@ fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_ru
     for facet in ["Scope: module", "Surface: ts", "Verify: local-test"] {
         assert!(head.contains(&facet), "{facet} missing: {head:?}");
     }
+    let open = super::facets::launch_header(&["\n", "Item: north#706\nCategory: feature\nSpec: open\n\nDo the box.", ""]);
+    let refused = crate::router::brief::facet_refusal(&open).unwrap_or_default();
+    assert!(refused.contains("Spec: open") && refused.contains("exact, measured, judged"), "a hand launch whose Spec is outside the vocabulary is refused naming it, though its system prompt and named brief are empty: {refused:?}");
     let fable = Ask { model: Some("claude-fable-5-2"), reason: Some("the proxy staffs this box on Fable"), ..ask };
     let sized = start(&fable, "", &cfg, &History::default(), &BTreeMap::new(), &cells).unwrap();
     let head: Vec<&str> = sized.prompt.lines().take_while(|line| !line.is_empty()).collect();
     assert!(head.iter().any(|line| line.starts_with("ETA: 77 min (tune cell, 2026-11-08")) && head.iter().any(|line| line.starts_with("Budget: E p90 $33.30 (tune cell, 2026-11-08")), "a fable launch is sized by the fable family: {head:?}");
     assert_eq!(sized.route.tier, Tier::Sonnet, "sizing a fable launch routes nothing: {:?}", sized.route);
+    let prose = super::tests::issue("north", 709, "Category: tooling\nSpec: measured (n=128 runs)\nScope: each repository keeps its own concerns file (north, wisp)\n- [ ] a", &[]);
+    let dispatched = super::brief::brief(&prose, "dispatch", &sized.route, &Grounds::default(), None);
+    let dispatched: Vec<&str> = dispatched.lines().take_while(|line| !line.is_empty()).collect();
+    assert!(dispatched.contains(&"Scope: module"), "an issue facet line of prose is left out, so its brief writes the default: {dispatched:?}");
+    assert!(dispatched.contains(&"Spec: measured (n=128 runs)"), "a facet with a vocabulary word first keeps its note: {dispatched:?}");
 }
 
 #[test]

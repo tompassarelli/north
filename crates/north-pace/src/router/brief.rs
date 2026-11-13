@@ -296,6 +296,13 @@ pub fn facet_refusal(text: &str) -> Option<String> {
     })
 }
 
+/// Whether `value`, the text of a `name` line, opens with a word in that facet's list; a name with no list admits any value.
+pub fn facet_known(name: &str, value: &str) -> bool {
+    let Some((_, values)) = FACETS.iter().find(|(facet, _)| facet.eq_ignore_ascii_case(name)) else { return true };
+    let lowered = value.trim().trim_matches('`').to_lowercase();
+    TOKEN.find(&lowered).is_some_and(|word| values.contains(&word.as_str()))
+}
+
 static CITATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"docs/references\.md|\bn\s*=\s*\d+").unwrap());
 
 /// A planning box designs from evidence: its Spec line is `measured` with a note citing a ledger

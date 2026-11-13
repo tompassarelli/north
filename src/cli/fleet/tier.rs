@@ -122,10 +122,5 @@ pub(super) fn recorded(start: Option<Start>, request: &LaunchRequest, name: &str
 }
 
 fn header(request: &LaunchRequest) -> NorthResult<String> {
-    Ok(headers(&[&placement::brief_text(request.system_prompt.as_deref(), "")?, &request.prompt, &request.named_brief().unwrap_or_default()]))
-}
-
-fn headers(texts: &[&str]) -> String {
-    let blocks = texts.iter().map(|text| text.trim_start().lines().take_while(|line| !line.trim().is_empty()).collect::<Vec<_>>().join("\n"));
-    blocks.collect::<Vec<_>>().join("\n")
+    Ok(crate::dispatch::launch_header(&[&placement::brief_text(request.system_prompt.as_deref(), "")?, &request.prompt, &request.named_brief().unwrap_or_default()]))
 }
