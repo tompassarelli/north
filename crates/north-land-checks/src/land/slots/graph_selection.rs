@@ -182,7 +182,7 @@ pub struct Tests {
     units: Units,
     floor: Floor,
     known: usize,
-    carried: usize,
+    carried: BTreeSet<String>,
     listed: BTreeMap<String, Listed>,
     unknown: usize,
     since: BTreeSet<String>,
@@ -197,7 +197,7 @@ impl Tests {
             by_binary.entry(binary.to_owned()).or_default().insert(name.to_owned());
         }
         let added = answer.added.into_iter().map(|test| (test.package, test.name)).collect();
-        Some(Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.len(), listed: BTreeMap::new(), unknown: 0, since: answer.since.into_iter().collect() })
+        Some(Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.iter().filter_map(|id| id.split_once(' ')).map(|(_, name)| name.to_owned()).collect(), listed: BTreeMap::new(), unknown: 0, since: answer.since.into_iter().collect() })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -268,7 +268,7 @@ impl Tests {
 
     pub fn selected(&self) -> Selected {
         let tests = self.by_binary.values().flatten().cloned().chain(self.units.tests().map(str::to_owned)).collect();
-        Selected { tests, added: self.added.iter().map(|(_, name)| name.clone()).collect(), modules: self.modules.clone(), floor: self.floor.entries(), every: false, no_test: None }
+        Selected { tests, added: self.added.iter().map(|(_, name)| name.clone()).collect(), modules: self.modules.clone(), floor: self.floor.entries(), carried: self.carried.clone(), every: false, no_test: None }
     }
 
     pub fn arguments(&self) -> String {
@@ -282,7 +282,7 @@ impl Tests {
 
     pub fn summary(&self) -> String {
         let traced: usize = self.by_binary.values().map(BTreeSet::len).sum();
-        format!("the {traced} of the {} tests the change graph knows, in {} test binaries, less the {} the landed lanes' alone passes ran that no other lane can affect, and the {} tests the lane adds, and the tree-wide tests/it modules {}, and the tree-wide unit tests {}, and the guard suites {}", self.known, self.by_binary.len(), self.carried, self.added.len(), self.modules.iter().cloned().collect::<Vec<_>>().join(", "), self.units.names(), self.floor.names())
+        format!("the {traced} of the {} tests the change graph knows, in {} test binaries, less the {} the landed lanes' alone passes ran that no other lane can affect, and the {} tests the lane adds, and the tree-wide tests/it modules {}, and the tree-wide unit tests {}, and the guard suites {}", self.known, self.by_binary.len(), self.carried.len(), self.added.len(), self.modules.iter().cloned().collect::<Vec<_>>().join(", "), self.units.names(), self.floor.names())
     }
 
     fn filter(&self) -> String {
@@ -336,6 +336,8 @@ pub struct Selected {
     #[serde(default)]
     pub floor: BTreeSet<String>,
     #[serde(default)]
+    pub carried: BTreeSet<String>,
+    #[serde(default)]
     pub every: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub no_test: Option<String>,
@@ -345,7 +347,7 @@ impl Selected {
     pub fn holds(&self, name: &str) -> bool {
         let added = |added: &String| name == added || name.ends_with(&format!("::{added}"));
         let floor = |entry: &String| entry.split_once(' ').is_some_and(|(_, module)| name.starts_with(module));
-        self.every || self.tests.contains(name) || self.floor.iter().any(floor) || self.added.iter().any(added) || self.modules.iter().any(|module| name.starts_with(&format!("{module}::")))
+        self.every || self.tests.contains(name) || self.carried.contains(name) || self.floor.iter().any(floor) || self.added.iter().any(added) || self.modules.iter().any(|module| name.starts_with(&format!("{module}::")))
     }
 }
 

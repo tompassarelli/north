@@ -18,7 +18,7 @@ mod responsible;
 mod selection_miss;
 
 pub const USAGE: &str = "usage: north land missed --since DATE_OR_SPAN [--until DATE] [--repo DIR] [--coverage FILE]
-lists each failing full run on main from two sources, the Cargo runs of GitHub Actions created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z) and the `north test coverage record` full run whose map (--coverage FILE, by default this host's map of the repository) was recorded in that window and names its failed tests, judged as a Cargo run on the map's commit; for each, its failed tests, and the ones the change graph's after-landing selection for the landing range holding that commit left out, apart from a test that also failed in the nearest earlier full run the commit descends from, which is listed as an environment failure, and a test that a later full run passed with no change between the two runs touching its crate or the crates it depends on, which is listed as flaky; neither is a miss; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
+lists each failing full run on main from two sources, the Cargo runs of GitHub Actions created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z) and the `north test coverage record` full run whose map (--coverage FILE, by default this host's map of the repository) was recorded in that window and names its failed tests, judged as a Cargo run on the map's commit; for each, its failed tests, and the ones left out by the change graph's after-landing selections (traced, added or carried from an alone pass) of the landing range holding that commit and every range landed since the nearest earlier full run the commit descends from that names its failed tests, apart from a test that also failed in that run, which is listed as an environment failure, and a test that a later full run passed with no change between the two runs touching its crate or the crates it depends on, which is listed as flaky; neither is a miss; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
 const SETTLED: f64 = 3600.0;
 
 struct Landing {
@@ -76,9 +76,9 @@ pub fn run(arguments: &[String]) -> u8 {
             println!("{} at {}: its log names no failed test", run.source, short(&run.sha));
             continue;
         }
-        let on_base = flaky::before(&repo, &seen[..at], &run.sha).filter(|base| base.names_its_failures).map(|base| base.failed.iter().cloned().collect::<Vec<_>>());
+        let before = flaky::before(&repo, &seen[..at], &run.sha);
         let reaches_nothing = |name: &str| flaky::reaches_nothing(&repo, &seen, at, name);
-        tally.add(after_landing(&repo, &landings, suites.as_ref(), run, &tests, on_base.as_deref(), &reaches_nothing));
+        tally.add(after_landing(&repo, &landings, suites.as_ref(), run, before, &tests, &reaches_nothing));
     }
     let failing_count = failing.len();
     selection_miss::name_lanes(&repo, &runs, failing, &outcomes, &landings, &records.home().join("safe-push/post-land.tsv"));
@@ -119,8 +119,10 @@ impl Tally {
     }
 }
 
-fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run: &Run, tests: &[String], on_base: Option<&[String]>, flaky: &dyn Fn(&str) -> bool) -> Tally {
-    let holding: Vec<&Landing> = landings.iter().filter(|landing| holds(repo, landing, &run.sha)).collect();
+fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run: &Run, before: Option<&Seen>, tests: &[String], flaky: &dyn Fn(&str) -> bool) -> Tally {
+    let since = before.map(|base| base.sha.as_str());
+    let on_base: Option<Vec<String>> = before.map(|base| base.failed.iter().cloned().collect());
+    let holding: Vec<&Landing> = landings.iter().filter(|landing| holds(repo, landing, &run.sha) || since.is_some_and(|since| landed_between(repo, landing, since, &run.sha))).collect();
     let Some(named) = holding.iter().find(|landing| landing.head == run.sha).or_else(|| holding.first()).copied() else {
         println!("{} at {}: {} failed tests, and no after-landing run recorded a change-graph selection for a range holding it: {}", run.source, short(&run.sha), tests.len(), tests.join(", "));
         return Tally { unjudged: tests.len(), ..Tally::default() };
@@ -129,7 +131,7 @@ fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run
     let floor = suites.map(|suites| suites.floor(&files));
     let selected = |name: &str| holding.iter().any(|landing| landing.selected.holds(name));
     let guards = |name: &str| floor.as_ref().is_some_and(|floor| floor.selects(name));
-    let verdict = classify(tests, on_base, flaky, |name| selected(name) || guards(name));
+    let verdict = classify(tests, on_base.as_deref(), flaky, |name| selected(name) || guards(name));
     let guarded = verdict.selected.iter().filter(|name| !selected(name)).count();
     let mut detail = String::new();
     if !verdict.left_out.is_empty() {
@@ -201,6 +203,10 @@ fn ancestor(repo: &Path, older: &str, newer: &str) -> bool {
 
 fn holds(repo: &Path, landing: &Landing, sha: &str) -> bool {
     sha != landing.base && ancestor(repo, &landing.base, sha) && ancestor(repo, sha, &landing.head)
+}
+
+fn landed_between(repo: &Path, landing: &Landing, since: &str, sha: &str) -> bool {
+    landing.head != since && !ancestor(repo, &landing.head, since) && ancestor(repo, &landing.head, sha)
 }
 
 fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {

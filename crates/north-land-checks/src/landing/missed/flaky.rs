@@ -11,7 +11,7 @@ pub struct Seen {
 }
 
 pub fn before<'a>(repo: &Path, earlier: &'a [Seen], sha: &str) -> Option<&'a Seen> {
-    earlier.iter().rev().find(|seen| seen.sha != sha && ancestor(repo, &seen.sha, sha))
+    earlier.iter().rev().find(|seen| seen.sha != sha && seen.names_its_failures && ancestor(repo, &seen.sha, sha))
 }
 
 /// A test is flaky when it failed on a fresh commit, a later full run passed it, and nothing between the run before and that passing run touched the crate holding it or a crate that crate depends on.
