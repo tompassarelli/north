@@ -5,10 +5,13 @@ use super::super::lifecycle::{self, Canarying};
 use super::super::pin::{Event, read};
 use super::super::after_landing::Landing;
 use super::super::review_hold::{Ask, Caller, Holds, Screen, in_checkout, landed_in, lane_of, now};
+use super::super::main_runs::{MainRun, MainRuns};
+use super::super::trip::Trips;
 use super::super::update::{self, Flight};
 use super::{Host, Order, run};
 use std::fs;
 use std::os::unix::fs::symlink;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 const OLD: &str = "1111111111111111111111111111111111111111";
@@ -339,12 +342,19 @@ fn squashed(commit: &str, head: &str) -> Result<bool, String> {
     Ok(commit == SQUASHED && head == NEW)
 }
 
+fn newer_green(commit: &str, head: &str) -> Result<bool, String> {
+    Ok(head == NEW && (commit == SQUASHED || commit == NEW))
+}
+
 fn landings(lane: &str) -> Result<Vec<String>, String> {
     Ok(if lane == "f-fix" { vec![SQUASHED.to_owned()] } else { Vec::new() })
 }
 
+const NO_TRIPS: &str = "/nonexistent/north-test-trips";
+const HOSTED_LOG: &str = "test\tTest\t2026-11-13T19:24:41.7710459Z [2026-11-13T19:24:41.767+00:00]         FAIL [   0.526s] north::it golden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client";
+
 fn screen_of(holds: Holds, contains: fn(&str, &str) -> Result<bool, String>, landed: fn(&str) -> Result<Vec<String>, String>) -> Screen {
-    Screen { holds, contains: Box::new(contains), landed: Box::new(landed), after_landing: Box::new(|_| Landing::Green) }
+    Screen { holds, contains: Box::new(move |commit, head| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR || contains(commit, head)?)), landed: Box::new(landed), after_landing: Box::new(|_| Landing::Green), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none() }
 }
 
 #[test]
@@ -404,12 +414,41 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
         ("an entry that is no hold", screen_of(Holds(unparsed), squashed, landings), "broken.json"),
         ("an entry not named for its hold", screen_of(Holds(misnamed), squashed, landings), "not the hold its name says"),
         ("git failing", screen_of(Holds(store.clone()), |_, _| Err("fatal: no such object".to_owned()), landings), "no such object"),
-        ("a push ledger that does not exist", Screen { holds: Holds(store), contains: Box::new(|_, _| Ok(false)), landed: landed_in(state.path().join("pushes.tsv")), after_landing: Box::new(|_| Landing::Green) }, "pushes.tsv"),
+        ("a push ledger that does not exist", Screen { holds: Holds(store), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: landed_in(state.path().join("pushes.tsv")), after_landing: Box::new(|_| Landing::Green), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none() }, "pushes.tsv"),
     ];
     for (case, screen, says) in failing {
         let refused = screen.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
         assert!(refused.contains("does not go live") && refused.contains(says), "{case}: {refused}");
     }
+    let trips = state.path().join("trips");
+    fs::create_dir_all(&trips).unwrap();
+    fs::write(trips.join(format!("{SQUASHED}.trip")), "north\tcli::parses\n").unwrap();
+    let tripped = Screen { trips: Trips(trips.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    let refused = tripped.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
+    assert!(refused.contains(SQUASHED) && refused.contains("cli::parses") && refused.contains("north runtime trip clear"), "an open Buck2 trip refuses the order of a head at or after its head and names the trip: {refused}");
+    let promoted = tripped.promotion(NEW, now()).err().unwrap_or_default();
+    assert!(promoted.contains(SQUASHED), "the slot and Live-fix promotion refuses the same head: {promoted}");
+    assert!(tripped.order(OLD, &["whiterabbit"], now()).is_ok(), "a head before the tripped head is not refused");
+    Trips(trips.clone()).clear(SQUASHED, "proxy", "the case passes on rerun", now()).unwrap();
+    assert!(tripped.order(NEW, &["whiterabbit"], now()).is_ok(), "a cleared trip no longer holds");
+    assert!(Trips(trips).clear(SQUASHED, "proxy", "again", now()).is_err(), "a trip is cleared once");
+    let hosted = state.path().join("hosted-trips");
+    let reds_only = MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), log: Box::new(|_| Some(HOSTED_LOG.to_owned())), alert: Box::new(|_| {}) };
+    let read = Screen { runs: reds_only, trips: Trips(hosted.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    let refused = read.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
+    assert!(refused.contains(SQUASHED) && refused.contains("golden_path::a_brief_becomes") && refused.contains("north runtime trip clear"), "a newest red hosted run of main records its trip and refuses the head with its case: {refused}");
+    assert_eq!(fs::read_to_string(hosted.join(format!("{SQUASHED}.trip"))).unwrap(), "run\t43491019011\nnorth\tgolden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client\n");
+    Trips(hosted).clear(SQUASHED, "proxy", "the case passes on rerun", now()).unwrap();
+    assert!(read.order(NEW, &["whiterabbit"], now()).is_ok(), "a cleared hosted trip no longer holds");
+    let superseded_trips = state.path().join("superseded-trips");
+    let superseded = MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: NEW.to_owned(), id: "43493048821".to_owned(), red: false }, MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), log: Box::new(|_| Some(HOSTED_LOG.to_owned())), alert: Box::new(|_| {}) };
+    let newer = Screen { contains: Box::new(newer_green), runs: superseded, trips: Trips(superseded_trips.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    assert!(newer.order(NEW, &["whiterabbit"], now()).is_ok(), "an older red run behind a newer green run on the ancestry holds nothing");
+    assert!(Trips(superseded_trips).read(SQUASHED).unwrap().is_none(), "an older red behind a newer green run writes no trip");
+    let off_ancestry = MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: OLD.to_owned(), id: "43491019011".to_owned(), red: true }]))), log: Box::new(|_| Some(HOSTED_LOG.to_owned())), alert: Box::new(|_| {}) };
+    let off = Screen { runs: off_ancestry, trips: Trips(state.path().join("off-ancestry-trips")), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    let unscreened = off.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
+    assert!(unscreened.contains("is not screened"), "a list whose runs are all off the head's ancestry refuses the head as not screened: {unscreened}");
     let ledger = format!("1794548552\tnorth\tf-fix\t{REVIEWED}\t{SQUASHED}\tf-fix\n");
     assert_eq!(lane_of(REVIEWED, &ledger, &[]), Ok("f-fix".to_owned()));
     for branches in [vec!["main".to_owned()], vec!["f-fix".to_owned(), "f-other".to_owned()]] {

@@ -1,3 +1,4 @@
+mod alert;
 mod bounded;
 mod build_host;
 mod cadence;
@@ -9,6 +10,9 @@ mod deploy;
 mod failure;
 mod follow;
 mod order;
+mod main_runs;
+mod trip;
+mod trip_command;
 mod growth;
 pub mod lifecycle;
 mod health;
@@ -111,19 +115,6 @@ fn update_command(layout: &layout::Layout, flags: &[String]) -> Option<Result<()
     }
 }
 
-fn covers(layout: &layout::Layout, flags: &[String]) -> Option<Result<(), failure::Failure>> {
-    let (mut head, mut code) = ("HEAD", Vec::new());
-    let mut rest = flags.iter();
-    while let Some(flag) = rest.next() {
-        match (flag.as_str(), rest.next()) {
-            ("--head", Some(value)) => head = value.as_str(),
-            ("--code", Some(value)) => code.extend(value.split(',').filter(|path| !path.is_empty()).map(str::to_owned)),
-            _ => return None,
-        }
-    }
-    Some(reuse::covers(layout, Path::new("."), head, &code).map(|north| println!("{}", north.display())))
-}
-
 fn dispatch(layout: &layout::Layout, arguments: &[String]) -> Option<Result<(), failure::Failure>> {
     match arguments.split_first()? {
         (command, flags) if command == "update" => update_command(layout, flags),
@@ -137,11 +128,12 @@ fn dispatch(layout: &layout::Layout, arguments: &[String]) -> Option<Result<(), 
         }
         (command, []) if command == "promote" => Some(follow::promote_detached(layout)),
         (command, flags) if command == "order" => Some(order::command(layout, flags)),
+        (command, flags) if command == "trip" => Some(trip_command::command(flags, land_offload::settles_fleet_here())),
         (command, flags) if command == "build-ahead" => Some(update::build_ahead(layout, flags)),
         (command, []) if command == "mirror" => Some(mirror::run()),
         (command, []) if command == "checkouts" => Some(checkouts::run()),
         (command, flags) if command == "lag" => lag::command(layout, flags),
-        (command, flags) if command == "covers" => covers(layout, flags),
+        (command, flags) if command == "covers" => reuse::covers_command(layout, flags),
         (command, []) if command == "tree-build" => Some(tree_build::run()),
         (command, [verb, provider]) if command == "probe" && verb == "launch" => Some(canary::launch_probe(provider)),
         (command, [verb]) if command == "probe" && verb == "services" => Some(canary::services_probe(layout)),

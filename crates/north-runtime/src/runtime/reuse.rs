@@ -15,6 +15,19 @@ const TOOLCHAIN: &str = "rust-toolchain.toml";
 const LOCK: &str = "Cargo.lock";
 const LOCKED: [&str; 4] = ["name", "version", "source", "checksum"];
 
+pub(super) fn covers_command(layout: &Layout, flags: &[String]) -> Option<Result<(), Failure>> {
+    let (mut head, mut code) = ("HEAD", Vec::new());
+    let mut rest = flags.iter();
+    while let Some(flag) = rest.next() {
+        match (flag.as_str(), rest.next()) {
+            ("--head", Some(value)) => head = value.as_str(),
+            ("--code", Some(value)) => code.extend(value.split(',').filter(|path| !path.is_empty()).map(str::to_owned)),
+            _ => return None,
+        }
+    }
+    Some(covers(layout, Path::new("."), head, &code).map(|north| println!("{}", north.display())))
+}
+
 pub(super) fn covers(layout: &Layout, checkout: &Path, head: &str, code: &[String]) -> Result<PathBuf, Failure> {
     let live = live(layout).ok_or_else(|| failed(1, format!("no live runtime at {}", layout.current().display())))?;
     let north = layout.runtime(&live).join("north");

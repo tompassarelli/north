@@ -3,6 +3,8 @@ use super::super::follow::lander_cleared;
 use super::super::layout::{self, Layout};
 use super::super::order::Order;
 use super::super::review_hold::{Holds, Screen, now};
+use super::super::main_runs::MainRuns;
+use super::super::trip::Trips;
 use super::super::update::slot::held_by_review;
 use super::super::walk::ship_if_walked;
 use super::{Landing, Ledger, run_of};
@@ -53,7 +55,7 @@ fn every_promotion_path_refuses_a_head_whose_after_landing_run_is_running_failed
         fs::create_dir_all(layout.runtime(sha)).unwrap();
     }
     symlink(layout::link(OLD), layout.current()).unwrap();
-    let screen_of = |landing: Landing| Screen { holds: Holds(state.path().join("holds")), contains: Box::new(|_, _| Ok(false)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Box::new(move |_| landing.clone()) };
+    let screen_of = |landing: Landing| Screen { holds: Holds(state.path().join("holds")), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Box::new(move |_| landing.clone()), runs: MainRuns::none(), trips: Trips(state.path().join("trips")) };
     let shipped = Cell::new(0);
     let ship = |_: &str| {
         shipped.set(shipped.get() + 1);

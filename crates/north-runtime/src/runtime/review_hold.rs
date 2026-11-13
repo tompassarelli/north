@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use super::after_landing::{self, AfterLanding, Landing, Ledger};
 use super::failure::{Failure, failed};
 use super::layout;
+use super::main_runs::{self, MainRun, MainRuns};
+use super::trip::{Trip, Trips};
 
 pub(crate) const VERB: &str = "review-hold";
 pub(crate) const COORDINATOR: &str = "proxy";
@@ -206,15 +208,21 @@ pub(crate) struct Screen {
     pub contains: Contains,
     pub landed: Landed,
     pub after_landing: AfterLanding,
+    pub trips: Trips,
+    pub runs: MainRuns,
+}
+
+fn unscreened(head: &str, why: String) -> String {
+    format!("{} is not screened, so it does not go live: {why}", layout::short(head))
 }
 
 impl Screen {
-    /// The screen on this host: its holds, git's answer in `checkout` and the landings of this host's push ledger.
+    /// The screen on this host: its holds, git's answer in `checkout`, the landings of this host's push ledger and the open Buck2 trips.
     pub(crate) fn here(checkout: &Path) -> Self {
         let checkout = checkout.to_path_buf();
         let ledger = state_home().join(PUSH_LEDGER);
         let after = Ledger::here(&checkout);
-        Self { holds: Holds::here(), contains: Box::new(move |commit, head| contained(&checkout, commit, head)), landed: landed_in(ledger), after_landing: if after_landing::enabled() { Box::new(move |head| after.landing(head, now())) } else { Box::new(|_| Landing::Green) } }
+        Self { holds: Holds::here(), contains: Box::new(move |commit, head| contained(&checkout, commit, head)), landed: landed_in(ledger), after_landing: if after_landing::enabled() { Box::new(move |head| after.landing(head, now())) } else { Box::new(|_| Landing::Green) }, trips: Trips::here(), runs: MainRuns::main() }
     }
 
     /// Why `head` may not go live through an order that promotes the hosts `hosts`: a standing hold that `head` holds and that names no host or one of them, or a fact that cannot be read; else a line for each hold `head` holds that was lifted within the last day, naming who lifted it and why.
@@ -231,10 +239,11 @@ impl Screen {
         if let Some(why) = (self.after_landing)(head).refusal() {
             return Err(format!("{} has not ended its after-landing run green: {why}", layout::short(head)));
         }
+        self.tripped(head)?;
         if !enabled() {
             return Ok(Vec::new());
         }
-        let unread = |why: String| format!("{} is not screened, so it does not go live: {why}", layout::short(head));
+        let unread = |why: String| unscreened(head, why);
         let mut held = Vec::new();
         for hold in self.holds.all().map_err(unread)? {
             match self.holds_in(&hold, head) {
@@ -249,6 +258,48 @@ impl Screen {
             return Err(format!("{} contains {}", layout::short(head), standing.join("; ")));
         }
         Ok(held.iter().filter_map(|hold| hold.lifted.as_ref().filter(|lift| now.saturating_sub(lift.at) < SHOWN_FOR).map(|lift| format!("{} was held by {} ({}); {} lifted it: {}", hold.commit, hold.session, hold.why, lift.by, lift.why))).collect())
+    }
+
+    /// The newest completed run of main whose head is on `head`'s ancestry, the one that decides whether `head` is tripped; runs are read page by page until one is found or the list ends.
+    fn newest_run(&self, head: &str) -> Result<Option<MainRun>, String> {
+        let mut number = 1;
+        while let Some(runs) = (self.runs.page)(number)? {
+            for run in runs {
+                if (self.contains)(&run.head, head)? {
+                    return Ok(Some(run));
+                }
+            }
+            number += 1;
+        }
+        Ok(None)
+    }
+
+    /// Refuses `head` when the newest completed Buck2 run on its ancestry is red and no clear answers its trip, or when a lander's trip record (one no run names) stands on an ancestor (trip.rs); a run list or git that cannot say refuses the head.
+    fn tripped(&self, head: &str) -> Result<(), String> {
+        let unread = |why: String| unscreened(head, why);
+        let newest = self.newest_run(head).map_err(unread)?.ok_or_else(|| unread("no completed run of main is on its ancestry".to_owned()))?;
+        if newest.red && !self.trips.cleared(&newest.head).map_err(unread)? {
+            let trip = match self.trips.read(&newest.head).map_err(unread)? {
+                Some(trip) => trip,
+                None => self.record(&newest).map_err(unread)?,
+            };
+            return Err(format!("{} contains {}", layout::short(head), trip.refusal()));
+        }
+        for trip in self.trips.open().map_err(unread)? {
+            if trip.run.is_none() && (self.contains)(&trip.head, head).map_err(unread)? {
+                return Err(format!("{} contains {}", layout::short(head), trip.refusal()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes the trip of a red run of main, with its failed cases read from the run's log, and tells the proxy of it.
+    fn record(&self, run: &MainRun) -> Result<Trip, String> {
+        let cases = (self.runs.log)(&run.id).map(|text| main_runs::failed_cases(&text)).unwrap_or_default();
+        let trip = Trip { head: run.head.clone(), run: Some(run.id.clone()), cases };
+        self.trips.write(&trip)?;
+        (self.runs.alert)(&format!("north runtime: {}", trip.refusal()));
+        Ok(trip)
     }
 
     /// Whether `head` holds `hold`: it contains the held commit, or a commit a landing of the hold's lane made.

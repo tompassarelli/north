@@ -113,7 +113,7 @@ fn resolve(checkout: &std::path::Path, commit: Option<&str>) -> Result<String, F
     }
 }
 
-fn orderer() -> String {
+pub(super) fn orderer() -> String {
     ["NORTH_FLEET_SESSION", "USER"].iter().find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty())).unwrap_or_else(|| "unknown".to_owned())
 }
 
