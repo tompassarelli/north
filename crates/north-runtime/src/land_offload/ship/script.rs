@@ -145,7 +145,7 @@ nearest=$(printf '%s\n' $nearest | { grep -vx "$reserved" || true; }; echo "$res
 queue=$root/queue
 mkdir -p "$queue"
 rank=3
-case " $carried " in *" SAFE_PUSH_LANDING='1' "*) rank=2 ;; esac
+case " $carried " in *" SAFE_PUSH_LANDING='1' "*) rank=2 ;; *" SAFE_PUSH_LANDING='after' "*) [ -z "$owner" ] || rank=1 ;; esac
 [ -z "$urgent" ] || rank=1
 [ "$lander_slot" != 1 ] || rank=1
 [ -z "$red_fix" ] || rank=0

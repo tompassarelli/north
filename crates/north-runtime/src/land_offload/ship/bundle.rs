@@ -48,9 +48,9 @@ pub(super) fn base_reference(reference: &str) -> String {
     format!("{reference}-base")
 }
 
-/// The landing context a land check carries to the offload host as `NAME='value'` words, naming the shipped base and head; empty for any other run. A landing marked `after` carries the same context, and the host's line ranks it below a hand-in's checks.
+/// The landing context a land check carries to the offload host as `NAME='value'` words, naming the shipped base and head; empty for any other run. A landing marked `after` or `after-yield` carries the same context; the host's line ranks `after` with the lander's own jobs and `after-yield` below a hand-in's checks.
 pub(super) fn carried(land: &Land, value: impl Fn(&str) -> Option<String>) -> String {
-    if !matches!(value(carry::LANDING).as_deref(), Some("1" | "after")) {
+    if !matches!(value(carry::LANDING).as_deref(), Some("1" | "after" | "after-yield")) {
         return String::new();
     }
     let words = carry::names(carry::Boundary::Offload).filter_map(|name| {

@@ -93,7 +93,7 @@ impl Arguments {
     }
 }
 
-const AFTER_BELOW_HANDINS: &str = "after_landing_below_handins";
+const AT_LANDER_RANK: &str = "after_landing_at_lander_rank";
 
 #[derive(Clone)]
 pub(super) struct Environment {
@@ -105,12 +105,12 @@ pub(super) struct Environment {
     pub(super) local: bool,
     pub(super) lander_slot: bool,
     pub(super) record_reuse: bool,
-    pub(super) after_below_handins: bool,
+    pub(super) after_at_lander_rank: bool,
 }
 
 impl Environment {
     pub(super) fn local() -> Self {
-        Self { capacity: String::new(), offload_host: String::new(), timeout: std::env::var("SAFE_PUSH_LAND_CHECK_TIMEOUT").ok().and_then(|value| value.parse().ok()), runner: None, off_host: false, local: false, lander_slot: false, record_reuse: false, after_below_handins: false }
+        Self { capacity: String::new(), offload_host: String::new(), timeout: std::env::var("SAFE_PUSH_LAND_CHECK_TIMEOUT").ok().and_then(|value| value.parse().ok()), runner: None, off_host: false, local: false, lander_slot: false, record_reuse: false, after_at_lander_rank: true }
     }
 
     pub(super) fn load() -> Self {
@@ -124,7 +124,7 @@ impl Environment {
             local: std::env::var(LOCAL_ENV).is_ok_and(|value| value == "1"),
             lander_slot: std::env::var(LANDER_SLOT_ENV).is_ok_and(|value| value == "1"),
             record_reuse: std::env::var(RECORD_ENV).is_ok_and(|value| value == "1"),
-            after_below_handins: harness::document(harness::DEFAULTS).get(AFTER_BELOW_HANDINS).and_then(|entry| entry.get("value")).and_then(|value| value.as_bool()).unwrap_or(true),
+            after_at_lander_rank: harness::document(harness::DEFAULTS).get(AT_LANDER_RANK).and_then(|entry| entry.get("value")).and_then(|value| value.as_bool()).unwrap_or(true),
         }
     }
 }

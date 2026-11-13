@@ -143,7 +143,7 @@ fn an_urgent_job_queued_after_a_normal_one_is_taken_first() {
             failures.push(format!("{poser} was judged urgent"));
         }
     }
-    let job = |label, hold, urgent| Queued { label, name: "code-p-main", carried: "", red_fix: "", urgent, hold, class: SlotClass::LandCheck };
+    let job = |label, hold, urgent| Queued { label, name: "code-p-main", carried: "", red_fix: "", owner: "", urgent, hold, class: SlotClass::LandCheck };
     let order = order_through_one_slot(&[job("holder", true, ""), job("normal-gate", false, normal_gate), job("normal-lease", false, normal_lease), job("urgent-gate", false, urgent_gate), job("urgent-lease", false, urgent_lease)]);
     let expected = ["start-holder", "end-holder", "start-urgent-gate", "end-urgent-gate", "start-urgent-lease", "end-urgent-lease", "start-normal-gate", "end-normal-gate", "start-normal-lease", "end-normal-lease"];
     if order != expected {

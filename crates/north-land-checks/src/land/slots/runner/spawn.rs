@@ -53,9 +53,10 @@ pub(super) fn exit_code(status: ExitStatus) -> i32 {
 
 const AFTER_LANDING_YIELDS_SECONDS: u64 = 600;
 
-fn landing_mark(landed_at: Option<u64>, now: u64) -> &'static str {
+fn landing_mark(at_lander_rank: bool, landed_at: Option<u64>, now: u64) -> &'static str {
     match landed_at {
-        Some(landed) if now < landed + AFTER_LANDING_YIELDS_SECONDS => "after",
+        _ if at_lander_rank => "after",
+        Some(landed) if now < landed + AFTER_LANDING_YIELDS_SECONDS => "after-yield",
         _ => "1",
     }
 }
@@ -165,11 +166,13 @@ impl Shared {
     }
 
     async fn landing(&self) -> &'static str {
-        if !self.arguments.after || !self.environment.after_below_handins {
+        if !self.arguments.after {
             return "1";
         }
+        let at_lander_rank = self.environment.after_at_lander_rank;
+        let landed = if at_lander_rank { None } else { landed_at(&self.root, &self.arguments.head).await };
         let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-        landing_mark(landed_at(&self.root, &self.arguments.head).await, now)
+        landing_mark(at_lander_rank, landed, now)
     }
 
     pub(super) fn observes(&self, command: &str) -> bool {
