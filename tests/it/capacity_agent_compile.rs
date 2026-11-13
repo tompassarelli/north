@@ -42,14 +42,25 @@ fn compiled(host: &Host) -> String {
 fn a_fleet_sessions_compile_from_any_entry_is_refused_only_when_no_build_host_and_not_this_host_has_room() {
     let host = host();
     fs::write(host.path("pressure"), FULL).unwrap();
-    for subcommand in [&["build"][..], &["check", "-p", "x"], &["clippy"], &["nextest", "run"], &["test"]] {
-        let refused = gate(&host, Some("n634-x"), subcommand);
-        let stderr = String::from_utf8_lossy(&refused.stderr);
-        assert_eq!(refused.status.code(), Some(75), "{subcommand:?}: {stderr}");
-        assert!(stderr.contains("no build host took the job") && stderr.contains("farhost: unreachable"), "{subcommand:?}: {stderr}");
-    }
-    refused_inside_depbox(&host);
-    refused_through_the_hook(&host);
+    let refused_on_a_full_host = |refusal: fn(&Host)| {
+        let host = self::host();
+        fs::write(host.path("pressure"), FULL).unwrap();
+        refusal(&host);
+        assert_eq!(compiled(&host), "", "a fleet session compiled on a laptop with no room");
+    };
+    std::thread::scope(|scope| {
+        let depbox = scope.spawn(|| refused_on_a_full_host(refused_inside_depbox));
+        let hook = scope.spawn(|| refused_on_a_full_host(refused_through_the_hook));
+        for subcommand in [&["build"][..], &["check", "-p", "x"], &["clippy"], &["nextest", "run"], &["test"]] {
+            let refused = gate(&host, Some("n634-x"), subcommand);
+            let stderr = String::from_utf8_lossy(&refused.stderr);
+            assert_eq!(refused.status.code(), Some(75), "{subcommand:?}: {stderr}");
+            assert!(stderr.contains("no build host took the job") && stderr.contains("farhost: unreachable"), "{subcommand:?}: {stderr}");
+        }
+        for joined in [depbox.join(), hook.join()] {
+            joined.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        }
+    });
     assert_eq!(compiled(&host), "", "a fleet session compiled on a laptop with no room");
     fs::write(host.path("pressure"), IDLE).unwrap();
     let waited = gate(&host, Some("n634-x"), &["test"]);
@@ -131,10 +142,11 @@ fn refused_through_the_hook(host: &Host) {
         let request = serde_json::json!({ "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": typed }, "cwd": host.path("").display().to_string() });
         let mut hook = fleet(host, crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         hook.env("NORTH_AGENT_ACTIVE", host.path("activation.active"));
+        hook.env("AGENT_HOOK_ERRORS", host.path("hook-errors.tsv"));
         let hooked = hook.args(["hook", "pre-bash"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
         std::io::Write::write_all(&mut hooked.stdin.as_ref().unwrap(), request.to_string().as_bytes()).unwrap();
         let output = hooked.wait_with_output().unwrap();
-        let routed = serde_json::from_slice::<serde_json::Value>(&output.stdout).ok().and_then(|answer| answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().map(str::to_owned)).unwrap_or_else(|| panic!("{typed}: the hook did not route it: {}\nstdout: {}\nstderr: {}", output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
+        let routed = serde_json::from_slice::<serde_json::Value>(&output.stdout).ok().and_then(|answer| answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().map(str::to_owned)).unwrap_or_else(|| panic!("{typed}: the hook did not route it: {}\nstdout: {}\nstderr: {}\nhook errors: {}", output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr), fs::read_to_string(host.path("hook-errors.tsv")).unwrap_or_default()));
         assert!(routed.starts_with("north capacity host run "), "{typed}: {routed}");
         let ran = fleet(host, "bash").args(["-c", &routed.replacen("north", crate::support::bin_exe!("CARGO_BIN_EXE_north"), 1)]).output_exclusive().unwrap();
         refused_for_want_of_a_build_host(&ran, typed);
