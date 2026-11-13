@@ -177,16 +177,44 @@ fn a_hand_in_verb_call_returns_the_same_refusal_as_safe_push_for_a_refused_lane(
     refused_by_both_roads(&world, &north, &lane, &lane.join("private.txt"), "PRIVATE KIND");
 }
 
-const FINISH: &str = "hand_in::a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_before_the_verdict";
+const FINISH: &str = "hand_in::a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_before_the_verdict_and_each_hand_in_fact_is_fetched_once";
 const FINISH_ARGUMENTS: &str = "NORTH_FINISH_IT_ARGUMENTS";
 
-fn finish(world: &World, session: &str, check: &str, message: &str, path: &Path) -> Output {
+fn finishing(world: &World, session: &str, check: &str, message: &str, path: &Path) -> std::process::Command {
     let arguments = ["--check", check, "--message", message, "--", path.to_str().unwrap()];
-    queueing(world, FINISH, FINISH_ARGUMENTS, &arguments).env("NORTH_FLEET_SESSION", session).env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts")).output().unwrap()
+    let mut command = queueing(world, FINISH, FINISH_ARGUMENTS, &arguments);
+    command.env("NORTH_FLEET_SESSION", session).env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts"));
+    command
+}
+
+fn finish(world: &World, session: &str, check: &str, message: &str, path: &Path) -> Output {
+    finishing(world, session, check, message, path).output().unwrap()
+}
+
+fn counting_git(real: &Path) -> String {
+    format!("#!/bin/sh\nfor argument; do\n  case \"$argument\" in fetch | *public-denylist.toml) printf '%s\\n' \"$*\" >> \"$0.calls\"; break;; esac\ndone\nexec {} \"$@\"\n", real.display())
+}
+
+const COUNTING_GH: &str = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\ncase \"$*\" in *isArchived*) echo false PUBLIC;; *) echo PUBLIC;; esac\n";
+
+fn south_with_a_denylist(world: &World) -> PathBuf {
+    let (south, main, origin) = (world.path().join("south"), world.path().join("south/main"), world.path().join("south-origin.git"));
+    fs::create_dir_all(main.join("privacy")).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    fs::write(main.join("privacy/public-denylist.toml"), "[[rules]]\nid = \"fixture\"\n").unwrap();
+    git(&main, &["add", "privacy"]);
+    git(&main, &["commit", "-qm", "Add the deny-list"]);
+    git(world.path(), &["clone", "-q", "--bare", main.to_str().unwrap(), origin.to_str().unwrap()]);
+    git(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    south
+}
+
+fn calls(world: &World, program: &str) -> Vec<String> {
+    fs::read_to_string(world.path().join("bin").join(format!("{program}.calls"))).unwrap_or_default().lines().map(str::to_owned).collect()
 }
 
 #[test]
-fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_before_the_verdict() {
+fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_before_the_verdict_and_each_hand_in_fact_is_fetched_once() {
     if let Ok(arguments) = std::env::var(FINISH_ARGUMENTS) {
         let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
         let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string()]);
@@ -250,6 +278,20 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert_eq!(git(&lane, &["log", "-1", "--format=%B", &queued.head]).trim_end(), "Add the proposed note (north#1239)", "a finish call that left out its message did not commit the proposed one byte for byte");
     assert_eq!(git(&lane, &["status", "--porcelain", "--", "unnamed.txt"]), "?? unnamed.txt", "the call swept up a path it was not given");
     assert_eq!((queued.alone_green.as_deref(), queued.unjudged_on.as_deref()), (Some(queued.head.as_str()), None), "the judge answered while the checks before queueing ran, yet the ticket waits for the lander to ask again (north#1239): {text}");
+
+    let real_git = std::env::split_paths(&std::env::var_os("PATH").unwrap()).map(|dir| dir.join("git")).find(|git| git.is_file()).unwrap();
+    write_executable(&world.path().join("bin/git"), counting_git(&real_git));
+    write_executable(&world.path().join("bin/gh"), COUNTING_GH);
+    let south = south_with_a_denylist(&world);
+    let counted = worktree(&north, "facts");
+    fs::write(counted.join("facts.txt"), "a change whose facts are counted\n").unwrap();
+    let mut counting = finishing(&world, "facts", "test ! -e red.txt && sleep 3", "Add the counted note (north#1239)", &counted.join("facts.txt"));
+    let counted_text = report(&counting.env_remove("SAFE_PUSH_DENYLIST").env("SAFE_PUSH_SOUTH", &south).output().unwrap());
+    assert!(counted_text.lines().any(|line| line.starts_with("Done: queued")), "{counted_text}");
+    let (fetches, lookups) = (calls(&world, "git"), calls(&world, "gh"));
+    let count = |calls: &[String], kind: &str| calls.iter().filter(|call| call.contains(kind)).count();
+    let tally = (count(&fetches, "refs/remotes/origin/main"), count(&fetches, "refs/south/main"), count(&fetches, "public-denylist.toml"), fetches.len(), count(&lookups, "repo view"));
+    assert_eq!(tally, (1, 2, 2, 5, 1), "a hand-in fetched the destination once, the deny-list copy twice (the early ask's copy and the enqueue gate's own, taken after the gate began, 7af1c218f50) and looked the repository up once; got:\n{fetches:#?}\n{lookups:#?}");
 }
 
 #[test]
