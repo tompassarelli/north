@@ -20,7 +20,7 @@
 	owner = tompassarelli
 	owner = oxalica
 [ci]
-	budget = buck2.yml 1800 3600
+	budget = buck2.yml 574 1148
 	budget = harness.yml 80 600
 [land]
 	check = @rust-input,src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets ${SAFE_PUSH_LAND_CHANGED:---workspace} --locked --offline -- -D warnings
