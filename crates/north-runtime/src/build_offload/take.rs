@@ -11,7 +11,7 @@ use super::remote::{SYNCED, Trust, script, words};
 use crate::capacity::admission::offload_room;
 use crate::capacity::handover::{Frame, Offer};
 use crate::land_offload::room::{self, Room};
-use crate::land_offload::{build_hosts, ship::quote};
+use crate::land_offload::{build_hosts, check_hosts, ship::quote};
 
 const WAIT_SECONDS: u64 = 3;
 const UNREACHABLE_BACKOFF: Duration = Duration::from_secs(10);
@@ -321,6 +321,7 @@ pub fn run(arguments: &[String]) -> u8 {
         return 2;
     }
     let hosts = build_hosts();
+    let checks = check_hosts();
     if hosts.is_empty() {
         eprintln!("north capacity offload take: this host declares no reaches to a host that offloads builds");
         return 2;
@@ -362,7 +363,7 @@ pub fn run(arguments: &[String]) -> u8 {
                     targets.push(Target { name: &here, ssh: None, room: here_room.as_ref(), starting: count(&here) });
                 }
             }
-            targets.extend(hosts.iter().filter(|(name, _)| name != source).map(|(name, ssh)| Target { name, ssh: Some(ssh), room: rooms.get(name), starting: count(name) }));
+            targets.extend(checks.iter().filter(|(name, _)| name != source).map(|(name, ssh)| Target { name, ssh: Some(ssh), room: rooms.get(name), starting: count(name) }));
             let (target, ssh) = match pick(&targets, reserved) {
                 Ok(chosen) => chosen,
                 Err(reasons) => {

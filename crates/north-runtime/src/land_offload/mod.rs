@@ -111,6 +111,15 @@ pub fn build_hosts() -> Vec<(String, String)> {
     config().map(|cfg| destinations::build_hosts(&cfg, &crate::platform::host::name())).unwrap_or_default()
 }
 
+/// Each build host this host reaches, with the login a lane's check runs as there (check_login); a host whose agent login does not parse, or that sets agent_offload with no agent login, is left out rather than dialed as the operator.
+pub fn check_hosts() -> Vec<(String, String)> {
+    config().map(|cfg| destinations::check_hosts(&cfg, &crate::platform::host::name())).unwrap_or_default()
+}
+
+fn check_login(machine: &gate::Machine) -> Option<String> {
+    config().ok().and_then(|cfg| destinations::check_login(&cfg, machine))
+}
+
 /// Whether other hosts send builds to this one: `[hosts.HERE] offload_builds`.
 pub(crate) fn warms_slots_here() -> bool {
     config().map_or(true, |cfg| destinations::warms_slots(&cfg, &crate::platform::host::name()))
@@ -190,7 +199,7 @@ pub fn build_host_rooms() -> Vec<BuildHost> {
 
 /// Prints each offload host's newest offloaded runs with their ship time and cache state, then its median ship time, read from the host's own records over ssh.
 fn cost() -> u8 {
-    let hosts = build_hosts();
+    let hosts = check_hosts();
     if hosts.is_empty() {
         eprintln!("north capacity offload: no build host is configured");
         return 1;
@@ -210,7 +219,7 @@ fn cost() -> u8 {
 
 fn reap(owner: &str) -> u8 {
     let mut code = 0;
-    for (name, ssh) in build_hosts() {
+    for (name, ssh) in check_hosts() {
         if ship::reap(&ssh, owner) != 0 {
             eprintln!("north capacity offload: could not reap {owner}'s runs on {name}");
             code = 1;
@@ -344,7 +353,7 @@ fn survey(in_reserve: bool, placement: &Placement) -> Survey {
     let takes = |name: &str| config().is_ok_and(|cfg| destinations::takes_land_checks(&cfg, standing, name));
     let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && reached(&machine.name) && placement.admits(&machine.name) && takes(&machine.name)).collect();
     let remotes = std::thread::scope(|scope| {
-        let reads: Vec<_> = others.iter().map(|machine| (machine.name.clone(), scope.spawn(|| room::read(&machine.ssh)), scope.spawn(|| readiness::admits(&needs, &machine.name, &machine.ssh)))).collect();
+        let reads: Vec<_> = others.iter().map(|machine| (machine.name.clone(), scope.spawn(|| room::read(&machine.ssh)), scope.spawn(|| check_login(machine).is_some_and(|login| readiness::admits(&needs, &machine.name, &login))))).collect();
         reads.into_iter().map(|(name, room, ready)| (name, room.join().ok().flatten().filter(|_| ready.join().unwrap_or(false)))).collect::<Vec<_>>()
     });
     Survey { here, reserved, holds_here: lacks.is_empty(), standing, others, remotes }
@@ -407,9 +416,9 @@ fn destination(host: &str) -> Option<String> {
     if host == crate::platform::host::name() {
         return Some(String::new());
     }
-    let found = machines().into_iter().find(|machine| machine.name == host).map(|machine| machine.ssh);
+    let found = machines().into_iter().find(|machine| machine.name == host).and_then(|machine| check_login(&machine));
     if found.is_none() {
-        eprintln!("north capacity offload: no [hosts.{host}] with an ssh destination");
+        eprintln!("north capacity offload: no [hosts.{host}] with an ssh destination that a check may run on");
     }
     found
 }

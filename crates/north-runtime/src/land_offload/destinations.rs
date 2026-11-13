@@ -91,6 +91,22 @@ pub(super) fn warms_slots(cfg: &DocumentMut, here: &str) -> bool {
     !opts_out_of_builds(cfg, here)
 }
 
+/// The login a lane's offloaded check runs as on `machine`: its agent login once `[hosts.NAME] agent_offload = true` enables it, else its ssh destination; none when agent_offload is set on a host that declares no agent login, so its checks run nowhere rather than as the operator.
+pub(super) fn check_login(cfg: &DocumentMut, machine: &crate::pacing::placement::gate::Machine) -> Option<String> {
+    let enabled = cfg.get("hosts").and_then(|hosts| hosts.get(&machine.name)).and_then(|host| host.get("agent_offload")).and_then(Item::as_bool) == Some(true);
+    let login = if enabled { machine.agent_ssh.clone() } else { Some(machine.ssh.clone()) };
+    if login.is_none() {
+        eprintln!("north capacity offload: {} sets agent_offload = true but names no agent_ssh, so no offloaded check runs there", machine.name);
+    }
+    login
+}
+
+/// Each build host `here` reaches, with the login a lane's check runs as there (check_login); a host whose agent login does not parse, or that sets agent_offload with no agent login, is left out rather than dialed as the operator.
+pub(super) fn check_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
+    let machines = crate::pacing::placement::gate::machines(cfg);
+    build_hosts(cfg, here).into_iter().filter_map(|(name, _)| machines.iter().find(|machine| machine.name == name).and_then(|machine| check_login(cfg, machine)).map(|login| (name, login))).collect()
+}
+
 pub(super) fn offloads_builds(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("offload_builds")).and_then(Item::as_bool) == Some(true)
 }

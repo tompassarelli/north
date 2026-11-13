@@ -2,7 +2,7 @@
 use std::time::Duration;
 
 use crate::capacity::build_offload::{Candidate, Declined, Job, PROBE_LIMIT_SECONDS, Room, Route, refusal, route, wants_offload};
-use crate::land_offload::{build_hosts, room};
+use crate::land_offload::{check_hosts, room};
 
 mod lane;
 mod remote;
@@ -25,7 +25,7 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str) -> bool
     if !wants_offload(candidate) {
         return Err(None);
     }
-    let hosts = build_hosts();
+    let hosts = check_hosts();
     if hosts.is_empty() {
         return Err(None);
     }

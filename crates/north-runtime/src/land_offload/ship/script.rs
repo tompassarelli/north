@@ -79,8 +79,11 @@ host_jobs() {
 }
 "#;
 
+/// The steps that fill the host's checkout from the shipped bundle and place a slot on the shipped head, with hooks, fsmonitor and auto gc off for every git call the script makes; firn's agent-offload VM test runs this file as the agent.
+pub(crate) const FILL: &str = include_str!("fill.sh");
+
 pub(super) const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-} spilled=${15:-0} generated=${16:-}
+@FILL@repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-} spilled=${15:-0} generated=${16:-}
 root=@ROOT@
 mkdir -p "$root"
 if [ -n "$runtime" ] && { [ ! -x "$HOME/.local/state/north/runtimes/$runtime/north" ] || [ ! -f "$HOME/.local/state/north/runtimes/$runtime/@TREE_MARKER@" ]; }; then echo "offload: the lander runtime $runtime is not on this host yet" >&2; exit @RUNTIME_MISSING@; fi
@@ -89,11 +92,7 @@ trap 'rm -f "$bundle" "${script:-}"; git -C "$repo" update-ref -d "$ref" 2>/dev/
 trap 'exit 143' HUP INT TERM
 [ "$spilled" -eq 0 ] || eval "$(head -c "$spilled")"
 cat >"$bundle"
-if ! git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1; then
-  git -C "$repo" fetch -q --no-auto-maintenance origin 2>/dev/null || true
-  git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1 || { echo "offload: $repo lacks the commits under $base" >&2; exit 97; }
-fi
-git -C "$repo" fetch -q --no-auto-maintenance "$bundle" "+$ref:$ref"
+fill
 "#;
 
 const NESTED: &str = r#"caller_slot=${@SLOT_ENV@:-} holder=${@SLOT_HOLDER_ENV@:-} nested=
@@ -249,8 +248,7 @@ if [ -d "$slot/target" ] && ! target_fits; then
     rm -rf -- "$slot/target"
   fi
 fi
-if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree remove --force "$slot" 2>/dev/null || true; git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
-git -C "$slot" clean -ffdxq -e /target
+place
 "#;
 
 pub(super) const VERIFY: &str = r#"landed=$(git -C "$slot" rev-parse HEAD)
@@ -498,7 +496,7 @@ pub(crate) fn jobs_part() -> String {
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@FILL@", FILL).replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
 }
 
 pub(super) fn beside_part() -> String {

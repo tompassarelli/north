@@ -7,13 +7,13 @@ use std::time::Duration;
 use super::lane::Lane;
 use crate::capacity::build_offload::{Declined, Job, REMOTE_MARK, SHIP_SECONDS_ENV, SLOT_HEAD_ENV, SLOT_TARGET_ENV};
 use crate::capacity::handover::{Offer, Received, receive};
-use crate::land_offload::ship::quote;
+use crate::land_offload::ship::{FILL, quote};
 
 const SYNC_LIMIT: Duration = Duration::from_secs(180);
 pub(super) const SYNCED: &str = "NORTH-OFFLOAD-SYNCED";
 
 const SCRIPT: &str = r#"set -eu
-repo=$HOME/$1 head=$2 name=$3 blen=$4 plen=$5 sub=$6 owner=$7 limit=$8 returned=$9
+@FILL@repo=$HOME/$1 head=$2 name=$3 blen=$4 plen=$5 sub=$6 owner=$7 limit=$8 returned=$9
 shift 9
 root=$HOME/.cache/build-offload
 slot=$root/$name
@@ -91,7 +91,7 @@ const GO: &str = "[ \"$(head -c 1)\" = g ] || exit 95\n";
 
 /// The script that rebuilds a lane on a host and runs the job there under that host's capacity run, which enters the lane's flake dev shell, inside the sandbox for a pulled run.
 pub(super) fn script(trust: Trust) -> String {
-    SCRIPT.replace("@WRAP@", match trust { Trust::Own => "", Trust::Pulled => SANDBOX }).replace("@GO@", match trust { Trust::Own => GO, Trust::Pulled => "" }).replace("@SYNCED@", SYNCED).replace("@MARK@", REMOTE_MARK).replace("@SHIP@", SHIP_SECONDS_ENV).replace("@TARGET@", SLOT_TARGET_ENV).replace("@HEAD@", SLOT_HEAD_ENV)
+    SCRIPT.replace("@FILL@", FILL).replace("@WRAP@", match trust { Trust::Own => "", Trust::Pulled => SANDBOX }).replace("@GO@", match trust { Trust::Own => GO, Trust::Pulled => "" }).replace("@SYNCED@", SYNCED).replace("@MARK@", REMOTE_MARK).replace("@SHIP@", SHIP_SECONDS_ENV).replace("@TARGET@", SLOT_TARGET_ENV).replace("@HEAD@", SLOT_HEAD_ENV)
 }
 
 /// The arguments the script takes for an offer.

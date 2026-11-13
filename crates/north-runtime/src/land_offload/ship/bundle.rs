@@ -5,7 +5,8 @@ use std::process::Command;
 use super::{CommitId, Land, quote};
 use crate::capacity::carry;
 
-pub(super) fn bundle(land: &Land, reference: &str) -> Result<File, String> {
+/// The bundle of `reference` cut at the shipped base, or at each commit in `held` when the host named the commits its checkout holds.
+pub(super) fn bundle(land: &Land, reference: &str, held: Option<&[CommitId]>) -> Result<File, String> {
     let git = || {
         let mut command = Command::new(north_base::foundation::offload::git());
         command.current_dir(land.checkout);
@@ -18,10 +19,10 @@ pub(super) fn bundle(land: &Land, reference: &str) -> Result<File, String> {
     }
     let mut command = git();
     command.args(["bundle", "create", "-q", "-", reference]);
-    match &land.base {
-        Some(base) if *base == land.head => command.arg(format!("^{}^", base.as_str())),
-        Some(base) => command.arg(format!("^{}", base.as_str())),
-        None => &mut command,
+    let cut = |commit: &CommitId| if *commit == land.head { format!("^{}^", commit.as_str()) } else { format!("^{}", commit.as_str()) };
+    match held {
+        Some(held) => command.args(held.iter().map(cut)),
+        None => command.args(land.base.iter().map(cut)),
     };
     let bundled = command.stdout(file.try_clone().map_err(|error| error.to_string())?).status().is_ok_and(|status| status.success());
     let _ = git().args(["update-ref", "-d", reference]).status();

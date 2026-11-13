@@ -189,7 +189,7 @@ fn two_concurrent_jobs_at_the_same_head_bundle_under_distinct_refs() {
                 let land = Land { ssh: "", checkout: dir.path(), base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck };
                 let checkout = dir.path();
                 scope.spawn(move || {
-                    let file = bundle(&land, reference).unwrap();
+                    let file = bundle(&land, reference, None).unwrap();
                     let listed = Command::new("git").current_dir(checkout).args(["bundle", "list-heads", "-"]).stdin(file).output().unwrap();
                     String::from_utf8(listed.stdout).unwrap().trim().to_owned()
                 })
@@ -268,7 +268,7 @@ fn a_job_whose_base_is_its_head_bundles_the_head_over_its_parent() {
     let head = CommitId::resolve(dir.path(), "HEAD").unwrap();
     let reference = job_ref(&head);
     let land = Land { ssh: "", checkout: dir.path(), base: Some(head.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck };
-    let file = bundle(&land, &reference).unwrap();
+    let file = bundle(&land, &reference, None).unwrap();
     let listed = Command::new("git").current_dir(dir.path()).args(["bundle", "list-heads", "-"]).stdin(file).output().unwrap();
     assert_eq!(String::from_utf8(listed.stdout).unwrap().trim(), format!("{} {reference}", head.as_str()));
 }

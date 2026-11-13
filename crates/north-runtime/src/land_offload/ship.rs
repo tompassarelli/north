@@ -6,6 +6,7 @@ use bundle::{bundle, carried};
 use relay::{Relayed, relay, verdict};
 pub(super) use north_base::foundation::exit::TRANSPORT_FAILED;
 const WRONG_TREE: u8 = 98;
+const LACKS_BASE: u8 = 97;
 use north_base::foundation::exit::{NO_VERDICT, SLOTS_BUSY};
 const BESIDE_MISSING: u8 = NO_VERDICT;
 const RUNTIME_MISSING: u8 = 95;
@@ -133,9 +134,10 @@ pub(super) mod beside;
 mod script;
 pub(super) use script::jobs_part;
 pub use script::{SlotClass, is_lander_slot};
-pub(crate) use script::slot_ports;
+pub(crate) use script::{FILL, slot_ports};
 use script::remote_script;
 mod bundle;
+mod held;
 mod generated;
 pub(super) mod slot_record;
 #[cfg(test)]
@@ -187,10 +189,21 @@ struct Shipped {
     tree: Option<String>,
 }
 
-/// One shipping of the job to the host, or this host's failure to ship it.
+/// One shipping of the job, shipped once more cut at the commits the host's checkout holds when the host still lacks the commits under the base after its own fetch from origin: a private repository's checkout under an agent login has no read credential for origin, so every object it lacks travels in the bundle.
 fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Result<Shipped, u8> {
+    let first = ship_once(land, relative, name, runtime, None)?;
+    if first.exited != Some(LACKS_BASE) || first.ran.is_some() || land.ssh.is_empty() {
+        return Ok(first);
+    }
+    let held = held::commits(land, relative).map_err(|why| unreached(&why))?;
+    eprintln!("north capacity offload: {} lacks the commits under the base, so the lane ships once more cut at the {} commits its checkout holds", land.ssh, held.len());
+    ship_once(land, relative, name, runtime, Some(&held))
+}
+
+/// One shipping of the job to the host, or this host's failure to ship it.
+fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, held: Option<&[CommitId]>) -> Result<Shipped, u8> {
     let reference = job_ref(&land.head);
-    let bundle = bundle(land, &reference).map_err(|why| unreached(&why))?;
+    let bundle = bundle(land, &reference, held).map_err(|why| unreached(&why))?;
     let name = land.class.slot_name(name);
     let script = remote_script(&name, land.class);
     let base = land.base.as_ref().map_or("", CommitId::as_str);
