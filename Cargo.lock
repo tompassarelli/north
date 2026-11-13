@@ -1542,6 +1542,7 @@ name = "north-land-scans"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-buck",
  "north-build-system",
  "north-cli-reference",
  "north-diff-gates",

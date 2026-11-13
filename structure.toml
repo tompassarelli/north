@@ -181,7 +181,7 @@ may_use = ["north-base", "north-diff-gates", "north-graph-loops", "north-mutants
 [[crate_dag.crate]]
 name = "north-land-scans"
 paths = ["crates/north-land-scans/src/**"]
-may_use = ["north-base", "north-cli-reference", "north-diff-gates", "north-github-mirror", "north-landing-gates", "north-build-system"]
+may_use = ["north-base", "north-cli-reference", "north-diff-gates", "north-github-mirror", "north-landing-gates", "north-build-system", "north-buck"]
 
 [[crate_dag.crate]]
 name = "north-land-checks"

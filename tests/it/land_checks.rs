@@ -738,7 +738,7 @@ fn clippy_and_the_tests_under_one_lease_run_side_by_side_on_a_host_with_the_core
 #[test]
 fn the_buck_check_answers_infrastructure_when_cargo_cannot_run_and_refuses_cargos_own_lock_answer_and_a_third_party_target_behind_cargo() {
     let fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
-    let check = |path: &Path| Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["buck", "targets", "--check", "--root"]).arg(&fixture.repo).env("PATH", path).env("XDG_STATE_HOME", fixture.path("state")).output().unwrap();
+    let check = |path: &Path| Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["buck", "targets", "--check", "--root"]).arg(&fixture.repo).env("PATH", path).env("XDG_STATE_HOME", fixture.path("state")).env_remove("SAFE_PUSH_LAND_BASE").output().unwrap();
     let empty = fixture.path("no-cargo");
     fs::create_dir_all(&empty).unwrap();
     let missing = check(&empty);

@@ -4,7 +4,7 @@
 //! prints the host cases, which no remote worker can run and every test rule skips, as the nextest filter the declared
 //! Cargo line runs them with. `north buck compare-cases` prints the cases Buck2 runs of a crate beside those nextest lists
 //! (cases.rs).
-//! Reads the resolved manifests and features through the readers its caller passes and the manifests' lint tables; depends on no other north crate.
+//! Reads the resolved manifests and features through the readers its caller passes and the manifests' lint tables, and, inside a land check, `build/host-cases.list` from the landing base rather than the lane; depends on no other north crate.
 mod cases;
 mod env;
 mod gate;
@@ -67,7 +67,8 @@ pub fn run(arguments: &[String], cargo: &Cargo, sides: &Sides, state: &Path) -> 
             }
         }
     }
-    let outcome = if check { compare(&root, cargo, state) } else { generate(&root, cargo.manifests).and_then(|planned| write(&planned.files)) };
+    let base = host_class::landing_base();
+    let outcome = if check { compare(&root, base.as_deref(), cargo, state) } else { generate(&root, base.as_deref(), cargo.manifests).and_then(|planned| write(&planned.files)) };
     match outcome {
         Ok(code) => code,
         Err(why) => {
@@ -82,7 +83,7 @@ fn host_cases(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
-    match host_class::filter(Path::new("."), packages) {
+    match host_class::filter(Path::new("."), host_class::landing_base().as_deref(), packages) {
         Ok(filter) => {
             if let Some(filter) = filter {
                 println!("{filter}");
@@ -96,10 +97,10 @@ fn host_cases(arguments: &[String]) -> u8 {
     }
 }
 
-fn compare(root: &Path, cargo: &Cargo, state: &Path) -> Result<u8, String> {
+fn compare(root: &Path, base: Option<&str>, cargo: &Cargo, state: &Path) -> Result<u8, String> {
     let (planned, features) = std::thread::scope(|scope| {
         let features = scope.spawn(|| (cargo.features)(root, PLATFORM));
-        (generate(root, cargo.manifests), features.join())
+        (generate(root, base, cargo.manifests), features.join())
     });
     let planned = planned?;
     let features = features.map_err(|_| "the read of Cargo's resolved features panicked".to_owned())??;
@@ -119,9 +120,9 @@ pub struct Planned {
     pub labels: BTreeSet<String>,
 }
 
-pub fn generate(dir: &Path, manifests: Manifests) -> Result<Planned, String> {
+pub fn generate(dir: &Path, base: Option<&str>, manifests: Manifests) -> Result<Planned, String> {
     let workspace = workspace::parse(&manifests(dir, PLATFORM)?)?;
-    host_class::check(&workspace)?;
+    host_class::check(&workspace, &host_class::reviewed(&workspace.root, base)?)?;
     let workspace_lints = lints::workspace_table(&workspace.root)?;
     let mut lint_flags = BTreeMap::new();
     for package in &workspace.packages {

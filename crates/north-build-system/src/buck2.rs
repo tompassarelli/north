@@ -135,7 +135,7 @@ fn linked_by_the_shell(root: &Path) -> bool {
 
 /// What defines a test target besides the code under test. A lane that changes one could declare a test that passes
 /// whatever the code does, so this side runs a crate's tests only in a tree whose every such file is `base`'s.
-const TARGET_ORIGIN: [&str; 10] = [":(glob)**/BUCK", ":(glob)**/BUCK.v2", ":(glob)**/TARGETS", ":(glob)**/PACKAGE", ":(glob)**/*.bzl", ":(glob)**/*.bxl", ":(glob)**/*.star", "toolchains", "prelude", "build/host-cases.list"];
+const TARGET_ORIGIN: [&str; 9] = [":(glob)**/BUCK", ":(glob)**/BUCK.v2", ":(glob)**/TARGETS", ":(glob)**/PACKAGE", ":(glob)**/*.bzl", ":(glob)**/*.bxl", ":(glob)**/*.star", "toolchains", "prelude"];
 
 /// The package selection of a nextest land line: `--workspace`, or `-p NAME` for each package.
 enum Selected {

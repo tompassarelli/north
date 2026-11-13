@@ -18,7 +18,7 @@ pub struct Sides {
 
 /// The host cases of the tree at `root` as `BINARY-ID CASE`, none where it keeps no list.
 fn host_cases(root: &Path) -> Result<BTreeSet<String>, String> {
-    Ok(host_class::reviewed(root)?.into_iter().map(|(binary, case)| format!("{binary} {case}")).collect())
+    Ok(host_class::reviewed(root, None)?.into_iter().map(|(binary, case)| format!("{binary} {case}")).collect())
 }
 
 /// Whether the case `BINARY-ID CASE` is of crate `name`: its unit tests' binary id is the crate's name, an integration test's `NAME::TEST`.

@@ -5,7 +5,7 @@
 //! case runners of that crate's targets count at least one case run in all and none failed. That summary counts a
 //! target as one test however many cases it ran, so it never passes a crate alone (north#1299). Every other crate stays
 //! on the declared line, so Cargo tests it. A passed crate's host cases, the cases of the reviewed class in
-//! `build/host-cases.list` that its Buck2 targets skip because no remote worker can run them, then run here in one run of
+//! the landing base's `build/host-cases.list` that its Buck2 targets skip because no remote worker can run them, then run here in one run of
 //! the declared line narrowed to them, which fails the check when it fails or runs fewer cases than the class names. The
 //! checks before a landing alone wrap their line in this, and key the verdict apart, so the run after a landing tests the
 //! landed tree with Cargo itself.
@@ -107,12 +107,12 @@ fn ran(summary: &str) -> Option<u64> {
     summary.split_once("] ")?.1.split_once(" test")?.0.trim().parse().ok()
 }
 
-/// Runs the host cases of the crates in `passed` that the class at `root` names on the `declared` line narrowed to them; whether there were none, or the run passed and ran as many cases as the class names.
-fn host_cases(root: &Path, declared: &str, passed: &BTreeSet<String>) -> Result<bool, String> {
+/// Runs the host cases of the crates in `passed` that the class names, read from the landing `base` and never from the lane at `root`, on the `declared` line narrowed to them; whether there were none, or the run passed and ran as many cases as the class names.
+fn host_cases(root: &Path, base: Option<&str>, declared: &str, passed: &BTreeSet<String>) -> Result<bool, String> {
     let package = |binary: &str| binary.split_once("::").map_or(binary, |(package, _)| package).to_owned();
-    let class: Vec<(String, String)> = north_buck::host_class::reviewed(root)?.into_iter().filter(|(binary, _)| passed.contains(&package(binary))).collect();
+    let class: Vec<(String, String)> = north_buck::host_class::reviewed(root, base)?.into_iter().filter(|(binary, _)| passed.contains(&package(binary))).collect();
     let names: Vec<String> = class.iter().map(|(binary, _)| package(binary)).collect::<BTreeSet<_>>().into_iter().collect();
-    let Some(filter) = north_buck::host_class::filter(root, &names)?.filter(|_| !names.is_empty()) else { return Ok(true) };
+    let Some(filter) = north_buck::host_class::filter(root, base, &names)?.filter(|_| !names.is_empty()) else { return Ok(true) };
     let tests: BTreeSet<&str> = class.iter().filter_map(|(binary, _)| binary.split_once("::").map(|(_, test)| test)).collect();
     let narrowed = tests.iter().map(|test| format!("--test {test} ")).chain([format!("-E {filter}")]).collect::<String>();
     let packages = names.iter().map(|name| format!("-p {name}")).collect::<Vec<_>>().join(" ");
@@ -144,7 +144,7 @@ fn execute(declared: &str) -> u8 {
         let cases: u64 = record.iter().flatten().filter(|run| split.owner(&run.target) == Some(name.as_str())).filter_map(TestRun::cases).map(|cases| cases.run).sum();
         eprintln!("north land crate-tests: Buck2 gave no verdict on {name} (exit {}, {cases} case(s) of it in its record), so the declared line tests it", status.map_or_else(|| "on a signal".to_owned(), |code| code.to_string()));
     }
-    match host_cases(Path::new("."), declared, &passed) {
+    match host_cases(Path::new("."), base.as_deref(), declared, &passed) {
         Ok(true) => {}
         Ok(false) => return FAILED,
         Err(why) => {
