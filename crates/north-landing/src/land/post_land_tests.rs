@@ -299,21 +299,17 @@ fn a_failure_outside_the_base_selection_probes_the_base_before_blaming() {
 #[test]
 fn an_after_landing_suite_is_placed_on_a_build_host_and_never_on_the_control_host_while_one_is_available() {
     use crate::land::slots::graph_selection::{Away, Scope, list};
-    use std::os::unix::fs::PermissionsExt;
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path().join("tree");
     std::fs::create_dir_all(root.join("bin")).unwrap();
     std::fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
     let here = scratch.path().join("compiled-here");
     let shell = root.join("bin/land-shell");
-    std::fs::write(&shell, format!("#!/bin/sh\ntouch {}\n", here.display())).unwrap();
+    north_base::foundation::shim::write_script(&shell, &format!("touch {}\n", here.display()));
     let record = scratch.path().join("record");
     let north = scratch.path().join("north");
     let listing = r#"{"rust-suites":{"north-landing::it":{"binary-id":"north-landing::it","package-name":"north-landing","binary-path":"/x","testcases":{"a::b":{}}}}}"#;
-    std::fs::write(&north, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\nprintf '%s\\n' 'offload: running in a slot' '{listing}'\n", record.display())).unwrap();
-    for script in [&shell, &north] {
-        std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    north_base::foundation::shim::write_script(&north, &format!("printf '%s\\n' \"$*\" >> {}\nprintf '%s\\n' 'offload: running in a slot' '{listing}'\n", record.display()));
     let away = Away { program: &north, host: "cpx62b", base: "base", tree: "tree" };
     let listed = list(&root, Some(&away), &Scope::Workspace).unwrap_or_default();
     assert_eq!(listed.keys().collect::<Vec<_>>(), ["north-landing::it"], "the listing the build host printed is the one the selection reads");
