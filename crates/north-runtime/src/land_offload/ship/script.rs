@@ -94,6 +94,27 @@ host_jobs() {
 }
 "#;
 
+/// Reads the next `NAME='value'` word of `$words`, as `quote` writes it, into `word_name` and `word_value` without evaluating it, so no text the sender put in a header or a carried word runs; refuses the job on any other shape.
+const WORDS: &str = r#"refuse_words() { echo "offload: refusing to run: $1" >&2; exit @TRANSPORT_FAILED@; }
+next_word() {
+  while :; do case $words in " "* | "
+"*) words=${words#?} ;; *) break ;; esac; done
+  [ -n "$words" ] || return 1
+  word_name=${words%%=*}
+  case $word_name in '' | [0-9]* | *[!A-Za-z0-9_]*) refuse_words "a header word does not begin with a plain name" ;; esac
+  words=${words#*=} word_value=
+  while :; do
+    case $words in \'*\'*) ;; *) refuse_words "the header word $word_name is not one quoted value" ;; esac
+    words=${words#\'}
+    word_value=$word_value${words%%\'*}
+    words=${words#*\'}
+    case $words in "\\'"*) word_value=$word_value\' words=${words#??} ;; *) break ;; esac
+  done
+  case $words in '' | ' '* | '
+'*) ;; *) refuse_words "the header word $word_name runs into the next" ;; esac
+}
+"#;
+
 /// The steps that fill the host's checkout from the shipped bundle and place a slot on the shipped head, with hooks, fsmonitor and auto gc off for every git call the script makes; firn's agent-offload VM test runs this file as the agent.
 const FILL: &str = include_str!("fill.sh");
 
@@ -112,7 +133,17 @@ if [ -n "$runtime" ] && { [ ! -x "$HOME/.local/state/north/runtimes/$runtime/nor
 bundle=$(mktemp "$root/$name.bundle.XXXXXX")
 trap 'rm -f "$bundle" "${script:-}"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 trap 'exit 143' HUP INT TERM
-[ "$spilled" -eq 0 ] || eval "$(head -c "$spilled")"
+@WORDS@header_left=$spilled
+while [ "$header_left" -gt 0 ]; do
+  IFS=" " read -r field length || refuse_words "the header ends inside its fields"
+  case $length in "" | *[!0-9]*) refuse_words "the header field $field has no byte count" ;; 0?*) refuse_words "the header field $field has a byte count with a leading zero" ;; ??????????*) refuse_words "the header field $field has a byte count over nine digits" ;; esac
+  value=$(head -c "$length"; printf x); value=${value%x}
+  [ "$(head -c 1)" = "" ] || refuse_words "the header field $field runs past its byte count"
+  header_left=$((header_left - ${#field} - ${#length} - length - 3))
+  case $field in command) command=$value ;; carried) carried=$value ;; pins) pins=$value ;; proof) proof=$value ;; confined) confined=$value ;; bundled) bundled=$value ;; holding) holding=$value ;; join) join=$value ;; token) token=$value ;; *) refuse_words "the header names $field" ;; esac
+done
+[ "$header_left" -eq 0 ] || refuse_words "the header does not end at its stated length"
+case ${bundled:-0} in *[!0-9]*) refuse_words "the header field bundled is not a byte count" ;; ??????????*) refuse_words "the header field bundled is over nine digits" ;; esac
 holding=${holding:-} join=${join:-} token=${token:-}
 [ -z "$holding" ] || [ "$limit" -le @HOLD_CEILING@ ] || limit=@HOLD_CEILING@
 @TETHER@timed_step receive
@@ -423,7 +454,10 @@ if [ -n "${runtime:-}" ]; then
   PATH="$runtime_dir:$PATH"; export PATH
 fi
 @SLOT_ENV@=$slot @SLOT_HOLDER_ENV@=$$; export @SLOT_ENV@ @SLOT_HOLDER_ENV@
-if [ -n "${carried:-}" ]; then eval "export $carried"; fi
+@WORDS@words=${carried:-}
+while next_word; do
+  case $word_name in @CARRIED_NAMES@) export "$word_name=$word_value" ;; *) refuse_words "a carried word names $word_name" ;; esac
+done
 lease_owner=land-offload
 canary=
 case ${red_fix:-} in @RESERVE_CALLER@ | @CANARY_SCOPE@?*.scope) canary=$red_fix ;; esac
@@ -599,7 +633,7 @@ pub(super) fn reattach_script() -> String {
 }
 
 pub(super) fn run_part() -> String {
-    RUN.replace("@WATCH@", &super::quote(WATCH))
+    RUN.replace("@WORDS@", WORDS).replace("@CARRIED_NAMES@", &north_base::foundation::carry::names(north_base::foundation::carry::Boundary::Offload).collect::<Vec<_>>().join(" | ")).replace("@WATCH@", &super::quote(WATCH))
         .replace("@DRAIN@", DRAIN)
         .replace("@REATTACH_MINUTES@", &REATTACH_MINUTES.to_string())
         .replace("@DRAIN_GRACE@", &DRAIN_GRACE_SECONDS.to_string())
@@ -628,7 +662,7 @@ pub(crate) fn jobs_part() -> String {
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@TETHER@", &TETHER.replace("@TETHER_SECONDS@", &(super::reattach::PAUSE.as_secs() + TETHER_MARGIN_SECONDS).to_string()).replace("@DROPPED_SECONDS@", &(super::reattach::WINDOW.as_secs() + DROPPED_MARGIN_SECONDS).to_string())).replace("@HOLD_CEILING@", &super::HOLD_CEILING_SECONDS.to_string()).replace("@FILL@", &fill_part()).replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@WORDS@", WORDS).replace("@TETHER@", &TETHER.replace("@TETHER_SECONDS@", &(super::reattach::PAUSE.as_secs() + TETHER_MARGIN_SECONDS).to_string()).replace("@DROPPED_SECONDS@", &(super::reattach::WINDOW.as_secs() + DROPPED_MARGIN_SECONDS).to_string())).replace("@HOLD_CEILING@", &super::HOLD_CEILING_SECONDS.to_string()).replace("@FILL@", &fill_part()).replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
 }
 
 pub(super) fn hold_part() -> String {

@@ -1393,3 +1393,47 @@ fn a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_
     let ran = super::relay(read.stdout.as_slice(), &mut Vec::new(), &marker, "", || {}).ran;
     assert_eq!(super::verdict(read.status.code().and_then(|code| u8::try_from(code).ok()), ran), Ok(3), "the reattached client reads the check's own exit");
 }
+
+#[test]
+fn an_offload_header_word_that_would_run_a_command_is_refused_without_running_it_north_1041() {
+    let (home, head, bundle_path) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let script = remote_script("code-p-main", super::SlotClass::LandCheck);
+    let bundled = fs::metadata(&bundle_path).unwrap().len();
+    let ran = home.path().join("ran");
+    let planted = |name: &str| home.path().join(name);
+    let ship = |header: Vec<u8>| {
+        let spilled = header.len().to_string();
+        let mut child = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", "", &spilled], &[])
+            .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+            .env("PATH", &path)
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let fed = bundle::feed(header, fs::File::open(&bundle_path).unwrap(), child.stdin.take().unwrap(), false);
+        let output = child.wait_with_output().unwrap();
+        fed.join().unwrap();
+        output
+    };
+    let steered = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&steered.path().join("north"), &format!("#!/bin/sh\ntouch {}\n", planted("path").display()));
+    let command = format!("touch {}", ran.display());
+    let headers = [
+        ("proof", format!("command={}\nproof=$(touch {})\n", super::quote(&command), planted("proof").display()).into_bytes()),
+        ("carried", bundle::spilled(&command, &format!("SAFE_PUSH_LAND_CPUS=$(touch {})", planted("carried").display()), "", "secret", false, &[], bundled)),
+        ("path", bundle::spilled(&command, &format!("PATH={}", super::quote(&format!("{}:{path}", steered.path().display()))), "", "secret", false, &[], bundled)),
+        ("preload", bundle::spilled(&command, &format!("LD_PRELOAD={}", super::quote(&planted("preload.so").display().to_string())), "", "secret", false, &[], bundled)),
+    ];
+    for (name, header) in headers {
+        let output = ship(header);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!planted(name).exists(), "a command in the header's {name} ran on the host: {stderr}");
+        assert!(!output.status.success() && stderr.contains("refusing to run") && !ran.exists(), "a header whose {name} would run a command was not refused: {stderr}");
+    }
+}
