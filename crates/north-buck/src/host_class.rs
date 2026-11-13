@@ -72,7 +72,7 @@ pub fn skipped(package: &Package, target: &Target, unittest: bool) -> Vec<String
     package.host_cases.iter().filter(runs_here).map(|case| case.name.clone()).collect()
 }
 
-/// Refuses a manifest host case that `listed`, the class of the landing base, lacks or that `own`, the lane's own copy of the list, lacks, and a case whose test target the package lacks. A listed case no manifest names yet is one whose list line landed first, and its manifest entry follows in a later lane; a case leaves the list only after its manifest entry, in the same or an earlier change.
+/// Refuses a manifest host case that `listed`, the class of the landing base, lacks or that `own`, the lane's own copy of the list, lacks, a case whose test target the package lacks, and each line of `own` whose test the tree no longer defines. A listed case no manifest names yet is one whose list line landed first, and its manifest entry follows in a later lane; a case leaves the list only after its manifest entry, in the same or an earlier change.
 pub fn check(workspace: &Workspace, listed: &BTreeSet<Member>, own: &BTreeSet<Member>) -> Result<(), String> {
     for package in &workspace.packages {
         for case in &package.host_cases {
@@ -88,7 +88,39 @@ pub fn check(workspace: &Workspace, listed: &BTreeSet<Member>, own: &BTreeSet<Me
             }
         }
     }
-    Ok(())
+    stale(workspace, own)
+}
+
+/// Refuses each line of `own`, the lane's copy of the list, whose case is no test function in the tree of the package its binary id names: a lane that renames or removes a listed test leaves the line, and the manifest entry that repeats it, naming nothing, and every Buck2 run of the package then fails.
+fn stale(workspace: &Workspace, own: &BTreeSet<Member>) -> Result<(), String> {
+    let mut refused = Vec::new();
+    for (binary, case) in own {
+        let package = binary.split_once("::").map_or(binary.as_str(), |(package, _)| package);
+        let function = case.rsplit("::").next().unwrap_or(case);
+        let Some(held) = workspace.packages.iter().find(|candidate| candidate.name == package) else {
+            refused.push(format!("{LIST}: `{binary} {case}` names package {package}, which the tree does not have"));
+            continue;
+        };
+        if !defines(&workspace.root.join(&held.dir), function) {
+            refused.push(format!("{LIST}: `{binary} {case}` names a test the tree no longer has: no `fn {function}(` in package {package}; the line and the host-cases entry of {package}'s Cargo.toml follow the test"));
+        }
+    }
+    if refused.is_empty() { Ok(()) } else { Err(refused.join("\n")) }
+}
+
+/// Whether a Rust source under `dir`, outside build output, declares `fn function(`, leaving out the directories of other packages.
+fn defines(dir: &Path, function: &str) -> bool {
+    let declaration = format!("fn {function}(");
+    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    entries.filter_map(Result::ok).any(|entry| {
+        let path = entry.path();
+        let name = entry.file_name();
+        if path.is_dir() {
+            name != "target" && name != "buck-out" && !path.join("Cargo.toml").exists() && defines(&path, function)
+        } else {
+            path.extension().is_some_and(|extension| extension == "rs") && std::fs::read_to_string(&path).is_ok_and(|source| source.lines().any(|line| line.find(&declaration).is_some_and(|at| at == 0 || line[..at].ends_with(' '))))
+        }
+    })
 }
 
 /// The class as `base`'s list holds it, or the part of it in `packages`, as one nextest filterset without spaces, so the declared line takes it through an unquoted variable; `None` when no case is in it.
