@@ -470,8 +470,8 @@ impl BuildSystem for Buck2 {
         super::cargo_metadata::no_deps(root)
     }
 
-    fn dependency_graph(&self, root: &Path, shell: Shell, _resolution: super::Resolution) -> Invocation {
-        self.invocation(root, shell, self.words(&["cquery", "deps(//...)", "--json", "--output-attribute", "name", "--output-attribute", "srcs"]))
+    fn dependency_graph(&self, root: &Path, shell: Shell, resolution: Resolution) -> Invocation {
+        Cargo.dependency_graph(root, shell, resolution)
     }
 
     /// The `--out` copies are no generation's, so the run starts with none and a failed one leaves none to be read; they go under
