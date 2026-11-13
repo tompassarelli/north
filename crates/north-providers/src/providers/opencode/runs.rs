@@ -11,7 +11,7 @@ use crate::ledger::Run;
 use crate::providers::claude::runs::row::eta;
 use crate::providers::ledger_rows::{self as rows, Shared};
 
-const PROVIDERS: [&str; 2] = ["opencode", "pi"];
+pub const PROVIDERS: [&str; 2] = ["opencode", "pi"];
 const LIVE: [&str; 2] = ["starting", "working"];
 
 /// What the collector reads for this host's DeepSeek sessions.

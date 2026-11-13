@@ -29,9 +29,8 @@ pub(in crate::cli) fn retired_row(run: &RetiredRun) -> Value {
 
 impl RunRecording for IngestRuns {
     fn retired(&self, run: &RetiredRun) {
-        if let Err(error) = crate::threads::client::ingest(format!("{}\n", retired_row(run)).as_bytes()) {
-            eprintln!("north fleet: the run row for retired {} went unrecorded: {error}", run.name);
-        }
+        let row = (!crate::providers::opencode::runs::PROVIDERS.contains(&run.provider.as_str())).then(|| format!("{}\n", retired_row(run)));
+        let _ = row.map(|row| crate::threads::client::ingest(row.as_bytes()).inspect_err(|error| eprintln!("north fleet: the run row for retired {} went unrecorded: {error}", run.name)));
     }
 
     fn ended(&self, conversation: &str) {
