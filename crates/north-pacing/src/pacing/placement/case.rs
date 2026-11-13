@@ -243,6 +243,7 @@ fn config(cfg: &DocumentMut, sha256: String) -> Config {
         cloud_credit: placement.and_then(|p| p.get("cloud_credit")).and_then(Item::as_str).map(str::to_owned),
         hosts: hosts.collect(),
         plans: plans.into_iter().flat_map(|plans| plans.iter()).filter_map(|(label, plan)| Some((label.to_owned(), plan.as_str()?.to_owned()))).collect(),
+        surfaces: placement.and_then(|p| p.get("surfaces")).and_then(Item::as_table_like).into_iter().flat_map(|surfaces| surfaces.iter()).filter_map(|(repo, surface)| Some((repo.to_owned(), surface.as_str()?.to_owned()))).collect(),
     }
 }
 
@@ -255,6 +256,13 @@ fn document(config: &Config) -> DocumentMut {
     placement.insert("private_repos", array(&config.private_repos));
     if let Some(credit) = &config.cloud_credit {
         placement.insert("cloud_credit", value(credit.as_str()));
+    }
+    if !config.surfaces.is_empty() {
+        let mut surfaces = Table::new();
+        for (repo, surface) in &config.surfaces {
+            surfaces.insert(repo, value(surface.as_str()));
+        }
+        placement.insert("surfaces", Item::Table(surfaces));
     }
     let mut hosts = Table::new();
     for host in &config.hosts {

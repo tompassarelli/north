@@ -87,6 +87,9 @@ pub struct Config {
     pub hosts: Vec<Host>,
     /// `[accounts.claude] plans`: label to plan name.
     pub plans: BTreeMap<String, String>,
+    /// `[placement] surfaces`: repository to the `Surface:` its briefs default to.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub surfaces: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

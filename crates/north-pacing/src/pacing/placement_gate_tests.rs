@@ -210,7 +210,7 @@ mod properties {
 
 
 #[test]
-fn a_brief_with_no_surface_line_takes_its_repositorys_default_so_a_build_host_can_take_it() {
+fn a_brief_with_no_surface_line_takes_its_repositorys_default_surfaces_and_a_replayed_case_decides_by_them() {
     let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\n[hosts.laptop]\nresident_cap = 1\n".parse().unwrap();
     let quota = gate(&[("claude:c", control((6.0, "2026-10-16T16:00:00Z"), 13.0))]);
     let mut machines = gate::machines(&cfg);
@@ -222,8 +222,34 @@ fn a_brief_with_no_surface_line_takes_its_repositorys_default_so_a_build_host_ca
 
     assert_eq!(placed.machine.as_ref().map(|machine| machine.name.as_str()), Some("gex45"), "{:?}", placed.machine_lines);
     assert_eq!(gate::surfaced(brief, &cfg).lines().next(), Some("Surface: rust"));
-    let configured: DocumentMut = "[placement.surfaces]\nnorth = \"ts\"\n".parse().unwrap();
-    assert_eq!(gate::surfaced(brief, &configured).lines().next(), Some("Surface: ts"));
+    let configured: DocumentMut = "[placement.surfaces]\nnorth = \"rust, tui\"\n".parse().unwrap();
+    assert_eq!(gate::surfaced(brief, &configured).lines().next(), Some("Surface: rust, tui"));
+    let surfaces: record::Config = serde_json::from_value(json!({
+        "sha256": "",
+        "order": [],
+        "public_repos": [],
+        "private_repos": [],
+        "hosts": [],
+        "plans": {},
+        "surfaces": {"north": "rust, tui"},
+    }))
+    .unwrap();
+    let case = record::Case {
+        at: crate::foundation::clock::rfc3339_seconds("2026-10-16T12:00:00Z").unwrap(),
+        launch: record::Launch::default(),
+        brief: brief.into(),
+        config: surfaces,
+        credit: record::Credit { configured: true, ..Default::default() },
+        usage: record::Usage::default(),
+        roster: BTreeMap::new(),
+        machines: Vec::new(),
+        here: record::Here::default(),
+        github: None,
+        grants: Vec::new(),
+        line_waits: Vec::new(),
+    };
+    let replay = super::placement::case::decide(&case).unwrap();
+    assert_eq!((replay.code_only, replay.surface.as_str()), (false, "needs tui, not cloud"));
 }
 
 /// A replay of a coordinator launch on Fable with two accounts, each carrying its shared week and its
