@@ -5,6 +5,7 @@ use super::follow;
 use super::layout::{self, Layout};
 use super::pin::{self, Event};
 use super::probe::Shell;
+use super::review_hold::{self, Screen};
 use super::update;
 use crate::land_offload;
 
@@ -17,6 +18,16 @@ pub(super) struct Order {
     pub(super) sha: String,
     pub(super) reason: String,
     pub(super) orderer: String,
+}
+
+impl Order {
+    /// An order of `sha`, once `cleared` finds no reviewer's hold on a commit it contains (review_hold.rs), so a held head is refused before the hold unit is released or anything is built, naming the commit and the reviewer; each hold on it lifted within the last day is named with who lifted it and why.
+    pub(super) fn cleared(sha: String, reason: String, orderer: String, cleared: impl FnOnce(&str) -> Result<Vec<String>, String>) -> Result<Self, Failure> {
+        for line in cleared(&sha).map_err(|why| failed(1, format!("refused: {why}")))? {
+            println!("north runtime order: {line}");
+        }
+        Ok(Self { sha, reason, orderer })
+    }
 }
 
 pub(super) trait Host: Sync {
@@ -37,7 +48,6 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> 
     }
     let checkout = update::checkout();
     let sha = resolve(&checkout, commit.as_deref())?;
-    let order = Order { sha, reason, orderer: orderer() };
     let name = crate::platform::host::name();
     let here = Here { layout, shell: Shell::Here(name.clone()) };
     let deployment = land_offload::deployment();
@@ -45,6 +55,9 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> 
         println!("{line}");
     }
     let (kept, left_out) = leave_out(&deployment, &except, &name)?;
+    let promoted: Vec<&str> = std::iter::once(name.as_str()).chain(deployment.names.iter().zip(&deployment.destinations).filter(|(_, destination)| kept.contains(destination)).map(|(host, _)| host.as_str())).collect();
+    let screen = Screen::here(&checkout);
+    let order = Order::cleared(sha, reason, orderer(), |sha| screen.order(sha, &promoted, review_hold::now()))?;
     let others: Vec<Elsewhere> = kept.iter().map(|destination| Elsewhere { layout, shell: Shell::Ssh(destination.clone()) }).collect();
     let others: Vec<&dyn Host> = others.iter().map(|other| other as &dyn Host).collect();
     run(layout, &order, &here, &others, &left_out, hold::release, hold::restore)

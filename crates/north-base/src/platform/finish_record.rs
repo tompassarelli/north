@@ -37,9 +37,7 @@ impl FinishRecords {
 
     /// The records of a process whose environment is `environment` and whose home is `home`, as `here` reads them from its own.
     pub fn of(environment: &[(String, String)], home: &Path) -> Self {
-        let set = |name: &str| environment.iter().find(|(own, value)| own == name && !value.is_empty()).map(|(_, value)| PathBuf::from(value));
-        let store = set(STORE_ENV).unwrap_or_else(|| set("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state")).join("north/verdict-cache"));
-        Self(store.join(DIR))
+        Self(verdict_store(environment, home).join(DIR))
     }
 
     fn path(&self, session: &str) -> Option<PathBuf> {
@@ -57,6 +55,12 @@ impl FinishRecords {
         fs::write(pending.path(), serde_json::to_string(finished).map_err(io::Error::other)?)?;
         pending.persist(&path).map(|_| ()).map_err(|error| error.error)
     }
+}
+
+/// The verdict store of a process whose environment is `environment` and whose home is `home`: the directory no worker domain writes, which holds the finish records and the reviewers' holds on commits.
+pub fn verdict_store(environment: &[(String, String)], home: &Path) -> PathBuf {
+    let set = |name: &str| environment.iter().find(|(own, value)| own == name && !value.is_empty()).map(|(_, value)| PathBuf::from(value));
+    set(STORE_ENV).unwrap_or_else(|| set("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state")).join("north/verdict-cache"))
 }
 
 pub fn parse(session: &str, text: &str) -> Option<Finished> {

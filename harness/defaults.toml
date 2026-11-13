@@ -1807,6 +1807,14 @@ source = "prior: one build-host admission per hand-in (north#1036 slice B1, nort
 fallback = "any value but off reads as on"
 consumers = ["crates/north-base/src/platform/finish_record.rs"]
 
+[review_holds]
+value = "on"
+allowed = { one_of = ["on", "off"] }
+unit = "on: `north runtime order` refuses a head that contains a commit a reviewer holds (with the hold's host, only an order promoting that host), and the slot and Live-fix promotions of the host that settles the fleet refuse it whatever host it names, each naming the commit and the reviewer; off reads no hold"
+source = "north#1022 (2026-11-13): a reviewer's hold on a landed commit was a message to the coordinator, who ordered each runtime by hand, so a reviewed fix waited about 40 min to go live"
+fallback = "any value but off reads as on"
+consumers = ["crates/north-runtime/src/runtime/review_hold.rs"]
+
 [proxy_read_streak]
 value = 15
 allowed = { min = 3, max = 200 }

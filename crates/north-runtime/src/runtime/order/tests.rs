@@ -3,6 +3,7 @@ use super::super::failure::Failure;
 use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Canarying};
 use super::super::pin::{Event, read};
+use super::super::review_hold::{Ask, Caller, Holds, Screen, landed_in, lane_of, now};
 use super::super::update::{self, Flight};
 use super::{Host, Order, run};
 use std::fs;
@@ -12,6 +13,8 @@ use std::sync::Mutex;
 const OLD: &str = "1111111111111111111111111111111111111111";
 const NEW: &str = "2222222222222222222222222222222222222222";
 const NEWER: &str = "3333333333333333333333333333333333333333";
+const REVIEWED: &str = "4444444444444444444444444444444444444444";
+const SQUASHED: &str = "5555555555555555555555555555555555555555";
 
 struct Probes {
     failing: Option<&'static str>,
@@ -308,4 +311,83 @@ fn an_order_promotes_a_candidate_failing_only_a_probe_it_retired_and_refuses_one
     assert!(judged.contains("probes added: none; probes removed: `a worker command's depbox run execs the judged north`"), "{judged}");
     assert_eq!(builder.live.lock().unwrap().as_str(), OLD);
     assert!(refused.message.contains("gex45 stays on its old runtime") && refused.message.contains("ssh reaches no host"), "{}", refused.message);
+}
+
+fn squashed(commit: &str, head: &str) -> Result<bool, String> {
+    Ok(commit == SQUASHED && head == NEW)
+}
+
+fn landings(lane: &str) -> Result<Vec<String>, String> {
+    Ok(if lane == "f-fix" { vec![SQUASHED.to_owned()] } else { Vec::new() })
+}
+
+fn screen_of(holds: Holds, contains: fn(&str, &str) -> Result<bool, String>, landed: fn(&str) -> Result<Vec<String>, String>) -> Screen {
+    Screen { holds, contains: Box::new(contains), landed: Box::new(landed) }
+}
+
+#[test]
+fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_until_the_reviewer_lifts_it() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_path_buf() };
+    for sha in [OLD, NEW] {
+        fs::create_dir_all(layout.runtime(sha)).unwrap();
+    }
+    symlink(layout::link(OLD), layout.current()).unwrap();
+    let steps = Mutex::new(Vec::new());
+    let settling = Rehearsal { layout: &layout, name: "whiterabbit", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false };
+    let store = state.path().join("holds");
+    let screen = screen_of(Holds(store.clone()), squashed, landings);
+    let cleared = |sha: &str| screen.order(sha, &["whiterabbit"], now());
+    let ordered = || Order::cleared(NEW.to_owned(), "a reviewed pipeline fix".to_owned(), "f-flow-lead".to_owned(), cleared);
+    let session = |name: &str, coordinator| Caller { session: name.to_owned(), coordinator };
+    let (reviewer, author, coordinator) = (session("f-review", false), session("f-holds", false), session("proxy", true));
+    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() }, caller, now());
+    let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: REVIEWED.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now());
+    place(&reviewer).unwrap();
+
+    let refused = ordered().err().map(|failure| failure.message).unwrap_or_default();
+    assert!(refused.contains(REVIEWED) && refused.contains("f-review"), "a reviewer's hold was a message to the coordinator, who ordered each runtime by hand, and the lander lands the held lane as a squashed commit of its own: {refused:?}");
+    let promotion = update::slot::held_by_review(&layout, &screen, NEW).unwrap_or_default();
+    assert!(promotion.contains(REVIEWED) && promotion.contains("f-review"), "the slot and Live-fix promotion refuses the same head: {promotion:?}");
+    for (settler, case) in [(Ok(true), "another host settles the fleet"), (Err("no such file".to_owned()), "its orchestration configuration cannot be read")] {
+        assert!(update::slot::screened(&layout, state.path(), NEW.to_owned(), false, settler, &screen).is_none(), "a host that follows origin/main itself keeps no holds and no push ledger, so it takes no head of its own when {case}");
+    }
+
+    let not_theirs = lift(&author).unwrap_err();
+    assert!(not_theirs.contains(REVIEWED) && not_theirs.contains("f-review"), "{not_theirs}");
+    assert!(ordered().is_err(), "a lift by another session leaves the hold standing");
+
+    lift(&reviewer).unwrap();
+    run(&layout, &ordered().unwrap(), &settling, &[], &[], || Ok(()), |()| Ok(false)).unwrap();
+    assert_eq!(settling.live.lock().unwrap().as_str(), NEW);
+    assert!(update::slot::held_by_review(&layout, &screen, NEW).is_none());
+
+    place(&reviewer).unwrap();
+    lift(&coordinator).unwrap();
+    let named = cleared(NEW).unwrap();
+    assert!(named.iter().any(|line| line.contains("f-review") && line.contains("proxy lifted it: the fix is reviewed")), "{named:?}");
+
+    let (unlisted, unparsed, misnamed) = (state.path().join("not-a-store"), state.path().join("unparsed"), state.path().join("misnamed"));
+    fs::write(&unlisted, "").unwrap();
+    for store in [&unparsed, &misnamed] {
+        fs::create_dir_all(store).unwrap();
+    }
+    fs::write(unparsed.join("broken.json"), "{").unwrap();
+    fs::copy(store.join(format!("{REVIEWED}.f-review.json")), misnamed.join(format!("{NEW}.f-review.json"))).unwrap();
+    let failing: [(&str, Screen, &str); 5] = [
+        ("a store that cannot be listed", screen_of(Holds(unlisted), squashed, landings), "not-a-store"),
+        ("an entry that is no hold", screen_of(Holds(unparsed), squashed, landings), "broken.json"),
+        ("an entry not named for its hold", screen_of(Holds(misnamed), squashed, landings), "not the hold its name says"),
+        ("git failing", screen_of(Holds(store.clone()), |_, _| Err("fatal: no such object".to_owned()), landings), "no such object"),
+        ("a push ledger that does not exist", Screen { holds: Holds(store), contains: Box::new(|_, _| Ok(false)), landed: landed_in(state.path().join("pushes.tsv")) }, "pushes.tsv"),
+    ];
+    for (case, screen, says) in failing {
+        let refused = screen.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
+        assert!(refused.contains("does not go live") && refused.contains(says), "{case}: {refused}");
+    }
+    let ledger = format!("1794548552\tnorth\tf-fix\t{REVIEWED}\t{SQUASHED}\tf-fix\n");
+    assert_eq!(lane_of(REVIEWED, &ledger, &[]), Ok("f-fix".to_owned()));
+    for branches in [vec!["main".to_owned()], vec!["f-fix".to_owned(), "f-other".to_owned()]] {
+        assert!(lane_of(REVIEWED, "", &branches).is_err(), "a hold whose lane is not one branch is refused at placement: {branches:?}");
+    }
 }

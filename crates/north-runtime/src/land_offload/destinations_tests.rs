@@ -41,6 +41,12 @@ fn a_host_the_settling_host_ships_to_runs_the_pin_and_the_settling_host_follows_
     assert!(!pinned_by_settler(&cfg, "laptop"), "an undeclared host has no route from the settling host");
     let alone: DocumentMut = "[hosts.gex45]\nssh = \"tom@gex45\"\n".parse().unwrap();
     assert!(!pinned_by_settler(&alone, "gex45"), "with no settling host nothing ships the pin");
+    let missing = tempfile::tempdir().unwrap().path().join("agents/orchestration.toml");
+    let unread = || Err("not found".to_owned());
+    assert_eq!(settled_elsewhere_read(Ok(cfg), "gex45", &missing, true), Ok(true));
+    assert_eq!(settled_elsewhere_read(unread(), "gex45", &missing, false), Ok(false), "a home with no south declares no fleet");
+    let refused = settled_elsewhere_read(unread(), "gex45", &missing, true).expect_err("a south kept without its orchestration file is no answer");
+    assert!(refused.contains("orchestration.toml"), "{refused}");
 }
 
 #[test]

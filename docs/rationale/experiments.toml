@@ -708,3 +708,11 @@ command = "test $(grep -cE '^\\[\\[(rust_habits|implicit_state)\\.allow\\]\\]' s
 review = "2026-11-26"
 owner = "tompassarelli/north#1276"
 lead = "proxy"
+
+[[check]]
+id = "n1022-review-holds-on"
+box = "A reviewer's hold on a commit is a record"
+command = "grep -A1 '^\\[review_holds\\]' harness/defaults.toml | grep -q 'value = \"on\"'"
+review = "2026-11-27"
+owner = "tompassarelli/north#1022"
+lead = "f-flow-lead"

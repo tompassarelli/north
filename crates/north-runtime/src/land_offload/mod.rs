@@ -168,6 +168,11 @@ pub fn accepts_peer_runtimes_here() -> bool {
     config().is_ok_and(|cfg| !destinations::settles_fleet(&cfg, &crate::platform::host::name()))
 }
 
+/// Whether a host other than this one settles the fleet, or why the configuration that would say so cannot be read (destinations::settled_elsewhere_read).
+pub fn settled_elsewhere() -> Result<bool, String> {
+    destinations::settled_elsewhere_read(config(), &crate::platform::host::name(), &crate::platform::orchestration::path(), crate::platform::orchestration::south_kept())
+}
+
 pub fn runs_pinned_runtime_here() -> bool {
     config().is_ok_and(|cfg| destinations::pinned_by_settler(&cfg, &crate::platform::host::name()))
 }

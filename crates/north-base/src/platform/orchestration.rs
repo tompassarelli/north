@@ -16,6 +16,13 @@ pub fn policy_file(file: &str) -> PathBuf {
     path().with_file_name(file)
 }
 
+/// Whether this home keeps south at all: a shared-config snapshot or a south checkout, either of which is there unless reading it says it is not found.
+pub fn south_kept() -> bool {
+    let home = home();
+    let absent = |path: PathBuf| std::fs::symlink_metadata(path).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
+    !(absent(shared::current(&home)) && absent(shared::checkout(&home)))
+}
+
 pub fn under(home: &Path) -> PathBuf {
     shared::checkout(home).join("agents/orchestration.toml")
 }

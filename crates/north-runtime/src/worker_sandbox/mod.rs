@@ -6,6 +6,8 @@ mod brokered_reads;
 mod buck;
 mod check_request;
 mod finish_request;
+mod hold_request;
+pub mod hold_client;
 mod except;
 mod executable;
 mod file_tools;

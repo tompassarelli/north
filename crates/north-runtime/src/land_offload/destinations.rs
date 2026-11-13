@@ -71,10 +71,24 @@ pub(super) fn settles_fleet(cfg: &DocumentMut, here: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether a host other than `here` settles the fleet.
+pub(super) fn settled_elsewhere(cfg: &DocumentMut, here: &str) -> bool {
+    cfg.get("hosts").and_then(Item::as_table_like).is_some_and(|hosts| hosts.iter().any(|(name, _)| name != here && settles_fleet(cfg, name)))
+}
+
+/// Whether a host other than `here` settles the fleet by the configuration `read` from `path`: a home that keeps no south at all (`south_kept` false) and has no file at `path` declares no fleet, so no host settles one for it; a file missing from a south it keeps, and any other failure to read it, is an error naming it.
+pub(super) fn settled_elsewhere_read(read: Result<DocumentMut, String>, here: &str, path: &std::path::Path, south_kept: bool) -> Result<bool, String> {
+    match read {
+        Ok(cfg) => Ok(settled_elsewhere(&cfg, here)),
+        Err(_) if !south_kept && std::fs::metadata(path).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) => Ok(false),
+        Err(error) => Err(format!("{}: {error}", path.display())),
+    }
+}
+
 /// Whether `here` runs the pinned runtime another host settles and ships to it, rather than following origin/main itself: some other host settles the fleet and `here` has the ssh destination that host ships through.
 pub(super) fn pinned_by_settler(cfg: &DocumentMut, here: &str) -> bool {
     let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return false };
-    let settler = hosts.iter().any(|(name, _)| name != here && settles_fleet(cfg, name));
+    let settler = settled_elsewhere(cfg, here);
     let reached = hosts.get(here).is_some_and(|host| ["deploy_ssh", "ssh"].iter().any(|key| host.get(key).and_then(Item::as_str).and_then(ssh_destination).is_some()));
     settler && reached
 }

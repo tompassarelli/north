@@ -12,6 +12,7 @@ use super::pull;
 use super::probe::Shell;
 use super::remote;
 use super::reuse;
+use super::review_hold;
 use super::store;
 use crate::land_offload;
 use crate::platform::{host, process};
@@ -45,7 +46,7 @@ mod collect;
 mod ordered;
 mod preswap;
 mod shipped;
-mod slot;
+pub(super) mod slot;
 mod sync;
 
 use build::{build, export_tree};
@@ -237,7 +238,7 @@ fn pass(layout: &Layout) -> Result<Pass, Failure> {
     let checkout = checkout();
     let main = main_commit(&checkout)?;
     let settles = land_offload::settles_fleet_here();
-    let target = if settles { slot::target(layout, &checkout, &main) } else { main };
+    let Some(target) = slot::screened(layout, &checkout, main, settles, land_offload::settled_elsewhere(), &review_hold::Screen::here(&checkout)) else { return Ok(Pass::Settled) };
     let advanced = advance_to(layout, &checkout, &target);
     if settles && matches!(advanced, Ok(Pass::Promoted)) {
         cadence::note_outcome(layout, pin::now(), Outcome::Promoted);
