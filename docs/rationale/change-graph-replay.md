@@ -7,7 +7,7 @@ run with the landed queries (0b858b9384) and edges (e9412f10a4). It matched the 
 
 ## Inputs
 
-- The north queue from midnight to 11:20 AM +07: 274 landed lanes in 96 pushes, each lane's head and the merged tree
+- The north queue from 17:00 UTC the day before to 04:20 UTC: 274 landed lanes in 96 pushes, each lane's head and the merged tree
   it landed in, and 62 red probes with a failed test or compile error in their check logs.
 - Ground truth: a failure's culprit is *verified* when the lane's withdrawal or refusal names that failure (50
   failures), and *inferred* when it is the only withdrawn or refused lane in its probe (23 failures).
@@ -56,7 +56,7 @@ The withdrawn lanes this replay was asked about:
 
 ## Selection on the live graph
 
-At 2:00 PM +07 the laptop's graph.db, the one the lander's land check asks, held the crate facts (`crates`, writer `cargo`)
+At 07:00 UTC the laptop's graph.db, the one the lander's land check asks, held the crate facts (`crates`, writer `cargo`)
 but no recorded reads: the gex45 recording sat in `graph-917/north`, outside the `land-reuse` and `verdict-cache/v2`
 paths the `reads` source reads. 9 of the last 20 lanes on main changed a non-Rust path and answered untraced, so their
 land checks kept the crate-level selection. With the recording placed in those paths and ingested (25,698 facts), and

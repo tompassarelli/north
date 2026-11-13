@@ -1,7 +1,7 @@
 # Landing by construction
 
-On the morning of 2026-11-08 north's lander and fleet lost about two hours of landings, from 7:00
-to 9:45 AM +07, to failures that a person noticed and fixed by hand. A lane that could not link
+On the morning of 2026-11-08 north's lander and fleet lost about two hours of landings, from 00:00
+to 02:45 UTC, to failures that a person noticed and fixed by hand. A lane that could not link
 sank every batch it rode. A wall-clock budget refused probes on a loaded laptop. The lander ran a
 build an hour old. Two good lanes were reverted for host faults. A new build host was sent checks
 it could not run. Tom asked (2026-11-08) for each failure to be made impossible by how the system

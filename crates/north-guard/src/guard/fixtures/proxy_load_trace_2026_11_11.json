@@ -193,7 +193,7 @@
     {
       "calls": [
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; north gate answer gex45:76 1 --note 'Tom allowed it in his own words on 2026-11-11 at 4:20 AM +07: the laptop may run a north release built on gex45, cpx62 or cpx62b, with verify and canary on the laptop and the builder host and hash re",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; north gate answer gex45:76 1 --note 'Tom allowed it in his own words on 2026-11-10 at 21:20 UTC: the laptop may run a north release built on gex45, cpx62 or cpx62b, with verify and canary on the laptop and the builder host and hash re",
           "looking": true,
           "looks": 1,
           "tool": "Bash"
@@ -349,7 +349,7 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; tail -6 $T/tasks/bz2guprsi.output | cut -c1-160; north fleet send fleet-lead \"Priority order from the proxy, 2026-11-11 4:30 AM +07, ahead of routine triage. Tom asked today for every machine and the whole DeepSeek account at full use, ",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; tail -6 $T/tasks/bz2guprsi.output | cut -c1-160; north fleet send fleet-lead \"Priority order from the proxy, 2026-11-10 21:30 UTC, ahead of routine triage. Tom asked today for every machine and the whole DeepSeek account at full use, ",
           "looking": true,
           "looks": 20,
           "tool": "Bash"
@@ -463,7 +463,7 @@
           "tool": "Bash"
         },
         {
-          "command": "ssh -o ConnectTimeout=10 gex45 'NORTH_FLEET_SESSION=proxy north fleet send gex45-n1106-proxy-table \"From the proxy, 4:35 AM +07: dispatch has since staffed two other boxes of north#1106 on cpx62b, the per-message enforcement box (north-1106-d2126-the-guard-enforces-the-table-per-message) and the bre",
+          "command": "ssh -o ConnectTimeout=10 gex45 'NORTH_FLEET_SESSION=proxy north fleet send gex45-n1106-proxy-table \"From the proxy, 21:35 UTC on 2026-11-10: dispatch has since staffed two other boxes of north#1106 on cpx62b, the per-message enforcement box (north-1106-d2126-the-guard-enforces-the-table-per-message) and the bre",
           "looking": true,
           "looks": 28,
           "tool": "Bash"
@@ -481,7 +481,7 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 60 north fleet send fleet-lead \"From the proxy, 4:40 AM +07: the spend tripwire now queues every new launch on claude:e (the safety lead's launch was queued, not started), so a breaker-fix worker launched on e will sit in the qu",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 60 north fleet send fleet-lead \"From the proxy, 21:40 UTC on 2026-11-10: the spend tripwire now queues every new launch on claude:e (the safety lead's launch was queued, not started), so a breaker-fix worker launched on e will sit in the qu",
           "looking": true,
           "looks": 30,
           "tool": "Bash"
@@ -523,7 +523,7 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 60 north fleet send fleet-lead \"From the proxy, 4:50 AM +07, one box to add to the fleet issue that fits (north#872 or north#1054) and staff when a slot frees; not urgent. A launch that is killed or queued leaves a ghost name: a",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 60 north fleet send fleet-lead \"From the proxy, 21:50 UTC on 2026-11-10, one box to add to the fleet issue that fits (north#872 or north#1054) and staff when a slot frees; not urgent. A launch that is killed or queued leaves a ghost name: a",
           "looking": true,
           "looks": 34,
           "tool": "Bash"
@@ -535,7 +535,7 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 100 north fleet forget safety-lead --force 'ghost name left by a launch killed during its claims at 4:27 AM and a queued launch at 4:35 AM on 2026-11-11; no session ever started under it' 2>&1 | tail -3 | cut -c1-300; timeout 30",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 100 north fleet forget safety-lead --force 'ghost name left by a launch killed during its claims at 21:27 UTC and a queued launch at 21:35 UTC on 2026-11-10; no session ever started under it' 2>&1 | tail -3 | cut -c1-300; timeout 30",
           "looking": false,
           "looks": 35,
           "tool": "Bash"

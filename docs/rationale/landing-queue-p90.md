@@ -1,12 +1,12 @@
 # Landing queue p90: where 38 minutes went on 2026-11-08, by stage
 
-North's landing queue p90 target is 60 s. At 10:03 AM +07 on 2026-11-08 the scoreboard read 38 min over 1 h (n=21),
+North's landing queue p90 target is 60 s. At 03:03 UTC on 2026-11-08 the scoreboard read 38 min over 1 h (n=21),
 35 min over 3 h and 30 min over 24 h (north#902). This note records where those minutes went, by stage, and which
 steps of the decided design (north#842) each stage waits on.
 
 ## Where the 1 h p90 went
 
-Window: the 21 north landings between 9:10 and 10:10 AM +07 on 2026-11-08, read from the landings ledger and the
+Window: the 21 north landings between 02:10 and 03:10 UTC on 2026-11-08, read from the landings ledger and the
 lander's `land.batch` and `land.judge` decision logs. Queued-to-landed p90 was 2,270 s (38 min, the scoreboard's
 figure). The window held 31,866 lane-seconds of waiting, split like this:
 

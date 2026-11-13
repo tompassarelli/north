@@ -401,7 +401,7 @@ fn a_canary_probe_answered_by_a_provider_limit_retries_on_the_next_account() {
     assert!(launch::refused(weekly) && launch::refused("Not logged in · Please run /login") && launch::refused("Your credit balance is too low"));
     assert!(!launch::refused("north fleet launch failed: the runtime exited 1"));
 
-    let listing = "  claude:c available: 5h 10%\n  claude:d available: 5h 36%\n  claude:api:gmail available: $197\nwr.md: target whiterabbit claude:c (5h 10%)\n";
+    let listing = "  claude:c available: 5h 10%\n  claude:d available: 5h 36%\n  claude:api:ember available: $197\nwr.md: target whiterabbit claude:c (5h 10%)\n";
     let accounts: Vec<Option<String>> = launch::candidates(listing).into_iter().map(Some).collect();
     assert_eq!(accounts, [Some("c".to_owned()), Some("d".to_owned())]);
 

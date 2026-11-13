@@ -181,7 +181,7 @@ mod tests {
         assert!(fleet.forget_unless_queued("ghost", None, None).is_err(), "a name neither queued nor running is still unknown");
     }
 
-    /// north#637: at 7:05 AM +07 on 2026-11-11 the laptop's fleet tick was killed at its 50 s start timeout while it dropped about 40 stale queued launches one by one, each a GitHub read and a ledger release, before it started ds-1042-x.
+    /// north#637: at 00:05 UTC on 2026-11-11 the laptop's fleet tick was killed at its 50 s start timeout while it dropped about 40 stale queued launches one by one, each a GitHub read and a ledger release, before it started ds-1042-x.
     #[test]
     fn a_tick_admits_queued_launches_only_within_its_budget_and_defers_the_rest() {
         let home = tempfile::tempdir().unwrap();

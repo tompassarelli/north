@@ -14,12 +14,12 @@ const KEY: &str = "fixture-admin-key-not-a-secret";
 fn place(dir: &std::path::Path) {
     std::fs::write(
         dir.join("orchestration.toml"),
-        "[accounts.claude.api_orgs.gmail]\nid = \"g\"\nkeys = { whiterabbit = [\"/run/secrets/anthropic-gmail-admin-key\"] }\n",
+        "[accounts.claude.api_orgs.ember]\nid = \"g\"\nkeys = { whiterabbit = [\"/run/secrets/anthropic-ember-admin-key\"] }\n",
     )
     .unwrap();
     std::fs::write(
         dir.join("claude-accounts.toml"),
-        "[[account]]\n[account.api_org]\nid = \"g\"\ngrants = [\n  { usd = 200.00, granted = 2026-11-06, expires = 2026-11-12 },\n  { usd = 200.00, granted = 2026-11-10, expires = 2026-12-10 },\n]\n",
+        "[[account]]\n[account.api_org]\nid = \"g\"\ngrants = [\n  { usd = 230.00, granted = 2026-11-06, expires = 2026-11-12 },\n  { usd = 230.00, granted = 2026-11-10, expires = 2026-12-10 },\n]\n",
     )
     .unwrap();
 }
@@ -30,10 +30,10 @@ fn the_admin_reports_price_each_day_and_record_the_grants_left_over_norths_estim
     place(dir.path());
     let keys = dir.path().join("secrets");
     std::fs::create_dir_all(&keys).unwrap();
-    let key = keys.join("anthropic-gmail-admin-key");
+    let key = keys.join("anthropic-ember-admin-key");
     std::fs::write(&key, format!("{KEY}\n")).unwrap();
     let state = dir.path().join("state");
-    let org = Pooled { name: "gmail".to_owned(), id: "g".to_owned(), key };
+    let org = Pooled { name: "ember".to_owned(), id: "g".to_owned(), key };
     let seen = RefCell::new(Vec::new());
     let fetch = |path: &str, params: &[(&str, String)]| {
         seen.borrow_mut().push((path.to_owned(), params.iter().map(|(name, value)| ((*name).to_owned(), value.clone())).collect::<Vec<_>>()));
@@ -57,16 +57,16 @@ fn the_admin_reports_price_each_day_and_record_the_grants_left_over_norths_estim
     assert!(cost.1.iter().any(|(name, value)| name == "bucket_width" && value == "1d"), "{cost:?}");
 
     let line = &lines[0];
-    assert!(line.contains("reads $300.00 left from the Admin API"), "{line}");
-    assert!(line.contains("spend $100.00 of $400.00 granted"), "{line}");
+    assert!(line.contains("reads $360.00 left from the Admin API"), "{line}");
+    assert!(line.contains("spend $100.00 of $460.00 granted"), "{line}");
     assert!(line.contains("usage priced $42.00"), "{line}");
     assert!(line.contains("cost report $100.00 on 1 posted day (+78.00)"), "{line}");
     assert!(line.contains("unpriced claude-haiku-4-5-20251001"), "{line}");
     assert!(!line.contains(KEY), "the key reached the poll's output: {line}");
 
     let reading = get(&directory(&state), "g").expect("no provider reading was recorded");
-    assert_eq!((reading.usd, reading.source), (300.0, Source::Provider));
+    assert_eq!((reading.usd, reading.source), (360.0, Source::Provider));
     let org_sources = sources(&standing(&dir.path().join("orchestration.toml"), &state, now));
-    let gmail = org_sources.iter().find(|source| source.credit.name == "gmail").unwrap();
-    assert!(gmail.line(AT).contains("$300.00 left (provider reading 2026-11-10T05:00Z, estimate $400.00)"), "{}", gmail.line(AT));
+    let ember = org_sources.iter().find(|source| source.credit.name == "ember").unwrap();
+    assert!(ember.line(AT).contains("$360.00 left (provider reading 2026-11-10T05:00Z, estimate $460.00)"), "{}", ember.line(AT));
 }

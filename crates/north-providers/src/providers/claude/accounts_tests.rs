@@ -64,10 +64,10 @@ fn a_launch_on_the_api_pool_with_every_org_spent_is_refused_naming_each_org_and_
     fs::write(marks.join("o2"), "n-b 2026-11-07\n").unwrap();
     let org = |name: &str, id: &str| super::Org { name: name.into(), id: id.into(), emails: Vec::new(), keys: vec![key.clone()], expires: None };
     let claude = ProviderName::new("claude");
-    let profiles = Profiles { api: vec![("api".into(), state.path().join("profiles/claude-api"))], orgs: vec![org("proton", "o1"), org("gmail", "o2")], ..Profiles::default() };
+    let profiles = Profiles { api: vec![("api".into(), state.path().join("profiles/claude-api"))], orgs: vec![org("zenith", "o1"), org("ember", "o2")], ..Profiles::default() };
 
     match discover(&claude, state.path(), &profiles).account(&claude, "api") {
-        Err(NorthError::Refused(why)) => assert_eq!(why, "every API org is spent: proton until 2099-12-01, gmail until its next credit is declared"),
+        Err(NorthError::Refused(why)) => assert_eq!(why, "every API org is spent: zenith until 2099-12-01, ember until its next credit is declared"),
         other => panic!("a launch on a spent pool was not refused as spent: {other:?}"),
     }
 }

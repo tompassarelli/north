@@ -133,7 +133,7 @@ fn three_workers_claim_three_boxes_of_one_issue_while_a_second_claim_on_one_box_
     assert_eq!(ledger.run(&["claim", "makgora#782", "--by", "n-late"]).0, 0, "the whole issue is claimable once every box claim is gone");
 }
 
-/// On 2026-11-11 gex45-n1109-mirror launched with `--task north#1109` and a box of north#872, so its claim named no box of north#1109 and dispatch held all thirteen of its boxes; north#1020 was held the same way at 5:20 AM +07.
+/// On 2026-11-11 gex45-n1109-mirror launched with `--task north#1109` and a box of north#872, so its claim named no box of north#1109 and dispatch held all thirteen of its boxes; north#1020 was held the same way at 22:20 UTC on 2026-11-10.
 #[test]
 fn a_claim_on_a_box_its_issue_lacks_is_refused_and_one_on_its_own_box_holds_only_that_box() {
     let mut ledger = ledger(&[(1109, Issue::Open { opened: at("2026-10-26T08:00:00Z") })]);

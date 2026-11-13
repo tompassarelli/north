@@ -23,7 +23,7 @@ and each number below is the wall time of one `cargo build --locked --offline` (
    compiler cache. cpx62 had not built this target before. Host cpx62, sha 00552a8a55.
 3. Landing queue check time: the Cargo rows of the landing queue's check-timing record (`outcomes.tsv` under
    `~/.local/state/safe-push/check-timings/` on whiterabbit, from checks run on gex45, cpx62 and cpx62b). Window:
-   the 7 days ending 2026-11-13 11:06 PM +07 (epoch 1793981194 to 1794585994), every candidate in it up to origin/main
+   the 7 days ending 2026-11-13 16:06 UTC (epoch 1793981194 to 1794585994), every candidate in it up to origin/main
    00552a8a55. A row counts when its command runs `cargo clippy` or `cargo nextest`; its wall time is the check's run,
    not its wait for a slot.
    - `cargo clippy` lint: 5762 rows, median 32 s, p90 188 s.

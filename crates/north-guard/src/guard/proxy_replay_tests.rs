@@ -90,7 +90,7 @@ fn stop_of(message: &[Call], budgets: &Budgets) -> Option<(usize, String)> {
 fn the_2026_11_11_load_trace_is_refused_within_its_look_budget() {
     let budgets = budgets();
     let messages = messages(LOAD_TRACE);
-    assert_eq!(messages.len(), 2, "two messages from Tom between 4:04 and 4:35 AM +07");
+    assert_eq!(messages.len(), 2, "two messages from Tom between 21:04 and 21:35 UTC on 2026-11-10");
     assert!(messages.iter().map(Vec::len).sum::<usize>() >= 90, "the trace keeps every recorded call");
 
     for (number, message) in messages.iter().enumerate() {

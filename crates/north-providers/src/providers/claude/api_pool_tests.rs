@@ -9,7 +9,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-const POLICY: &str = "[accounts.claude.api_orgs.proton]\nid = \"p\"\nkeys = { gex45 = [\"/k/p\"] }\n[accounts.claude.api_orgs.gmail]\nid = \"g\"\nkeys = { gex45 = [\"/k/g\"] }\n";
+const POLICY: &str = "[accounts.claude.api_orgs.zenith]\nid = \"p\"\nkeys = { gex45 = [\"/k/p\"] }\n[accounts.claude.api_orgs.ember]\nid = \"g\"\nkeys = { gex45 = [\"/k/g\"] }\n";
 
 fn grant(usd: f64, expires: &str) -> Grant {
     Grant { usd, granted: String::new(), expires: expires.to_owned() }
@@ -17,17 +17,17 @@ fn grant(usd: f64, expires: &str) -> Grant {
 
 #[test]
 fn the_pool_opens_the_org_whose_soonest_grant_with_credit_left_expires_first() {
-    let proton = [grant(199.99, "2026-11-08"), grant(200.0, "2026-12-08")];
+    let zenith = [grant(199.99, "2026-11-08"), grant(200.0, "2026-12-08")];
     let spent = [("2026-11-06".to_owned(), 150.0), ("2026-11-07".to_owned(), 66.23)];
     let today = "2026-11-07";
-    let open_grants: BTreeMap<String, Vec<Grant>> = [("p".to_owned(), launchable(&proton, &spent, today)), ("g".to_owned(), launchable(&[grant(200.0, "2026-11-12")], &[], today))].into();
+    let open_grants: BTreeMap<String, Vec<Grant>> = [("p".to_owned(), launchable(&zenith, &spent, today)), ("g".to_owned(), launchable(&[grant(200.0, "2026-11-12")], &[], today))].into();
     let orgs = declared(&POLICY.parse().unwrap(), &open_grants, Path::new("/home"), "gex45");
     let first = |orgs: &[Org]| open(orgs, today, |_| false, |_| true).map(|(org, _)| org.name.clone());
-    assert_eq!(first(&orgs), Some("gmail".to_owned()));
+    assert_eq!(first(&orgs), Some("ember".to_owned()));
     let all_spent: BTreeMap<String, Vec<Grant>> = [("p".to_owned(), Vec::new()), ("g".to_owned(), Vec::new())].into();
     assert_eq!(first(&declared(&POLICY.parse().unwrap(), &all_spent, Path::new("/home"), "gex45")), None);
 
-    let at = |usd: f64| launchable(&proton, &[(today.to_owned(), usd)], today);
+    let at = |usd: f64| launchable(&zenith, &[(today.to_owned(), usd)], today);
     assert_eq!(at(199.98).len(), 2);
     assert_eq!(at(199.99), [grant(200.0, "2026-12-08")]);
     assert_eq!(at(1000.0), [grant(200.0, "2026-12-08")]);
@@ -40,8 +40,8 @@ fn the_pool_opens_the_org_whose_soonest_grant_with_credit_left_expires_first() {
         Claude.observe(&frame, &mut transcript);
     }
     assert!(ran_out(&transcript.entries));
-    assert_eq!(moved_to("api:proton", &orgs, today, |_| false).as_deref(), Some("api:gmail"));
-    assert_eq!(moved_to("api:proton", &orgs, today, |org| org.name == "gmail"), None);
+    assert_eq!(moved_to("api:zenith", &orgs, today, |_| false).as_deref(), Some("api:ember"));
+    assert_eq!(moved_to("api:zenith", &orgs, today, |org| org.name == "ember"), None);
 }
 
 fn append(stream: &Path, frames: &[serde_json::Value]) {
@@ -65,7 +65,7 @@ fn only_the_newest_low_credit_turn_on_the_current_account_counts() {
     let scratch = tempfile::tempdir().unwrap();
     let stream = scratch.path().join("stream.jsonl");
     let ran_out_from = |offset: u64| ran_out(&since(&Claude, &stream, offset, Some("c")).entries);
-    append(&stream, &low_credit_turn("gmail"));
+    append(&stream, &low_credit_turn("ember"));
     append(&stream, &[json!({"type": "result", "session_id": "other", "subtype": "success", "result": "done"})]);
     assert!(ran_out_from(0));
     let moved = std::fs::metadata(&stream).unwrap().len();
@@ -73,7 +73,7 @@ fn only_the_newest_low_credit_turn_on_the_current_account_counts() {
     append(&stream, &[json!({"type": "user", "uuid": "report", "session_id": "c", "message": {"content": "[from child] Done: landed"}})]);
     assert!(ran_out_from(0));
     assert!(!ran_out_from(moved));
-    append(&stream, &low_credit_turn("apple")[1..]);
+    append(&stream, &low_credit_turn("birch")[1..]);
     assert!(ran_out_from(moved));
 }
 
@@ -84,20 +84,20 @@ fn a_tick_keeps_an_org_open_and_its_sessions_on_it_whatever_its_counted_spend_un
         let home = tempfile::tempdir().unwrap();
         let here = crate::platform::host::name();
         let policy = home.path().join("orchestration.toml");
-        std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"/k/p\"] }}\n[accounts.claude.api_orgs.gmail]\nid = \"g\"\nkeys = {{ \"{here}\" = [\"/k/g\"] }}\n")).unwrap();
+        std::fs::write(&policy, format!("[accounts.claude.api_orgs.zenith]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"/k/p\"] }}\n[accounts.claude.api_orgs.ember]\nid = \"g\"\nkeys = {{ \"{here}\" = [\"/k/g\"] }}\n")).unwrap();
         let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
         for name in ["idle", "working"] {
             fixtures::live(&fleet, name);
             let file = home.path().join(".local/state/north/fleet").join(name).join("session.json");
             let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-            record["account"] = json!("api:proton");
+            record["account"] = json!("api:zenith");
             std::fs::write(&file, record.to_string()).unwrap();
         }
         let prompt = json!({"type": "user", "session_id": "working", "uuid": "p1", "message": {"content": "split the crate"}});
         std::fs::write(home.path().join(".local/state/north/fleet/working/g1/stream.jsonl"), format!("{prompt}\n")).unwrap();
         let today = today();
-        let proton = launchable(&[grant(200.0, "2099-12-31")], &[(today.clone(), spent)], &today);
-        let reading = Reading { grants: [("p".to_owned(), proton), ("g".to_owned(), vec![grant(200.0, "2099-12-31")])].into(), next_credits: [("p".to_owned(), "2099-01-01".to_owned())].into(), today };
+        let zenith = launchable(&[grant(200.0, "2099-12-31")], &[(today.clone(), spent)], &today);
+        let reading = Reading { grants: [("p".to_owned(), zenith), ("g".to_owned(), vec![grant(200.0, "2099-12-31")])].into(), next_credits: [("p".to_owned(), "2099-01-01".to_owned())].into(), today };
         let mut moved = Vec::new();
         let lines = settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &Machine| None, |record, spent, to, _, failed, _| {
             moved.push((record.name.clone(), spent.to_owned(), to.to_owned(), failed));
@@ -130,7 +130,7 @@ fn a_session_moved_between_accounts_raises_no_mid_task_exit_and_no_carry_on_and_
     let dir = home.path().join(".local/state/north/fleet/n-replay-case");
     let first = host_process();
     let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
-    (record["host_pid"], record["parent"], record["account"]) = (json!(first), json!("proxy"), json!("api:proton"));
+    (record["host_pid"], record["parent"], record["account"]) = (json!(first), json!("proxy"), json!("api:zenith"));
     std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
     std::fs::write(dir.join("host.pid"), first.to_string()).unwrap();
     let turn = [
@@ -144,7 +144,7 @@ fn a_session_moved_between_accounts_raises_no_mid_task_exit_and_no_carry_on_and_
     let watchdog = std::thread::spawn(move || watcher.guard_host("n-replay-case", first));
     let moving = fleet.session("n-replay-case").unwrap();
 
-    switch(&fleet, &moving, "api:gmail", |name| {
+    switch(&fleet, &moving, "api:ember", |name| {
         let second = host_process();
         let mut stopped = fleet.session(name)?;
         stopped.host_pid = Some(second);
@@ -169,7 +169,7 @@ fn refused_session(fleet: &crate::fleet::registry::Fleet, home: &Path, name: &st
     fixtures::live(fleet, name);
     let dir = home.join(".local/state/north/fleet").join(name);
     let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
-    record["account"] = json!("api:proton");
+    record["account"] = json!("api:zenith");
     std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
     std::fs::write(dir.join("g1/stream.jsonl"), turn.iter().map(|frame| frame.to_string() + "\n").collect::<String>()).unwrap();
     if ended {
@@ -182,14 +182,14 @@ fn pool_tick(open: &[&str], subscription: Option<(String, Option<u64>)>, session
     let home = tempfile::tempdir().unwrap();
     let here = crate::platform::host::name();
     let policy = home.path().join("orchestration.toml");
-    std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"a\"\nkeys = {{ \"{here}\" = [\"/k/a\"] }}\n[accounts.claude.api_orgs.gmail]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"/k/p\"] }}\n")).unwrap();
+    std::fs::write(&policy, format!("[accounts.claude.api_orgs.zenith]\nid = \"a\"\nkeys = {{ \"{here}\" = [\"/k/a\"] }}\n[accounts.claude.api_orgs.ember]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"/k/p\"] }}\n")).unwrap();
     let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
     for (name, ended, turn) in sessions {
         refused_session(&fleet, home.path(), name, *ended, turn);
     }
     let today = today();
     let grants = |id: &str, listed: bool| (id.to_owned(), if listed { vec![grant(200.0, "2099-12-31")] } else { Vec::new() });
-    let reading = Reading { grants: [grants("a", false), grants("p", open.contains(&"gmail"))].into(), next_credits: BTreeMap::new(), today };
+    let reading = Reading { grants: [grants("a", false), grants("p", open.contains(&"ember"))].into(), next_credits: BTreeMap::new(), today };
     let mut moved = Vec::new();
     settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &Machine| subscription.clone(), |record, _, to, _, failed, resumes| {
         moved.push((record.name.clone(), to.to_owned(), failed, resumes));
@@ -207,10 +207,10 @@ fn refusal(name: &str) -> Vec<serde_json::Value> {
 #[test]
 fn a_session_whose_host_exited_on_the_credit_refusal_moves_onto_the_open_org_but_a_finished_one_stays_finished() {
     let finished = vec![json!({"type": "assistant", "session_id": "n-done", "message": {"content": [{"type": "text", "text": "Done: landed"}]}}), json!({"type": "result", "subtype": "success", "session_id": "n-done"})];
-    let moved = pool_tick(&["gmail"], None, &[("n-ended", true, refusal("n-ended")), ("n-live", false, refusal("n-live")), ("n-done", true, finished)]);
+    let moved = pool_tick(&["ember"], None, &[("n-ended", true, refusal("n-ended")), ("n-live", false, refusal("n-live")), ("n-done", true, finished)]);
     let mut names: Vec<_> = moved.iter().map(|(name, to, failed, resumes)| (name.as_str(), to.as_str(), *failed, *resumes)).collect();
     names.sort();
-    assert_eq!(names, [("n-ended", "api:gmail", true, None), ("n-live", "api:gmail", true, None)]);
+    assert_eq!(names, [("n-ended", "api:ember", true, None), ("n-live", "api:ember", true, None)]);
 }
 
 #[test]
@@ -248,14 +248,14 @@ fn a_refused_session_whose_host_died_restarts_on_the_next_account_and_is_handed_
         pid
     };
     let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
-    (record["host_pid"], record["account"]) = (json!(gone), json!("api:proton"));
+    (record["host_pid"], record["account"]) = (json!(gone), json!("api:zenith"));
     std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
     std::fs::write(dir.join("host.pid"), gone.to_string()).unwrap();
     std::fs::write(dir.join("g1/stream.jsonl"), refusal("n-ended").iter().map(|frame| frame.to_string() + "\n").collect::<String>()).unwrap();
     let moving = fleet.session("n-ended").unwrap();
     assert!(!moving.live());
 
-    switch(&fleet, &moving, "api:gmail", |name| {
+    switch(&fleet, &moving, "api:ember", |name| {
         let second = host_process();
         let mut stopped = fleet.session(name)?;
         stopped.host_pid = Some(second);
@@ -264,10 +264,10 @@ fn a_refused_session_whose_host_died_restarts_on_the_next_account_and_is_handed_
         fleet.phases()?.live(stopped.launch(), Some(second), "a session host started for it").map(drop)
     })
     .unwrap();
-    fleet.send_spooled(&crate::fleet::sender::Sender::fleet(), "n-ended", &super::resume_message("proton", "api:gmail"), crate::fleet::model::Delivery::Queued).unwrap();
+    fleet.send_spooled(&crate::fleet::sender::Sender::fleet(), "n-ended", &super::resume_message("zenith", "api:ember"), crate::fleet::model::Delivery::Queued).unwrap();
 
     let moved = fleet.session("n-ended").unwrap();
-    assert_eq!((moved.account.as_str(), moved.live()), ("api:gmail", true));
+    assert_eq!((moved.account.as_str(), moved.live()), ("api:ember", true));
     let handed = child.frames.lock().unwrap();
     assert!(handed.iter().any(|frame| frame.contains("Carry on with that turn")), "{handed:?}");
 }
@@ -279,7 +279,7 @@ fn a_mark_written_from_a_refusal_keeps_its_body_and_a_passing_probe_clears_it_wi
     let home = tempfile::tempdir().unwrap();
     let here = name();
     let policy = home.path().join("orchestration.toml");
-    std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"{}\"] }}\n", home.path().join("p.key").display())).unwrap();
+    std::fs::write(&policy, format!("[accounts.claude.api_orgs.zenith]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"{}\"] }}\n", home.path().join("p.key").display())).unwrap();
     std::fs::write(home.path().join("p.key"), "sk-ant-test\n").unwrap();
     let state = home.path().join(".local/state/north");
     let dir = state.join("api-exhausted");
@@ -304,7 +304,7 @@ fn a_probe_that_still_refuses_keeps_the_organizations_mark() {
     let home = tempfile::tempdir().unwrap();
     let here = name();
     let policy = home.path().join("orchestration.toml");
-    std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"{}\"] }}\n", home.path().join("p.key").display())).unwrap();
+    std::fs::write(&policy, format!("[accounts.claude.api_orgs.zenith]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"{}\"] }}\n", home.path().join("p.key").display())).unwrap();
     std::fs::write(home.path().join("p.key"), "sk-ant-test\n").unwrap();
     let state = home.path().join(".local/state/north");
     let dir = state.join("api-exhausted");
@@ -331,12 +331,12 @@ fn a_low_credit_turn_writes_the_providers_refusal_body_into_the_mark() {
     let home = tempfile::tempdir().unwrap();
     let here = crate::platform::host::name();
     let policy = home.path().join("orchestration.toml");
-    std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"/k/p\"] }}\n")).unwrap();
+    std::fs::write(&policy, format!("[accounts.claude.api_orgs.zenith]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"/k/p\"] }}\n")).unwrap();
     let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
     fixtures::live(&fleet, "working");
     let file = home.path().join(".local/state/north/fleet/working/session.json");
     let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    record["account"] = json!("api:proton");
+    record["account"] = json!("api:zenith");
     std::fs::write(&file, record.to_string()).unwrap();
     let turn = [
         json!({"type": "user", "session_id": "working", "uuid": "u1", "message": {"content": "carry on"}}),
@@ -382,7 +382,7 @@ fn a_session_placed_before_its_host_set_an_agent_login_revives_and_settles_under
 
     let here = crate::platform::host::name();
     let policy = home.path().join("orchestration.toml");
-    std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"a\"\nkeys = {{ \"{here}\" = [\"/k/a\"] }}\n[hosts.\"{here}\"]\nagent_ssh = \"agent@{here}\"\n")).unwrap();
+    std::fs::write(&policy, format!("[accounts.claude.api_orgs.zenith]\nid = \"a\"\nkeys = {{ \"{here}\" = [\"/k/a\"] }}\n[hosts.\"{here}\"]\nagent_ssh = \"agent@{here}\"\n")).unwrap();
     let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
     refused_session(&fleet, home.path(), "n-placed", true, &refusal("n-placed"));
     let dir = home.path().join(".local/state/north/fleet/n-placed");
@@ -393,7 +393,7 @@ fn a_session_placed_before_its_host_set_an_agent_login_revives_and_settles_under
     let lines = move_spent(&fleet, &Claude, &policy, home.path(), &Quiet);
 
     assert_eq!(lines, [
-        "api:proton marked exhausted: n-placed's last turn ended on a credit balance too low",
-        "n-placed: api:proton ran out of credit and no other api org or subscription account is open, so it stays parked",
+        "api:zenith marked exhausted: n-placed's last turn ended on a credit balance too low",
+        "n-placed: api:zenith ran out of credit and no other api org or subscription account is open, so it stays parked",
     ]);
 }

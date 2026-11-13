@@ -263,8 +263,8 @@ fn a_turn_is_charged_to_the_account_its_host_started_with_not_the_one_the_record
     let root = tempfile::tempdir().unwrap();
     let host = root.path().join("moved-worker");
     std::fs::create_dir_all(&host).unwrap();
-    std::fs::write(host.join("host.account"), "api:proton").unwrap();
-    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "moved-worker", "provider": "claude", "account": "api:gmail", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
+    std::fs::write(host.join("host.account"), "api:zenith").unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "moved-worker", "provider": "claude", "account": "api:ember", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
     write_record(&host, &record).unwrap();
     let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host);
     for signal in [TurnSignal::Started { conversation: "s".into() }, TurnSignal::Ended { conversation: "s".into(), exit: TurnExit::Completed, totals: Default::default() }] {
@@ -273,7 +273,7 @@ fn a_turn_is_charged_to_the_account_its_host_started_with_not_the_one_the_record
         }
     }
     let charged: Vec<_> = CHARGED.lock().unwrap().iter().filter(|(session, _)| session == "moved-worker").map(|(_, account)| account.clone()).collect();
-    assert_eq!(charged, [Some("api:proton".to_owned())]);
+    assert_eq!(charged, [Some("api:zenith".to_owned())]);
 }
 
 struct Transport(Vec<Detached>);

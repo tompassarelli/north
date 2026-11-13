@@ -323,7 +323,7 @@ fn the_declared_operational_reserve_is_never_offered_to_a_worker_and_neither_an_
 #[test]
 fn no_api_organization_is_picked_ahead_of_a_plan_account_unless_the_owner_setting_allows_it() {
     let window = |name: &str, used: f64| record::Window { window: Some(name.into()), used_pct: Some(used), resets_at: None, reset_h: Some(100.0) };
-    let grant = record::GrantSource { account: "claude:api:proton".into(), left_usd: 50.0, deadline_h: 200.0, urgent: true, line: "$50 left".into() };
+    let grant = record::GrantSource { account: "claude:api:zenith".into(), left_usd: 70.0, deadline_h: 200.0, urgent: true, line: "$70 left".into() };
     let placed = |weeks: &[(&str, f64)], beside_plans: bool| {
         let case = record::Case {
             at: crate::foundation::clock::rfc3339_seconds("2026-11-13T12:00:00Z").unwrap(),
@@ -343,7 +343,7 @@ fn no_api_organization_is_picked_ahead_of_a_plan_account_unless_the_owner_settin
     };
     assert_eq!(placed(&[("claude:a", 99.0)], false), "claude:a", "a grant was picked ahead of a plan account at its week limit");
     assert_eq!(placed(&[("claude:a", 99.0), ("claude:b", 60.0)], false), "claude:b", "a grant the fleet cannot drain was picked ahead of an open plan account");
-    assert_eq!(placed(&[("claude:a", 99.0), ("claude:b", 60.0)], true), "claude:api:proton", "api_beside_plans ranks the grant by its deadline beside the plan accounts");
+    assert_eq!(placed(&[("claude:a", 99.0), ("claude:b", 60.0)], true), "claude:api:zenith", "api_beside_plans ranks the grant by its deadline beside the plan accounts");
 }
 
 /// Opened by north#872: on 2026-11-07 `north fleet accounts --plan` printed claude:b as "5h 0%" with no five-hour sample.

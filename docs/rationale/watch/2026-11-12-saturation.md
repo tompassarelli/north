@@ -1,8 +1,8 @@
 # Saturation of 2026-11-12: live compiles, work that had lost its caller, and a queue that admitted nothing
 
 Record for north#1247, 2026-11-13. The saturation day is read from the three build hosts' own
-records: the owner's read of gex45, cpx62b, cpx62 and the laptop at about 4:20 PM +07, the admission
-records for 9:15 to 9:45 AM +07, and the CPU-minute readings of gex45 and cpx62b. The two commits
+records: the owner's read of gex45, cpx62b, cpx62 and the laptop at about 09:20 UTC, the admission
+records for 02:15 to 02:45 UTC, and the CPU-minute readings of gex45 and cpx62b. The two commits
 this reading found are f178f6047c (north#1252) and 397bb5f628 (north#1305).
 
 ## What the load was made of

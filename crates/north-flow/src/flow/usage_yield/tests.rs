@@ -18,7 +18,7 @@ fn a_lower_readout_from_another_source_is_not_spent_twice() {
 fn credit_on_an_org_the_provider_refused_is_not_held_back() {
     let dir = tempfile::tempdir().unwrap();
     let policy = dir.path().join("orchestration.toml");
-    std::fs::write(&policy, "[accounts.claude.api_orgs.proton]\nid = \"p\"\n[accounts.claude.api_orgs.gmail]\nid = \"g\"\n").unwrap();
+    std::fs::write(&policy, "[accounts.claude.api_orgs.zenith]\nid = \"p\"\n[accounts.claude.api_orgs.ember]\nid = \"g\"\n").unwrap();
     std::fs::write(dir.path().join("claude-accounts.toml"), "[[account]]\n[account.api_org]\nid = \"p\"\ngrants = [{ usd = 100.0, expires = \"2099-12-31\" }]\n[[account]]\n[account.api_org]\nid = \"g\"\ngrants = [{ usd = 40.0, expires = \"2099-12-31\" }]\n").unwrap();
     let at = Timestamp::from_unix_seconds(1_794_000_000);
     assert_eq!(held_back(&policy, dir.path(), at), 140.0);

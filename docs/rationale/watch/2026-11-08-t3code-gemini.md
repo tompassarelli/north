@@ -8,7 +8,7 @@ wrong with its evidence, the review's errors in both directions, and the roadmap
 [watching.md](../../../harness/skills/agent-policy/references/watching.md). T3 Code was read as data at `32a0531` (MIT,
 T3 Tools Inc.); no code was copied.
 
-Evidence is north origin/main at 8a169ecc28 and live readings on the laptop between about 5:55 and 6:30 AM +07.
+Evidence is north origin/main at 8a169ecc28 and live readings on the laptop between about 22:55 and 23:30 UTC on 2026-11-07.
 
 ## Summary
 
@@ -62,8 +62,8 @@ it).
 | 16 | 74 prose-verdict regexes in harness/agent-text-reads.toml | confirmed | 74 `kind = "verdict"` lines in 13 files (outcome.rs 29, attribution.rs 15), plus 8 hint lines in 6 files |
 | 17 | A typed report tool would take those 74 to 0 | wrong | North#791's replay of 2026-11-07 found 13 of the 14 Stop lines that had a record disagreeing with it. A typed agent claim is still a claim; the fact has to come from the record (landed sha, queue verdict, admission ticket, registered wait). The intents already have typed verbs: `north gate open`, `north fleet need`, registered waits |
 | 18 | `north fleet send` is unsigned and can pose as the owner (proxy-role.md:93) | stale | `Sender` (crates/north-fleet-store/src/sender.rs) is required, has no default, and `--from tom` is refused from the CLI. A session's identity is still read from its environment, not a capability; no spoofed message has been recorded since |
-| 19 | The reports mirror hit 38.5 MB | stale | 5c282bbe5f (2026-11-08 04:56 +07) mirrors only the entries dispatch reads |
-| 20 | fleet-tick timed out 38 times | stale | a73b350e3e is live from 4:18 AM +07; the laptop journal's last "timed out" line is at 04:18:13 |
+| 19 | The reports mirror hit 38.5 MB | stale | 5c282bbe5f (2026-11-07 21:56 UTC) mirrors only the entries dispatch reads |
+| 20 | fleet-tick timed out 38 times | stale | a73b350e3e is live from 21:18 UTC on 2026-11-07; the laptop journal's last "timed out" line is at 21:18:13 UTC |
 | 21 | Landings rerun tests the lane already passed | wrong | The lander reuses a verdict keyed to the exact tree (crates/north-base/src/verdict_cache/); the first cycle dropped T3 Code's cache as convergent for this reason |
 | 22 | Lost alerts, duplicate staffing and torn restarts | confirmed | Four fixes in 72 h, each in its own module: 163a23c725 (an offload offer also started after timing out), 97e4aa6827 (two launches of one name), 22571229b6 (an after-landing run lost to a lander restart), 363349d345 (7 workers' watchdogs reaped with the launcher's cgroup) |
 | 23 | `.git/config.lock` failures during concurrent worktree adds | ungrounded | No north commit in 14 days names a config.lock failure |
@@ -77,7 +77,7 @@ it).
 | 26 | 1,596 worker runs at 55% first-try success over 7 days | stale | Not reproduced; `north dash` reads first-try success 81% on 24 h and 84% on 6 h |
 | 27 | 4 of 13 bars fail: queue p90 30 min, verification p50 71 s, harness loss 3%, live everywhere 49 min (1 h) | stale | About 6:10 AM: 3 of 13 fail on 1 h. Queue p90 28 min, verification p50 73 s, live everywhere 26 min (9.7 h on 24 h). Harness loss 0% on 1 h, 3% on 3 h, 7% on 24 h |
 | 28 | The proxy ran 2,259 Bash calls against 282 delegations | confirmed | proxy-role.md, a record of 2026-11-04 to 05; not a current measure |
-| 29 | docs/features.md is touched by 23% of commits, and its conflicts reverted #716 | stale | 18% (351 of 1,913 over 7 days). Five landings were reverted for features-index-current in the week to 2026-11-07 08:27 +07; a6e4ee1295 (08:38 +07) regenerates the index at enqueue and in the candidate, and none has been reverted since |
+| 29 | docs/features.md is touched by 23% of commits, and its conflicts reverted #716 | stale | 18% (351 of 1,913 over 7 days). Five landings were reverted for features-index-current in the week to 2026-11-07 01:27 UTC; a6e4ee1295 (01:38 UTC) regenerates the index at enqueue and in the candidate, and none has been reverted since |
 
 ### T3 Code facts
 
@@ -149,7 +149,7 @@ Ordered by measured loss removed per hour of work, under the owner's 2026-11-08 
 after north#855's headline, so the bake-off can inform it.
 
 1. north#842: landing queue p90, 28 min on 1 h against 60 s; 21% of north's landings in 24 h were refused and 115
-   re-lands ran across 81 lanes. The probe loop has served north since 5:18 AM +07.
+   re-lands ran across 81 lanes. The probe loop has served north since 22:18 UTC on 2026-11-07.
 2. north#634: verification p50, 73 s on 1 h against 60 s.
 3. north#706, the `other` box: 804 unmeasured refusals in 48 h; labelling a sample costs little.
 4. north#863: landing to live everywhere p90, 26 min on 1 h and 9.7 h on 24 h against 2 min, the bar furthest from its

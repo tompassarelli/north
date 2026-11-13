@@ -1553,7 +1553,7 @@ command = "cd /home/tom/code/north/worktrees/n818-stale-token && rg -n \"enum Fa
 label = "true"
 
 [[sample.row]]
-command = "cd ~ && shred -u ~/.local/state/north/api-keys/anthropic ~/.local/state/north/api-keys/anthropic-apple ~/.local/state/north/api-keys/anthropic-gmail ~"
+command = "cd ~ && shred -u ~/.local/state/north/api-keys/anthropic ~/.local/state/north/api-keys/anthropic-birch ~/.local/state/north/api-keys/anthropic-ember ~"
 label = "true"
 
 [[sample.row]]
@@ -2286,7 +2286,7 @@ command = "cd /home/tom/code/wisp/main && gh api -X DELETE repos/tompassarelli/w
 label = "true"
 
 [[sample.row]]
-command = "cd /tmp && K=/run/secrets/anthropic-proton-key; ls -l $K | cut -c1-40; curl -sS -m 20 -w '\\nHTTP %{http_code}\\n' -H \"x-api-key: $(cat $K)\" -H \"anthrop"
+command = "cd /tmp && K=/run/secrets/anthropic-zenith-key; ls -l $K | cut -c1-40; curl -sS -m 20 -w '\\nHTTP %{http_code}\\n' -H \"x-api-key: $(cat $K)\" -H \"anthrop"
 label = "true"
 
 [[sample.row]]
@@ -2306,7 +2306,7 @@ command = "cd ~/code/north/worktrees/n702-spend && sed -i 's/|spender: &Spender,
 label = "true"
 
 [[sample.row]]
-command = "curl -s -m 20 https://api.anthropic.com/v1/messages -H \"x-api-key: $(cat /run/secrets/anthropic-proton-key)\" -H \"anthropic-version: 2023-06-01\" -H \"co"
+command = "curl -s -m 20 https://api.anthropic.com/v1/messages -H \"x-api-key: $(cat /run/secrets/anthropic-zenith-key)\" -H \"anthropic-version: 2023-06-01\" -H \"co"
 label = "true"
 
 [[sample.row]]
@@ -2318,11 +2318,11 @@ command = "env -u NORTH_FLEET_SESSION -u GH_TOKEN /run/current-system/sw/bin/gh 
 label = "true"
 
 [[sample.row]]
-command = "for n in proton apple gmail pmme; do k=$(</run/secrets/anthropic-$n-key); printf '%s ' $n; curl -s -o /dev/null -D - -H \"x-api-key: $k\" -H 'anthropic-"
+command = "for n in zenith birch ember pine; do k=$(</run/secrets/anthropic-$n-key); printf '%s ' $n; curl -s -o /dev/null -D - -H \"x-api-key: $k\" -H 'anthropic-"
 label = "true"
 
 [[sample.row]]
-command = "for org in apple pmme; do k=/run/secrets/anthropic-$org-key; [ -r $k ] || { echo \"$org: no key file\"; continue; }; r=$(curl -s -m 20 https://api.anthr"
+command = "for org in birch pine; do k=/run/secrets/anthropic-$org-key; [ -r $k ] || { echo \"$org: no key file\"; continue; }; r=$(curl -s -m 20 https://api.anthr"
 label = "true"
 
 [[sample.row]]
@@ -4143,7 +4143,7 @@ command = "for b in farm/wisp-236-gpu-loop farm/wisp-236-suite-loop farm/wisp-23
 label = "true"
 
 [[sample.row]]
-command = "curl -s -m 20 https://api.anthropic.com/v1/messages -H \"x-api-key: $(cat /run/secrets/anthropic-proton-key)\" -H \"anthropic-version: 2023-06-01\" -H \"co"
+command = "curl -s -m 20 https://api.anthropic.com/v1/messages -H \"x-api-key: $(cat /run/secrets/anthropic-zenith-key)\" -H \"anthropic-version: 2023-06-01\" -H \"co"
 label = "true"
 
 [[sample.row]]
@@ -4187,7 +4187,7 @@ command = "curl -s 'https://api.github.com/repos/tompassarelli/north/actions/wor
 label = "true"
 
 [[sample.row]]
-command = "for o in proton apple gmail pmme; do f=/run/secrets/anthropic-$o-key; [ -r $f ] || { echo \"$o unreadable\"; continue; }; org=$(curl -s -o /dev/null -D "
+command = "for o in zenith birch ember pine; do f=/run/secrets/anthropic-$o-key; [ -r $f ] || { echo \"$o unreadable\"; continue; }; org=$(curl -s -o /dev/null -D "
 label = "true"
 
 

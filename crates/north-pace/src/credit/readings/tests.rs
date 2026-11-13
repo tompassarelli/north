@@ -9,10 +9,10 @@ const AT: i64 = 1_794_305_400;
 fn place(dir: &Path) {
     std::fs::write(
         dir.join("orchestration.toml"),
-        "[accounts.claude.api_orgs.gmail]\nid = \"g\"\nkeys = { here = [\"/k/g\"] }\n",
+        "[accounts.claude.api_orgs.ember]\nid = \"g\"\nkeys = { here = [\"/k/g\"] }\n",
     )
     .unwrap();
-    std::fs::write(dir.join("claude-accounts.toml"), "[[account]]\n[account.api_org]\nid = \"g\"\ngrants = [{ usd = 200.0, expires = \"2026-11-12\" }]\n").unwrap();
+    std::fs::write(dir.join("claude-accounts.toml"), "[[account]]\n[account.api_org]\nid = \"g\"\ngrants = [{ usd = 240.0, expires = \"2026-11-12\" }]\n").unwrap();
 }
 
 #[test]
@@ -24,13 +24,13 @@ fn a_console_reading_overrides_the_list_price_estimate_and_the_plan_line_names_i
     let line = record_console(
         &dir.path().join("orchestration.toml"),
         &state,
-        "api:gmail",
-        111.0,
+        "api:ember",
+        137.0,
         AT,
     )
     .unwrap();
     assert!(
-        line.contains("$111.00") && line.contains("2026-11-10T10:10Z"),
+        line.contains("$137.00") && line.contains("2026-11-10T10:10Z"),
         "{line}"
     );
 
@@ -39,15 +39,15 @@ fn a_console_reading_overrides_the_list_price_estimate_and_the_plan_line_names_i
         &state,
         Timestamp::from_unix_seconds(AT),
     ));
-    let gmail = sources
+    let ember = sources
         .iter()
-        .find(|source| source.credit.name == "gmail")
+        .find(|source| source.credit.name == "ember")
         .unwrap();
-    assert_eq!(gmail.credit.left, 111.0);
-    assert_eq!(gmail.credit.estimated, 200.0);
-    let line = gmail.line(AT);
+    assert_eq!(ember.credit.left, 137.0);
+    assert_eq!(ember.credit.estimated, 240.0);
+    let line = ember.line(AT);
     assert!(
-        line.contains("$111.00 left (console reading 2026-11-10T10:10Z, estimate $200.00)"),
+        line.contains("$137.00 left (console reading 2026-11-10T10:10Z, estimate $240.00)"),
         "{line}"
     );
 }
@@ -75,7 +75,7 @@ fn a_provider_reading_outranks_a_console_reading_until_a_newer_provider_figure_i
             &readings,
             id,
             &Reading {
-                usd: 111.0,
+                usd: 137.0,
                 at: AT + 60,
                 source: Source::Console
             }
@@ -103,7 +103,7 @@ fn a_console_reading_may_name_the_account_with_or_without_its_provider_prefix() 
     place(dir.path());
     let state = dir.path().join("state");
     let policy = dir.path().join("orchestration.toml");
-    record_console(&policy, &state, "claude:api:gmail", 98.5, AT).unwrap();
+    record_console(&policy, &state, "claude:api:ember", 98.5, AT).unwrap();
     assert_eq!(get(&directory(&state), "g").unwrap().usd, 98.5);
 }
 #[test]
@@ -113,10 +113,10 @@ fn a_reading_file_written_by_the_console_overrides_the_estimate_even_without_the
     let state = dir.path().join("state");
     let readings = directory(&state);
     std::fs::create_dir_all(&readings).unwrap();
-    std::fs::write(readings.join("g"), "console 111.00 2026-11-10T10:10:00Z\n").unwrap();
+    std::fs::write(readings.join("g"), "console 137.00 2026-11-10T10:10:00Z\n").unwrap();
 
     let sources = sources(&standing(&dir.path().join("orchestration.toml"), &state, Timestamp::from_unix_seconds(AT)));
-    let gmail = sources.iter().find(|source| source.credit.name == "gmail").unwrap();
-    assert_eq!(gmail.credit.left, 111.0);
-    assert!(gmail.line(AT).contains("$111.00 left (console reading 2026-11-10T10:10Z"), "{}", gmail.line(AT));
+    let ember = sources.iter().find(|source| source.credit.name == "ember").unwrap();
+    assert_eq!(ember.credit.left, 137.0);
+    assert!(ember.line(AT).contains("$137.00 left (console reading 2026-11-10T10:10Z"), "{}", ember.line(AT));
 }

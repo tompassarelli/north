@@ -162,7 +162,7 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
 }
 
 
-/// On 2026-11-08 around 5:17 AM +07 bd-832-redmain's failed `cd` let `git checkout -B` run in
+/// On 2026-11-07 around 22:17 UTC bd-832-redmain's failed `cd` let `git checkout -B` run in
 /// ~/code/north/main, because the shell kept going after the missing directory and git took the
 /// primary checkout the session started in. The guard follows each segment's cwd: the branch write
 /// is refused where the failed cd leaves it, and the same replay from a lane stays allowed.

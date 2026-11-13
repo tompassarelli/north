@@ -109,7 +109,7 @@ impl AccountReadings for Table {
     fn observed(&self, now_ms: u64) -> Observed {
         let now = (now_ms / 1000) as i64;
         let read = |row, account: &str, window, used| Reading { row: RowId(row), account: Label(account.into()), window, used: Percent(used), resets_at: Some(Unix(now + 2 * 86_400)), read_at: Unix(now - 60), source: Source::Header };
-        Observed { readings: vec![read(0, "c", Window::FiveHour, 20.0), read(1, "c", Window::Week, 99.0), read(2, "b", Window::FiveHour, 5.0), read(3, "b", Window::Week, 7.0)], credits: [("gmail".to_owned(), Credit { left: Usd(0.0), next_grant: None })].into(), ..Observed::default() }
+        Observed { readings: vec![read(0, "c", Window::FiveHour, 20.0), read(1, "c", Window::Week, 99.0), read(2, "b", Window::FiveHour, 5.0), read(3, "b", Window::Week, 7.0)], credits: [("ember".to_owned(), Credit { left: Usd(0.0), next_grant: None })].into(), ..Observed::default() }
     }
 }
 
@@ -136,7 +136,7 @@ impl Adopted {
             child.wait()
         });
         let account = |label: &str| Account { provider: Stream.provider(), label: label.into(), home: home.path().join(format!("claude-{label}")), token_file: None, api: label.split_once(':').map(|(_, org)| ApiKey { org: org.into(), file: home.path().join(org) }) };
-        let window = Arc::new(Windowed { on: on.to_owned(), accounts: vec![account("b"), account("c"), account("api:gmail")], pid, busy: AtomicBool::new(false), told: Mutex::new(Vec::new()) });
+        let window = Arc::new(Windowed { on: on.to_owned(), accounts: vec![account("b"), account("c"), account("api:ember")], pid, busy: AtomicBool::new(false), told: Mutex::new(Vec::new()) });
         let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![window.clone()]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
         let record = fleet.adopt(PROXY, CONVERSATION, "/tmp".into()).unwrap();
         assert!(record.host_pid.is_none() && record.account == on);
@@ -212,7 +212,7 @@ fn an_adopted_proxy_window_on_an_account_at_99_percent_of_its_week_moves_to_the_
 
 #[test]
 fn a_session_on_an_api_org_north_reads_as_spent_is_not_handed_over_to_a_subscription_account() {
-    let session = Adopted::on("api:gmail");
+    let session = Adopted::on("api:ember");
 
     let ticked = session.tick(now_ms());
 

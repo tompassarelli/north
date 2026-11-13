@@ -611,10 +611,10 @@ fn on_the_floor() {
     let floor = |credits: [(&str, crate::usage::decide::world::Credit); 2], b_week: f64| {
         let host = host("nexus");
         with_accounts(&host, &["a", "b"]);
-        with_api_orgs(&host, &["gmail", "proton"]);
+        with_api_orgs(&host, &["ember", "zenith"]);
         working_on(&host, "proxy", "a", None, &lane(&host, "proxy"));
         let cwd = lane(&host, "worker");
-        working_on(&host, "worker", "api:gmail", Some("proxy"), &cwd);
+        working_on(&host, "worker", "api:ember", Some("proxy"), &cwd);
         let readings = vec![read(0, "a", Window::FiveHour, 98.5, 2 * hour), read(1, "a", Window::Week, 50.0, 4 * day), read(2, "b", Window::FiveHour, 10.0, 3 * hour), read(3, "b", Window::Week, b_week, 3 * day)];
         let table = Table(crate::fleet::handover::Observed { readings, limits: Vec::new(), credits: credits.into_iter().map(|(org, credit)| (org.to_owned(), credit)).collect() });
         let launches = Launches::default();
@@ -624,12 +624,12 @@ fn on_the_floor() {
         (launched, parked, done)
     };
 
-    let (launched, _, done) = floor([("gmail", credit(20.0, 5 * day)), ("proton", credit(150.0, 20 * day))], 60.0);
-    assert_eq!(launched, [("proxy".to_owned(), "api:proton".to_owned()), ("worker".to_owned(), "api:proton".to_owned())], "{:?}", done.lines);
+    let (launched, _, done) = floor([("ember", credit(20.0, 5 * day)), ("zenith", credit(150.0, 20 * day))], 60.0);
+    assert_eq!(launched, [("proxy".to_owned(), "api:zenith".to_owned()), ("worker".to_owned(), "api:zenith".to_owned())], "{:?}", done.lines);
 
-    let (launched, parked, done) = floor([("gmail", credit(20.0, 5 * day)), ("proton", credit(49.0, 20 * day))], 98.5);
+    let (launched, parked, done) = floor([("ember", credit(20.0, 5 * day)), ("zenith", credit(49.0, 20 * day))], 98.5);
     assert!(launched.is_empty(), "{launched:?} {:?}", done.lines);
-    assert_eq!(parked, [("proxy".to_owned(), vec![Run::Usage { account: "a".into(), at_ms: at_ms(2 * hour) }]), ("worker".to_owned(), vec![Run::Usage { account: "api:gmail".into(), at_ms: at_ms(5 * day) }])], "{:?}", done.lines);
+    assert_eq!(parked, [("proxy".to_owned(), vec![Run::Usage { account: "a".into(), at_ms: at_ms(2 * hour) }]), ("worker".to_owned(), vec![Run::Usage { account: "api:ember".into(), at_ms: at_ms(5 * day) }])], "{:?}", done.lines);
 }
 
 #[test]

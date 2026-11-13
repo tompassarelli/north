@@ -14,7 +14,7 @@ named Datalog rule (`corroborated`), never the issue body's tick or the worker's
 ledgers, vector memories and LLM-extracted graphs (Zep/Graphiti) lack, and the one the Darwin Gödel Machine's reward
 hacking shows a self-improving loop needs.
 
-## Baseline (laptop, 2026-11-08 7:52 AM +07)
+## Baseline (laptop, 2026-11-08 00:52 UTC)
 
 - `graph.db` 529 MB; `grounding/index.db` 259 MB (FTS5, 72,389 docs, 45 MB of text).
 - Full `north graph ingest`, which `north land follow` runs after every landing: 30.6 s (decisions re-read 285,825 rows).

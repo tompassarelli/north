@@ -176,7 +176,7 @@ impl Fixture {
             branch: branch.clone(),
             head: git(root, &["rev-parse", "HEAD"]),
             session: Some(format!("session-{branch}")),
-            queued_at: "2026-11-04T10:00:00+07:00".to_owned(),
+            queued_at: "2026-11-04T03:00:00Z".to_owned(),
             queued_micros: Some(self.queued),
             alone_green: Some(git(root, &["rev-parse", "HEAD"])),
             alone_base: Some(git(root, &["rev-parse", "origin/main"])),

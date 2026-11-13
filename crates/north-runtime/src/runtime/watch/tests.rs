@@ -128,7 +128,7 @@ fn a_refused_or_queued_launch_is_not_a_launch_failure_for_the_runtime_watch() {
     assert_eq!(launch_failures(&path, "2026-11-11T00:00:00Z", "2026-11-11T01:00:00Z"), ["the claim of north#1109 is only queued: the threads ledger did not take it within 30 s"]);
 }
 
-/// On 2026-11-11 at 7:58 AM +07 the watch rolled whiterabbit back from ca9d6ae1 to bbd09095 for "launch failures" in the 582 s after its swap, all of them launches placement refused or queued on purpose.
+/// On 2026-11-11 at 00:58 UTC the watch rolled whiterabbit back from ca9d6ae1 to bbd09095 for "launch failures" in the 582 s after its swap, all of them launches placement refused or queued on purpose.
 #[test]
 fn the_2026_11_11_rollback_of_ca9d6ae1_does_not_happen() {
     let (swapped, judged) = (1_794_357_810, 1_794_358_392);
@@ -152,7 +152,7 @@ impl Liveness for Gone {
     }
 }
 
-/// Each rolled whiterabbit back for exits someone asked for: on 2026-11-11 at about 8:56 AM +07 the fleet parking account d's sessions at its limit, from 9:35 AM sessions `north fleet stop` ended and hosts whose only turn the account's five-hour limit refused, and on 2026-11-13 at 4:33 PM +07 finished sessions their hosts parked at `--idle-exit`.
+/// Each rolled whiterabbit back for exits someone asked for: on 2026-11-11 at about 01:56 UTC the fleet parking account d's sessions at its limit, from 02:35 UTC sessions `north fleet stop` ended and hosts whose only turn the account's five-hour limit refused, and on 2026-11-13 at 09:33 UTC finished sessions their hosts parked at `--idle-exit`.
 #[test]
 fn asked_for_exits_do_not_roll_a_runtime_back() {
     let directory = tempfile::tempdir().unwrap();
@@ -193,7 +193,7 @@ fn asked_for_exits_do_not_roll_a_runtime_back() {
     assert_eq!(named(&risen, &since, &Window::default()), "session-host exits (north-8, north-9)");
 }
 
-/// On 2026-11-11 at about 5:55 AM +07 the watch rolled 26ae80bb back on whiterabbit for session-host exits from 5:50:52 to 5:54:46 that the runtime did not cause: the canary's three probe sessions, the verify walk's vn-1794351061, the lander-precheck unit after its turn, and a DeepSeek worker that finished its box before the swap. A session that started a turn under the new runtime and died before finishing it, launched after the swap or moved onto it in place, is still an exit. A host the supervisor started again within `RESTART_S` is a restart, and one that stopped more recently than that is not yet known to be either.
+/// On 2026-11-10 at about 22:55 UTC the watch rolled 26ae80bb back on whiterabbit for session-host exits from 22:50:52 to 22:54:46 that the runtime did not cause: the canary's three probe sessions, the verify walk's vn-1794351061, the lander-precheck unit after its turn, and a DeepSeek worker that finished its box before the swap. A session that started a turn under the new runtime and died before finishing it, launched after the swap or moved onto it in place, is still an exit. A host the supervisor started again within `RESTART_S` is a restart, and one that stopped more recently than that is not yet known to be either.
 #[test]
 fn the_watch_counts_only_sessions_that_died_mid_work_under_the_new_runtime() {
     let state = tempfile::tempdir().unwrap();
@@ -245,7 +245,7 @@ fn the_watch_counts_only_sessions_that_died_mid_work_under_the_new_runtime() {
     assert_eq!(risen(&since, &window(swapped - 3600, swapped, judged), judged - swapped), ["session-host exits"]);
 }
 
-/// On 2026-11-13 the watch rolled cd052409 back at 4:33 PM +07, then 439abac8, which that rollback had made live, at 4:35 PM, and the window that opened rolled the runtime back again at 4:43 PM; here the exits of those windows are hosts nobody stopped.
+/// On 2026-11-13 the watch rolled cd052409 back at 09:33 UTC, then 439abac8, which that rollback had made live, at 09:35 UTC, and the window that opened rolled the runtime back again at 09:43 UTC; here the exits of those windows are hosts nobody stopped.
 #[test]
 fn a_window_a_rollback_opened_is_reported_and_rolls_nothing_back() {
     let state = tempfile::tempdir().unwrap();

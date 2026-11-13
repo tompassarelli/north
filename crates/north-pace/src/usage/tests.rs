@@ -296,8 +296,8 @@ fn the_account_view_of_the_2026_11_10_afternoon_readings_fits_a_screen_and_shows
     .map(|(account, state, reason)| (account.to_owned(), super::Placement { state, reason: reason.to_owned() }))
     .collect();
     let grants = [
-        super::ApiGrant { name: "gmail".into(), left_usd: 126.53, expires: Some("2026-12-10".into()), state: super::State::Open, reason: String::new() },
-        super::ApiGrant { name: "proton".into(), left_usd: 0.0, expires: Some("2026-11-05".into()), state: super::State::Out, reason: "the provider refused a turn for credit".into() },
+        super::ApiGrant { name: "ember".into(), left_usd: 126.53, expires: Some("2026-12-10".into()), state: super::State::Open, reason: String::new() },
+        super::ApiGrant { name: "zenith".into(), left_usd: 0.0, expires: Some("2026-11-05".into()), state: super::State::Out, reason: "the provider refused a turn for credit".into() },
     ];
     let db = scratch.open();
     let places = scratch.places();
@@ -315,6 +315,6 @@ fn the_account_view_of_the_2026_11_10_afternoon_readings_fits_a_screen_and_shows
     assert_eq!(row("d"), "d Ultra 10x open 90% 8:00 PM 98% Tue 3:00 PM");
     assert_eq!(row("e"), "e Max 5x out 0% 5:30 PM 42% Wed 10:00 AM 5h full");
     assert!(row("b").contains("held") && row("b").ends_with("held until c is spent"), "{}", row("b"));
-    assert_eq!(row("gmail"), "gmail open $126.53 Dec 10");
-    assert!(row("proton").starts_with("proton out $0.00 Nov 5 "), "{}", row("proton"));
+    assert_eq!(row("ember"), "ember open $126.53 Dec 10");
+    assert!(row("zenith").starts_with("zenith out $0.00 Nov 5 "), "{}", row("zenith"));
 }

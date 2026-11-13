@@ -226,15 +226,15 @@ fn a_dispatcher_with_no_api_key_places_on_the_host_that_holds_one() {
     let (hosts, _) = fleet();
     let low = Room { five_hour: 90.0, week: 5.0, week_reset_h: 100.0 };
     let plans = vec![sized("claude:a", &["nexus"], MAX_5X, low), sized("claude:b", &["gex45"], MAX_5X, low)];
-    let policy: toml_edit::DocumentMut = "[accounts.claude]\napi_beside_plans = true\n\n[accounts.claude.api_orgs.proton]\nid = \"org\"\nkeys = { nexus = [\"/run/secrets/key\"], gex45 = [\"/run/secrets/key\"] }\n".parse().unwrap();
-    let source = north_strategy_types::placement::GrantSource { account: "claude:api:proton".into(), left_usd: 500.0, deadline_h: 200.0, urgent: true, line: String::new() };
+    let policy: toml_edit::DocumentMut = "[accounts.claude]\napi_beside_plans = true\n\n[accounts.claude.api_orgs.zenith]\nid = \"org\"\nkeys = { nexus = [\"/run/secrets/key\"], gex45 = [\"/run/secrets/key\"] }\n".parse().unwrap();
+    let source = north_strategy_types::placement::GrantSource { account: "claude:api:zenith".into(), left_usd: 500.0, deadline_h: 200.0, urgent: true, line: String::new() };
     let grants = super::survey::grants(&policy, &crate::fleet::roster::Roster::default(), "nexus", vec![source]);
-    assert_eq!(grants.iter().map(|grant| (grant.name.as_str(), grant.hosts.clone())).collect::<Vec<_>>(), [("claude:api:proton", vec!["gex45".to_owned()])], "nexus dispatch dropped every grant because its own roster holds no api key (north#723)");
+    assert_eq!(grants.iter().map(|grant| (grant.name.as_str(), grant.hosts.clone())).collect::<Vec<_>>(), [("claude:api:zenith", vec!["gex45".to_owned()])], "nexus dispatch dropped every grant because its own roster holds no api key (north#723)");
 
     let mut surveyed = survey(vec![issue("makgora", 7, "- [ ] a", &[])], hosts, plans.iter().cloned().chain(grants).collect());
     surveyed.spend = view(&plans);
     let outcome = decide(&surveyed, "test");
-    assert_eq!(outcome.launches.iter().map(|launch| (launch.host.as_str(), launch.account.as_str())).collect::<Vec<_>>(), [("gex45", "claude:api:proton")], "{:?}", outcome.skipped);
+    assert_eq!(outcome.launches.iter().map(|launch| (launch.host.as_str(), launch.account.as_str())).collect::<Vec<_>>(), [("gex45", "claude:api:zenith")], "{:?}", outcome.skipped);
 }
 
 #[test]
@@ -396,7 +396,7 @@ fn a_box_whose_check_names_a_retired_verb_is_held() {
     assert!(held.len() == 2 && held[0].contains("check retired: north ops climb") && held[1].contains("check retired: crates/north-climb/src/arms.rs"), "{held:?}");
 }
 
-/// On 2026-11-11 at 6:06 AM +07 nexus held 17 ready boxes as `check retired` because their checks name `north concerns` and `north project`, verbs those boxes exist to add, which the reference never listed.
+/// On 2026-11-10 at 23:06 UTC nexus held 17 ready boxes as `check retired` because their checks name `north concerns` and `north project`, verbs those boxes exist to add, which the reference never listed.
 #[test]
 fn a_box_whose_check_names_a_verb_main_never_had_is_placed_and_one_a_landed_commit_removed_is_held() {
     let (_, accounts) = fleet();
@@ -573,7 +573,7 @@ fn hand_lead(name: &str) -> super::fleets::Session {
 /// north#1345: dispatch on nexus staffed C3, C4 and L10 of north#1276 on 2026-11-13 while its body listed them under `## Parked (gate 242, 2026-11-13)`.
 #[test]
 fn a_box_under_the_parked_heading_gets_no_launch_while_the_boxes_outside_it_still_launch() {
-    let parked = "## Parked (gate 242, 2026-11-13)\nParked by the owner's decision on gate 242 (default at 9:20 AM +07): not staffed until moved back.\n\n- [ ] Argument parsing and error handling go through a library chosen by a recorded measurement.\n  - [ ] C1 Convert north (`src/cli`, 88 flag arms, 245 parse-function lines) to clap derive with help generation off.\n  - [ ] C2 Convert north-ops (75 flag arms, 250 parse-function lines).\n  - [ ] C3 Convert north-core (59 flag arms).\n  - [ ] C4 Convert north-lander, north-runtime, north-flow and north-lanes, one landing each.\n  - [ ] L10 REWRITE: the guard hook dispatches from one table in `crates/north-guard/src/hook.rs`.\n";
+    let parked = "## Parked (gate 242, 2026-11-13)\nParked by the owner's decision on gate 242 (default at 02:20 UTC): not staffed until moved back.\n\n- [ ] Argument parsing and error handling go through a library chosen by a recorded measurement.\n  - [ ] C1 Convert north (`src/cli`, 88 flag arms, 245 parse-function lines) to clap derive with help generation off.\n  - [ ] C2 Convert north-ops (75 flag arms, 250 parse-function lines).\n  - [ ] C3 Convert north-core (59 flag arms).\n  - [ ] C4 Convert north-lander, north-runtime, north-flow and north-lanes, one landing each.\n  - [ ] L10 REWRITE: the guard hook dispatches from one table in `crates/north-guard/src/hook.rs`.\n";
     let body = format!("## Done when\n- [ ] L03 Check: the code-health report lists each crate's layer\n\n{parked}\n## Filed later\n- [ ] L05 Move: the lander's notices leave north-core\n");
     let (hosts, accounts) = fleet();
     let outcome = decide(&survey(vec![issue("north", 1276, &body, &[])], hosts, accounts), "test");

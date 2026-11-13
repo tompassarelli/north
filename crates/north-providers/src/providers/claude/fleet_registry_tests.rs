@@ -327,13 +327,13 @@ fn an_interactive_window_that_would_stop_at_a_trust_or_bypass_prompt_is_named_be
     let here = crate::platform::host::name();
     let api = home.path().join(".local/state/north/profiles/claude-api");
     fs::create_dir_all(&api).unwrap();
-    let key = home.path().join("gmail.key");
+    let key = home.path().join("ember.key");
     let api_key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz";
     fs::write(&key, api_key).unwrap();
     let policy = crate::platform::orchestration::under(home.path());
     let mut text = fs::read_to_string(&policy).unwrap();
     text.push_str(&format!(
-        "[accounts.claude.api_keys.api]\n\"{here}\" = {{ path = \"{}\" }}\n[accounts.claude.api_orgs.gmail]\nid = \"org-gmail\"\nkeys = {{ \"{here}\" = [\"{}\"] }}\n",
+        "[accounts.claude.api_keys.api]\n\"{here}\" = {{ path = \"{}\" }}\n[accounts.claude.api_orgs.ember]\nid = \"org-ember\"\nkeys = {{ \"{here}\" = [\"{}\"] }}\n",
         api.display(),
         key.display()
     ));
@@ -342,7 +342,7 @@ fn an_interactive_window_that_would_stop_at_a_trust_or_bypass_prompt_is_named_be
     fs::write(api.join("settings.json"), r#"{"skipDangerousModePermissionPrompt":true}"#).unwrap();
     let session = home.path().join(".local/state/north/fleet/api-proxy");
     fs::create_dir_all(&session).unwrap();
-    let record = serde_json::json!({"name": "api-proxy", "provider": "claude", "account": "api:gmail", "cwd": "/tmp", "model": null, "created_ms": 6, "host_pid": null, "conversation": "api-c", "host_dir": session, "role": "proxy", "stopped": false});
+    let record = serde_json::json!({"name": "api-proxy", "provider": "claude", "account": "api:ember", "cwd": "/tmp", "model": null, "created_ms": 6, "host_pid": null, "conversation": "api-c", "host_dir": session, "role": "proxy", "stopped": false});
     fs::write(session.join("session.json"), record.to_string()).unwrap();
     assert_eq!(fleet.interactive_prompt("api-proxy").unwrap(), None, "an onboarded claude-api profile has no prompt left");
     let config: serde_json::Value = serde_json::from_str(&fs::read_to_string(api.join(".claude.json")).unwrap()).unwrap();
