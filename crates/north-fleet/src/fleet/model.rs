@@ -69,7 +69,14 @@ impl Machine {
     }
 
     pub fn session_home(&self, operator_home: &Path) -> Option<PathBuf> {
-        Self::login_home(self.session_login(), operator_home)
+        self.agent_ssh.as_deref().and_then(|login| Self::login_home(login, operator_home))
+    }
+
+    pub fn session_path(&self, path: &Path, operator_home: &Path) -> PathBuf {
+        match (self.session_home(operator_home), path.strip_prefix(operator_home)) {
+            (Some(home), Ok(rest)) => home.join(rest),
+            _ => path.to_path_buf(),
+        }
     }
 
     /// The home of the Unix user a session login names, None when it names none, names one that is no plain user name, or names the operator, and None too when the operator's home is unknown, so a host never counts the operator's login as an agent's.

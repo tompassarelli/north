@@ -3,6 +3,8 @@ use super::super::layout::{self, Layout, PROGRAMS};
 use super::super::store;
 use super::sync::relink;
 use north_base::platform::agent_runtime;
+use north_base::platform::entry_points::EntryPoint;
+use north_base::platform::harness::TREE;
 use rustix::fs::{Access, access};
 use std::ffi::OsString;
 use std::fs;
@@ -14,6 +16,7 @@ pub(crate) const ENV: &str = "NORTH_AGENT_RUNTIME_LINK";
 const ROOT: &str = "agent-runtime";
 const STAGING: &str = "agent-runtime-staging";
 const CLAUDE_INSTALL: &str = ".local/lib/claude/current";
+const HARNESS: &str = "harness";
 
 #[cfg(not(test))]
 const NAMING_FILE: &str = north_base::platform::agent_runtime::NAMING_FILE;
@@ -64,7 +67,7 @@ pub(super) struct Published {
     claude: Option<PathBuf>,
 }
 
-/// Adds the runtime's programs to the Nix store as one path rooted at `agent-runtime` in the runtime, and the operator's Claude Code as another rooted at `agent-claude`, so the agent runs copies no one can change in place.
+/// Adds the runtime's programs, with `worker-sandbox` linked beside its `north`, and its harness tree to the Nix store as one path rooted at `agent-runtime` in the runtime, and the operator's Claude Code as another rooted at `agent-claude`, so the agent runs copies no one can change in place and reads the harness of its own runtime.
 pub(super) fn publish(runtime: &Path) -> Result<Option<Published>, Failure> {
     if configured().is_none() {
         return Ok(None);
@@ -75,6 +78,8 @@ pub(super) fn publish(runtime: &Path) -> Result<Option<Published>, Failure> {
     for program in PROGRAMS {
         fs::copy(runtime.join(program), staging.join(program))?;
     }
+    std::os::unix::fs::symlink("north", staging.join(EntryPoint::WorkerSandbox.name()))?;
+    copy_tree(&runtime.join(TREE).join(HARNESS), &staging.join(TREE).join(HARNESS))?;
     let added = store::add_rooted(&staging, &runtime.join(ROOT), "the agent runtime");
     fs::remove_dir_all(&staging)?;
     let claude = publish_claude(runtime, operator_claude().as_deref()).inspect_err(|failure| eprintln!("north runtime update: the agent keeps the Claude Code it had: {}", failure.message)).ok();
@@ -85,6 +90,20 @@ pub(super) fn publish(runtime: &Path) -> Result<Option<Published>, Failure> {
 fn operator_claude() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
     fs::canonicalize(Path::new(&home).join(CLAUDE_INSTALL)).ok()
+}
+
+fn copy_tree(from: &Path, to: &Path) -> Result<(), Failure> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 fn publish_claude(runtime: &Path, version: Option<&Path>) -> Result<PathBuf, Failure> {
