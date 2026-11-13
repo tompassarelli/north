@@ -12,7 +12,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use north_base::foundation::check_log::log_text;
 use north_base::foundation::offload::{AFTER_LANDING_OWNER, OWNER_ENV};
@@ -67,7 +67,8 @@ pub fn start(wake: &Arc<Wake>, repo: &Path, queue: &Path, offload_owner: &str, h
 }
 
 fn run(repo: &Path, logs: &Path, owner: &str, head: &str) -> Finished {
-    let log = logs.join(format!("{RECORD}-{}.log", &head[..head.len().min(12)]));
+    let begun = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
+    let log = logs.join(format!("{RECORD}-{}-{begun}.log", &head[..head.len().min(12)]));
     let Some(host) = build_host(repo) else {
         println!("north land: no build host answered, so Buck2 does not test {head} after its landing");
         return Finished { exit: i32::from(NO_VERDICT), log };
@@ -75,7 +76,7 @@ fn run(repo: &Path, logs: &Path, owner: &str, head: &str) -> Finished {
     println!("north land: Buck2 tests {head} after its landing on {host}");
     let (name, value) = AFTER_LANDING;
     let command = format!("{name}={value} north land crate-tests after-landing");
-    let stderr = fs::create_dir_all(logs).and_then(|()| fs::File::create(&log)).map_or_else(|_| Stdio::null(), Stdio::from);
+    let stderr = fs::create_dir_all(logs).and_then(|()| OpenOptions::new().write(true).create_new(true).open(&log)).map_or_else(|_| Stdio::null(), Stdio::from);
     let started = Instant::now();
     let ran = Command::new(follow::program())
         .args(["capacity", "offload", "run", "--host", &host, "--base", head, "--head", head, "--timeout", &TIMEOUT_SECONDS.to_string(), "--", &command])
@@ -96,7 +97,7 @@ fn run(repo: &Path, logs: &Path, owner: &str, head: &str) -> Finished {
     let passed = crates.len();
     println!("north land: Buck2 after the landing of {head} on {host} exited {exit} in {seconds} s with {passed} crate(s) passed; log: {}", log.display());
     let root = Timings::default_root();
-    if let Err(error) = remember(&root, head, &host, exit, seconds, &crates) {
+    if let Err(error) = remember(&root, head, &host, exit, seconds, &crates, &failing_cases(&log)) {
         println!("north land: could not record the Buck2 run of {head}: {error}");
     }
     buck2_settled(&root, head, exit, follow::send);
@@ -120,17 +121,25 @@ fn verdict(code: Option<i32>, log: &Path) -> i32 {
 }
 
 fn names_a_failing_case(log: &Path) -> bool {
-    let text = fs::read_to_string(log).unwrap_or_default();
-    let unstamped: Vec<&str> = text.lines().map(|line| line.split_once("] ").filter(|(stamp, _)| stamp.starts_with('[')).map_or(line, |(_, rest)| rest)).collect();
-    !failed_cases(&unstamped.join("\n")).is_empty()
+    !failing_cases(log).is_empty()
 }
 
-fn remember(root: &Path, head: &str, host: &str, exit: i32, seconds: u64, crates: &[&str]) -> std::io::Result<()> {
+fn failing_cases(log: &Path) -> BTreeSet<(String, String)> {
+    let text = fs::read_to_string(log).unwrap_or_default();
+    let unstamped: Vec<&str> = text.lines().map(|line| line.split_once("] ").filter(|(stamp, _)| stamp.starts_with('[')).map_or(line, |(_, rest)| rest)).collect();
+    failed_cases(&unstamped.join("\n"))
+}
+
+fn remember(root: &Path, head: &str, host: &str, exit: i32, seconds: u64, crates: &[&str], failed: &BTreeSet<(String, String)>) -> std::io::Result<()> {
     let dir: PathBuf = root.join(RECORD);
     fs::create_dir_all(&dir)?;
     fs::write(dir.join(format!("{head}.crates")), crates.iter().map(|name| format!("{name}\n")).collect::<String>())?;
     let mut rows = OpenOptions::new().create(true).append(true).open(root.join(format!("{RECORD}.tsv")))?;
-    writeln!(rows, "{head}\t{host}\t{exit}\t{seconds}\t{}", crates.len())
+    writeln!(rows, "{head}\t{host}\t{exit}\t{seconds}\t{}", crates.len())?;
+    if exit == RED {
+        OpenOptions::new().create(true).append(true).open(dir.join(format!("{head}.failed")))?.write_all(failed.iter().map(|(name, case)| format!("{name}\t{case}\n")).collect::<String>().as_bytes())?;
+    }
+    Ok(())
 }
 
 fn buck2_settled(root: &Path, head: &str, exit: i32, send: fn(&str, &str) -> bool) {
