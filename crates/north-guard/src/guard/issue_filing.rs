@@ -59,11 +59,8 @@ impl World for Live {
         let Some(actor) = var("THREADS_ACTOR").or_else(|| var("USER")) else {
             return Vec::new();
         };
-        let path = var("THREADS_DB").map(PathBuf::from).or_else(|| {
-            var("HOME").map(|home| PathBuf::from(home).join(".local/state/threads/threads.db"))
-        });
-        let claims = path
-            .and_then(|path| crate::threads::claims::ledger::open(&path, false).ok())
+        let claims = crate::threads::claims::ledger::open(&crate::threads::client::threads_database(), false)
+            .ok()
             .and_then(|db| crate::threads::claims::ledger::claims(&db).ok());
         claims
             .into_iter()
