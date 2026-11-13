@@ -7,7 +7,7 @@ use std::time::Instant;
 use north_base::foundation::offload::OWNER_ENV;
 use north_base::lifecycle::Store;
 
-use super::{ALARMED, Cancel, EPISODE, Checked, Landed, Run, check, deadline, failing, ledger_path, record, steps};
+use super::{ALARMED, CLEARED, Cancel, EPISODE, Checked, Landed, Run, check, deadline, failing, ledger_path, record, steps};
 use crate::landing::red_check::Failure;
 use crate::platform::push_ledger;
 use crate::land::after::follow;
@@ -78,6 +78,15 @@ pub(super) fn episode_marker(run: &Run, landed: &Landed) -> PathBuf {
     run.ledger.with_file_name(format!("{EPISODE}-{}", landed.repository.replace('/', "_")))
 }
 
+fn cleared_marker(run: &Run, landed: &Landed) -> PathBuf {
+    run.ledger.with_file_name(format!("{CLEARED}-{}", landed.repository.replace('/', "_")))
+}
+
+/// Whether this red verdict is on a head a descendant's green run already covered: that run ended the repository's last red episode over every check failing here, so the verdict is main's past, not its state.
+pub(super) fn stale_red(landed: &Landed, run: &Run) -> bool {
+    Episode::covers_red(&cleared_marker(run, landed), &landed.repo, &landed.head, &failing(&run.log, &run.outcome))
+}
+
 /// The repository's red-main record, opening the store `run` names; an episode a lander older than the record left as
 /// its marker file alone is adopted as told, since the old lander wrote the marker only once its alarm went out.
 fn episode_state(run: &Run, landed: &Landed) -> Option<(Store, Option<Main>)> {
@@ -143,6 +152,10 @@ pub(super) fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: imp
     let (marker, repository) = (episode_marker(run, landed), landed.repository.as_str());
     let log = fs::read_to_string(&run.log).unwrap_or_default();
     let state = match verdict {
+        Verdict::RedMain(_) if stale_red(landed, run) => {
+            println!("north land: the after-landing run of {} is red, but a later green run already covered those checks on a descendant, so main is not red and no lane is blamed", landed.head);
+            return;
+        }
         Verdict::RedMain(_) if matches!(state, Some(Main::Opened | Main::Red)) => {
             if let Some(mut episode) = Episode::read(&marker) {
                 episode.failing.extend(failing(&run.log, &run.outcome));
@@ -155,9 +168,13 @@ pub(super) fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: imp
             lifecycle::moved::<RedMain>(&mut store, repository, Main::Opened, &format!("the after-landing run of {} is red", landed.head)).map(|record| record.state)
         }
         Verdict::Green if matches!(state, Some(Main::Opened | Main::Red)) => {
-            if Episode::read(&marker).is_some_and(|episode| !episode.ended_by(&log, &landed.repo, &landed.head)) {
+            let episode = Episode::read(&marker);
+            if episode.as_ref().is_some_and(|episode| !episode.ended_by(&log, &landed.repo, &landed.head)) {
                 println!("north land: the green after-landing run of {} did not rerun the checks that turned main red, so main stays red", landed.head);
                 return;
+            }
+            if let Some(episode) = episode {
+                let _ = episode.write_cleared(&cleared_marker(run, landed), &landed.head);
             }
             let _ = fs::remove_file(&marker);
             let cleared = lifecycle::moved::<RedMain>(&mut store, repository, Main::Cleared, &format!("the after-landing run of {} is green over the checks that were red", landed.head)).map(|record| record.state);

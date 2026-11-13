@@ -203,6 +203,14 @@ pub fn misses(store: &Store, head: &str) -> usize {
     store.history(AfterLandingRun::NAME, head).map_or(0, |moves| moves.iter().filter(|logged| !logged.refused && logged.to == Run::Unsettled.name()).count())
 }
 
+/// Whether the run of `head` was lost in its culprit search: its verdict was reached and recorded, and the lander holding the search stopped.
+pub fn lost_in_search(store: &Store, head: &str) -> bool {
+    let abandoned = Run::Abandoned.name();
+    let moves = store.history(AfterLandingRun::NAME, head).unwrap_or_default();
+    let last = moves.iter().rev().find(|logged| !logged.refused && logged.to == abandoned);
+    last.is_some_and(|logged| logged.from.as_deref() == Some(Run::Searching.name())) && current::<AfterLandingRun>(store, head).is_some_and(|record| record.state == Run::Abandoned)
+}
+
 #[cfg(test)]
 #[path = "after_landing_lifecycle_tests.rs"]
 mod tests;

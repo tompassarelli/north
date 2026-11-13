@@ -66,6 +66,14 @@ fn a_lander_killed_mid_run_leaves_an_orphaned_run_that_health_reports_and_the_ne
     assert!(third.faults(later).unwrap().is_empty());
     assert_eq!(third.current::<AfterLandingRun>("def").unwrap().unwrap().state, Run::Retired);
     assert_eq!(third.current::<AfterLandingRun>("abc").unwrap().unwrap().state, Run::Journaled);
+
+    for step in [Run::Journaled, Run::Running, Run::Searching] {
+        moved::<AfterLandingRun>(&mut first, "ghi", step, "searching for the culprit lane").unwrap();
+    }
+    let mut fourth = lander(&path, 13, 10);
+    assert_eq!(fourth.retire_gone::<AfterLandingRun>(Timestamp::now()).unwrap().len(), 1);
+    assert!(super::lost_in_search(&fourth, "ghi"), "a run whose lander stopped in its culprit search resumes the search");
+    assert!(!super::lost_in_search(&fourth, "def") && !super::lost_in_search(&fourth, "abc"), "a run lost mid-checks reruns them");
 }
 
 #[test]

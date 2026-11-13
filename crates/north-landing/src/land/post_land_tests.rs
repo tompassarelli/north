@@ -251,6 +251,57 @@ fn a_post_land_worktree_a_killed_lander_left_in_its_queue_is_removed_and_other_w
     assert!(lane.exists());
 }
 
+#[test]
+fn a_red_verdict_arriving_after_a_descendants_green_run_covered_its_checks_opens_no_episode_sends_no_alarm_and_blames_no_lane() {
+    let scratch = tempfile::tempdir().unwrap();
+    let repo = scratch.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    committed_repo(&repo);
+    let commit = |message: &str| {
+        let git = |arguments: &[&str]| std::process::Command::new("git").arg("-C").arg(&repo).args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
+        assert!(git(&["commit", "-q", "--allow-empty", "-m", message]).status.success());
+        String::from_utf8_lossy(&git(&["rev-parse", "HEAD"]).stdout).trim().to_owned()
+    };
+    let mut episode = run();
+    episode.log = scratch.path().join("post-land.log");
+    episode.outcome = scratch.path().join("post-land.outcome");
+    episode.ledger = scratch.path().join("post-land.tsv");
+    episode.store = scratch.path().join("ledger.db");
+    std::fs::write(&episode.outcome, "failed-step\tcargo nextest run\t/x.log\n").unwrap();
+    let sent = std::cell::RefCell::new(Vec::new());
+    let at = |head: &str, log: &str, verdict: Verdict| {
+        let mut landed = landed(&[head]);
+        landed.repo.clone_from(&repo);
+        std::fs::write(&episode.log, log).unwrap();
+        announce(&landed, &episode, &verdict, |_, message| {
+            sent.borrow_mut().push(message.to_owned());
+            true
+        });
+        super::settle::stale_red(&landed, &episode)
+    };
+    let record = || {
+        let store = north_base::lifecycle::Store::open(&episode.store).unwrap();
+        crate::land::after_landing_lifecycle::current::<crate::land::after_landing_lifecycle::RedMain>(&store, "owner/repo").map(|record| record.state)
+    };
+    let red = || Verdict::RedMain("exit 100".to_owned());
+
+    let culprit = commit("drill");
+    assert!(!at(&culprit, RED, red()), "the first red of an episode is main's state");
+    assert_eq!(record(), Some(crate::land::after_landing_lifecycle::Main::Red));
+    let descendant = commit("fix");
+    at(&descendant, FULL, Verdict::Green);
+    assert_eq!(record(), Some(crate::land::after_landing_lifecycle::Main::Green));
+    assert_eq!(sent.borrow().len(), 2, "one red alarm and one green message: {:?}", sent.borrow());
+
+    assert!(at(&culprit, RED, red()), "a late red on the head the descendant's green run covered is stale, so its culprit search is not started");
+    assert_eq!(record(), Some(crate::land::after_landing_lifecycle::Main::Green), "the red-main record stays green");
+    assert_eq!(sent.borrow().len(), 2, "no alarm is sent: {:?}", sent.borrow());
+
+    assert!(!at(&commit("later"), RED, red()), "a red on a head the green run did not descend from is main's state");
+    assert_eq!(record(), Some(crate::land::after_landing_lifecycle::Main::Red));
+    assert_eq!(sent.borrow().len(), 3, "{:?}", sent.borrow());
+}
+
 fn a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the_red_record_when_they_pass() {
     let scratch = tempfile::tempdir().unwrap();
     let repo = scratch.path().join("repo");

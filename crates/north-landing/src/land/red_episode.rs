@@ -43,6 +43,18 @@ impl Episode {
         fs::write(marker, text)
     }
 
+    pub fn write_cleared(&self, marker: &Path, by: &str) -> std::io::Result<()> {
+        self.write(marker)?;
+        fs::OpenOptions::new().append(true).open(marker).and_then(|mut file| std::io::Write::write_all(&mut file, format!("cleared\t{by}\n").as_bytes()))
+    }
+
+    /// Whether the episode `cleared` records ended at a head that descends from `red`, over every check in `failing`: a red verdict on `red` arriving after that is main's past, not its state.
+    pub fn covers_red(cleared: &Path, repo: &Path, red: &str, failing: &BTreeSet<Failure>) -> bool {
+        let Some(episode) = Self::read(cleared) else { return false };
+        let by = fs::read_to_string(cleared).unwrap_or_default().lines().find_map(|line| line.strip_prefix("cleared\t").map(str::to_owned));
+        by.is_some_and(|by| by != red && failing.is_subset(&episode.failing) && git(repo, &["merge-base", "--is-ancestor", red, &by]).is_ok())
+    }
+
     pub fn ended_by(&self, green_log: &str, repo: &Path, head: &str) -> bool {
         self.covered_by(green_log) || reverted_since(repo, &self.head, head)
     }

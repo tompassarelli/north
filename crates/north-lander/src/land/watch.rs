@@ -1,10 +1,11 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod hand_off;
 mod culprits;
 mod journal;
+mod lost;
 mod reverted;
 
 pub use hand_off::hand_off;
@@ -210,16 +211,18 @@ impl Watch {
             }
         }
         let resumed = epoch();
+        let mut lost = BTreeMap::new();
         for (at, Entry { base, head, lanes }) in journaled {
-            if !matches!(state(&head), Some(Run::Journaled | Run::Unsettled)) {
-                println!("north land: rerunning the after-landing run of {head}, which a stopped lander left without a verdict");
-                record(lander, &[Span::new(&head, "after-landing run lost to a lander restart", Category::Lander, at, resumed).with(PHASE, AFTER)]);
-                moved([head.as_str()], Run::Journaled, "rerun: a stopped lander left it without a verdict");
+            if lifecycle::host().is_ok_and(|store| lifecycle::lost_in_search(&store, &head)) {
+                lost.insert(head.clone(), at);
+            } else if !matches!(state(&head), Some(Run::Journaled | Run::Unsettled)) {
+                lost::rerun(lander, &head, at, resumed);
             }
             if !watch.pending.covers(&head) {
                 watch.pending.add(Batch::landed(base, head, lanes, resumed));
             }
         }
+        watch.resume_searches(lander, &lost, resumed);
         watch
     }
 

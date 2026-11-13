@@ -21,12 +21,15 @@ use super::wake::{Task, Wake};
 const ALARMED: &str = "proxy";
 const POLL: Duration = Duration::from_millis(50);
 const EPISODE: &str = "post-land-red";
+const CLEARED: &str = "post-land-cleared";
 const DEADLINE_SETTING: &str = "landing.after-deadline-sec";
 
 mod execute;
 mod probe;
+mod resume;
 mod runner;
 mod settle;
+pub use resume::resume;
 pub use runner::{Record, abandon, adopt, adoptable, after_owner, reap_scratch};
 pub(crate) use execute::{Checked, failing, steps};
 use execute::{apart, check, judged, record};
@@ -281,6 +284,9 @@ fn outcome(landed: Landed, run: Run, verdict: Verdict) -> Outcome {
         return Outcome { verdict, search: None, failing: BTreeSet::new(), superseded: run.superseded(), log: run.log };
     }
     let failing = failing(&run.log, &run.outcome);
+    if settle::stale_red(&landed, &run) {
+        return Outcome { verdict, search: None, failing, superseded: run.superseded(), log: run.log };
+    }
     super::buck2_after::cargo_red(&crate::landing::check_timings::Timings::default_root(), &landed.head, &run.log, send);
     let (superseded, log) = (run.superseded(), run.log.clone());
     Outcome { verdict, search: Some(Search { landed, run, failing: failing.clone() }), failing, log, superseded }
