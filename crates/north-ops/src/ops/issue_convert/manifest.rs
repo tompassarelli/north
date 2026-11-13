@@ -51,7 +51,7 @@ impl Verdict {
         }
     }
 
-    fn created(self) -> bool {
+    pub fn created(self) -> bool {
         matches!(self, Self::Leaf | Self::ThirdLevel)
     }
 }

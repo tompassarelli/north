@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use super::boxes;
 use super::closed::{self, Leftover, OpenCopy};
+use super::create::{self, IssueTracker, Made, NewIssue, Outcome, Record, Refusal};
 use super::manifest::{self, Manifest, Parent, Row, Scan, Tracker, Verdict, WAITS};
 use crate::threads::claims;
 
@@ -35,7 +36,7 @@ fn flags(manifest: &Manifest) -> Vec<(usize, String)> {
 }
 
 #[test]
-fn a_dry_run_names_every_open_box_exactly_once() {
+fn a_second_conversion_run_creates_nothing() {
     let labels = ["area:fleet".to_owned(), "category:feature".to_owned(), "priority:now".to_owned()];
     let parent = Parent { reference: "tompassarelli/north#7", body: BODY, labels: &labels, children: 0 };
     let claimed = [Some("the-claimed-box-stays".to_owned())];
@@ -103,6 +104,66 @@ fn a_dry_run_names_every_open_box_exactly_once() {
     let mut scanned = again.clone();
     checked(&mut scanned, &parent, &[], &private);
     assert_eq!(flags(&scanned), [(1, "the privacy scan refuses it (deny-list rule host-name)".to_owned())]);
+
+    let state = tempfile::tempdir().expect("a state directory");
+    let bodies = state.path().join("bodies");
+    let mut record = Record::open(&state.path().join("north-7.created.json")).expect("a record");
+    let mut fake = Fake { limits: 1, ..Fake::default() };
+    let made = create::convert(&mut fake, BODY, &again.rows, &mut record, &bodies, "north-7").expect("the first run");
+    assert_eq!(made, Outcome { created: 5, rewritten: true });
+    assert_eq!(fake.created, ["Every worker's brief carries the grounding pack", "The split is run on five tasks", "The coordinator runs the split outside a sandbox", "A second pass covers the two change sets", "The eval prints seconds before the first edit"]);
+    assert_eq!(fake.waits, [60], "the refused call waits, then the same row is tried again");
+    assert_eq!(boxes::unticked(&fake.body), 4);
+    assert!(fake.body.contains("- [ ] The claimed box stays a line in the body."), "{}", fake.body);
+    let saved: Vec<String> = std::fs::read_dir(&bodies).expect("saved bodies").map(|copy| std::fs::read_to_string(copy.expect("a saved body").path()).expect("its text")).collect();
+    assert_eq!(saved, [BODY]);
+
+    let body = fake.body.clone();
+    let again_made = create::convert(&mut fake, &body, &again.rows, &mut record, &bodies, "north-7").expect("the second run");
+    assert_eq!((again_made, fake.created.len()), (Outcome { created: 0, rewritten: false }, 5));
+
+    let busy = tempfile::tempdir().expect("a second state directory");
+    let mut crowded = Record::open(&busy.path().join("north-7.created.json")).expect("a record");
+    for number in 0..450 {
+        crowded.insert(&format!("an earlier box {number}"), Made { issue: number, at: 990 }).expect("the record saved");
+    }
+    let mut paced = Fake { clock: 1000, ..Fake::default() };
+    create::convert(&mut paced, BODY, &again.rows[..1], &mut crowded, &busy.path().join("bodies"), "north-7").expect("the paced run");
+    assert_eq!((paced.waits, paced.created.len()), (vec![3590], 1), "450 creations in the hour hold the next one until the oldest leaves it");
+}
+
+#[derive(Default)]
+struct Fake {
+    clock: i64,
+    limits: usize,
+    created: Vec<String>,
+    waits: Vec<i64>,
+    body: String,
+}
+
+impl IssueTracker for Fake {
+    fn create(&mut self, issue: &NewIssue) -> Result<u64, Refusal> {
+        if self.limits > 0 {
+            self.limits -= 1;
+            return Err(Refusal::Limited);
+        }
+        self.created.push(issue.title.to_owned());
+        Ok(900 + self.created.len() as u64)
+    }
+
+    fn rewrite_body(&mut self, body: &str) -> Result<(), Refusal> {
+        self.body = body.to_owned();
+        Ok(())
+    }
+
+    fn now(&self) -> i64 {
+        self.clock
+    }
+
+    fn wait(&mut self, seconds: i64) {
+        self.waits.push(seconds);
+        self.clock += seconds;
+    }
 }
 
 #[test]

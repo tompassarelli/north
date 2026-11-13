@@ -22,6 +22,28 @@ pub fn unticked(body: &str) -> usize {
     UNTICKED.find_iter(body).count()
 }
 
+/// `body` with the first unticked checkbox whose text is `first` ticked and `note` written after it; None when no box reads so.
+pub fn tick(body: &str, first: &str, note: &str) -> Option<String> {
+    let mut done = false;
+    let lines: Vec<String> = body
+        .lines()
+        .map(|line| match CHECKBOX.captures(line) {
+            Some(marked) if !done && &marked[1] == " " && marked[2].trim() == first => {
+                done = true;
+                format!("{} {note}", line.replacen("[ ]", "[x]", 1))
+            }
+            _ => line.to_owned(),
+        })
+        .collect();
+    done.then(|| {
+        let mut text = lines.join("\n");
+        if body.ends_with('\n') {
+            text.push('\n');
+        }
+        text
+    })
+}
+
 /// Every checkbox of `body`, ticked or not, in its order.
 pub fn checkboxes(body: &str) -> Vec<Checkbox> {
     let mut found: Vec<Checkbox> = Vec::new();

@@ -1,5 +1,6 @@
 //! `north issue convert`: the dry run that turns one issue's open checkboxes into a manifest of the sub-issues they
-//! would become (north#1137), and the listing of the unticked boxes closed issues still carry. Neither edits GitHub.
+//! would become (north#1137), and the listing of the unticked boxes closed issues still carry. Only the create run,
+//! `--manifest FILE --sha256 HASH`, edits GitHub.
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -12,6 +13,7 @@ use manifest::{Manifest, Parent, Row, Scan, Tracker};
 
 mod boxes;
 mod closed;
+mod create;
 mod manifest;
 mod read;
 #[cfg(test)]
@@ -22,6 +24,7 @@ const DENYLIST_UNDER_HOME: &str = "code/south/main/privacy/public-denylist.toml"
 const MANIFESTS_UNDER_HOME: &str = ".local/state/north/convert";
 
 const USAGE: &str = "usage: north issue convert [OWNER/]REPO#N --dry-run [--manifest FILE]
+       north issue convert [OWNER/]REPO#N --manifest FILE --sha256 HASH
        north issue convert [OWNER/]REPO --closed-boxes
 
 --dry-run writes a manifest with one row per unticked checkbox of the issue: its verdict (leaf, third-level issue, prose,
@@ -36,12 +39,17 @@ The manifest is FILE, else ~/.local/state/north/convert/REPO-N.json.
 --closed-boxes lists every unticked checkbox on a closed issue of the repository with the open issue that holds the
 same text, or `no copy`. It edits nothing.
 
-Either mode reads the repository from GitHub once.";
+--manifest FILE --sha256 HASH files an issue for each row of the reviewed manifest FILE, which must hash to HASH, and rewrites
+the parent's body with each converted box ticked. It saves the body as it stood under ~/.local/state/north/convert first,
+and it records what it made beside FILE, so a second run creates nothing.
+
+Every mode reads the repository from GitHub once.";
 
 enum Asked {
     Help,
     DryRun { owner: String, name: String, number: u64, manifest: Option<PathBuf> },
     ClosedBoxes { owner: String, name: String },
+    Create { owner: String, name: String, number: u64, manifest: PathBuf, sha256: String },
 }
 
 fn slug(target: &str) -> Result<(String, String), String> {
@@ -50,10 +58,15 @@ fn slug(target: &str) -> Result<(String, String), String> {
     if named(owner) && named(name) { Ok((owner.to_owned(), name.to_owned())) } else { Err(format!("{target} is not [OWNER/]REPO")) }
 }
 
-fn dry(target: &str, manifest: Option<&str>) -> Result<Asked, String> {
+fn target_parts(target: &str) -> Result<(String, String, u64), String> {
     let (repository, number) = target.split_once('#').ok_or_else(|| format!("{target} is not [OWNER/]REPO#N"))?;
     let number = number.parse().map_err(|_| format!("{target} is not [OWNER/]REPO#N"))?;
     let (owner, name) = slug(repository)?;
+    Ok((owner, name, number))
+}
+
+fn dry(target: &str, manifest: Option<&str>) -> Result<Asked, String> {
+    let (owner, name, number) = target_parts(target)?;
     Ok(Asked::DryRun { owner, name, number, manifest: manifest.map(PathBuf::from) })
 }
 
@@ -64,7 +77,8 @@ fn asked(arguments: &[String]) -> Result<Asked, String> {
         ["convert", target, "--closed-boxes"] => slug(target).map(|(owner, name)| Asked::ClosedBoxes { owner, name }),
         ["convert", target, "--dry-run"] => dry(target, None),
         ["convert", target, "--dry-run", "--manifest", file] | ["convert", target, "--manifest", file, "--dry-run"] => dry(target, Some(*file)),
-        ["convert", _, ..] => Err("only --dry-run and --closed-boxes are built; nothing here creates an issue".to_owned()),
+        ["convert", target, "--manifest", file, "--sha256", sha256] => target_parts(target).map(|(owner, name, number)| Asked::Create { owner, name, number, manifest: PathBuf::from(*file), sha256: (*sha256).to_owned() }),
+        ["convert", _, ..] => Err("only --dry-run, --closed-boxes and --manifest FILE --sha256 HASH are built".to_owned()),
         _ => Err("name what to convert".to_owned()),
     }
 }
@@ -76,6 +90,7 @@ pub fn run(arguments: &[String]) -> u8 {
             return 0;
         }
         Ok(Asked::DryRun { owner, name, number, manifest }) => dry_run(&owner, &name, number, manifest),
+        Ok(Asked::Create { owner, name, number, manifest, sha256 }) => create_run(&owner, &name, number, &manifest, &sha256),
         Ok(Asked::ClosedBoxes { owner, name }) => closed_boxes(&owner, &name).map(|()| true),
         Err(why) => {
             eprintln!("north issue convert: {why}\n{USAGE}");
@@ -147,12 +162,48 @@ fn dry_run(owner: &str, name: &str, number: u64, file: Option<PathBuf>) -> Resul
         std::fs::create_dir_all(directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     }
     std::fs::write(&file, &text).map_err(|error| format!("{}: {error}", file.display()))?;
+    report(&manifest);
+    println!("manifest {} sha256 {}", file.display(), digest_hex(text.as_bytes()));
+    Ok(manifest.passes())
+}
+
+fn report(manifest: &Manifest) {
     println!("{}", manifest.count_line());
     manifest.refused.iter().for_each(|refusal| println!("refused: {refusal}"));
     manifest.flagged().for_each(|row| println!("row {} ({}): {}", row.row, row.verdict.label(), row.flags.join("; ")));
-    let hash: String = Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect();
-    println!("manifest {} sha256 {hash}", file.display());
-    Ok(manifest.passes())
+}
+
+fn digest_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Files the rows of the reviewed manifest FILE, which must hash to SHA256, as issues of the parent and rewrites its body.
+/// A manifest its checks refuse creates nothing.
+fn create_run(owner: &str, name: &str, number: u64, file: &Path, sha256: &str) -> Result<bool, String> {
+    let text = std::fs::read(file).map_err(|error| format!("{}: {error}", file.display()))?;
+    let hash = digest_hex(&text);
+    if hash != sha256 {
+        return Err(format!("{} hashes to {hash}, not {sha256}; review it again and name the hash it has", file.display()));
+    }
+    let repository = read::repository(owner, name, false)?;
+    let reference = format!("{owner}/{name}#{number}");
+    let issue = repository.issues.iter().find(|issue| issue.number == number).ok_or_else(|| format!("{reference} is not an open issue"))?;
+    let reviewed = reviewed(file, &reference)?;
+    let claimed = live_claims(&format!("{name}#{number}"), issue.created)?;
+    let parent = Parent { reference: &reference, body: &issue.body, labels: &issue.labels, children: issue.children };
+    let titles: BTreeSet<String> = repository.issues.iter().map(|issue| manifest::title_key(&issue.title)).collect();
+    let scan = scan(repository.private);
+    let mut manifest = manifest::draft(&parent, &claimed, &reviewed);
+    manifest.check(&parent, &Tracker { titles: &titles, labels: repository.labels.as_ref(), scan: &*scan });
+    if !manifest.passes() {
+        report(&manifest);
+        return Ok(false);
+    }
+    let mut record = create::Record::open(&file.with_extension("created.json"))?;
+    let mut github = create::Github { repo: format!("{owner}/{name}"), parent: number };
+    let outcome = create::convert(&mut github, &issue.body, &manifest.rows, &mut record, &home().join(MANIFESTS_UNDER_HOME), &format!("{name}-{number}"))?;
+    println!("{reference}: {} issues created; parent body {}", outcome.created, if outcome.rewritten { "rewritten" } else { "unchanged" });
+    Ok(true)
 }
 
 fn closed_boxes(owner: &str, name: &str) -> Result<(), String> {
