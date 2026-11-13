@@ -16,6 +16,7 @@ pub mod hold;
 pub mod landed_copy;
 pub mod on_main;
 pub mod lane_gates;
+mod cargo_manifest;
 pub mod rebase_compile;
 pub mod incidents;
 pub mod jobs;

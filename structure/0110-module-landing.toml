@@ -2,7 +2,7 @@
 name = "landing"
 paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/land/**", "crates/north-landing-gates/src/follows_release.rs", "crates/north-landing-gates/src/issue_box_lint.rs", "crates/north-landing-gates/src/land_abandon.rs", "crates/north-landing-gates/src/land_abandon/**", "crates/north-landing-gates/src/landing/**", "crates/north-land-scans/src/**", "crates/north-land-checks/src/**", "crates/north-land-watch/src/**", "crates/north-lander/src/**", "crates/north-check-environment/src/**", "crates/north-land-sandbox/src/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
-may_use = ["strategy_types", "coverage", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "concerns", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host", "graph_loops", "git_locks", "platform.records", "runtime_follow", "build_system", "buck"]
+may_use = ["strategy_types", "cargo_manifest", "coverage", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "concerns", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host", "graph_loops", "git_locks", "platform.records", "runtime_follow", "build_system", "buck"]
 
 [[module.limit]]
 commit = "2cd072a294"

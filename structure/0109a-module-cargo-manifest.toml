@@ -1,0 +1,6 @@
+[[module]]
+name = "cargo_manifest"
+paths = ["crates/north-landing/src/land/cargo_manifest.rs"]
+responsibility = "Read a rebased tree's Cargo manifest with cargo run from the repository's main checkout, so nothing the lane configures runs, and name what cargo cannot read."
+may_use = ["platform.git", "platform.process"]
+
