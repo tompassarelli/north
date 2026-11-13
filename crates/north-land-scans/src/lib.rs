@@ -129,10 +129,7 @@ fn ranged(directory: &Path, name: &str, range: &str) -> Option<u8> {
 fn ranged_checks(directory: &Path, name: &str, range: &str) -> Option<u8> {
     let mut out = std::io::stdout();
     Some(match name {
-        "test-integrity" => match test_integrity::scan(directory, range, &mut out) {
-            0 => incident_guard::scan(directory, range, &mut out),
-            refused => refused,
-        },
+        "test-integrity" => test_integrity::scan(directory, range, &mut out),
         "incident-test" => incident_guard::scan(directory, range, &mut out),
         "test-admission" => test_admission::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "policy-sweep" => policy::sweep(directory, range, &mut out),

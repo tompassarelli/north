@@ -1,5 +1,5 @@
-//! Which landing refusals stand (north#729). A broken build, clippy, failing tests, a secret, a privacy leak or a test the
-//! repository's test policy does not admit always refuses a lane; every other landing gate follows `landing_refusals`
+//! Which landing refusals stand (north#729). A broken build, clippy, failing tests, a secret, a privacy leak, a test the
+//! repository's test policy does not admit or a bug fix with no test always refuses a lane; every other landing gate follows `landing_refusals`
 //! in harness/defaults.toml. In shadow the gate's would-be refusal is appended to [`LOG`] under the state home and the lane lands; `north land gate-stats` prints that
 //! log beside the real refusals, so a gate earns refusal back with a would-be refusal that names a real fault.
 use std::fs::{self, OpenOptions};
@@ -25,11 +25,12 @@ pub fn standing(gate: &str, outcome: Result<(), String>) -> Result<(), String> {
 }
 
 pub const TEST_ADMISSION: &str = "test admission";
+pub const INCIDENT_TEST: &str = "incident test";
 pub const REBASE_COMPILE: &str = "rebase compile";
 
-/// Whether `gates`, one gate's label or several joined by `, `, names a gate that refuses whatever `landing_refusals` says: test admission, whose refusals are the repository's test policy (north#1048), and the compile of a lane rebased onto a moved main, which is a broken build (north#1036).
+/// Whether `gates`, one gate's label or several joined by `, `, names a gate that refuses whatever `landing_refusals` says: test admission, whose refusals are the repository's test policy (north#1048), the incident test, whose shadow let a bug lane with no test land (north#1329), and the compile of a lane rebased onto a moved main, which is a broken build (north#1036).
 pub fn always_refuses(gates: &str) -> bool {
-    gates.split(", ").any(|gate| gate == TEST_ADMISSION || gate == REBASE_COMPILE)
+    gates.split(", ").any(|gate| gate == TEST_ADMISSION || gate == INCIDENT_TEST || gate == REBASE_COMPILE)
 }
 
 /// The lane a gate judged and the place it judged it: `enqueue`, `pick` or `candidate`.

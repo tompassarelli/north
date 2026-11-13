@@ -2,11 +2,12 @@ use std::collections::HashSet;
 
 use super::{Destination, Gate, GateFacts, SecretScannerMissing, plan};
 
-const SCANS: [&str; 11] = [
+const SCANS: [&str; 12] = [
     "dependency gate",
     "native item reference",
     "tool removal",
     "test integrity",
+    "incident test",
     "test admission",
     "policy sweep",
     "document owners",

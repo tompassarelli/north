@@ -12,7 +12,7 @@ use north_base::foundation::exit::NO_VERDICT;
 use north_landing::land::lander::state_home;
 use north_landing::land::landing_refusals;
 
-const SCANS: [Gate; 10] = [
+const SCANS: [Gate; 11] = [
     Gate::Language,
     Gate::NativeRef,
     Gate::Secrets,
@@ -21,6 +21,7 @@ const SCANS: [Gate; 10] = [
     Gate::DependencyGate,
     Gate::ToolRemoval,
     Gate::TestIntegrity,
+    Gate::IncidentTest,
     Gate::PolicySweep,
     Gate::StrategyReplay,
 ];

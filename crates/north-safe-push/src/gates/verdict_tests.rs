@@ -82,3 +82,17 @@ fn an_over_budget_added_test_is_refused_the_same_whether_finish_or_safe_push_han
     assert_eq!(lane.judged(state.path(), "policy sweep", Err("shadowed".to_owned())), Ok(()));
     assert_eq!(verdict(&standing(vec![(Gate::PolicySweep, Outcome::failed())], false)), Ok(()));
 }
+
+#[test]
+fn a_bug_lane_with_no_test_is_refused_in_shadow_through_finish_and_safe_push() {
+    use super::standing;
+    use north_landing::land::landing_refusals::Lane;
+
+    let detail = "safe-push: ✗ this lane fixes bug north#1041 but adds or changes no test".to_owned();
+    let state = tempfile::tempdir().unwrap();
+    let lane = Lane { at: "enqueue", root: "root", branch: "lane", head: "head" };
+
+    assert_eq!(lane.judged(state.path(), "incident test", Err(detail.clone())), Err(detail.clone()));
+    let through_safe_push = verdict(&standing(vec![(Gate::IncidentTest, Outcome::failed_with(detail.clone()))], false));
+    assert_eq!(through_safe_push.expect_err("refused").reason(), format!("1 blocking check(s) failed: incident test {detail}"));
+}

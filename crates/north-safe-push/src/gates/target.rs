@@ -98,6 +98,7 @@ fn range_scan(gate: Gate) -> &'static str {
     match gate {
         Gate::ToolRemoval => "tool-removal",
         Gate::TestIntegrity => "test-integrity",
+        Gate::IncidentTest => "incident-test",
         Gate::TestAdmission => "test-admission",
         Gate::PolicySweep => "policy-sweep",
         Gate::DocsOwners => "docs-owners",

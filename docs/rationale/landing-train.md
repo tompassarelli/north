@@ -940,8 +940,10 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   relanded-lane-rewritten-main, lane-already-on-main, rebase-context-only,
   stale-revert-before-land-checks, fresh-north-worktree, the two sync_dependencies blocks,
   train-deps.
-- **Incident test** (north#112). `north land scan test-integrity` also runs `incident-test`, so
-  every lander and per-lane check gets it with no bash change. A lane whose commit subject cites a
+- **Incident test** (north#112). `north land scan incident-test` is its own landing gate, `incident test`, which
+  refuses under `landing_refusals` shadow as well (north#1329): a bug lane with no test change and no
+  trailer was refused by the scan but landed, because the scan ran under the `test integrity` label
+  and that gate was in shadow. A lane whose commit subject cites a
   north issue labelled `bug` (`north#N`, or `Fixes #N` on north) and changes no test (a path
   the landing gates share as a test file, `scans/test_file.rs`: under tests/ or test/, or named `tests.*`,
   `*.test.*`, `*_test.*` or `*_tests.*`; or an added `#[test]`) is refused naming the issue. Test

@@ -153,11 +153,12 @@ impl Publisher<'_> {
     fn final_scans(&self, outgoing: &Outgoing, to: &str, range: &str) -> Vec<&'static str> {
         let branch = outgoing.identity.branch();
         let mut failed = Vec::new();
-        let checks: [(&[&str], &'static str); 11] = [
+        let checks: [(&[&str], &'static str); 12] = [
             (&["dep-gate", &format!("{}..{}", outgoing.base, outgoing.head)], "dependency gate"),
             (&["native-ref", "--range", range, "--", branch, to], "native item reference"),
             (&["tool-removal", range], "tool removal"),
             (&["test-integrity", range], "test integrity"),
+            (&["incident-test", range], "incident test"),
             (&["policy-sweep", range], "policy sweep"),
             (&["denylist", &outgoing.base, &outgoing.head, to], "deny-list scan"),
             (&["commit-email", range], "commit email"),
@@ -167,7 +168,7 @@ impl Publisher<'_> {
             (&["doc-links", range], "document links"),
         ];
         for (index, (arguments, label)) in checks.into_iter().enumerate() {
-            if index == 5 {
+            if index == 6 {
                 println!(
                     "safe-push: scanning {range} for secrets with betterleaks ({} -> origin {}@{})…",
                     outgoing.identity.branch_ref(),

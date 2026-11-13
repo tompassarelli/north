@@ -8,6 +8,7 @@ pub enum Gate {
     NativeRef,
     ToolRemoval,
     TestIntegrity,
+    IncidentTest,
     TestAdmission,
     PolicySweep,
     DocsOwners,
@@ -20,7 +21,7 @@ pub enum Gate {
 }
 
 impl Gate {
-    /// Whether the gate refuses while the others are in shadow: the land checks (build, clippy, tests), the pick itself, secrets, privacy (north#729) and test admission (north#1048).
+    /// Whether the gate refuses while the others are in shadow: the land checks (build, clippy, tests), the pick itself, secrets, privacy (north#729), test admission (north#1048) and the incident test (north#1329).
     pub fn always_refuses(self) -> bool {
         matches!(self, Self::LandChecks | Self::DroppedCommits | Self::Secrets | Self::Denylist | Self::CommitEmail | Self::NativeRef) || north_landing::land::landing_refusals::always_refuses(self.label())
     }
@@ -35,6 +36,7 @@ impl Gate {
             Self::NativeRef => "native item reference",
             Self::ToolRemoval => "tool removal",
             Self::TestIntegrity => "test integrity",
+            Self::IncidentTest => "incident test",
             Self::TestAdmission => "test admission",
             Self::PolicySweep => "policy sweep",
             Self::DocsOwners => "document owners",
@@ -89,6 +91,7 @@ pub fn plan(facts: &GateFacts) -> Result<Vec<Gate>, SecretScannerMissing> {
         Gate::NativeRef,
         Gate::ToolRemoval,
         Gate::TestIntegrity,
+        Gate::IncidentTest,
         Gate::TestAdmission,
         Gate::PolicySweep,
         Gate::DocsOwners,

@@ -116,9 +116,6 @@ fn incident_fix_needs_a_test() {
             "{subject}"
         );
     }
-    let integrity = fixture.scan_as("test-integrity", "");
-    assert_eq!(integrity.status, 1, "{}", integrity.stdout);
-    assert!(integrity.stdout.contains("bug north#7"), "{}", integrity.stdout);
     let asked = fixture.gh_calls();
     let cases: [&[(&str, &str)]; 6] = [
         &[("docs/drain.md", "Drains first.\n"), ("README.md", "drain\n")],
