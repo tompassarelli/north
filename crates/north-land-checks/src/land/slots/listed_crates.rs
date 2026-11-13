@@ -1,13 +1,13 @@
 //! `north land crate-tests -- COMMAND`: runs a land check's nextest line on the host that executes it. A host whose
-//! `[hosts.NAME] buck2_test_crates` lists crates runs the tests of each selected crate it lists through Buck2, one crate
-//! at a time, and the declared line for the rest of the selection (north#1115). Buck2 decides for a crate only when it
-//! says so plainly: its run passed and, in Buck2's own record of the run, the case runner of every target it passed
-//! counts at least one case run in all and none failed; its build failed; or its summary counts a failed test. That
-//! summary counts a target as one test however many cases it ran, so it never passes a crate alone (north#1299). On
-//! anything else the crate stays on the declared line, so Cargo tests it. The checks before a landing alone wrap
-//! their line in this, and key the verdict apart, so the run after a landing tests the landed tree with Cargo itself.
+//! `[hosts.NAME] buck2_test_crates` lists crates runs the tests of every selected crate it lists in one Buck2 run, and
+//! the declared line for the rest of the selection (north#1115). Buck2 fails the check when its build failed or its
+//! summary counts a failed test. It passes a crate only when its run passed and, in Buck2's own record of the run, the
+//! case runners of that crate's targets count at least one case run in all and none failed. That summary counts a
+//! target as one test however many cases it ran, so it never passes a crate alone (north#1299). Every other crate stays
+//! on the declared line, so Cargo tests it. The checks before a landing alone wrap their line in this, and key the
+//! verdict apart, so the run after a landing tests the landed tree with Cargo itself.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
@@ -29,9 +29,10 @@ pub const BEFORE_LANDING: (&str, &str) = ("NORTH_LAND_TEST", "buck2-before-landi
 
 #[derive(Debug, PartialEq, Eq)]
 enum Verdict {
-    Passed,
+    /// The run failed the tree.
     Failed,
-    Silent,
+    /// The crates Buck2 passed; the rest stay on the declared line.
+    Passed(BTreeSet<String>),
 }
 
 /// Whether `command` is the nextest line a host's `buck2_test_crates` may split.
@@ -55,21 +56,27 @@ fn counted(summary: &str, label: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
-/// The cases `runs` ran in all, when the record holds one passed run of a target of crate `name` with the case runner's summary for each of the `passed` targets.
-fn summed(name: &str, passed: Option<u64>, runs: Option<&[TestRun]>) -> Option<Cases> {
-    let runs = runs.filter(|runs| u64::try_from(runs.len()).ok() == passed)?;
-    let own = |run: &&TestRun| run.passed && north_build_system::crate_holds(name, &run.target);
-    runs.iter().try_fold(Cases::default(), |sum, run| Some(run).filter(own).and_then(TestRun::cases).map(|cases| Cases { run: sum.run + cases.run, failed: sum.failed + cases.failed }))
+/// The crates whose targets in `runs`, as `owner` assigns them, each passed and carry the case runner's summary, together counting at least one case run and none failed.
+fn passed(runs: &[TestRun], owner: &dyn Fn(&str) -> Option<String>) -> BTreeSet<String> {
+    let mut summed: BTreeMap<String, Option<Cases>> = BTreeMap::new();
+    for run in runs {
+        if let Some(name) = owner(&run.target) {
+            let sum = summed.entry(name).or_insert(Some(Cases::default()));
+            *sum = sum.zip(run.cases().filter(|_| run.passed)).map(|(sum, cases)| Cases { run: sum.run + cases.run, failed: sum.failed + cases.failed });
+        }
+    }
+    summed.into_iter().filter(|(_, cases)| cases.is_some_and(|cases| cases.run > 0 && cases.failed == 0)).map(|(name, _)| name).collect()
 }
 
-/// What Buck2 said of crate `name`, from its exit status, its summary line and its own record of the run.
-fn verdict(name: &str, status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>) -> Verdict {
+/// What Buck2 said of the crates of one run, from its exit status, its summary line and its own record of the run, whose targets `owner` assigns to the crates. The record counts only when it holds a run for each target the summary counts as passed.
+fn verdict(status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>, owner: &dyn Fn(&str) -> Option<String>) -> Verdict {
     let counts = |label| summary.and_then(|summary| counted(summary, label));
-    match (status, counts("Fail"), summed(name, counts("Pass"), runs)) {
-        (Some(0), Some(0), Some(Cases { run, failed: 0 })) if run > 0 => Verdict::Passed,
+    let recorded = runs.filter(|runs| u64::try_from(runs.len()).ok() == counts("Pass"));
+    match (status, counts("Fail"), recorded) {
+        (Some(0), Some(0), Some(runs)) => Verdict::Passed(passed(runs, owner)),
         (Some(BUILD_FAILED), ..) => Verdict::Failed,
         (Some(TESTS_FAILED), Some(failed), _) if failed > 0 => Verdict::Failed,
-        _ => Verdict::Silent,
+        _ => Verdict::Passed(BTreeSet::new()),
     }
 }
 
@@ -100,18 +107,14 @@ fn execute(declared: &str) -> u8 {
     let (base, selected) = (variable(BASE_ENV), variable(PACKAGES_ENV));
     let split = std::env::current_dir().ok().and_then(|root| north_build_system::crate_tests(&root, base.as_deref(), declared, PACKAGES_ENV, selected.as_deref()));
     let Some(split) = split else { return declared_line(declared, None) };
-    let mut passed = BTreeSet::new();
-    for (name, line) in &split.moved {
-        eprintln!("north land crate-tests: this host tests {name} with Buck2: {line}");
-        let (status, summary) = observed(line);
-        let record = north_build_system::test_record(line).filter(|_| status == Some(0)).and_then(|record| runs::read(&record).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of {name}: {why}")).ok());
-        match verdict(name, status, summary.as_deref(), record.as_deref()) {
-            Verdict::Passed => {
-                passed.insert(name.clone());
-            }
-            Verdict::Failed => return FAILED,
-            Verdict::Silent => eprintln!("north land crate-tests: Buck2 gave no verdict on {name} (exit {}, {} case(s) in its record), so the declared line tests it", status.map_or_else(|| "on a signal".to_owned(), |code| code.to_string()), record.iter().flatten().filter_map(TestRun::cases).map(|cases| cases.run).sum::<u64>()),
-        }
+    eprintln!("north land crate-tests: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
+    let (status, summary) = observed(&split.line);
+    let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| runs::read(&record).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of the run: {why}")).ok());
+    let owner = |label: &str| split.owner(label).map(str::to_owned);
+    let Verdict::Passed(passed) = verdict(status, summary.as_deref(), record.as_deref(), &owner) else { return FAILED };
+    for name in split.moved.iter().filter(|name| !passed.contains(*name)) {
+        let cases: u64 = record.iter().flatten().filter(|run| split.owner(&run.target) == Some(name.as_str())).filter_map(TestRun::cases).map(|cases| cases.run).sum();
+        eprintln!("north land crate-tests: Buck2 gave no verdict on {name} (exit {}, {cases} case(s) of it in its record), so the declared line tests it", status.map_or_else(|| "on a signal".to_owned(), |code| code.to_string()));
     }
     split.left(&passed).map_or(0, |packages| declared_line(declared, Some(&packages)))
 }

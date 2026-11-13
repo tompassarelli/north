@@ -122,12 +122,19 @@ enum Selected {
 
 /// What a host that moves listed crates' tests runs in place of the declared nextest line of `.safe-push` (north#1115).
 pub struct CrateTests {
-    /// Each crate that moves, with the Buck2 line that runs its tests alone.
-    pub moved: Vec<(String, String)>,
+    /// The crates that move.
+    pub moved: Vec<String>,
+    /// The Buck2 line that runs the tests of every crate that moves, in one invocation.
+    pub line: String,
     selected: Selected,
 }
 
 impl CrateTests {
+    /// The crate that moves whose package holds the Buck2 target `label`, as Buck2's record names it (`root//crates/NAME:TARGET`).
+    pub fn owner(&self, label: &str) -> Option<&str> {
+        self.moved.iter().map(String::as_str).find(|name| holds(name, label))
+    }
+
     /// The declared line's package selection for what stays on Cargo once Buck2 passed `passed`; `None` when nothing is left.
     pub fn left(&self, passed: &BTreeSet<String>) -> Option<String> {
         match &self.selected {
@@ -147,7 +154,7 @@ pub(crate) fn selects_packages(declared: &str, variable: &str) -> bool {
 }
 
 /// The split of `declared` for a run that selected `selected` (`--workspace` or `-p NAME ...`) on a host that lists
-/// `listed`. A crate moves when it is selected, listed and has targets in the tree; the root package never does. `None`
+/// `listed`. A crate moves when it is selected, listed and has targets in the tree, the root package too. `None`
 /// leaves the line as declared: another line, nothing to move, or a tree whose Buck2 configuration or target
 /// definitions are not `base`'s.
 pub(crate) fn crate_tests(root: &Path, base: &str, declared: &str, (variable, selected): (&str, &str), listed: &BTreeSet<String>) -> Option<CrateTests> {
@@ -161,20 +168,17 @@ pub(crate) fn crate_tests(root: &Path, base: &str, declared: &str, (variable, se
         ["--workspace"] => Selected::Workspace,
         words => Selected::Packages(words.chunks(2).map(|pair| if let ["-p", name] = pair { Some((*name).to_owned()) } else { None }).collect::<Option<Vec<String>>>()?),
     };
-    let targeted = |name: &&String| root.join("crates").join(name.as_str()).join("BUCK").is_file();
+    let targeted = |name: &&String| root.join(package(name).trim_start_matches("//").trim_end_matches(':')).join("BUCK").is_file();
     let names: Vec<String> = match &selected {
         Selected::Workspace => listed.iter().filter(targeted).cloned().collect(),
         Selected::Packages(names) => names.iter().filter(|name| listed.contains(*name)).filter(targeted).cloned().collect(),
     };
-    let line = |name: &str| {
-        let run = Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Package(name.to_owned()), resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None };
-        shell.split_whitespace().filter(|word| !word.starts_with(CARGO_SETTING)).map(str::to_owned).chain(side.tests(&run).words).collect::<Vec<_>>().join(" ")
-    };
-    let moved: Vec<(String, String)> = names.into_iter().map(|name| {
-        let line = line(&name);
-        (name, line)
-    }).collect();
-    (!moved.is_empty()).then_some(CrateTests { moved, selected })
+    if names.is_empty() {
+        return None;
+    }
+    let run = Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Packages(names.clone()), resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None };
+    let line = shell.split_whitespace().filter(|word| !word.starts_with(CARGO_SETTING)).map(str::to_owned).chain(side.tests(&run).words).collect::<Vec<_>>().join(" ");
+    Some(CrateTests { moved: names, line, selected })
 }
 
 /// The build file names the tree's own `.buckconfig` sets under `[buildfile]`, as path patterns; that file is `base`'s wherever this is asked.

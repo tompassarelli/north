@@ -92,7 +92,7 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     for name in ["crates/a", "crates/b", "crates/c"] {
         std::fs::create_dir_all(tree.path().join(name)).unwrap();
     }
-    for (name, text) in [(".buckconfig", "[cells]\n  root = .\n"), ("crates/a/BUCK", "a\n"), ("crates/b/BUCK", "b\n"), ("crates/c/lib.rs", "c\n")] {
+    for (name, text) in [(".buckconfig", "[cells]\n  root = .\n"), ("BUCK", "north\n"), ("crates/a/BUCK", "a\n"), ("crates/b/BUCK", "b\n"), ("crates/c/lib.rs", "c\n")] {
         std::fs::write(tree.path().join(name), text).unwrap();
     }
     for arguments in [&["init", "-q"][..], &["add", "."], &["commit", "-qm", "base"], &["tag", "base"]] {
@@ -101,19 +101,22 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     let listed = ["a", "c", "north"].map(str::to_owned).into_iter().collect();
     let none = std::collections::BTreeSet::new();
     let passed: std::collections::BTreeSet<String> = ["a".to_owned()].into();
-    let split = |declared: &str, selected: &str| super::crate_tests(tree.path(), "base", declared, ("SAFE_PUSH_LAND_PACKAGES", selected), &listed).map(|split| (split.moved.clone(), split.left(&passed), split.left(&none)));
-    let on_buck2 = vec![("a".to_owned(), "./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re //crates/a:".to_owned())];
+    let split = |declared: &str, selected: &str| super::crate_tests(tree.path(), "base", declared, ("SAFE_PUSH_LAND_PACKAGES", selected), &listed).map(|split| ((split.moved.clone(), split.line.clone()), split.left(&passed), split.left(&none)));
+    let on_buck2 = |names: &[&str], targets: &str| (names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>(), format!("./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re {targets}"));
     let flags = |flags: &str| Some(flags.to_owned());
 
-    assert_eq!(split(NEXTEST, "-p a -p b"), Some((on_buck2.clone(), flags("-p b"), flags("-p a -p b"))), "the listed crate moves, and stays on the declared line unless Buck2 passed it");
-    assert_eq!(split(NEXTEST, "-p a"), Some((on_buck2.clone(), None, flags("-p a"))), "nothing is left for the declared line once Buck2 passed every selected package");
+    assert_eq!(split(NEXTEST, "-p a -p b"), Some((on_buck2(&["a"], "//crates/a:"), flags("-p b"), flags("-p a -p b"))), "the listed crate moves, and stays on the declared line unless Buck2 passed it");
+    assert_eq!(split(NEXTEST, "-p a"), Some((on_buck2(&["a"], "//crates/a:"), None, flags("-p a"))), "nothing is left for the declared line once Buck2 passed every selected package");
     assert_eq!(
         split(NEXTEST, "--workspace"),
-        Some((on_buck2, flags("--workspace --exclude a"), flags("--workspace"))),
-        "a workspace run moves what is listed and has targets: neither the crate with no BUCK file nor the root package"
+        Some((on_buck2(&["a", "north"], "//crates/a: //:"), flags("--workspace --exclude a"), flags("--workspace"))),
+        "a workspace run moves what is listed and has targets, the root package too, in one Buck2 run: not the crate with no BUCK file"
     );
     assert_eq!(split(NEXTEST, "-p b -p c"), None, "a selection with nothing to move runs as declared");
     assert_eq!(split(CLIPPY, "-p a"), None, "the key moves the nextest line alone");
+    let moved = super::crate_tests(tree.path(), "base", NEXTEST, ("SAFE_PUSH_LAND_PACKAGES", "--workspace"), &listed).unwrap();
+    let owners = ["root//crates/a:a-unittest", "root//crates/ab:ab-unittest", "root//:north-unittest", "root//crates/b:b-unittest"].map(|label| moved.owner(label));
+    assert_eq!(owners, [Some("a"), None, Some("north"), None], "a target in Buck2's record belongs to the moved crate whose package holds it");
     std::fs::write(tree.path().join("crates/a/BUCK"), "a test that passes whatever the code does\n").unwrap();
     assert_eq!(split(NEXTEST, "-p a"), None, "a lane that changes a BUCK file is tested by Cargo: it could define its own passing test");
     git(&["checkout", "-q", "--", "crates/a/BUCK"]);
