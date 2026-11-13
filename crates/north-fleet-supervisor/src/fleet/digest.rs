@@ -93,16 +93,14 @@ impl Fleet {
             if parent.held_sent_ms.is_some_and(|sent| now_ms.saturating_sub(sent) < window) {
                 continue;
             }
-            let texts: Vec<String> = rows.iter().map(|row| row.text.chars().take(300).collect()).collect();
-            let causes = crate::fleet::alike::causes(&texts);
-            let lines: String = causes.iter().map(|cause| format!("\n- {cause}")).collect();
-            let text = format!("[north: {} held messages of {} causes since the last digest]{lines}", rows.len(), causes.len());
-            match self.send_signed(&Sender::fleet(), &recipient, &text, Delivery::Queued) {
-                Ok(_) => {
-                    parent.held_through_ms = rows.iter().map(|row| row.at_ms).max();
-                    parent.held_sent_ms = Some(now_ms);
-                }
-                Err(error) => eprintln!("fleet reaper: {recipient} was not sent its {} held messages: {}", rows.len(), error.user_message()),
+            let oldest = rows.iter().map(|row| row.at_ms).min().unwrap_or(now_ms);
+            let minutes = now_ms.saturating_sub(oldest).div_ceil(60_000).max(1);
+            let text = format!("[north: {} held messages since the last digest; read them with `north fleet held --since {minutes}m`]", rows.len());
+            let sent = self.send_signed(&Sender::fleet(), &recipient, &text, Delivery::Queued);
+            parent.held_through_ms = rows.iter().map(|row| row.at_ms).max();
+            parent.held_sent_ms = Some(now_ms);
+            if let Err(error) = sent {
+                eprintln!("fleet reaper: {recipient} was not sent its {} held messages, which stay in `north fleet held`: {}", rows.len(), error.user_message());
             }
         }
         if let Err(error) = self.keep_digest_book(&book) {
