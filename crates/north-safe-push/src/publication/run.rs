@@ -6,6 +6,7 @@ use north_base::foundation::step::{Refused, Step, cancelled, refuse};
 use crate::gates::run as gates;
 use crate::publication::outgoing::Outgoing;
 use crate::publication::plan;
+use crate::report::terminal::cancelled_line;
 use crate::request::{self, Arguments, Plan, USAGE};
 use crate::session::cancel::watch_for_cancel;
 use crate::session::identity::Identity;
@@ -246,7 +247,7 @@ impl Publisher<'_> {
         match refused {
             Refused(code) if self.shell.settings.raw_exit => code,
             Refused(130 | 143) => {
-                println!("safe-push: cancelled");
+                println!("{}", cancelled_line());
                 130
             }
             Refused(_) => {

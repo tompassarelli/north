@@ -6615,6 +6615,12 @@ cargo.rust_library(
     visibility = [],
 )
 
+alias(
+    name = "signal-hook",
+    actual = ":signal-hook-0.3",
+    visibility = ["PUBLIC"],
+)
+
 http_archive(
     name = "signal-hook-0.3.18.crate",
     sha256 = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2",
@@ -6648,8 +6654,11 @@ cargo.rust_library(
         "OUT_DIR": "$(location :signal-hook-0.3-build-script-run[out_dir])",
     },
     features = [
+        "cc",
         "channel",
         "default",
+        "extended-siginfo",
+        "extended-siginfo-raw",
         "iterator",
     ],
     rustc_flags = ["@$(location :signal-hook-0.3-build-script-run[rustc_flags])"],
@@ -6684,11 +6693,15 @@ cargo.rust_binary(
         "CARGO_PKG_VERSION_PRE": "",
     },
     features = [
+        "cc",
         "channel",
         "default",
+        "extended-siginfo",
+        "extended-siginfo-raw",
         "iterator",
     ],
     visibility = [],
+    deps = [":cc-1"],
 )
 
 buildscript_run(
@@ -6708,8 +6721,11 @@ buildscript_run(
         "CARGO_PKG_VERSION_PRE": "",
     },
     features = [
+        "cc",
         "channel",
         "default",
+        "extended-siginfo",
+        "extended-siginfo-raw",
         "iterator",
     ],
     version = "0.3.18",

@@ -28,11 +28,14 @@ fn sigint_cancels_a_dry_run_during_its_land_check_with_exit_130_no_false_landed_
     landing.configure(&lane, &[], &[&format!("printf '%s\\n' \"$$\" >'{}'; exec sleep 40", pid_file.display())], "cancel during the land check");
     let mut running = Run::new(&scratch, &lane, &["--dry-run", "--to", "main"]).start();
     assert!(wait_until(Duration::from_secs(60), || !read(&pid_file).is_empty()), "the land check never started: {}", running.output());
-    assert!(Command::new("kill").args(["-INT", &running.pid().to_string()]).status().unwrap().success());
+    let target = rustix::process::Pid::from_raw(running.pid().cast_signed()).expect("the run has no process id");
+    rustix::process::kill_process(target, rustix::process::Signal::Int).unwrap();
     let status = running.exits_within(Duration::from_secs(60));
     let output = running.output();
     assert_eq!(status.and_then(|status| status.code()), Some(130), "a dry run cancelled during its land check did not exit 130: {output}");
-    assert!(output.lines().any(|line| line == "safe-push: cancelled"), "missing cancelled receipt: {output}");
+    let sender = std::process::id();
+    let named = format!("safe-push: cancelled (SIGINT from pid {sender} uid ");
+    assert!(output.lines().any(|line| line.starts_with(named.as_str()) && line.ends_with(')')), "missing a cancelled receipt naming the sending pid {sender}: {output}");
     assert!(!output.lines().any(|line| line.starts_with("safe-push: landed ")), "a cancelled dry run falsely reported the base as landed: {output}");
     let check = read(&pid_file);
     let gone = wait_until(Duration::from_secs(5), || !alive(&check));

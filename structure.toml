@@ -747,7 +747,7 @@ may_use = ["foundation", "lifecycle"]
 name = "landing.safe_push.report"
 paths = ["crates/north-safe-push/src/report/**"]
 responsibility = "safe-push event lines, stage rows and the terminal receipt."
-may_use = ["foundation", "landing.safe_push.shell", "lifecycle", "build_inputs"]
+may_use = ["foundation", "landing.safe_push.shell", "lifecycle", "build_inputs", "crate-roots"]
 
 [[module]]
 name = "landing.safe_push.session"

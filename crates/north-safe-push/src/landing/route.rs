@@ -5,7 +5,7 @@ use north_base::platform::land_queue;
 
 use crate::landing::preflight;
 use crate::report::event::repository;
-use crate::report::terminal::promotion_note;
+use crate::report::terminal::{cancelled_line, promotion_note};
 use crate::report::timeline::Timeline;
 use crate::request::{self, Arguments, Plan};
 use crate::session::cancel::watch_for_cancel;
@@ -149,7 +149,7 @@ pub fn land(arguments: &[String], request: &Arguments, to: &str, shell: &Shell) 
     match code {
         _ if code == 0 || shell.settings.raw_exit => code,
         130 | 143 => {
-            println!("safe-push: cancelled");
+            println!("{}", cancelled_line());
             130
         }
         _ => {

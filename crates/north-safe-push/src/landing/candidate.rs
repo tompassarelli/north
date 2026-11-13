@@ -3,6 +3,7 @@ use north_base::foundation::step::Refused;
 use crate::gates::plan::Gate;
 use crate::gates::run::{Capacity, Gates, LandChecks, fetch_crates, sync_dependencies};
 use crate::gates::target::Target;
+use crate::report::terminal::cancelled_line;
 use crate::report::timeline::Timeline;
 use crate::session::cancel::watch_for_cancel;
 use crate::session::output_log::claim;
@@ -138,7 +139,7 @@ pub fn run(base: &str, shell: &Shell) -> u8 {
     let log = shell.processes.capture_output(&mut || observed = observe(shell, &timeline, &root, &origin_url, (base, &head), &claims.list));
     match observed {
         Observed::Cancelled => {
-            println!("safe-push: cancelled");
+            println!("{}", cancelled_line());
             130
         }
         Observed::Silent => 1,
@@ -184,7 +185,10 @@ fn observe(shell: &Shell, timeline: &Timeline, root: &str, origin_url: &str, (ba
     for gate in SCANS {
         match target.scan(gate) {
             Ok(()) => {}
-            Err(Refused(130 | 143)) => return Observed::Cancelled,
+            Err(Refused(130 | 143)) => {
+                println!("{}", cancelled_line());
+                return Observed::Cancelled;
+            }
             Err(Refused(69)) if gate == Gate::Language => return Observed::Silent,
             Err(Refused(NO_VERDICT)) => return Observed::Done(Facts { reached: Reached::ScansNoVerdict, ran: false }),
             Err(Refused(code)) if !enforcing && !gate.always_refuses() => {
@@ -205,7 +209,10 @@ fn land_checks(shell: &Shell, timeline: &Timeline, root: &str, (base, head): (&s
     let checked = Gates::new(shell, std::path::Path::new(root)).land_checks(&request);
     let status = match checked.step {
         Ok(()) => 0,
-        Err(Refused(130 | 143)) => return Observed::Cancelled,
+        Err(Refused(130 | 143)) => {
+            println!("{}", cancelled_line());
+            return Observed::Cancelled;
+        }
         Err(Refused(code)) => code,
     };
     for event in &checked.report.events {

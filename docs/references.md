@@ -356,6 +356,17 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Outcome: thiserror adopted for the hand-written error types; anyhow rejected, since it removes at most about 240
   lines and changes what every caller prints.
 
+- <a id="signal-hook"></a>**signal-hook 0.3.18** (vorner/signal-hook), https://github.com/vorner/signal-hook and
+  https://crates.io/crates/signal-hook/0.3.18; the Cargo.lock pin, whose checksum is the crates.io one; version
+  0.3.18 read 2026-11-13; license MIT or Apache-2.0 (`Cargo.toml`), compatible with north's MIT OR Apache-2.0.
+  Informed: the cancel receipt of [session/cancel.rs](../crates/north-safe-push/src/session/cancel.rs), whose
+  `SignalsInfo::<WithOrigin>` reads the sender of SIGINT, SIGTERM and SIGHUP so a cancelled landing names the pid,
+  uid and command of the process that signalled it (north#1247).
+  Outcome: adopted, replacing the tokio signal stream north-safe-push used, which carries no sender. Nothing of
+  signal-hook is copied into north; it reaches the crates.io registry at build time for `libc` and
+  `signal-hook-registry` and a C compiler through the `cc` dependency of its `extended-siginfo` feature, and at run
+  time it reads only the kernel's signal queue and `/proc/PID/comm` for the sender's command name.
+
 ### Nix
 
 <a id="nix-practice"></a>Each source informed [rationale/nix-current-practice.md](rationale/nix-current-practice.md)

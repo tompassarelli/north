@@ -9,6 +9,7 @@ use crate::session::cancel::watch_for_cancel;
 use crate::session::identity::{Identity, OriginRefs, remote_snapshot, state_changed};
 use crate::session::output_log::claim_output_log;
 use crate::gates::tag::{self as tag_scan, TagScan};
+use crate::report::terminal::cancelled_line;
 use crate::shell::Shell;
 use crate::shell::origin::{Hooks, Push};
 
@@ -52,7 +53,7 @@ fn terminal(outcome: Step, raw_exit: bool) -> u8 {
         Ok(()) => 0,
         Err(Refused(code)) if raw_exit => code,
         Err(Refused(130 | 143)) => {
-            println!("safe-push: cancelled");
+            println!("{}", cancelled_line());
             130
         }
         Err(Refused(_)) => {

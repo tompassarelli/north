@@ -1,4 +1,5 @@
 use north_base::build_inputs::{LIVE_FIX, promotion_slot, promotion_slot_sec, runtime_input};
+use north_base::foundation::step::cancel_origin;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Terminal {
@@ -15,7 +16,16 @@ pub fn receipt(terminal: &Terminal) -> (String, u8) {
             (format!("safe-push: {line}"), 0)
         }
         Terminal::Refused(reason) => (format!("safe-push: refused {reason}"), 1),
-        Terminal::Cancelled => ("safe-push: cancelled".to_owned(), 130),
+        Terminal::Cancelled => (cancelled_line(), 130),
+    }
+}
+
+/// The one place a cancel receipt is written: the bare line before any signal named its sender, else the signal with
+/// the pid, uid and command name of the process that sent it.
+pub fn cancelled_line() -> String {
+    match cancel_origin() {
+        Some(origin) => format!("safe-push: cancelled ({origin})"),
+        None => "safe-push: cancelled".to_owned(),
     }
 }
 

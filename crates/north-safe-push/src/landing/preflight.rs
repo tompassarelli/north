@@ -9,7 +9,7 @@ use crate::gates::target::Target;
 use crate::gates::verdict::{Outcome, Snapshot as Observed, standing, verdict};
 use crate::publication::outgoing::Outgoing;
 use crate::publication::plan::{Publication, publication};
-use crate::report::terminal::{Terminal, receipt};
+use crate::report::terminal::{Terminal, cancelled_line, receipt};
 use crate::report::timeline::Timeline;
 use crate::request::Arguments;
 use crate::session::cancel::watch_for_cancel;
@@ -261,7 +261,7 @@ impl Preflight<'_> {
             Stop::Refused(code) if raw => return code,
             Stop::Collected(_) if raw => return 1,
             Stop::Refused(130 | 143) => {
-                println!("safe-push: cancelled");
+                println!("{}", cancelled_line());
                 return 130;
             }
             Stop::Refused(_) => "safe-push did not land".to_owned(),
