@@ -1,6 +1,5 @@
-//! Each host's count of transient north processes older than the leak window across settle ticks, so settle calls a
-//! host broken when processes outlive their work and never when it is only busy: a leak raises the fewest such processes
-//! the host runs, while work that ends within the window never enters the count.
+//! Each host's transient north process count across settle ticks, so settle calls a host broken when the count leaks
+//! and never when it is only busy: a leak raises the fewest processes the host runs, work comes and goes above it.
 use super::layout::Layout;
 use super::probe::default_number;
 use serde::{Deserialize, Serialize};
@@ -47,7 +46,7 @@ impl Growth {
 
     pub(super) fn leak(&self, host: &str, now: u64) -> Option<String> {
         let floors = self.floors(host, now)?;
-        floors.windows(2).all(|pair| pair[1] > pair[0]).then(|| format!("transient north processes leak: the fewest running over {} min in each {} min of the last {} min rose every time", self.window / 60, self.width() / 60, self.window / 60))
+        floors.windows(2).all(|pair| pair[1] > pair[0]).then(|| format!("transient north processes leak: the fewest in each {} min of the last {} min rose every time", self.width() / 60, self.window / 60))
     }
 
     pub(super) fn save(&self) -> std::io::Result<()> {
@@ -98,6 +97,6 @@ mod tests {
             growth.note("whiterabbit", at, 3 + tick as u64);
         }
         assert_eq!(growth.floors("whiterabbit", end), Some(vec![4, 24, 44, 64, 84, 104]));
-        assert_eq!(growth.leak("whiterabbit", end).as_deref(), Some("transient north processes leak: the fewest running over 60 min in each 10 min of the last 60 min rose every time"));
+        assert_eq!(growth.leak("whiterabbit", end).as_deref(), Some("transient north processes leak: the fewest in each 10 min of the last 60 min rose every time"));
     }
 }

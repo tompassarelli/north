@@ -61,7 +61,6 @@ fn lander(argv: &[&str]) -> Option<String> {
 #[derive(Default)]
 pub(super) struct NorthProcesses {
     transient: u64,
-    outlasting: u64,
     residents: BTreeMap<Resident, u64>,
     sessions: BTreeSet<String>,
     watchdogs: BTreeMap<String, u64>,
@@ -73,10 +72,10 @@ impl NorthProcesses {
     fn read(section: &str, runtime: Option<&str>) -> Self {
         let mut processes = Self::default();
         let mut watchdogs: Vec<(&str, &str)> = Vec::new();
-        let mut transient: Vec<(&str, &str, u64)> = Vec::new();
+        let mut transient: Vec<(&str, &str)> = Vec::new();
         for line in section.lines().filter(|line| !line.is_empty()) {
-            let mut fields = line.splitn(4, '\t');
-            let (Some(pid), Some(parent), Some(age), Some(command)) = (fields.next(), fields.next(), fields.next(), fields.next()) else { continue };
+            let mut fields = line.splitn(3, '\t');
+            let (Some(pid), Some(parent), Some(command)) = (fields.next(), fields.next(), fields.next()) else { continue };
             let argv: Vec<&str> = command.split('\t').collect();
             match (Resident::of(&argv[1..]).filter(|_| promoted(argv[0])), &argv[1..]) {
                 (Some(resident), _) => {
@@ -88,15 +87,12 @@ impl NorthProcesses {
                 (None, ["fleet", "watchdog", session, ..]) => watchdogs.push((argv[0], session)),
                 (None, rest) => match lander(rest).filter(|_| promoted(argv[0])) {
                     Some(repo) => *processes.landers.entry(repo).or_default() += 1,
-                    None => transient.push((pid, parent, age.parse().unwrap_or(0))),
+                    None => transient.push((pid, parent)),
                 },
             }
         }
-        let pids: BTreeSet<&str> = transient.iter().map(|(pid, _, _)| *pid).collect();
-        let roots: Vec<u64> = transient.iter().filter(|(_, parent, _)| !pids.contains(parent)).map(|(_, _, age)| *age).collect();
-        let window = default_number("north_process_leak_window_sec") as u64;
-        processes.transient = roots.len() as u64;
-        processes.outlasting = roots.iter().filter(|age| **age >= window).count() as u64;
+        let pids: BTreeSet<&str> = transient.iter().map(|(pid, _)| *pid).collect();
+        processes.transient = transient.iter().filter(|(_, parent)| !pids.contains(parent)).count() as u64;
         for (program, session) in watchdogs {
             match processes.sessions.contains(session) && runtime.is_some_and(|runtime| runs(program, runtime)) {
                 true => *processes.watchdogs.entry(session.to_owned()).or_default() += 1,
@@ -110,8 +106,8 @@ impl NorthProcesses {
         self.residents.get(&resident).copied().unwrap_or_default()
     }
 
-    pub(super) fn outlasting(&self) -> u64 {
-        self.outlasting
+    pub(super) fn transient(&self) -> u64 {
+        self.transient
     }
 
     fn problems(&self) -> Vec<String> {
@@ -138,7 +134,6 @@ impl NorthProcesses {
         residents.insert(LANDER.to_owned(), json!(self.landers.values().sum::<u64>()));
         json!({
             "transient": self.transient,
-            "outlasting": self.outlasting,
             "liveSessions": self.sessions.len(),
             "residents": residents,
             "strayWatchdogs": self.stray,
@@ -372,9 +367,9 @@ fn facts_script() -> String {
          if [ \"$unit_state\" = activating ]; then sub=$(systemctl --user show -p SubState --value \"$unit\"); result=$(systemctl --user show -p Result --value \"$unit\"); changed=$(systemctl --user show -p StateChangeTimestampMonotonic --value \"$unit\"); timeout=$(systemctl --user show -p TimeoutStartUSec --value \"$unit\"); [ -n \"$changed\" ] || changed=0; age_us=$(( now_us - changed )); [ \"$age_us\" -ge 0 ] || age_us=0; timeout=${{timeout// /_}}; unit_state=\"$unit_state $sub $result $age_us $timeout\"; fi; echo \"$unit_state\"; done\n\
          mark pressure; cat \"$proc/pressure/cpu\"\n\
          mark load; cat \"$proc/loadavg\"; nproc\n\
-         mark north; up=$(cut -d. -f1 \"$proc/uptime\" 2>/dev/null || echo 0); hz=$(getconf CLK_TCK 2>/dev/null || echo 100); for pid in \"$proc\"/[0-9]*; do read -r name <\"$pid/comm\" 2>/dev/null && [ \"$name\" = north ] || continue; \
-         read -r -a stat <\"$pid/stat\" 2>/dev/null || stat=(); parent=${{stat[3]:-0}}; age=$(( up - ${{stat[21]:-0}} / hz )); \
-         mapfile -d '' -t argv <\"$pid/cmdline\" 2>/dev/null || continue; [ ${{#argv[@]}} -gt 0 ] || argv=(north); argv=(\"${{pid##*/}}\" \"$parent\" \"$age\" \"${{argv[@]//[$'\\t\\n']/ }}\"); (IFS=$'\\t'; echo \"${{argv[*]}}\"); done\n\
+         mark north; for pid in \"$proc\"/[0-9]*; do read -r name <\"$pid/comm\" 2>/dev/null && [ \"$name\" = north ] || continue; \
+         read -r _ _ _ parent _ <\"$pid/stat\" 2>/dev/null || parent=0; \
+         mapfile -d '' -t argv <\"$pid/cmdline\" 2>/dev/null || continue; [ ${{#argv[@]}} -gt 0 ] || argv=(north); argv=(\"${{pid##*/}}\" \"$parent\" \"${{argv[@]//[$'\\t\\n']/ }}\"); (IFS=$'\\t'; echo \"${{argv[*]}}\"); done\n\
          for settings in \"$HOME/.claude/settings.json\" \"$state\"/profiles/*/settings.json; do\n\
          case \"$settings\" in */profiles/stale-*) continue ;; esac\n\
          [ -f \"$settings\" ] && {{ mark \"settings $settings\"; cat \"$settings\"; }}\ndone\ntrue\n",

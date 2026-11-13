@@ -181,7 +181,7 @@ fn handed_to_live(layout: &Layout) -> Option<String> {
 fn judged_problems(facts: &probe::Facts, live: impl Fn(&str) -> bool, growth: &mut Growth) -> Vec<String> {
     let mut problems = probe::problems(facts, live);
     if let (Some(north), None, false) = (&facts.north, &facts.unreachable, probe::installing(facts)) {
-        growth.note(&facts.host, now(), north.outlasting());
+        growth.note(&facts.host, now(), north.transient());
         problems.extend(growth.leak(&facts.host, now()));
     }
     problems
