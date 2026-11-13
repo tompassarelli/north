@@ -2,11 +2,13 @@
 //! lane's candidate tree, a build host builds it, and the promotion installs it by the tree hash the landed commit
 //! carries instead of building the same tree again after the push. An artifact is kept under
 //! `runtime-artifacts/<tree>`: the runtime programs, the commit and the host they were built from and on, and when.
-//! One request runs at a time, only when no artifact for that tree is ready yet and no newer candidate asked since,
-//! and none builds on this host. Each artifact is about 86 MB and the newest three are kept.
+//! Each request is a file under `runtime-artifacts/requests` named by its tree. Whoever holds the one build lock drains
+//! them in order, every lander candidate oldest first and then a queued lane's hand-in, so a candidate waits behind at
+//! most one hand-in build and no candidate gives way to a newer one; none builds on this host. Each artifact is about
+//! 86 MB and the newest three are kept.
 use super::super::build_host;
 use super::super::failure::{Failure, failed};
-use super::super::layout::{self, BUILT_HERE, BUILT_ON, Layout, PROGRAMS};
+use super::super::layout::{self, BUILT_FROM, BUILT_HERE, BUILT_ON, Layout, PROGRAMS};
 use super::super::pin::{self, Event};
 use super::super::remote;
 use crate::land_offload::{self, BuildHost};
@@ -19,8 +21,41 @@ use std::time::Duration;
 
 const BUILT_AT: &str = "built-at";
 const BUILD_LOCK: &str = "build.lock";
-const NEWEST: &str = "newest";
+const REQUESTS: &str = "requests";
+const STALE_REQUEST: Duration = Duration::from_secs(24 * 60 * 60);
 const KEPT: usize = 3;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Kind {
+    Candidate,
+    HandIn,
+}
+
+impl Kind {
+    fn parse(word: &str) -> Option<Self> {
+        match word {
+            "candidate" => Some(Self::Candidate),
+            "hand-in" => Some(Self::HandIn),
+            _ => None,
+        }
+    }
+
+    fn word(self) -> &'static str {
+        match self {
+            Self::Candidate => "candidate",
+            Self::HandIn => "hand-in",
+        }
+    }
+}
+
+/// One request for the release north of `tree`, built from `commit`; `lane` names the queued lane a hand-in came from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Ask {
+    pub(super) tree: String,
+    pub(super) commit: String,
+    pub(super) kind: Kind,
+    pub(super) lane: String,
+}
 const SEND: Duration = Duration::from_secs(120);
 const AWAIT: Duration = Duration::from_secs(600);
 
@@ -74,15 +109,14 @@ fn building(layout: &Layout, tree: &str) -> bool {
     held && artifacts.join(format!("{tree}.part")).is_dir()
 }
 
-/// Whether a newer candidate asked for its tree after `tree`: only main's newest head is worth the one build slot, so
-/// a request that waited behind a build gives way to the newer one, which bounds the queue and the artifacts kept.
-fn superseded(artifacts: &Path, tree: &str) -> bool {
-    fs::read_to_string(artifacts.join(NEWEST)).is_ok_and(|newest| newest.trim() != tree)
-}
-
-/// Installs the artifact for `tree` as `runtime`, named for the landed commit `target`, when it is ready; whether it did.
-pub(super) fn adopt(layout: &Layout, runtime: &Path, tree: &str, target: &str) -> bool {
+/// Installs the artifact for `tree` as `runtime`, named for the landed commit `target`, when it is ready and the commit it was built from carries `tree`; whether it did.
+pub(super) fn adopt(layout: &Layout, runtime: &Path, tree: &str, target: &str, tree_of: impl Fn(&str) -> Option<String>) -> bool {
     let Some(artifact) = ready(layout, tree) else { return false };
+    let built_from = fs::read_to_string(artifact.join(BUILT_FROM)).ok().and_then(|stamp| stamp.split_whitespace().next().map(str::to_owned));
+    if built_from.and_then(|commit| tree_of(&commit)).as_deref() != Some(tree) {
+        println!("north runtime: the artifact kept for tree {} was built from a commit that does not carry it, so it is not installed", layout::short(tree));
+        return false;
+    }
     let installed = install(&artifact, runtime, target);
     if installed {
         let _ = fs::remove_dir_all(&artifact);
@@ -113,6 +147,8 @@ fn install(artifact: &Path, runtime: &Path, target: &str) -> bool {
 pub(in crate::runtime) fn run(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
     let mut tree = None;
     let mut commit = None;
+    let mut kind = Kind::Candidate;
+    let mut lane = String::new();
     let mut checkout = std::env::current_dir().map_err(|error| failed(64, format!("current directory: {error}")))?;
     let mut words = flags.iter();
     while let Some(flag) = words.next() {
@@ -121,56 +157,128 @@ pub(in crate::runtime) fn run(layout: &Layout, flags: &[String]) -> Result<(), F
             "--tree" => tree = Some(value),
             "--commit" => commit = Some(value),
             "--checkout" => checkout = PathBuf::from(value),
+            "--kind" => kind = Kind::parse(&value).ok_or_else(|| failed(64, format!("--kind {value}: candidate or hand-in")))?,
+            "--lane" => lane = value,
             other => return Err(failed(64, format!("unknown build-ahead flag {other}"))),
         }
     }
     let (Some(tree), Some(commit)) = (tree, commit) else {
         return Err(failed(64, "build-ahead needs --tree TREE --commit COMMIT"));
     };
-    build(layout, &checkout, &tree, &commit)
+    build(layout, &checkout, &Ask { tree, commit, kind, lane })
 }
 
-/// Has a build host build the release north for `tree` from `commit` in `checkout` and keeps it as the promotion's
-/// artifact; a tree another request already fills, or one ready already, costs nothing.
-pub(super) fn build(layout: &Layout, checkout: &Path, tree: &str, commit: &str) -> Result<(), Failure> {
-    request(layout, tree, commit, land_offload::build_host_rooms, |host, commit, into| {
+/// Has a build host build the release north `ask` names, with every request waiting before it, and keeps each as the
+/// promotion's artifact; a tree another request already fills, or one ready already, costs nothing.
+pub(super) fn build(layout: &Layout, checkout: &Path, ask: &Ask) -> Result<(), Failure> {
+    request(layout, ask, land_offload::build_host_rooms, |host, commit, into| {
         send(checkout, host, commit)?;
         build_host::build_on(host, commit, into)
     })
 }
 
-/// Keeps what the freest build host built for `tree`. This host settles the fleet while people work on it, so it
-/// never builds the release itself: with no build host answering, or the chosen one failing, nothing is kept and the
-/// promotion of the landing has a build host build it.
-fn request(layout: &Layout, tree: &str, commit: &str, hosts: impl FnOnce() -> Vec<BuildHost>, build_on: impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<(), Failure> {
-    if !layout::is_sha(tree) || !layout::is_sha(commit) {
+/// Files `ask` and drains every request in order under the one build lock. This host settles the fleet while people
+/// work on it, so it never builds the release itself: with no build host answering, or the chosen one failing, nothing
+/// is kept and the promotion of the landing has a build host build it.
+fn request(layout: &Layout, ask: &Ask, hosts: impl Fn() -> Vec<BuildHost>, mut build_on: impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<(), Failure> {
+    if !layout::is_sha(&ask.tree) || !layout::is_sha(&ask.commit) {
         return Err(failed(64, "build-ahead needs a tree hash and a commit hash"));
     }
     let artifacts = layout.artifacts();
-    fs::create_dir_all(&artifacts)?;
-    fs::write(artifacts.join(NEWEST), format!("{tree}\n"))?;
+    file(&artifacts, ask)?;
     let Some(_lock) = take(&artifacts.join(BUILD_LOCK)) else {
-        println!("north runtime build-ahead: could not lock {}; leaving tree {} to the next tick", artifacts.display(), layout::short(tree));
+        println!("north runtime build-ahead: could not lock {}; leaving tree {} to the next request", artifacts.display(), layout::short(&ask.tree));
         return Ok(());
     };
+    while let Some(next) = next(&artifacts) {
+        let _ = fs::remove_file(artifacts.join(REQUESTS).join(&next.tree));
+        built_ahead(layout, &artifacts, &next, &hosts, &mut build_on)?;
+    }
+    Ok(())
+}
+
+/// Writes the request file named by the validated tree hash alone; a hand-in replaces the older hand-in of its lane, so
+/// a lane has at most one build asked, and a hand-in for a tree a candidate asked for leaves the candidate first in line.
+fn file(artifacts: &Path, ask: &Ask) -> Result<(), Failure> {
+    let requests = artifacts.join(REQUESTS);
+    fs::create_dir_all(&requests)?;
+    if ask.kind == Kind::HandIn {
+        let filed = filed(artifacts);
+        for (tree, filed) in &filed {
+            if filed.kind == Kind::HandIn && filed.lane == ask.lane && *tree != ask.tree {
+                let _ = fs::remove_file(requests.join(tree));
+            }
+        }
+        if filed.iter().any(|(tree, filed)| *tree == ask.tree && filed.kind == Kind::Candidate) {
+            return Ok(());
+        }
+    }
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
+    let staged = requests.join(format!(".{}.new", ask.tree));
+    fs::write(&staged, format!("{}\n{}\n{at}\n{}\n", ask.kind.word(), ask.commit, ask.lane))?;
+    fs::rename(&staged, requests.join(&ask.tree))?;
+    Ok(())
+}
+
+/// Every request filed, with its tree, its ask and when it was filed; a file that is no request or is a day old is dropped.
+fn filed(artifacts: &Path) -> Vec<(String, Filed)> {
+    let requests = artifacts.join(REQUESTS);
+    let mut filed = Vec::new();
+    for entry in fs::read_dir(&requests).into_iter().flatten().flatten() {
+        let tree = entry.file_name().to_string_lossy().into_owned();
+        if !layout::is_sha(&tree) {
+            continue;
+        }
+        let stale = entry.metadata().ok().and_then(|metadata| metadata.modified().ok()).and_then(|modified| modified.elapsed().ok()).is_some_and(|age| age > STALE_REQUEST);
+        match fs::read_to_string(entry.path()).ok().and_then(|text| Filed::parse(&text)).filter(|_| !stale) {
+            Some(request) => filed.push((tree, request)),
+            None => {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+    filed
+}
+
+struct Filed {
+    kind: Kind,
+    commit: String,
+    at: u128,
+    lane: String,
+}
+
+impl Filed {
+    fn parse(text: &str) -> Option<Self> {
+        let mut lines = text.lines();
+        let kind = Kind::parse(lines.next()?)?;
+        let commit = lines.next().filter(|commit| layout::is_sha(commit))?.to_owned();
+        let at = lines.next()?.parse().ok()?;
+        Some(Self { kind, commit, at, lane: lines.next().unwrap_or_default().to_owned() })
+    }
+}
+
+/// The request built next: the oldest candidate, else the oldest hand-in, so a candidate waits behind at most the one
+/// hand-in build already running.
+fn next(artifacts: &Path) -> Option<Ask> {
+    filed(artifacts).into_iter().min_by_key(|(_, filed)| (filed.kind == Kind::HandIn, filed.at)).map(|(tree, filed)| Ask { tree, commit: filed.commit, kind: filed.kind, lane: filed.lane })
+}
+
+fn built_ahead(layout: &Layout, artifacts: &Path, ask: &Ask, hosts: &impl Fn() -> Vec<BuildHost>, build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<(), Failure> {
+    let (tree, commit) = (ask.tree.as_str(), ask.commit.as_str());
     if ready(layout, tree).is_some() {
         println!("north runtime build-ahead: tree {} is ready already", layout::short(tree));
-        return Ok(());
-    }
-    if superseded(&artifacts, tree) {
-        println!("north runtime build-ahead: a newer candidate asked after tree {}; building that one instead", layout::short(tree));
         return Ok(());
     }
     let staging = artifacts.join(format!("{tree}.part"));
     let _ = fs::remove_dir_all(&staging);
     fs::create_dir_all(&staging)?;
     let taken = staging.join(commit);
-    let kept = build_host::build(commit, &taken, hosts(), build_on).and_then(|built| keep(&taken, &artifacts.join(tree)).map(|()| built).map_err(|error| format!("could not keep the build under {}: {error}", artifacts.display())));
+    let kept = build_host::build(commit, &taken, hosts(), &mut *build_on).and_then(|built| keep(&taken, &artifacts.join(tree)).map(|()| built).map_err(|error| format!("could not keep the build under {}: {error}", artifacts.display())));
     let _ = fs::remove_dir_all(&staging);
     match kept {
         Ok(built) => {
-            prune(&artifacts);
-            println!("north runtime build-ahead: tree {} built on {} in {}s, ready for the promotion of {}", layout::short(tree), built.host, built.seconds, layout::short(commit));
+            prune(artifacts);
+            println!("north runtime build-ahead: tree {} built on {} in {}s, ready for the promotion of {} ({})", layout::short(tree), built.host, built.seconds, layout::short(commit), ask.kind.word());
         }
         Err(why) => println!("north runtime build-ahead: {why}; this host builds no release ahead, so the promotion of tree {} has a build host build it", layout::short(tree)),
     }
@@ -212,7 +320,7 @@ fn prune(artifacts: &Path) {
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()) && layout::is_sha(&entry.file_name().to_string_lossy()))
         .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
         .collect();
     kept.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
@@ -237,12 +345,13 @@ fn take(lock: &Path) -> Option<File> {
 mod tests {
     use super::*;
 
-    fn artifact(layout: &Layout, tree: &str) -> PathBuf {
+    fn artifact(layout: &Layout, tree: &str, commit: &str) -> PathBuf {
         let artifact = layout.artifacts().join(tree);
         fs::create_dir_all(&artifact).unwrap();
         for program in PROGRAMS {
             fs::write(artifact.join(program), format!("{program} for {tree}\n")).unwrap();
         }
+        layout::stamp(&artifact, commit).unwrap();
         artifact
     }
 
@@ -258,16 +367,20 @@ mod tests {
         git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a"]);
         let tree = tree_of(checkout.path(), "HEAD").unwrap();
         assert!(ready_for(&layout, checkout.path(), "HEAD").is_none(), "no artifact is read before one is kept");
-        artifact(&layout, &tree);
-        assert_eq!(ready_for(&layout, checkout.path(), "HEAD").as_deref(), Some(tree.as_str()), "the promotion finds the artifact by the tree its landed commit carries");
+        let head = String::from_utf8(std::process::Command::new("git").current_dir(checkout.path()).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_owned();
+        let carried = |commit: &str| tree_of(checkout.path(), commit).ok();
+        artifact(&layout, &tree, &"f".repeat(40));
         let runtime = layout.runtime(&"a".repeat(40));
-        assert!(super::adopt(&layout, &runtime, &tree, &"a".repeat(40)));
+        assert!(!super::adopt(&layout, &runtime, &tree, &"a".repeat(40), carried), "an artifact whose built-from commit does not carry the landed tree is never installed, whichever lane asked for it");
+        artifact(&layout, &tree, &head);
+        assert_eq!(ready_for(&layout, checkout.path(), "HEAD").as_deref(), Some(tree.as_str()), "the promotion finds the artifact by the tree its landed commit carries");
+        assert!(super::adopt(&layout, &runtime, &tree, &"a".repeat(40), carried));
         assert!(layout::has_programs(&runtime) && runtime.join(BUILT_HERE).is_file(), "the promotion installs the artifact as a whole runtime");
         assert!(pin::read(&layout.state).iter().any(|event| matches!(event, Event::ArtifactReady { sha, seconds: 0, .. } if sha == &"a".repeat(40))), "the promotion journals artifact-ready at 0 s");
         let journal = fs::read_to_string(layout.state.join(pin::JOURNAL)).unwrap();
         assert!(journal.contains("\"event\":\"artifact-ready\"") && journal.contains("\"seconds\":0"), "the ledger line is the one the box's jq reads");
         assert_eq!(layout::built_from_own_commit(&runtime), Ok(()), "the artifact's install is stamped for the landed commit");
-        assert!(!super::adopt(&layout, &layout.runtime(&"b".repeat(40)), &"c".repeat(40), &"b".repeat(40)), "a tree with no artifact builds as before");
+        assert!(!super::adopt(&layout, &layout.runtime(&"b".repeat(40)), &"c".repeat(40), &"b".repeat(40), carried), "a tree with no artifact builds as before");
     }
 
     fn host(name: &str, free_cpus: Option<f64>) -> BuildHost {
@@ -280,9 +393,11 @@ mod tests {
         let layout = Layout { state: state.path().to_path_buf() };
         let (tree, commit) = ("c".repeat(40), "d".repeat(40));
         let unbuilt = |_: &BuildHost, _: &str, _: &Path| -> Result<(), Failure> { panic!("no build host answered") };
-        assert!(request(&layout, &tree, &commit, || vec![host("cpx62", None), host("gex45", None)], unbuilt).is_ok(), "with no build host answering the request ends clean");
+        let ask = |tree: &str, commit: &str, kind, lane: &str| Ask { tree: tree.to_owned(), commit: commit.to_owned(), kind, lane: lane.to_owned() };
+        assert!(request(&layout, &ask(&tree, &commit, Kind::Candidate, ""), || vec![host("cpx62", None), host("gex45", None)], unbuilt).is_ok(), "with no build host answering the request ends clean");
         let left: Vec<_> = fs::read_dir(layout.artifacts()).unwrap().flatten().map(|entry| entry.file_name()).collect();
-        assert!(left.iter().all(|name| name == BUILD_LOCK || name == NEWEST), "and it built nothing here: the promotion has a build host build the tree");
+        assert!(left.iter().all(|name| name == BUILD_LOCK || name == REQUESTS), "and it built nothing here: the promotion has a build host build the tree");
+        assert!(filed(&layout.artifacts()).is_empty(), "a request that found no build host is drained, not left to block the next");
 
         let mut asked = Vec::new();
         let built = |host: &BuildHost, commit: &str, into: &Path| -> Result<(), Failure> {
@@ -293,13 +408,20 @@ mod tests {
             }
             Ok(layout::stamp(into, commit)?)
         };
-        request(&layout, &tree, &commit, || vec![host("gex45", Some(4.0)), host("cpx62", Some(12.0))], built).unwrap();
-        assert_eq!(asked, [format!("cpx62 {commit}")], "the candidate commit is built on the build host with the most free cores");
+        let artifacts = layout.artifacts();
+        let (older, lane_old, lane_new, newer) = ("1".repeat(40), "2".repeat(40), "3".repeat(40), "4".repeat(40));
+        file(&artifacts, &ask(&lane_old, &lane_old, Kind::HandIn, "f-lane")).unwrap();
+        file(&artifacts, &ask(&older, &older, Kind::Candidate, "")).unwrap();
+        file(&artifacts, &ask(&older, &older, Kind::HandIn, "g-lane")).unwrap();
+        file(&artifacts, &ask(&lane_new, &lane_new, Kind::HandIn, "f-lane")).unwrap();
+        file(&artifacts, &ask(&newer, &newer, Kind::Candidate, "")).unwrap();
+        request(&layout, &ask(&tree, &commit, Kind::Candidate, ""), || vec![host("gex45", Some(4.0)), host("cpx62", Some(12.0))], built).unwrap();
+        assert_eq!(asked, [&older, &newer, &commit, &lane_new].map(|built| format!("cpx62 {built}")), "every candidate builds, oldest first and none given way to a newer one, before the hand-in, and a lane's newer hand-in replaces its older one, and a hand-in of a candidate's tree leaves it a candidate; promotion on landing promotes each landed tree, so a dropped candidate was a build the promotion paid again");
         let artifact = ready(&layout, &tree).expect("the build host's release is kept by the candidate's tree");
         assert_eq!(fs::read_to_string(artifact.join("north")).unwrap(), "north built on cpx62");
         let landed = "e".repeat(40);
         let runtime = layout.runtime(&landed);
-        assert!(super::adopt(&layout, &runtime, &tree, &landed));
+        assert!(super::adopt(&layout, &runtime, &tree, &landed, |built: &str| (built == commit).then(|| tree.clone())));
         assert!(fs::read_to_string(runtime.join(BUILT_ON)).unwrap().starts_with("cpx62 ") && !runtime.join(BUILT_HERE).exists(), "the promoted runtime says which host built it");
         assert_eq!(layout::built_from_own_commit(&runtime), Ok(()));
     }

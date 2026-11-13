@@ -2037,3 +2037,11 @@ unit = "whether `north runtime order` ships every other host the settling host's
 source = "measured: a ship to the slowest deploy host sent 27.3 MB over a laptop upload of about 1.5 MB/s and took 28 s with four hosts shipping at once, after the settling host's canary of about 16 s (north#1036, 2026-11-13)"
 fallback = "an unreadable value reads as true"
 consumers = ["crates/north-runtime/src/runtime/order.rs"]
+
+[build_ahead_at_hand_in]
+value = true
+allowed = {}
+unit = "whether the lander asks a build host for the release north of each queued north lane that changes a runtime input, under the lane's own tree, while the lane waits in the queue; every candidate request builds before any hand-in request and a lane's newer hand-in replaces its older one; false asks only once the candidate is built"
+source = "measured: the promotion of a landed north commit waited about 67 s on a build-ahead asked about 4 s before the push, and a release build of north on the build host took 268 s (north#1036, 2026-11-13)"
+fallback = "any value but false reads as true"
+consumers = ["crates/north-lander/src/land/serve/ahead.rs"]
