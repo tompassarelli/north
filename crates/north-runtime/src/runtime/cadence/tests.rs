@@ -10,7 +10,7 @@ const FIX: &str = "4444444444444444444444444444444444444444";
 const AFTER: &str = "5555555555555555555555555555555555555555";
 const HOUR: i64 = 3600;
 const MIDNIGHT: i64 = 100 * 86_400;
-const SLOTS: Schedule = Schedule { spacing: 4 * HOUR, lead: 600 };
+const SLOTS: Schedule = Schedule { spacing: 4 * HOUR, lead: 600, on_landing: false };
 
 #[test]
 fn a_landing_between_slots_waits_for_the_slot_and_a_live_fix_promotes_at_once() {
@@ -30,6 +30,9 @@ fn a_landing_between_slots_waits_for_the_slot_and_a_live_fix_promotes_at_once() 
     landed(FIRST, MIDNIGHT + HOUR);
     assert_eq!(pass(MIDNIGHT + HOUR + 20, PINNED, FIRST, None), PINNED, "a landing between slots leaves the pin live");
     assert!(dues().is_empty() && built.borrow().is_empty(), "nothing is due or built between slots");
+    let elsewhere = tempfile::tempdir().unwrap();
+    let on_landing = Layout { state: elsewhere.path().to_owned() };
+    assert_eq!(scheduled(&on_landing, Schedule { on_landing: true, ..SLOTS }, MIDNIGHT + HOUR + 20, &Heads { pinned: PINNED, main: FIRST, fix: None }, &|_| false, &mut |_| {}), FIRST, "with runtime_promotion = landing a landing that changes a runtime input is promoted at once, with no Live-fix commit");
 
     assert_eq!(pass(MIDNIGHT + 4 * HOUR - 600, PINNED, FIRST, None), PINNED);
     assert_eq!(pass(MIDNIGHT + 4 * HOUR - 580, PINNED, FIRST, None), PINNED);

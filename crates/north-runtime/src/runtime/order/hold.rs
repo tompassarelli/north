@@ -1,4 +1,6 @@
 use super::super::failure::{Failure, failed};
+use super::super::layout::Layout;
+use super::PIN;
 use super::super::remote::output;
 use std::process::Command;
 use std::time::Duration;
@@ -27,6 +29,17 @@ pub(super) fn release() -> Result<Released, Failure> {
         println!("north runtime order: stopped {UNIT} for the promotion; it is started again after");
     }
     Ok(Released(was))
+}
+
+/// With runtime_promotion = landing every later landing promotes on its own, so the order leaves the unit stopped and clears the hand pin it held the promotion lock for; says the unit was not started again.
+pub(super) fn lift(layout: &Layout) -> Result<bool, Failure> {
+    let pin = layout.state.join(PIN);
+    match std::fs::remove_file(&pin) {
+        Ok(()) => println!("north runtime order: cleared the hand pin {} and left {UNIT} stopped; every later landing that changes a runtime input promotes on its own", pin.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(failed(1, format!("the hand pin {} was not cleared: {error}", pin.display()))),
+    }
+    Ok(false)
 }
 
 /// Says whether the unit was started again, which queues it on the promotion lock the order still holds.

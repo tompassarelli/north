@@ -1,3 +1,4 @@
+use super::cadence;
 use super::canary;
 use super::deploy;
 use super::failure::{Failure, failed};
@@ -60,7 +61,10 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> 
     let order = Order::cleared(sha, reason, orderer(), |sha| screen.order(sha, &promoted, review_hold::now()))?;
     let others: Vec<Elsewhere> = kept.iter().map(|destination| Elsewhere { layout, shell: Shell::Ssh(destination.clone()) }).collect();
     let others: Vec<&dyn Host> = others.iter().map(|other| other as &dyn Host).collect();
-    run(layout, &order, &here, &others, &left_out, hold::release, hold::restore)
+    match cadence::promotes_on_landing() {
+        true => run(layout, &order, &here, &others, &left_out, hold::release, |_| hold::lift(layout)),
+        false => run(layout, &order, &here, &others, &left_out, hold::release, hold::restore),
+    }
 }
 
 fn leave_out(deployment: &land_offload::Deployment, except: &[String], here: &str) -> Result<(Vec<String>, Vec<String>), Failure> {

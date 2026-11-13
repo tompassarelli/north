@@ -904,6 +904,14 @@ source = "tom: the pinned runtime is promoted at most 6 times a day with a fast 
 fallback = "none: the schedule is read on every pass"
 consumers = ["crates/north-runtime/src/runtime/cadence.rs", "crates/north-runtime/src/runtime/lag/page.rs"]
 
+[runtime_promotion]
+value = "landing"
+allowed = { one_of = ["landing", "slot"] }
+unit = "landing: on the host that settles the fleet, a landing that changes a runtime input is promoted at once, as a Live-fix landing is, and its after-landing run is the backtest (a red run is reverted and the revert promoted the same way), and `north runtime order` clears the hand pin and leaves north-stable-hold.service stopped after its promotion; slot: such a landing waits for the next runtime_promotion_slot_sec slot unless its commit carries Live-fix"
+source = "north#1022 (2026-11-13): the owner directed that a landing changing a runtime input goes live at once, with its after-landing run as the backtest"
+fallback = "any value but slot reads as landing"
+consumers = ["crates/north-runtime/src/runtime/cadence.rs", "crates/north-runtime/src/runtime/order.rs"]
+
 [runtime_slot_build_lead_sec]
 value = 600
 allowed = { min = 0, max = 3600 }

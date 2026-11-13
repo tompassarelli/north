@@ -3,21 +3,25 @@ use super::pin::{self, Ahead, Event, Outcome, Reason};
 use super::probe;
 use crate::platform::process;
 use north_base::build_inputs::{live_fix, promotion_slot};
+use north_base::platform::harness::{DEFAULTS, document};
 use std::fs;
 use std::path::Path;
 
 const DAY: i64 = 86_400;
 const BUILT_FOR: &str = "runtime-slot-built";
+const PROMOTION: &str = "runtime_promotion";
+const SLOT: &str = "slot";
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Schedule {
     pub(super) spacing: i64,
     pub(super) lead: i64,
+    pub(super) on_landing: bool,
 }
 
 impl Schedule {
     fn declared() -> Self {
-        Self { spacing: probe::default_number("runtime_promotion_slot_sec") as i64, lead: probe::default_number("runtime_slot_build_lead_sec") as i64 }
+        Self { spacing: probe::default_number("runtime_promotion_slot_sec") as i64, lead: probe::default_number("runtime_slot_build_lead_sec") as i64, on_landing: document(DEFAULTS)[PROMOTION]["value"].as_str() != Some(SLOT) }
     }
 
     fn slot(self, now: i64) -> i64 {
@@ -39,6 +43,10 @@ impl Schedule {
         }
         slot
     }
+}
+
+pub(super) fn promotes_on_landing() -> bool {
+    Schedule::declared().on_landing
 }
 
 pub(super) fn promotion_slot_sec() -> i64 {
@@ -99,11 +107,12 @@ fn scheduled(layout: &Layout, schedule: Schedule, now: i64, heads: &Heads, ready
         println!("north runtime pinned: {} stays live; {} waits for the {} slot or a Live-fix landing", layout::short(heads.pinned), layout::short(heads.main), clock(slot));
         heads.pinned.to_owned()
     };
-    match call(schedule, &events, now, heads.fix) {
+    let fix = heads.fix.or(schedule.on_landing.then_some(heads.main));
+    match call(schedule, &events, now, fix) {
         Call::Open(reason, at) => {
             let target = aim(&events, reason, heads.main, ready);
             let sha = match reason {
-                Reason::FastPath => heads.fix.unwrap_or(heads.main),
+                Reason::FastPath => fix.unwrap_or(heads.main),
                 Reason::Slot => target.as_str(),
             };
             pin::note(layout, &Event::Due { sha: sha.to_owned(), reason, at });

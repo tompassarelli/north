@@ -145,8 +145,13 @@ fn an_ordered_promotion_of_a_landed_commit_runs_the_canary_then_goes_live_on_the
     let (settling, builder) = (host("whiterabbit", None), host("gex45", Some("depbox")));
     let order = Order { sha: NEW.to_owned(), reason: "the lander cannot take a landing".to_owned(), orderer: "f-promote-order".to_owned() };
 
-    let refused = run(&layout, &order, &settling, &[&builder], &["nexus".to_owned()], || Ok(()), |()| Ok(false)).unwrap_err();
+    let hand_pin = layout.state.join(super::PIN);
+    fs::create_dir_all(hand_pin.parent().unwrap()).unwrap();
+    fs::write(&hand_pin, format!("{OLD}\n")).unwrap();
 
+    let refused = run(&layout, &order, &settling, &[&builder], &["nexus".to_owned()], || Ok(()), |()| super::hold::lift(&layout)).unwrap_err();
+
+    assert!(!hand_pin.exists(), "with runtime_promotion = landing the order clears the hand pin and leaves north-stable-hold stopped, so later landings promote on their own");
     assert!(refused.message.contains("gex45 stays on its old runtime") && refused.message.contains("depbox"), "{}", refused.message);
     let steps = steps.lock().unwrap();
     let position = |what: &str| steps.iter().position(|step| step == what).unwrap_or_else(|| panic!("{what} never ran: {steps:?}"));
