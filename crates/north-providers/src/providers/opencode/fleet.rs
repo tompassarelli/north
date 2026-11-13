@@ -8,7 +8,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::attachments;
 use crate::fleet::install;
 use crate::fleet::prompt::{PromptInputs, render, seed_orders};
-use crate::fleet::model::{Account, Effort, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
+use crate::fleet::model::{Account, Effort, Entry, EntryKind, LaunchRequest, Machine, ProviderName, Quota, Status, Transcript};
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, LiveWindow, Opening, ROLE_ENV, Runtime, SESSION_ENV, WindowInbox, new_uuid};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
@@ -111,7 +111,7 @@ impl Runtime for Deepseek {
         accounts::discover(&self.provider(), state_root)
     }
 
-    fn account_on(&self, home: &Path, _policy: &Path, label: &str, machine: &str) -> NorthResult<Account> {
+    fn account_on(&self, home: &Path, _policy: &Path, label: &str, machine: &Machine) -> NorthResult<Account> {
         accounts::on_machine(&self.provider(), home, label, machine)
     }
 

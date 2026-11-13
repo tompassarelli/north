@@ -109,9 +109,9 @@ pub fn declared(path: &Path, home: &Path) -> Profiles {
 }
 
 /// The account `label` on `machine`; an api account takes the key file `machine` declares, which this host cannot read.
-pub fn on_machine(provider: &ProviderName, path: &Path, home: &Path, label: &str, machine: &str) -> NorthResult<Account> {
+pub fn on_machine(provider: &ProviderName, path: &Path, home: &Path, label: &str, machine: &Machine) -> NorthResult<Account> {
     let policy: DocumentMut = std::fs::read_to_string(path).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    let keyed = profiles(&policy, &open_grants(path, home), home, machine);
+    let keyed = profiles(&policy, &open_grants(path, home), home, &machine.name);
     let marks = home.join(".local/state/north/api-exhausted");
     let (api, spent) = api_accounts(provider, &marks, &keyed, |_: &Path| true);
     if let Some((account, _)) = api.into_iter().find(|(account, _)| account.label == label) {
@@ -122,18 +122,14 @@ pub fn on_machine(provider: &ProviderName, path: &Path, home: &Path, label: &str
     }
     let hosts = policy.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("profiles")).and_then(|profiles| profiles.get(label)).and_then(Item::as_table_like);
     let owners: Vec<&str> = hosts.into_iter().flat_map(|hosts| hosts.iter().map(|(host, _)| host)).collect();
-    let entry = hosts.and_then(|hosts| hosts.get(machine)).ok_or_else(|| match owners.as_slice() {
-        [] => NorthError::Usage(format!("no {} account named {label} is declared for {machine}", provider.label())),
-        owners => NorthError::Refused(format!("{}:{label} is declared for {}, not {machine}; launch on {} or another --account", provider.label(), owners.join(" and "), owners.join(" or "))),
+    let name = machine.name.as_str();
+    let entry = hosts.and_then(|hosts| hosts.get(name)).ok_or_else(|| match owners.as_slice() {
+        [] => NorthError::Usage(format!("no {} account named {label} is declared for {name}", provider.label())),
+        owners => NorthError::Refused(format!("{}:{label} is declared for {}, not {name}; launch on {} or another --account", provider.label(), owners.join(" and "), owners.join(" or "))),
     })?;
-    let root = session_root(&policy, machine, home).unwrap_or_else(|| home.to_path_buf());
+    let root = Machine::login_home(machine.session_login(), home).unwrap_or_else(|| home.to_path_buf());
     let path = |key: &str| entry.get(key).and_then(Item::as_str).map(|path| expand(&root, path));
     Ok(Account { provider: provider.clone(), label: label.to_owned(), home: path("path").unwrap_or_else(|| default_home(&root)), token_file: path("token_file"), api: None })
-}
-
-fn session_root(policy: &DocumentMut, machine: &str, home: &Path) -> Option<PathBuf> {
-    let login = policy.get("hosts")?.get(machine)?.get("agent_ssh")?.as_str()?;
-    Machine::login_home(login, home)
 }
 
 pub(super) fn default_home(home: &Path) -> PathBuf {

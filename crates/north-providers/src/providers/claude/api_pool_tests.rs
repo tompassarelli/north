@@ -1,5 +1,6 @@
-use super::{Org, Reading, declared, moved_to, next_subscription, open, ran_out, rejudge, settle, since, switch, today};
-use crate::fleet::model::SessionRecord;
+use super::{Org, Reading, declared, move_spent, moved_to, next_subscription, open, ran_out, rejudge, settle, since, switch, today};
+use crate::fleet::handover::{AccountReadings, Observed};
+use crate::fleet::model::{Machine, SessionRecord};
 use crate::credit::{Grant, launchable};
 use crate::fleet::model::Transcript;
 use crate::fleet::runtime::Runtime;
@@ -98,7 +99,7 @@ fn a_tick_keeps_an_org_open_and_its_sessions_on_it_whatever_its_counted_spend_un
         let proton = launchable(&[grant(200.0, "2099-12-31")], &[(today.clone(), spent)], &today);
         let reading = Reading { grants: [("p".to_owned(), proton), ("g".to_owned(), vec![grant(200.0, "2099-12-31")])].into(), next_credits: [("p".to_owned(), "2099-01-01".to_owned())].into(), today };
         let mut moved = Vec::new();
-        let lines = settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &str| None, |record, spent, to, _, failed, _| {
+        let lines = settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &Machine| None, |record, spent, to, _, failed, _| {
             moved.push((record.name.clone(), spent.to_owned(), to.to_owned(), failed));
             String::new()
         });
@@ -190,7 +191,7 @@ fn pool_tick(open: &[&str], subscription: Option<(String, Option<u64>)>, session
     let grants = |id: &str, listed: bool| (id.to_owned(), if listed { vec![grant(200.0, "2099-12-31")] } else { Vec::new() });
     let reading = Reading { grants: [grants("a", false), grants("p", open.contains(&"gmail"))].into(), next_credits: BTreeMap::new(), today };
     let mut moved = Vec::new();
-    settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &str| subscription.clone(), |record, _, to, _, failed, resumes| {
+    settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &Machine| subscription.clone(), |record, _, to, _, failed, resumes| {
         moved.push((record.name.clone(), to.to_owned(), failed, resumes));
         String::new()
     });
@@ -350,7 +351,49 @@ fn a_low_credit_turn_writes_the_providers_refusal_body_into_the_mark() {
     std::fs::write(home.path().join(".local/state/north/fleet/working/g1/stream.jsonl"), stream).unwrap();
     let today = today();
     let reading = Reading { grants: [("p".to_owned(), vec![grant(200.0, "2099-12-31")])].into(), next_credits: [("p".to_owned(), "2099-01-01".to_owned())].into(), today };
-    let lines = settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &str| None, |_, _, _, _, _, _| String::new());
+    let lines = settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &Machine| None, |_, _, _, _, _, _| String::new());
     let mark = std::fs::read_to_string(home.path().join(".local/state/north/api-exhausted/p")).unwrap();
     assert!(mark.contains("Your credit balance is too low to access the Anthropic API."), "{lines:?} {mark:?}");
+}
+
+struct Quiet;
+
+impl AccountReadings for Quiet {
+    fn observed(&self, _now_ms: u64) -> Observed {
+        Observed::default()
+    }
+}
+
+#[test]
+fn a_session_placed_before_its_host_set_an_agent_login_revives_and_settles_under_the_login_it_was_placed_with() {
+    use crate::fleet::registry::Fleet;
+    let home = tempfile::tempdir().unwrap();
+    let far = home.path().join("far.toml");
+    std::fs::write(&far, "[accounts.claude.profiles.a]\n\"far\" = { path = \"~/.claude-main\", token_file = \"~/a.token\" }\n[hosts.far]\nagent_ssh = \"agent@far\"\n").unwrap();
+    let placed: SessionRecord = serde_json::from_value(json!({
+        "name": "placed", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1,
+        "host_pid": null, "conversation": "c", "host_dir": home.path().join("placed"), "stream_offset": 0,
+        "machine": {"name": "far", "ssh": "far"}
+    }))
+    .unwrap();
+    let account = crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]).account(&home.path().join(".local/state/north"), home.path(), &far, &placed.relaunch_request()).unwrap();
+    assert_eq!(account.home, home.path().join(".claude-main"));
+    assert_eq!(account.token_file, Some(home.path().join("a.token")));
+
+    let here = crate::platform::host::name();
+    let policy = home.path().join("orchestration.toml");
+    std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"a\"\nkeys = {{ \"{here}\" = [\"/k/a\"] }}\n[hosts.\"{here}\"]\nagent_ssh = \"agent@{here}\"\n")).unwrap();
+    let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
+    refused_session(&fleet, home.path(), "n-placed", true, &refusal("n-placed"));
+    let dir = home.path().join(".local/state/north/fleet/n-placed");
+    let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
+    record["machine"] = json!({"name": here, "ssh": here});
+    std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
+
+    let lines = move_spent(&fleet, &Claude, &policy, home.path(), &Quiet);
+
+    assert_eq!(lines, [
+        "api:proton marked exhausted: n-placed's last turn ended on a credit balance too low",
+        "n-placed: api:proton ran out of credit and no other api org or subscription account is open, so it stays parked",
+    ]);
 }

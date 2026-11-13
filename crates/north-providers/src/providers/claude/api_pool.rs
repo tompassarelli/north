@@ -9,7 +9,7 @@ use crate::credit::{Grant, marks};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::handover::AccountReadings;
 use crate::fleet::limit::{park, recent, recent_within};
-use crate::fleet::model::{ApiKey, Delivery, Entry, EntryKind, Phase, SessionRecord, Status, Transcript};
+use crate::fleet::model::{ApiKey, Delivery, Entry, EntryKind, Machine, Phase, SessionRecord, Status, Transcript};
 use crate::fleet::runtime::Runtime;
 use crate::fleet::transcript::{StreamTail, stream_len, stream_path};
 use crate::fleet::records::write_record;
@@ -244,7 +244,7 @@ impl Reading {
 pub fn move_spent(fleet: &Fleet, runtime: &dyn Runtime, policy: &Path, home: &Path, readings: &dyn AccountReadings) -> Vec<String> {
     let reading = Reading::of(policy, &home.join(".local/state/north"));
     let observed = std::cell::OnceCell::new();
-    let subscription = |record: &SessionRecord, machine: &str| {
+    let subscription = |record: &SessionRecord, machine: &Machine| {
         let now = crate::fleet::runtime::now_ms();
         let labels: Vec<String> = fleet
             .accounts()
@@ -270,8 +270,8 @@ fn settle(
     runtime: &dyn Runtime,
     (policy, home): (&Path, &Path),
     reading: &Reading,
-    mut subscription: impl FnMut(&SessionRecord, &str) -> Option<(String, Option<u64>)>,
-    mut moving: impl FnMut(&SessionRecord, &str, &str, &str, bool, Option<u64>) -> String,
+    mut subscription: impl FnMut(&SessionRecord, &Machine) -> Option<(String, Option<u64>)>,
+    mut moving: impl FnMut(&SessionRecord, &str, &str, &Machine, bool, Option<u64>) -> String,
 ) -> Vec<String> {
     let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
     let Reading { grants, next_credits, today } = reading;
@@ -282,8 +282,8 @@ fn settle(
     let sessions = fleet.sessions().unwrap_or_default().into_iter().filter(|record| !matches!(record.phase(), Some(Phase::Stopped | Phase::Retired | Phase::Adopted)));
     for record in sessions.filter(|record| if record.ended() { recent_within(record, ENDED_RECENT) } else { recent(record) }) {
         let Some((_, name)) = record.account.split_once(':') else { continue };
-        let machine = record.machine.as_ref().map_or_else(crate::platform::host::name, |machine| machine.name.clone());
-        let orgs = declared(&document, grants, home, &machine);
+        let machine = record.machine.clone().unwrap_or_else(|| Machine { name: crate::platform::host::name(), ssh: String::new(), agent_ssh: None });
+        let orgs = declared(&document, grants, home, &machine.name);
         let Some(org) = orgs.iter().find(|org| org.name == name) else { continue };
         let Some(transcript) = on_account(fleet, runtime, &record) else { continue };
         let refusal = refusal(&transcript.entries);
@@ -320,7 +320,7 @@ fn marked_line<E: std::fmt::Display>(org: &Org, session: &str, marked: &Result<b
     }
 }
 
-fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, home, machine): (&str, &Path, &Path, &str), (failed, resumes): (bool, Option<u64>)) -> String {
+fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, home, machine): (&str, &Path, &Path, &Machine), (failed, resumes): (bool, Option<u64>)) -> String {
     let moved = || -> NorthResult<()> {
         super::accounts::on_machine(&record.provider, policy, home, to, machine)?;
         switch(fleet, record, to, |name| fleet.revive(name, None).map(drop))?;

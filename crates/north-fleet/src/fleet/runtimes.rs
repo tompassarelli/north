@@ -37,7 +37,7 @@ impl Runtimes {
 
     pub fn account(&self, state_root: &Path, home: &Path, policy: &Path, request: &LaunchRequest) -> NorthResult<Account> {
         match &request.machine {
-            Some(machine) => self.get(&request.provider)?.account_on(home, policy, &request.account, &machine.name),
+            Some(machine) => self.get(&request.provider)?.account_on(home, policy, &request.account, machine),
             None => self.roster(state_root, home, policy).account(&request.provider, &request.account),
         }
     }

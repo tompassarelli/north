@@ -48,7 +48,7 @@ impl Runtime for Claude {
         accounts::discover(&self.provider(), state_root, &accounts::declared(policy, home))
     }
 
-    fn account_on(&self, home: &Path, policy: &Path, label: &str, machine: &str) -> NorthResult<Account> {
+    fn account_on(&self, home: &Path, policy: &Path, label: &str, machine: &Machine) -> NorthResult<Account> {
         accounts::on_machine(&self.provider(), policy, home, label, machine)
     }
 

@@ -7,7 +7,7 @@ use crate::error::{NorthError, NorthResult};
 
 pub use north_fleet_store::runtime::{PROXY, ROLE_ENV, SESSION_ENV, binary, now_ms};
 use super::gates::Question;
-use super::model::{Account, Effort, LaunchRequest, ProviderName, Quota, Transcript};
+use super::model::{Account, Effort, LaunchRequest, Machine, ProviderName, Quota, Transcript};
 use super::roster::Roster;
 use super::turns::TurnSignal;
 
@@ -93,8 +93,8 @@ pub trait Runtime: Send + Sync {
         &[]
     }
     fn roster(&self, state_root: &Path, home: &Path, policy: &Path) -> Roster;
-    fn account_on(&self, _home: &Path, _policy: &Path, _label: &str, machine: &str) -> NorthResult<Account> {
-        Err(NorthError::Usage(format!("{} cannot run a session on {machine}", self.provider().label())))
+    fn account_on(&self, _home: &Path, _policy: &Path, _label: &str, machine: &Machine) -> NorthResult<Account> {
+        Err(NorthError::Usage(format!("{} cannot run a session on {}", self.provider().label(), machine.name)))
     }
     fn assign_conversation(&self) -> NorthResult<Option<String>>;
     fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec>;
