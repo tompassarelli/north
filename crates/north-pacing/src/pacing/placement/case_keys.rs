@@ -23,6 +23,7 @@ launches = true
 
 [accounts.claude]
 reserve = ["api:ops"]
+api_beside_plans = true
 
 [accounts.claude.plans]
 a = "max-5x"
@@ -50,6 +51,7 @@ const DECIDED: &[&str] = &[
     "accounts.claude.api_hold.since",
     "accounts.claude.api_hold.reason",
     "accounts.claude.reserve",
+    "accounts.claude.api_beside_plans",
 ];
 
 fn at<'a>(document: &'a DocumentMut, path: &str) -> Option<&'a Item> {

@@ -6,7 +6,7 @@ use super::gate::{self, Decision, Machine};
 use super::credit;
 use super::hosts::{self, Facts};
 use super::line_wait;
-use super::room::{Basis, Rank};
+use super::room::{self, Basis, Rank};
 use super::{local, strings};
 use crate::capacity::saturation::Saturation;
 use crate::capacity::{agent_load, laptop_auto, mode};
@@ -79,14 +79,14 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
         rank_by_headroom(&mut verdicts);
     }
     let fable_has_room = has_headroom(&verdicts);
-    verdicts.extend(case.grants.iter().map(|source| gate::grant_verdict(source, basis.operational(&source.account))));
+    verdicts.extend(case.grants.iter().map(|source| gate::grant_verdict(source, &basis)));
     let mut decision = gate::decide(&case.brief, &cfg, verdicts, credit.clone(), &machines, here, case.here.gaming);
     decision.family = Some(family);
     if coordinator && family == ModelFamily::Fable && !fable_has_room {
         let mut opus = gate::verdicts_of_for(&gate_value, &case.roster, &basis, Some(ModelFamily::Opus));
         rank_by_headroom(&mut opus);
         if opus.iter().any(gate::has_floor_headroom) {
-            opus.extend(case.grants.iter().map(|source| gate::grant_verdict(source, basis.operational(&source.account))));
+            opus.extend(case.grants.iter().map(|source| gate::grant_verdict(source, &basis)));
             decision = gate::decide(&case.brief, &cfg, opus, credit, &machines, here, case.here.gaming);
             decision.family = Some(ModelFamily::Opus);
             decision.machine_lines.push("no account has Fable headroom; the coordinator starts on Opus high".to_owned());
@@ -251,6 +251,7 @@ fn config(cfg: &DocumentMut, sha256: String) -> Config {
         plans: plans.into_iter().flat_map(|plans| plans.iter()).filter_map(|(label, plan)| Some((label.to_owned(), plan.as_str()?.to_owned()))).collect(),
         api_hold,
         reserve,
+        api_beside_plans: room::api_beside_plans(cfg),
     }
 }
 
@@ -311,6 +312,9 @@ fn document(config: &Config) -> DocumentMut {
     }
     if !config.reserve.is_empty() {
         claude.insert("reserve", array(&config.reserve));
+    }
+    if config.api_beside_plans {
+        claude.insert("api_beside_plans", value(true));
     }
     let mut accounts = Table::new();
     accounts.insert("claude", Item::Table(claude));
@@ -391,7 +395,7 @@ pub fn verdicts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
     let basis = Basis::new(&cfg, at);
     let mut verdicts = accounts(roster)?;
     let grants = if crate::spend::hold::declared(&cfg).is_some() { grants_left(at) } else { grant_sources(roster, at) };
-    verdicts.extend(grants.iter().map(|source| gate::grant_verdict(source, basis.operational(&source.account))));
+    verdicts.extend(grants.iter().map(|source| gate::grant_verdict(source, &basis)));
     let reserved = crate::spend::operational_reserve(&cfg).into_iter().filter(|account| keyed_here(roster, account) && !verdicts.iter().any(|verdict| &verdict.account == account));
     let reserved: Vec<_> = reserved.filter_map(|account| basis.operational(&account).map(|why| gate::reserve_verdict(&account, why))).collect();
     verdicts.extend(reserved);

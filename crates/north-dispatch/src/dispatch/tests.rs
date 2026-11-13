@@ -226,7 +226,7 @@ fn a_dispatcher_with_no_api_key_places_on_the_host_that_holds_one() {
     let (hosts, _) = fleet();
     let low = Room { five_hour: 90.0, week: 5.0, week_reset_h: 100.0 };
     let plans = vec![sized("claude:a", &["nexus"], MAX_5X, low), sized("claude:b", &["gex45"], MAX_5X, low)];
-    let policy: toml_edit::DocumentMut = "[accounts.claude.api_orgs.proton]\nid = \"org\"\nkeys = { nexus = [\"/run/secrets/key\"], gex45 = [\"/run/secrets/key\"] }\n".parse().unwrap();
+    let policy: toml_edit::DocumentMut = "[accounts.claude]\napi_beside_plans = true\n\n[accounts.claude.api_orgs.proton]\nid = \"org\"\nkeys = { nexus = [\"/run/secrets/key\"], gex45 = [\"/run/secrets/key\"] }\n".parse().unwrap();
     let source = north_strategy_types::placement::GrantSource { account: "claude:api:proton".into(), left_usd: 500.0, deadline_h: 200.0, urgent: true, line: String::new() };
     let grants = super::survey::grants(&policy, &crate::fleet::roster::Roster::default(), "nexus", vec![source]);
     assert_eq!(grants.iter().map(|grant| (grant.name.as_str(), grant.hosts.clone())).collect::<Vec<_>>(), [("claude:api:proton", vec!["gex45".to_owned()])], "nexus dispatch dropped every grant because its own roster holds no api key (north#723)");

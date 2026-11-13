@@ -67,7 +67,9 @@ earliest deadline first (`room::Rank`, north#723): first a source the fleet's me
 before its deadline, then the soonest deadline (a plan's weekly reset while its week has room, a grant's
 expiry), then week room per plan unit per hour to reset, less `spend_worker_charge` for each box this run
 has placed on it, then five-hour room. `north fleet accounts --plan` prints the order with each source's
-reason. Order never refuses.
+reason. Order never refuses. An API grant ranks behind every plan account, whatever its deadline or a plan's spent
+week, unless the owner sets `[accounts.claude] api_beside_plans = true`, which ranks grants beside the plan accounts
+by this same order (north#1054).
 
 **Agent-tool subagents** run inside their parent's session and lane, so they add no session. The spawn hook
 asks spend about the account the parent bills, and so meets the same two reasons.

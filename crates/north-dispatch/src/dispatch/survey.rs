@@ -193,10 +193,11 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
     found
 }
 
-/// Each API grant in `sources` as an account on the hosts the policy gives its key, ranked by its deadline;
+/// Each API grant in `sources` as an account on the hosts the policy gives its key, ranked by its deadline behind every plan account unless the owner put grants beside them;
 /// this host counts only when its own roster holds the key, so a dispatcher with no key still places on the hosts that do.
 pub(super) fn grants(cfg: &DocumentMut, roster: &Roster, here: &str, sources: Vec<GrantSource>) -> Vec<Account> {
     let reserved = spend::operational_reserve(cfg);
+    let beside_plans = crate::pacing::placement::room::api_beside_plans(cfg);
     let orgs = cfg.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs"));
     sources
         .into_iter()
@@ -207,7 +208,7 @@ pub(super) fn grants(cfg: &DocumentMut, roster: &Roster, here: &str, sources: Ve
             let here_keyed = keyed_here(roster, &source.account);
             let hosts: Vec<String> = keys.into_iter().flat_map(|keys| keys.iter().map(|(host, _)| host.to_owned())).filter(|host| host != here || here_keyed).collect();
             let room = Room { five_hour: 100.0, week: 100.0, week_reset_h: source.deadline_h };
-            (!hosts.is_empty()).then(|| Account { name: source.account, hosts, plan: PlanSize { five_hour: 1.0, week: 1.0 }, room, grant: Some(Rank::grant(source.deadline_h, source.urgent)) })
+            (!hosts.is_empty()).then(|| Account { name: source.account, hosts, plan: PlanSize { five_hour: 1.0, week: 1.0 }, room, grant: Some(Rank::grant(source.deadline_h, source.urgent, beside_plans)) })
         })
         .collect()
 }

@@ -99,6 +99,9 @@ pub struct Config {
     /// `[accounts.claude] reserve`: the accounts no worker may draw.
     #[serde(default)]
     pub reserve: Vec<String>,
+    /// `[accounts.claude] api_beside_plans`: the owner ranks API grants beside the plan accounts rather than behind every one.
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    pub api_beside_plans: bool,
 }
 
 /// The owner's hold on every API organization, as `[accounts.claude] api_hold` records it.

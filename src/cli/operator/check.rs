@@ -146,7 +146,7 @@ const SCHEMAS: &[Schema] = &[
             Table { path: "", keys: &[("accounts", Nested), ("tiers", Nested), ("on_request", Nested), ("mode", Any), ("dispatch_providers", Any), ("dispatch_hosts_excluded", Any), ("hosts", Any), ("dispatch", Any), ("placement", Any), ("projects", Any)], required: &[] },
             Table { path: "accounts", keys: &[("codex", Nested), ("claude", Nested)], required: &[] },
             Table { path: "accounts.codex", keys: &[("profiles", Any), ("target_left", Number), ("band", Any), ("thursday", Any), ("source", Text)], required: &[] },
-            Table { path: "accounts.claude", keys: &[("labels", Any), ("plans", Any), ("target_left", Number), ("reserve", Any), ("api_hold", Any), ("source", Text), ("profiles", Nested), ("api_keys", Nested), ("api_orgs", Nested)], required: &[] },
+            Table { path: "accounts.claude", keys: &[("labels", Any), ("plans", Any), ("target_left", Number), ("reserve", Any), ("api_hold", Any), ("api_beside_plans", Any), ("source", Text), ("profiles", Nested), ("api_keys", Nested), ("api_orgs", Nested)], required: &[] },
             Table { path: "accounts.claude.profiles", keys: &[("*", Any)], required: &[] },
             Table { path: "accounts.claude.api_keys", keys: &[("*", Any)], required: &[] },
             Table { path: "accounts.claude.api_orgs", keys: &[("*", Nested)], required: &[] },
