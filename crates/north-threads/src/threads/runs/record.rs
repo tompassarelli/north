@@ -188,6 +188,7 @@ impl Ingest<'_> {
         if let Some(text) = run.box_text() {
             self.db.execute("UPDATE runs SET box = coalesce(box, ?) WHERE agent = ?", params![text, run.agent()?])?;
         }
+        super::lane::record(self.db, &run.r, run.agent()?)?;
         if run.r.has("stop") {
             self.db.execute("UPDATE runs SET stop = ? WHERE agent = ?", params![run.r.get("stop").and_then(Value::as_str), run.agent()?])?;
         }

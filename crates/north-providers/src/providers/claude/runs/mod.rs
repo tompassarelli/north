@@ -18,6 +18,7 @@ use super::accounts::{config_file, default_home};
 mod activity;
 pub mod cloud;
 mod hook_events;
+mod lanes;
 pub mod landing;
 pub mod stop;
 pub mod row;
@@ -75,6 +76,7 @@ struct FleetSession {
     effort: Option<String>,
     claim_box: Option<String>,
     idle_compaction: Option<bool>,
+    lane: Option<PathBuf>,
 }
 
 struct Ledger {
@@ -113,7 +115,7 @@ fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<Vec<
     let main = MainIndex::parse(main);
     let repositories = landing::repositories();
     let pushes = landing::settle(landings::pushes(&landings::push_log()), &main, |push| landing::subject_in(&repositories, push));
-    let ledger = Ledger { policy, prices: Prices::parse(&CATALOG, &DEFAULTS), main, sessions: fleet_sessions(), pushes, now: Timestamp::now() };
+    let ledger = Ledger { policy, prices: Prices::parse(&CATALOG, &DEFAULTS), main, sessions: fleet_sessions(&lanes::of_sessions(&repositories)), pushes, now: Timestamp::now() };
     let explicit = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
     let roots = roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name());
     let recent = Timestamp::parse_loose(&options.since).unwrap_or_else(|| Timestamp::from_unix_millis(ledger.now.unix_millis() - 7 * 24 * 3_600_000)).unix_millis().max(0) as u64;
@@ -170,7 +172,7 @@ fn parse(arguments: &[String]) -> NorthResult<Options> {
     Ok(options)
 }
 
-fn fleet_sessions() -> HashMap<String, FleetSession> {
+fn fleet_sessions(lanes: &HashMap<String, PathBuf>) -> HashMap<String, FleetSession> {
     let north = north_program();
     let Ok(output) = Command::new(north).args(["fleet", "list", "--json", "--all"]).output() else { return HashMap::new() };
     let nodes: Vec<Value> = serde_json::from_slice(&output.stdout).ok().filter(|_| output.status.success()).unwrap_or_default();
@@ -185,7 +187,7 @@ fn fleet_sessions() -> HashMap<String, FleetSession> {
         let created = node["created_ms"].as_u64().unwrap_or(0);
         let later = nodes.iter().filter_map(|other| other["created_ms"].as_u64().filter(|at| other["name"] == node["name"] && *at > created));
         let relaunched_ms = later.min().unwrap_or(u64::MAX);
-        sessions.entry(conversation.to_owned()).or_insert(FleetSession { name, relaunched_ms, role, effort, claim_box, idle_compaction });
+        sessions.entry(conversation.to_owned()).or_insert(FleetSession { lane: lanes.get(&name).cloned(), name, relaunched_ms, role, effort, claim_box, idle_compaction });
     }
     sessions
 }
@@ -395,6 +397,7 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
         row.insert("fleet_name".into(), json!(session.name));
         row.insert("box".into(), json!(session.claim_box));
         row.insert("idle_compaction".into(), json!(session.idle_compaction.map(i32::from)));
+        row.extend(lanes::fields(session.lane.as_deref()));
     }
     if !matches!(row["status"].as_str(), Some("running" | "stale")) {
         if path.strip_prefix(&root.projects).is_ok_and(|rest| scratch_probe(&row, rest)) {

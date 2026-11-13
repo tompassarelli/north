@@ -1608,6 +1608,7 @@ dependencies = [
  "north-machine-model",
  "north-runtime-follow",
  "north-strategy-types",
+ "rusqlite",
  "rustix 0.38.44",
  "serde",
  "serde_json",

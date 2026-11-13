@@ -3,7 +3,9 @@ use rusqlite::Connection;
 
 use crate::threads::verb::Failure;
 
-const ADDED: [(&str, &str); 7] = [
+const ADDED: [(&str, &str); 9] = [
+    ("lane", "TEXT"),
+    ("lane_tip", "TEXT"),
     ("box", "TEXT"),
     ("idle_compaction", "INTEGER CHECK(idle_compaction IN (0, 1))"),
     ("fleet_name", "TEXT"),
@@ -22,5 +24,6 @@ pub fn ensure(db: &Connection) -> Result<(), Failure> {
         db.execute_batch(&format!("ALTER TABLE runs ADD COLUMN {column} {declared}"))?;
     }
     db.execute_batch("CREATE INDEX IF NOT EXISTS runs_fleet_name ON runs(fleet_name, started)")?;
+    db.execute_batch("CREATE INDEX IF NOT EXISTS runs_lane ON runs(lane, started)")?;
     Ok(())
 }
