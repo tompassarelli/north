@@ -16,6 +16,7 @@ use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 use crate::threads::ingest_lock;
 use withheld::{WILL_NOT_RUN, exited};
 
+mod usage_batch;
 mod withheld;
 
 const NOT_EXECUTABLE_STATUS: i32 = 126;
@@ -45,6 +46,13 @@ impl State for Phase {
 
 /// One spooled write, named by its file in the spool directory.
 pub struct SpooledWrite;
+
+/// Whether a flush sends the usage-only batches or leaves them queued for a later one.
+#[derive(Clone, Copy, PartialEq)]
+enum Usage {
+    Send,
+    Leave,
+}
 
 struct Sent {
     code: i32,
@@ -250,12 +258,12 @@ impl Client {
         }
     }
 
-    fn flush_spool(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>) -> NorthResult<Flush> {
+    fn flush_spool(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>, usage: Usage) -> NorthResult<Flush> {
         if !self.spool.is_dir() {
             return Ok(Flush::Clear);
         }
         let Some(_lock) = self.spool_lock()? else { return Ok(Flush::Busy) };
-        self.send_queued(dest, err, budget)
+        self.send_queued(dest, err, budget, usage)
     }
 
     /// Sends the spool after any flush already holding it, because that flush may have found the host down just before it came back; one waiter covers every call made while it waits, so a later one leaves.
@@ -272,13 +280,15 @@ impl Client {
         let lock = File::create(self.spool.join(".lock"))?;
         lock.lock()?;
         drop(next);
-        self.send_queued(dest, err, None)
+        self.send_queued(dest, err, None, Usage::Send)
     }
 
-    fn send_queued(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>) -> NorthResult<Flush> {
+    /// Sends the queued writes in order, holding every usage-only batch back to go last as one ingest, so a queued claim never waits behind usage rows.
+    fn send_queued(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>, usage: Usage) -> NorthResult<Flush> {
         let mut spool = self.spool_records()?;
         let started = Instant::now();
         let mut names = spool.queued((self.clock)())?;
+        let mut usage_names = Vec::new();
         let mut next = 0;
         while let Some(name) = names.get(next).cloned() {
             next += 1;
@@ -291,57 +301,125 @@ impl Client {
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => return Err(error.into()),
             };
+            if name.ends_with(".jsonl") && usage_batch::only_usage(&fs::read(&path)?) {
+                usage_names.push(name);
+                continue;
+            }
             if !spool.take(&name, (self.clock)())? {
                 return Ok(Flush::Busy);
             }
-            match self.send_and_settle(&mut spool, &name, &path, file, dest, err)? {
+            let sent = self.send_spooled(&path, file, dest, err);
+            match self.settle(&mut spool, std::slice::from_ref(&name), sent, err)? {
                 ControlFlow::Break(flush) => return Ok(flush),
                 ControlFlow::Continue(resent) => names.extend(resent),
+            }
+        }
+        if usage == Usage::Leave || usage_names.is_empty() {
+            return Ok(Flush::Clear);
+        }
+        if budget.is_some_and(|budget| started.elapsed() >= budget) {
+            return Ok(Flush::Busy);
+        }
+        self.send_usage(&mut spool, &usage_names, dest, err)
+    }
+
+    /// Sends the usage-only batches `names` as one ingest over one connection, a run of window rows that differ only in their reading time sent as its last row; when the ledger host refuses the whole for good, each batch goes again on its own, so it refuses only the one it still refuses.
+    fn send_usage(&self, spool: &mut Spool, names: &[String], dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
+        let mut batches = Vec::new();
+        for name in names {
+            match fs::read(self.spool.join(name)) {
+                Ok(data) => batches.push((name.clone(), data)),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        let taken: Vec<String> = batches.iter().map(|(name, _)| name.clone()).collect();
+        for (count, name) in taken.iter().enumerate() {
+            if !spool.take(name, (self.clock)())? {
+                for held in &taken[..count] {
+                    spool.release(held, "another flush holds part of the usage batch", (self.clock)())?;
+                }
+                return Ok(Flush::Busy);
+            }
+        }
+        let rows: Vec<&[u8]> = batches.iter().map(|(_, data)| data.as_slice()).collect();
+        let sent = self.ingest_rows(dest, &usage_batch::batch(&rows), err);
+        let refused = sent.as_ref().is_ok_and(|sent| !matches!(sent.code, 0 | TRANSPORT_FAILED_STATUS | TIMED_OUT_STATUS | ingest_lock::RETRY | NOT_EXECUTABLE_STATUS | COMMAND_NOT_FOUND_STATUS));
+        if batches.len() < 2 || !refused {
+            return Ok(match self.settle(spool, &taken, sent, err)? {
+                ControlFlow::Break(flush) => flush,
+                ControlFlow::Continue(_) => Flush::Clear,
+            });
+        }
+        for name in &taken {
+            spool.release(name, "the ledger host refused the joined usage batch, so each goes on its own", (self.clock)())?;
+        }
+        for (name, data) in &batches {
+            if !spool.take(name, (self.clock)())? {
+                return Ok(Flush::Busy);
+            }
+            let sent = self.ingest_rows(dest, &usage_batch::batch(&[data.as_slice()]), err);
+            if let ControlFlow::Break(flush) = self.settle(spool, std::slice::from_ref(name), sent, err)? {
+                return Ok(flush);
             }
         }
         Ok(Flush::Clear)
     }
 
-    /// Sends one write and records how the ledger host answered: stop the flush with how it stands, or go on with the withheld writes the delivery queued again.
-    fn send_and_settle(&self, spool: &mut Spool, name: &str, path: &Path, file: File, dest: &str, err: &mut dyn Write) -> NorthResult<ControlFlow<Flush, Vec<String>>> {
-        let sent = match self.send_spooled(path, file, dest, err) {
+    fn ingest_rows(&self, dest: &str, rows: &[u8], err: &mut dyn Write) -> NorthResult<Sent> {
+        let (code, stderr) = self.ssh_capturing(dest, &["ingest".to_owned()], Input::Bytes(rows.to_vec()), false, err)?;
+        Ok(Sent { code, verb: None, stderr })
+    }
+
+    /// Records how the ledger host answered the writes `names`, sent together: stop the flush with how it stands, or go on with the withheld writes the delivery queued again.
+    fn settle(&self, spool: &mut Spool, names: &[String], sent: NorthResult<Sent>, err: &mut dyn Write) -> NorthResult<ControlFlow<Flush, Vec<String>>> {
+        let sent = match sent {
             Ok(sent) => sent,
             Err(error) => {
-                spool.release(name, &format!("the flush failed before the ledger host answered: {error}"), (self.clock)())?;
+                for name in names {
+                    spool.release(name, &format!("the flush failed before the ledger host answered: {error}"), (self.clock)())?;
+                }
                 return Err(error);
             }
         };
         let code = sent.code;
-        if code == TRANSPORT_FAILED_STATUS {
-            spool.release(name, "ledger host unreachable", (self.clock)())?;
-            return Ok(ControlFlow::Break(Flush::Down));
-        }
-        if matches!(code, ingest_lock::RETRY | TIMED_OUT_STATUS) {
-            spool.release(name, if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host busy" }, (self.clock)())?;
-            return Ok(ControlFlow::Break(Flush::Busy));
-        }
-        let refused_for_good = code == NOT_EXECUTABLE_STATUS && sent.stderr.contains("remote-serve: refused");
-        if let Some(verb) = sent.verb.as_deref().filter(|_| refused_for_good) {
-            let why = sent.stderr.lines().find(|line| line.contains("remote-serve: refused")).map(str::trim).unwrap_or("the ledger host refused it");
-            spool.refuse(name, &format!("{WILL_NOT_RUN}{verb}`: {why}"), (self.clock)())?;
-            writeln!(err, "NorthThreads: the ledger host will not run `{verb}`; {} is sent again once it does", path.display())?;
-            return Ok(ControlFlow::Continue(Vec::new()));
-        }
-        if matches!(code, NOT_EXECUTABLE_STATUS | COMMAND_NOT_FOUND_STATUS) {
-            spool.release(name, &format!("the ledger host could not run the ingest (exit {code})"), (self.clock)())?;
-            return Ok(ControlFlow::Break(Flush::Busy));
+        let refused_for_good = sent.verb.is_some() && code == NOT_EXECUTABLE_STATUS && sent.stderr.contains("remote-serve: refused");
+        let requeue = match code {
+            TRANSPORT_FAILED_STATUS => Some((Flush::Down, "ledger host unreachable".to_owned())),
+            TIMED_OUT_STATUS => Some((Flush::Busy, "ledger host timed out".to_owned())),
+            ingest_lock::RETRY => Some((Flush::Busy, "ledger host busy".to_owned())),
+            NOT_EXECUTABLE_STATUS | COMMAND_NOT_FOUND_STATUS if !refused_for_good => Some((Flush::Busy, format!("the ledger host could not run the ingest (exit {code})"))),
+            _ => None,
+        };
+        if let Some((flush, cause)) = requeue {
+            for name in names {
+                spool.release(name, &cause, (self.clock)())?;
+            }
+            return Ok(ControlFlow::Break(flush));
         }
         if code != 0 {
             let said = sent.stderr.lines().map(str::trim).rfind(|line| !line.is_empty());
-            spool.refuse(name, &said.map_or_else(|| exited(code), |said| format!("{}: {said}", exited(code))), (self.clock)())?;
-            writeln!(err, "NorthThreads: remote ingest refused {}; it will not be sent again", path.display())?;
+            let why = sent.stderr.lines().find(|line| line.contains("remote-serve: refused")).map(str::trim).unwrap_or("the ledger host refused it");
+            for name in names {
+                let path = self.spool.join(name);
+                if let Some(verb) = sent.verb.as_deref().filter(|_| refused_for_good) {
+                    spool.refuse(name, &format!("{WILL_NOT_RUN}{verb}`: {why}"), (self.clock)())?;
+                    writeln!(err, "NorthThreads: the ledger host will not run `{verb}`; {} is sent again once it does", path.display())?;
+                } else {
+                    spool.refuse(name, &said.map_or_else(|| exited(code), |said| format!("{}: {said}", exited(code))), (self.clock)())?;
+                    writeln!(err, "NorthThreads: remote ingest refused {}; it will not be sent again", path.display())?;
+                }
+            }
             return Ok(ControlFlow::Continue(Vec::new()));
         }
-        let resent = spool.deliver(name, sent.verb.as_deref(), (self.clock)())?;
-        match fs::remove_file(path) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
-            _ => Ok(ControlFlow::Continue(resent)),
+        let mut resent = Vec::new();
+        for name in names {
+            resent.extend(spool.deliver(name, sent.verb.as_deref(), (self.clock)())?);
+            if let Err(error) = fs::remove_file(self.spool.join(name)) && error.kind() != io::ErrorKind::NotFound {
+                return Err(error.into());
+            }
         }
+        Ok(ControlFlow::Continue(resent))
     }
 
     fn send_spooled(&self, path: &Path, mut file: File, dest: &str, err: &mut dyn Write) -> NorthResult<Sent> {
@@ -358,10 +436,11 @@ impl Client {
         }
     }
 
-    /// A spooled write sends the spool before itself, because its order behind the spool matters; any other call leaves the spool to a detached `spool-flush`, because one spooled usage batch holds the ledger host for seconds and a bounded call such as a launch's `holder` must not wait on them.
+    /// A spooled write sends the spool before itself, because its order behind the spool matters; any other call leaves the spool to a detached `spool-flush`, because one spooled usage batch holds the ledger host for seconds and a bounded call such as a launch's `holder` must not wait on them. A claim or release sent inline never waits on the usage batch, which arrives about as fast as a flush sends it.
     pub(super) fn flush_spool_for(&self, verb: Option<&str>, dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
         let Some(program) = self.background.as_ref().filter(|_| !matches!(verb, Some("ingest" | "agent-event"))) else {
-            let flush = self.flush_spool(dest, err, Some(self.spool_drain))?;
+            let usage = if matches!(verb, Some("claim" | "release")) { Usage::Leave } else { Usage::Send };
+            let flush = self.flush_spool(dest, err, Some(self.spool_drain), usage)?;
             if let (Flush::Busy, Some(program)) = (flush, self.background.as_ref()) {
                 detach(program, &[SPOOL_FLUSH.as_ref(), dest.as_ref()]);
             }

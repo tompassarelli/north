@@ -254,10 +254,20 @@ fn a_busy_ledger_host_spools_the_batch_keeps_it_queued_and_stays_reachable_for_o
     assert!(err.contains("spooled ingest to "), "{err}");
     assert_eq!(spooled(), ["jsonl", "jsonl"]);
     fs::remove_file(rig.root.join("ingest-code")).unwrap();
+    let window = |used: usize| format!("{{\"account\":\"e\",\"kind\":\"window\",\"name\":\"session\",\"type\":\"usage\",\"used_pct\":{used}.0}}");
+    for row in 0..120 {
+        rig.client.write_spool(format!("{}\n", window(50 + row / 60)).as_bytes(), "test").unwrap();
+    }
+    let ingests = || log(&rig, "ssh.log").iter().filter(|line| line.ends_with("north threads ingest")).count();
+    let before = ingests();
+    assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
+    assert_eq!(ingests() - before, 2, "the claim sent the spooled usage rows before itself");
+    assert_eq!(spooled().len(), 120);
     assert_eq!(call(&rig, &["ingest"], b"{\"n\": 3}\n").0, 0);
+    assert_eq!(ingests() - before, 4, "the usage rows went to the ledger host in more than one ingest");
     assert!(spooled().is_empty());
     let sent = log(&rig, "ingest.log");
-    assert_eq!(&sent[sent.len() - 3..], ["{\"n\": 1}", "{\"n\": 2}", "{\"n\": 3}"]);
+    assert_eq!(sent[sent.len() - 5..], ["{\"n\": 1}".to_owned(), "{\"n\": 2}".to_owned(), window(50), window(51), "{\"n\": 3}".to_owned()]);
 }
 
 #[test]
