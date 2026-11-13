@@ -5,7 +5,6 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use north_base::verdict_cache::reuse_log::Record;
 use north_build_system::{BuildSystem, Coverage, Resolution, Selection, Shell, Step, Tests};
 
 use crate::exec::{FAILED, Reached, TOOLS_ENV, WORK_ENV, Work};
@@ -44,8 +43,8 @@ pub fn run(arguments: &[String]) -> u8 {
         Ok((map, reads)) => match serde_json::to_string(&map) {
             Ok(text) => {
                 println!("{MAP_LINE}{text}");
-                for read in &reads {
-                    println!("{}", read.marked());
+                for line in reads.iter().filter_map(reads::Read::line) {
+                    println!("{line}");
                 }
                 eprintln!("north test coverage record: {} tests reach {} functions at {}", map.tests.len(), map.functions.len(), map.commit);
                 0
@@ -61,7 +60,7 @@ fn fail(why: &str) -> u8 {
     1
 }
 
-fn record(arguments: &[String]) -> Result<(Map, Vec<Record>), String> {
+fn record(arguments: &[String]) -> Result<(Map, Vec<reads::Read>), String> {
     let root = std::env::current_dir().map_err(|error| format!("current directory: {error}"))?;
     let suite: Vec<String> = if arguments.is_empty() { SUITE.iter().map(|word| (*word).to_owned()).collect() } else { arguments.to_vec() };
     let tools = tools()?;
@@ -86,7 +85,7 @@ fn record(arguments: &[String]) -> Result<(Map, Vec<Record>), String> {
     let spans = spans(&root, &tools, &work, &objects)?;
     let reached = read_reach(&work.reach())?;
     let unprofiled = unprofiled_tests(&work, &binaries, &objects, &reached)?;
-    let reads = reads::records(&commit, &read_units(&work.units())?, &binaries, &reached);
+    let reads = reads::read(&read_units(&work.units())?, &binaries, &reached);
     let recorded = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
     let mut map = assemble(commit, recorded, &binaries, &spans, &reached, &unprofiled);
     match crate::index::record(&root, &work.root, &map.functions) {
