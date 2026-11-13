@@ -60,6 +60,9 @@ pub struct Launch {
     /// The fleet role, so a coordinator whose model it does not name still falls back to Opus high.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// The launcher runs outside every fleet session scope, or in the scope of the lead or coordinator it names, so a need the host serves its operator may take the operator login; a confined caller never may.
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    pub operator: bool,
     /// The repository the launch itself carries, from its task reference or its working container, never from its brief; the login decision reads only this.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub repository: String,

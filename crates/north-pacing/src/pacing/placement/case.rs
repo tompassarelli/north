@@ -37,7 +37,7 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
     let cfg: DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
     let at = std::env::var("PLACEMENT_NOW").ok().and_then(|s| storage::seconds(&s)).unwrap_or_else(storage::now);
     let (gate, usage) = usage(at);
-    let unprobed: Vec<Machine> = gate::machines(&cfg).into_iter().map(|machine| machine.for_launch(&cfg, &ask.launch.repository)).collect();
+    let unprobed: Vec<Machine> = gate::machines(&cfg).into_iter().map(|machine| machine.for_launch(&cfg, &ask.launch.repository, ask.launch.operator)).collect();
     super::keeper::wanted();
     let surveyed = hosts::surveyed(&unprobed, ask.launch.cwd.as_deref());
     let machines = unprobed.iter().zip(surveyed).map(|(machine, facts)| recorded(machine, facts, ask.fleet_load)).collect();
@@ -63,7 +63,7 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
     let cfg = document(&case.config);
     let gate_value = gate_value(&case.usage);
     let hosted: BTreeMap<String, i64> = case.machines.iter().map(|machine| (machine.name.clone(), machine.hosted)).collect();
-    let machines: Vec<Machine> = gate::machines(&cfg).into_iter().map(|machine| machine.for_launch(&cfg, &case.launch.repository)).map(|machine| {
+    let machines: Vec<Machine> = gate::machines(&cfg).into_iter().map(|machine| machine.for_launch(&cfg, &case.launch.repository, case.launch.operator)).map(|machine| {
         let recorded = case.machines.iter().find(|probed| probed.name == machine.name);
         let placed_recently = recorded.map_or(0, |probed| probed.placed_recently);
         Machine { placed_recently, ..machine.probed(recorded.map(facts).unwrap_or_default(), &hosted) }
