@@ -238,8 +238,6 @@ case " $carried " in *" SAFE_PUSH_LANDING='1' "*) [ -z "$owner" ] || rank=2 ;; *
 [ -z "$urgent" ] || rank=1
 [ "$lander_slot" != 1 ] || rank=1
 [ -z "$red_fix" ] || rank=0
-reserve_taker=
-{ [ "$lander_slot" = 1 ] || [ -n "$red_fix" ]; } && reserve_taker=1
 [ -z "@BACKGROUND@" ] || rank=4
 kind=
 [ "$rank" -gt 1 ] || kind=floor
@@ -253,7 +251,7 @@ find "$root/inflight" -type f -mmin +1440 -delete 2>/dev/null || true
 if [ -z "$nested" ] && [ -n "$north_bin" ]; then
   rc=0
   line_slots=@SLOTS@
-  [ -n "$reserve_taker" ] || [ "$line_slots" -le 1 ] || line_slots=$((line_slots - 1))
+  [ "$lander_slot" = 1 ] || [ "$line_slots" -le 1 ] || line_slots=$((line_slots - 1))
   [ -z "$host_cap" ] || [ "$host_cap" -ge "$line_slots" ] || line_slots=$host_cap
   told=$("$north_bin" capacity offload line wait --rank "$rank" --ticket "$ticket" --name "$name" --slots "$line_slots" ${within:+--within "$within"} 2>&1 </dev/null) || rc=$?
   [ "$rc" -ne @SLOTS_BUSY@ ] || { echo "offload: $told; this job leaves the line at once, so place it on another host" >&2; exit @SLOTS_BUSY@; }
@@ -301,7 +299,7 @@ while :; do
     closed=$("$north_bin" capacity offload closed 2>/dev/null) || rc=$?
     [ "$rc" -ne 75 ] || { echo "offload: $closed is closed to offloaded checks, so this job leaves its line; place it on another host" >&2; exit @SLOTS_BUSY@; }
   fi
-  if [ -n "$reserve_taker" ] && [ -z "$holding" ]; then
+  if [ "$lander_slot" = 1 ] && [ -z "$holding" ]; then
     if owned "$reserved"; then s=$reserved; break; fi
   fi
   why="behind earlier jobs in line"
