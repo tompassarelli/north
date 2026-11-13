@@ -2,7 +2,7 @@ use super::layout::{self, Layout};
 use super::pin::{self, Ahead, Event, Outcome, Reason};
 use super::probe;
 use crate::platform::process;
-use north_base::build_inputs::live_fix;
+use north_base::build_inputs::{live_fix, promotion_slot};
 use std::fs;
 use std::path::Path;
 
@@ -21,7 +21,7 @@ impl Schedule {
     }
 
     fn slot(self, now: i64) -> i64 {
-        now - now.rem_euclid(self.spacing)
+        promotion_slot(now, self.spacing)
     }
 
     fn taken(self, events: &[Event], slot: i64) -> bool {

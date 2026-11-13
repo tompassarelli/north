@@ -4,6 +4,8 @@ use north_base::foundation::step::{Refused, Step};
 use north_base::platform::land_queue;
 
 use crate::landing::preflight;
+use crate::report::event::repository;
+use crate::report::terminal::promotion_note;
 use crate::report::timeline::Timeline;
 use crate::request::{self, Arguments, Plan};
 use crate::session::cancel::watch_for_cancel;
@@ -137,7 +139,7 @@ pub fn land(arguments: &[String], request: &Arguments, to: &str, shell: &Shell) 
             timeline.announce();
             let facts = enqueue::Facts::kept().filter(|kept| kept.base().is_ok()).or_else(|| enqueue::Facts::start(Path::new("."), to, &Denylist::from_env()).inspect(enqueue::Facts::keep));
             match facts.as_ref().filter(|facts| facts.base().is_ok()).map_or_else(|| fetch_destination(shell, to), |_| Ok(Destination::Queue)) {
-                Ok(Destination::Queue) => run(arguments, u128::from(timeline.started_ms()) * 1000),
+                Ok(Destination::Queue) => run_noting_the_slot(arguments, &timeline, to),
                 Ok(Destination::EmptyOrigin) => return preflight::publish_root(request, to, shell, &claims.list, &mut timeline),
                 Err(Refused(code)) => code,
             }
@@ -156,6 +158,23 @@ pub fn land(arguments: &[String], request: &Arguments, to: &str, shell: &Shell) 
             1
         }
     }
+}
+
+fn run_noting_the_slot(arguments: &[String], timeline: &Timeline, to: &str) -> u8 {
+    let note = when_it_goes_live(to);
+    let code = run(arguments, u128::from(timeline.started_ms()) * 1000);
+    if let Some(note) = note.filter(|_| code == 0) {
+        println!("{note}");
+    }
+    code
+}
+
+fn when_it_goes_live(to: &str) -> Option<String> {
+    let repo = Path::new(".");
+    let north = git(repo, &["remote", "get-url", "origin"]).is_ok_and(|url| repository(url.trim()) == "north");
+    let changed = git(repo, &["diff", "--name-only", &format!("origin/{to}...HEAD")]).unwrap_or_default();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs() as i64);
+    north.then(|| promotion_note(changed.lines(), now)).flatten()
 }
 
 enum Destination {

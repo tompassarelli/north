@@ -1,3 +1,5 @@
+use north_base::build_inputs::{LIVE_FIX, promotion_slot, promotion_slot_sec, runtime_input};
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum Terminal {
     Published(String),
@@ -17,12 +19,24 @@ pub fn receipt(terminal: &Terminal) -> (String, u8) {
     }
 }
 
+pub fn promotion_note<'a>(changed: impl IntoIterator<Item = &'a str>, now: i64) -> Option<String> {
+    changed.into_iter().any(runtime_input).then(|| {
+        let slot = promotion_slot(now, promotion_slot_sec()) + promotion_slot_sec();
+        format!("safe-push: this landing changes a runtime input, so it goes live at the {:02}:{:02} UTC promotion slot; a `{LIVE_FIX}: REASON` trailer on the commit promotes it at once", slot.rem_euclid(86_400) / 3600, slot.rem_euclid(3600) / 60)
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Terminal, receipt};
+    use super::{Terminal, promotion_note, receipt};
 
     #[test]
-    fn each_terminal_has_its_line_and_exit_code() {
+    fn a_north_landing_that_waits_for_a_slot_names_the_slot_and_the_live_fix_trailer() {
+        let at_0130 = 1_762_430_000 - 1_762_430_000 % 86_400 + 5400;
+        let note = promotion_note(["docs/a.md", "crates/x/src/lib.rs"], at_0130).unwrap();
+        assert!(note.contains("04:00 UTC promotion slot") && note.contains("Live-fix: REASON"), "{note}");
+        assert_eq!(promotion_note(["docs/a.md"], at_0130), None);
+
         assert_eq!(
             receipt(&Terminal::Refused("not on a branch".to_owned())),
             ("safe-push: refused not on a branch".to_owned(), 1)

@@ -52,3 +52,13 @@ pub const LIVE_FIX: &str = "Live-fix";
 pub fn live_fix(message: &str) -> Option<&str> {
     message.lines().find_map(|line| line.strip_prefix(LIVE_FIX)?.strip_prefix(':')).map(str::trim).filter(|reason| !reason.is_empty())
 }
+
+/// The start of the promotion slot that holds `now` (seconds since the epoch), slots being `spacing` seconds apart from 00:00 UTC.
+pub fn promotion_slot(now: i64, spacing: i64) -> i64 {
+    now - now.rem_euclid(spacing)
+}
+
+/// The seconds between promotion slots that `harness/defaults.toml` declares.
+pub fn promotion_slot_sec() -> i64 {
+    crate::platform::harness::default_number("runtime_promotion_slot_sec") as i64
+}
