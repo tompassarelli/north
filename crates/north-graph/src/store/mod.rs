@@ -129,7 +129,9 @@ impl Graph {
         }
         let rehashed = version == KEYED_BY_VALUE && hash_terms(&mut connection)?;
         connection.execute_batch(SCHEMA)?;
-        connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        if version != SCHEMA_VERSION {
+            connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        }
         text::prepare(&mut connection)?;
         if rehashed {
             connection.execute_batch("VACUUM")?;
