@@ -16,6 +16,7 @@ const SESSIONS: &str = "sessions";
 const REJECTED: &str = "rejected";
 const RECORDS: &str = ".local/state/north/agent-starts";
 const LIMIT: u64 = 4096;
+const API: &str = "api";
 const NAME_LIMIT: usize = 64;
 const PATH_LIMIT: usize = 1024;
 
@@ -30,11 +31,12 @@ pub struct StartRequest {
 }
 
 impl StartRequest {
-    /// The request `bytes` hold, refused unless they are exactly these four fields, the name and account plain names and both paths absolute and beneath `home` with no `..`.
+    /// The request `bytes` hold, refused unless they are exactly these four fields, the name and account plain names, the account no API account, and both paths absolute and beneath `home` with no `..`.
     pub fn parse(bytes: &[u8], home: &Path) -> Result<Self, String> {
         let request: Self = serde_json::from_slice(bytes).map_err(|error| format!("not a start request: {error}"))?;
         plain_name("name", &request.name)?;
         plain_name("account", &request.account)?;
+        subscription(&request.account)?;
         beneath("cwd", &request.cwd, home)?;
         beneath("brief", &request.brief, home)?;
         Ok(request)
@@ -51,6 +53,10 @@ impl StartRequest {
 fn plain_name(field: &str, value: &str) -> Result<(), String> {
     let plain = !value.is_empty() && value.len() <= NAME_LIMIT && !value.starts_with(['-', '.']) && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
     if plain { Ok(()) } else { Err(format!("{field} {value:?} is not a plain name")) }
+}
+
+fn subscription(account: &str) -> Result<(), String> {
+    if account.get(..API.len()).is_some_and(|prefix| prefix.eq_ignore_ascii_case(API)) { Err(format!("account {account:?} is an API account, and agent sessions start on subscription accounts only")) } else { Ok(()) }
 }
 
 fn beneath(field: &str, path: &Path, home: &Path) -> Result<(), String> {
