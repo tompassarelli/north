@@ -22,10 +22,12 @@ use north_strategy_types::land::{self, PickCase};
 
 static WORKTREES: RwLock<()> = RwLock::new(());
 pub const DEADLINE: Duration = Duration::from_secs(120);
+/// Git 2.54 auto-maintenance detaches a repack that escapes the command's process group and races the next read of the object store.
+const NO_AUTO_MAINTENANCE: [&str; 2] = ["-c", "maintenance.auto=false"];
 
 fn run(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
     let mut command = Command::new("git");
-    command.arg("-C").arg(directory).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true");
+    command.arg("-C").arg(directory).args(NO_AUTO_MAINTENANCE).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true");
     match process::try_run_group_traced_within(command, DEADLINE) {
         Ok(Ok(output)) => Ok(output),
         Ok(Err(stalled)) => Err(format!("git {} gave no answer within {} s and was killed: {stalled}", arguments.join(" "), DEADLINE.as_secs())),
