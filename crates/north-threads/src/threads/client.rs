@@ -37,8 +37,8 @@ const SSH_TIMEOUT: Duration = Duration::from_secs(20);
 const RECORD_WAIT: Duration = Duration::from_secs(10);
 const INGEST_WAIT: Duration = Duration::from_secs(5);
 const INGEST_HOLD: Duration = Duration::from_secs(12);
-/// How many rows one ingest commits under one hold of the ledger: a backfill of about 5,000 rows held it 33 to 45 s on 2026-11-07, over the 30 s a hold may last, and the hold cap only trips on a busy ledger, so a batch is cut here instead.
-const INGEST_CHUNK_ROWS: usize = 400;
+/// How many rows one ingest commits under one hold of the ledger write lock, which a claim waits behind with the fleet's 2 s bound: a backfill of about 5,000 rows held it 33 to 45 s on 2026-11-07 (7 to 9 ms a row), so 100 rows hold it about a second. A guess from that rate; the acquired-to-ended spans in the ledger host's ingest.log settle it.
+const INGEST_CHUNK_ROWS: usize = 100;
 const SPOOL_DRAIN: Duration = Duration::from_secs(10);
 
 /// `data` cut after every `rows` lines, whole lines only; a batch with no row is one empty chunk.
