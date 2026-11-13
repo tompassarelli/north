@@ -3,7 +3,7 @@ use std::path::Path;
 
 use super::*;
 
-const NORTH_CHECKS: &str = "[landing]\n\tremote-hosts = gex45\n[land]\n\tafter = @enqueue,** :: CARGO_TARGET_DIR=target ./bin/head-north config agents check-owners --north-root $PWD --south-root $HOME/code/south/main --nixos-root $HOME/code/nixos-config/main # hardcoded-repo-path:allow\n";
+const NORTH_CHECKS: &str = "[landing]\n\tremote-hosts = gex45\n[land]\n\tafter = @enqueue,** :: CARGO_TARGET_DIR=target ./bin/head-north config agents check-owners --north-root $PWD --south-root $HOME/code/south/main --nixos-root $HOME/code/nixos-config/main # hardcoded-repo-path:allow\n\tcheck = src/cli/operator.rs,src/cli/operator/,crates/north-ops/src/ops/credentials/ :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/operator/ config operator check $HOME/code/south/main # hardcoded-repo-path:allow\n";
 
 fn tool(bin: &Path, name: &str, body: &str) {
     let path = bin.join(name);

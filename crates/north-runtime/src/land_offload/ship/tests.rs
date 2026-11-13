@@ -130,7 +130,7 @@ fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
 }
 
 #[test]
-fn a_remote_job_runs_only_on_the_shipped_commit_and_reads_each_checkout_beside_it_pinned_to_the_commit_it_is_on_here() {
+fn operator_check_line_runs_only_on_the_shipped_commit_and_pins_south_beside_it_as_check_owners_does() {
     let (dir, first, second) = repository_with_two_commits();
     let refused = verify(dir.path(), &first);
     assert_eq!(refused.status.code(), Some(i32::from(WRONG_TREE)));
@@ -166,6 +166,10 @@ fn a_remote_job_runs_only_on_the_shipped_commit_and_reads_each_checkout_beside_i
     let pinned = super::beside::pin(command, "code/north/main", Path::new("/h"), head_of);
     assert_eq!(pinned.command, "check-owners --north-root $HOME/code/north/main --south-root $NORTH_OFFLOAD_BESIDE/south --nixos-root $NORTH_OFFLOAD_BESIDE/nixos-config/agents $HOME/code/gone/main $HOME/code/south/mainline");
     assert_eq!(pinned.pins, format!("south={first} nixos-config={}", "b".repeat(40)));
+    let operator = "CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/operator/ config operator check $HOME/code/south/main";
+    let pinned = super::beside::pin(operator, "code/north/main", Path::new("/h"), head_of);
+    assert_eq!(pinned.command, "CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/operator/ config operator check $NORTH_OFFLOAD_BESIDE/south");
+    assert_eq!(pinned.pins, format!("south={first}"));
     let home = tempfile::tempdir().unwrap();
     fs::create_dir_all(home.path().join("code/south")).unwrap();
     git(dir.path(), &["clone", "-q", &dir.path().display().to_string(), &home.path().join("code/south/main").display().to_string()]);
