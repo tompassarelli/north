@@ -9,6 +9,7 @@ use std::time::Duration;
 use regex::Regex;
 
 use super::test_file::is_test_file;
+use super::test_modules;
 use super::{Range, git};
 use crate::platform::land_queue::{ROUND, slug};
 use crate::slug::slug_of;
@@ -40,7 +41,7 @@ fn needs_no_test(directory: &Path, base: &str, head: &str) -> bool {
         return true;
     }
     let diff = git::text(directory, &["diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-renames", base, head]).unwrap_or_default();
-    TEST_ATTRIBUTE.is_match(&diff)
+    TEST_ATTRIBUTE.is_match(&diff) || test_modules::touched(directory, base, head)
 }
 
 fn excused(directory: &Path, base: &str, head: &str) -> bool {
@@ -135,3 +136,7 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
     let _ = writeln!(out, "safe-push: ✗ this lane fixes bug {} but adds or changes no test; add a test that fails without the fix (a file under tests/ or test/, one named tests.*, *.test.*, *_test.* or *_tests.*, or a #[test]), or name why none can exist in an `Incident-test: none; REASON` commit trailer.", named(&bugs));
     1
 }
+
+#[cfg(test)]
+#[path = "incident_guard_tests.rs"]
+mod tests;

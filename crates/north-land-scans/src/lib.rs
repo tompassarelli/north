@@ -34,6 +34,7 @@ mod stranded_boxes;
 pub mod stale_revert;
 pub mod test_admission;
 mod test_file;
+mod test_modules;
 pub mod test_integrity;
 pub mod tree_build;
 pub mod tool_removal;
