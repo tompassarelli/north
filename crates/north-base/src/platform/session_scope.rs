@@ -7,6 +7,9 @@ use std::process::{Command, Stdio};
 /// Set on a command whose sandbox has hidden the sockets that reach the user manager, so a verb that needs a transient scope asks the outside broker for it.
 pub const SOCKETS_HIDDEN: &str = "NORTH_SOCKETS_HIDDEN";
 
+/// Set on a command a fleet worker runs inside its confining domain, so a verb that writes the host's capacity admission state asks the outside broker for it instead of writing it in place; the domain, not this mark, is what keeps the worker out of that state.
+pub const CONFINED: &str = "NORTH_WORKER_CONFINED";
+
 /// Set on a command whose sandbox keeps it from every other host, reading no ssh key and reaching no agent or master socket (south#118), so `north ssh-session` answers its ssh with the verb that reaches a build host.
 pub const HOSTS_HIDDEN: &str = "NORTH_WORKER_HOSTS_HIDDEN";
 

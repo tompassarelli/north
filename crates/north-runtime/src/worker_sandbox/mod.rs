@@ -58,6 +58,7 @@ const PROGRAM: &str = "--program";
 const CHECKED: &str = "--checked";
 const HAND_OFF: &str = "--hand-off";
 const SOCKETS_HIDDEN: &str = north_base::platform::session_scope::SOCKETS_HIDDEN;
+const CONFINED: &str = north_base::platform::session_scope::CONFINED;
 const MARK: &str = north_base::platform::gh_session::SANDBOX_MARK;
 const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 const LANE_ONLY: &str = north_base::platform::session_scope::LANE_ONLY;
@@ -185,7 +186,7 @@ fn shell(command: &str, screen: Screen) -> std::process::ExitCode {
     let replaced = if writable.is_some() { packed_refs::directories(&context) } else { Vec::new() };
     report(confine(roots.as_deref(), &readable(&context, Reader::of(confined)), Some(&executable(&context)), writable.as_deref(), &replaced));
     let shell = std::env::var_os("SHELL").filter(|shell| !shell.is_empty()).unwrap_or_else(|| OsString::from("bash"));
-    let error = without_agent(Command::new(shell), confined).arg("-c").arg(command).envs(git_env(writable.is_some())).env_remove(SWEPT).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
+    let error = without_agent(Command::new(shell), confined).arg("-c").arg(command).envs(git_env(writable.is_some())).env_remove(SWEPT).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).envs(confined.then_some((CONFINED, "1"))).exec();
     eprintln!("north worker-sandbox: {error}");
     std::process::ExitCode::from(126)
 }
@@ -210,7 +211,7 @@ fn in_domain(program: &[String], lift: bool, worker: bool) -> std::process::Exit
     let writable = roots.as_deref().map(|roots| if fenced { lane_only::writable_in_lane(roots) } else { writable(&context, roots) });
     let replaced = if writable.is_some() { packed_refs::directories(&context) } else { Vec::new() };
     report(confine(roots.as_deref(), &readable, executable.as_deref(), writable.as_deref(), &replaced));
-    let error = without_agent(Command::new(&program[0]), confined).args(&program[1..]).envs(git_env(writable.is_some())).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
+    let error = without_agent(Command::new(&program[0]), confined).args(&program[1..]).envs(git_env(writable.is_some())).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).envs(confined.then_some((CONFINED, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
 }
@@ -237,7 +238,7 @@ fn in_lane(program: &[String], screen: Screen) -> std::process::ExitCode {
     };
     let hidden = hide_sockets(&context);
     report(confine_to_lane(&context, &kept));
-    let error = Command::new(&program[0]).args(&program[1..]).envs(git_env(true)).env(MARK, "1").env(LANE_ONLY, "1").env_remove(SESSION_SCOPE).env_remove(sockets::AGENT_ENV).env(HOSTS_HIDDEN, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
+    let error = Command::new(&program[0]).args(&program[1..]).envs(git_env(true)).env(MARK, "1").env(LANE_ONLY, "1").env(CONFINED, "1").env_remove(SESSION_SCOPE).env_remove(sockets::AGENT_ENV).env(HOSTS_HIDDEN, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
 }

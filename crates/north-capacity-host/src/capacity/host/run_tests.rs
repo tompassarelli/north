@@ -99,3 +99,21 @@ fn a_lease_whose_scope_never_started_its_subject_exits_no_verdict_not_the_launch
     assert_eq!(exit.code(), 1, "a subject that started and failed keeps its own exit");
     assert_eq!(line.expect("a decision line")["decision"].as_str(), Some("COMMAND_EXITED"));
 }
+
+#[test]
+fn a_confined_workers_capacity_run_goes_through_the_broker_and_its_state_writing_verbs_are_refused() {
+    use super::{Route, route};
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    assert_eq!(route(&words("run --class heavy --owner o -- cargo test"), true, false), Route::Broker, "a confined worker's lease is taken by the broker outside its domain");
+    assert_eq!(route(&words("run --class heavy --owner o -- cargo test"), false, true), Route::Broker);
+    for writing in ["session --class heavy --owner o", "reserve --class heavy", "renew --lease l", "release --lease l", "land-waiting", "hand-over --to h", "probe --class agent", "mode away"] {
+        assert_eq!(route(&words(writing), true, false), Route::Refused, "a confined worker wrote the host's admission state in place: {writing}");
+        assert_eq!(route(&words(writing), false, false), Route::InPlace, "{writing}");
+    }
+    for read_through_the_broker in ["status", "backlog"] {
+        assert_eq!(route(&words(read_through_the_broker), true, false), Route::Broker, "a confined worker read {read_through_the_broker} in place, where its lock and reclaims are unwritable");
+    }
+    for reading in ["mode", "estimate --class heavy", "status x"] {
+        assert_eq!(route(&words(reading), true, false), Route::InPlace, "{reading}");
+    }
+}

@@ -10,7 +10,7 @@ use north_base::platform::{gh_shim, git_credential, session_host_files};
 use regex::Regex;
 use serde_json::Value;
 
-use super::{LANE_ONLY, MARK, SOCKETS_HIDDEN};
+use super::{CONFINED, LANE_ONLY, MARK, SOCKETS_HIDDEN};
 
 const DESTINATION: &str = "main";
 pub(super) const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
@@ -244,7 +244,7 @@ pub(super) fn environment(session: &Session, own: impl IntoIterator<Item = (Stri
     for (name, value) in own {
         match name.as_str() {
             "PATH" => path = Some(value),
-            MARK | LANE_ONLY | SOCKETS_HIDDEN | REMOVAL_ROOTS | SESSION_ENV => {}
+            MARK | LANE_ONLY | SOCKETS_HIDDEN | CONFINED | REMOVAL_ROOTS | SESSION_ENV => {}
             _ if name.starts_with("GIT_CONFIG") => {}
             _ => kept.push((name, value)),
         }

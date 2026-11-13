@@ -507,13 +507,32 @@ fn run_or_session(root: &Path, argv: &[String], host: &Host) -> u8 {
     run::run_scoped(root, &request, &owner, timeout_seconds, command, host)
 }
 
-/// Asks the outside broker to run this admission: a worker whose sandbox hides the user manager's sockets cannot put the command in a scope itself, and the broker starts the command in a new worker domain.
+/// Has the outside broker run this verb: a confined worker can neither write the admission state it changes nor, once its sockets are hidden, put a command in a scope, and the broker starts a run's command in a new worker domain.
 fn through_broker(argv: &[String]) -> u8 {
     use std::os::unix::process::CommandExt;
     let north = run::north_command();
     let error = std::process::Command::new(&north).args(["--worker-sandbox", "--outside", "--"]).arg(&north).args(["capacity", "host"]).args(argv).exec();
     eprintln!("machine-capacity: {north} --worker-sandbox --outside: {error}");
     126
+}
+
+/// Where a capacity host verb runs: in place, through the outside broker, or refused, for a verb that writes the host's admission state from inside a worker's confining domain, where that state is unwritable; status and backlog write it as they read (the lock, reclaimed leases, dead tickets), so a worker reads them through the broker.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Route {
+    InPlace,
+    Broker,
+    Refused,
+}
+
+pub fn route(argv: &[String], confined: bool, sockets_hidden: bool) -> Route {
+    let operation = argv.first().map_or("", String::as_str);
+    match operation {
+        "run" if confined || sockets_hidden => Route::Broker,
+        "status" | "backlog" if confined && argv.len() == 1 => Route::Broker,
+        "session" | "reserve" | "renew" | "release" | "land-waiting" | "hand-over" | "probe" if confined => Route::Refused,
+        "mode" if confined && argv.len() > 1 => Route::Refused,
+        _ => Route::InPlace,
+    }
 }
 
 pub fn run(argv: &[String], host: &Host) -> u8 {
@@ -525,8 +544,10 @@ pub fn run(argv: &[String], host: &Host) -> u8 {
         "admit-job" => return admit_job(argv),
         _ => {}
     }
-    if operation == "run" && std::env::var_os(north_base::platform::session_scope::SOCKETS_HIDDEN).is_some() {
-        return through_broker(argv);
+    match route(argv, std::env::var_os(north_base::platform::session_scope::CONFINED).is_some(), std::env::var_os(north_base::platform::session_scope::SOCKETS_HIDDEN).is_some()) {
+        Route::Broker => return through_broker(argv),
+        Route::Refused => fail(&format!("capacity host {operation} writes this host's admission state, which a fleet worker's command may not write; a worker asks for capacity through `capacity host run`"), 126),
+        Route::InPlace => {}
     }
     let root = runtime_root();
     let user_runtime = format!("/run/user/{}/", machine::uid());

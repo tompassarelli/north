@@ -142,6 +142,23 @@ impl Store {
         Self::open_as(path, Owner::current(), Box::new(Proc))
     }
 
+    /// A store opened only to read, as a reader inside a worker's domain opens the capacity runtime directory's, whose files it may not write: read-only while a write-ahead log stands beside it, else immutable, since with no log the database file holds every row.
+    pub fn read_only(path: &Path) -> NorthResult<Self> {
+        let mut log = path.as_os_str().to_owned();
+        log.push("-wal");
+        let mode = if Path::new(&log).exists() { "mode=ro" } else { "immutable=1" };
+        let escaped: String = path.to_string_lossy().chars().map(|character| match character {
+            '%' => "%25".to_owned(),
+            '?' => "%3f".to_owned(),
+            '#' => "%23".to_owned(),
+            other => other.to_string(),
+        }).collect();
+        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let connection = Connection::open_with_flags(format!("file:{escaped}?{mode}"), flags).map_err(sql)?;
+        connection.busy_timeout(BUSY_WAIT).map_err(sql)?;
+        Ok(Self { connection, who: Owner::current(), liveness: Box::new(Proc) })
+    }
+
     /// A store whose moves are made by `who`, judging holders with `liveness`.
     pub fn open_as(path: &Path, who: Owner, liveness: Box<dyn Liveness>) -> NorthResult<Self> {
         if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {

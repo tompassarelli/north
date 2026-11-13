@@ -1,3 +1,4 @@
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 use super::except::{Entries, beneath_except};
@@ -7,6 +8,7 @@ pub struct Context {
     pub home: PathBuf,
     pub cwd: PathBuf,
     pub uid: u32,
+    pub user_runtime: PathBuf,
     pub tmpdir: Option<PathBuf>,
     pub cache: Option<PathBuf>,
     pub config: Option<PathBuf>,
@@ -41,12 +43,14 @@ impl Context {
     }
 
     fn with(command: &str, cwd: PathBuf, set: impl Fn(&str) -> Option<PathBuf>) -> Self {
+        let uid = rustix::process::getuid().as_raw();
         let home = set("HOME").unwrap_or_default();
         let named = named(&home, command);
         Self {
             home,
             cwd,
-            uid: rustix::process::getuid().as_raw(),
+            uid,
+            user_runtime: PathBuf::from(format!("/run/user/{uid}")),
             tmpdir: set("TMPDIR"),
             cache: set("XDG_CACHE_HOME"),
             config: set("XDG_CONFIG_HOME"),
@@ -64,11 +68,29 @@ impl Context {
     }
 }
 
-/// The trees a worker command may remove or rename files out of: its lane, the git common directory of its project and of every project it names apart from its top level and hooks (git_removable), scratch and caches, and the agent state it writes apart from the stores that hold the fleet's history (state.rs), and the Buck2 daemon directory of each of its lanes (buck.rs).
+/// The entries of the user's runtime directory a worker command creates itself, made where missing, since the directory itself is not granted: the credential broker's socket directory, where its client starts a user broker when no system one answers, the gh shim's request budget, the land probe's scratch, and the link and spare ssh masters.
+const RUNTIME_WRITTEN: [&str; 5] = ["north-broker", "north-gh-budget", "north-health", "north-links", "north-spares"];
+
+/// What a worker command may remove or write beneath the user's runtime directory `runtime`: every entry apart from the host's capacity admission state, which only the outside broker's `capacity host run` writes, and within that state only the directory where a lease's build starts its compiler-cache server.
+pub(super) fn runtime_removable(runtime: &Path) -> Vec<PathBuf> {
+    for entry in RUNTIME_WRITTEN {
+        let _ = std::fs::DirBuilder::new().mode(0o700).create(runtime.join(entry));
+    }
+    let admission = runtime.join(north_base::platform::admission_root::DIRECTORY);
+    let cache_sockets = admission.join("sccache");
+    if admission.is_dir() {
+        let _ = std::fs::DirBuilder::new().mode(0o700).create(&cache_sockets);
+    }
+    let mut roots = beneath_except(runtime, std::slice::from_ref(&admission), Entries::Directories);
+    roots.extend(cache_sockets.is_dir().then_some(cache_sockets));
+    roots
+}
+
+/// The trees a worker command may remove or rename files out of: its lane, the git common directory of its project and of every project it names apart from its top level and hooks (git_removable), scratch and caches, its runtime directory apart from the admission state (runtime_removable), and the agent state it writes apart from the stores that hold the fleet's history (state.rs), and the Buck2 daemon directory of each of its lanes (buck.rs).
 pub fn removable(context: &Context) -> Vec<PathBuf> {
     let home = &context.home;
     let mut roots: Vec<PathBuf> = ["/tmp", "/var/tmp", "/dev/shm"].map(PathBuf::from).into();
-    roots.push(PathBuf::from(format!("/run/user/{}", context.uid)));
+    roots.extend(runtime_removable(&context.user_runtime));
     roots.extend(context.tmpdir.clone());
     roots.push(context.cache.clone().unwrap_or_else(|| home.join(".cache")));
     roots.push(context.cargo_home.clone().unwrap_or_else(|| home.join(".cargo")));

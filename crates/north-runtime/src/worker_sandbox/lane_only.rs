@@ -37,7 +37,7 @@ pub(super) fn hidden(context: &Context, fresh: &[PathBuf]) -> Vec<PathBuf> {
     for shared in ["/tmp", "/var/tmp"] {
         hidden.extend(others(Path::new(shared), &scratch_under(Path::new(shared), &scratch)));
     }
-    hidden.extend(others(Path::new(&format!("/run/user/{}", context.uid)), &[]));
+    hidden.extend(others(&context.user_runtime, &[]));
     if let Some(runtimes) = &context.runtimes {
         reveal(&mut hidden, runtimes);
     }

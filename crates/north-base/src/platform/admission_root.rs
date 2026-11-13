@@ -1,11 +1,14 @@
 //! Where this host's capacity admission keeps its leases and queue, read by the capacity helper that writes them and by the fleet that asks whether a session's build still waits there.
 use std::path::{Path, PathBuf};
 
+/// The directory of the admission state under a runtime directory.
+pub const DIRECTORY: &str = "agent-capacity-v1";
+
 /// The admission state under `runtime`, the user's runtime directory; a private desktop's own runtime directory (`/run/user/UID/private-desktop.XXXX/runtime`) holds none, so a run inside it reads and writes the host's `/run/user/UID` state.
 pub fn state_root(runtime: &str, uid: u32) -> PathBuf {
     let user = format!("/run/user/{uid}");
     let inside_desktop = runtime.strip_prefix(&user).and_then(|rest| rest.strip_prefix("/private-desktop.")).is_some();
-    Path::new(if inside_desktop { user.as_str() } else { runtime }).join("agent-capacity-v1")
+    Path::new(if inside_desktop { user.as_str() } else { runtime }).join(DIRECTORY)
 }
 
 /// This process's admission state, from `XDG_RUNTIME_DIR` or the user's `/run/user/UID`.

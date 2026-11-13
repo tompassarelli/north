@@ -19,7 +19,7 @@ pub const AGENT_ENV: &str = "SSH_AUTH_SOCK";
 pub const READY: &[u8] = b"ready\n";
 
 pub fn runtime(context: &Context) -> PathBuf {
-    context.runtime.clone().unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", context.uid)))
+    context.runtime.clone().unwrap_or_else(|| context.user_runtime.clone())
 }
 
 /// Where the terminal multiplexer keeps its server sockets: `TMUX_TMPDIR`, or `/tmp`, beneath `tmux-UID`.

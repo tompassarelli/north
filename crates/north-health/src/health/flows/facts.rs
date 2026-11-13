@@ -101,12 +101,12 @@ const LEDGER_TIMER: &str = "worker-ledger.timer";
 
 const CAPACITY_LEASES: &str = "agent-capacity-v1/lifecycle.db";
 
-/// The stores of lifecycle records on this host: the run ledger, the threads spool's, which a sandboxed worker writes beside its spool, and the capacity runtime directory's, which lives and dies with the lease files beside it.
-fn stores(home: &Path) -> Vec<NorthResult<Store>> {
+/// The stores of lifecycle records on this host: the run ledger, the threads spool's, which a sandboxed worker writes beside its spool, and the capacity runtime directory's, which lives and dies with the lease files beside it, opened with `capacity`, since only the outside broker writes it.
+fn stores(home: &Path, capacity: fn(&Path) -> NorthResult<Store>) -> Vec<NorthResult<Store>> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).or_else(|| Some(format!("/run/user/{}", fs::metadata(home).ok()?.uid()).into()));
     let leases = runtime.map(|runtime| runtime.join(CAPACITY_LEASES)).filter(|path| path.exists());
     let spool = Some(north_threads::threads::client::spool::records_path(&home.join(".local/state/threads/spool"))).filter(|path| path.exists());
-    std::iter::once(Store::host()).chain(spool.into_iter().chain(leases).map(|path| Store::open(&path))).collect()
+    std::iter::once(Store::host()).chain(spool.map(|path| Store::open(&path))).chain(leases.map(|path| capacity(&path))).collect()
 }
 
 /// Retires, in every store of this host, the rows whose holder is a process of this host that is gone. Only this host can
@@ -114,7 +114,7 @@ fn stores(home: &Path) -> Vec<NorthResult<Store>> {
 pub fn retire_gone(home: &Path, passes: &[Retire]) -> NorthResult<usize> {
     let now = Timestamp::now();
     let mut moved = 0;
-    for store in stores(home) {
+    for store in stores(home, Store::open) {
         moved += store?.retire_every(now, passes)?;
     }
     Ok(moved)
@@ -123,7 +123,7 @@ pub fn retire_gone(home: &Path, passes: &[Retire]) -> NorthResult<usize> {
 pub fn lifecycles(home: &Path) -> Lifecycles {
     let now = Timestamp::now();
     let mut faults = Vec::new();
-    for store in stores(home) {
+    for store in stores(home, Store::read_only) {
         match store.and_then(|store| store.faults(now)) {
             Ok(found) => faults.extend(found),
             Err(error) => return Lifecycles::Unreadable(error.to_string()),

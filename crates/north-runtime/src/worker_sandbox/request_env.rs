@@ -6,7 +6,7 @@ use north_base::foundation::offload;
 use north_base::verdict_cache;
 
 use super::lane_grant;
-use super::{HOSTS_HIDDEN, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDDEN};
+use super::{CONFINED, HOSTS_HIDDEN, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDDEN};
 
 const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
 const HOMES: [(&str, &str); 4] = [("XDG_STATE_HOME", ".local/state"), ("XDG_CACHE_HOME", ".cache"), ("XDG_DATA_HOME", ".local/share"), ("XDG_CONFIG_HOME", ".config")];
@@ -25,7 +25,7 @@ fn builds(name: &str) -> bool {
 }
 
 fn unsafe_name(name: &str) -> bool {
-    name == MARK || name == SOCKETS_HIDDEN || name == HOSTS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name)
+    name == MARK || name == SOCKETS_HIDDEN || name == CONFINED || name == HOSTS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name)
 }
 
 /// The programs a brokered safe-push runs, `None` for every other request: the `PATH` in `own`, the broker's environment, behind `home`'s gh shims, `north`, the broker's own build, as every north it starts, and the compiler, wrapper, flags, cache and test runner `own` sets, since the programs its checks before queueing run, the north whose `verdict hit` decides which of them run, how they build and where they run decide the verdict a ticket carries.
@@ -78,6 +78,16 @@ pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>, run
     let path = |value: &str| std::env::join_paths(std::env::split_paths(value).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
     let own_runtime = (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned());
     sent.into_iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV && name != "HOME" && !HOMES.iter().any(|(own, _)| *own == name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).chain([own_runtime]).chain(homes.iter().cloned()).collect()
+}
+
+/// The environment a request's process gets: for a worker's `capacity host status` or `backlog`, the broker's own `own` alone, without the sandbox's markers and with the broker's runtime directory and homes, since each reads and tidies the host's admission state where the broker's environment, never the client's, says it lives; for every other request, the client's `sent` as `environment` makes it.
+pub(super) fn environment_for(arguments: &[String], sent: Vec<(String, String)>, cgroup: Option<&str>, runtime: &Path, homes: &[(String, String)], own: &[(String, String)]) -> Vec<(String, String)> {
+    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    if !matches!(words.as_slice(), ["capacity", "host", "status" | "backlog"]) {
+        return environment(sent, cgroup, runtime, homes);
+    }
+    let own_runtime = (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned());
+    own.iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV && name != "HOME" && !HOMES.iter().any(|(home, _)| *home == name)).cloned().chain([own_runtime]).chain(homes.iter().cloned()).collect()
 }
 
 /// `variables` for a request whose programs the broker chose (`landing_choices`): without the client's `PATH`, its build environment and the variables that pick the north, the gate programs and the host and runner its checks before queueing use, then with the broker's choices.

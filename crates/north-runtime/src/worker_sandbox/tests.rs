@@ -266,20 +266,26 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     assert!(super::broker::await_knowing(|| asked_of(brokers.next().unwrap()), std::time::Duration::from_secs(5)), "a request the replaced build's broker has never heard waits for the broker that runs it");
     assert_eq!(brokers.next(), None, "it asked the older broker twice and stopped at the first that runs the request");
     assert!(!super::broker::await_knowing(|| asked_of(true), std::time::Duration::ZERO), "past the wait it is not sent to a broker that would refuse it");
-    for refused in ["sh -c id", "depbox run", "depbox exec -- cargo", "lane exec x", "--worker-sandbox -- sh", "capacity host run --class moderate", "capacity host run --class moderate --", "capacity host status", "capacity offload reap --owner land", "capacity offload take --once", "capacity offload choose --any --needs /etc/shadow", "capacity offload run --host gex45 -o ProxyCommand=id --base aaa --head bbb --timeout 60 -- true", "capacity offload run --host gex45 --base --upload-pack=id --head bbb --timeout 60 -- true", "capacity offload run --host gex45 --base aaa --head bbb --timeout 60 -- true id", "capacity offload free --host gex45 -F /tmp/config"] {
+    for refused in ["sh -c id", "depbox run", "depbox exec -- cargo", "lane exec x", "--worker-sandbox -- sh", "capacity host run --class moderate", "capacity host run --class moderate --", "capacity host status --json", "capacity host reserve --class heavy", "capacity offload reap --owner land", "capacity offload take --once", "capacity offload choose --any --needs /etc/shadow", "capacity offload run --host gex45 -o ProxyCommand=id --base aaa --head bbb --timeout 60 -- true", "capacity offload run --host gex45 --base --upload-pack=id --head bbb --timeout 60 -- true", "capacity offload run --host gex45 --base aaa --head bbb --timeout 60 -- true id", "capacity offload free --host gex45 -F /tmp/config"] {
         assert!(!super::broker::permitted(&words(refused)), "{refused}");
     }
-    for allowed in ["depbox run -- cargo check", "depbox fetch -- cargo fetch", "lane unlock x", "lane stray y", "lane remove z", "lane sync /c/main", "home move plan.tsv", "--worker-sandbox --built -- ./t", "--worker-sandbox --lane -- /bin/sh -c true", "capacity host run --class moderate --owner o --timeout-seconds 9 -- cargo check"] {
+    for allowed in ["depbox run -- cargo check", "depbox fetch -- cargo fetch", "lane unlock x", "lane stray y", "lane remove z", "lane sync /c/main", "home move plan.tsv", "--worker-sandbox --built -- ./t", "--worker-sandbox --lane -- /bin/sh -c true", "capacity host run --class moderate --owner o --timeout-seconds 9 -- cargo check", "capacity host status", "capacity host backlog"] {
         assert!(super::broker::permitted(&words(allowed)), "{allowed}");
     }
-    let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("NORTH_WORKER_REMOVAL_ROOTS", "[\"/\"]"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged"), ("XDG_STATE_HOME", "/tmp/north-opencode-1/state"), ("XDG_CACHE_HOME", "/tmp/north-opencode-1/cache"), ("XDG_DATA_HOME", "/tmp/north-opencode-1/data"), ("XDG_CONFIG_HOME", "/tmp/north-opencode-1/config"), ("HOME", "/home/a/elsewhere"), ("NORTH_OFFLOAD_SUBJECT", "/home/a/notes"), ("NORTH_OFFLOAD_OWNER", "north-land"), ("NORTH_LAND_RED_FIX", "1"), ("NORTH_OFFLOAD_LANDER_SLOT", "1")];
+    let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("NORTH_WORKER_CONFINED", "1"), ("AGENT_CAPACITY_DB", "/home/a/forged.db"), ("NORTH_WORKER_REMOVAL_ROOTS", "[\"/\"]"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged"), ("XDG_STATE_HOME", "/tmp/north-opencode-1/state"), ("XDG_CACHE_HOME", "/tmp/north-opencode-1/cache"), ("XDG_DATA_HOME", "/tmp/north-opencode-1/data"), ("XDG_CONFIG_HOME", "/tmp/north-opencode-1/config"), ("HOME", "/home/a/elsewhere"), ("NORTH_OFFLOAD_SUBJECT", "/home/a/notes"), ("NORTH_OFFLOAD_OWNER", "north-land"), ("NORTH_LAND_RED_FIX", "1"), ("NORTH_OFFLOAD_LANDER_SLOT", "1")];
     let homes = [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config"), ("HOME", "/home/a")].map(|(name, value)| (name.to_owned(), value.to_owned()));
-    let environment = super::request_env::environment(sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes);
+    let sent_pairs = || sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect::<Vec<_>>();
+    let environment = super::request_env::environment_for(&words("capacity host run --class heavy --owner o -- cargo test"), sent_pairs(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes, &[]);
+    let own = [("PATH", "/usr/bin"), ("AGENT_CAPACITY_DB", "/home/a/.local/state/agents/machine-capacity/capacity.db"), ("NORTH_WORKER_CONFINED", "1")].map(|(name, value)| (name.to_owned(), value.to_owned()));
+    let read = super::request_env::environment_for(&words("capacity host status"), sent_pairs(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes, &own);
+    let read_get = |name: &str| read.iter().filter(|(own, _)| own == name).map(|(_, value)| value.as_str()).collect::<Vec<_>>();
+    assert_eq!((read_get("XDG_RUNTIME_DIR"), read_get("AGENT_CAPACITY_DB"), read_get("GIT_AUTHOR_NAME"), read_get("NORTH_WORKER_CONFINED"), read_get("HOME")), (vec!["/run/user/1000"], vec!["/home/a/.local/state/agents/machine-capacity/capacity.db"], vec![], vec![], vec!["/home/a"]), "a worker's brokered status read the admission state where the client's environment pointed it, unconfined");
     let get = |name: &str| environment.iter().find(|(own, _)| own == name).map(|(_, value)| value.as_str());
     assert_eq!((get("LD_PRELOAD"), get("GIT_SSH_COMMAND"), get("NORTH_WORKER_SANDBOXED"), get("GIT_SSL_CAINFO"), get("CARGO_HOME"), get("PATH")), (None, None, None, Some("/ca"), Some("/c"), Some("/usr/bin:/opt/x")));
     assert_ne!(get("GIT_CONFIG_COUNT"), Some("9"));
     assert_eq!((get("NORTH_OFFLOAD_SUBJECT"), get("NORTH_OFFLOAD_OWNER"), get("NORTH_LAND_RED_FIX"), get("NORTH_OFFLOAD_LANDER_SLOT")), (None, None, None, None), "a worker's request named the file admission records or claimed the lander's owner, red fix or slot");
     assert_eq!((get("GIT_AUTHOR_NAME"), get("NORTH_SOCKETS_HIDDEN"), get("NORTH_WORKER_REMOVAL_ROOTS")), (Some("a"), None, None));
+    assert_eq!(get("NORTH_WORKER_CONFINED"), None, "a brokered capacity run kept the confined mark, so it asked the broker again instead of taking its lease");
     assert_eq!(environment.iter().filter(|(name, _)| name == "XDG_RUNTIME_DIR").map(|(_, value)| value.as_str()).collect::<Vec<_>>(), ["/run/user/1000"], "an outside command took the client's runtime directory, so an OpenCode worker that clears it got no user manager and no capacity lease (north#1023)");
     assert_eq!(environment.iter().filter(|(name, _)| name.starts_with("XDG_") && name != "XDG_RUNTIME_DIR").map(|(name, value)| (name.as_str(), value.as_str())).collect::<Vec<_>>(), [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config")], "a brokered build took the client's scratch homes, so its capacity admissions landed outside the host's decision ledger (north#1030)");
     assert_eq!(environment.iter().filter(|(name, _)| name == "HOME").map(|(_, value)| value.as_str()).collect::<Vec<_>>(), ["/home/a"], "a brokered command took the client's HOME instead of the broker's (north#992)");
@@ -327,7 +333,7 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     for directory in [state.join("threads"), state.join("convo"), state.join("north/profiles"), state.join("north/fleet"), state.join("north/land"), main.clone()] {
         std::fs::create_dir_all(directory).unwrap();
     }
-    let context = Context { home, cwd: main, uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check: false };
+    let context = Context { home, cwd: main, uid: 0, user_runtime: root.path().join("run"), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check: false };
     let roots = removable(&context);
     for store in ["threads", "convo", "north/profiles", "north/fleet"] {
         let store = state.join(store).canonicalize().unwrap();
@@ -351,7 +357,7 @@ fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
         std::fs::create_dir_all(directory).unwrap();
     }
     std::os::unix::fs::symlink("runtimes/a", state.join("current")).unwrap();
-    let context = Context { home: home.clone(), cwd: home.join("code/north/main"), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: Some(runtimes.clone()), session: None, agent_socket: None, offload_slot: None, land_check: false };
+    let context = Context { home: home.clone(), cwd: home.join("code/north/main"), uid: 0, user_runtime: home.join("run"), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: Some(runtimes.clone()), session: None, agent_socket: None, offload_slot: None, land_check: false };
     let hidden: Vec<PathBuf> = super::lane_only::hidden(&context, &[]).iter().map(|path| path.canonicalize().unwrap_or_else(|_| path.clone())).collect();
     assert!(!hidden.iter().any(|path| runtimes.join("a/tree/bin").starts_with(path)), "the north runtime is hidden: {hidden:?}");
     assert!(hidden.contains(&state.join("profiles")), "the agent state beside the runtime is readable: {hidden:?}");
@@ -425,34 +431,58 @@ fn a_draining_broker_holding_the_unit_name_does_not_stop_a_new_broker_from_start
 }
 
 const WRITE_HOME: &str = "NORTH_1068_WRITE_HOME";
+const WRITE_DOMAIN: &str = "NORTH_1041_WRITE_DOMAIN";
+const ADMITTED: [&str; 3] = ["run/agent-capacity-v1/leases/held.json", "run/agent-capacity-v1/lifecycle.db", "run/agent-capacity-v1/lifecycle.db-shm"];
 
 #[test]
-fn a_lane_only_write_child() {
+fn a_confined_write_child() {
     let Some(home) = std::env::var_os(WRITE_HOME) else {
         return;
     };
     let home = PathBuf::from(home);
-    let context = Context { home: home.clone(), cwd: home.join("code/alpha/worktrees/lane"), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check: false };
-    assert!(matches!(super::confine_to_lane(&context, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    let lane_only = std::env::var_os(WRITE_DOMAIN).is_some_and(|domain| domain == "lane");
+    let context = Context { home: home.clone(), cwd: home.join("code/alpha/worktrees/lane"), uid: 0, user_runtime: home.join("run"), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check: false };
+    let confined = if lane_only {
+        super::confine_to_lane(&context, &[])
+    } else {
+        let roots = removable(&context);
+        confine(Some(&roots), &readable(&context, Reader::Worker), Some(&executable(&context)), Some(&super::writable(&context, &roots)), &[])
+    };
+    assert!(matches!(confined, Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let writes = |path: &str| std::fs::OpenOptions::new().write(true).open(home.join(path)).is_ok();
-    assert!(writes("code/alpha/worktrees/lane/file"), "a lane-only command cannot write its own lane");
-    for refused in [".local/state/north/fleet/sessions/s1.json", "sys/fs/cgroup/agent.slice/north-session-lane-s1.scope/cgroup.procs", "code/beta/main/file"] {
-        assert!(!writes(refused), "a lane-only command wrote {refused}");
+    let creates = |path: &str| std::fs::OpenOptions::new().write(true).create_new(true).open(home.join(path)).is_ok();
+    assert!(writes("code/alpha/worktrees/lane/file"), "a confined command cannot write its own lane");
+    for refused in ADMITTED {
+        assert!(!writes(refused) && !creates(refused), "a confined command wrote the capacity admission state's {refused} in place, past the broker");
+    }
+    assert!(!creates("run/agent-capacity-v1/leases/forged.json"), "a confined command forged a capacity lease");
+    assert!(creates("run/agent-capacity-v1/sccache/lease.sock") && creates("run/north-gh-budget/worker") && creates("run/kept/file"), "a confined command lost its lease's compiler-cache socket directory or the rest of its runtime directory");
+    if lane_only {
+        for refused in [".local/state/north/fleet/sessions/s1.json", "sys/fs/cgroup/agent.slice/north-session-lane-s1.scope/cgroup.procs", "code/beta/main/file"] {
+            assert!(!writes(refused), "a lane-only command wrote {refused}");
+        }
+    } else {
+        let ledger = north_base::lifecycle::Store::read_only(&home.join(ADMITTED[1])).and_then(|store| store.faults(north_base::foundation::clock::Timestamp::now()));
+        assert!(ledger.is_ok(), "a confined reader cannot read the capacity lifecycle ledger: {:?}", ledger.err());
     }
 }
 
 #[test]
-fn a_lane_only_command_cannot_write_a_fleet_record_a_cgroup_procs_file_or_a_sibling_project() {
+fn a_worker_command_cannot_write_the_capacity_admission_state_nor_a_lane_only_one_a_fleet_record_a_cgroup_procs_file_or_a_sibling_project() {
     let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     std::fs::create_dir_all(&outside_tmp).unwrap();
-    let scratch = tempfile::Builder::new().prefix("north-1068-write").tempdir_in(outside_tmp).unwrap();
-    let home = scratch.path().canonicalize().unwrap();
-    for file in ["code/alpha/main/.git/HEAD", "code/alpha/worktrees/lane/file", ".local/state/north/fleet/sessions/s1.json", "sys/fs/cgroup/agent.slice/north-session-lane-s1.scope/cgroup.procs", "code/beta/main/file"] {
-        std::fs::create_dir_all(home.join(file).parent().unwrap()).unwrap();
-        std::fs::write(home.join(file), "x").unwrap();
+    for domain in ["lane", "worker"] {
+        let scratch = tempfile::Builder::new().prefix("north-1068-write").tempdir_in(&outside_tmp).unwrap();
+        let home = scratch.path().canonicalize().unwrap();
+        for file in ["code/alpha/main/.git/HEAD", "code/alpha/worktrees/lane/file", ".local/state/north/fleet/sessions/s1.json", "sys/fs/cgroup/agent.slice/north-session-lane-s1.scope/cgroup.procs", "code/beta/main/file", "run/kept/.keep", ADMITTED[0]] {
+            std::fs::create_dir_all(home.join(file).parent().unwrap()).unwrap();
+            std::fs::write(home.join(file), "x").unwrap();
+        }
+        drop(north_base::lifecycle::Store::open(&home.join(ADMITTED[1])).unwrap());
+        let output = Command::new(std::env::current_exe().unwrap()).args(["--exact", "worker_sandbox::tests::a_confined_write_child", "--nocapture"]).env(WRITE_HOME, &home).env(WRITE_DOMAIN, domain).output().unwrap();
+        assert!(output.status.success(), "{domain}: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert_eq!(std::fs::read_dir(home.join("run/agent-capacity-v1/leases")).unwrap().count(), 1, "{domain}: a confined command changed the admission state's leases");
     }
-    let output = Command::new(std::env::current_exe().unwrap()).args(["--exact", "worker_sandbox::tests::a_lane_only_write_child", "--nocapture"]).env(WRITE_HOME, &home).output().unwrap();
-    assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
 }
 
 #[test]
