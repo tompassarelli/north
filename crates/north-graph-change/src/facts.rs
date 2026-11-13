@@ -121,6 +121,11 @@ impl<'g> Facts<'g> {
         TestId { binary: binary.to_owned(), name: name.to_owned() }
     }
 
+    pub fn knows(&self, binary: Option<&str>, name: &str) -> Result<bool, String> {
+        let unrecorded = self.unrecorded()?;
+        Ok(self.tests.values().any(|id| id.name == name && binary.is_none_or(|binary| binary == id.binary) && !unrecorded.contains(id)))
+    }
+
     pub fn all_tests(&self) -> BTreeSet<TestId> {
         self.tests.values().cloned().collect()
     }

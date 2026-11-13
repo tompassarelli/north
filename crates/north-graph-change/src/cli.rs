@@ -210,7 +210,8 @@ fn blame(context: &Context, options: &Options) -> Result<u8, String> {
     let suspects: Vec<Suspect> = lanes.iter().map(|(name, cone)| Suspect { name, cone }).collect();
     let found = blame::of(&failures, &suspects, &facts);
     if options.json {
-        println!("{}", json!({ "lanes": found.lanes, "by_failure": found.by_failure, "untraced": found.untraced }));
+        let age = facts.coverage_commit.as_deref().and_then(|commit| git(&context.root, &["show", "-s", "--format=%ct", commit]).ok()).and_then(|stamp| stamp.trim().parse::<u64>().ok()).map(|stamp| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |now| now.as_secs().saturating_sub(stamp)));
+        println!("{}", json!({ "lanes": found.lanes, "by_failure": found.by_failure, "untraced": found.untraced, "known": found.known, "edges": found.edges, "map_age_secs": age }));
     } else {
         for lane in &found.lanes {
             println!("{lane}");

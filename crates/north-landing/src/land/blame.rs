@@ -10,7 +10,8 @@ const ASK_LIMIT: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Suspects {
-    Batch,
+    Untraced,
+    NoSuspect,
     Named(Vec<usize>),
 }
 
@@ -31,23 +32,67 @@ impl Probe {
     }
 }
 
-/// Reads `north graph ask blame`: exit 0 prints the candidate lanes by name, one per line; exit 3 (untraced), exit 2
-/// (no such verb), any other exit or a name that is no landed lane leaves the whole batch suspect.
+const MAP_HORIZON_SECS: u64 = 3 * 24 * 60 * 60;
+
+#[derive(Default, serde::Deserialize)]
+struct Answer {
+    #[serde(default)]
+    lanes: Vec<String>,
+    #[serde(default)]
+    known: BTreeMap<String, bool>,
+    #[serde(default)]
+    edges: BTreeMap<String, BTreeMap<String, String>>,
+    #[serde(default)]
+    untraced: Vec<String>,
+    map_age_secs: Option<u64>,
+}
+
+/// Reads `north graph ask blame --json` and says why. Exit 0 names lanes, kept even when they are every lane; exit 3 is
+/// `NoSuspect` only when every failure is a test the map knows, the map is at most 3 days old and no lane is untraced;
+/// anything else (exit 2, a name that is no landed lane, unreadable output) is `Untraced`.
+pub fn read(lanes: &[String], exit: Option<i32>, printed: &str) -> (Suspects, String) {
+    let Ok(answer) = serde_json::from_str::<Answer>(printed) else {
+        return (Suspects::Untraced, format!("the graph answered exit {exit:?} with no readable blame"));
+    };
+    match exit {
+        Some(0) => named(lanes, &answer),
+        Some(3) => no_suspect(&answer),
+        _ => (Suspects::Untraced, format!("the graph answered exit {exit:?}")),
+    }
+}
+
+fn named(lanes: &[String], answer: &Answer) -> (Suspects, String) {
+    let mut at: Vec<usize> = Vec::new();
+    for name in &answer.lanes {
+        let Some(index) = lanes.iter().position(|lane| lane == name) else {
+            return (Suspects::Untraced, format!("the graph named {name}, which is no landed lane"));
+        };
+        at.push(index);
+    }
+    at.sort_unstable();
+    at.dedup();
+    if at.is_empty() {
+        return (Suspects::Untraced, "the graph named no lane".to_owned());
+    }
+    let through: Vec<String> = answer.edges.iter().flat_map(|(failure, edges)| edges.iter().map(move |(lane, edge)| format!("{lane} through the {edge} edge for {failure}"))).collect();
+    let why = if through.is_empty() { at.iter().map(|&index| lanes[index].as_str()).collect::<Vec<_>>().join(", ") } else { through.join(", ") };
+    (Suspects::Named(at), why)
+}
+
+fn no_suspect(answer: &Answer) -> (Suspects, String) {
+    let unknown: Vec<&str> = answer.known.iter().filter(|(_, known)| !**known).map(|(failure, _)| failure.as_str()).collect();
+    if answer.known.is_empty() || !unknown.is_empty() {
+        return (Suspects::Untraced, format!("no lane holds the failures, but the graph does not know {}", if unknown.is_empty() { "any".to_owned() } else { unknown.join(", ") }));
+    }
+    match answer.map_age_secs {
+        Some(age) if age <= MAP_HORIZON_SECS && answer.untraced.is_empty() => (Suspects::NoSuspect, format!("no lane reaches the known {}", answer.known.keys().cloned().collect::<Vec<_>>().join(", "))),
+        Some(age) if age <= MAP_HORIZON_SECS => (Suspects::Untraced, format!("{} is untraced", answer.untraced.join(", "))),
+        _ => (Suspects::Untraced, "the coverage map is older than 3 days or unrecorded".to_owned()),
+    }
+}
+
 pub fn suspects(lanes: &[String], exit: Option<i32>, printed: &str) -> Suspects {
-    if exit != Some(0) {
-        return Suspects::Batch;
-    }
-    let mut named = Vec::new();
-    for name in printed.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        let before = named.len();
-        named.extend(lanes.iter().enumerate().filter(|(_, lane)| *lane == name).map(|(at, _)| at));
-        if named.len() == before {
-            return Suspects::Batch;
-        }
-    }
-    named.sort_unstable();
-    named.dedup();
-    if named.is_empty() || named.len() == lanes.len() { Suspects::Batch } else { Suspects::Named(named) }
+    read(lanes, exit, printed).0
 }
 
 pub fn ranges(base: &str, lanes: &[String], tips: &[String]) -> Vec<String> {
@@ -56,15 +101,16 @@ pub fn ranges(base: &str, lanes: &[String], tips: &[String]) -> Vec<String> {
 
 pub fn ask(repo: &Path, log: &Path, base: &str, head: &str, lanes: &[String], tips: &[String], room: usize) -> Suspects {
     let mut command = Command::new(follow::program());
-    command.args(["graph", "ask", "blame", "--log"]).arg(log).current_dir(repo).stdin(Stdio::null());
+    command.args(["graph", "ask", "blame", "--json", "--log"]).arg(log).current_dir(repo).stdin(Stdio::null());
     command.args(ranges(base, lanes, tips));
     let asked = north_base::platform::process::run_command_within(command, None, ASK_LIMIT);
-    let suspects = asked.as_ref().map_or(Suspects::Batch, |output| self::suspects(lanes, output.status.code(), &String::from_utf8_lossy(&output.stdout)));
+    let (suspects, why) = asked.as_ref().map_or((Suspects::Untraced, "the graph could not be asked".to_owned()), |output| read(lanes, output.status.code(), &String::from_utf8_lossy(&output.stdout)));
     match &suspects {
-        Suspects::Named(named) if named.len() == 1 => println!("north land: the change graph blames {} alone for the red after-landing run of {head}, so it is blamed once its parent passes the failed checks", lanes[named[0]]),
-        Suspects::Named(named) => println!("north land: the change graph blames {} of the {} lanes of {head}, so the culprits are bisected among {}", named.len(), lanes.len(), named.iter().map(|&at| lanes[at].as_str()).collect::<Vec<_>>().join(", ")),
-        Suspects::Batch if room < lanes.len() => println!("north land: the change graph names no culprit for the red after-landing run of {head}, and {room} offload slots are free for its {} prefixes, so the whole batch is bisected", lanes.len()),
-        Suspects::Batch => println!("north land: the change graph names no culprit for the red after-landing run of {head}, so the whole batch is bisected"),
+        Suspects::Named(named) if named.len() == 1 => println!("north land: the change graph names {} (one suspect: {why}) for the red after-landing run of {head}, so it is blamed once its parent passes the failed checks", lanes[named[0]]),
+        Suspects::Named(named) => println!("north land: the change graph names {} of the {} lanes of {head} ({why}), so the culprits are bisected among {}", named.len(), lanes.len(), named.iter().map(|&at| lanes[at].as_str()).collect::<Vec<_>>().join(", ")),
+        Suspects::NoSuspect => println!("north land: the change graph trusts that no lane of {head} caused the red after-landing run: {why}"),
+        Suspects::Untraced if room < lanes.len() => println!("north land: the change graph is untraced for the red after-landing run of {head} ({why}), and {room} offload slots are free for its {} prefixes, so the whole batch is bisected", lanes.len()),
+        Suspects::Untraced => println!("north land: the change graph is untraced for the red after-landing run of {head} ({why}), so the whole batch is bisected"),
     }
     suspects
 }

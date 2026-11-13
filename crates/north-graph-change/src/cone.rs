@@ -18,6 +18,7 @@ pub struct Cone {
     pub tests: BTreeSet<TestId>,
     pub always: BTreeSet<TestId>,
     pub added: Vec<Added>,
+    pub unknown: Vec<Added>,
     pub files: Vec<String>,
     pub untraced: Option<String>,
 }
@@ -34,6 +35,23 @@ impl Cone {
         let in_package = |package: &str| package.is_empty() || binary.is_none_or(|binary| binary.split("::").next() == Some(package));
         let added = self.added.iter().any(|test| (name == test.name || name.ends_with(&format!("::{}", test.name))) && in_package(&test.package));
         self.untraced.is_some() || traced || added
+    }
+
+    pub fn edge(&self, binary: Option<&str>, name: &str) -> Option<&'static str> {
+        let traced = self.tests.iter().any(|test| test.name == name && binary.is_none_or(|binary| binary == test.binary));
+        let in_package = |package: &str| package.is_empty() || binary.is_none_or(|binary| binary.split("::").next() == Some(package));
+        let matches = |test: &Added| (name == test.name || name.ends_with(&format!("::{}", test.name))) && in_package(&test.package);
+        if traced {
+            Some("reaches")
+        } else if self.added.iter().any(|test| matches(test) && !self.unknown.contains(test)) {
+            Some("added")
+        } else if self.unknown.iter().any(matches) {
+            Some("unknown")
+        } else if self.untraced.is_some() {
+            Some("untraced")
+        } else {
+            None
+        }
     }
 
     pub fn nextest_arguments(&self) -> Vec<String> {
@@ -122,7 +140,8 @@ pub fn of(facts: &Facts, change: &Change, stale: Option<&Hunks>) -> Result<Cone,
     let added = change.added.iter().map(|test| Added { package: test.package.clone().or_else(|| facts.crate_of(&test.file).map(str::to_owned)).unwrap_or_default(), name: test.name.clone() }).collect();
     let mut cone = Cone { added, files, ..Cone::default() };
     let unknown = unknown(facts, change, &cone.added);
-    cone.added.extend(unknown);
+    cone.added.extend(unknown.iter().cloned());
+    cone.unknown = unknown;
     match walk(facts, change, stale, false) {
         Ok((tests, bare)) => {
             cone.tests = tests;

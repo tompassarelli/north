@@ -50,6 +50,8 @@ pub struct Blame {
     pub lanes: Vec<String>,
     pub by_failure: BTreeMap<String, Vec<String>>,
     pub untraced: Vec<String>,
+    pub known: BTreeMap<String, bool>,
+    pub edges: BTreeMap<String, BTreeMap<String, &'static str>>,
 }
 
 pub fn of(failures: &[Failure], suspects: &[Suspect], facts: &Facts) -> Blame {
@@ -59,6 +61,19 @@ pub fn of(failures: &[Failure], suspects: &[Suspect], facts: &Facts) -> Blame {
         let holders: Vec<usize> = (0..suspects.len()).filter(|index| holds(failure, suspects[*index].cone, facts)).collect();
         let named: Vec<usize> = holders.iter().copied().filter(|index| names_its_change(failure, suspects[*index].cone)).collect();
         let kept = if named.is_empty() { holders } else { named };
+        let known = match &failure.kind {
+            Kind::Test { binary, name } => facts.knows(binary.as_deref(), name).unwrap_or(false),
+            Kind::Compile { .. } => false,
+        };
+        blame.known.insert(failure.label(), known);
+        if let Kind::Test { binary, name } = &failure.kind {
+            let edges = blame.edges.entry(failure.label()).or_default();
+            for index in &kept {
+                if let Some(edge) = suspects[*index].cone.edge(binary.as_deref(), name) {
+                    edges.insert(suspects[*index].name.to_owned(), edge);
+                }
+            }
+        }
         if kept.is_empty() {
             blame.untraced.push(failure.label());
         }

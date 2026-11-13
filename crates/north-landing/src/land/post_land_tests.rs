@@ -305,7 +305,7 @@ fn a_failure_outside_the_base_selection_probes_the_base_before_blaming() {
     landed.lanes = vec!["dash".to_owned(), "lane-b".to_owned()];
     landed.tips = vec!["95afbfbca".to_owned(), "lane-b".to_owned()];
     let gates = tempfile::tempdir().unwrap();
-    let blamed = super::blamed(&landed, 1, &crate::land::blame::Suspects::Batch, &check, || vec!["before-ds".to_owned()], gates.path(), &failing);
+    let blamed = super::blamed(&landed, 1, &crate::land::blame::Suspects::Untraced, &check, || vec!["before-ds".to_owned()], gates.path(), &failing);
     assert_eq!(blamed, None, "no lane of the batch is red where its parent passes the failed test");
     assert!(probed.lock().unwrap().iter().any(|tree| tree == "ds-1033"), "the base is probed: {probed:?}");
     let log = std::fs::read_to_string(gates.path().join("blame-walk-back.jsonl")).unwrap();
