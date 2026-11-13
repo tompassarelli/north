@@ -1,6 +1,7 @@
 //! Which open issues are ready: unticked Done-when boxes, nobody holding them, no label or open gate handing them to
-//! Tom, no `(not before ...)` stamp ahead, and every predecessor closed. A box waits only on records: its stamp, the fact
-//! graph's box edges, a gate, a claim or a registered wait; its prose and the newest report hold nothing (north#872).
+//! Tom, no `(not before ...)` stamp ahead, and every predecessor closed. A box waits only on records: its stamp, a
+//! `## Parked` heading above it, the fact graph's box edges, a gate, a claim or a registered wait; its prose and the
+//! newest report hold nothing (north#872).
 use crate::platform::box_oracles;
 use north_graph_ground::{Backlog, Verdict};
 use regex::Regex;
@@ -148,11 +149,17 @@ impl Issue {
         self.product_holds().filter(move |(line, hold)| hold.is_none() && !self.awaits_check(line, at)).map(|(line, _)| line)
     }
 
-    /// Each unticked product box with what holds it beyond a date: a live reading its command takes, or its own `Needs: Tom` line.
+    /// Each unticked product box with what holds it beyond a date: the issue's `## Parked` heading above it, a live reading its command takes, or its own `Needs: Tom` line.
     fn product_holds(&self) -> impl Iterator<Item = (&str, Option<Hold>)> {
-        self.product_lines().map(|line| {
-            let hold = live_reading(line).map(Hold::Live).or_else(|| crate::pacing::placement::needs::declared(line).is_some_and(|needs| needs.iter().any(|need| need == "tom")).then_some(Hold::Tom));
-            (line, hold)
+        let mut parked = false;
+        self.body.lines().filter_map(move |line| {
+            if let Some(heading) = line.strip_prefix("## ") {
+                parked = heading.starts_with("Parked");
+            }
+            UNTICKED.is_match(line).then(|| {
+                let hold = parked.then_some(Hold::Parked).or_else(|| live_reading(line).map(Hold::Live)).or_else(|| crate::pacing::placement::needs::declared(line).is_some_and(|needs| needs.iter().any(|need| need == "tom")).then_some(Hold::Tom));
+                (line, hold)
+            })
         })
     }
 
@@ -277,6 +284,7 @@ pub fn settle_box_holds(issues: &[Issue], held: &super::record::BoxHolds) -> (su
 enum Hold {
     Live(&'static str),
     Tom,
+    Parked,
 }
 
 impl fmt::Display for Hold {
@@ -284,6 +292,7 @@ impl fmt::Display for Hold {
         match self {
             Self::Tom => write!(f, "Tom answers it: its own `Needs: Tom` line hands it to him"),
             Self::Live(source) => write!(f, "it reads {source}, which a worker cannot take"),
+            Self::Parked => write!(f, "it is moved out from under the issue's `## Parked` heading"),
         }
     }
 }

@@ -569,3 +569,20 @@ fn a_parent_over_the_bound_gets_one_lead_and_loses_it_when_its_subtree_closes_an
 fn hand_lead(name: &str) -> super::fleets::Session {
     super::fleets::Session { name: name.into(), items: vec![super::IssueRef::new("north", 2000)], claim_box: None, machine: None, working: true, account: Some("claude:a".into()), worker: true, predicted: Vec::new(), parent: None, lead: true, dispatched: false }
 }
+
+/// north#1345: dispatch on nexus staffed C3, C4 and L10 of north#1276 on 2026-11-13 while its body listed them under `## Parked (gate 242, 2026-11-13)`.
+#[test]
+fn a_box_under_the_parked_heading_gets_no_launch_while_the_boxes_outside_it_still_launch() {
+    let parked = "## Parked (gate 242, 2026-11-13)\nParked by the owner's decision on gate 242 (default at 9:20 AM +07): not staffed until moved back.\n\n- [ ] Argument parsing and error handling go through a library chosen by a recorded measurement.\n  - [ ] C1 Convert north (`src/cli`, 88 flag arms, 245 parse-function lines) to clap derive with help generation off.\n  - [ ] C2 Convert north-ops (75 flag arms, 250 parse-function lines).\n  - [ ] C3 Convert north-core (59 flag arms).\n  - [ ] C4 Convert north-lander, north-runtime, north-flow and north-lanes, one landing each.\n  - [ ] L10 REWRITE: the guard hook dispatches from one table in `crates/north-guard/src/hook.rs`.\n";
+    let body = format!("## Done when\n- [ ] L03 Check: the code-health report lists each crate's layer\n\n{parked}\n## Filed later\n- [ ] L05 Move: the lander's notices leave north-core\n");
+    let (hosts, accounts) = fleet();
+    let outcome = decide(&survey(vec![issue("north", 1276, &body, &[])], hosts, accounts), "test");
+    let mut staffed: Vec<&str> = outcome.launches.iter().flat_map(|launch| launch.brief.lines().filter_map(|line| line.strip_prefix("Box: "))).collect();
+    staffed.sort_unstable();
+    assert_eq!(staffed, ["L03 Check: the code-health report lists each crate's layer", "L05 Move: the lander's notices leave north-core"], "{:?}", outcome.skipped);
+    let (hosts, accounts) = fleet();
+    let only_parked = decide(&survey(vec![issue("north", 1276, parked, &[])], hosts, accounts), "test");
+    assert!(only_parked.launches.is_empty(), "{:?}", only_parked.launches.iter().map(|launch| &launch.brief).collect::<Vec<_>>());
+    let skipped: Vec<(String, &str)> = only_parked.skipped.iter().map(|(item, why)| (item.to_string(), why.as_str())).collect();
+    assert_eq!(skipped, [("north#1276".to_owned(), "every open box waits, the first until it is moved out from under the issue's `## Parked` heading")]);
+}
