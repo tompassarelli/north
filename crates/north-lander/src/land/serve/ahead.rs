@@ -6,7 +6,6 @@ use std::sync::{Mutex, OnceLock};
 
 use north_base::build_inputs::runtime_input;
 use north_base::platform::harness::{DEFAULTS, document};
-use north_base::platform::store_refs::RUNTIME_PROGRAMS;
 
 use crate::land::candidate::git;
 use crate::land::lander::{Lander, state_home};
@@ -74,8 +73,7 @@ fn changes_runtime(lander: &Lander, base: &str, head: &str) -> bool {
 }
 
 fn ready(tree: &str) -> bool {
-    let artifact = state_home().join("north/runtime-artifacts").join(tree);
-    RUNTIME_PROGRAMS.iter().all(|program| artifact.join(program).is_file())
+    north_runtime_follow::layout::held(&state_home().join("north/runtime-artifacts").join(tree))
 }
 
 fn request(lander: &Lander, tree: &str, commit: &str, kind: &str, lane: &str) -> bool {

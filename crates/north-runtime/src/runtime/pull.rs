@@ -46,12 +46,8 @@ fn fetch_reported(host: &str, target: &str, runtime: &Path) -> bool {
 }
 
 pub(super) fn fetch(host: &str, target: &str, runtime: &Path, beside: &[&str]) -> Result<(), String> {
-    fs::create_dir_all(runtime).map_err(|error| error.to_string())?;
-    let mut copy = Command::new("rsync");
-    copy.args(["-a", "--timeout=60", "-e", "ssh -o BatchMode=yes -o ConnectTimeout=20 -o ControlPath=none"])
-        .args(PROGRAMS.iter().chain(beside).map(|file| format!("{host}:.local/state/north/runtimes/{target}/{file}")))
-        .arg(runtime);
-    step("rsync", &mut copy, limit(COPY))?;
+    let files: Vec<&str> = PROGRAMS.iter().chain(beside).copied().collect();
+    copy(host, target, runtime, &files)?;
     if !layout::has_programs(runtime) {
         return Err("the copy left the programs incomplete".to_owned());
     }
@@ -59,6 +55,16 @@ pub(super) fn fetch(host: &str, target: &str, runtime: &Path, beside: &[&str]) -
     let mut realise = Command::new("nix-store");
     realise.args(["--realise", "--quiet"]).args(&references).stdout(std::process::Stdio::null());
     step("nix-store --realise", &mut realise, limit(REALISE))
+}
+
+/// Copies `files` of the runtime `target` on `host` into `into`, and nothing else.
+pub(super) fn copy(host: &str, target: &str, into: &Path, files: &[&str]) -> Result<(), String> {
+    fs::create_dir_all(into).map_err(|error| error.to_string())?;
+    let mut copy = Command::new("rsync");
+    copy.args(["-a", "--timeout=60", "-e", "ssh -o BatchMode=yes -o ConnectTimeout=20 -o ControlPath=none"])
+        .args(files.iter().map(|file| format!("{host}:.local/state/north/runtimes/{target}/{file}")))
+        .arg(into);
+    step("rsync", &mut copy, limit(COPY))
 }
 
 fn step(name: &str, command: &mut Command, limit: Duration) -> Result<(), String> {

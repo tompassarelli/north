@@ -1,16 +1,18 @@
 //! Release runtimes built ahead of the landing they belong to: the lander asks for the release north of a queued
 //! lane's candidate tree, a build host builds it, and the promotion installs it by the tree hash the landed commit
 //! carries instead of building the same tree again after the push. An artifact is kept under
-//! `runtime-artifacts/<tree>`: the runtime programs, the commit and the host they were built from and on, and when.
+//! `runtime-artifacts/<tree>`: the build host that holds the programs, the commit and the host they were built from and
+//! on, and when; the programs, about 97 MB, stay on that build host until the promotion of the landing pulls them, so
+//! a landing copies none of them here and the promotion copies them once, straight into its runtime (north#1362).
 //! Each request is a file under `runtime-artifacts/requests` named by its tree. Each build host has one slot, a lock
 //! file here, and whoever holds a slot drains the requests in order, every lander candidate oldest first and then a
 //! queued lane's hand-in, taking each off the queue so no other slot builds it, while a newer request withdraws every older
 //! one still waiting, so only the newest waiting tree is built ahead: requests build side by side, one per
-//! build host, and a candidate waits only while every build host is building; none builds on this host. Each artifact
-//! is about 86 MB and the newest nine are kept, since builds side by side end three at a time.
+//! build host, and a candidate waits only while every build host is building; none builds on this host. The newest nine
+//! artifacts are kept, since builds side by side end three at a time.
 use super::super::build_host;
 use super::super::failure::{Failure, failed};
-use super::super::layout::{self, BUILT_FROM, BUILT_HERE, BUILT_ON, Layout, PROGRAMS};
+use super::super::layout::{self, BUILT_FROM, BUILT_ON, HELD_ON, Layout, PROGRAMS};
 use super::super::pin::{self, Event};
 use super::super::remote;
 use north_offload::land_offload::{self, BuildHost};
@@ -79,10 +81,10 @@ pub(super) fn tree_of(checkout: &Path, rev: &str) -> Result<String, Failure> {
     layout::is_sha(&tree).then_some(tree).ok_or_else(|| failed(1, format!("git rev-parse {rev}^{{tree}} printed no tree hash")))
 }
 
-/// The artifact for `tree`, when it holds every runtime program.
+/// The artifact for `tree`, when it names the build host holding its build.
 pub(super) fn ready(layout: &Layout, tree: &str) -> Option<PathBuf> {
     let artifact = layout.artifacts().join(tree);
-    PROGRAMS.iter().all(|program| artifact.join(program).is_file()).then_some(artifact)
+    layout::held(&artifact).then_some(artifact)
 }
 
 /// Whether the artifact for `tree` is ready, waiting while a build host builds it now: a coordinator orders main's head
@@ -123,15 +125,25 @@ fn staging(artifacts: &Path, tree: &str) -> PathBuf {
     artifacts.join(format!("{tree}.part"))
 }
 
-/// Installs the artifact for `tree` as `runtime`, named for the landed commit `target`, when it is ready and the commit it was built from carries `tree`; whether it did.
-pub(super) fn adopt(layout: &Layout, runtime: &Path, tree: &str, target: &str, tree_of: impl Fn(&str) -> Option<String>) -> bool {
+/// Installs the artifact for `tree` as `runtime`, named for the landed commit `target`, when it is ready and the commit it was built from carries `tree`: `fetch` copies the programs and their stamp from the build host the artifact names into `runtime`, the one copy of the release north this host takes; whether it did.
+pub(super) fn adopt(layout: &Layout, runtime: &Path, tree: &str, target: &str, tree_of: impl Fn(&str) -> Option<String>, fetch: impl FnOnce(&str, &str, &Path) -> Result<(), String>) -> bool {
     let Some(artifact) = ready(layout, tree) else { return false };
-    let built_from = fs::read_to_string(artifact.join(BUILT_FROM)).ok().and_then(|stamp| stamp.split_whitespace().next().map(str::to_owned));
-    if built_from.and_then(|commit| tree_of(&commit)).as_deref() != Some(tree) {
+    let stamp = fs::read_to_string(artifact.join(BUILT_FROM)).unwrap_or_default();
+    let Some(commit) = stamp.split_whitespace().next().filter(|commit| tree_of(commit).as_deref() == Some(tree)) else {
         println!("north runtime: the artifact kept for tree {} was built from a commit that does not carry it, so it is not installed", layout::short(tree));
         return false;
-    }
-    let installed = install(&artifact, runtime, target);
+    };
+    let installed = match pulled(&artifact, &stamp, commit, runtime, fetch) {
+        Ok(()) => install(&artifact, runtime, target),
+        Err(why) => {
+            println!("north runtime: the release north built ahead for tree {} could not be pulled ({why}), so the promotion has a build host build it", layout::short(tree));
+            for program in PROGRAMS.iter().chain([&BUILT_FROM]) {
+                let _ = fs::remove_file(runtime.join(program));
+            }
+            let _ = fs::remove_dir_all(&artifact);
+            false
+        }
+    };
     if installed {
         let _ = fs::remove_dir_all(&artifact);
         pin::note(layout, &Event::ArtifactReady { sha: target.to_owned(), tree: tree.to_owned(), seconds: 0, at: pin::now() });
@@ -140,20 +152,16 @@ pub(super) fn adopt(layout: &Layout, runtime: &Path, tree: &str, target: &str, t
     installed
 }
 
+fn pulled(artifact: &Path, stamp: &str, commit: &str, runtime: &Path, fetch: impl FnOnce(&str, &str, &Path) -> Result<(), String>) -> Result<(), String> {
+    let host = fs::read_to_string(artifact.join(HELD_ON)).map_err(|error| format!("{HELD_ON}: {error}"))?;
+    fetch(host.trim(), commit, runtime)?;
+    let recorded = stamp.split_whitespace().nth(1).unwrap_or_default();
+    let pulled = fs::read_to_string(runtime.join(BUILT_FROM)).is_ok_and(|pulled| pulled == stamp) && layout::binary_hash(&runtime.join("north")).is_ok_and(|hash| hash == recorded);
+    pulled.then_some(()).ok_or_else(|| format!("{} now holds another build of {}", host.trim(), layout::short(commit)))
+}
+
 fn install(artifact: &Path, runtime: &Path, target: &str) -> bool {
-    let Ok(()) = fs::create_dir_all(runtime) else { return false };
-    for program in PROGRAMS {
-        if layout::install(&artifact.join(program), &runtime.join(program)).is_err() {
-            return false;
-        }
-    }
-    if layout::stamp(runtime, target).is_err() {
-        return false;
-    }
-    match artifact.join(BUILT_ON).is_file() {
-        true => fs::copy(artifact.join(BUILT_ON), runtime.join(BUILT_ON)).is_ok(),
-        false => fs::write(runtime.join(BUILT_HERE), layout::short(target)).is_ok(),
-    }
+    layout::stamp(runtime, target).is_ok() && fs::copy(artifact.join(BUILT_ON), runtime.join(BUILT_ON)).is_ok()
 }
 
 /// `north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR]`: the lander's request for the release
@@ -187,7 +195,7 @@ pub(in crate::runtime) fn run(layout: &Layout, flags: &[String]) -> Result<(), F
 pub(super) fn build(layout: &Layout, checkout: &Path, ask: &Ask) -> Result<(), Failure> {
     request(layout, ask, land_offload::build_host_rooms, |host, commit, into| {
         send(checkout, host, commit)?;
-        build_host::build_on(host, commit, into)
+        build_host::build_held(host, commit, into)
     })
 }
 
@@ -392,7 +400,7 @@ fn built_on_a_slot(artifacts: &Path, commit: &str, taken: &Path, held: &BuildHos
             },
         };
         println!("north runtime: building {} on {}, a build host with no build ahead running ({:.0} free cores)", layout::short(commit), host.name, host.free_cpus.unwrap_or_default());
-        match build_host::take(host, commit, taken, build_on) {
+        match held_on_host(host, commit, taken, build_on) {
             Ok(built) => return Ok(built),
             Err(why) => refused.push(why),
         }
@@ -400,17 +408,49 @@ fn built_on_a_slot(artifacts: &Path, commit: &str, taken: &Path, held: &BuildHos
     Err(refused.join("; "))
 }
 
+/// Has `host` build `commit` and records in `taken` which host holds the build and the stamp it read there, with no program copied here.
+fn held_on_host(host: &BuildHost, commit: &str, taken: &Path, build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<build_host::Built, String> {
+    let started = std::time::Instant::now();
+    let refused = |why: String| format!("{} did not build {}: {why}", host.name, layout::short(commit));
+    build_on(host, commit, taken).map_err(|failure| refused(failure.message))?;
+    let stamp = fs::read_to_string(taken.join(BUILT_FROM)).map_err(|error| refused(format!("{BUILT_FROM}: {error}")))?;
+    let binary = match stamp.split_whitespace().collect::<Vec<_>>()[..] {
+        [built, binary] if built == commit => binary.to_owned(),
+        _ => return Err(refused(format!("its {BUILT_FROM} names another commit"))),
+    };
+    fs::write(taken.join(HELD_ON), format!("{}\n", host.ssh)).and_then(|()| fs::write(taken.join(BUILT_ON), format!("{} {binary}\n", host.name))).map_err(|error| refused(error.to_string()))?;
+    Ok(build_host::Built { host: host.name.clone(), seconds: started.elapsed().as_secs() as i64, binary })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn artifact(layout: &Layout, tree: &str, commit: &str) -> PathBuf {
-        let artifact = layout.artifacts().join(tree);
-        fs::create_dir_all(&artifact).unwrap();
+    fn build_there(hosts: &Path, host: &BuildHost, commit: &str, into: &Path) -> Result<(), Failure> {
+        let kept = hosts.join(&host.ssh).join(commit);
+        fs::create_dir_all(&kept)?;
         for program in PROGRAMS {
-            fs::write(artifact.join(program), format!("{program} for {tree}\n")).unwrap();
+            fs::write(kept.join(program), format!("{program} built on {}", host.name))?;
         }
-        layout::stamp(&artifact, commit).unwrap();
+        layout::stamp(&kept, commit)?;
+        fs::create_dir_all(into)?;
+        fs::copy(kept.join(BUILT_FROM), into.join(BUILT_FROM))?;
+        Ok(())
+    }
+
+    fn pull_from(hosts: &Path) -> impl FnOnce(&str, &str, &Path) -> Result<(), String> + '_ {
+        move |ssh, commit, runtime| {
+            fs::create_dir_all(runtime).map_err(|error| error.to_string())?;
+            for file in PROGRAMS.iter().chain([&BUILT_FROM]) {
+                fs::copy(hosts.join(ssh).join(commit).join(file), runtime.join(file)).map_err(|error| error.to_string())?;
+            }
+            Ok(())
+        }
+    }
+
+    fn artifact(layout: &Layout, hosts: &Path, tree: &str, commit: &str) -> PathBuf {
+        let artifact = layout.artifacts().join(tree);
+        held_on_host(&host("cpx62", None), commit, &artifact, &mut |host, commit, into| build_there(hosts, host, commit, into)).unwrap();
         artifact
     }
 
@@ -428,18 +468,19 @@ mod tests {
         assert!(ready_for(&layout, checkout.path(), "HEAD").is_none(), "no artifact is read before one is kept");
         let head = String::from_utf8(std::process::Command::new("git").current_dir(checkout.path()).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_owned();
         let carried = |commit: &str| tree_of(checkout.path(), commit).ok();
-        artifact(&layout, &tree, &"f".repeat(40));
+        let hosts = tempfile::tempdir().unwrap();
+        artifact(&layout, hosts.path(), &tree, &"f".repeat(40));
         let runtime = layout.runtime(&"a".repeat(40));
-        assert!(!super::adopt(&layout, &runtime, &tree, &"a".repeat(40), carried), "an artifact whose built-from commit does not carry the landed tree is never installed, whichever lane asked for it");
-        artifact(&layout, &tree, &head);
+        assert!(!super::adopt(&layout, &runtime, &tree, &"a".repeat(40), carried, pull_from(hosts.path())), "an artifact whose built-from commit does not carry the landed tree is never installed, whichever lane asked for it");
+        artifact(&layout, hosts.path(), &tree, &head);
         assert_eq!(ready_for(&layout, checkout.path(), "HEAD").as_deref(), Some(tree.as_str()), "the promotion finds the artifact by the tree its landed commit carries");
-        assert!(super::adopt(&layout, &runtime, &tree, &"a".repeat(40), carried));
-        assert!(layout::has_programs(&runtime) && runtime.join(BUILT_HERE).is_file(), "the promotion installs the artifact as a whole runtime");
+        assert!(super::adopt(&layout, &runtime, &tree, &"a".repeat(40), carried, pull_from(hosts.path())));
+        assert!(layout::has_programs(&runtime) && layout::usable(&runtime, true), "the promotion pulls the build the artifact names into a whole runtime");
         assert!(pin::read(&layout.state).iter().any(|event| matches!(event, Event::ArtifactReady { sha, seconds: 0, .. } if sha == &"a".repeat(40))), "the promotion journals artifact-ready at 0 s");
         let journal = fs::read_to_string(layout.state.join(pin::JOURNAL)).unwrap();
         assert!(journal.contains("\"event\":\"artifact-ready\"") && journal.contains("\"seconds\":0"), "the ledger line is the one the box's jq reads");
         assert_eq!(layout::built_from_own_commit(&runtime), Ok(()), "the artifact's install is stamped for the landed commit");
-        assert!(!super::adopt(&layout, &layout.runtime(&"b".repeat(40)), &"c".repeat(40), &"b".repeat(40), carried), "a tree with no artifact builds as before");
+        assert!(!super::adopt(&layout, &layout.runtime(&"b".repeat(40)), &"c".repeat(40), &"b".repeat(40), carried, pull_from(hosts.path())), "a tree with no artifact builds as before");
     }
 
     fn host(name: &str, free_cpus: Option<f64>) -> BuildHost {
@@ -447,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn build_ahead_never_runs_cargo_on_the_settling_host() {
+    fn build_ahead_never_runs_cargo_on_the_settling_host_and_copies_no_release_before_the_promotion() {
         let state = tempfile::tempdir().unwrap();
         let layout = Layout { state: state.path().to_path_buf() };
         let (tree, commit) = ("c".repeat(40), "d".repeat(40));
@@ -462,13 +503,10 @@ mod tests {
         assert!(filed(&layout.artifacts()).is_empty(), "so no build ahead builds the tree a second time");
 
         let mut asked = Vec::new();
+        let hosts = tempfile::tempdir().unwrap();
         let built = |host: &BuildHost, commit: &str, into: &Path| -> Result<(), Failure> {
             asked.push(format!("{} {commit}", host.name));
-            fs::create_dir_all(into)?;
-            for program in PROGRAMS {
-                fs::write(into.join(program), format!("{program} built on {}", host.name))?;
-            }
-            Ok(layout::stamp(into, commit)?)
+            build_there(hosts.path(), host, commit, into)
         };
         let artifacts = layout.artifacts();
         let (older, lane_old, lane_new, newer) = ("1".repeat(40), "2".repeat(40), "3".repeat(40), "4".repeat(40));
@@ -482,11 +520,12 @@ mod tests {
         request(&layout, &ask(&tree, &commit, Kind::Candidate, ""), || vec![host("gex45", Some(4.0)), host("cpx62", Some(12.0))], built).unwrap();
         assert_eq!(asked, [format!("cpx62 {commit}")], "a newer candidate withdraws every older request still waiting, candidate or hand-in, so only the newest waiting tree is built and a superseded head's build never starts; a hand-in never withdraws a candidate");
         let artifact = ready(&layout, &tree).expect("the build host's release is kept by the candidate's tree");
-        assert_eq!(fs::read_to_string(artifact.join("north")).unwrap(), "north built on cpx62");
+        assert!(PROGRAMS.iter().all(|program| !artifact.join(program).exists()), "the landing copies no release north into runtime-artifacts: the build host keeps it until the promotion");
         let landed = "e".repeat(40);
         let runtime = layout.runtime(&landed);
-        assert!(super::adopt(&layout, &runtime, &tree, &landed, |built: &str| (built == commit).then(|| tree.clone())));
-        assert!(fs::read_to_string(runtime.join(BUILT_ON)).unwrap().starts_with("cpx62 ") && !runtime.join(BUILT_HERE).exists(), "the promoted runtime says which host built it");
+        assert!(super::adopt(&layout, &runtime, &tree, &landed, |built: &str| (built == commit).then(|| tree.clone()), pull_from(hosts.path())), "the promotion of the landing obtains the release north from the build host that holds it");
+        assert_eq!(fs::read_to_string(runtime.join("north")).unwrap(), "north built on cpx62");
+        assert!(fs::read_to_string(runtime.join(BUILT_ON)).unwrap().starts_with("cpx62 ") && !runtime.join(layout::BUILT_HERE).exists(), "the promoted runtime says which host built it");
         assert_eq!(layout::built_from_own_commit(&runtime), Ok(()));
 
         let busy = slot(&artifacts, &host("cpx62", Some(12.0))).expect("cpx62's slot is free once its drain ended");
@@ -494,11 +533,7 @@ mod tests {
         let mut beside_on = Vec::new();
         let beside_built = |host: &BuildHost, commit: &str, into: &Path| -> Result<(), Failure> {
             beside_on.push(host.name.clone());
-            fs::create_dir_all(into)?;
-            for program in PROGRAMS {
-                fs::write(into.join(program), "north")?;
-            }
-            Ok(layout::stamp(into, commit)?)
+            build_there(hosts.path(), host, commit, into)
         };
         request(&layout, &ask(&beside, &beside_commit, Kind::HandIn, "h-lane"), || vec![host("gex45", Some(4.0)), host("cpx62", Some(12.0))], beside_built).unwrap();
         drop(busy);

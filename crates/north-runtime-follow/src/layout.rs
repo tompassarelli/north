@@ -10,6 +10,7 @@ pub use north_base::platform::store_refs::RUNTIME_PROGRAMS as PROGRAMS;
 pub const BUILT_HERE: &str = "built-here";
 pub const BUILT_ON: &str = "built-on";
 pub const BUILT_FROM: &str = "built-from";
+pub const HELD_ON: &str = "held-on";
 pub use north_base::platform::harness::{TREE, is_sha};
 use north_base::platform::harness::DEFAULTS;
 use rustix::fs::{FlockOperation, flock};
@@ -102,6 +103,11 @@ pub fn linked_sha(link: &Path) -> Option<&str> {
 
 pub fn has_programs(runtime: &Path) -> bool {
     PROGRAMS.iter().all(|program| runtime.join(program).is_file())
+}
+
+/// Whether `artifact` names the build host holding the release north built ahead for its tree and that build's stamp: the programs stay on that host until a promotion pulls them, so a landing copies none here (north#1362).
+pub fn held(artifact: &Path) -> bool {
+    [HELD_ON, BUILT_FROM].iter().all(|record| artifact.join(record).is_file())
 }
 
 pub fn usable(runtime: &Path, commissioned_only: bool) -> bool {

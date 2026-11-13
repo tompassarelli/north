@@ -3,7 +3,7 @@ use super::canary;
 use super::bounded;
 use super::host_facts;
 use super::failure::{DEFERRED, Failure, code, failed};
-use super::layout::{self, Layout, TREE};
+use super::layout::{self, BUILT_FROM, Layout, TREE};
 use super::lifecycle::{self, Promoting, Promotion};
 use super::peers;
 use super::pin::{self, Outcome};
@@ -384,7 +384,7 @@ fn usable(runtime: &Path) -> bool {
 
 /// Installs the release north built ahead for the landed commit's tree, when one is ready or a build host is building it now, rather than build the same tree a second time.
 fn adopted(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> bool {
-    ahead::tree_of(checkout, target).is_ok_and(|tree| ahead::awaited(layout, &tree) && ahead::adopt(layout, runtime, &tree, target, |commit| ahead::tree_of(checkout, commit).ok()))
+    ahead::tree_of(checkout, target).is_ok_and(|tree| ahead::awaited(layout, &tree) && ahead::adopt(layout, runtime, &tree, target, |commit| ahead::tree_of(checkout, commit).ok(), |host, commit, runtime| pull::fetch(host, commit, runtime, &[BUILT_FROM])))
 }
 
 fn reused(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> bool {
