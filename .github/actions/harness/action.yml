@@ -10,12 +10,6 @@ inputs:
   build:
     description: Build the north commands first; a job whose command builds them itself skips it.
     default: 'true'
-  cache-key:
-    description: Cargo cache key shared across jobs; empty keys the cache by job.
-    default: ''
-  save-cache:
-    description: Write the cargo and sccache caches.
-    default: 'true'
 outputs:
   browser-skip:
     description: Why the CDP boundary test was skipped, empty when the automation browser is available.
@@ -26,16 +20,15 @@ runs:
     - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       with:
         bun-version: 1.4.4
-    - uses: ./.github/actions/rust
-      with:
-        cache-key: ${{ inputs.cache-key }}
-        save: ${{ inputs.save-cache }}
+    - name: Nix dev shell
+      if: inputs.build == 'true'
+      uses: ./.github/actions/nix-dev-shell
     - name: Build harness commands
       shell: bash
       env:
         BUILD: ${{ inputs.build }}
       run: |
-        [ "$BUILD" != true ] || cargo build --locked
+        [ "$BUILD" != true ] || nix develop --no-update-lock-file -c buck2 build //:north --out target/debug/north
         echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
     - uses: ./.github/actions/system-tools
       with:

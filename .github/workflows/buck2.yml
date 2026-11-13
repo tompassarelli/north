@@ -1,0 +1,40 @@
+name: Cargo
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Nix dev shell
+        uses: ./.github/actions/nix-dev-shell
+      - name: 'Environment: cargo tests'
+        id: environment
+        uses: ./.github/actions/cargo-test-environment
+        with:
+          dev-shell: true
+      - name: Test
+        shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
+        env:
+          TMPDIR: /tmp
+        run: buck2 test -c "north.test_path=$PATH:/usr/local/bin:/usr/bin:/bin" //...
+      - name: Build north for the harness tests
+        shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
+        run: buck2 build //:north --out target/debug/north
+      - name: Clippy
+        shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
+        run: buck2 bxl //lint/clippy.bxl:clippy -- --targets //...
+      - name: Kernel OOM kills
+        if: always()
+        run: sudo dmesg | grep -iE "out of memory|oom-kill|killed process" || echo "no OOM kill"

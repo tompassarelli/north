@@ -12,7 +12,7 @@ use crate::cli::scoreboard::{Window, state_root};
 use crate::foundation::clock::Timestamp;
 use crate::platform::watch_named;
 
-const WORKFLOW: &str = "cargo.yml";
+const WORKFLOW: &str = "buck2.yml";
 
 pub(super) type Reds = Vec<(i64, i64)>;
 
@@ -118,7 +118,7 @@ mod tests {
     use super::*;
 
     fn run(created: &str, updated: &str, conclusion: &str) -> String {
-        format!(r#"{{"path":".github/workflows/cargo.yml","head_branch":"main","event":"push","status":"completed","conclusion":"{conclusion}","created_at":"{created}","updated_at":"{updated}"}}"#)
+        format!(r#"{{"path":".github/workflows/buck2.yml","head_branch":"main","event":"push","status":"completed","conclusion":"{conclusion}","created_at":"{created}","updated_at":"{updated}"}}"#)
     }
 
     #[test]

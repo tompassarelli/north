@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Passes only when the family's own check, read from its workflow step or .safe-push line, fails on the planted fault.
+# Passes only when the family's own check, read from its workflow step, .safe-push line or literal command, fails on the planted fault.
 set -euo pipefail
 tools=(git yq); [ "${GITHUB_ACTIONS:-}" = true ] || tools+=(fd)
 for tool in "${tools[@]}"; do command -v "$tool" >/dev/null || { printf "canary: required tool %s not found on PATH\n" "$tool" >&2; exit 127; }; done
@@ -25,6 +25,9 @@ case "$kind" in
     command=$(git config -f "$root/.safe-push" --get-regexp '^land\.(check|after)$' | cut -d " " -f 2- | grep -F -- "$rest" | head -n 1 || true)
     command=${command#* :: }
     command=$(sed -E 's#(\./bin/)?depbox run -- ##g; s#nix develop -c ##g; s#(head-north( --code [^ ]+)?) --no-build#\1#g' <<<"$command")
+    ;;
+  command)
+    command=$rest
     ;;
   *) echo "canary: unknown check source '$source'" >&2; exit 2 ;;
 esac

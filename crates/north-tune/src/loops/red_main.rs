@@ -25,7 +25,7 @@ pub(super) fn unwatched(runs: &str, began: u64, now: u64, named: &dyn Fn(&str) -
         .as_array()
         .ok_or_else(|| format!("{RUNS} holds no workflow_runs"))?
         .iter()
-        .filter(|run| run["path"].as_str().is_some_and(|path| path.ends_with("cargo.yml")) && run["head_branch"] == "main" && run["event"] == "push" && run["status"] == "completed")
+        .filter(|run| run["path"].as_str().is_some_and(|path| path.ends_with("buck2.yml")) && run["head_branch"] == "main" && run["event"] == "push" && run["status"] == "completed")
         .filter_map(|run| {
             let conclusion = run["conclusion"].as_str().filter(|conclusion| !UNJUDGED.contains(conclusion))?;
             Some((run["created_at"].as_str()?.to_owned(), watch_named::run_time(run["updated_at"].as_str()?)?, conclusion == "success", run["head_sha"].as_str()?.to_owned()))

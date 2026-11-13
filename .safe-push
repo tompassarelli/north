@@ -20,7 +20,7 @@
 	owner = tompassarelli
 	owner = oxalica
 [ci]
-	budget = cargo.yml 162 600
+	budget = buck2.yml 1800 3600
 	budget = harness.yml 80 600
 [land]
 	check = @rust-input,src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets ${SAFE_PUSH_LAND_CHANGED:---workspace} --locked --offline -- -D warnings
@@ -83,10 +83,9 @@
 	after-only = it replays each added test on a scratch checkout of base through the fails-first runner on a build host, a second build of the workspace per lane :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission.rs,crates/north-landing-gates/src/landing/fails_first.rs,src/cli/ land scan test-admission run ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	after-only = needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests), which an offload slot does not have :: CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only machine-bound
 	after-only = "the lane test line decides on the landed commit and a red after-landing run reverts the lane, by the owner's direction of 2026-11-13 that a change making landing faster goes live with its revert ready and is proven by backtest, since the line costs 83 to 112 s of a one-line core change, and it still runs before landing for a lane on a trust_boundary_paths path and whenever tests_after_landing is off (north#1036) :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --locked --offline --no-tests=fail ${SAFE_PUSH_LAND_PACKAGES:---workspace} $([[ ${SAFE_PUSH_LAND_PACKAGES:-} == '-p north' ]] || echo --lib) --bins ${SAFE_PUSH_LAND_IT:---test it -E kind(lib)|kind(bin)|kind(test)}"
-	after-only = it plants a fault in a scratch copy of the landed main and checks cargo test, clippy and the portable skill check still catch it, which judges the gates, not a lane :: .github/workflows/canary.yml:rust
+	after-only = it plants a fault in a scratch copy of the landed main and checks buck2 test, clippy and the portable skill check still catch it, which judges the gates, not a lane :: .github/workflows/canary.yml:rust
 	after-only = it plants a fault in a scratch copy of the landed main and checks the harness tests still catch it, which judges the gates, not a lane :: .github/workflows/canary.yml:harness
-	after-only = it runs every cargo test of the workspace in three shards on a clean runner, minutes per landing, where the changed crates' tests and clippy run before it lands as land checks :: .github/workflows/cargo.yml:test
-	after-only = it checks the three test shards of the landed run together ran every test once, which reads that run's artifacts :: .github/workflows/cargo.yml:cover
+	after-only = it runs every Buck2 test and the clippy gate of the workspace on a clean runner with no store and no remote execution, where the changed crates' tests and clippy run before it lands as land checks :: .github/workflows/buck2.yml:test
 	after-only = it runs every shell and Python harness test on a clean runner, where the changed ones run as the machine-bound land tests on the lander :: .github/workflows/harness.yml:test
 [test-admission]
 	contract = file-or-wire-format :: a format another program or a past north writes or reads: ledgers, trailers, transcripts, the GitHub and Claude APIs, git output

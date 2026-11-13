@@ -23,15 +23,9 @@ jobs:
           fetch-depth: 0
       - name: Nix dev shell
         uses: ./.github/actions/nix-dev-shell
-      - name: Cargo cache
-        uses: ./.github/actions/rust
-        with:
-          rustup: false
-          cache-key: cargo-test
-          save: 'false'
       - name: Build north
         shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
-        run: cargo build --locked --bin north
+        run: buck2 build //:north --out target/debug/north
       - name: Confirm or report the failed landing
         shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
         env:

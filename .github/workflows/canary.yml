@@ -24,20 +24,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - name: Toolchain and cargo cache
-        uses: ./.github/actions/rust
+      - name: Nix dev shell
+        uses: ./.github/actions/nix-dev-shell
       - name: 'Environment: cargo tests'
         id: environment
         uses: ./.github/actions/cargo-test-environment
         with:
           fail-first-apt-attempt: ${{ inputs.fail_first_apt_attempt && 'true' || 'false' }}
-      - name: cargo test catches its planted fault
-        run: harness/scripts/canary.sh cargo-test
+      - name: buck2 test catches its planted fault
+        shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
+        run: harness/scripts/canary.sh buck2-test
       - name: clippy catches its planted fault
         if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
         run: harness/scripts/canary.sh clippy
       - name: Portable skill check catches its planted fault
         if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
         run: harness/scripts/canary.sh portable-skill-check
       - name: Planted-fault checks skipped
         if: ${{ !cancelled() && steps.environment.outcome == 'failure' }}

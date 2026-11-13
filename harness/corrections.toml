@@ -122,9 +122,9 @@ name = "tom-as-monitor"
 pattern = '''(requiring|making|forcing|using) me (to be )?(your|the) [^.?!\n]{0,40}(alarm|bot|monitor|watchdog)|red for \d+ ?min\w*,? missed'''
 paraphrase = "Tom said he had to be the alarm for a fault the harness should have caught itself."
 owner = "north#634"
-guard = "`north loops check` fails when a main branch stayed red over 10 minutes with neither a sheriff revert nor a fleet tick line naming it, read from the cargo.yml run history."
+guard = "`north loops check` fails when a main branch stayed red over 10 minutes with neither a sheriff revert nor a fleet tick line naming it, read from the buck2.yml run history."
 guarded_at = "2026-11-07T20:58:30Z"
-not_structural = "red-main intervals come from the cargo.yml run history `north loops check` reads, not graph facts"
+not_structural = "red-main intervals come from the buck2.yml run history `north loops check` reads, not graph facts"
 
 [[class]]
 name = "dropped-thread"

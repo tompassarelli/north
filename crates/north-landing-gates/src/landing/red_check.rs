@@ -121,7 +121,7 @@ fn verdicts_on_main(main: &str, tree: &str, failed: &BTreeSet<Failure>) -> Optio
 
 fn green_commits() -> BTreeSet<String> {
     let mut green = BTreeSet::new();
-    for workflow in ["cargo.yml", "harness.yml"] {
+    for workflow in ["buck2.yml", "harness.yml"] {
         let Some(runs) = gh(&["run", "list", "--workflow", workflow, "--branch", "main", "--status", "success", "--limit", "50", "--json", "headSha"]) else { continue };
         let runs: Value = serde_json::from_str(&runs).unwrap_or(Value::Null);
         green.extend(runs.as_array().into_iter().flatten().filter_map(|run| run.get("headSha")?.as_str().map(str::to_owned)));

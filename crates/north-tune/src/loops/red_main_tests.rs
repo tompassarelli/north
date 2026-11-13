@@ -3,7 +3,7 @@ use crate::platform::watch_named;
 
 fn run(sha: &str, minute: u32, success: bool) -> String {
     let conclusion = if success { "success" } else { "failure" };
-    format!(r#"{{"path":".github/workflows/cargo.yml","head_branch":"main","event":"push","status":"completed","conclusion":"{conclusion}","head_sha":"{sha}","created_at":"2026-11-06T06:{minute:02}:00Z","updated_at":"2026-11-06T06:{minute:02}:30Z"}}"#)
+    format!(r#"{{"path":".github/workflows/buck2.yml","head_branch":"main","event":"push","status":"completed","conclusion":"{conclusion}","head_sha":"{sha}","created_at":"2026-11-06T06:{minute:02}:00Z","updated_at":"2026-11-06T06:{minute:02}:30Z"}}"#)
 }
 
 fn history(runs: &[String]) -> String {

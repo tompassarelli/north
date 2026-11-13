@@ -322,7 +322,7 @@ fn landed(prior: &str, head: &str) -> Result<Vec<Commit>, String> {
         .collect()
 }
 
-const GATE_WORKFLOWS: [&str; 2] = ["cargo.yml", "harness.yml"];
+const GATE_WORKFLOWS: [&str; 2] = ["buck2.yml", "harness.yml"];
 
 #[derive(Debug, Deserialize)]
 struct GateRun {
