@@ -27,7 +27,7 @@ use super::it_modules::IT_ENV;
 use super::unit_reuse::quote;
 use crate::land::trace::check_log;
 
-const USAGE: &str = "north land crate-tests available | north land crate-tests host-cases [PACKAGE...] | north land crate-tests -- COMMAND";
+const USAGE: &str = "north land crate-tests available | north land crate-tests host-cases [PACKAGE...] | north land crate-tests after-landing | north land crate-tests -- COMMAND";
 const BASE_ENV: &str = "SAFE_PUSH_LAND_BASE";
 /// Buck2's exit statuses for a build the tree's own targets or code failed, and for a test run that did not pass.
 const BUILD_FAILED: i32 = 3;
@@ -39,6 +39,13 @@ const NEXTEST_SUMMARY: &str = "Summary [";
 const FAILED: u8 = 1;
 /// Keys a nextest verdict that Buck2 may have decided part of apart from the one the run after a landing looks up.
 pub const BEFORE_LANDING: (&str, &str) = ("NORTH_LAND_TEST", "buck2-before-landing");
+pub const AFTER_LANDING: (&str, &str) = ("NORTH_LAND_TEST", "buck2-after-landing");
+/// The run after a landing gives no verdict when Buck2 cannot test the tree here or its record of the run is unreadable.
+pub const NO_VERDICT: u8 = 75;
+/// Marks each crate the run after a landing passed on its stdout, which the offload also writes its own lines to.
+pub const PASSED: &str = "north land crate-tests after-landing passed ";
+/// The nextest line the run after a landing splits: only its shell is run, since every crate it moves is tested by Buck2 and the rest are left to the Cargo run after the landing.
+const AFTER_LANDING_LINE: &str = "./bin/land-shell --dev -- cargo nextest run ${SAFE_PUSH_LAND_PACKAGES}";
 
 #[derive(Debug, PartialEq, Eq)]
 enum Verdict {
@@ -235,9 +242,34 @@ fn host_cases_here(packages: &[String]) -> u8 {
     }
 }
 
+/// `north land crate-tests after-landing`: Buck2's verdict on the landed tree in this checkout for every crate this host lists, with no Cargo line and no host case: prints each crate it passed on its own line after [`PASSED`]; exits 0 when it failed none, 1 when it failed the tree, and [`NO_VERDICT`] when it decided nothing.
+fn after_landing() -> u8 {
+    let split = std::env::current_dir().ok().and_then(|root| north_build_system::crate_tests(&root, Some("HEAD"), AFTER_LANDING_LINE, PACKAGES_ENV, None));
+    let Some(split) = split else {
+        eprintln!("north land crate-tests after-landing: this host lists no crate for Buck2, holds no store generation, or the tree has no Buck2 targets, so Buck2 gives no verdict");
+        return NO_VERDICT;
+    };
+    eprintln!("north land crate-tests after-landing: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
+    let (status, summary) = observed(&split.line, &[], SUMMARY);
+    let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| record.runs(Path::new(".")).map_err(|why| eprintln!("north land crate-tests after-landing: cannot read Buck2's record of the run: {why}")).ok());
+    let owner = |label: &str| split.owner(label).map(str::to_owned);
+    match verdict(status, summary.as_deref(), record.as_deref(), &owner, &split.caseless) {
+        Verdict::Failed => FAILED,
+        Verdict::Passed(passed) if passed.is_empty() => NO_VERDICT,
+        Verdict::Passed(passed) => {
+            for name in &passed {
+                println!("{PASSED}{name}");
+            }
+            eprintln!("{}", check_log::crates_split_line(passed.len(), 0));
+            0
+        }
+    }
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     match arguments {
         [verb] if verb == "available" => 0,
+        [verb] if verb == "after-landing" => after_landing(),
         [separator, command] if separator == "--" => execute(command),
         [verb, packages @ ..] if verb == "host-cases" => host_cases_here(packages),
         _ => {

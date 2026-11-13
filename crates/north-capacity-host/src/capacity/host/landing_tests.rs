@@ -32,7 +32,7 @@ fn a_land_check_is_charged_and_recorded_as_the_check_it_runs_and_keeps_the_heavy
     }
     let (login, session, broker) = ("0::/user.slice/user-1000.slice/session-4.scope\n", "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-77c49ab1.scope\n", "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-worker-outside-7.service\n");
     assert!(super::lander_lease("land-check", Some("north-land"), Some(login)));
-    for (owner, offload_owner, cgroup) in [("land-check", None, Some(login)), ("land-check", Some(""), Some(login)), ("land-check", Some("north-land"), Some(session)), ("land-check", Some("north-land"), Some(broker)), ("land-check", Some("north-land"), None), ("gate:tom", Some("north-land"), Some(login))] {
+    for (owner, offload_owner, cgroup) in [("land-check", None, Some(login)), ("land-check", Some(""), Some(login)), ("land-check", Some("north-land"), Some(session)), ("land-check", Some("north-land"), Some(broker)), ("land-check", Some("north-land"), None), ("gate:tom", Some("north-land"), Some(login)), ("land-check", Some("north-land-buck2-after-landing"), Some(login))] {
         assert!(!super::lander_lease(owner, offload_owner, cgroup), "the owner word {owner} made a run count toward a landing charge ({offload_owner:?}, {cgroup:?})");
     }
     assert!(super::canary_lease(Some("north-runtime-canary-4242.scope"), Some(login)));

@@ -391,9 +391,9 @@ fn lander_owner(owner: &str) -> bool {
     }
 }
 
-/// Whether a run is the lander's own, so its record counts toward its command's charge: a lander owner's run that carries the lander's offload owner, which the lander sets on its checks, the offload script hands on from the lander's word and the worker broker drops from every request, started from a cgroup that is neither a fleet session's scope nor the worker broker's service. The `--owner` word alone never makes one.
+/// Whether a run is the lander's own, so its record counts toward its command's charge: a lander owner's run that carries the lander's offload owner, which the lander sets on its checks, the offload script hands on from the lander's word and the worker broker drops from every request and that is not the Buck2 run after a landing, started from a cgroup that is neither a fleet session's scope nor the worker broker's service. The `--owner` word alone never makes one.
 fn lander_lease(owner: &str, offload_owner: Option<&str>, cgroup: Option<&str>) -> bool {
-    lander_owner(owner) && offload_owner.is_some_and(|owner| !owner.is_empty()) && cgroup.is_some_and(|cgroup| !north_base::platform::session_scope::worker_cgroup(cgroup))
+    lander_owner(owner) && offload_owner.is_some_and(|owner| !owner.is_empty() && !owner.ends_with(crate::foundation::offload::AFTER_LANDING_OWNER)) && cgroup.is_some_and(|cgroup| !north_base::platform::session_scope::worker_cgroup(cgroup))
 }
 
 /// Whether a landing run is the runtime canary's check, admitted from its reserve of one: the offload script hands on a reserve caller's unit as its red-fix word, and the run starts from a cgroup that is neither a fleet session's scope nor the worker broker's service, so the word alone never makes one.

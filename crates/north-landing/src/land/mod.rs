@@ -5,6 +5,7 @@ pub mod alone_flight;
 pub mod alone_pass;
 pub mod bisect;
 pub mod blame;
+pub mod buck2_after;
 pub mod candidate;
 pub mod steps;
 pub mod judge_case;

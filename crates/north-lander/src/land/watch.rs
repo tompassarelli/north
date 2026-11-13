@@ -20,6 +20,7 @@ use super::lander::Lander;
 use super::after::owner::{self, Reverted};
 use super::post_land::{self, Found, Hosts, Outcome};
 use super::alone_flight::{self, Flight};
+use super::buck2_after;
 use super::jobs::Jobs;
 use super::unjudged::Asks;
 use super::setting;
@@ -292,6 +293,7 @@ impl Watch {
         let cancel = Arc::default();
         moved(heads(&batch), Run::Running, &format!("its after-landing run of {} started{}", batch.head, host.as_deref().map_or_else(String::new, |host| format!(" on {host}"))));
         let run = post_land::start(lander, landed(lander, &batch), host.clone(), Arc::clone(&cancel));
+        buck2_after::start(lander, &batch.head);
         self.running.push(Running { batch, run, host, cancel });
         true
     }

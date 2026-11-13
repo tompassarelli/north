@@ -1823,6 +1823,14 @@ source = "north#1036 (2026-11-13): main froze red when the lander pushed a lane 
 fallback = "any value but off reads as on"
 consumers = ["crates/north-landing/src/land/rebase_compile.rs"]
 
+[buck2_after_landing]
+value = "on"
+allowed = { one_of = ["on", "off"] }
+unit = "on: beside each after-landing run the lander starts `north land crate-tests after-landing` on the landed head in its own offload slot on a build host, Buck2 tests of the crates that host lists with no Cargo line, and records head, host, exit (0 green, 1 red, 75 no verdict), seconds and the crates it passed under check-timings/buck2-after-landing; nothing decides on it; off starts nothing"
+source = "north#1115 box 7b-checkpoint (2026-11-13): with the test line off the hand-in path, Buck2's line gives the fast verdict on the landed commit, apart from the Cargo run after the landing that reverts"
+fallback = "any value but off reads as on"
+consumers = ["crates/north-landing/src/land/buck2_after.rs"]
+
 [review_holds]
 value = "on"
 allowed = { one_of = ["on", "off"] }
