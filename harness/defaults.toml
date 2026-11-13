@@ -287,10 +287,10 @@ fallback = "every worker charges one point"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
 [dispatch_claude_sessions]
-value = 27
+value = 100
 allowed = { min = 0, max = 100 }
 unit = "worker sessions working at once, counting this run's launches, past which dispatch starts no more Claude boxes"
-source = "2026-11-13 prior: the cap counts every working non-proxy Claude session, 15 today and none placed by dispatch, so 27 leaves dispatch 12 to place, about a third of the 38 session slots the hosts declare (the 27 is that 12 plus the 15 already working), so dispatched Claude work cannot take the fleet before its first measured week (north#1137)"
+source = "2026-11-13 lifted to its allowed maximum the way the resident caps were lifted on 2026-11-10, when the owner ruled out count limits and measured pressure and the money ceiling replace them; it began as a prior (about a third of the 38 session slots the hosts declare, north#1137), a stated bound that no measurement set, and the 15 sessions working at its lifting were none placed by dispatch"
 fallback = "none: a stated bound, not a measurement"
 consumers = ["crates/north-dispatch/src/dispatch/plan.rs", "crates/north-pace/src/spend/mod.rs"]
 
