@@ -172,7 +172,7 @@ impl Turn {
             "wall_ms": u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX), "error": self.tally.error,
             "limit": self.tally.limit.as_ref().map(|limit| json!({"resets_at_s": limit.resets_at_s})),
             "tokens": {"input": input, "output": output, "cache_read": cache_read, "cache_write": cache_write},
-            "tool_calls": self.tally.tool_calls, "compactions": host.harness.compactions(host, self.began_ms, &self.tally),
+            "tool_calls": self.tally.tool_calls, "compactions": host.harness.compactions(host, self.began_ms, &self.tally), "cost_usd": self.tally.cost_usd(self.route),
         })
     }
 }

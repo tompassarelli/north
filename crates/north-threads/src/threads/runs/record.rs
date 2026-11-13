@@ -428,7 +428,7 @@ impl Ingest<'_> {
         self.db.execute(FINISHED, params_from_iter(finished_values(run, item, &follows, category)?))?;
         let r = &run.r;
         self.db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=?, landed_sha=?, provider=?, skills=? WHERE agent=?", params![r.sql("account")?, r.sql("model")?, r.sql("effort")?, r.fast()?, r.sql("landed_sha")?, run.provider()?, r.skills(), run.agent()?])?;
-        self.db.execute("UPDATE runs SET idle_compaction = coalesce(?, idle_compaction) WHERE agent = ?", params![r.sql("idle_compaction")?, run.agent()?])?;
+        self.db.execute("UPDATE runs SET idle_compaction = coalesce(?, idle_compaction), session_usd = ? WHERE agent = ?", params![r.sql("idle_compaction")?, r.sql("cost_usd")?, run.agent()?])?;
         self.db.execute(
             "UPDATE runs SET brief_text=?, brief_origin=?, brief_path=?, brief_sha256=? WHERE agent=?",
             params![r.sql("brief_text")?, r.sql("brief_origin")?, r.sql("brief_path")?, r.sql("brief_sha256")?, run.agent()?],

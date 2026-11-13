@@ -58,16 +58,17 @@ impl TurnExit {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TurnTotals {
     pub tokens: Option<Tokens>,
     pub turns: Option<u64>,
     pub wall_ms: Option<u64>,
     pub tool_calls: Option<u64>,
     pub compactions: Option<u64>,
+    pub cost_usd: Option<f64>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TurnSignal {
     Opened { conversation: String, model: Option<String>, effort: Option<String> },
     Started { conversation: String },
@@ -96,7 +97,7 @@ impl TurnSignal {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Turn {
     pub conversation: String,
     pub model: Option<String>,
@@ -109,6 +110,7 @@ pub struct Turn {
     pub tokens: Tokens,
     pub tool_calls: Option<u64>,
     pub compactions: Option<u64>,
+    pub cost_usd: Option<f64>,
     pub exit: TurnExit,
 }
 
@@ -254,12 +256,13 @@ impl Thread {
             tokens: totals.tokens.unwrap_or(self.total.since(open.baseline)),
             tool_calls: totals.tool_calls,
             compactions: totals.compactions,
+            cost_usd: totals.cost_usd,
             exit,
         }
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RunRecord {
     pub session: String,
     pub task_ref: Option<String>,

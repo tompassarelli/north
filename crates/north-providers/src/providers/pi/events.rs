@@ -15,6 +15,7 @@ pub fn read(tally: &mut Tally, event: &Value) {
             let usage = &event["message"]["usage"];
             let count = |key: &str| usage[key].as_u64().unwrap_or(0);
             tally.spend(count("input"), count("output"), count("cacheRead"), count("cacheWrite"));
+            tally.reported_usd += usage["cost"]["total"].as_f64().unwrap_or(0.0);
             if event["message"]["stopReason"] == "error" {
                 tally.error = Some(event["message"]["errorMessage"].as_str().unwrap_or("error").to_owned());
             } else {

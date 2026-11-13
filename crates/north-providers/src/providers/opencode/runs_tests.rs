@@ -35,6 +35,7 @@ fn turn(session: &str, started_ms: i64) -> Run {
         tokens_cache_write: 0,
         tool_calls: Some(4),
         compactions: Some(0),
+        cost_usd: Some(0.25),
         exit: "completed".into(),
     }
 }
@@ -59,7 +60,7 @@ fn a_finished_deepseek_session_is_a_worker_run_that_its_reviewers_landing_joins(
     assert_eq!((run["id"].as_str(), run["fleet_name"].as_str(), run["provider"].as_str(), run["role"].as_str()), (Some("ds-done"), Some("ds-done"), Some("opencode"), Some("worker")));
     assert!(run["brief"].as_str().is_some_and(|brief| brief.contains("Category: feature")), "{run}");
     assert_eq!((run["brief_text"].as_str(), run["active_min"].as_f64(), run["wait_min"].as_f64()), (prompts.get("ds-done").map(String::as_str), Some(2.0), Some(1.0)), "on 2026-11-13 every opencode and pi run of the day lacked brief text and active minutes: {run}");
-    assert_eq!((run["tool_calls"].as_i64(), run["compactions"].as_i64()), (Some(8), Some(0)), "on 2026-11-14 a third of the day's runs, the opencode and pi ones, lacked tool calls and compactions: {run}");
+    assert_eq!((run["tool_calls"].as_i64(), run["compactions"].as_i64(), run["cost_usd"].as_f64()), (Some(8), Some(0), Some(0.5)), "on 2026-11-14 a third of the day's runs, the opencode and pi ones, lacked tool calls, compactions and cost: {run}");
     assert_eq!(run["ended"].as_str(), Some(crate::foundation::clock::Timestamp::from_unix_millis(AT + 180_000).iso().as_str()));
     let landed: Vec<&str> = out[1..].iter().filter(|row| row["push_join"] == 1 && row["fleet_name"] == "ds-done").filter_map(|row| row["landed_sha"].as_str()).collect();
     assert_eq!(landed, ["def", "landed-head"]);

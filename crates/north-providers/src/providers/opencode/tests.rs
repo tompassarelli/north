@@ -28,9 +28,9 @@ case "$model" in
 esac
 printf '%s\n' '{"type":"step_start","sessionID":"ses_x","part":{}}'
 printf '%s\n' '{"type":"tool_use","sessionID":"ses_x","part":{"tool":"read","state":{"input":{"path":"a.txt"}}}}'
-printf '%s\n' '{"type":"step_finish","sessionID":"ses_x","part":{"reason":"tool-calls","tokens":{"input":100,"output":10,"reasoning":5,"cache":{"read":40,"write":2}}}}'
+printf '%s\n' '{"type":"step_finish","sessionID":"ses_x","part":{"reason":"tool-calls","cost":0,"tokens":{"input":100,"output":10,"reasoning":5,"cache":{"read":40,"write":2}}}}'
 printf '%s\n' '{"type":"text","sessionID":"ses_x","part":{"text":"Done: wrote a.txt"}}'
-printf '%s\n' '{"type":"step_finish","sessionID":"ses_x","part":{"reason":"stop","tokens":{"input":50,"output":7,"reasoning":0,"cache":{"read":0,"write":0}}}}'
+printf '%s\n' '{"type":"step_finish","sessionID":"ses_x","part":{"reason":"stop","cost":0,"tokens":{"input":50,"output":7,"reasoning":0,"cache":{"read":0,"write":0}}}}'
 "#;
 
 fn request(cwd: &Path) -> LaunchRequest {
@@ -134,6 +134,7 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     assert_eq!(*exit, TurnExit::Completed);
     let tokens = totals.tokens.unwrap();
     assert_eq!((tokens.input, tokens.output, tokens.cache_read, tokens.cache_write), (150, 22, 40, 2));
+    assert!(totals.cost_usd.is_some_and(|cost| (cost - 35.82e-6).abs() < 1e-12), "a Go turn reports cost 0, so its tokens are priced at the route's list price: {:?}", totals.cost_usd);
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Opened { model: Some(model), .. } if model == route::GO_MODEL)));
     let armed_home = tempfile::tempdir().unwrap();
     let (_, armed_signals, _) = run_briefs(&runtime, Route::Go, Some(drawn.label()), armed_home.path(), &["Item: north#1\nBox: add a.txt"]);
@@ -346,7 +347,7 @@ fn a_deepseek_brief_carries_the_overlay_on_its_arm_and_not_on_the_control() {
     std::fs::create_dir_all(queue.join("done")).unwrap();
     std::fs::write(queue.join("done/1-lane.json"), json!({"session": "worker-0-rv", "branch": "lane", "verdict": "landed"}).to_string()).unwrap();
     let lanes = north_base::land_ticket::lanes_by_session(&home.path().join("land-queue")).unwrap();
-    let run = |session: &str, overlay: &str| crate::ledger::Run { run_id: 1, session: session.into(), task_ref: None, provider: "opencode".into(), model: None, effort: None, overlay: Some(overlay.into()), account: None, prompt_sha: None, system_prompt_sha: None, deepen: false, started_ms: 1, ended_ms: 2, wall_ms: 1, turns: 1, tokens_in: 0, tokens_out: 0, tokens_cache_read: 0, tokens_cache_write: 0, exit: "completed".into(), tool_calls: None, compactions: None };
+    let run = |session: &str, overlay: &str| crate::ledger::Run { run_id: 1, session: session.into(), task_ref: None, provider: "opencode".into(), model: None, effort: None, overlay: Some(overlay.into()), account: None, prompt_sha: None, system_prompt_sha: None, deepen: false, started_ms: 1, ended_ms: 2, wall_ms: 1, turns: 1, tokens_in: 0, tokens_out: 0, tokens_cache_read: 0, tokens_cache_write: 0, exit: "completed".into(), tool_calls: None, compactions: None, cost_usd: None };
     let tallies = super::report::tally(&[run("worker-0", Arm::Overlay.label()), run("worker-1", Arm::Control.label())], &Default::default(), &lanes, None);
     let counts = |arm: Arm| tallies.get(arm.label()).map(|tally| (tally.landed, tally.rejected, tally.pending));
     assert_eq!((counts(Arm::Overlay), counts(Arm::Control)), (Some((1, 0, 0)), Some((0, 0, 1))), "a commit its Sonnet reviewer landed counts on the worker's arm");

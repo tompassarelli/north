@@ -5,6 +5,7 @@ use serde_json::Value;
 use crate::fleet::model::{Effort, EntryKind, UsageLimit};
 use crate::foundation::clock::rfc3339_seconds;
 use crate::fleet::runtime::summarize;
+use crate::router::pricing::{PriceTable, TokenUse};
 
 use super::config;
 use super::relay::Relay;
@@ -21,6 +22,7 @@ pub struct Tally {
     pub progressed: bool,
     pub tool_calls: u64,
     pub compactions: u64,
+    pub reported_usd: f64,
     pub error: Option<String>,
     pub limit: Option<UsageLimit>,
 }
@@ -30,6 +32,15 @@ impl Tally {
         for (total, count) in self.tokens.iter_mut().zip([input, output, cache_read, cache_write]) {
             *total += count;
         }
+    }
+
+    /// The turn's cost in USD: what its program reported, else on a paid route its tokens at the route's list price; none when that route has no price.
+    pub fn cost_usd(&self, route: Route) -> Option<f64> {
+        if self.reported_usd > 0.0 || route == Route::Free {
+            return Some(self.reported_usd);
+        }
+        let [input, output, cache_read, cache_write] = self.tokens.map(|count| i64::try_from(count).unwrap_or(i64::MAX));
+        PriceTable::load().ok()?.price(route.model()).map(|price| price.of(TokenUse { input, output, cache_read, cache_write }))
     }
 }
 
@@ -127,6 +138,7 @@ impl Harness for OpenCode {
                 let tokens = &event["part"]["tokens"];
                 let count = |value: &Value| value.as_u64().unwrap_or(0);
                 tally.spend(count(&tokens["input"]), count(&tokens["output"]) + count(&tokens["reasoning"]), count(&tokens["cache"]["read"]), count(&tokens["cache"]["write"]));
+                tally.reported_usd += event["part"]["cost"].as_f64().unwrap_or(0.0);
             }
             Some("text") => tally.progressed = true,
             Some("tool_use") => {
