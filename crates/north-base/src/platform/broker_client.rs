@@ -104,10 +104,11 @@ fn connect() -> Result<UnixStream, String> {
     }
     let socket = user_socket().ok_or_else(|| format!("no broker answers at {SYSTEM_SOCKET} and XDG_RUNTIME_DIR is unset"))?;
     if let Ok(stream) = UnixStream::connect(&socket) {
-        return Ok(stream);
+        return super::broker_peer::vet(stream);
     }
     start_user_broker(&socket)?;
-    UnixStream::connect(&socket).map_err(|error| format!("the broker socket {} does not answer: {error}", socket.display()))
+    let stream = UnixStream::connect(&socket).map_err(|error| format!("the broker socket {} does not answer: {error}", socket.display()))?;
+    super::broker_peer::vet(stream)
 }
 
 fn start_user_broker(socket: &Path) -> Result<(), String> {
