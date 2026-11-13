@@ -55,9 +55,13 @@ pub fn retried<T>(destination: &str, rerun: Rerun, mut call: impl FnMut(Link) ->
     let Some(reason) = retry_reason(rerun, first.exit, &first.said) else { return first.value };
     let env: BTreeMap<String, String> = std::env::vars().collect();
     let reopened = ssh_master::reopen_if_dead(&[OsString::from("ssh")], &env, destination);
-    let note = reopened.map_or_else(|why| format!("; the master could not be reopened: {why}"), |reopened| if reopened { "; dropped the dead master and asked its unit to reopen it".to_owned() } else { String::new() });
-    eprintln!("north ssh: {destination}: attempt 2 of 2 on a fresh connection: {reason}{note}");
-    call(Link::Fresh).value
+    let (link, note) = match reopened {
+        Ok(true) => (Link::Shared, "through the master its unit just started".to_owned()),
+        Ok(false) => (Link::Fresh, "on a fresh connection".to_owned()),
+        Err(why) => (Link::Fresh, format!("on a fresh connection, since the master could not be started: {why}")),
+    };
+    eprintln!("north ssh: {destination}: attempt 2 of 2 {note}: {reason}");
+    call(link).value
 }
 
 #[cfg(test)]

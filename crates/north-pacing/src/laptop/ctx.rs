@@ -103,7 +103,7 @@ impl Ctx {
         let rerun = if argv.first().map(String::as_str) == Some("toggle") { Rerun::BeforeSend } else { Rerun::Anywhere };
         let output = retried(&destination, rerun, |link| {
             let mut options = link.options().to_vec();
-            options.extend(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &destination, &command]);
+            options.extend(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=ERROR", &destination, &command]);
             let ssh = crate::platform::ssh::argv(&self.ssh, &self.env, &options);
             let words: Vec<String> = ssh.iter().map(|word| word.to_string_lossy().into_owned()).collect();
             let refs: Vec<&str> = words[1..].iter().map(String::as_str).collect();
