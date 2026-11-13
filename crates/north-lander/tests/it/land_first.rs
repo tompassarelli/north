@@ -56,7 +56,7 @@ fn subjects(north: &Repository) -> Vec<String> {
 }
 
 #[test]
-fn three_queued_lanes_land_in_one_push_with_no_check_of_their_merged_tree_before_it() {
+fn three_queued_lanes_land_in_one_push_with_no_check_of_their_merged_tree_before_it_and_two_lanes_with_one_tree_both_read_landed_with_the_same_sha() {
     let world = World::new();
     let north = world.repository("north");
     let calls_file = checker(&world);
@@ -64,12 +64,15 @@ fn three_queued_lanes_land_in_one_push_with_no_check_of_their_merged_tree_before
     for branch in ["a", "b", "c"] {
         north.lane(branch);
     }
+    north.lane_with("a-twin", "origin/main", ("a.txt", "lane\n"), ("a twin (north#360)", None));
     let journal = serve(&world, &north);
     assert_eq!(git(&north.origin, &["rev-list", "--count", &format!("{start}..main")]), "3", "{journal}");
+    assert_eq!(verdict(&north, "a-twin"), format!("landed {}", git(&north.origin, &["rev-parse", "main"])), "{journal}");
+    assert!(journal.contains("lane a-twin landed; removed its worktree"), "{journal}");
     assert_eq!(journal.matches("lanes that passed their checks before queueing").count(), 1, "{journal}");
-    assert!(journal.contains("carries 3 lanes that passed their checks before queueing"), "{journal}");
+    assert!(journal.contains("carries 4 lanes that passed their checks before queueing"), "{journal}");
     assert_eq!(calls(&calls_file), 0, "the lander checked a merged tree before the push: {journal}");
-    for branch in ["a", "b", "c"] {
+    for branch in ["a", "b", "c", "a-twin"] {
         assert!(verdict(&north, branch).starts_with("landed "), "{journal}");
     }
 }
