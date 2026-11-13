@@ -67,7 +67,7 @@ pub struct Overrides {
     pub local: Option<String>,
     pub pin: Option<String>,
     pub tier: Option<String>,
-    /// A launch the coordinator granted urgent priority, which passes the landing-line hold.
+    /// A launch the coordinator granted urgent priority; it passes no landing-line hold until the urgent grant is the coordinator's alone.
     #[serde(default, skip_serializing_if = "core::ops::Not::not")]
     pub urgent: bool,
 }

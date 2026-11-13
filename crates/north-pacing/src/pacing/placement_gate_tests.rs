@@ -315,9 +315,7 @@ fn launch_held_over_the_wait_bar_though_every_build_host_line_was_past_its_deadl
     let pinned = record::Overrides { pin: Some("urgent fix".into()), local: Some("needs the laptop".into()), ..Default::default() };
     assert!(launch_with(slow.clone(), "worker", pinned).line_held.is_some());
 
-    let urgent = launch_with(slow, "worker", record::Overrides { urgent: true, ..Default::default() });
-    assert_eq!(urgent.line_held, None);
-    assert!(urgent.machine_lines.iter().any(|line| line.starts_with("urgent priority passes the hold: every build host's expected wait") && line.contains("95 s on gex45")), "{:?}", urgent.machine_lines);
+    assert!(launch_with(slow, "worker", record::Overrides { urgent: true, ..Default::default() }).line_held.is_some());
 
     assert_eq!(launch_with(waits(&[("cpx62", Some(212)), ("gex45", Some(60))]), "worker", record::Overrides::default()).line_held, None);
     assert_eq!(launch_with(waits(&[("cpx62", Some(212)), ("gex45", None)]), "worker", record::Overrides::default()).line_held, None);

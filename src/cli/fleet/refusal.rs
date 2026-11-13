@@ -19,15 +19,9 @@ impl Refusal {
         matches!(self, Self::Spend(_) | Self::Line(_)) || (provider != "claude" && matches!(self, Self::Saturated(_)))
     }
 
-    /// The hold a harness launch meets while every build host's landing line is over the bar: a worker waits, unless the coordinator
-    /// granted it urgent priority, which passes the hold and says so.
-    pub(super) fn line_hold(worker: bool, urgent: bool) -> Option<Self> {
-        let why = worker.then(crate::pacing::placement::line_held_now).flatten()?;
-        if !urgent {
-            return Some(Self::Line(why));
-        }
-        eprintln!("fleet launch: urgent priority passes the hold: {why}");
-        None
+    /// The hold a harness launch meets while every build host's landing line is over the bar: a worker waits.
+    pub(super) fn line_hold(worker: bool) -> Option<Self> {
+        worker.then(crate::pacing::placement::line_held_now).flatten().map(Self::Line)
     }
 
     pub(super) fn kind(&self) -> record::Refusal {

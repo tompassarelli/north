@@ -110,17 +110,12 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
 
 impl Decision {
     /// Holds a worker's launch while every build host's line is over the bar; only a cloud placement escapes it, and `--local` keeps the box off the cloud.
-    /// A launch the coordinator granted urgent priority passes the hold and the pass is recorded in the decision's lines.
     pub fn hold_for_line(&mut self, case: &Case) {
         let on_cloud = matches!(self.target, gate::Target::Cloud(_)) && case.launch.overrides.local.is_none();
         if !line_wait::counts(case.launch.role.as_deref()) || on_cloud {
             return;
         }
         let Some(why) = line_wait::over_the_bar(&case.line_waits, line_wait::bar_s()) else { return };
-        if case.launch.overrides.urgent {
-            self.machine_lines.push(format!("urgent priority passes the hold: {why}"));
-            return;
-        }
         self.machine_lines.push(why.clone());
         self.line_held = Some(why);
     }

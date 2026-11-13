@@ -137,7 +137,7 @@ fn place(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String]
                 return Ok(Err(Refusal::Saturated(why)));
             }
         }
-        if let Some(refusal) = Refusal::line_hold(request.role() == Role::Worker, request.urgent) {
+        if let Some(refusal) = Refusal::line_hold(request.role() == Role::Worker) {
             return Ok(Err(refusal));
         }
         return Ok(harness_host(&host, crate::pacing::placement::saturation_reading(&host).ok().as_ref()));
