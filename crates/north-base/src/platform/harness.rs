@@ -53,7 +53,7 @@ pub fn defers_to_lander() -> bool {
 
 pub fn defers_to(lander: Option<&str>, here: &str) -> bool {
     let short = |host: &str| host.trim().rsplit('@').next().unwrap_or_default().to_owned();
-    lander.map(short).is_some_and(|lander| !lander.is_empty() && lander != short(here))
+    lander.map(short).filter(|lander| !lander.is_empty()).is_some_and(|lander| lander != short(here))
 }
 
 pub fn is_sha(name: &str) -> bool {

@@ -147,23 +147,21 @@ pub fn examine(now: u64) -> Facts {
     let link = facts::link_facts(&state.join("north"), north.as_deref(), units, now);
     let places: Vec<facts::PlaceFacts> = std::iter::once(Place { name: host, reach: Reach::Here }).chain(facts::offload_places()).map(facts::place_facts).collect();
     let orphaned_remote = facts::remote_orphans(&places);
+    let reach_deferred = north_base::platform::harness::defers_to_lander();
+    let (unreachable, reach_error) = reach(reach_deferred);
+    let agent_link_stuck = facts::agent_link_stuck(&state.join("north"));
+    Facts { queues, link, places, unserved: discovery.unserved, orphaned: discovery.orphaned, orphaned_remote, unreachable, reach_error, reach_deferred, agent_link_stuck }
+}
+
+fn reach(deferred: bool) -> (Vec<String>, Option<String>) {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map_or_else(|| PathBuf::from("/"), PathBuf::from);
     let config = std::env::var_os("XDG_CONFIG_HOME").filter(|config| !config.is_empty()).map_or_else(|| home.join(".config"), PathBuf::from);
     let repositories = facts::lander_repositories(&config, &home.join("code"));
-    let reach_deferred = north_base::platform::harness::defers_to_lander();
-    let (unreachable, reach_error) = if reach_deferred || repositories.is_empty() {
-        (Vec::new(), None)
-    } else {
-        match facts::lander_token() {
-            Ok(token) => match facts::unreachable(&repositories, &|repository| facts::github_status(&token, repository)) {
-                Ok(unreachable) => (unreachable, None),
-                Err(error) => (Vec::new(), Some(error)),
-            },
-            Err(error) => (Vec::new(), Some(error)),
-        }
-    };
-    let agent_link_stuck = facts::agent_link_stuck(&state.join("north"));
-    Facts { queues, link, places, unserved: discovery.unserved, orphaned: discovery.orphaned, orphaned_remote, unreachable, reach_error, reach_deferred, agent_link_stuck }
+    if deferred || repositories.is_empty() {
+        return (Vec::new(), None);
+    }
+    let checked = facts::lander_token().and_then(|token| facts::unreachable(&repositories, &|repository| facts::github_status(&token, repository)));
+    checked.map_or_else(|error| (Vec::new(), Some(error)), |unreachable| (unreachable, None))
 }
 
 fn project(checkout: &Path) -> String {
