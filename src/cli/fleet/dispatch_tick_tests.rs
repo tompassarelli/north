@@ -6,9 +6,12 @@ fn config(host: &str) -> DocumentMut {
 
 #[test]
 fn the_fleet_tick_runs_dispatch_when_it_is_not_paused() {
-    let hosts: DocumentMut = "[hosts.nexus]\ndeploy_ssh = \"nexus\"\n[hosts.gex45]\nssh = \"gex45\"\n[hosts.laptop]\nssh = \"laptop\"\n[hosts.cloud]\nresident_cap = 2\n[hosts.odd]\nssh = \"-oProxyCommand=x\"\n".parse().unwrap();
+    let declared = "[hosts.nexus]\ndeploy_ssh = \"nexus\"\n[hosts.gex45]\nssh = \"gex45\"\n[hosts.laptop]\nssh = \"laptop\"\n[hosts.cloud]\nresident_cap = 2\n[hosts.odd]\nssh = \"-oProxyCommand=x\"\n";
+    let hosts: DocumentMut = declared.parse().unwrap();
     let pulled: Vec<String> = super::super::api_spend::far_hosts(&hosts, "laptop").into_iter().map(|(name, _)| name).collect();
     assert_eq!(pulled, ["nexus", "gex45"]);
+    let held: DocumentMut = format!("[accounts.claude]\napi_hold = {{ since = \"2026-11-12\", reason = \"fixture\" }}\n{declared}").parse().unwrap();
+    assert!(super::super::api_spend::far_hosts(&held, "laptop").is_empty(), "every API organization held: no far host is pulled or swapped");
 
     let state = tempfile::tempdir().unwrap();
     let cfg = config("whiterabbit");
