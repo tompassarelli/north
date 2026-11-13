@@ -122,11 +122,16 @@ impl Pending {
 
     /// Whether the session queued a lane inside the run that the lander has landed: done is the landing, read from the lander's own record when the scorer reads, not from the ledger's landed sha, which its 15-minute join fills in later.
     fn landed_during(&self, session: &str, from: i64, to: i64) -> bool {
-        self.lanes.get(session).is_some_and(|lanes| lanes.iter().any(|lane| lane.landed() && (from..=to).contains(&i64::try_from(lane.queued_ms() / 1000).unwrap_or(i64::MAX))))
+        self.lanes_of(session).any(|lane| lane.landed() && (from..=to).contains(&i64::try_from(lane.queued_ms() / 1000).unwrap_or(i64::MAX)))
+    }
+
+    /// The session's own lanes and those of its `-rv` reviewer session, which lands a lane a worker hands over.
+    fn lanes_of<'a>(&'a self, session: &str) -> impl Iterator<Item = &'a Lane> {
+        [session.to_owned(), format!("{session}-rv")].into_iter().filter_map(|name| self.lanes.get(&name)).flatten()
     }
 
     fn holds(&self, session: &str) -> bool {
-        self.lanes.get(session).is_some_and(|lanes| lanes.iter().any(Lane::undecided)) || self.waking.contains(session) || self.admission.as_ref().is_some_and(|root| !crate::fleet::builds::held(root, Path::new("/proc"), session).is_empty())
+        self.lanes_of(session).any(Lane::undecided) || self.waking.contains(session) || self.admission.as_ref().is_some_and(|root| !crate::fleet::builds::held(root, Path::new("/proc"), session).is_empty())
     }
 }
 
