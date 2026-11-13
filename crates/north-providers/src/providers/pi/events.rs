@@ -8,7 +8,7 @@ fn is_assistant(event: &Value) -> bool {
     event["message"]["role"] == "assistant"
 }
 
-/// Reads one `--mode json` event of Pi: an assistant message that ends carries the turn's usage and, when the provider refused it, the error; a tool that starts is work.
+/// Reads one `--mode json` event of Pi: an assistant message that ends carries the turn's usage and, when the provider refused it, the error; a tool that starts is work and a tool call, and a compaction that ends with a result is a compaction.
 pub fn read(tally: &mut Tally, event: &Value) {
     match event["type"].as_str() {
         Some("message_end") if is_assistant(event) => {
@@ -22,7 +22,11 @@ pub fn read(tally: &mut Tally, event: &Value) {
                 tally.progressed = true;
             }
         }
-        Some("tool_execution_start") => tally.progressed = true,
+        Some("tool_execution_start") => {
+            tally.progressed = true;
+            tally.tool_calls += 1;
+        }
+        Some("compaction_end") if event["result"].is_object() => tally.compactions += 1,
         _ => {}
     }
 }

@@ -339,7 +339,7 @@ fn a_deepseek_brief_carries_the_overlay_on_its_arm_and_not_on_the_control() {
     std::fs::create_dir_all(queue.join("done")).unwrap();
     std::fs::write(queue.join("done/1-lane.json"), json!({"session": "worker-0-rv", "branch": "lane", "verdict": "landed"}).to_string()).unwrap();
     let lanes = north_base::land_ticket::lanes_by_session(&home.path().join("land-queue")).unwrap();
-    let run = |session: &str, overlay: &str| crate::ledger::Run { run_id: 1, session: session.into(), task_ref: None, provider: "opencode".into(), model: None, effort: None, overlay: Some(overlay.into()), account: None, prompt_sha: None, system_prompt_sha: None, deepen: false, started_ms: 1, ended_ms: 2, wall_ms: 1, turns: 1, tokens_in: 0, tokens_out: 0, tokens_cache_read: 0, tokens_cache_write: 0, exit: "completed".into() };
+    let run = |session: &str, overlay: &str| crate::ledger::Run { run_id: 1, session: session.into(), task_ref: None, provider: "opencode".into(), model: None, effort: None, overlay: Some(overlay.into()), account: None, prompt_sha: None, system_prompt_sha: None, deepen: false, started_ms: 1, ended_ms: 2, wall_ms: 1, turns: 1, tokens_in: 0, tokens_out: 0, tokens_cache_read: 0, tokens_cache_write: 0, exit: "completed".into(), tool_calls: None, compactions: None };
     let tallies = super::report::tally(&[run("worker-0", Arm::Overlay.label()), run("worker-1", Arm::Control.label())], &Default::default(), &lanes, None);
     let counts = |arm: Arm| tallies.get(arm.label()).map(|tally| (tally.landed, tally.rejected, tally.pending));
     assert_eq!((counts(Arm::Overlay), counts(Arm::Control)), (Some((1, 0, 0)), Some((0, 0, 1))), "a commit its Sonnet reviewer landed counts on the worker's arm");

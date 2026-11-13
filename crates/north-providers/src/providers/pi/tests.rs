@@ -31,6 +31,7 @@ printf '%s\n' '{"type":"message_end","message":{"role":"user","content":[{"type"
 printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"toolCall","name":"bash"}],"usage":{"input":100,"output":10,"cacheRead":40,"cacheWrite":2},"stopReason":"toolUse"}}'
 printf '%s\n' '{"type":"tool_execution_start","toolCallId":"c1","toolName":"bash","args":{"command":"echo hi > a.txt"}}'
 printf '%s\n' '{"type":"tool_execution_end","toolCallId":"c1","toolName":"bash","result":{},"isError":false}'
+printf '%s\n' '{"type":"compaction_end","reason":"threshold","result":{"summary":"s","firstKeptEntryId":"e1","tokensBefore":150000},"aborted":false,"willRetry":false}'
 printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Done: wrote a.txt"}],"usage":{"input":50,"output":7,"cacheRead":0,"cacheWrite":0},"stopReason":"stop"}}'
 printf '%s\n' '{"type":"agent_settled","aborted":false}'
 "#;
@@ -172,6 +173,8 @@ fn a_limited_free_model_runs_the_turn_again_on_paid_go_flash() {
 
     let starts: Vec<_> = frames.iter().filter(|frame| frame["phase"] == "start").map(|frame| frame["route"].as_str().unwrap()).collect();
     assert_eq!(starts, ["free"]);
+    let end = frames.iter().rfind(|frame| frame["phase"] == "end").unwrap();
+    assert_eq!((end["tool_calls"].as_u64(), end["compactions"].as_u64()), (Some(1), Some(1)), "{end}");
     assert_eq!(frames.iter().filter(|frame| frame["phase"] == "fallback" && frame["from"] == "free" && frame["to"] == "go").count(), 1);
     let env = std::fs::read_to_string(home.path().join("env.txt")).unwrap();
     assert!(env.lines().next().unwrap().ends_with(r#" {"providers":{"opencode":{"apiKey":"public"}}}"#) && env.lines().nth(1).unwrap().contains(r#"{"providers":{"opencode-go":{"apiKey":"#) && !env.contains("key-material"), "{env}");

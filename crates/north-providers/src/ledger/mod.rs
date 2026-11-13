@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS runs(
   tokens_out INTEGER NOT NULL,
   tokens_cache_read INTEGER NOT NULL,
   tokens_cache_write INTEGER NOT NULL,
+  tool_calls INTEGER,
+  compactions INTEGER,
   exit TEXT NOT NULL CHECK(exit IN ('completed','interrupted','failed','killed'))
 ) STRICT;
 CREATE TABLE IF NOT EXISTS tasks(
@@ -113,7 +115,7 @@ CREATE TABLE IF NOT EXISTS receipts(
 ) STRICT;
 ";
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 const CHECKPOINT_EVERY: Duration = Duration::from_secs(60);
 
@@ -129,7 +131,7 @@ const LINK_RUNS_OF_SESSION: &str = "UPDATE runs SET task_ref = (SELECT t.task_re
 const LOCK_WAIT: Duration = Duration::from_secs(30);
 
 const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,overlay,account,prompt_sha,system_prompt_sha,deepen,started_ms,ended_ms,wall_ms,turns,\
-     tokens_in,tokens_out,tokens_cache_read,tokens_cache_write,exit";
+     tokens_in,tokens_out,tokens_cache_read,tokens_cache_write,exit,tool_calls,compactions";
 
 pub struct Ledger {
     conn: Mutex<Connection>,
@@ -160,6 +162,8 @@ pub struct Run {
     pub tokens_cache_read: i64,
     pub tokens_cache_write: i64,
     pub exit: String,
+    pub tool_calls: Option<i64>,
+    pub compactions: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -340,8 +344,8 @@ impl RunSink for Ledger {
         self.write(|conn| {
             conn.execute(
                 "INSERT INTO runs(session, task_ref, provider, model, effort, overlay, account, prompt_sha, prompt, system_prompt_sha, deepen,
-                   started_ms, ended_ms, wall_ms, turns, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, exit)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                   started_ms, ended_ms, wall_ms, turns, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, exit, tool_calls, compactions)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
                 params![
                     run.session,
                     run.task_ref,
@@ -363,6 +367,8 @@ impl RunSink for Ledger {
                     millis(turn.tokens.cache_read),
                     millis(turn.tokens.cache_write),
                     turn.exit.label(),
+                    turn.tool_calls.map(millis),
+                    turn.compactions.map(millis),
                 ],
             )?;
             conn.execute(LINK_RUNS_OF_SESSION, [&run.session])?;
@@ -406,6 +412,8 @@ fn run_from_row(row: &Row<'_>) -> rusqlite::Result<Run> {
         tokens_cache_read: row.get(17)?,
         tokens_cache_write: row.get(18)?,
         exit: row.get(19)?,
+        tool_calls: row.get(20)?,
+        compactions: row.get(21)?,
     })
 }
 
@@ -443,6 +451,8 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         gates::allow_session_answerers(&transaction)?;
         add_missing_column(&transaction, "tasks", "landed_ms", "INTEGER")?;
         add_missing_column(&transaction, "runs", "overlay", "TEXT")?;
+        add_missing_column(&transaction, "runs", "tool_calls", "INTEGER")?;
+        add_missing_column(&transaction, "runs", "compactions", "INTEGER")?;
         transaction.execute_batch(LINK_RUNS)?;
         briefs::link_by_brief(&transaction, None)?;
         transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;

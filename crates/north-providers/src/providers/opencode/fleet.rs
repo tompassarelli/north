@@ -242,7 +242,7 @@ impl Runtime for Deepseek {
                 let opened = (frame["first"] == true).then(|| TurnSignal::Opened { conversation: conversation.clone(), model: frame["model"].as_str().map(str::to_owned), effort: frame["effort"].as_str().map(str::to_owned) });
                 opened.into_iter().chain([TurnSignal::Started { conversation: conversation.clone() }, TurnSignal::Prompt { conversation, text: frame["text"].as_str().unwrap_or_default().to_owned() }]).collect()
             }
-            Phase::End => vec![TurnSignal::Ended { conversation, exit: exit(frame["exit"].as_str()), totals: TurnTotals { tokens: Some(tokens(&frame["tokens"])), turns: None, wall_ms: frame["wall_ms"].as_u64() } }],
+            Phase::End => vec![TurnSignal::Ended { conversation, exit: exit(frame["exit"].as_str()), totals: TurnTotals { tokens: Some(tokens(&frame["tokens"])), turns: None, wall_ms: frame["wall_ms"].as_u64(), tool_calls: frame["tool_calls"].as_u64(), compactions: frame["compactions"].as_u64() } }],
             Phase::Ready | Phase::Fallback => Vec::new(),
         }
     }

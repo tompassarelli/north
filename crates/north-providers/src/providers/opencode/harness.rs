@@ -19,6 +19,8 @@ pub const GO_LIMIT: &str = "provider.go-limit";
 pub struct Tally {
     pub tokens: [u64; 4],
     pub progressed: bool,
+    pub tool_calls: u64,
+    pub compactions: u64,
     pub error: Option<String>,
     pub limit: Option<UsageLimit>,
 }
@@ -48,6 +50,11 @@ pub trait Harness: Send + Sync {
     /// The reasoning efforts this program runs at, which a launch draws from; empty for a program that takes none.
     fn effort_arms(&self) -> &'static [Effort] {
         &[]
+    }
+
+    /// Whether its JSON events show each compaction of the session, so a turn without one compacted nothing.
+    fn shows_compactions(&self) -> bool {
+        false
     }
 
     /// The variables its child needs on `route`, given the session relay that holds the paid key when the route is Go.
@@ -117,7 +124,11 @@ impl Harness for OpenCode {
                 let count = |value: &Value| value.as_u64().unwrap_or(0);
                 tally.spend(count(&tokens["input"]), count(&tokens["output"]) + count(&tokens["reasoning"]), count(&tokens["cache"]["read"]), count(&tokens["cache"]["write"]));
             }
-            Some("text" | "tool_use") => tally.progressed = true,
+            Some("text") => tally.progressed = true,
+            Some("tool_use") => {
+                tally.progressed = true;
+                tally.tool_calls += 1;
+            }
             Some("error") => {
                 let error = &event["error"];
                 let message = error["message"].as_str().or_else(|| error["type"].as_str()).unwrap_or("error").to_owned();

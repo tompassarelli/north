@@ -63,6 +63,8 @@ pub struct TurnTotals {
     pub tokens: Option<Tokens>,
     pub turns: Option<u64>,
     pub wall_ms: Option<u64>,
+    pub tool_calls: Option<u64>,
+    pub compactions: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -105,6 +107,8 @@ pub struct Turn {
     pub wall_ms: u64,
     pub turns: u64,
     pub tokens: Tokens,
+    pub tool_calls: Option<u64>,
+    pub compactions: Option<u64>,
     pub exit: TurnExit,
 }
 
@@ -248,6 +252,8 @@ impl Thread {
             wall_ms: totals.wall_ms.unwrap_or(now_ms.saturating_sub(open.started_ms)),
             turns: totals.turns.unwrap_or(open.calls),
             tokens: totals.tokens.unwrap_or(self.total.since(open.baseline)),
+            tool_calls: totals.tool_calls,
+            compactions: totals.compactions,
             exit,
         }
     }

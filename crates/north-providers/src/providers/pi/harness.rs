@@ -63,6 +63,10 @@ impl Harness for Pi {
         std::fs::write(agent.join(MODELS_FILE), json!({"providers": {route.provider(): provider}}).to_string())
     }
 
+    fn shows_compactions(&self) -> bool {
+        true
+    }
+
     fn read(&self, tally: &mut Tally, line: &str) {
         if let Ok(event) = serde_json::from_str::<Value>(line) {
             events::read(tally, &event);

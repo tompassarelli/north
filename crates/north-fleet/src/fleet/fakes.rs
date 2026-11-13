@@ -235,7 +235,7 @@ fn totals(frame: &Value) -> TurnTotals {
     let usage = &frame["usage"];
     let count = |key: &str| usage[key].as_u64().unwrap_or(0);
     let tokens = usage.is_object().then(|| Tokens { input: count("input_tokens"), output: count("output_tokens"), cache_read: count("cache_read_input_tokens"), cache_write: count("cache_creation_input_tokens") });
-    TurnTotals { tokens, turns: frame["num_turns"].as_u64(), wall_ms: frame["duration_ms"].as_u64() }
+    TurnTotals { tokens, turns: frame["num_turns"].as_u64(), wall_ms: frame["duration_ms"].as_u64(), ..TurnTotals::default() }
 }
 
 fn push(transcript: &mut Transcript, kind: EntryKind, text: String) {

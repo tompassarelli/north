@@ -126,6 +126,7 @@ fn result_totals(frame: &Value) -> TurnTotals {
         }),
         turns: frame["num_turns"].as_u64(),
         wall_ms: frame["duration_ms"].as_u64(),
+        ..TurnTotals::default()
     }
 }
 

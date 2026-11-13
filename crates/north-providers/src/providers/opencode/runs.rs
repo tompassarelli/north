@@ -73,6 +73,8 @@ fn run_row(shared: &Shared, name: &str, turns: &[&Run], brief: &str) -> Option<(
         "tokens": turns.iter().map(|turn| turn.tokens_out).sum::<i64>(),
         "peak_ctx": turns.iter().map(|turn| turn.tokens_in + turn.tokens_cache_read).max().unwrap_or(0),
         "turns": turns.iter().map(|turn| turn.turns).sum::<i64>(),
+        "tool_calls": turns.iter().map(|turn| turn.tool_calls).sum::<Option<i64>>(),
+        "compactions": turns.iter().map(|turn| turn.compactions).sum::<Option<i64>>(),
         "active_min": tenths(active_min),
         "wait_min": tenths(wall_min - active_min),
         "brief_text": (!brief.is_empty()).then_some(brief),
