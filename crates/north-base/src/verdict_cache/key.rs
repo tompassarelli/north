@@ -21,6 +21,7 @@ pub const NORTH_IGNORES: [(&str, &str); 4] = [
     ("SAFE_PUSH_LAND_IT", "a check line expands it in its own text"),
     ("SAFE_PUSH_LAND_CPUS", "it sizes the check's lease, never its verdict"),
 ];
+pub const RUNNER_KEYED: [&str; 2] = ["NORTH_LAND_TEST", "NORTH_LAND_LINT"];
 const RUNS_NORTH: [&str; 2] = ["bin/head-north", "north "];
 
 pub struct Check<'a> {
@@ -83,7 +84,7 @@ fn named(repo: &Path, tree: &str, command: &str) -> (BTreeSet<String>, String) {
 }
 
 fn reads_variable(command: &str, text: &str, name: &str) -> bool {
-    text.contains(name) || (RUNS_NORTH.iter().any(|marker| command.contains(marker)) && !NORTH_IGNORES.iter().any(|(ignored, _)| *ignored == name))
+    text.contains(name) || RUNNER_KEYED.contains(&name) || (RUNS_NORTH.iter().any(|marker| command.contains(marker)) && !NORTH_IGNORES.iter().any(|(ignored, _)| *ignored == name))
 }
 
 fn object_specs(tree: &str, paths: &BTreeSet<String>) -> Vec<String> {

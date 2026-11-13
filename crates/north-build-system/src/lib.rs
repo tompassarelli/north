@@ -103,6 +103,15 @@ pub fn graph_build(root: &Path, base: Option<&str>) -> Result<Invocation, String
     buck2::graph_build(&side, root, base.ok_or("the run names no base")?)
 }
 
+/// The hosts whose `[hosts.NAME] buck2_after_run` is true in the orchestration policy, in name order; empty when none is or the policy is unreadable.
+pub fn after_run_hosts() -> Vec<String> {
+    let Ok(policy) = north_base::platform::orchestration::read() else { return Vec::new() };
+    let Some(hosts) = policy.get("hosts").and_then(|hosts| hosts.as_table_like()) else { return Vec::new() };
+    let mut named: Vec<String> = hosts.iter().filter(|(_, table)| table.get(AFTER_RUN_SWITCH).and_then(|value| value.as_bool()) == Some(true)).map(|(name, _)| name.to_owned()).collect();
+    named.sort();
+    named
+}
+
 /// The sides that build the tree's own binary for a check that runs it from the tree, in the order `north runtime
 /// tree-build` tries them: Buck2 first when `[hosts.NAME] buck2_tree_build` is true, the host holds a readable store
 /// generation, the run names a `base`, and the tree has Buck2 targets whose configuration and definitions are `base`'s,

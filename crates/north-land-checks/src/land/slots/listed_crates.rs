@@ -49,6 +49,8 @@ const FAILED_MARK: &str = "✗ ";
 /// Keys a nextest verdict that Buck2 may have decided part of apart from the one the run after a landing looks up.
 pub const BEFORE_LANDING: (&str, &str) = ("NORTH_LAND_TEST", "buck2-before-landing");
 pub const AFTER_LANDING: (&str, &str) = ("NORTH_LAND_TEST", "buck2-after-landing");
+/// The key entry of the test line of the run after a landing while no host sets `buck2_after_run`: none, so that run keys as it always has.
+pub const AFTER_LANDING_RUN: (&str, &str) = ("NORTH_LAND_TEST", "");
 /// The run after a landing gives no verdict when Buck2 cannot test the tree here or its record of the run is unreadable.
 pub const NO_VERDICT: u8 = 75;
 /// Marks each crate the run after a landing passed on its stdout, which the offload also writes its own lines to.

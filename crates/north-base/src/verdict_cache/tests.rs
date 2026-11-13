@@ -107,6 +107,8 @@ fn a_variable_the_check_never_reads_leaves_its_key_alone() {
     assert_eq!(key_with(repo.path(), &head, north, "runtime-a", &variables(&scoped)), key_with(repo.path(), &head, north, "runtime-a", &variables(&range)));
     let sized = [("SAFE_PUSH_LAND_CPUS", "4")];
     assert_eq!(key_with(repo.path(), &head, CHECK, "runtime-a", &variables(&sized)), key_of(repo.path(), &head, CHECK));
+    let decided = [("NORTH_LAND_TEST", "buck2-before-landing")];
+    assert_ne!(key_with(repo.path(), &head, CHECK, "runtime-a", &variables(&decided)), key_of(repo.path(), &head, CHECK), "the side that decides a runner's verdict keys it even where the line never names the variable");
     let selected = [range[0], range[1], ("SAFE_PUSH_LAND_SELECT_PATHS", "src/lib.rs")];
     assert_ne!(key_with(repo.path(), &head, north, "runtime-a", &variables(&selected)), key_with(repo.path(), &head, north, "runtime-a", &variables(&range)));
 }
