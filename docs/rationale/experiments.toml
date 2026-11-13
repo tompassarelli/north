@@ -946,3 +946,11 @@ command = "north ledger flow slow-tests --test slow-test:north-offload:land_offl
 review = "2026-11-16"
 owner = "tompassarelli/north#1247"
 lead = "f-buck-side-4"
+
+[[check]]
+id = "n1247-every-known-test-has-a"
+box = "Every known test has a read set again"
+command = "north graph ask affected --json 3bfbb61365~1 3bfbb61365 | jq -e '.always | length == 0'"
+review = "2026-11-15"
+owner = "tompassarelli/north#1247"
+lead = "f-buck-side-4"

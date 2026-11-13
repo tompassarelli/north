@@ -1,1 +1,2 @@
   test coverage refresh --start [--unknown N --listed M]  Start a refresh when the map is missing or a day old, or unknown tests pass 10% of a lane's build
+  test coverage take [--repo NAME]              Take in a record's map and read sets that a refresh on another host sent here

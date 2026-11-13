@@ -18,8 +18,9 @@ pub mod record;
 pub mod refresh;
 mod refresh_start;
 pub mod run_selected;
+pub mod take;
 
-const USAGE: &str = "usage: north test coverage select BASE HEAD [--map FILE]\n       north test coverage miss BASE HEAD --log FILE [--map FILE]\n       north test coverage record [NEXTEST-ARGUMENT...]\n       north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION] | --start [--unknown N --listed M]\n       north test coverage exec BINARY [ARGUMENT...]";
+const USAGE: &str = "usage: north test coverage select BASE HEAD [--map FILE]\n       north test coverage miss BASE HEAD --log FILE [--map FILE]\n       north test coverage record [NEXTEST-ARGUMENT...]\n       north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION] | --start [--unknown N --listed M]\n       north test coverage take [--repo NAME]\n       north test coverage exec BINARY [ARGUMENT...]";
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {
@@ -29,6 +30,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Some((verb, rest)) if verb == "refresh" && rest.first().is_some_and(|flag| flag == "--start") => refresh_start::run(&rest[1..]),
         Some((verb, rest)) if verb == "refresh" => refresh::run(rest),
         Some((verb, rest)) if verb == "exec" => exec::run(rest),
+        Some((verb, rest)) if verb == "take" => take::run(rest),
         _ => {
             eprintln!("{USAGE}");
             2

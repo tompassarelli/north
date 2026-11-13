@@ -1,6 +1,6 @@
-//! Telling every host's graph the map a refresh saved: the lander's own graph is told in
-//! [`crate::refresh`], and each build host is sent the same map over ssh and ingests it with
-//! `north graph ingest coverage`. A host that cannot be reached is named in the refresh's log and
+//! Telling every host's graph the map and read sets a refresh recorded: the refresh's own host takes them in
+//! [`crate::refresh`], and each other build host and the lander is sent the same record output over ssh and takes it
+//! in with `north test coverage take`. A host that cannot be reached is named in the refresh's log and
 //! keeps its older map; the lander's round line reports the difference (north#1039).
 
 use std::collections::BTreeSet;
@@ -14,26 +14,25 @@ use crate::run_selected::git;
 
 const INGEST: Duration = Duration::from_secs(600);
 
-/// The ssh script that installs the map as `repository`'s coverage map and ingests it on a host.
+/// The ssh script that installs a record's output as `repository`'s and takes it in on a host.
 /// The state directory is the same relative path a host's own `north test coverage` writes.
 pub fn script(repository: &str) -> String {
     format!(
         "d=\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/coverage\"; \
-         mkdir -p \"$d\" && cat > \"$d/{repository}.json.part\" && mv -f \"$d/{repository}.json.part\" \"$d/{repository}.json\" && \
-         n=\"${{AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}}\" && \"$n\" graph ingest coverage"
+         mkdir -p \"$d\" && cat > \"$d/{repository}.recorded.part\" && mv -f \"$d/{repository}.recorded.part\" \"$d/{repository}.recorded\" && \
+         n=\"${{AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}}\" && \"$n\" test coverage take --repo {repository}"
     )
 }
 
-/// Tell every build host's graph the map at `map`, and the lander's graph when the refresh itself
-/// runs on a build host. Returns one warning per host that was not told, with the local graph
-/// already told by the caller.
-pub fn tell(root: &Path, map: &Path, repository: &str) -> Vec<String> {
+/// Send every build host and the lander, other than this host, the record output at `recorded`. Returns one warning
+/// per host that was not told, with the local graph already told by the caller.
+pub fn tell(root: &Path, recorded: &Path, repository: &str) -> Vec<String> {
     if !plain(repository) {
         return vec![format!("not telling the build hosts: {repository:?} is not a plain repository name")];
     }
-    let bytes = match std::fs::read(map) {
+    let bytes = match std::fs::read(recorded) {
         Ok(bytes) => bytes,
-        Err(error) => return vec![format!("not telling the build hosts: cannot read {}: {error}", map.display())],
+        Err(error) => return vec![format!("not telling the build hosts: cannot read {}: {error}", recorded.display())],
     };
     let here = host::name();
     let mut warnings = Vec::new();

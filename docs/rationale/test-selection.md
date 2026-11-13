@@ -442,9 +442,12 @@ Each lane has a box on north#1039 with its Done when command:
   `$XDG_STATE_HOME/north/gates/test-selection-proof.jsonl`. A record without the index leaves every outside line
   at the crate closure. The review needs n1039-map's record running on the build hosts.
 - n1247 (read facts from the coverage record): `north test coverage record` prints one `north-coverage-read` line
-  per test after its map, carrying the test's unit and its whole path set. `north test coverage refresh` stores each set
-  in its own host's verdict cache, appends a `recorded` line per set to `~/.local/state/north/land-reuse` (the day
-  files the land checks already write), and the refresh's ingest reads `coverage reads`, so the record's reads reach the graph as
+  per test after its map, carrying the test's unit and its whole path set. `north test coverage refresh`, which runs on a build
+  host (35f12cebd1), saves that output beside the map as `north.recorded` and takes it in: it stores each set in its
+  host's verdict cache, appends a `recorded` line per set to `~/.local/state/north/land-reuse` (the day files the land
+  checks already write) and ingests `coverage reads`. It sends the same output to every other build host and the
+  lander, where `north test coverage take` does the same, so the lander's graph, which picks the tests after a landing,
+  gains the read sets too. The record's reads reach the graph as
   `:read-set`, `:reads` and `:lists` facts without a separate run. The reuse log's format and writer live in
   `north-base`'s `verdict_cache::reuse_log`, shared by the land checks, the lander and the record. A test the record
   cannot name keeps no read set and stays reached by any change: the `north-land-sandbox` binary, which the recorder

@@ -2,11 +2,8 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use north_base::verdict_cache::{Store, reuse_log};
-
 use crate::map::{self, Map};
-use crate::reads::{self, Read};
-use crate::record::MAP_LINE;
+use crate::take::{self, Recorded};
 use crate::run_selected::{host, north, repository};
 
 const TIMEOUT: &str = "3600";
@@ -64,27 +61,15 @@ fn refresh(host: &str, head: &str) -> Result<Map, String> {
         .spawn()
         .map_err(|error| format!("north capacity offload run: {error}"))?;
     let stdout = child.stdout.take().ok_or("the offload has no output")?;
-    let mut recorded = None;
-    let mut reads = Vec::new();
-    for line in BufReader::new(stdout).lines() {
-        let line = line.map_err(|error| format!("cannot read the offload's output: {error}"))?;
-        if let Some(text) = line.strip_prefix(MAP_LINE) {
-            recorded = Some(serde_json::from_str::<Map>(text).map_err(|error| format!("cannot parse the recorded map: {error}"))?);
-            reads.clear();
-        } else if let Some(read) = Read::from_line(&line) {
-            reads.push(read);
-        } else {
-            eprintln!("{line}");
-        }
-    }
+    let recorded = Recorded::parse(BufReader::new(stdout).lines(), |line| eprintln!("{line}"))?;
     let status = child.wait().map_err(|error| format!("north capacity offload run: {error}"))?;
-    let map = recorded.ok_or_else(|| format!("the record on {host} printed no map ({status})"))?;
-    reuse_log::append(&reads::store(&Store::here(), &map.commit, &reads), &reuse_log::directory(&map::state_home()));
+    let recorded = recorded.ok_or_else(|| format!("the record on {host} printed no map ({status})"))?;
     let repository = repository(root);
-    let path = map::path_for(&repository);
-    map.save(&path)?;
-    crate::cadence::ingest(root, &path, &repository);
-    Ok(map)
+    let payload = take::path_for(&repository);
+    recorded.save(&payload)?;
+    recorded.install(&repository)?;
+    crate::cadence::ingest(root, &payload, &repository);
+    Ok(recorded.map)
 }
 
 struct Running(std::path::PathBuf);

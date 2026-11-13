@@ -132,6 +132,7 @@ Commands:
   test coverage record [NEXTEST-ARGUMENT...]    Record the test-to-function coverage map on a check host
   test coverage refresh [--repo NAME] [--host NAME] [--head REVISION]  Refresh the coverage map on a check host
   test coverage refresh --start [--unknown N --listed M]  Start a refresh when the map is missing or a day old, or unknown tests pass 10% of a lane's build
+  test coverage take [--repo NAME]              Take in a record's map and read sets that a refresh on another host sent here
   graph tell [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)  Record a fact in the triple graph
   graph retract [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)  Withdraw a fact from the triple graph
   graph show [--db PATH] [--json] T1            Show the facts about one term
