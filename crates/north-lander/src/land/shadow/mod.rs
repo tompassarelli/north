@@ -77,7 +77,7 @@ pub fn tick(settings: &Settings) -> Result<Round, String> {
     let main = candidate::prepare(&settings.repo, &worktree)?;
     let logs = settings.state.join("north/land-shadow");
     let tickets = queue::pending(&settings.queue).map_err(|error| format!("{}: {error}", settings.queue.display()))?;
-    let queued = pick::ordered(tickets, &settings.host);
+    let queued = pick::not_checking(pick::ordered(tickets, &settings.host), &settings.queue);
     let host = if queued.is_empty() {
         String::new()
     } else {

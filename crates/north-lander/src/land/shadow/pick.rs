@@ -1,5 +1,7 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use north_base::land_ticket::{self, Phase};
 
 use super::super::queue::{self, Ticket};
 
@@ -21,4 +23,11 @@ pub fn ordered(tickets: Vec<(PathBuf, Ticket)>, host: &str) -> Vec<(PathBuf, Tic
 
 pub fn first_with_work<T>(queued: Vec<(PathBuf, Ticket)>, mut missing: impl FnMut(&PathBuf, &Ticket) -> Option<T>) -> Option<Work<T>> {
     queued.into_iter().find_map(|(path, ticket)| missing(&path, &ticket).map(|found| Work { ticket, found }))
+}
+
+pub fn not_checking(queued: Vec<(PathBuf, Ticket)>, queue: &Path) -> Vec<(PathBuf, Ticket)> {
+    let Some(store) = land_ticket::recorded(queue) else {
+        return queued;
+    };
+    queued.into_iter().filter(|(path, _)| land_ticket::phase(&store, queue, path) != Some(Phase::Checking)).collect()
 }
