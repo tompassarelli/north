@@ -1,8 +1,250 @@
 {
   "$schema": "north:agent-catalog/catalog-config.schema.json",
-  "activation": {},
-  "registrations": [
+  "activation": {
+    "firn-system-policy": {
+      "distributions": []
+    },
+    "north-hook": {
+      "distributions": []
+    },
+    "prompt-grounding": {
+      "distributions": []
+    },
+    "skill.agent-policy": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.astro": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.clean-room": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.debugging": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.effect-development": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.external-code": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.game-design-prototyping": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.github": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.machine-capacity": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.makgora": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.nix-development": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.performance-design": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.planning": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.private-desktop-development": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.program-craftsmanship": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.repo-safety": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.rust-development": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.threejs": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.todo": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.verification": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.warcraft-modding": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    },
+    "skill.workers": {
+      "distributions": [
+        {
+          "targets": [
+            "shared"
+          ],
+          "type": "skill"
+        }
+      ]
+    }
+  },
+  "baselines": [
     {
+      "owner": {
+        "path": "agents/AGENTS.md",
+        "repo": "south"
+      },
+      "targets": [
+        "shared"
+      ]
+    }
+  ],
+  "providerSupport": [],
+  "registrations": {
+    "skill.agent-policy": {
       "category": "uncategorized",
       "kind": "skill",
       "owner": {
@@ -10,103 +252,7 @@
         "repo": "north"
       }
     },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.game-design-prototyping",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.clean-room",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.github",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.machine-capacity",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.makgora",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.nix-development",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.performance-design",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.private-desktop-development",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.repo-safety",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.todo",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.warcraft-modding",
-        "repo": "north"
-      }
-    },
-    {
-      "category": "uncategorized",
-      "kind": "skill",
-      "owner": {
-        "module": "skill.workers",
-        "repo": "north"
-      }
-    },
-    {
+    "skill.astro": {
       "category": "uncategorized",
       "kind": "skill",
       "owner": {
@@ -114,7 +260,15 @@
         "repo": "north"
       }
     },
-    {
+    "skill.clean-room": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.clean-room",
+        "repo": "north"
+      }
+    },
+    "skill.debugging": {
       "category": "uncategorized",
       "kind": "skill",
       "owner": {
@@ -122,7 +276,7 @@
         "repo": "north"
       }
     },
-    {
+    "skill.effect-development": {
       "category": "uncategorized",
       "kind": "skill",
       "owner": {
@@ -130,7 +284,7 @@
         "repo": "north"
       }
     },
-    {
+    "skill.external-code": {
       "category": "uncategorized",
       "kind": "skill",
       "owner": {
@@ -138,7 +292,55 @@
         "repo": "north"
       }
     },
-    {
+    "skill.game-design-prototyping": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.game-design-prototyping",
+        "repo": "north"
+      }
+    },
+    "skill.github": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.github",
+        "repo": "north"
+      }
+    },
+    "skill.machine-capacity": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.machine-capacity",
+        "repo": "north"
+      }
+    },
+    "skill.makgora": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.makgora",
+        "repo": "north"
+      }
+    },
+    "skill.nix-development": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.nix-development",
+        "repo": "north"
+      }
+    },
+    "skill.performance-design": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.performance-design",
+        "repo": "north"
+      }
+    },
+    "skill.planning": {
       "category": "uncategorized",
       "kind": "skill",
       "owner": {
@@ -146,7 +348,15 @@
         "repo": "north"
       }
     },
-    {
+    "skill.private-desktop-development": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.private-desktop-development",
+        "repo": "north"
+      }
+    },
+    "skill.program-craftsmanship": {
       "category": "uncategorized",
       "kind": "skill",
       "owner": {
@@ -154,7 +364,15 @@
         "repo": "north"
       }
     },
-    {
+    "skill.repo-safety": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.repo-safety",
+        "repo": "north"
+      }
+    },
+    "skill.rust-development": {
       "category": "uncategorized",
       "kind": "skill",
       "owner": {
@@ -162,7 +380,7 @@
         "repo": "north"
       }
     },
-    {
+    "skill.threejs": {
       "category": "uncategorized",
       "kind": "skill",
       "owner": {
@@ -170,15 +388,39 @@
         "repo": "north"
       }
     },
-    {
+    "skill.todo": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.todo",
+        "repo": "north"
+      }
+    },
+    "skill.verification": {
       "category": "uncategorized",
       "kind": "skill",
       "owner": {
         "module": "skill.verification",
         "repo": "north"
       }
+    },
+    "skill.warcraft-modding": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.warcraft-modding",
+        "repo": "north"
+      }
+    },
+    "skill.workers": {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.workers",
+        "repo": "north"
+      }
     }
-  ],
+  },
   "role": "operator",
   "rootOrder": [],
   "schema": "north.agent-catalog-config/v1"
