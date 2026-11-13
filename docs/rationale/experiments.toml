@@ -890,3 +890,35 @@ expect = "0"
 review = "2026-11-14"
 owner = "tompassarelli/north#1039"
 lead = "proxy"
+
+[[check]]
+id = "n1115-firn-p90"
+box = "Not before 2026-11-11T15:00Z"
+command = "north dash --bars --all | rg 'firn closure' | rg -v none | rg -q PASS"
+review = "2026-11-16"
+owner = "tompassarelli/north#1115"
+lead = "f-1081-readings"
+
+[[check]]
+id = "n1115-processes-current"
+box = "Every long-lived north process moves"
+command = "out=$(north runtime lag --processes) && ! printf %s \"$out\" | rg -q behind"
+review = "2026-11-16"
+owner = "tompassarelli/north#1115"
+lead = "f-1081-readings"
+
+[[check]]
+id = "n1115-brokers-follow"
+box = "Resident brokers on every host"
+command = "north runtime lag --json | jq -e '[.[] | select(.process != null) | select(.process | test(\"broker\")) | select(.seconds > 300)] | length == 0'"
+review = "2026-11-16"
+owner = "tompassarelli/north#1115"
+lead = "f-1081-readings"
+
+[[check]]
+id = "n1115-lag-number"
+box = "One number says whether propagation holds"
+command = "north runtime lag --json | jq -e 'all(.[]; .seconds != null) and (map(.seconds) | max < 300)'"
+review = "2026-11-16"
+owner = "tompassarelli/north#1115"
+lead = "f-1081-readings"
