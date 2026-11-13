@@ -9,12 +9,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use north_build_system::{Cases, TestRun};
 
 use super::affected::PACKAGES_ENV;
-use super::unit_reuse::{quote, runs};
+use super::unit_reuse::quote;
 
 const USAGE: &str = "north land crate-tests available | north land crate-tests -- COMMAND";
 const BASE_ENV: &str = "SAFE_PUSH_LAND_BASE";
@@ -109,7 +110,7 @@ fn execute(declared: &str) -> u8 {
     let Some(split) = split else { return declared_line(declared, None) };
     eprintln!("north land crate-tests: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
     let (status, summary) = observed(&split.line);
-    let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| runs::read(&record).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of the run: {why}")).ok());
+    let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| record.runs(Path::new(".")).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of the run: {why}")).ok());
     let owner = |label: &str| split.owner(label).map(str::to_owned);
     let Verdict::Passed(passed) = verdict(status, summary.as_deref(), record.as_deref(), &owner) else { return FAILED };
     for name in split.moved.iter().filter(|name| !passed.contains(*name)) {

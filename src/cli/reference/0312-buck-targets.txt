@@ -1,1 +1,2 @@
   buck targets [--check] [--root DIR]              Write every workspace crate's Buck2 targets from the Cargo manifests; --check exits 1 on drift
+  buck compare-cases NAME...                       Print per crate the cases Buck2 runs of it at the checked-out commit and those cargo nextest lists of its library, binaries and integration tests, and each case on one side only; exits 1 on a difference, an unreadable side or a crate with no case

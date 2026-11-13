@@ -174,7 +174,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     };
     let seen = match &record {
-        Some(record) => runs::read(record).map(|runs| {
+        Some(record) => record.runs(Path::new(".")).map(|runs| {
             let (cases, failed) = runs::cases(&runs);
             (runs::units(&runs, &options.probe), format!("reused from the action cache; {cases} case(s), {failed} failed"))
         }),

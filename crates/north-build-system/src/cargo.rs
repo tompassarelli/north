@@ -1,6 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::SystemTime;
 
 use serde::Deserialize;
@@ -9,6 +10,8 @@ use super::{Build, BuildSystem, Invocation, Lint, MutantStep, Mutants, Profile, 
 
 const CLIPPY: &str = "cargo clippy";
 const UNCOMPILED: &str = "error: could not compile";
+/// The `filter-match` status cargo-nextest's JSON listing gives a case it would run.
+const MATCHES: &str = "matches";
 
 /// Whether `command` runs this side's clippy.
 pub(crate) fn lints(command: &str) -> bool {
@@ -75,6 +78,21 @@ struct Suite {
     path: PathBuf,
     #[serde(default)]
     testcases: BTreeMap<String, serde_json::Value>,
+}
+
+/// The cases nextest lists of crate `name`'s library, binaries and integration tests in the checkout at `root` and would run: those its filter matches, which leaves out the ignored ones.
+pub(crate) fn listed_cases(root: &Path, name: &str) -> Result<BTreeSet<String>, String> {
+    let selection = Selection::Typed(["-p", name, "--lib", "--bins", "--tests"].map(str::to_owned).to_vec());
+    let list = Cargo.tests(&Tests { root, step: Step::List, selection, resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, coverage: None });
+    let line = list.words.join(" ");
+    let listed = list.command().stdin(Stdio::null()).stderr(Stdio::inherit()).output().map_err(|error| format!("{line}: {error}"))?;
+    if !listed.status.success() {
+        return Err(format!("{line} exited {}", listed.status));
+    }
+    let printed = String::from_utf8_lossy(&listed.stdout);
+    let listings: Vec<Listing> = printed.lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+    let suites = listings.into_iter().find(|listing| !listing.suites.is_empty()).ok_or_else(|| format!("{line} printed no cargo-nextest listing of a test binary"))?.suites;
+    Ok(suites.into_values().flat_map(|Suite { binary_id, testcases, .. }| testcases.into_iter().filter(|(_, case)| case["filter-match"]["status"] == MATCHES).map(move |(case, _)| format!("{binary_id} {case}"))).collect())
 }
 
 impl BuildSystem for Cargo {

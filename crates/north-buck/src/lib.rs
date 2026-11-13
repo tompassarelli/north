@@ -1,7 +1,9 @@
 //! `north buck targets`: writes the Buck2 target of every workspace crate, binary, test and example from the
 //! Cargo manifests, so the two build graphs cannot drift while both exist (docs/rationale/compile-reuse.md);
-//! `--check` also holds `third-party/BUCK` to the packages and features Cargo resolves.
+//! `--check` also holds `third-party/BUCK` to the packages and features Cargo resolves. `north buck compare-cases` prints the
+//! cases Buck2 runs of a crate beside those nextest lists (cases.rs).
 //! Reads the resolved manifests and features through the readers its caller passes and the manifests' lint tables; depends on no other north crate.
+mod cases;
 mod env;
 mod gate;
 mod host_class;
@@ -17,7 +19,9 @@ mod workspace;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: north buck targets [--check] [--root DIR]";
+const USAGE: &str = "usage: north buck targets [--check] [--root DIR] | north buck compare-cases NAME...";
+
+pub use cases::{CaseReader, Sides};
 
 /// Reads a workspace's packages with their dependency graph resolved for one platform, in `cargo metadata --format-version 1` form.
 pub type Manifests = fn(&Path, &str) -> Result<String, String>;
@@ -37,7 +41,10 @@ const INFRASTRUCTURE: &str = "(infrastructure, exit 75)";
 const INFRASTRUCTURE_STATUS: u8 = 75;
 
 /// `state` is the state home a gate in shadow logs its decisions under.
-pub fn run(arguments: &[String], cargo: &Cargo, state: &Path) -> u8 {
+pub fn run(arguments: &[String], cargo: &Cargo, sides: &Sides, state: &Path) -> u8 {
+    if let Some((verb, names)) = arguments.split_first() && verb == "compare-cases" && !names.is_empty() {
+        return u8::from(!cases::compare(Path::new("."), names, sides, &mut std::io::stdout()));
+    }
     let Some(("targets", rest)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) else {
         eprintln!("{USAGE}");
         return 2;

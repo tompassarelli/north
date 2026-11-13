@@ -8,7 +8,7 @@ mod observe;
 pub use observe::checked_environment;
 pub mod outcome;
 mod recorder;
-pub(super) mod runs;
+mod runs;
 
 pub const USAGE: &str = "north land reuse observe --probe ID [--record] [--tree REV] -- COMMAND (runs the nextest land line under bash, passes its output and exit status through, then prints for each test the lookup of its recorded path sets as north-reuse lines; with --record, each test also runs under the sandbox recorder and its path set and verdict are stored; a `buck2 test` line is read back from Buck2's own record of the run instead, one north-reuse line per test binary, reused when its action's result came from the action cache) | available";
 const RUNNER_KEY: &str = "target.x86_64-unknown-linux-gnu.runner";

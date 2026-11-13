@@ -9,9 +9,9 @@ mod cargo;
 mod cargo_metadata;
 
 use std::collections::BTreeSet;
-use std::io::BufRead;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
 pub use buck2::CrateTests;
@@ -249,10 +249,29 @@ pub struct TestRecord {
 }
 
 impl TestRecord {
-    /// The test binaries of the run, from what [`TestRecord::command`] printed.
-    pub fn runs(&self, printed: &mut dyn BufRead) -> Result<Vec<TestRun>, String> {
-        (self.read)(printed)
+    /// The test binaries of the run, from what [`TestRecord::command`] prints when run in `dir`.
+    pub fn runs(&self, dir: &Path) -> Result<Vec<TestRun>, String> {
+        let mut child = Command::new("bash").args(["-euo", "pipefail", "-c", &self.command]).current_dir(dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|error| format!("{}: {error}", self.command))?;
+        let runs = child.stdout.take().map_or_else(|| Ok(Vec::new()), |printed| (self.read)(&mut BufReader::new(printed)));
+        if runs.is_err() {
+            let _ = child.kill();
+        }
+        let status = child.wait().map_err(|error| format!("{}: {error}", self.command))?;
+        if runs.is_ok() && !status.success() {
+            return Err(format!("{} exited {status}", self.command));
+        }
+        runs
     }
+}
+
+/// The cases Buck2 executes when it tests crate `name` in the checkout at `root`, as `BINARY-ID CASE`, read from its own record of that run; what Buck2 prints goes to standard error.
+pub fn cases_buck2_runs(root: &Path, name: &str) -> Result<BTreeSet<String>, String> {
+    buck2::test_record::executed(root, name)
+}
+
+/// The cases `cargo nextest list` selects of crate `name`'s library, binaries and integration tests in the checkout at `root`, as `BINARY-ID CASE`; ignored ones are left out.
+pub fn cases_nextest_lists(root: &Path, name: &str) -> Result<BTreeSet<String>, String> {
+    cargo::listed_cases(root, name)
 }
 
 /// The record of the run `command` makes, read by the side `command` itself names whichever side this host builds with: Buck2 keeps one, Cargo and nextest none.
