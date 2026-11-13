@@ -242,6 +242,7 @@ fn a_host_names_its_agent_link_by_variable_else_by_the_first_line_of_a_file_only
     let chosen = |env: Option<&str>, owner: u32| agent_link::chosen(env.map(Into::into), &file, owner);
     assert_eq!(chosen(None, 0), None, "no file names nothing");
     fs::write(&file, "/run/agent/runtime\nignored\n").unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
     let owner = fs::metadata(&file).unwrap().uid();
     assert_eq!(chosen(None, owner), Some("/run/agent/runtime".into()));
     assert_eq!(chosen(Some("/from/env"), owner), Some("/from/env".into()), "the variable wins over the file");

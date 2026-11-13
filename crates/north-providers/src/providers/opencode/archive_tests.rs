@@ -32,7 +32,7 @@ fn a_scratch_directory_packs_for_the_far_side_under_a_path_without_tar() {
 
     let far = work.path().join("far");
     std::fs::create_dir(&far).unwrap();
-    let extracted = Command::new("tar").arg("-C").arg(&far).arg("-xf").arg(&archive).output().unwrap();
+    let extracted = Command::new("tar").arg("-C").arg(&far).arg("-xpf").arg(&archive).output().unwrap();
     assert!(extracted.status.success(), "{}", String::from_utf8_lossy(&extracted.stderr));
     let landed = far.join("north-opencode-box");
     assert_eq!(std::fs::read_to_string(landed.join("instructions.md")).unwrap(), "go");

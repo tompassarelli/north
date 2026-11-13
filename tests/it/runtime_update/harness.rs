@@ -55,6 +55,8 @@ impl Host {
         let target = git(&home, &source, &["rev-parse", "HEAD"]);
         git(&home, dir.path(), &["clone", "-q", "source", "checkout"]);
         fs::create_dir_all(dir.path().join("bin")).unwrap();
+        fs::create_dir_all(dir.path().join("agent")).unwrap();
+        script(&dir.path().join("bin/nix-store"), "case $1 in --add) printf '%s\\n' \"$TEST_AGENT_STORE_PATH\" ;; --add-root) ;; *) exit 95 ;; esac\n");
         script(
             &dir.path().join("bin/agents"),
             "[[ $1 == sync && \"$(readlink \"$XDG_STATE_HOME/north/current\")\" == \"runtimes/$TEST_TARGET\" ]] || exit 91\n\
@@ -133,6 +135,8 @@ impl Host {
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("XDG_STATE_HOME", self.path("state"))
             .env("NORTH_HOME", self.path("checkout"))
+            .env("NORTH_AGENT_RUNTIME_LINK", self.path("agent/current"))
+            .env("TEST_AGENT_STORE_PATH", self.path("store/agent-runtime"))
             .env("TEST_TARGET", &self.target)
             .env("TEST_PREVIOUS", PREVIOUS)
             .env("TEST_SECRET", SECRET)

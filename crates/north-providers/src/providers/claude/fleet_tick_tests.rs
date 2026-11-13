@@ -525,12 +525,24 @@ fn a_tick_whose_ledger_exchange_placement_take_far_and_a_probe_hang_past_their_b
 struct HeldLedger {
     store: Store,
     release: Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
+    answering: std::sync::mpsc::Sender<()>,
+    answered: Option<Answered>,
+}
+
+struct Answered(std::sync::mpsc::Sender<()>);
+
+impl Drop for Answered {
+    fn drop(&mut self) {
+        let _ = self.0.send(());
+    }
 }
 
 impl LedgerHost for HeldLedger {
     fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
+        let exchanged = self.store.exchange(exchange);
         self.release.lock().unwrap().recv().unwrap();
-        self.store.exchange(exchange)
+        self.answered = Some(Answered(self.answering.clone()));
+        exchanged
     }
 
     fn settle(&mut self, waits: &[WaitKey]) -> NorthResult<()> {
@@ -538,16 +550,17 @@ impl LedgerHost for HeldLedger {
     }
 }
 
-struct Releases(std::sync::mpsc::Sender<()>);
+struct Releases(std::sync::mpsc::Sender<()>, Arc<Mutex<std::sync::mpsc::Receiver<()>>>);
 
 impl WaitProbes for Releases {
     fn jobs(&self) -> Vec<ProbeJob> {
-        let release = self.0.clone();
+        let (release, answered) = (self.0.clone(), self.1.clone());
         vec![ProbeJob {
             name: "probes.release",
             own: None,
             run: Box::new(move |_| {
                 release.send(()).unwrap();
+                answered.lock().unwrap().recv().unwrap();
                 Probed { lines: Vec::new(), settled: Vec::new() }
             }),
         }]
@@ -562,10 +575,11 @@ fn a_ledger_exchange_that_answers_after_its_budget_but_before_the_tick_ends_stil
     host.store().put(&[message("m-late", "worker", NOW_MS)]).unwrap();
     let path = host.ledger.clone();
     let (release, held) = std::sync::mpsc::channel();
+    let (answering, answered) = std::sync::mpsc::channel();
     let held = Arc::new(Mutex::new(held));
-    let ledger = open_ledger(move || Ok(HeldLedger { store: Store::open(&path)?, release: held.clone() }));
+    let ledger = open_ledger(move || Ok(HeldLedger { store: Store::open(&path)?, release: held.clone(), answering: answering.clone(), answered: None }));
 
-    let ticked = tick(&host.fleet, &ledger, &host.pulls(), &Releases(release), NOW_MS, Budgets::each(Duration::from_secs(1))).unwrap();
+    let ticked = tick(&host.fleet, &ledger, &host.pulls(), &Releases(release, Arc::new(Mutex::new(answered))), NOW_MS, Budgets { ledger: Duration::from_secs(1), ..BUDGET }).unwrap();
 
     assert_eq!(ticked.delivered, [("m-late".to_owned(), "worker".to_owned())], "{:?}", ticked.lines());
     assert_eq!(frames.lock().unwrap().len(), 1);
