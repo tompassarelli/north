@@ -11,11 +11,12 @@ place() {
   if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree remove --force "$slot" 2>/dev/null || true; git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
   git -C "$slot" clean -ffdxq -e /target
 }
+operator_file=/etc/north/operator
 confined_here() {
   [ -z "${confined:-}" ] || return 0
-  [ -e /etc/north/operator ] || return 1
-  [ -r /etc/north/operator ] || return 0
-  [ "$(cat /etc/north/operator)" != "$(id -un)" ]
+  [ -e "$operator_file" ] || return 1
+  [ -r "$operator_file" ] || return 0
+  [ "$(cat "$operator_file")" != "$(id -un)" ]
 }
 confine() {
   slot_top=$(git rev-parse --show-toplevel) && common=$(git rev-parse --path-format=absolute --git-common-dir) || return 1
