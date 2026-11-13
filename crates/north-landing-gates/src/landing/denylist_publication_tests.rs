@@ -7,7 +7,8 @@ use super::scan_range;
 const RULES: &str = "title = \"publication deny-list\"\n\
 [[rules]]\nid = \"fake-private-term\"\ndescription = \"fake private identity term\"\nregex = '''zebra-quokka-7731'''\n\
 [[rules]]\nid = \"fake-credit-lane\"\ndescription = \"fake credit-lane login\"\nregex = '''((?i:proton\\s+(?:credit|account|login)))'''\n\
-[[rules]]\nid = \"fake-skill-host\"\ndescription = \"fake host named in a skill\"\nregex = '''quokka-host-42'''\npath = '''^harness/skills/'''\n";
+[[rules]]\nid = \"fake-skill-host\"\ndescription = \"fake host named in a skill\"\nregex = '''quokka-host-42'''\npath = '''^harness/skills/'''\n\
+[[rules]]\nid = \"private-anthropic-ids\"\ndescription = \"Anthropic environment or session ID\"\nregex = '''\\b((?:env|session)_01[A-Za-z0-9]{20,})'''\n";
 
 struct Publication {
     scratch: tempfile::TempDir,
@@ -77,7 +78,7 @@ fn rename_into_skills(content: &str) -> Publication {
 }
 
 #[test]
-fn denylist_publication_scan_names_private_values_in_content_messages_and_refs() {
+fn denylist_publication_scan_names_private_values_and_session_links_in_content_messages_and_refs() {
     let content = Publication::new();
     content.commit("identity.txt", "owner: zebra-quokka-7731\n", "add identity");
     assert_eq!(content.findings(None), set(&["fake-private-term in identity.txt"]));
@@ -89,6 +90,10 @@ fn denylist_publication_scan_names_private_values_in_content_messages_and_refs()
     let message = Publication::new();
     message.commit("content.txt", "initial\nclean\n", "Record owner zebra-quokka-7731");
     assert_eq!(message.findings(None), set(&[&format!("fake-private-term in commit {}", message.short("HEAD"))]));
+
+    let session = Publication::new();
+    session.commit("content.txt", "initial\nclean\n", &format!("Record the run\n\nClaude-Session: https://claude.ai/code/{}", concat!("sess", "ion_01QwErTyUiOpAsDfGhJkLz")));
+    assert_eq!(session.findings(None), set(&[&format!("private-anthropic-ids in commit {}", session.short("HEAD"))]));
 
     let author = Publication::new();
     author.write("content.txt", b"initial\nclean\n");
