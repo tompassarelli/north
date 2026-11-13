@@ -38,4 +38,6 @@ fn an_offloaded_test_line_splits_into_wait_sync_compile_and_test_spans_and_a_lea
     assert_eq!(spans.len(), 1, "{spans:?}");
     assert_eq!((spans[0].category, spans[0].name.as_str()), (Category::HostWait, "capacity lease wait"));
     assert!((spans[0].start - 0.1).abs() < 1e-9 && (spans[0].end - 16.0).abs() < 1e-9);
+    let stream = [&b"a\xffb\n"[..], b"offload: waited 12.5s in line for code-north-main-2\n", b"\xfe\n", &[b'x'; 1 << 20], b"\noffload: waited 99s in line for code-north-main-3\n"].concat();
+    assert_eq!(waited_in_stream(&stream[..]), Some(12.5), "a stream with bytes that are not UTF-8 and a line of 1 MiB is read to its end for its first wait");
 }

@@ -1,3 +1,5 @@
+use std::io::{BufRead, BufReader, Read};
+
 use super::{Category, Span};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -21,6 +23,7 @@ const FINISHED: &str = "Finished `";
 const TEST_RESULT: &str = "test result: ";
 const OFFLOAD_RUNNING: &str = "offload: running ";
 const WAITED_IN_LINE: &str = "offload: waited ";
+const LINE_KEPT: usize = 4 * 1024;
 const RESERVED: &str = "\"decision\":\"RESERVED\"";
 const RELEASED: &str = "\"decision\":\"RELEASED\"";
 
@@ -31,6 +34,28 @@ pub fn is_marker(line: &str) -> bool {
 
 pub fn waited_in_line(line: &str) -> Option<f64> {
     line.trim().strip_prefix(WAITED_IN_LINE).and_then(|rest| rest.split_once('s')).and_then(|(seconds, _)| seconds.parse::<f64>().ok())
+}
+
+/// The first wait in a slot line that `stream` reports, read to its end whatever bytes it carries, keeping at most `LINE_KEPT` bytes of any one line.
+pub fn waited_in_stream(stream: impl Read) -> Option<f64> {
+    let mut reader = BufReader::new(stream);
+    let (mut found, mut line) = (None, Vec::with_capacity(LINE_KEPT));
+    loop {
+        let chunk = match reader.fill_buf() {
+            Ok([]) => break,
+            Ok(chunk) => chunk,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        };
+        let (taken, ended) = chunk.iter().position(|byte| *byte == b'\n').map_or((chunk.len(), false), |at| (at + 1, true));
+        line.extend_from_slice(&chunk[..taken.min(LINE_KEPT.saturating_sub(line.len()))]);
+        reader.consume(taken);
+        if ended {
+            found = found.or_else(|| waited_in_line(&String::from_utf8_lossy(&line)));
+            line.clear();
+        }
+    }
+    found.or_else(|| waited_in_line(&String::from_utf8_lossy(&line)))
 }
 
 pub fn is_offload_running(line: &str) -> bool {

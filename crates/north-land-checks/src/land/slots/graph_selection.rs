@@ -103,8 +103,8 @@ pub fn list(root: &Path, away: Option<&Away<'_>>, scope: &Scope) -> Option<Liste
     let invocation = builder.tests(&request);
     let mut command = away.map_or_else(|| invocation.command(), |away| away.command(root, &invocation));
     let started = crate::land::telemetry::epoch();
-    let output = command.stdin(Stdio::null()).output().ok()?;
-    if away.is_some() && let Some(waited) = String::from_utf8_lossy(&output.stderr).lines().find_map(check_log::waited_in_line) {
+    let (output, waited) = run_listing(&mut command)?;
+    if let Some(waited) = waited.filter(|_| away.is_some()) {
         LISTING_WAITS.lock().unwrap_or_else(PoisonError::into_inner).push((started, started + waited));
     }
     if !output.status.success() {
@@ -112,6 +112,14 @@ pub fn list(root: &Path, away: Option<&Away<'_>>, scope: &Scope) -> Option<Liste
     }
     let binaries = builder.listing(&String::from_utf8_lossy(&output.stdout)).ok()?;
     Some(binaries.into_iter().map(|binary| (binary.id, Listed { package: binary.package, tests: binary.tests })).filter(|(_, listed)| !listed.tests.is_empty()).collect())
+}
+
+/// The listing's output, and the wait in a slot line its standard error reported, which is drained to its end as it streams so the listing never blocks on a full pipe or writes to a closed one.
+fn run_listing(command: &mut Command) -> Option<(std::process::Output, Option<f64>)> {
+    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().ok()?;
+    let waits = child.stderr.take().map(|stderr| std::thread::spawn(move || check_log::waited_in_stream(stderr)));
+    let output = child.wait_with_output().ok()?;
+    Some((output, waits.and_then(|reader| reader.join().ok().flatten())))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
