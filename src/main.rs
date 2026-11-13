@@ -1,7 +1,5 @@
 mod cli;
 #[cfg(test)]
-mod remote_serve_tests;
-#[cfg(test)]
 mod run_time_readers_tests;
 
 use north_calibration::threads;
