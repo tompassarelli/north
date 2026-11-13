@@ -207,7 +207,7 @@ fn read_override(path: &Path) -> Result<String, String> {
 
 /// The structure text at a snapshot: rendered from its `structure/` tables when it has that tree,
 /// else the generated `structure.toml` the commit holds.
-fn structure_of(snapshot: &Snapshot) -> Option<String> {
+pub(super) fn structure_of(snapshot: &Snapshot) -> Option<String> {
     let mut paths: Vec<String> = snapshot.paths().iter().filter(|path| path.starts_with("structure/") && path.ends_with(".toml")).cloned().collect();
     paths.sort();
     let tables = snapshot.batch_texts(&paths).ok()?;

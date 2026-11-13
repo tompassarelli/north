@@ -1,4 +1,5 @@
-use super::config::{Config, Kind, Thresholds};
+use super::config::{Config, Kind, Thresholds, structure_of};
+use super::layers::{ManifestEdge, manifest_edges};
 use super::functions::{Function, SourceText, measure};
 use super::graph::{Graph, LayerViolation, fan, layer_violation, module_graph, sccs};
 use super::history::{Allow, Pair, WINDOW_COMMITS, WINDOW_DAYS, allows, co_change, declaration_only, history};
@@ -116,6 +117,7 @@ pub(super) struct Report {
     unmapped: Vec<String>,
     cycles: Vec<Vec<String>>,
     layer_violations: Vec<LayerViolation>,
+    manifest_edges: Vec<ManifestEdge>,
     module_graph: BTreeMap<String, Vec<String>>,
     fan_in: Vec<(String, usize)>,
     fan_out: Vec<(String, usize)>,
@@ -197,6 +199,9 @@ pub(super) fn build(repo: &Path, rev: &str, config: &Config) -> Result<Report, S
     let graph = import_graph(&mut snapshot, &hand, &resolver)?;
     let layer: Vec<LayerViolation> = graph.nodes().flat_map(|(from, targets)| targets.iter().filter_map(move |to| layer_violation(config, from, to))).collect();
     let modules = module_graph(config, &graph);
+    let manifest_paths: Vec<String> = snapshot.paths().iter().filter(|path| *path == "Cargo.toml" || path.ends_with("/Cargo.toml")).cloned().collect();
+    let manifest_texts = snapshot.batch_texts(&manifest_paths)?;
+    let edges = manifest_edges(&structure_of(&snapshot).unwrap_or_default(), manifest_texts.iter().map(String::as_str));
     let file_fan = fan(&graph);
     let module_fan = fan(&modules);
     let past = history(repo, rev)?;
@@ -225,6 +230,7 @@ pub(super) fn build(repo: &Path, rev: &str, config: &Config) -> Result<Report, S
         unmapped: if grouped { hand.iter().filter(|path| files[*path].module.is_none()).cloned().collect() } else { Vec::new() },
         cycles: sccs(&graph),
         layer_violations: layer,
+        manifest_edges: edges,
         module_graph: modules.nodes().map(|(name, targets)| {
             let mut targets = targets.to_vec();
             targets.sort();

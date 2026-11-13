@@ -1,8 +1,10 @@
+mod manifest_edges;
 mod references;
 mod rules;
 
 use super::rust_modules::Crate;
 use super::source::Source;
+pub(super) use manifest_edges::{ManifestEdge, manifest_edges};
 use references::references;
 use rules::{Breach, Rule, Rules};
 use std::collections::BTreeSet;
