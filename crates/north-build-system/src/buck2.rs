@@ -71,9 +71,7 @@ const CARGO_SETTING: &str = "CARGO_";
 const UNMATERIALISED: &str = "--materializations=none";
 /// Refuses an action that cannot run on the workers, whatever executor the tree's own platform names. `bin/land-shell` gives a Buck2 client the network only with it, so nothing a tree defines runs beside that network.
 const REMOTE_ONLY: &str = "--remote-only";
-const NO_REMOTE_CACHE: &str = "--no-remote-cache";
-/// The isolation dir of the host-case build, beside the generation's own: its own daemon and `buck-out`, since one daemon
-/// reuses an action's result across commands, so in the daemon of the cached test run before it a build without the cache could still hand on a cached binary.
+/// The isolation dir of the host-case build, beside the generation's own: its own daemon and `buck-out`, where its outputs are materialised in the checkout while the check builds beside it leave theirs in the store.
 const HOST_CASES_DAEMON: &str = "host-cases";
 /// Buck2's exit status for a build the tree's own targets or code failed; an engine or daemon failure exits with another.
 const USER_ERROR: i32 = 3;
@@ -317,12 +315,6 @@ pub(crate) fn crate_tests(side: &Buck2, root: &Path, base: &str, declared: &str,
     Some(CrateTests { moved: names, packages, line, selected, caseless: BTreeSet::new(), shell: lead(shell), daemon: side.host_cases_daemon(), builds_host_cases, members })
 }
 
-/// How the host-case build uses the store's action results: not at all, since any client on the store's network may write one
-/// and these binaries run on the invoking host, outside any worker's sandbox.
-fn host_case_cache() -> &'static str {
-    NO_REMOTE_CACHE
-}
-
 /// What `north_host_cases` (build/rust_test.bzl) writes for one test target: its case runner, its binary and the
 /// environment its target sets less the workers' PATH, each path absolute in the checkout as the shell that built it
 /// sees it, which is where the case runs.
@@ -352,7 +344,7 @@ impl Words {
 }
 
 /// The case runner's line for each test binary of `cases` (binary id to its host cases) that the `target` of its crate's
-/// package in `packages` plans, once Buck2 built on the workers, in its own daemon and reading no cached result, what
+/// package in `packages` plans, once Buck2 built on the workers, in its own daemon and reading the store's action results, what
 /// those targets name and left it in the checkout at `root`. Each line runs in `lead`, the shell the declared line runs in, from `root`: only the
 /// named cases of the binary, each in its own process on this host, with the environment its test target sets. A binary
 /// no plan names has no line.
@@ -361,13 +353,13 @@ pub(crate) fn host_runs(root: &Path, lead: &[String], daemon: &str, target: &str
     if wanted.is_empty() {
         return Ok(BTreeMap::new());
     }
-    let build: Vec<String> = lead.iter().cloned().chain(["buck2", generation::FLAG, daemon, "build", REMOTE_ONLY, host_case_cache(), "--show-json-output"].map(str::to_owned)).chain(wanted.iter().map(|package| format!("{package}{target}"))).collect();
+    let build: Vec<String> = lead.iter().cloned().chain(["buck2", generation::FLAG, daemon, "build", REMOTE_ONLY, "--show-json-output"].map(str::to_owned)).chain(wanted.iter().map(|package| format!("{package}{target}"))).collect();
     let started = Instant::now();
     let built = Command::new(&build[0]).args(&build[1..]).current_dir(root).stdin(Stdio::null()).stderr(Stdio::inherit()).output().map_err(|error| format!("{}: {error}", build.join(" ")))?;
     if !built.status.success() {
         return Err(format!("{} exited {}", build.join(" "), built.status));
     }
-    eprintln!("north land crate-tests: Buck2 built the host-case binaries of {} package(s) on the workers, uncached, in {:.1} s", wanted.len(), started.elapsed().as_secs_f64());
+    eprintln!("north land crate-tests: Buck2 built the host-case binaries of {} package(s) on the workers in {:.1} s", wanted.len(), started.elapsed().as_secs_f64());
     let plans: BTreeMap<String, PathBuf> = serde_json::from_slice(&built.stdout).map_err(|error| format!("buck2 build printed no JSON map of its outputs: {error}"))?;
     let mut runs = BTreeMap::new();
     for path in plans.values().map(|path| root.join(path)) {
