@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 #[path = "catalog/activation.rs"]
 mod activation;
+#[path = "catalog/catalog_init.rs"]
+mod catalog_init;
 #[path = "catalog/digest.rs"]
 mod digest;
 #[path = "catalog/guard_ids.rs"]
@@ -43,6 +45,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
 
+pub use catalog_init::initial_catalog;
 use activation::{
     change_permission, ensure_permissions, new_unit, rebuild_projection_plan,
     recompute_activation, refresh_provenance,

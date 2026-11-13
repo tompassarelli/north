@@ -4,7 +4,10 @@ use std::process::{Command, Stdio};
 use std::sync::Barrier;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::registration_checks::OwnerCheckRoots;
+use super::catalog_init::initial_catalog;
+use super::owner_modules::STRUCTURE_FILE;
+use super::registration_checks::{OwnerCheckRoots, canonical, check_owner_files, git_text};
+use crate::error::NorthResult;
 
 fn git(root: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git")
@@ -19,10 +22,31 @@ fn git(root: &Path, arguments: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("git output").trim().to_owned()
 }
 
+fn checked_init(structure: &str) -> NorthResult<()> {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let north = scratch.path().join("north");
+    std::fs::create_dir_all(north.join("harness/skills/a")).expect("skill dir");
+    std::fs::write(north.join("harness/skills/a/SKILL.md"), "a").expect("skill");
+    std::fs::write(north.join(STRUCTURE_FILE), structure).expect("structure");
+    git(scratch.path(), &["init", "-q", "-b", "main", north.to_str().expect("utf-8")]);
+    git(&north, &["add", "."]);
+    git(&north, &["commit", "-q", "-m", "fixture"]);
+    let mut catalog = initial_catalog("[[registered]]\nid = \"skill.a\"\npath = \"harness/skills/a/SKILL.md\"\n")?;
+    let mut keys: Vec<_> = catalog.as_object().expect("object").keys().cloned().collect();
+    keys.sort();
+    assert_eq!(keys, ["$schema", "activation", "registrations", "role", "rootOrder", "schema"]);
+    let roots = OwnerCheckRoots { north: north.clone(), south: scratch.path().join("south"), nixos: None };
+    let head = git_text(&north, &["rev-parse", "HEAD"])?;
+    check_owner_files(&mut catalog, &roots, &canonical(&north)?, &head)
+}
+
 const CHURNERS: usize = 4;
 
 #[test]
-fn concurrent_owner_checks_fetch_one_checkout_without_racing_its_refs() {
+fn catalog_init_resolves_and_refuses_an_unregistered_module_and_concurrent_owner_checks_fetch_one_checkout_without_racing_its_refs() {
+    checked_init("[[registered]]\nid = \"skill.a\"\npath = \"harness/skills/a/SKILL.md\"\n").expect("resolves");
+    let error = checked_init("").expect_err("unregistered");
+    assert!(error.to_string().contains("does not register skill.a"), "{error}");
     let scratch = tempfile::tempdir().expect("scratch");
     let origin = scratch.path().join("origin.git");
     let publisher = scratch.path().join("publisher");
@@ -36,7 +60,7 @@ fn concurrent_owner_checks_fetch_one_checkout_without_racing_its_refs() {
     let mut seed = Command::new("git").arg("-C").arg(&nixos).args(["update-ref", "--stdin"]).stdin(Stdio::piped()).spawn().expect("update-ref runs");
     seed.stdin.take().expect("update-ref stdin").write_all(lanes.as_bytes()).expect("lanes written");
     assert!(seed.wait().expect("update-ref exits").success(), "lanes seeded");
-    let roots = OwnerCheckRoots { north: scratch.path().join("north"), south: scratch.path().join("south"), nixos };
+    let roots = OwnerCheckRoots { north: scratch.path().join("north"), south: scratch.path().join("south"), nixos: Some(nixos) };
     for round in 0..12 {
         git(&publisher, &["commit", "-q", "--allow-empty", "-m", &format!("round {round}")]);
         git(&publisher, &["push", "-q", "origin", "HEAD:main"]);
@@ -45,7 +69,7 @@ fn concurrent_owner_checks_fetch_one_checkout_without_racing_its_refs() {
         let checking = AtomicBool::new(true);
         let resolved: Vec<_> = std::thread::scope(|scope| {
             for churner in 0..CHURNERS {
-                let (start, checking, checkout) = (&start, &checking, &roots.nixos);
+                let (start, checking, checkout) = (&start, &checking, roots.nixos.as_ref().expect("nixos root"));
                 scope.spawn(move || {
                     start.wait();
                     let mut lane = 0;

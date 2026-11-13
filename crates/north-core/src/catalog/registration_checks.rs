@@ -196,21 +196,39 @@ pub(super) fn check_registered_owners(arguments: &[String]) -> NorthResult<()> {
     let current_head = env::var("SAFE_PUSH_LAND_HEAD")
         .or_else(|_| git_text(Path::new("."), &["rev-parse", "HEAD"]))
         .map_err(|error| NorthError::Configuration(error.to_string()))?;
-    let (_, south_ref) = roots.resolve("south", &current_root, &current_head)?;
-    let (_, nixos_ref) = roots.resolve("nixos-config", &current_root, &current_head)?;
+    let south_worktree = roots.south_is_worktree(&current_root)?;
+    let south_ref = if south_worktree {
+        String::new()
+    } else {
+        roots.resolve("south", &current_root, &current_head)?.1
+    };
+    let nixos_ref = match roots.nixos {
+        Some(_) => Some(roots.resolve("nixos-config", &current_root, &current_head)?.1),
+        None => None,
+    };
     if current_root == canonical(&roots.north)? {
         super::retired_hooks::require_deleted_hooks_retired(&roots.north, &current_head)?;
     }
-    let catalog = git_output(
-        &roots.south,
-        &["show", &format!("{south_ref}:agents/catalog-config.json")],
-    )?;
+    let catalog = if south_worktree {
+        let path = roots.south.join("agents/catalog-config.json");
+        fs::read(&path).map_err(|error| {
+            NorthError::Configuration(format!("cannot read {}: {error}", path.display()))
+        })?
+    } else {
+        git_output(
+            &roots.south,
+            &["show", &format!("{south_ref}:agents/catalog-config.json")],
+        )?
+    };
     let mut registrations: Value = serde_json::from_slice(&catalog)?;
-    check_nixos_hook_registrations(
-        &roots.nixos,
-        &nixos_ref,
-        &HookProvision::Names(landing_hook_names(&registrations)),
-    )?;
+    match (&roots.nixos, &nixos_ref) {
+        (Some(nixos), Some(nixos_ref)) => check_nixos_hook_registrations(
+            nixos,
+            nixos_ref,
+            &HookProvision::Names(landing_hook_names(&registrations)),
+        )?,
+        _ => println!("no machine-configuration root named; skipped its hook registration check"),
+    }
     let (north_root, north_ref) = roots.resolve("north", &current_root, &current_head)?;
     let guard_sources = git_text(&north_root, &["grep", "-n", "-E", super::guard_ids::PATTERN, &north_ref, "--", "crates", "src"])?;
     super::guard_ids::require_guard_ids_named(&guard_sources, &north_ref, &registrations)?;
@@ -325,7 +343,7 @@ pub(super) fn git_object(root: &Path, reference: &str, path: &str) -> NorthResul
 pub(super) struct OwnerCheckRoots {
     pub(super) north: PathBuf,
     pub(super) south: PathBuf,
-    pub(super) nixos: PathBuf,
+    pub(super) nixos: Option<PathBuf>,
 }
 
 impl OwnerCheckRoots {
@@ -353,11 +371,17 @@ impl OwnerCheckRoots {
                 .cloned()
                 .ok_or_else(|| NorthError::Usage(format!("missing --{flag}-root")))
         };
+        let nixos = values.get("nixos-config").cloned();
         Ok(Self {
             north: take("north")?,
             south: take("south")?,
-            nixos: take("nixos-config")?,
+            nixos,
         })
+    }
+
+    fn south_is_worktree(&self, current_root: &str) -> NorthResult<bool> {
+        Ok(canonical(&self.south)? != current_root
+            && git_output(&self.south, &["remote", "get-url", "origin"]).is_err())
     }
 
     pub(super) fn resolve(
@@ -369,7 +393,9 @@ impl OwnerCheckRoots {
         let root = match repo {
             "north" => &self.north,
             "south" => &self.south,
-            "nixos-config" => &self.nixos,
+            "nixos-config" => self.nixos.as_ref().ok_or_else(|| {
+                NorthError::Configuration("no machine-configuration root named".into())
+            })?,
             _ => {
                 let home = env::var_os("HOME").ok_or_else(|| {
                     NorthError::Configuration("HOME is unavailable for owner lookup".into())
