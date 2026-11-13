@@ -1448,7 +1448,7 @@ cpx62b closed for another eval before its job could start (2026-11-13, 4:08 AM).
    cached afterwards. The flag makes Relax start real cargo, rustc, the C compiler and the linker for those packages,
    so Relax no longer replaces them there.
 3. Valid code Relax rejects or miscompiles. Past blockers 1 and 2, 15 of the 56 crates (734 of the tests) stop at a
-   borrow-check error on code rustc accepts (`E0597`, `E0521`), one at `E0433` on a test file's type, and a few tests
+   borrow-check error on code rustc accepts (`E0597`, `E0521`), one at `E0433` on a test file's type (a feature setting, not Relax: see Relax after stage 0), and a few tests
    fail in the JIT or on a platform difference (`time`'s `str_from_raw_parts`, a `None` where `Some(45.0)` is expected,
    a caller-identity refusal). These are Relax fidelity gaps, each with a first error above; none is north's to fix.
 4. The count and the speed. Measured: 718 of 1,501 library unit tests pass (48%), 119 of 119 equal to nextest's on the
@@ -1501,6 +1501,128 @@ read the same way: 718 of the 1,501 library unit tests pass against at least 1,2
 verdict is 1.0 times against at least five, and a fresh target directory's first verdict is inside 60 s (12.7 to 16.3 s;
 cache size not measured). What reopens it is a hub whose rebuild and link, not its tests, dominate its loop, and Relax
 fixing the borrow-check false positives behind blocker 3; neither is in hand.
+
+### Relax after stage 0
+
+Two bounded measurements after the drop, same Relax pin (`ce52155e`, build `1aecaaf10d49`) and environment
+(`CARGO_RESOLVER_FEATURE_UNIFICATION=selected`, `MAKEPAD_RUN_ALLOW_C=1`, `RUSTC_WRAPPER` unset, the store's cargo first on
+`PATH`), north cloned at `5c262ce9e6` outside every checkout, on gex45 (a 6-CPU, 18 GiB heavy lease), 13 November.
+
+`relax test --live` with an edit few tests enter, by the fourth run's method (29 `relax test --live CRATE` processes,
+one shared target directory, a `let _relax_probe_FN = N;` line after `fn FN`, seconds from the edit to the last of the 29
+new verdicts; nextest over the same 29 packages, which now hold 543 tests). The function was picked from Relax's own reach
+output: one edit each to seven `north-foundation` functions, and the one whose edit reran the fewest tests,
+`foundation::clock::parse_rfc3339` (391 of 543; `parse_loose` 453, `parse_python_datetime` 486, `local_twelve_hour` 509,
+`redact` 524, `parse_publish_time` 542, `day_and_minute` 543). The clone needed one scratch rewrite to keep all 29: since
+stage 0's clone, `north-build-system` gained a site of pattern 2 below, which stops it and 5 of the 29 that depend on it.
+
+- Round 1: live 68.08 s (cpu 113, load at the edit 30.7); nextest 173.35 s (cpu 101, load 45.7).
+- Round 2: live 13.31 s (cpu 67, load 19.6); nextest 71.74 s (cpu 66, load 20.2).
+- Round 3: live 12.32 s (cpu 61, load 16.0); nextest 39.42 s (cpu 60, load 15.2).
+- Ratio: median live 13.31 s against median nextest 71.74 s, 5.4 times as fast, beside the worst case's 3.3 times
+  (12.61 s against 41.51 s on cpx62b, editing `push_token`). The same rounds' `push_token` edit on gex45 took 44.73,
+  14.45 and 13.85 s (load 36.4, 19.9, 15.5), median 14.45 s, 5.0 times, so the move from 3.3 is nextest's slower
+  median on this host (its rounds swung from 39 to 173 s with the load), not a shorter live wait; round by round the
+  picked edit is 2.5, 5.4 and 3.2 times.
+- Why the pick barely helps: Relax reruns only the tests that entered the edited function in a crate where some test did,
+  and every test in a crate where none did (`reached by no test here`). For `parse_rfc3339` 6 crates reran a subset
+  (`north-capacity` 14 of 46, `north-pace` 5 of 37, `north-flow` 2 of 29, `north-capacity-host` 4 of 59, `north-code-health`
+  13 of 14, `north-health` 8 of 13) and 23 reran everything, so the wait is again the slowest full crate under the JIT:
+  `north-threads` (51 tests, 12.3 to 12.9 s) and `north-base` (74 tests, 13.2 s).
+- Verdicts as in the fourth run: `north-capacity-host` failed 1 (once 2) and `north-fleet` 1 on every rerun, where nextest
+  passed 543 of 543 on every round. The standing cost: the 29 processes took 396 s to their first verdicts and held the
+  job cgroup at 17.4 to 18.3 GiB, against the lease's 18 GiB, through every round.
+
+The false positives, sized on the smallest of the 15 crates that stopped at a borrow-check error, `north-land-watch` (946
+lines). It stops in its path dependencies, not its own code: `north-land-scans` (9 errors), `north-mutants` (1) and
+`north-build-system` (1). Rewriting each site in a scratch clone that never lands, pattern by pattern, took 3 distinct
+patterns (6 sites rewritten for the first two; the third is in a registry crate and was left as it is). After the first two,
+its tests ran: `relax test north-land-watch` 8 of 10 passed, the other 2 stopped on the third pattern inside `time` 0.3.55's
+date formatting. Each reduced file below compiles and passes with `rustc --edition 2024 --test FILE` (1 of 1
+passed) and fails under `relax test FILE` with the error quoted.
+
+1. A sliced array as the first element of an array that is `.concat()`ed gets a `'static` bound (`E0597`, also `E0505` and
+   `E0521` at the other sites in `north-land-scans`'s `test_admission/kills.rs` and `kills/sweep.rs` and `north-mutants`'s
+   `sweep.rs`). Binding the array to a local first, or putting the borrowed slice first (`[&tail[..], &["a"][..]]`), compiles;
+   so do the array and the slice alone.
+
+   ```rust
+   fn count(args: &[&str]) -> usize { args.len() }
+
+   #[test]
+   fn a_literal_slice_then_a_borrowed_vec_concat() {
+       let sources = vec![String::from("src")];
+       assert_eq!(count(&[&["ls-files", "-z", "--"][..], &sources.iter().map(String::as_str).collect::<Vec<_>>()].concat()), 4);
+   }
+   ```
+
+   ```text
+   error[E0597]: `sources` does not live long enough
+     --> slice_concat.rs:6:56
+   6 |     assert_eq!(count(&[&["ls-files", "-z", "--"][..], &sources.iter().map(String::as_str).collect::<Vec<_>>()].concat()), 4);
+     |                       ---------------------------------------------------------------------------------------- argument requires that `sources` is borrowed for `'static`
+     |                                                        ^^^^^^^ borrowed value does not live long enough
+   7 | }
+     | - `sources` dropped here while still borrowed
+   ```
+
+   The same with a local inside the first array (`[&["diff", &head][..], &rest].concat()`) fails the same way on `head`.
+
+2. Relax's std has no `From<io::Stderr>` (or `From<io::Stdout>`) for `Stdio`, which rustc's std has had since 1.74; its
+   `std/process_unix.rs` converts only `File`, the pipe ends, `OwnedFd` and the child's handles (site:
+   `north-build-system`'s `buck2/test_record.rs:106`).
+
+   ```rust
+   use std::process::{Command, Stdio};
+
+   #[test]
+   fn a_child_writes_its_stdout_to_our_stderr() {
+       let status = Command::new("true").stdin(Stdio::null()).stdout(std::io::stderr()).status().unwrap();
+       assert!(status.success());
+   }
+   ```
+
+   ```text
+   stderr_into_stdio.rs:5:18: E0277: the trait bound `Stderr: Into<Stdio>` is not satisfied
+   ```
+
+3. Relax's `str` has no inherent `from_utf8_unchecked` (stable in rustc since 1.87; Relax has only the free function
+   `core::str::from_utf8_unchecked`). It is the `time` failure stage 0 listed under blocker 3 (`str_from_raw_parts`):
+   it compiles lazily, so the crate builds and a test fails when it first formats a date.
+
+   ```rust
+   #[test]
+   fn the_inherent_str_constructor_from_bytes() {
+       let bytes = b"2026";
+       assert_eq!(unsafe { str::from_utf8_unchecked(bytes) }, "2026");
+   }
+   ```
+
+   ```text
+   str_from_utf8_unchecked.rs:4:25: E0599: no function or associated item named `from_utf8_unchecked` found for type `str` in the current scope
+   ```
+
+So of the three, one is a borrow-check false positive and two are gaps in Relax's std; one crate's worth of them cleared
+in three patterns, which says nothing yet of the other 14 crates.
+
+The `E0433` in `north-fleet-supervisor`'s tests is not a Relax gap. Its tests import `crate::fleet::fakes`, re-exported
+from `north-fleet`, whose `fleet/fakes.rs` is `#![cfg(any(test, feature = "test-support"))]`; the supervisor's own
+`test-support` feature turns it on, but nothing in its own graph enables that feature, only workspace unification through
+`north-core`'s and `north-providers`' dev-dependencies. Under `CARGO_RESOLVER_FEATURE_UNIFICATION=selected`, rustc fails
+the same way (`cargo check --tests -p north-fleet-supervisor`: `E0432 unresolved import crate::fleet::fakes` and `E0433
+cannot find fakes in fleet`, 14 errors), and `relax test north-fleet-supervisor --features test-support` passes 70 of 70.
+It is blocker 1's setting again.
+
+Draft reports for the Relax project, not sent:
+
+- Borrow check: "`[&[\"a\"][..], &v].concat()` requires `v: 'static`. A sliced array literal as the first element of an
+  array passed to `concat` makes the borrow checker require `'static` for every other element (`E0597`); rustc accepts
+  it. Reproduction: the first file above; binding the array to a local first is the workaround."
+- Std: "`Stdio` lacks `From<io::Stdout>` and `From<io::Stderr>` (stable since Rust 1.74), so `Command::stdout(io::stderr())`
+  fails with `E0277`. Reproduction: the second file above."
+- Std: "`str::from_utf8_unchecked` and `str::from_utf8` as inherent associated functions (stable since Rust 1.87) are
+  missing, which breaks `time` 0.3.55's `Display` for dates at run time with `E0599`. Reproduction: the third file above."
+  (Only `from_utf8_unchecked` was run; `from_utf8` is absent from Relax's `core/str/inherent.rs` by reading.)
 
 [reindeer]: https://github.com/facebookincubator/reindeer
 [prelude-cargo-package]: https://github.com/facebook/buck2-prelude/blob/main/rust/cargo_package.bzl
