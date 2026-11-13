@@ -103,10 +103,16 @@ fn output_dir(root: &Path, profile: Profile, output: Option<&Path>) -> PathBuf {
 /// that rewrites one would name its own gate or its own endpoint. `None` leaves the line as declared.
 pub(crate) fn gate(root: &Path, base: &str, declared: &str) -> Option<String> {
     let side = Buck2 { tests: false };
-    if !side.governs(root) || !super::cargo::lints(declared) || !unchanged_since(root, base) {
+    if !side.governs(root) || !super::cargo::lints(declared) || !unchanged_since(root, base) || declared.matches(DECLARED).count() != 1 {
         return None;
     }
-    Some(side.land_line(declared)).filter(|issued| issued != declared)
+    let shell = declared.split_once(DECLARED)?.0;
+    Some(behind(shell, side.lint(&Lint { root: Path::new(""), selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::Inherited })))
+}
+
+/// `issued` run behind `shell`, the part of a declared line before its Cargo command, without the line's Cargo settings.
+fn behind(shell: &str, issued: Invocation) -> String {
+    shell.split_whitespace().filter(|word| !word.starts_with(CARGO_SETTING)).map(str::to_owned).chain(issued.words).collect::<Vec<_>>().join(" ")
 }
 
 /// Whether the tree's gate script and its Buck2 configuration are those of `base`, with no untracked file among them.
@@ -133,6 +139,14 @@ fn linked_by_the_shell(root: &Path) -> bool {
         }
 }
 
+/// The side that builds the tree's own binary on a host whose `buck2_tree_build` is set: Buck2 when the tree at `root`
+/// has Buck2 targets and its Buck2 configuration and target definitions are `base`'s, since a lane that rewrites one
+/// would build the north its check runs with its own rules or its own endpoint. `None` leaves the build to Cargo.
+pub(crate) fn tree_builder(root: &Path, base: &str) -> Option<Buck2> {
+    let side = Buck2 { tests: false };
+    (side.governs(root) && unchanged_since(root, base) && targets_unchanged_since(root, base)).then_some(side)
+}
+
 /// What defines a test target besides the code under test. A lane that changes one could declare a test that passes
 /// whatever the code does, so this side runs a crate's tests only in a tree whose every such file is `base`'s.
 const TARGET_ORIGIN: [&str; 9] = [":(glob)**/BUCK", ":(glob)**/BUCK.v2", ":(glob)**/TARGETS", ":(glob)**/PACKAGE", ":(glob)**/*.bzl", ":(glob)**/*.bxl", ":(glob)**/*.star", "toolchains", "prelude"];
@@ -152,6 +166,8 @@ pub struct CrateTests {
     /// The Buck2 line that runs the tests of every crate that moves, in one invocation.
     pub line: String,
     selected: Selected,
+    /// The crates that move which the host's `buck2_caseless_crates` names as having no case, so Buck2 passes one whose targets passed with no case run.
+    pub caseless: BTreeSet<String>,
 }
 
 impl CrateTests {
@@ -172,10 +188,28 @@ impl CrateTests {
     }
 }
 
-/// Whether `declared` is the nextest line of `.safe-push` that reads its package selection from the environment variable
-/// `variable`, which the caller that sets it names.
+/// Whether `declared` is a nextest line of `.safe-push` whose package selection the split reads: from the environment
+/// variable `variable`, which the caller that sets it names, or from the `-p NAME` words of a line that names its own.
 pub(crate) fn selects_packages(declared: &str, variable: &str) -> bool {
-    declared.split_once(DECLARED).is_some_and(|(_, cargo)| declared.matches(DECLARED).count() == 1 && cargo.starts_with("nextest run ") && !cargo.contains("--no-run") && cargo.contains(variable))
+    runs_nextest(declared) && (declared.contains(variable) || named_selection(declared, variable).is_some())
+}
+
+fn runs_nextest(declared: &str) -> bool {
+    declared.split_once(DECLARED).is_some_and(|(_, cargo)| declared.matches(DECLARED).count() == 1 && cargo.starts_with("nextest run ") && !cargo.contains("--no-run"))
+}
+
+/// A nextest line that reads no `variable` and names its packages as one run of `-p NAME` words, as the same line
+/// reading them from `variable` instead, with the words it named; `None` for any other line.
+pub(crate) fn named_selection(declared: &str, variable: &str) -> Option<(String, String)> {
+    if !runs_nextest(declared) || declared.contains(variable) {
+        return None;
+    }
+    let start = declared.find(" -p ")? + 1;
+    let words: Vec<&str> = declared[start..].split(' ').collect();
+    let pairs = words.chunks(2).take_while(|pair| matches!(pair, ["-p", name] if !name.is_empty() && !name.starts_with('-'))).count();
+    let named = words[..pairs * 2].join(" ");
+    let after = &declared[start + named.len()..];
+    (pairs > 0 && !after.contains(" -p ")).then(|| (format!("{}${{{variable}}}{after}", &declared[..start]), named))
 }
 
 /// The split of `declared` for a run that selected `selected` (`--workspace` or `-p NAME ...`) on a host that lists
@@ -207,8 +241,8 @@ pub(crate) fn crate_tests(root: &Path, base: &str, declared: &str, (variable, se
         return None;
     }
     let run = Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Typed(packages.values().cloned().collect()), resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None };
-    let line = shell.split_whitespace().filter(|word| !word.starts_with(CARGO_SETTING)).map(str::to_owned).chain(side.tests(&run).words).collect::<Vec<_>>().join(" ");
-    Some(CrateTests { moved: names, packages, line, selected })
+    let line = behind(shell, side.tests(&run));
+    Some(CrateTests { moved: names, packages, line, selected, caseless: BTreeSet::new() })
 }
 
 /// The build file names the tree's own `.buckconfig` sets under `[buildfile]`, as path patterns; that file is `base`'s wherever this is asked.
@@ -254,7 +288,9 @@ impl BuildSystem for Buck2 {
         words.extend((request.profile == Profile::Release).then(|| "@mode/release".to_owned()));
         words.push(request.binary.map_or_else(|| "//:".to_owned(), |binary| format!("//:{binary}")));
         words.extend(request.jobs.into_iter().flat_map(|jobs| ["--num-threads".to_owned(), jobs.to_string()]));
-        words.extend(["--out".to_owned(), format!("{}/", output_dir(request.root, request.profile, request.output).display())]);
+        let out = output_dir(request.root, request.profile, request.output);
+        // Buck2's `--out` format: a target's one output is copied onto the path itself, so the path names the file, never its directory.
+        words.extend(["--out".to_owned(), request.binary.map_or_else(|| format!("{}/", out.display()), |binary| out.join(binary).display().to_string())]);
         words.extend(request.uncached.then(|| "--no-remote-cache".to_owned()));
         words.extend(request.timings.then(|| ["--build-report".to_owned(), self.timings(request).display().to_string()]).into_iter().flatten());
         Invocation::new(request.root, request.shell, words)
@@ -265,7 +301,7 @@ impl BuildSystem for Buck2 {
     }
 
     fn tree_binary(&self, root: &Path, binary: &str) -> (Invocation, PathBuf) {
-        let request = Build { root, profile: Profile::Dev, binary: Some(binary), jobs: None, resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, timings: false };
+        let request = Build { root, profile: Profile::Dev, binary: Some(binary), jobs: None, resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: true, timings: false };
         (self.build(&request), self.built(&request, binary))
     }
 
@@ -275,6 +311,10 @@ impl BuildSystem for Buck2 {
 
     fn warms(&self) -> bool {
         !self.tests
+    }
+
+    fn copies_out(&self) -> bool {
+        true
     }
 
     fn finished(&self, log: &str) -> bool {
@@ -325,15 +365,10 @@ impl BuildSystem for Buck2 {
 
     fn land_line(&self, declared: &str) -> String {
         let (Some((shell, cargo)), 1) = (declared.split_once(DECLARED), declared.matches(DECLARED).count()) else { return declared.to_owned() };
-        let root = Path::new("");
-        let issued = if cargo.starts_with("clippy ") {
-            self.lint(&Lint { root, selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::Inherited })
-        } else if self.tests && (cargo.starts_with("nextest run ") || cargo.starts_with("test ")) && !cargo.contains("--no-run") {
-            self.tests(&Tests { root, step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None })
-        } else {
+        if !self.tests || !(cargo.starts_with("nextest run ") || cargo.starts_with("test ")) || cargo.contains("--no-run") {
             return declared.to_owned();
-        };
-        shell.split_whitespace().filter(|word| !word.starts_with(CARGO_SETTING)).map(str::to_owned).chain(issued.words).collect::<Vec<_>>().join(" ")
+        }
+        behind(shell, self.tests(&Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None }))
     }
 
     fn mutants(&self, request: &Mutants) -> Result<Invocation, String> {

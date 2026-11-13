@@ -21,6 +21,8 @@ use cargo::Cargo;
 const TEST_SWITCH: &str = "buck2_tests";
 const LINT_SWITCH: &str = "buck2_lint";
 const TEST_CRATES: &str = "buck2_test_crates";
+const TREE_BUILD_SWITCH: &str = "buck2_tree_build";
+const CASELESS_CRATES: &str = "buck2_caseless_crates";
 
 pub trait BuildSystem {
     /// Whether `root` is a workspace this build system builds.
@@ -34,6 +36,8 @@ pub trait BuildSystem {
     fn built(&self, request: &Build, name: &str) -> PathBuf;
     /// Builds the tree's own `binary` for a check that runs it from the tree, and says where it is left. The Cargo side builds it as the test run does (test profile, the `it` test's dev-dependency features), so a tree whose tests were compiled has it already.
     fn tree_binary(&self, root: &Path, binary: &str) -> (Invocation, PathBuf);
+    /// Whether the path [`Self::tree_binary`] names is a copy the build leaves outside its own output, which a run clears first and reads only once the build exits 0, so a failed build leaves no older copy to read.
+    fn copies_out(&self) -> bool;
     /// Whether a failed build's exit status and output say the tree itself does not build, rather than the machine failing the build.
     fn broken(&self, status: Option<i32>, log: &str) -> bool;
     /// Whether a checkout's own build output, kept warm between checks, saves its next check a compile: a Cargo target directory does, and Buck2's outputs live in the store every checkout shares.
@@ -51,7 +55,7 @@ pub trait BuildSystem {
     fn check(&self, root: &Path, package: &str, output: Option<&Path>) -> Invocation;
     /// Lints every target of the selection and fails on any warning.
     fn lint(&self, request: &Lint) -> Invocation;
-    /// The line this side runs for `declared`, a land check line of `.safe-push`, which names Cargo until the removal rewrites it (north#1115 box 8): this side's own lint or test run behind the declared line's shell, else the line as declared.
+    /// The line this side runs for `declared`, a land check line of `.safe-push`, which names Cargo until the removal rewrites it (north#1115 box 8): this side's own test run behind the declared line's shell, else the line as declared. A lint line stays as declared here: only [`lint_gate`] moves it, on a host with `buck2_lint` and for a tree whose gate and Buck2 configuration are the base's.
     fn land_line(&self, declared: &str) -> String;
     fn mutants(&self, request: &Mutants) -> Result<Invocation, String>;
 }
@@ -78,38 +82,69 @@ pub fn for_tree(root: &Path) -> Box<dyn BuildSystem> {
 /// for a host without the key, a tree with no Buck2 targets, a run that names no `base`, and a tree whose gate script or
 /// Buck2 configuration is not `base`'s.
 pub fn lint_gate(root: &Path, base: Option<&str>, declared: &str) -> Option<String> {
+    if switched(LINT_SWITCH) { buck2::gate(root, base?, declared) } else { None }
+}
+
+/// The sides that build the tree's own binary for a check that runs it from the tree, in the order `north runtime
+/// tree-build` tries them: Buck2 first when `[hosts.NAME] buck2_tree_build` is true, the run names a `base`, and the
+/// tree has Buck2 targets whose configuration and definitions are `base`'s, then Cargo. The key moves this build alone: the host's `build_system` and
+/// every other line stay as they are.
+pub fn tree_builders(root: &Path, base: Option<&str>) -> Vec<Box<dyn BuildSystem>> {
+    let mut sides: Vec<Box<dyn BuildSystem>> = Vec::new();
+    if switched(TREE_BUILD_SWITCH) {
+        match base.and_then(|base| buck2::tree_builder(root, base)) {
+            Some(side) => sides.push(Box::new(side)),
+            None => eprintln!("north runtime tree-build: this host builds a tree's north with Buck2 only for a run that names its base and a tree with Buck2 targets whose Buck2 configuration and target definitions are the base's, so Cargo builds this one"),
+        }
+    }
+    sides.push(Box::new(Cargo));
+    sides
+}
+
+/// Whether `[hosts.NAME] KEY` is true for this host in the orchestration policy; false when the policy is unreadable.
+fn switched(key: &str) -> bool {
     let host = north_base::platform::host::name();
-    let policy = north_base::platform::orchestration::read().ok()?;
-    let switched = policy.get("hosts").and_then(|hosts| hosts.get(host.as_str())?.get(LINT_SWITCH)?.as_bool()) == Some(true);
-    if switched { buck2::gate(root, base?, declared) } else { None }
+    north_base::platform::orchestration::read().ok().and_then(|policy| policy.get("hosts")?.get(host.as_str())?.get(key)?.as_bool()) == Some(true)
 }
 
 /// The split of `declared`, the nextest line of `.safe-push`, that this host runs when `[hosts.NAME] buck2_test_crates`
-/// lists crates: those crates' tests through Buck2 and the rest of the selection through the declared line. `variable` is
-/// the environment variable the line reads its selection from and `selected` its value, the workspace when unset.
-/// `None`, the line as declared, for a host without the key and wherever [`lint_gate`] would leave a lint line as
-/// declared.
+/// lists crates: those crates' tests through Buck2 and the rest of the selection through the declared line. A crate its
+/// `buck2_caseless_crates` names, entered there only when `north buck compare-cases` found no case on either side, moves
+/// too and is marked in [`CrateTests::caseless`]. `variable` is the environment variable the line reads its selection
+/// from and `selected` its value, the workspace when unset. `None`, the line as declared, for a host without either key
+/// and wherever [`lint_gate`] would leave a lint line as declared.
 pub fn crate_tests(root: &Path, base: Option<&str>, declared: &str, variable: &str, selected: Option<&str>) -> Option<CrateTests> {
     let host = north_base::platform::host::name();
     let policy = north_base::platform::orchestration::read().ok()?;
-    let listed: BTreeSet<String> = policy.get("hosts").and_then(|hosts| hosts.get(host.as_str())?.get(TEST_CRATES)?.as_array())?.iter().filter_map(|name| name.as_str().map(str::to_owned)).collect();
-    buck2::crate_tests(root, base?, declared, (variable, selected.filter(|selected| !selected.trim().is_empty()).unwrap_or("--workspace")), &listed, &buck2::packages(root).ok()?)
+    let named = |key: &str| -> BTreeSet<String> { policy.get("hosts").and_then(|hosts| hosts.get(host.as_str())?.get(key)?.as_array()).into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect() };
+    let caseless = named(CASELESS_CRATES);
+    let listed: BTreeSet<String> = named(TEST_CRATES).union(&caseless).cloned().collect();
+    let mut split = buck2::crate_tests(root, base?, declared, (variable, selected.filter(|selected| !selected.trim().is_empty()).unwrap_or("--workspace")), &listed, &buck2::packages(root).ok()?)?;
+    split.caseless = split.moved.iter().filter(|name| caseless.contains(*name)).cloned().collect();
+    Some(split)
 }
 
-/// Whether `command` is the nextest line of `.safe-push` whose listed crates a host's `buck2_test_crates` moves: the one
-/// that reads its selection from the environment variable `variable`.
+/// Whether `command` is a nextest line of `.safe-push` whose listed crates a host's `buck2_test_crates` moves: one that
+/// reads its selection from the environment variable `variable`, or names its packages itself with `-p NAME` words.
 pub fn selects_packages(command: &str, variable: &str) -> bool {
     buck2::selects_packages(command, variable)
 }
 
-/// Whether some host's `buck2_test_crates` lists a package of `selected`, so that part of a nextest line's verdict
-/// before a landing may be Buck2's.
+/// A nextest line of `.safe-push` that names its packages itself, as the same line reading them from `variable`, with
+/// the `-p NAME` words it named, so the split reads and narrows its selection as it does the line that reads the
+/// variable; `None` for any other line.
+pub fn named_selection(command: &str, variable: &str) -> Option<(String, String)> {
+    buck2::named_selection(command, variable)
+}
+
+/// Whether some host's `buck2_test_crates` or `buck2_caseless_crates` lists a package of `selected`, so that part of a
+/// nextest line's verdict before a landing may be Buck2's.
 pub fn buck2_may_test(selected: Option<&str>) -> bool {
     let Ok(policy) = north_base::platform::orchestration::read() else { return false };
     let Some(hosts) = policy.get("hosts").and_then(|hosts| hosts.as_table_like()) else { return false };
     let words: Vec<&str> = selected.unwrap_or_default().split_whitespace().collect();
     let selects = |name: &str| words.is_empty() || words == ["--workspace"] || words.contains(&name);
-    hosts.iter().filter_map(|(_, host)| host.get(TEST_CRATES)?.as_array()).any(|listed| listed.iter().filter_map(|name| name.as_str()).any(selects))
+    hosts.iter().flat_map(|(_, host)| [TEST_CRATES, CASELESS_CRATES].map(|key| host.get(key).and_then(|listed| listed.as_array()))).flatten().any(|listed| listed.iter().filter_map(|name| name.as_str()).any(selects))
 }
 
 /// Whether `command` is Cargo's lint line, the one a host's `buck2_lint` replaces.

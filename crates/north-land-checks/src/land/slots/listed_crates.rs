@@ -2,7 +2,9 @@
 //! `[hosts.NAME] buck2_test_crates` lists crates runs the tests of every selected crate it lists in one Buck2 run, and
 //! the declared line for the rest of the selection (north#1115). Buck2 fails the check when its build failed or its
 //! summary counts a failed test. It passes a crate only when its run passed and, in Buck2's own record of the run, the
-//! case runners of that crate's targets count at least one case run in all and none failed. That summary counts a
+//! case runners of that crate's targets count at least one case run in all and none failed; a crate the host's
+//! `buck2_caseless_crates` names, entered by a comparison that found no case on either side, passes with none run, and
+//! is judged as any other the moment one of its cases runs. That summary counts a
 //! target as one test however many cases it ran, so it never passes a crate alone (north#1299). Every other crate stays
 //! on the declared line, so Cargo tests it. A passed crate's host cases, the cases of the reviewed class in
 //! the landing base's `build/host-cases.list` that its Buck2 targets skip because no remote worker can run them, then run here in one run of
@@ -47,9 +49,11 @@ pub fn wraps(command: &str) -> bool {
     north_build_system::selects_packages(command, PACKAGES_ENV)
 }
 
-/// Whether the verdict of `command`, run before a landing with `selected` packages, may be Buck2's for part of it.
+/// Whether the verdict of `command`, run before a landing with `selected` packages, or the packages it names itself,
+/// may be Buck2's for part of it.
 pub fn decides(command: &str, selected: Option<&str>) -> bool {
-    wraps(command) && north_build_system::buck2_may_test(selected)
+    let named = north_build_system::named_selection(command, PACKAGES_ENV).map(|(_, named)| named);
+    wraps(command) && north_build_system::buck2_may_test(named.as_deref().or(selected))
 }
 
 /// `command` handed to the executing host's `north`, or run as it is where that north has no such verb.
@@ -63,8 +67,8 @@ fn counted(summary: &str, label: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
-/// The crates whose targets in `runs`, as `owner` assigns them, each passed and carry the case runner's summary, together counting at least one case run and none failed.
-fn passed(runs: &[TestRun], owner: &dyn Fn(&str) -> Option<String>) -> BTreeSet<String> {
+/// The crates whose targets in `runs`, as `owner` assigns them, each passed and carry the case runner's summary, together counting none failed and at least one case run, or none for a crate `caseless` names.
+fn passed(runs: &[TestRun], owner: &dyn Fn(&str) -> Option<String>, caseless: &BTreeSet<String>) -> BTreeSet<String> {
     let mut summed: BTreeMap<String, Option<Cases>> = BTreeMap::new();
     for run in runs {
         if let Some(name) = owner(&run.target) {
@@ -72,15 +76,15 @@ fn passed(runs: &[TestRun], owner: &dyn Fn(&str) -> Option<String>) -> BTreeSet<
             *sum = sum.zip(run.cases().filter(|_| run.passed)).map(|(sum, cases)| Cases { run: sum.run + cases.run, failed: sum.failed + cases.failed });
         }
     }
-    summed.into_iter().filter(|(_, cases)| cases.is_some_and(|cases| cases.run > 0 && cases.failed == 0)).map(|(name, _)| name).collect()
+    summed.into_iter().filter(|(name, cases)| cases.is_some_and(|cases| (cases.run > 0 || caseless.contains(name)) && cases.failed == 0)).map(|(name, _)| name).collect()
 }
 
 /// What Buck2 said of the crates of one run, from its exit status, its summary line and its own record of the run, whose targets `owner` assigns to the crates. The record counts only when it holds a run for each target the summary counts as passed.
-fn verdict(status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>, owner: &dyn Fn(&str) -> Option<String>) -> Verdict {
+fn verdict(status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>, owner: &dyn Fn(&str) -> Option<String>, caseless: &BTreeSet<String>) -> Verdict {
     let counts = |label| summary.and_then(|summary| counted(summary, label));
     let recorded = runs.filter(|runs| u64::try_from(runs.len()).ok() == counts("Pass"));
     match (status, counts("Fail"), recorded) {
-        (Some(0), Some(0), Some(runs)) => Verdict::Passed(passed(runs, owner)),
+        (Some(0), Some(0), Some(runs)) => Verdict::Passed(passed(runs, owner, caseless)),
         (Some(BUILD_FAILED), ..) => Verdict::Failed,
         (Some(TESTS_FAILED), Some(failed), _) if failed > 0 => Verdict::Failed,
         _ => Verdict::Passed(BTreeSet::new()),
@@ -121,6 +125,18 @@ fn host_cases(root: &Path, base: Option<&str>, declared: &str, passed: &BTreeSet
     Ok(status == Some(0) && summary.as_deref().and_then(ran).is_some_and(|ran| usize::try_from(ran).is_ok_and(|ran| ran >= class.len())))
 }
 
+/// Keeps on the declared line every crate of `passed` that has a case in the class, read from the landing `base` and never from the lane at `root`, for a line that names its
+/// own packages and tests: the class run narrows the line that reads the selection variables, which such a line does
+/// not, so Buck2, which skips those cases, decides none of those crates there.
+fn hold(root: &Path, base: Option<&str>, passed: &mut BTreeSet<String>) -> Result<bool, String> {
+    let package = |binary: &str| binary.split_once("::").map_or(binary, |(package, _)| package).to_owned();
+    let held: BTreeSet<String> = north_buck::host_class::reviewed(root, base)?.into_iter().map(|(binary, _)| package(&binary)).filter(|name| passed.remove(name)).collect();
+    for name in &held {
+        eprintln!("north land crate-tests: {name} has host cases this line cannot be narrowed to, so the declared line tests it");
+    }
+    Ok(true)
+}
+
 fn declared_line(declared: &str, packages: Option<&str>) -> u8 {
     let mut command = Command::new("bash");
     command.args(["-euo", "pipefail", "-c", declared]);
@@ -132,19 +148,25 @@ fn declared_line(declared: &str, packages: Option<&str>) -> u8 {
 
 fn execute(declared: &str) -> u8 {
     let variable = |name| std::env::var(name).ok().filter(|value: &String| !value.is_empty());
-    let (base, selected) = (variable(BASE_ENV), variable(PACKAGES_ENV));
-    let split = std::env::current_dir().ok().and_then(|root| north_build_system::crate_tests(&root, base.as_deref(), declared, PACKAGES_ENV, selected.as_deref()));
+    let named = north_build_system::named_selection(declared, PACKAGES_ENV);
+    let (line, selected) = match &named {
+        Some((line, packages)) => (line.as_str(), Some(packages.clone())),
+        None => (declared, variable(PACKAGES_ENV)),
+    };
+    let base = variable(BASE_ENV);
+    let split = std::env::current_dir().ok().and_then(|root| north_build_system::crate_tests(&root, base.as_deref(), line, PACKAGES_ENV, selected.as_deref()));
     let Some(split) = split else { return declared_line(declared, None) };
     eprintln!("north land crate-tests: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
     let (status, summary) = observed(&split.line, &[], SUMMARY);
     let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| record.runs(Path::new(".")).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of the run: {why}")).ok());
     let owner = |label: &str| split.owner(label).map(str::to_owned);
-    let Verdict::Passed(mut passed) = verdict(status, summary.as_deref(), record.as_deref(), &owner) else { return FAILED };
+    let Verdict::Passed(mut passed) = verdict(status, summary.as_deref(), record.as_deref(), &owner, &split.caseless) else { return FAILED };
     for name in split.moved.iter().filter(|name| !passed.contains(*name)) {
         let cases: u64 = record.iter().flatten().filter(|run| split.owner(&run.target) == Some(name.as_str())).filter_map(TestRun::cases).map(|cases| cases.run).sum();
         eprintln!("north land crate-tests: Buck2 gave no verdict on {name} (exit {}, {cases} case(s) of it in its record), so the declared line tests it", status.map_or_else(|| "on a signal".to_owned(), |code| code.to_string()));
     }
-    match host_cases(Path::new("."), base.as_deref(), declared, &passed) {
+    let cases = if named.is_some() { hold(Path::new("."), base.as_deref(), &mut passed) } else { host_cases(Path::new("."), base.as_deref(), line, &passed) };
+    match cases {
         Ok(true) => {}
         Ok(false) => return FAILED,
         Err(why) => {
@@ -152,7 +174,7 @@ fn execute(declared: &str) -> u8 {
             passed.clear();
         }
     }
-    split.left(&passed).map_or(0, |packages| declared_line(declared, Some(&packages)))
+    split.left(&passed).map_or(0, |packages| declared_line(line, Some(&packages)))
 }
 
 pub fn run(arguments: &[String]) -> u8 {

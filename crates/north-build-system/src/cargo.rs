@@ -149,6 +149,10 @@ impl BuildSystem for Cargo {
         true
     }
 
+    fn copies_out(&self) -> bool {
+        false
+    }
+
     fn finished(&self, log: &str) -> bool {
         log.contains("Finished")
     }

@@ -633,8 +633,9 @@ One per-host setting in the orchestration policy chooses the side, and it is off
 The land check lines of `.safe-push` name Cargo until box 8 rewrites them. On a Buck2 host the land checks read each
 line through the seam (`land_line`), which issues that side's own command behind the declared line's shell:
 
-- The lint line becomes
-  `./bin/land-shell --dev -- buck2 bxl --remote-only --materializations=none //lint/clippy.bxl:clippy -- --targets //...`.
+- The lint line stays as declared (2026-11-13): issued where the checks are listed, it ran the gate with no
+  `buck2_lint` and no comparison with the base, so a lane that rewrote the gate script or `.buckconfig` named its own
+  gate. Only `buck2_lint` moves it, through `north land lint` below.
 - With `buck2_tests`, every nextest and `cargo test` line becomes
   `./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re //...`; the five lines are then one
   command and run once.
@@ -717,6 +718,14 @@ build scripts and procedural macros.
   Cargo line. It failed: exit 3, a build the tree failed, or exit 32 with a failed test counted in the summary. On
   anything else (no summary, no test, a run lost to the workers) the crate stays on the declared line and Cargo
   tests it; nothing is run again to make it pass.
+- **A crate with no case, by name only.** A run that executes nothing proves nothing about a crate that has cases, so
+  no observation alone exempts a crate from the rule above. `[hosts.NAME] buck2_caseless_crates = ["NAME", ...]`
+  names a crate only after `north buck compare-cases NAME` at a named commit found no case on either side with
+  `buck2 test` exit 0, and the name is kept in the commit that adds it. A named crate moves like a listed one and
+  passes when its targets pass with no case run. The moment one of its cases runs it is judged as any listed crate.
+  A unit test it gains runs in its existing `-unittest` target; an integration test file it gains has no target until
+  the generated `BUCK` names it, and `north buck targets --check`, the land check on `crates/`, refuses the lane
+  until then, while a lane that changes the `BUCK` file is tested by Cargo in full.
 
 A check build passes `--materializations=none` (`-M none`): the lint gate, the type check and the compile before a
 test run leave their outputs in the store, since nothing after them reads one (Lanes: 4.3 s against 71 s and
@@ -726,11 +735,17 @@ The host's side applies to a tree only when the tree is its kind of project (`fo
 for a repository with no `.buckconfig` read its Cargo lines as declared and build it with Cargo.
 
 `bin/head-north` names no build tool. When no built runtime covers a tree it asks the live runtime to build north
-from the tree, `north runtime tree-build`, which goes through the seam: the Cargo side compiles north as the test
-run does (`cargo test --no-run -p north --test it`, so a tree whose tests were compiled has it already), the Buck2
-side runs `buck2 build --remote-only //:north --out buck-out/north/dev/`. The verb exits 1 when the tree itself does not build
-(Cargo's `could not compile`, Buck2's exit 3 for a user error) and 75 when the build failed for another reason, as
-the script did. The script keeps its own Cargo build only for a live runtime that does not know the verb.
+from the tree, `north runtime tree-build`. A host moves this build alone to Buck2 with `buck2_tree_build = true`, as
+`buck2_lint` moves the lint line (2026-11-13): the verb runs `buck2 build --remote-only //:north --out
+buck-out/north/dev/north --no-remote-cache` when the check names its base (`SAFE_PUSH_LAND_BASE`) and the tree's Buck2 configuration and
+target definitions are the base's, the guards the crate split uses, and Cargo's build otherwise; it prints the line it
+runs, and when it declines Buck2 it says why. The build reads and writes no remote cache entry: the cache takes
+writes from any client, so a result another client wrote there could otherwise stand in for the tree's own compile. It reads neither `build_system` nor `here()`, which would also move the
+release build of the runtime every host promotes and the readers of the test selection. The Cargo side compiles north
+as the test run does (`cargo test --no-run -p north --test it`, so a tree whose tests were compiled has it already).
+The verb exits 1 when the tree itself does not build (Cargo's `could not compile`, Buck2's exit 3 for a user error);
+when Buck2 fails for another reason Cargo builds the tree, and the verb exits 75 when the last side failed that way.
+The script keeps no build of its own: a live runtime that is missing or does not know the verb defers the check.
 
 A host that builds and tests with Buck2 warms no land-check slot (Lanes, decision 8): `north capacity offload warm`
 marks the slot as at the head and runs nothing, since the store every slot shares holds what a warm target held.
@@ -738,7 +753,7 @@ With `buck2_tests` unset the nextest lines still compile with Cargo, so the warm
 
 What each of the four does on the Buck2 side, and what it cannot yet do that the Cargo side does:
 
-- Build: `buck2 build [@mode/release] //:BIN --out DIR/`. It writes no per-unit timings line: `--build-report`
+- Build: `buck2 build [@mode/release] //:BIN --out DIR/BIN`. It writes no per-unit timings line: `--build-report`
   records each target's outcome and outputs, not how long each compile unit took, so the runtime build's timings
   reader has nothing to read. The fails-first flake runs (`[flake] build`) still compile with Cargo.
 - Lint: the clippy gate over `//...`. It takes no changed-crate selection: it lints every first-party target, and an

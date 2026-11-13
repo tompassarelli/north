@@ -26,7 +26,7 @@ fn of(name: &str, case: &str) -> bool {
     case.split_once(' ').is_some_and(|(binary, _)| binary.split_once("::").map_or(binary, |(package, _)| package) == name)
 }
 
-/// Prints each crate's count of cases on both sides and every case on one side only; `false` when a side or the host cases could not be read, the sides differ, a listed host case is one nextest does not list, or a crate has no case.
+/// Prints each crate's count of cases on both sides, every case on one side only and a line for a crate with no case on either; `false` when a side or the host cases could not be read, the sides differ, a listed host case is one nextest does not list, or Buck2 ran no case of a crate nextest lists cases of.
 pub(crate) fn compare(root: &Path, names: &[String], sides: &Sides, out: &mut dyn Write) -> bool {
     let host = match host_cases(root) {
         Ok(host) => host,
@@ -46,18 +46,26 @@ pub(crate) fn compare(root: &Path, names: &[String], sides: &Sides, out: &mut dy
             }
         };
         let hosted: BTreeSet<String> = host.iter().filter(|case| of(name, case)).cloned().collect();
-        let cargo: BTreeSet<String> = nextest.difference(&hosted).cloned().collect();
-        _ = writeln!(out, "{name}: Buck2 ran {} case(s), nextest lists {}, {} of them host cases Cargo runs", buck2.len(), nextest.len(), nextest.intersection(&hosted).count());
-        for case in hosted.difference(&nextest) {
-            _ = writeln!(out, "  {} lists {case}, which nextest does not list", host_class::LIST);
-        }
-        for case in buck2.difference(&cargo) {
-            _ = writeln!(out, "  only Buck2 ran {case}");
-        }
-        for case in cargo.difference(&buck2) {
-            _ = writeln!(out, "  only nextest lists {case}");
-        }
-        same &= buck2 == cargo && hosted.is_subset(&nextest) && !buck2.is_empty();
+        same &= crate_matches(name, &buck2, &nextest, &hosted, out);
     }
     same
+}
+
+/// Prints one crate's comparison; whether Buck2 ran exactly the cases nextest lists outside `hosted`, nextest lists every case of `hosted`, and Buck2 ran a case unless nextest lists none.
+fn crate_matches(name: &str, buck2: &BTreeSet<String>, nextest: &BTreeSet<String>, hosted: &BTreeSet<String>, out: &mut dyn Write) -> bool {
+    let cargo: BTreeSet<String> = nextest.difference(hosted).cloned().collect();
+    _ = writeln!(out, "{name}: Buck2 ran {} case(s), nextest lists {}, {} of them host cases Cargo runs", buck2.len(), nextest.len(), nextest.intersection(hosted).count());
+    for case in hosted.difference(nextest) {
+        _ = writeln!(out, "  {} lists {case}, which nextest does not list", host_class::LIST);
+    }
+    for case in buck2.difference(&cargo) {
+        _ = writeln!(out, "  only Buck2 ran {case}");
+    }
+    for case in cargo.difference(buck2) {
+        _ = writeln!(out, "  only nextest lists {case}");
+    }
+    if buck2.is_empty() && nextest.is_empty() {
+        _ = writeln!(out, "  {name} has no case: Buck2 ran none and nextest lists none, so a host may name it in buck2_caseless_crates");
+    }
+    *buck2 == cargo && hosted.is_subset(nextest) && (!buck2.is_empty() || nextest.is_empty())
 }
