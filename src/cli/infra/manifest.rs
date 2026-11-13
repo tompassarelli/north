@@ -225,6 +225,9 @@ monthly_usd = "unread"
         };
         assert!(schema(MANIFEST).is_empty());
         assert_eq!(schema(&MANIFEST.replace("hourly_eur", "hourly_eu")), ["infra/manifest.toml: machine[2].hourly_eu: unknown key"]);
+        std::fs::create_dir(root.path().join("agents")).unwrap();
+        std::fs::write(root.path().join("agents/frozen-topics.toml"), "[[topic]]\nrepo = \"makgora\"\nname = \"Kobold\"\nterms = [\"kobold\"]\nsince = \"2026-10-26\"\nreason = \"likely being replaced\"\nsinse = \"2026-10-26\"\n").unwrap();
+        assert_eq!(crate::cli::operator::check::findings(root.path(), Some(&["frozen-topics"])), ["agents/frozen-topics.toml: topic[0].sinse: unknown key"]);
     }
 
     #[test]

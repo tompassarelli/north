@@ -88,7 +88,57 @@ const SCHEMAS: &[Schema] = &[
             },
         ],
     },
+    Schema {
+        name: "frozen-topics",
+        file: "agents/frozen-topics.toml",
+        values: None,
+        tables: &[
+            Table { path: "", keys: &[("topic", Nested)], required: &[] },
+            Table { path: "topic", keys: &[("repo", Text), ("name", Text), ("terms", Any), ("since", Text), ("reason", Text)], required: &["repo", "name", "terms", "since", "reason"] },
+        ],
+    },
+    Schema {
+        name: "operating-point",
+        file: "agents/operating-point.toml",
+        values: None,
+        tables: &[Table {
+            path: "",
+            keys: &[("date", Day), ("model", Text), ("variant", Text), ("policy_sha256", Text), ("startup_tokens", Number), ("conformance", Number), ("n", Number), ("evidence", Text), ("anchor_conformance", Number), ("anchor_n", Number), ("anchor_date", Day), ("holdout_from", Day), ("weak_scenarios", Any), ("skill_lines", Number), ("provisional", Any)],
+            required: &["date", "model", "variant", "policy_sha256", "startup_tokens", "conformance", "n", "evidence"],
+        }],
+    },
+    Schema {
+        name: "watch",
+        file: "agents/watch.toml",
+        values: None,
+        tables: &[
+            Table { path: "", keys: &[("source", Nested), ("recheck", Nested)], required: &[] },
+            Table { path: "source", keys: &[("id", Text), ("person", Text), ("repo", Text), ("path", Text), ("license", Text), ("last_reviewed", Day), ("last_commit", Text), ("record", Text), ("took", Any), ("cadence", Text)], required: &["id", "repo", "last_reviewed", "last_commit"] },
+            Table { path: "recheck", keys: &[("id", Text), ("repo", Text), ("recheck", Day), ("reason", Text)], required: &["id", "recheck"] },
+        ],
+    },
+    Schema {
+        name: "rules",
+        file: "agents/rules.toml",
+        values: None,
+        tables: &[
+            Table { path: "", keys: &[("rule", Nested), ("candidate", Nested)], required: &[] },
+            Table { path: "rule", keys: &[("id", Text), ("section", Text), ("text", Text), ("placement", Text), ("fixes", Text), ("incidents", Any), ("replay", Any), ("provenance", Text)], required: &["id", "section", "text", "placement", "fixes"] },
+            Table { path: "candidate", keys: &[("id", Text), ("mode", Text), ("seen", Number), ("source", Text), ("decision", Text), ("layer", Text), ("reason", Text), ("covers", Any)], required: &["id", "mode", "decision"] },
+        ],
+    },
+    Schema {
+        name: "private-kinds",
+        file: "privacy/private-kinds.toml",
+        values: None,
+        tables: &[
+            Table { path: "", keys: &[("kind", Nested)], required: &[] },
+            Table { path: "kind", keys: &[("id", Text), ("description", Text)], required: &["id", "description"] },
+        ],
+    },
 ];
+
+const GROUPS: &[(&str, &[&str])] = &[("policy", &["frozen-topics", "operating-point", "watch", "rules", "private-kinds"])];
 
 fn credential_values(source: &str) -> Result<(), String> {
     north_ops::ops::credentials::declared::parse(source).map(drop)
@@ -164,7 +214,11 @@ fn default_root() -> PathBuf {
 }
 
 pub fn findings(root: &Path, only: Option<&[&str]>) -> Vec<String> {
-    SCHEMAS.iter().filter(|schema| only.is_none_or(|names| names.contains(&schema.name))).flat_map(|schema| check_file(schema, root)).collect()
+    SCHEMAS.iter().filter(|schema| only.is_none_or(|names| selects(names, schema))).flat_map(|schema| check_file(schema, root)).collect()
+}
+
+fn selects(names: &[&str], schema: &Schema) -> bool {
+    names.iter().any(|name| *name == schema.name || GROUPS.iter().any(|(group, members)| group == name && members.contains(&schema.name)))
 }
 
 pub fn run(arguments: &[String]) -> NorthResult<()> {
@@ -179,8 +233,8 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
             _ => return Err(usage()),
         }
     }
-    if let Some(unknown) = only.iter().flatten().find(|name| !SCHEMAS.iter().any(|schema| schema.name == **name)) {
-        let names: Vec<&str> = SCHEMAS.iter().map(|schema| schema.name).collect();
+    if let Some(unknown) = only.iter().flatten().find(|name| !SCHEMAS.iter().any(|schema| schema.name == **name) && !GROUPS.iter().any(|(group, _)| *group == **name)) {
+        let names: Vec<&str> = SCHEMAS.iter().map(|schema| schema.name).chain(GROUPS.iter().map(|(group, _)| *group)).collect();
         return Err(NorthError::Usage(format!("{USAGE}; NAME {unknown} is not one of {}", names.join(", "))));
     }
     let root = root.unwrap_or_else(default_root);
