@@ -2021,3 +2021,11 @@ unit = "on judges a hand-in's diff-only gates (generated registry, language, bui
 source = "measured: north hand-ins' enqueue spans on 2026-11-13, n=507: lane gates p50 2.7 s and p90 4.0 s, secret scan under 0.1 s, privacy ask p50 2.3 s, p90 17.6 s and p95 94 s, checks before queueing p50 394 s; a gate refusal came after the checks finished because the enqueue joined them before it returned"
 fallback = "any value but off reads as on"
 consumers = ["crates/north-lander/src/land/enqueue/static_first.rs"]
+
+[order_stage_early]
+value = true
+allowed = {}
+unit = "whether `north runtime order` ships every other host the settling host's build as soon as it exists, alongside the settling host's canary, so a host is shipped early but goes live never before the settling host passed; false ships each host only after the settling host passed"
+source = "measured: a ship to the slowest deploy host sent 27.3 MB over a laptop upload of about 1.5 MB/s and took 28 s with four hosts shipping at once, after the settling host's canary of about 16 s (north#1036, 2026-11-13)"
+fallback = "an unreadable value reads as true"
+consumers = ["crates/north-runtime/src/runtime/order.rs"]

@@ -88,6 +88,7 @@ struct Rehearsal<'a> {
     pin: Mutex<Option<String>>,
     steps: &'a Mutex<Vec<String>>,
     stays: bool,
+    waits: Option<&'static str>,
 }
 
 impl Rehearsal<'_> {
@@ -106,11 +107,16 @@ impl Host for Rehearsal<'_> {
     }
 
     fn acquire(&self, _sha: &str) -> Result<(), Failure> {
+        self.step("staged");
         Ok(())
     }
 
     fn canary(&self, sha: &str) -> Result<(), String> {
         self.step("canary");
+        if let Some(other) = self.waits {
+            let staged = format!("{other} staged");
+            assert!(north_base::platform::wait::until(std::time::Duration::from_secs(60), || self.steps.lock().unwrap().contains(&staged)), "{} judged {} before {other} was shipped it", self.name, layout::short(sha));
+        }
         canary::preflight(self.layout, self.name, sha, self.live().as_deref(), &Probes { failing: self.failing, retired: self.retired })
     }
 
@@ -141,8 +147,8 @@ fn an_ordered_promotion_of_a_landed_commit_runs_the_canary_then_goes_live_on_the
     }
     symlink(layout::link(OLD), layout.current()).unwrap();
     let steps = Mutex::new(Vec::new());
-    let host = |name, failing| Rehearsal { layout: &layout, name, failing, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(Some(OLD.to_owned())), steps: &steps, stays: false };
-    let (settling, builder) = (host("whiterabbit", None), host("gex45", Some("depbox")));
+    let host = |name, failing| Rehearsal { layout: &layout, name, failing, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(Some(OLD.to_owned())), steps: &steps, stays: false, waits: None };
+    let (settling, builder) = (Rehearsal { waits: Some("gex45"), ..host("whiterabbit", None) }, host("gex45", Some("depbox")));
     let order = Order { sha: NEW.to_owned(), reason: "the lander cannot take a landing".to_owned(), orderer: "f-promote-order".to_owned() };
 
     let hand_pin = layout.state.join(super::PIN);
@@ -180,6 +186,16 @@ fn an_ordered_promotion_of_a_landed_commit_runs_the_canary_then_goes_live_on_the
     let named = |except: &[&str]| super::leave_out(&deployment, &except.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>(), "whiterabbit");
     assert_eq!(named(&["nexus"]).unwrap(), (vec!["tom@gex45".to_owned()], vec!["nexus".to_owned()]));
     assert!(named(&["whiterabbit"]).is_err() && named(&["nowhere"]).is_err() && named(&["gex45", "nexus"]).is_err());
+    drop(steps);
+    fs::create_dir_all(layout.runtime(NEWER)).unwrap();
+    let shipped = Mutex::new(Vec::new());
+    let failing = Rehearsal { layout: &layout, name: "whiterabbit", failing: Some("depbox"), retired: None, live: Mutex::new(NEW.to_owned()), pin: Mutex::new(Some(NEW.to_owned())), steps: &shipped, stays: false, waits: Some("gex45") };
+    let remote = Rehearsal { layout: &layout, name: "gex45", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(Some(OLD.to_owned())), steps: &shipped, stays: false, waits: None };
+    let bad = Order { sha: NEWER.to_owned(), reason: "a head that fails its canary".to_owned(), orderer: "f-promote-order".to_owned() };
+    let stopped = run(&layout, &bad, &failing, &[&remote], &[], || Ok(()), |()| Ok(false)).unwrap_err();
+    assert!(stopped.message.contains("whiterabbit stays on its old runtime"), "{}", stopped.message);
+    let shipped = shipped.lock().unwrap();
+    assert!(shipped.iter().all(|step| step != "gex45 canary" && step != "gex45 live") && remote.live.lock().unwrap().as_str() == OLD, "a host shipped early is judged and goes live never before the settling host passed: {shipped:?}");
 }
 
 struct Contended<'a> {
@@ -282,8 +298,8 @@ fn an_order_names_a_host_kept_on_a_newer_runtime_and_does_not_report_it_live() {
     }
     symlink(layout::link(OLD), layout.current()).unwrap();
     let steps = Mutex::new(Vec::new());
-    let settling = Rehearsal { layout: &layout, name: "whiterabbit", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false };
-    let kept = Rehearsal { layout: &layout, name: "gex45", failing: None, retired: None, live: Mutex::new(NEWER.to_owned()), pin: Mutex::new(Some(NEWER.to_owned())), steps: &steps, stays: true };
+    let settling = Rehearsal { layout: &layout, name: "whiterabbit", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false, waits: None };
+    let kept = Rehearsal { layout: &layout, name: "gex45", failing: None, retired: None, live: Mutex::new(NEWER.to_owned()), pin: Mutex::new(Some(NEWER.to_owned())), steps: &steps, stays: true, waits: None };
     let order = Order { sha: NEW.to_owned(), reason: "main's head holds a change under review".to_owned(), orderer: "f-canary-chain".to_owned() };
 
     let refused = run(&layout, &order, &settling, &[&kept], &[], || Ok(()), |()| Ok(false)).unwrap_err();
@@ -306,7 +322,7 @@ fn an_order_promotes_a_candidate_failing_only_a_probe_it_retired_and_refuses_one
     }
     symlink(layout::link(OLD), layout.current()).unwrap();
     let steps = Mutex::new(Vec::new());
-    let host = |name, failing| Rehearsal { layout: &layout, name, failing, retired: Some("depbox"), live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false };
+    let host = |name, failing| Rehearsal { layout: &layout, name, failing, retired: Some("depbox"), live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false, waits: None };
     let (settling, builder) = (host("whiterabbit", Some("depbox")), host("gex45", Some("ssh reaches no host")));
     let order = Order { sha: NEW.to_owned(), reason: "the depbox probe is retired".to_owned(), orderer: "f-canary-chain".to_owned() };
 
@@ -340,7 +356,7 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
     }
     symlink(layout::link(OLD), layout.current()).unwrap();
     let steps = Mutex::new(Vec::new());
-    let settling = Rehearsal { layout: &layout, name: "whiterabbit", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false };
+    let settling = Rehearsal { layout: &layout, name: "whiterabbit", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false, waits: None };
     let store = state.path().join("holds");
     let screen = screen_of(Holds(store.clone()), squashed, landings);
     let cleared = |sha: &str| screen.order(sha, &["whiterabbit"], now());

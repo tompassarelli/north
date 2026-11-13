@@ -14,6 +14,7 @@ mod hold;
 
 const USAGE: &str = "usage: north runtime order --reason REASON [--commit REV] [--except HOST]...  promote REV (default origin/main's head), a commit already on origin/main, to this host and every deploy host at once: each host builds or fetches that runtime, runs its canary probes against it before it is live, goes live only on a pass and rewrites its stable pin, and one row per host in runtime-pins.jsonl names the commit, who ordered it, the reason and the canary verdict; a host whose canary fails keeps its runtime and the probe that failed is named; every host, this one included, is moved to the commit even back from a newer runtime, and a host that stays on another runtime is named, recorded as not live and fails the order; --except HOST (repeatable) leaves a deploy host out: it is shipped nothing, runs no canary, gets one left-out row in runtime-pins.jsonl, and status names it held until an order includes it again; this host, a name that is no deploy host and an order that would leave no deploy host are refused; run it as the coordinator's step on the host that settles the fleet, since it stops north-stable-hold.service for the run and starts it again";
 const PIN: &str = "channel/stable";
+const STAGE_EARLY: &str = "order_stage_early";
 
 pub(super) struct Order {
     pub(super) sha: String,
@@ -140,7 +141,7 @@ pub(super) fn run<Held>(layout: &Layout, order: &Order, settling: &dyn Host, oth
     ordered.and(restored.map(|_| ()))
 }
 
-/// The settling host builds, judges and goes live first, since every other host is shipped what it built and takes it only once its canary passed there; then every other host judges and promotes on its own while the settling host's lander follows, so a failed canary on one remote host leaves only that host on its old runtime and none waits on the lander's replay.
+/// The settling host builds, judges and goes live first, since every other host is shipped what it built and takes it only once its canary passed there. While `order_stage_early` is on, every other host is shipped that build as soon as it exists, alongside the settling host's canary, so a host is shipped early but goes live never before the settling host passed; then every other host judges and promotes on its own while the settling host's lander follows, so a failed canary on one remote host leaves only that host on its old runtime and none waits on the lander's replay.
 fn promote_everywhere(layout: &Layout, order: &Order, settling: &dyn Host, others: &[&dyn Host]) -> Result<(), Failure> {
     if let Err(failure) = settling.acquire(&order.sha) {
         for host in std::iter::once(settling).chain(others.iter().copied()) {
@@ -148,24 +149,34 @@ fn promote_everywhere(layout: &Layout, order: &Order, settling: &dyn Host, other
         }
         return Err(failure);
     }
-    let pinned = match live_on(layout, order, settling) {
-        Ok(pinned) => pinned,
-        Err(failure) => {
-            for host in others {
-                record(layout, order, host.name(), &format!("not run: {} did not go live", settling.name()), false);
+    let early = stage_early();
+    std::thread::scope(|scope| {
+        let staging: Vec<_> = others.iter().map(|host| early.then(|| scope.spawn(move || host.acquire(&order.sha)))).collect();
+        let pinned = match live_on(layout, order, settling, None) {
+            Ok(pinned) => pinned,
+            Err(failure) => {
+                for host in others {
+                    record(layout, order, host.name(), &format!("not run: {} did not go live", settling.name()), false);
+                }
+                return Err(reported(failure));
             }
-            return Err(reported(failure));
-        }
-    };
-    let pinned_here = pin_on(order, settling, pinned).map_err(reported);
-    let failures: Vec<Failure> = std::thread::scope(|scope| {
+        };
+        let pinned_here = pin_on(order, settling, pinned).map_err(reported);
         let following = scope.spawn(|| settling.settled());
-        let ordering: Vec<_> = others.iter().map(|host| scope.spawn(move || live_on(layout, order, *host).and_then(|pinned| pin_on(order, *host, pinned)).map_err(reported))).collect();
-        let failed = ordering.into_iter().filter_map(|ordered| ordered.join().unwrap_or_else(|_| Err(reported(failed(1, "a host's promotion panicked")))).err()).collect();
+        let ordering: Vec<_> = others.iter().zip(staging).map(|(host, staged)| {
+            scope.spawn(move || {
+                let staged = staged.map(|staged| staged.join().unwrap_or_else(|_| Err(failed(1, "a host's ship panicked"))));
+                live_on(layout, order, *host, staged).and_then(|pinned| pin_on(order, *host, pinned)).map_err(reported)
+            })
+        }).collect();
+        let failures: Vec<Failure> = ordering.into_iter().filter_map(|ordered| ordered.join().unwrap_or_else(|_| Err(reported(failed(1, "a host's promotion panicked")))).err()).collect();
         let _ = following.join();
-        failed
-    });
-    pinned_here.and(failures.into_iter().next().map_or(Ok(()), Err))
+        pinned_here.and(failures.into_iter().next().map_or(Ok(()), Err))
+    })
+}
+
+fn stage_early() -> bool {
+    north_base::platform::harness::document(north_base::platform::harness::DEFAULTS).get(STAGE_EARLY).and_then(|entry| entry.get("value")).and_then(|value| value.as_bool()).unwrap_or(true)
 }
 
 fn reported(failure: Failure) -> Failure {
@@ -177,10 +188,10 @@ fn record(layout: &Layout, order: &Order, host: &str, canary: &str, live: bool) 
     pin::note(layout, &Event::Ordered { sha: order.sha.clone(), host: host.to_owned(), orderer: order.orderer.clone(), reason: order.reason.clone(), canary: canary.to_owned(), live, at: pin::now() });
 }
 
-/// Takes `host` live on the ordered runtime once its canary passed there, and says whether the host keeps a stable pin to rewrite.
-fn live_on(layout: &Layout, order: &Order, host: &dyn Host) -> Result<bool, Failure> {
+/// Takes `host` live on the ordered runtime once its canary passed there, shipping it first unless `staged` holds the outcome of a ship already made, and says whether the host keeps a stable pin to rewrite.
+fn live_on(layout: &Layout, order: &Order, host: &dyn Host, staged: Option<Result<(), Failure>>) -> Result<bool, Failure> {
     let (name, short) = (host.name(), layout::short(&order.sha));
-    let prepared = host.pinned().and_then(|pinned| host.acquire(&order.sha).map(|()| pinned));
+    let prepared = host.pinned().and_then(|pinned| staged.unwrap_or_else(|| host.acquire(&order.sha)).map(|()| pinned));
     let pinned = match prepared {
         Ok(pinned) => pinned,
         Err(failure) => {
