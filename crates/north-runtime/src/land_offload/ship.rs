@@ -10,6 +10,7 @@ const LACKS_BASE: u8 = 97;
 use north_base::foundation::exit::{NO_VERDICT, SLOTS_BUSY};
 const BESIDE_MISSING: u8 = NO_VERDICT;
 const RUNTIME_MISSING: u8 = 95;
+const REPOSITORY_ENV: [&str; 13] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_GRAFT_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE", "GIT_NAMESPACE", "GIT_PREFIX"];
 const WAITED: &str = "offload: waited ";
 const RUNNING: &str = "offload: running ";
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -264,7 +265,11 @@ fn read_back(land: &Land, marker: &str) -> (Option<u8>, Option<u8>) {
 fn on_host(ssh: &str, script: &str, words: &[&str], options: &[&str]) -> Command {
     if ssh.is_empty() {
         let mut command = with_caller("setsid");
-        command.env_remove(offload::TREES_ENV).args(["-w", "sh", "-c", script, "offload"]).args(words);
+        command.env_remove(offload::TREES_ENV);
+        for name in REPOSITORY_ENV {
+            command.env_remove(name);
+        }
+        command.args(["-w", "sh", "-c", script, "offload"]).args(words);
         return command;
     }
     let remote = format!("setsid -w sh -c {} offload {}", quote(script), words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));

@@ -1130,3 +1130,62 @@ fn late_wait(mut job: std::process::Child) -> Option<i32> {
     job.wait().ok();
     status.flatten()
 }
+
+const SAME_HOST_HOME: &str = "NORTH_TEST_SAME_HOST_HOME";
+const SAME_HOST_HEAD: &str = "NORTH_TEST_SAME_HOST_HEAD";
+const SAME_HOST_BUNDLE: &str = "NORTH_TEST_SAME_HOST_BUNDLE";
+const SAME_HOST_PATH: &str = "NORTH_TEST_SAME_HOST_PATH";
+
+fn same_host_job(home: &Path, head: &str, bundle: &Path, path: &str) -> Output {
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    super::on_host("", &script, &["code/p/main", "", head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", "", "", "", "", ""], &[])
+        .env("HOME", home)
+        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+        .env("PATH", path)
+        .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+        .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .env_remove(north_base::foundation::offload::SLOT_ENV)
+        .stdin(fs::File::open(bundle).unwrap())
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn a_job_for_this_host_started_with_a_lanes_git_variables_leaves_that_lane_on_its_branch_with_its_uncommitted_and_untracked_files() {
+    if let Some(home) = std::env::var_os(SAME_HOST_HOME) {
+        let read = |name: &str| std::env::var(name).unwrap();
+        let ran = same_host_job(Path::new(&home), &read(SAME_HOST_HEAD), Path::new(&read(SAME_HOST_BUNDLE)), &read(SAME_HOST_PATH));
+        assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+        return;
+    }
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let lane = tempfile::tempdir().unwrap();
+    git(lane.path(), &["init", "-q", "-b", "work"]);
+    fs::write(lane.path().join("kept"), "committed\n").unwrap();
+    git(lane.path(), &["add", "kept"]);
+    git(lane.path(), &["commit", "-q", "-m", "lane"]);
+    fs::write(lane.path().join("kept"), "uncommitted\n").unwrap();
+    fs::write(lane.path().join("untracked"), "new\n").unwrap();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let placed = same_host_job(home.path(), &head, &bundle, &path);
+    assert!(placed.status.success(), "{}", String::from_utf8_lossy(&placed.stderr));
+    let inherited = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "land_offload::ship::tests::a_job_for_this_host_started_with_a_lanes_git_variables_leaves_that_lane_on_its_branch_with_its_uncommitted_and_untracked_files", "--nocapture"])
+        .env(SAME_HOST_HOME, home.path())
+        .env(SAME_HOST_HEAD, &head)
+        .env(SAME_HOST_BUNDLE, &bundle)
+        .env(SAME_HOST_PATH, &path)
+        .env("GIT_DIR", lane.path().join(".git"))
+        .env("GIT_COMMON_DIR", lane.path().join(".git"))
+        .env("GIT_WORK_TREE", lane.path())
+        .output()
+        .unwrap();
+    let child = String::from_utf8_lossy(&inherited.stdout);
+    assert!(inherited.status.success() && child.contains(" 1 passed"), "the child runs this one test: {child}");
+    assert_eq!(git(lane.path(), &["symbolic-ref", "--short", "HEAD"]), "work", "the slot's checkout never moves the lane its caller's git variables name");
+    assert_eq!(fs::read_to_string(lane.path().join("kept")).unwrap(), "uncommitted\n");
+    assert_eq!(fs::read_to_string(lane.path().join("untracked")).unwrap(), "new\n");
+}
