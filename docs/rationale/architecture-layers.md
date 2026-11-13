@@ -162,7 +162,6 @@ Seven manifest edges break the rule; the other 272 already obey it.
 | north-fleet-store -> north-pace | up | one type, the credit `Snapshot` | L12 |
 | north-guard -> north-fleet-supervisor | up | 26 imports of session identity in 13 files: the session environment names, the session record and its reader | L13, L14, L15 |
 | north-guard -> north-lanes | up | one call, the lane layout exemption | L16 |
-| north-guard -> north-providers | up | one call, a row written to the run ledger | L17 |
 | north-capacity-host -> north-fleet | sideways | two call sites: a session environment name and the record of a detached run | L15 |
 | north-providers -> north-runtime (dev) | up | one test that needs the worker sandbox; it closes a cycle through north-dispatch and north-pacing | L18 |
 
