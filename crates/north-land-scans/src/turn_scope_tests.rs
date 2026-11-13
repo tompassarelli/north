@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::*;
+use crate::host_cases;
 
 fn git_in(directory: &Path, arguments: &[&str]) -> String {
     let output = std::process::Command::new("git")
@@ -33,7 +34,7 @@ const BARS: &str = "[[experiment]]\nbar = 1\n";
 const MORE_BARS: &str = "[[experiment]]\nbar = 1\n\n[[experiment]]\nbar = 2\n";
 
 #[test]
-fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_one_inside_it_is_not() {
+fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_one_inside_it_is_not_and_a_host_case_beside_code_is_refused_one_alone_is_flagged_for_review_host_cases() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path();
     git_in(repo, &["init", "-q", "-b", "main"]);
@@ -63,4 +64,37 @@ fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_one_inside
     assert!(String::from_utf8(out).unwrap().contains("would refuse (shadow)"));
     let log = std::fs::read_to_string(state.path().join("north/gates/turn-scope.jsonl")).unwrap();
     assert!(log.contains("\"would_refuse\":true"), "{log}");
+
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path();
+    git_in(repo, &["init", "-q", "-b", "main"]);
+    let manifest = "crates/alpha/Cargo.toml";
+    let plain = "[package]\nname = \"alpha\"\n";
+    let with_case = "[package]\nname = \"alpha\"\n\n[[package.metadata.north.buck.host-cases]]\nname = \"t::a\"\nreason = \"needs openat2\"\n";
+    let inline_case = "[package]\nname = \"alpha\"\nmetadata.north.buck.host-cases = [{ name = \"t::b\", reason = \"x\" }]\n";
+    let base = commit(repo, &[(manifest, plain), ("crates/alpha/src/lib.rs", "a\n")]);
+
+    let mixed = commit(repo, &[(manifest, with_case), ("crates/alpha/src/lib.rs", "b\n")]);
+    let refusal = host_cases::check(repo, &base, &mixed).unwrap_err();
+    assert!(refusal.contains("crate alpha adds or changes host case `t::a` in crates/alpha/Cargo.toml"), "{refusal}");
+
+    git_in(repo, &["reset", "-q", "--hard", &base]);
+    let inline = commit(repo, &[(manifest, inline_case), ("crates/alpha/src/lib.rs", "b\n")]);
+    assert!(host_cases::check(repo, &base, &inline).unwrap_err().contains("host case `t::b`"));
+
+    git_in(repo, &["reset", "-q", "--hard", &base]);
+    let alone = commit(repo, &[(manifest, with_case)]);
+    assert_eq!(host_cases::check(repo, &base, &alone), Ok(true));
+    let mut out = Vec::new();
+    assert_eq!(host_cases::scan(repo, &format!("{base}..{alone}"), state.path(), &mut out), 0);
+    assert_eq!(String::from_utf8(out).unwrap(), "review: host-case change\n");
+
+    let kept = commit(repo, &[("crates/alpha/src/lib.rs", "c\n")]);
+    assert_eq!(host_cases::check(repo, &alone, &kept), Ok(false));
+    let removed = commit(repo, &[(manifest, plain), ("crates/alpha/src/lib.rs", "d\n")]);
+    assert_eq!(host_cases::check(repo, &kept, &removed), Ok(false));
+
+    let mut out = Vec::new();
+    assert_eq!(host_cases::scan(repo, &format!("{base}..{mixed}"), state.path(), &mut out), 0);
+    assert!(String::from_utf8(out).unwrap().contains("would refuse (shadow)"));
 }
