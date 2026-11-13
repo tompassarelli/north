@@ -186,17 +186,17 @@ fn a_spooled_batch_whose_flush_times_out_is_split_set_aside_after_three_timeouts
 #[test]
 fn a_claim_leaves_the_spool_to_a_detached_flush_and_that_flush_sends_it() {
     let mut rig = rig(&[]);
-    let started = rig.root.join("background.fifo");
-    rustix::fs::mknodat(rustix::fs::CWD, &started, rustix::fs::FileType::Fifo, rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR, 0).unwrap();
-    rig.client.background = Some(vec!["/bin/sh".into(), "-c".into(), format!("printf '%s\\n' \"$*\" > '{}'", started.display()).into(), "north".into(), "threads".into()]);
+    let started = rig.root.join("background.log");
+    rig.client.background = Some(vec!["/bin/sh".into(), "-c".into(), format!("printf '%s\\n' \"$*\" >> '{}'", started.display()).into(), "north".into(), "threads".into()]);
     rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
     assert_eq!(call(&rig, &["claim", "north#63", "--by", "s"], b"").0, 0);
     assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'north#63' --by s")], "the claim sent the spool before itself");
     let mut flush = String::new();
-    while !(flush.contains("spool-flush ledger-host") && flush.contains("snapshot-pull")) {
-        flush += &fs::read_to_string(&started).unwrap();
-    }
-    assert!(flush.contains("spool-flush ledger-host"), "the detached start was not a spool-flush: {flush:?}");
+    north_base::platform::wait::until(std::time::Duration::from_secs(60), || {
+        flush = fs::read_to_string(&started).unwrap_or_default();
+        flush.contains("spool-flush ledger-host") && flush.contains("snapshot-pull")
+    });
+    assert!(flush.contains("spool-flush ledger-host") && flush.contains("snapshot-pull"), "the detached starts were not a spool-flush and a snapshot-pull: {flush:?}");
     assert_eq!(spooled(&rig).len(), 1);
     assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
     assert!(spooled(&rig).is_empty());
