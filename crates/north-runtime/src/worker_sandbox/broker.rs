@@ -24,7 +24,7 @@ use super::offload_request;
 pub(super) use super::offload_request::offload_refusal;
 use super::session_join;
 use super::request_checkout;
-use super::request_env::{asking_session, environment_for, landing, landing_choices, own_homes, own_path, request_homes, urgency};
+use super::request_env::{environment_for, landing, landing_choices, own_homes, own_path, request_homes, urgency};
 use super::{Context, FLAG, MAKER, removable};
 
 const DIRECTORY: &str = "north-outside";
@@ -355,14 +355,14 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         return run_granted(north, &request, [stdout, stderr], stream, cgroup, host);
     }
     if let Some(offload) = offload {
-        let offload = offload_request::Offload { environment: asking_session(urgency(offload.environment, cgroup, host), cgroup, host), ..offload };
+        let offload = offload_request::Offload { environment: urgency(offload.environment, cgroup, host), ..offload };
         let started = offload.start(|arguments| brokered(north, arguments, cgroup), [stdin, stdout, stderr]);
         return wait(started.map_err(|error| format!("{}: {error}", north.display()))?, stream);
     }
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
     let homes = request_homes(&request.arguments, cgroup, &request.environment, own_homes());
     let chosen = landing_choices(&request.arguments, &host.home, &host.environment, north);
-    let mut variables = asking_session(urgency(landing(environment_for(&request.arguments, request.environment, cgroup, &runtime(), &homes, &host.environment), chosen), cgroup, host), cgroup, host);
+    let mut variables = urgency(landing(environment_for(&request.arguments, request.environment, cgroup, &runtime(), &homes, &host.environment), chosen), cgroup, host);
     if let Some(path) = own_path(&request.arguments, &host.environment) {
         variables.retain(|(name, _)| name != "PATH");
         variables.push(path);

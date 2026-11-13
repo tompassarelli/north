@@ -22,25 +22,10 @@ pub const LANE_ONLY: &str = "NORTH_WORKER_LANE_ONLY";
 /// Where under the state directory each fleet session has its own spool location, named after it: the one spool path the worker sandbox lets a worker write, and the one a worker's fleet commands write to.
 pub const SESSION_SPOOLS: &str = "north/fleet/spool/sessions";
 
-/// The role a fleet launcher gives a session's processes: `proxy`, `lead` or `worker`.
-pub const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
-
-/// Set to `1` by the fleet launcher on a session that holds a task, so a lead launched for an issue is confined as a worker is (north#1137).
-pub const TASKED: &str = "NORTH_FLEET_TASKED";
-
-/// Whether a fleet session whose launcher gave it `role` and, when `tasked`, a task runs in the worker domain: every worker, and a lead that holds a task, whose launches, revives, holds and forgets go through its spool to the host's fleet tick (fleet/registry/lead_grant.rs). The coordinator and a lead with no task keep the domain open.
-pub fn confined_role(role: Option<&str>, tasked: bool) -> bool {
-    role == Some("worker") || (role == Some("lead") && tasked)
-}
-
-/// Whether this process belongs to a fleet session its launcher confined ([`confined_role`]).
-pub fn confined_session() -> bool {
-    confined_role(std::env::var(ROLE_ENV).ok().as_deref(), std::env::var_os(TASKED).is_some_and(|tasked| tasked == "1"))
-}
-
-/// The confined session this process runs for, named by its launch's environment, whose own spool location its fleet rows go to.
+/// The worker session this process runs for, named by its launch's environment, whose own spool location its fleet rows go to.
 pub fn spooling_worker() -> Option<String> {
-    confined_session().then(|| std::env::var("NORTH_FLEET_SESSION").ok()).flatten().filter(|session| !session.is_empty())
+    let worker = std::env::var_os("NORTH_FLEET_ROLE").is_some_and(|role| role == "worker");
+    worker.then(|| std::env::var("NORTH_FLEET_SESSION").ok()).flatten().filter(|session| !session.is_empty())
 }
 
 pub fn bind(command: &mut Command) {

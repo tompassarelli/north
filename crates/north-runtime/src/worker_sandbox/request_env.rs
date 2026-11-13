@@ -98,12 +98,6 @@ pub(super) fn landing(variables: Vec<(String, String)>, chosen: Option<Vec<(Stri
     }
 }
 
-/// `variables` with the fleet session `NORTH_FLEET_SESSION` names taken from `cgroup`, the asking process's, never the client's word: the spool a brokered command may write (state.rs) and the session its rows and calls go out as belong to the session whose own scope or held unit the caller runs in ([`lane_grant::own_session`]), and a caller in none gets no session.
-pub(super) fn asking_session(variables: Vec<(String, String)>, cgroup: Option<&str>, host: &lane_grant::Host) -> Vec<(String, String)> {
-    let session = cgroup.and_then(|cgroup| lane_grant::own_session(cgroup, host, "").ok()).and_then(|(_, record)| record["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned));
-    variables.into_iter().filter(|(name, _)| name != lane_grant::SESSION_ENV).chain(session.map(|name| (lane_grant::SESSION_ENV.to_owned(), name))).collect()
-}
-
 pub(super) fn urgency(variables: Vec<(String, String)>, cgroup: Option<&str>, host: &lane_grant::Host) -> Vec<(String, String)> {
     let places = crate::capacity::host::urgency::Places::beside(host.fleet.clone(), host.home.clone(), host.cgroups.clone());
     let urgent = cgroup.is_some_and(|cgroup| places.cgroup(cgroup));

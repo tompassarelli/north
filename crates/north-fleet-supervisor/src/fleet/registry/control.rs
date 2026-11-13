@@ -1,4 +1,5 @@
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::runtime::{new_uuid, now_ms};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{ControlVerb, FleetRow, RowKind, cached_sessions};
 
@@ -16,9 +17,6 @@ pub enum Controlled {
 impl Fleet {
     pub fn control(&self, verb: ControlVerb, name: &str) -> NorthResult<Controlled> {
         if self.session_dir(name)?.exists() {
-            if !self.writes_records() {
-                return self.spool_control(verb, name).map(|row| Controlled::Spooled(Box::new(row)));
-            }
             return self.run_control(verb, name, self.caller().as_deref()).map(|()| Controlled::Here);
         }
         let Some(held) = cached_sessions(&self.root)?.and_then(|sessions| sessions.into_iter().find(|session| session.name == name)) else {
@@ -32,27 +30,34 @@ impl Fleet {
             self.uncache_session(name)?;
             return Ok(Controlled::Retired { host: held.host });
         }
-        self.spool_control(verb, name).map(|row| Controlled::Spooled(Box::new(row)))
-    }
-
-    fn spool_control(&self, verb: ControlVerb, name: &str) -> NorthResult<FleetRow> {
-        let row = self.new_row(RowKind::Control, name, verb.label(), &Sender::typed(self.caller()))?;
+        let sent_at = now_ms();
+        let row = FleetRow {
+            id: format!("{sent_at}-{}", new_uuid()?),
+            kind: RowKind::Control,
+            to: name.into(),
+            from: self.host.clone(),
+            urgent: false,
+            sent_at,
+            text: verb.label().into(),
+            sender: Sender::typed(self.caller()),
+            gate: None,
+            answer: None,
+            job: None,
+            origin: None,
+            spooled_by: None,
+        };
         self.spool().put(&row)?;
-        Ok(row)
+        Ok(Controlled::Spooled(Box::new(row)))
     }
 
     pub(super) fn apply_control(&self, row: &FleetRow) -> NorthResult<HandedIn> {
         let verb = ControlVerb::parse(&row.text)?;
         row.validate()?;
-        if let Some(writer) = row.spooled_by.as_deref() {
-            if let Some(why) = self.refused_writer(writer) {
-                eprintln!("north fleet: refused CONTROL row {} from {writer}'s spool: {why}", row.id);
-                return self.journaled(row, || Ok(()));
-            }
-            if self.record(&row.to).ok().and_then(|record| record.parent).as_deref() != Some(writer) {
-                eprintln!("north fleet: refused CONTROL row {} from {writer}'s spool: {} is not its child", row.id, row.to);
-                return self.journaled(row, || Ok(()));
-            }
+        if let Some(writer) = row.spooled_by.as_deref()
+            && self.record(&row.to).ok().and_then(|record| record.parent).as_deref() != Some(writer)
+        {
+            eprintln!("north fleet: refused CONTROL row {} from {writer}'s spool: {} is not its child", row.id, row.to);
+            return self.journaled(row, || Ok(()));
         }
         match verb {
             ControlVerb::Forget => self.forget_for(&row.to, self.ordered_by(row.sender.session(), Halt::Ordered)).map(|()| HandedIn::Delivered),
