@@ -16,10 +16,11 @@ pub enum Detector {
     SkillReview,
     CodeHealthReview,
     FollowedSource,
+    MechanismDiscovery,
 }
 
 impl Detector {
-    pub const ALL: [Self; 14] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection, Self::SlowTest, Self::SlowCheck, Self::CrateHeadroom, Self::MachineFix, Self::MachineRefusal, Self::SkillReview, Self::CodeHealthReview, Self::FollowedSource];
+    pub const ALL: [Self; 15] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection, Self::SlowTest, Self::SlowCheck, Self::CrateHeadroom, Self::MachineFix, Self::MachineRefusal, Self::SkillReview, Self::CodeHealthReview, Self::FollowedSource, Self::MechanismDiscovery];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -37,6 +38,7 @@ impl Detector {
             Self::SkillReview => "skill-review",
             Self::CodeHealthReview => "code-health-review",
             Self::FollowedSource => "followed-source",
+            Self::MechanismDiscovery => "mechanism-discovery",
         }
     }
 }

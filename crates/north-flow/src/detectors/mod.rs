@@ -1,6 +1,6 @@
 //! The self-detectors: pure functions from recorded state to findings, run by `north ledger flow`. A stalled
 //! plan box, a silent signal, a repeated lander refusal class, a class of Tom's corrections seen twice and a test over its
-//! time line in its newest land check runs, a crate within 5% of its line cap or over it, a lifecycle machine whose code a landed incident fix changed, a move the lifecycle store refused, a repository whose code-health review signal fires, a skill changed, corrected or drifted since its last review and a followed source due under watching.md, each become one box on the owning issue, filed once per key and left to dispatch to staff. A later episode of a cause whose box is still open comments its reading on that issue instead of filing a second box. An unchecked issue box that no worker names pages the coordinator and dispatch instead and edits no issue body. Detectors and leads file boxes on the ten outcome issues, never a new issue.
+//! time line in its newest land check runs, a crate within 5% of its line cap or over it, a lifecycle machine whose code a landed incident fix changed, a move the lifecycle store refused, a repository whose code-health review signal fires, a skill changed, corrected or drifted since its last review and a followed source due under watching.md and a day's mechanism-discovery turn, each become one box on the owning issue, filed once per key and left to dispatch to staff. A later episode of a cause whose box is still open comments its reading on that issue instead of filing a second box. An unchecked issue box that no worker names pages the coordinator and dispatch instead and edits no issue body. Detectors and leads file boxes on the ten outcome issues, never a new issue.
 use std::sync::LazyLock;
 use std::time::Instant;
 
@@ -19,6 +19,7 @@ mod code_health_review;
 mod correction;
 mod crate_headroom;
 mod disk;
+mod dispatch;
 mod done_check;
 mod filing;
 mod followed_source;
@@ -26,6 +27,7 @@ mod gather;
 mod kind;
 mod machine_fix;
 mod machine_refusal;
+mod mechanism_discovery;
 mod page;
 mod plan;
 mod refusal;
@@ -124,25 +126,8 @@ pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> Detected 
     let mut spends = Vec::new();
     for detector in Detector::ALL {
         let started = Instant::now();
-        let found = match detector {
-            Detector::StalledPlan => {
-                let facts = gatherer.plans(now);
-                pages.extend(plan::unstaffed(&facts, now, limits));
-                plan::stalled(&facts, now, limits)
-            }
-            Detector::SilentSignal => signal::silent(&gatherer.signals(), now, limits),
-            Detector::RepeatedRefusal => refusal::repeated(&gatherer.refusals(now, limits.refusal_window_s), now, limits),
-            Detector::LowDisk => disk::low(&gatherer.disks(), now, limits),
-            Detector::RecurringSequence => continue,
-            Detector::RepeatedCorrection => correction::repeated(&gatherer.corrections(), crate::threads::incidents::corrections::classes(), correction::graph_guard_landed),
-            Detector::SlowTest => slow_test::slow(&gatherer.slow_tests(limits, now), limits),
-            Detector::SlowCheck => slow_check::slow(&slow_check::over(&gatherer.check_samples(), &slow_check::budgets(), limits.slow_test_runs), &default_text("detector_slow_check_owner")),
-            Detector::CrateHeadroom => crate_headroom::near(&gatherer.crates()),
-            Detector::MachineFix => machine_fix::fixed(&gatherer.machine_fixes()),
-            Detector::MachineRefusal => machine_refusal::refused(&gatherer.machine_refusals()),
-            Detector::SkillReview => skill_review::due(&gatherer.skills()),
-            Detector::CodeHealthReview => code_health_review::due(&gatherer.code_health_readings(now)),
-            Detector::FollowedSource => followed_source::due(&gatherer.followed_sources(now), now),
+        let Some(found) = dispatch::run(detector, gatherer, now, limits, &mut pages) else {
+            continue;
         };
         spends.push(Spend { detector, millis: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), findings: found.len() });
         findings.extend(found);

@@ -1494,6 +1494,14 @@ source = "tom: reviews fire on a signal in place of a calendar, and a followed s
 fallback = "the box is not filed"
 consumers = ["crates/north-flow/src/detectors/gather/sources.rs"]
 
+[detector_mechanism_discovery_owner]
+value = "north#1279"
+allowed = { prefix = "north#" }
+unit = "issue the mechanism-discovery turn box is filed on by the mechanism-discovery detector"
+source = "the mechanism-discovery turn is rung three of the self-improvement loop and files on its own issue, once a UTC day (north#1279, rung three of docs/rationale/self-improvement-loop.md)"
+fallback = "the box is not filed"
+consumers = ["crates/north-flow/src/detectors/gather/losses.rs"]
+
 [detector_followed_source_read_minutes]
 value = 1440
 allowed = { min = 5, max = 1440 }

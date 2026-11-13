@@ -1,0 +1,66 @@
+//! What the mechanism-discovery detector reads: the last 7 days' first tries lost to the harness by class, from
+//! `north dash losses`, and the loss keys the turn log holds in its last 28 days, read from origin/main.
+use std::time::Duration;
+
+use toml_edit::{DocumentMut, Item};
+
+use super::{Gatherer, default_text};
+use crate::detectors::mechanism_discovery::Facts;
+use crate::foundation::clock::Timestamp;
+
+const LOSSES_WINDOW: &str = "7d";
+const LOSSES_LIMIT: Duration = Duration::from_secs(60);
+const CLASSES_PREFIX: &str = "classes: ";
+const LOSS_KEY_PREFIX: &str = "first-try-lost:";
+const TURN_LOG: &str = "docs/rationale/discovery-turns.toml";
+const HELD_DAYS: f64 = 28.0;
+const DAY_S: f64 = 86_400.0;
+
+fn classes(stdout: &str) -> Vec<(String, usize)> {
+    stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix(CLASSES_PREFIX))
+        .flat_map(|rest| rest.split(", "))
+        .filter_map(|part| {
+            let (label, count) = part.rsplit_once(' ')?;
+            Some((format!("{LOSS_KEY_PREFIX}{label}"), count.parse().ok()?))
+        })
+        .collect()
+}
+
+fn held(turn_log: &str, since: &str) -> Vec<String> {
+    let Ok(document) = turn_log.parse::<DocumentMut>() else {
+        return Vec::new();
+    };
+    document
+        .get("turn")
+        .and_then(Item::as_array_of_tables)
+        .into_iter()
+        .flat_map(|turns| turns.iter())
+        .filter(|turn| turn.get("date").and_then(Item::as_datetime).is_some_and(|date| date.to_string().as_str() >= since))
+        .filter_map(|turn| turn.get("loss")?.as_str().map(str::to_owned))
+        .collect()
+}
+
+impl Gatherer<'_> {
+    pub fn mechanism_discovery(&self, now: f64) -> Facts {
+        let owner = Some(default_text("detector_mechanism_discovery_owner"));
+        let today = Timestamp::from_unix_seconds_f64(now).iso_date();
+        let losses = self.first_try_losses().unwrap_or_default();
+        let held = self.held_loss_keys(now);
+        Facts { owner, today, losses, held }
+    }
+
+    fn first_try_losses(&self) -> Option<Vec<(String, usize)>> {
+        let output = self.host.output(&["north", "dash", "losses", "--since", LOSSES_WINDOW], None, None, LOSSES_LIMIT)?;
+        output.status.success().then(|| classes(&String::from_utf8_lossy(&output.stdout)))
+    }
+
+    fn held_loss_keys(&self, now: f64) -> Vec<String> {
+        let checkout = self.checkout();
+        let path = checkout.to_string_lossy();
+        self.host.run(&["git", "-C", &path, "fetch", "-q", "origin"], None, None);
+        let shown = self.host.run(&["git", "-C", &path, "show", &format!("origin/main:{TURN_LOG}")], None, None).unwrap_or_default();
+        held(&shown, &Timestamp::from_unix_seconds_f64(now - HELD_DAYS * DAY_S).iso_date())
+    }
+}

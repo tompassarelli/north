@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::{ExitStatus, Output};
 use std::time::Duration;
 
-use super::super::{Detector, Finding};
+use super::super::{Detector, Finding, mechanism_discovery};
 use super::Filer;
 use crate::flow::{Host, Places};
 
@@ -61,7 +61,7 @@ fn finding(key: &str, title: &str) -> Finding {
 }
 
 #[test]
-fn a_repeated_cause_comments_on_the_open_box_instead_of_filing_a_second_one() {
+fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_second_one() {
     let root = tempfile::tempdir().unwrap();
     let places = places(root.path());
     let github = GitHub::default();
@@ -91,6 +91,27 @@ fn a_repeated_cause_comments_on_the_open_box_instead_of_filing_a_second_one() {
     let again = Filer::new(&places, &github).file(&[third], 3.0 * WEEK).unwrap();
     assert!(again[0].filed, "a cause whose box is ticked files a new box: {}", again[0].note);
     assert_eq!(github.edits.borrow().len(), 2);
+
+    let turns = GitHub::default();
+    let turn_facts = |today: &str| mechanism_discovery::Facts {
+        owner: Some("north#1279".to_owned()),
+        today: today.to_owned(),
+        losses: vec![("first-try-lost:capacity".to_owned(), 9), ("first-try-lost:landing refusal".to_owned(), 14), ("first-try-lost:waits".to_owned(), 5), ("first-try-lost:halted".to_owned(), 2)],
+        held: Vec::new(),
+    };
+    let day_one = mechanism_discovery::due(&turn_facts("2026-11-13"));
+    assert_eq!(day_one.len(), 1);
+    assert_eq!(day_one[0].key, "mechanism-discovery:2026-11-13:first-try-lost:landing refusal");
+    assert!(day_one[0].detail.contains("harness/mechanism-discovery/turn-brief.md"), "{}", day_one[0].detail);
+    assert!(day_one[0].detail.contains("first-try-lost:waits") && !day_one[0].detail.contains("first-try-lost:halted"), "the three largest classes are named: {}", day_one[0].detail);
+    let turned = Filer::new(&places, &turns).file(&day_one, 4.0 * WEEK).unwrap();
+    assert!(turned[0].filed, "{}", turned[0].note);
+    assert!(turns.body.borrow().contains("(detector mechanism-discovery:2026-11-13:first-try-lost:landing refusal)"));
+    let day_two = mechanism_discovery::due(&turn_facts("2026-11-14"));
+    let repeated = Filer::new(&places, &turns).file(&day_two, 4.0 * WEEK + 1.0).unwrap();
+    assert!(!repeated[0].filed && repeated[0].note.contains("commented"), "a day's turn while the last one is open files no box: {}", repeated[0].note);
+    assert_eq!(turns.edits.borrow().len(), 1, "the open turn box is not filed twice");
+    assert_eq!(turns.comments.borrow().len(), 1);
 }
 
 fn tick_box(github: &GitHub, evidence: &str) {
