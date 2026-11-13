@@ -345,7 +345,7 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     std::fs::create_dir_all(&cache).unwrap();
     let cache = cache.canonicalize().unwrap();
     for land_check in [false, true] {
-        let context = Context { home: context.home.clone(), cwd: context.cwd.clone(), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check };
+        let context = Context { home: context.home.clone(), cwd: context.cwd.clone(), uid: 0, user_runtime: context.user_runtime.clone(), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check };
         let (roots, written) = (removable(&context), super::writable(&context, &removable(&context)));
         assert!(!roots.iter().chain(&written).any(|path| cache.starts_with(path) || path.starts_with(&cache)), "a worker may write the private-blob cache {}, which the private-file refusal trusts", cache.display());
     }
