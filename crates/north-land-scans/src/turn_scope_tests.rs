@@ -34,7 +34,7 @@ const BARS: &str = "[[experiment]]\nbar = 1\n";
 const MORE_BARS: &str = "[[experiment]]\nbar = 1\n\n[[experiment]]\nbar = 2\n";
 
 #[test]
-fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_a_host_case_enters_only_by_a_list_change_alone_read_from_the_landing_base_north_1287() {
+fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_host_cases_enter_only_by_a_list_change_alone_read_from_the_landing_base_north_1287() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path();
     git_in(repo, &["init", "-q", "-b", "main"]);
