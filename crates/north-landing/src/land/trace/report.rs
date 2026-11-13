@@ -40,17 +40,40 @@ fn queued_behind(spans: &std::path::Path) -> Option<usize> {
     Some(crate::land::queue::pending(queue).map_or(0, |tickets| tickets.len()))
 }
 
-/// The repository a land queue serves, from the origin its tickets name: a done ticket's worktree is usually gone, so the checkout mapping cannot say.
-pub fn queue_repo(spans: &std::path::Path) -> Option<String> {
-    let queue = spans.parent()?.parent()?;
-    let tickets = [queue.to_path_buf(), queue.join("done")];
-    let ticket = tickets.iter().filter_map(|dir| fs::read_dir(dir).ok()).flatten().filter_map(Result::ok).map(|entry| entry.path()).find(|path| path.extension().is_some_and(|extension| extension == "json"))?;
-    let origin = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(ticket).ok()?).ok()?["origin"].as_str()?.to_owned();
-    Some(origin.trim_end_matches('/').trim_end_matches(".git").rsplit('/').next()?.to_owned())
+fn tickets(spans: &Path) -> impl Iterator<Item = serde_json::Value> {
+    let queue = spans.parent().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_default();
+    [queue.clone(), queue.join("done")].into_iter().filter_map(|dir| fs::read_dir(dir).ok()).flatten().filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).filter_map(|path| serde_json::from_str(&fs::read_to_string(path).ok()?).ok())
+}
+
+fn origin_name(ticket: &serde_json::Value) -> Option<String> {
+    Some(ticket["origin"].as_str()?.trim_end_matches('/').trim_end_matches(".git").rsplit('/').next()?.to_owned())
+}
+
+pub fn queue_repo(spans: &Path) -> Option<String> {
+    tickets(spans).find_map(|ticket| origin_name(&ticket))
+}
+
+pub fn queue_names(spans: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    for ticket in tickets(spans) {
+        let checkout = ticket["root"].as_str().and_then(|root| checkout_name(Path::new(root)));
+        for name in origin_name(&ticket).into_iter().chain(checkout) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    names
+}
+
+fn checkout_name(root: &Path) -> Option<String> {
+    let parts: Vec<_> = root.components().filter_map(|part| part.as_os_str().to_str()).collect();
+    let at = parts.iter().position(|part| *part == "worktrees").or_else(|| parts.last().filter(|last| **last == "main").map(|_| parts.len() - 1))?;
+    parts.get(at.checked_sub(1)?).map(|name| (*name).to_owned())
 }
 
 fn serves(spans: &std::path::Path, repo: &str) -> bool {
-    queue_repo(spans).is_some_and(|name| name == repo)
+    queue_names(spans).iter().any(|name| name == repo)
 }
 
 fn seconds(value: f64) -> String {
@@ -209,7 +232,15 @@ pub fn run(arguments: &[String]) -> u8 {
     if files.is_empty() {
         files = every_queue(records_mirror::read("north land profile").home());
         if let Some(repo) = &repo {
+            let known: Vec<String> = files.iter().flat_map(|file| queue_names(file)).collect();
             files.retain(|file| serves(file, repo));
+            if files.is_empty() {
+                let mut known = known;
+                known.sort();
+                known.dedup();
+                eprintln!("north land profile: no land queue serves {repo}; known names: {}", known.join(", "));
+                return 1;
+            }
         }
         pending = files.iter().filter_map(|file| queued_behind(file)).sum();
     }
