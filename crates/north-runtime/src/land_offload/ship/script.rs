@@ -297,8 +297,6 @@ record_slot() {
   return 1
 }
 { mkdir -p "$placed" && printf '%s\n' "${repo#"$HOME"/}" >"$placed/$s"; } 2>/dev/null || record_slot || echo "offload: cannot record $s as a slot of $repo, so the sandbox broker refuses a request this job makes${recorded_by:+ ($recorded_by said: $(printf '%s' "$why" | tail -n 1))}" >&2
-# Buck2 keeps a project's daemon state in ~/.buck/buckd/<its real path>, and a daemon keeps the domain of the job that started it.
-[ -n "${nested:-}" ] || rm -rf -- "$HOME/.buck/buckd$(cd "$root" && pwd -P)/${s:?}" || echo "offload: cannot remove the Buck2 daemon state the job before left for $s" >&2
 printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
   code=$?
@@ -313,6 +311,20 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
+# Buck2 keeps a project's daemon state in ~/.buck/buckd/<its real path>/<isolation dir> and its outputs in buck-out/<isolation dir>, and a daemon keeps the domain of the job that started it.
+if [ -z "${nested:-}" ]; then
+  daemons=$HOME/.buck/buckd$(cd "$root" && pwd -P)/${s:?}
+  for pid_file in "$daemons"/*/buckd.pid; do
+    [ -f "$pid_file" ] && read -r pid <"$pid_file" && [ -r "/proc/$pid/cmdline" ] && tr '\0' ' ' <"/proc/$pid/cmdline" | grep -q buck2d || continue
+    echo "offload: refusing to run: the Buck2 daemon $pid the job before started in $s is still alive" >&2
+    exit @WRONG_TREE@
+  done
+  rm -rf -- "$daemons" || echo "offload: cannot remove the Buck2 daemon state the job before left for $s" >&2
+  if [ -d "$slot/buck-out" ]; then
+    rm -rf -- "${slot:?}/buck-out" || { echo "offload: refusing to run: cannot remove the Buck2 output the job before left in $slot" >&2; exit @WRONG_TREE@; }
+    echo "offload: removed the Buck2 output $slot/buck-out the job before left" >&2
+  fi
+fi
 target_fits() {
   used=$(du -sm "$slot/target" | cut -f1)
   if [ -n "${AGENT_CAPACITY_DISK_FREE_GIB:-}" ]; then free=$(awk -v gib="$AGENT_CAPACITY_DISK_FREE_GIB" 'BEGIN { printf "%d", gib * 1024 }'); else free=$(df -Pm "$root" | awk 'NR == 2 { print $4 }'); fi

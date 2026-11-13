@@ -1044,7 +1044,7 @@ fn a_worker_build_passes_a_land_check_the_host_cannot_lease_yet_which_waits_out_
 }
 
 #[test]
-fn a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slot() {
+fn a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slot_and_refuses_a_live_daemon_or_an_output_it_cannot_remove() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
@@ -1067,6 +1067,24 @@ fn a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slo
     assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
     let second = job(&format!("test ! -e {state}"));
     assert!(second.status.success(), "the second job in a slot found the Buck2 daemon state the first left, so its buck2 would reach whatever daemon that state names, in the first job's domain: {}", String::from_utf8_lossy(&second.stderr));
+    let slot = home.path().canonicalize().unwrap().join(north_base::foundation::offload::ROOT_DEFAULT).join("code-p-main");
+    let daemon_state = home.path().join(".buck/buckd").join(slot.strip_prefix("/").unwrap()).join("v2");
+    fs::create_dir_all(&daemon_state).unwrap();
+    let programs = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&programs.path().join("buck2d"), "while :; do sleep 1; done\n");
+    let mut daemon = Command::new(programs.path().join("buck2d")).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    fs::write(daemon_state.join("buckd.pid"), format!("{}\n", daemon.id())).unwrap();
+    let alive = job("echo ran >&2");
+    let _ = daemon.kill();
+    let _ = daemon.wait();
+    let stderr = String::from_utf8_lossy(&alive.stderr);
+    assert!(alive.status.code() == Some(i32::from(WRONG_TREE)) && !stderr.contains("ran\n") && stderr.contains("is still alive"), "a job ran in a slot whose earlier Buck2 daemon was still alive: {stderr}");
+    let kept = job("mkdir -p buck-out/v2/kept && touch buck-out/v2/kept/file && chmod 500 buck-out/v2/kept");
+    assert!(kept.status.success(), "{}", String::from_utf8_lossy(&kept.stderr));
+    let unremoved = job("echo ran >&2");
+    let _ = Command::new("chmod").args(["-R", "u+w"]).arg(home.path()).status();
+    let stderr = String::from_utf8_lossy(&unremoved.stderr);
+    assert!(unremoved.status.code() == Some(i32::from(WRONG_TREE)) && !stderr.contains("ran\n") && stderr.contains("cannot remove the Buck2 output"), "a job ran in a slot that still held the Buck2 output the job before left: {stderr}");
 }
 
 #[test]
