@@ -93,13 +93,14 @@ fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_seco
     assert_eq!(github.edits.borrow().len(), 2);
 
     let turns = GitHub::default();
-    let turn_facts = |today: &str| mechanism_discovery::Facts {
+    let turn_facts = |today: &str, turned: &[&str]| mechanism_discovery::Facts {
         owner: Some("north#1279".to_owned()),
         today: today.to_owned(),
-        losses: vec![("first-try-lost:capacity".to_owned(), 9), ("first-try-lost:landing refusal".to_owned(), 14), ("first-try-lost:waits".to_owned(), 5), ("first-try-lost:halted".to_owned(), 2)],
+        losses: Some(vec![("first-try-lost:capacity".to_owned(), 9), ("first-try-lost:landing refusal".to_owned(), 14), ("first-try-lost:waits".to_owned(), 5), ("first-try-lost:halted".to_owned(), 2)]),
         held: Vec::new(),
+        turned: turned.iter().map(|date| (*date).to_owned()).collect(),
     };
-    let day_one = mechanism_discovery::due(&turn_facts("2026-11-13"));
+    let day_one = mechanism_discovery::due(&turn_facts("2026-11-13", &[]));
     assert_eq!(day_one.len(), 1);
     assert_eq!(day_one[0].key, "mechanism-discovery:2026-11-13:first-try-lost:landing refusal");
     assert!(day_one[0].detail.contains("harness/mechanism-discovery/turn-brief.md"), "{}", day_one[0].detail);
@@ -107,7 +108,9 @@ fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_seco
     let turned = Filer::new(&places, &turns).file(&day_one, 4.0 * WEEK).unwrap();
     assert!(turned[0].filed, "{}", turned[0].note);
     assert!(turns.body.borrow().contains("(detector mechanism-discovery:2026-11-13:first-try-lost:landing refusal)"));
-    let day_two = mechanism_discovery::due(&turn_facts("2026-11-14"));
+    assert!(mechanism_discovery::due(&turn_facts("2026-11-13", &["2026-11-13"])).is_empty(), "a day whose turn landed files no second box that day");
+    assert!(mechanism_discovery::due(&mechanism_discovery::Facts { losses: None, ..turn_facts("2026-11-14", &[]) }).is_empty(), "a tick whose loss sources did not both read ranks nothing");
+    let day_two = mechanism_discovery::due(&turn_facts("2026-11-14", &["2026-11-13"]));
     let repeated = Filer::new(&places, &turns).file(&day_two, 4.0 * WEEK + 1.0).unwrap();
     assert!(!repeated[0].filed && repeated[0].note.contains("commented"), "a day's turn while the last one is open files no box: {}", repeated[0].note);
     assert_eq!(turns.edits.borrow().len(), 1, "the open turn box is not filed twice");
@@ -132,7 +135,7 @@ fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_seco
         [("scoreboard:worker first-try success, all categories".to_owned(), 200), ("scoreboard:rework within 48 h per landing".to_owned(), 30)],
         "a k/n row is worth this week's n times its move for the worse; an improved row and a row without both weeks' k/n are left out"
     );
-    let scored = mechanism_discovery::due(&mechanism_discovery::Facts { owner: Some("north#1279".to_owned()), today: "2026-11-13".to_owned(), losses: ranked, held: Vec::new() });
+    let scored = mechanism_discovery::due(&mechanism_discovery::Facts { owner: Some("north#1279".to_owned()), today: "2026-11-13".to_owned(), losses: Some(ranked), held: Vec::new(), turned: Vec::new() });
     assert_eq!(scored[0].key, "mechanism-discovery:2026-11-13:scoreboard:worker first-try success, all categories");
     assert!(scored[0].detail.contains("(200 runs lost)"), "{}", scored[0].detail);
 

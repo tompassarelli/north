@@ -12,7 +12,7 @@ use crate::foundation::clock::Timestamp;
 
 const LOSSES_WINDOW: &str = "7d";
 const LOSSES_LIMIT: Duration = Duration::from_secs(60);
-const WEEKLY_LIMIT: Duration = Duration::from_secs(60);
+const WEEKLY_LIMIT: Duration = Duration::from_secs(300);
 const CLASSES_PREFIX: &str = "classes: ";
 const LOSS_KEY_PREFIX: &str = "first-try-lost:";
 const TURN_LOG: &str = "docs/rationale/discovery-turns.toml";
@@ -51,10 +51,12 @@ impl Gatherer<'_> {
     pub fn mechanism_discovery(&self, now: f64) -> Facts {
         let owner = Some(default_text("detector_mechanism_discovery_owner"));
         let today = Timestamp::from_unix_seconds_f64(now).iso_date();
-        let mut losses = self.first_try_losses().unwrap_or_default();
-        losses.extend(self.scoreboard_losses());
-        let held = self.held_loss_keys(now);
-        Facts { owner, today, losses, held }
+        let losses = self.first_try_losses().zip(self.scoreboard_losses()).map(|(mut first_tries, scoreboard)| {
+            first_tries.extend(scoreboard);
+            first_tries
+        });
+        let (held, turned) = self.held_turns(now);
+        Facts { owner, today, losses, held, turned }
     }
 
     fn first_try_losses(&self) -> Option<Vec<(String, usize)>> {
@@ -64,26 +66,21 @@ impl Gatherer<'_> {
 
     /// The weekly scoreboard's rows that moved for the worse, in runs. The row's better direction comes from
     /// the weekly record; a row it does not hold is left to the first-try source rather than guessed.
-    fn scoreboard_losses(&self) -> Vec<(String, usize)> {
-        let Some(output) = self.host.output(&["north", "dash", "--weekly"], None, None, WEEKLY_LIMIT) else {
-            return Vec::new();
-        };
-        if !output.status.success() {
-            return Vec::new();
-        }
+    fn scoreboard_losses(&self) -> Option<Vec<(String, usize)>> {
+        let output = self.host.output(&["north", "dash", "--weekly"], None, None, WEEKLY_LIMIT).filter(|output| output.status.success())?;
         let weekly = String::from_utf8_lossy(&output.stdout);
-        let directions: BTreeMap<String, bool> = north_graph_loops::scoreboard::read(&self.places.graph)
-            .map(|told| told.readings.into_iter().map(|reading| (reading.number, reading.higher_is_better)).collect())
-            .unwrap_or_default();
-        mechanism_discovery::scoreboard_losses(&weekly, &directions)
+        let told = north_graph_loops::scoreboard::read(&self.places.graph).ok()?;
+        let directions: BTreeMap<String, bool> = told.readings.into_iter().map(|reading| (reading.number, reading.higher_is_better)).collect();
+        Some(mechanism_discovery::scoreboard_losses(&weekly, &directions))
     }
 
-    fn held_loss_keys(&self, now: f64) -> Vec<String> {
+    fn held_turns(&self, now: f64) -> (Vec<String>, Vec<String>) {
         let checkout = self.checkout();
         let path = checkout.to_string_lossy();
         self.host.run(&["git", "-C", &path, "fetch", "-q", "origin"], None, None);
         let shown = self.host.run(&["git", "-C", &path, "show", &format!("origin/main:{TURN_LOG}")], None, None).unwrap_or_default();
-        held(&shown, &Timestamp::from_unix_seconds_f64(now - HELD_DAYS * DAY_S).iso_date())
+        let since = Timestamp::from_unix_seconds_f64(now - HELD_DAYS * DAY_S).iso_date();
+        (held(&shown, &since), turn_dates(&shown, &since))
     }
 
     pub fn discovery_evidence(&self, now: f64) -> Evidence {

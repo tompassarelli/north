@@ -17,12 +17,16 @@ const SCORE: &str = "north/mechanism-discovery/score.txt";
 pub struct Facts {
     pub owner: Option<String>,
     pub today: String,
-    pub losses: Vec<(String, usize)>,
+    pub losses: Option<Vec<(String, usize)>>,
     pub held: Vec<String>,
+    pub turned: Vec<String>,
 }
 
 pub fn due(facts: &Facts) -> Vec<Finding> {
-    let mut unheld: Vec<&(String, usize)> = facts.losses.iter().filter(|(key, _)| !facts.held.contains(key)).collect();
+    let Some(losses) = facts.losses.as_ref().filter(|_| !facts.turned.contains(&facts.today)) else {
+        return Vec::new();
+    };
+    let mut unheld: Vec<&(String, usize)> = losses.iter().filter(|(key, _)| !facts.held.contains(key)).collect();
     unheld.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
     let Some((top, _)) = unheld.first() else {
         return Vec::new();
