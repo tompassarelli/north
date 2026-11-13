@@ -7,7 +7,7 @@ use crate::land::wake::{Task, Wake};
 const LIMIT: Duration = Duration::from_secs(3600);
 
 #[test]
-fn a_queued_ticket_lands_on_the_backstop_tick_when_the_wake_event_is_dropped() {
+fn a_queued_ticket_lands_on_the_backstop_tick_when_the_wake_event_is_dropped_and_a_crate_split_sends_back_a_lane_on_a_moved_file_in_the_same_round() {
     let queue_directory = tempfile::tempdir().unwrap();
     let wake = Arc::new(Wake::default());
     let _watcher = super::watch(queue_directory.path(), &wake);
@@ -26,4 +26,5 @@ fn a_queued_ticket_lands_on_the_backstop_tick_when_the_wake_event_is_dropped() {
     queue::write(&dropped_directory.path().join("2-lane.json"), &Ticket::default()).unwrap();
     assert!(!unwired.wait(super::super::POLL), "the lander woke on a ticket whose event was dropped");
     assert_eq!(queue::pending(dropped_directory.path()).unwrap().len(), 1, "the backstop round does not find the queued ticket");
+    super::super::moved::tests::a_crate_split_sends_back_the_queued_lane_on_a_moved_file_in_the_same_round_naming_the_split();
 }

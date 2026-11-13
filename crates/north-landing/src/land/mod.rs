@@ -7,6 +7,7 @@ pub mod bisect;
 pub mod blame;
 pub mod buck2_after;
 pub mod candidate;
+pub mod cause;
 pub mod steps;
 pub mod judge_case;
 pub mod checks;

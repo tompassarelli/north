@@ -128,7 +128,7 @@ fn refuse(logs: &Path, name: &str, kind: &str, text: &str) -> Result<Pick, Strin
     Ok(Pick::Decided(format!("failed {}", log.display())))
 }
 
-fn readable(worktree: &Path, ticket: &Ticket) -> bool {
+pub fn readable(worktree: &Path, ticket: &Ticket) -> bool {
     if has_commit(worktree, &ticket.head) {
         return true;
     }

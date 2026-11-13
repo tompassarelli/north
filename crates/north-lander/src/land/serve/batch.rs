@@ -8,6 +8,7 @@ use super::round::Landing;
 use crate::land::after;
 use crate::land::alone_flight;
 use crate::land::bisect;
+use crate::land::cause;
 use crate::land::candidate::{self, Built, Pick};
 use crate::land::heartbeat::Step;
 use crate::land::jobs;
@@ -176,12 +177,13 @@ impl Serve<'_> {
         for ((path, ticket), pick) in attempt.tickets.iter().zip(&attempt.built.picks) {
             match pick {
                 Pick::Included => included.push((path, ticket)),
-                Pick::Decided(verdict) => {
+                Pick::Decided(decided) => {
+                    let verdict = &cause::cite(&self.worktree, attempt.base, &ticket.head, decided);
                     if verdict.starts_with("landed ") {
                         after::cleanup::report(self, path, ticket);
                     }
                     records::write(self, path, ticket, &Candidate { head: "", batch_size: 0, stages: &Stages::empty() }, &Decision::Refused { verdict });
-                    bisect::decide(path, ticket, verdict.clone(), None, attempt.base)?;
+                    bisect::decide(path, ticket, verdict.to_owned(), None, attempt.base)?;
                     pass.progressed = true;
                 }
                 Pick::Refused(refused) => {

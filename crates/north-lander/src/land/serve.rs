@@ -23,6 +23,7 @@ mod ahead;
 mod alone;
 mod batch;
 mod handover;
+mod moved;
 mod options;
 mod outbox;
 mod private_kinds;
@@ -112,7 +113,7 @@ impl Serve<'_> {
 
     pub fn round(&self, watch: &mut Watch) -> Result<Round, String> {
         self.heartbeat.enter(Step::Settle);
-        if watch.settle(self) || alone::settle(self, watch)? {
+        if watch.settle(self) || alone::settle(self, watch)? || self.sweep_moved(watch.alone.as_ref()) {
             return Ok(Round::Progress);
         }
         Ok(match batch::batch(self, watch)? {
