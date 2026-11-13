@@ -19,6 +19,12 @@ impl Fleet {
     }
 
     pub fn admit_launch_from(&self, caller: Option<&str>) -> NorthResult<()> {
+        if std::env::var_os(north_base::platform::session_scope::CONFINED).is_some() && north_base::platform::land_queue::test_root().is_none() {
+            let caller = caller.filter(|name| !name.is_empty()).unwrap_or("this session");
+            return Err(NorthError::Refused(format!(
+                "{caller} runs as a worker, whose sandbox keeps the fleet's session records unwritable, so it may not launch sessions; report to your parent so it launches the work, or relaunches {caller} with --role lead"
+            )));
+        }
         let Some(caller) = caller.filter(|name| !name.is_empty()) else { return Ok(()) };
         match self.levels_below_lead(caller) {
             levels if levels >= DEPTH_CAP => Err(NorthError::Refused(format!(
