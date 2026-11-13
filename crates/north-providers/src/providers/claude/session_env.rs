@@ -42,6 +42,7 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
         (ROLE_ENV.into(), request.role().label().into()),
         (ACTOR_ENV.into(), request.name.clone().into()),
     ]);
+    env.extend((!request.tasks().is_empty()).then(|| (north_base::platform::session_scope::TASKED.into(), "1".into())));
     env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
     env.extend(request.window().map(|window| (COMPACT_WINDOW_ENV.into(), window.to_string().into())));
     env.extend(git_credential::session_env().into_iter().map(|(name, value)| (name, value.into())));
