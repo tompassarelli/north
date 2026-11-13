@@ -2,7 +2,7 @@
 
 North's time from launch to a change on main, against T3 Code's plain runner and T3 Code given the task's file text, on the same small tasks with the model held equal; the bar was registered in north#1239 before the runs, and this page gives the method and the three recorded runs.
 
-Status (2026-11-13): draft. The medians below are the ones north#1239 records; the intervals and the row counts per cell are not computed yet, and the bar is not yet called met (see [Status against the bar](#status-against-the-bar)).
+Status (2026-11-13): draft. The medians below are the ones north#1239 records; the intervals and the row counts per cell are not computed yet, and the bar is not yet called met (see [Status against the bar](#status-against-the-bar)). Every run below is of the runtime of 2026-11-12 with north's sessions on the control host, and none is a reading of the release runtime: in the one paired run on it so far (2026-11-13 and 14, every session on a build host) north took longer than T3 Code at one, five and ten at once. That reading, its cause and the rerun after the fix replace this draft together.
 
 ## Question
 
