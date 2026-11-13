@@ -229,6 +229,9 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     lane.commit("broken", &[]);
     let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
     assert!(refused.contains("a check before queueing exited 1; fix the failure above"), "a lane breaking a land.check test that no selection reads was vouched for without running it: {refused}");
+    let row = super::refusal_row(7, &lane.repo, (Some("lane"), Some("worker")), &refused);
+    assert_eq!((row["lane"].as_str(), row["session"].as_str()), (Some("lane"), Some("worker")), "{row}");
+    assert!(row["step"].as_str().is_some_and(|step| step.contains("grep -qx broken")) && row["first_error"].as_str().is_some_and(|first| !first.is_empty()), "a refusal by a failed check before queueing names neither the check nor its first error line: {row}");
     let queue = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
     assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.all(|entry| entry.is_ok_and(|entry| entry.path().extension().is_none_or(|extension| extension != "json")))), "a lane red on its land check left a ticket in {}", queue.display());
     assert_eq!(run(&lane.dir.path().join("origin.git"), &["rev-parse", "main"]), main);

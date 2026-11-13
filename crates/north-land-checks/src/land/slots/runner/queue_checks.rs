@@ -3,11 +3,13 @@ use std::path::Path;
 use super::super::clippy_first;
 use super::super::verdict_key;
 use super::line_refusals::Refusals;
+use super::log::first_error;
 use super::{Arguments, Config, Environment, NO_NORTH, Stop, affected, block_on, run_added_avoiding, say, shared_build, steps, warn};
 use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 use north_base::platform::finish_record::acceptance_in_prequeue;
 
 const ATTEMPTS: usize = 3;
+const FAILING: &str = "; failing check `";
 
 /// The checks a lane runs alone before its ticket is written: its clippy (build and link), the
 /// `@enqueue` land.check lines, and the land test selection the batch would otherwise run, or the
@@ -140,14 +142,15 @@ fn judge(root: &Path, (base, head): (&str, &str), acceptance: Option<(&str, &str
         return Judged::unjudged(format!("a check before queueing would run on this host rather than on {host}, so the run does not start"));
     }
     say(&format!("safe-push: running {} check(s) before queueing the lane: {}", commands.len(), commands.join("; ")));
-    let outcome = command.and_then(|_| tempfile::NamedTempFile::new().ok());
+    let outcome = tempfile::NamedTempFile::new().ok();
     let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), one_lane: true, runner_host: host.to_owned(), outcome: outcome.as_ref().map(|file| file.path().to_owned()), ..Arguments::default() };
     let (status, passed) = match attempts(root, &arguments, (&config, north), &commands, (command, stop)) {
         Ok(ran) => ran,
         Err(text) => return Judged::unjudged(text),
     };
     let (own, others) = command.zip(outcome.as_ref()).map(|(command, outcome)| failed_output(outcome.path(), command)).unwrap_or_default();
-    let run = if status == 0 { Ok(()) } else { Err(refusal(status, clippy.is_some(), (root, base, head))) };
+    let failing = outcome.as_ref().and_then(|outcome| failing_step(outcome.path(), status));
+    let run = if status == 0 { Ok(()) } else { Err(refusal(status, clippy.is_some(), (root, base, head), failing)) };
     Judged { accepted: accepted(&run, passed, own.is_some()), output: own.unwrap_or(others), run }
 }
 
@@ -209,7 +212,20 @@ fn failed_output(outcome: &Path, command: &str) -> (Option<String>, String) {
     (own, failed.iter().map(|(failed, log)| format!("the check before queueing `{failed}` failed:\n{log}")).collect())
 }
 
-fn refusal(status: i32, clippy: bool, (root, base, head): (&Path, &str, &str)) -> QueueRefusal {
+/// The first check the run recorded as failed with the first error line of its log, or how the run exited when the log holds none.
+fn failing_step(outcome: &Path, status: i32) -> Option<String> {
+    let text = std::fs::read_to_string(outcome).unwrap_or_default();
+    let (command, log) = text.lines().find_map(|line| line.strip_prefix("failed-step\t")?.split_once('\t'))?;
+    let first = first_error(&std::fs::read_to_string(log).unwrap_or_default()).unwrap_or_else(|| format!("exited {status}"));
+    Some(format!("{FAILING}{command}`: {first}"))
+}
+
+/// The failing check and its first error line that a refusal text names, as `refusal` wrote them.
+pub fn failing(refusal: &str) -> Option<(&str, &str)> {
+    refusal.split_once(FAILING)?.1.split_once("`: ")
+}
+
+fn refusal(status: i32, clippy: bool, (root, base, head): (&Path, &str, &str), failing: Option<String>) -> QueueRefusal {
     if status == ALREADY_PLACED_STATUS {
         return QueueRefusal::Unjudged("the same checks of this head already wait or run on a build host, named above, so this run was refused rather than queued a second time; the lane is not queued uncompiled, so run safe-push again once they end".to_owned());
     }
@@ -222,7 +238,7 @@ fn refusal(status: i32, clippy: bool, (root, base, head): (&Path, &str, &str)) -
     } else {
         String::new()
     };
-    QueueRefusal::Failed(format!("a check before queueing exited {status}; fix the failure above{rerun}{}", off_base(root, base, head)))
+    QueueRefusal::Failed(format!("a check before queueing exited {status}; fix the failure above{rerun}{}{}", off_base(root, base, head), failing.unwrap_or_default()))
 }
 
 fn off_base(root: &Path, base: &str, head: &str) -> String {

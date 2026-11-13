@@ -404,7 +404,7 @@ pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
             if parsed.wait { hand_in(repo, &queued, &state_home) } else { 0 }
         }
         Err(error) => {
-            record_refusal(&state_home, repo, &error);
+            record_refusal(&state_home, repo, session.as_deref(), &error);
             eprintln!("safe-push: ✗ cannot queue the lane: {error}; NOT queued.");
             1
         }
@@ -437,8 +437,19 @@ fn micros() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros())
 }
 
-fn record_refusal(state_home: &Path, repo: &Path, error: &str) {
-    let row = serde_json::json!({ "micros": micros(), "root": repo.to_string_lossy(), "error": error });
+/// One refusal record: when, where, the lane and session that handed in, the failing step and its first error line, and the whole refusal text.
+fn refusal_row(micros: u128, repo: &Path, (lane, session): (Option<&str>, Option<&str>), error: &str) -> serde_json::Value {
+    let (step, first) = match runner::failing(error) {
+        Some(failing) => failing,
+        None => (error.split(';').next().unwrap_or(error).trim(), error.lines().next().unwrap_or(error)),
+    };
+    let shorten = |text: &str, bound: usize| text.chars().take(bound).collect::<String>();
+    serde_json::json!({ "micros": micros, "root": repo.to_string_lossy(), "lane": lane, "session": session, "step": shorten(step, 120), "first_error": shorten(first, 300), "error": error })
+}
+
+fn record_refusal(state_home: &Path, repo: &Path, session: Option<&str>, error: &str) {
+    let lane = checkout(repo).ok().map(|(_, branch)| branch);
+    let row = refusal_row(micros(), repo, (lane.as_deref(), session), error);
     if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(state_home.join(REFUSALS)) {
         let _ = io::Write::write_all(&mut file, format!("{row}\n").as_bytes());
     }
