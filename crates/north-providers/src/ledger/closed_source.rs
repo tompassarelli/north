@@ -319,6 +319,8 @@ pub struct EstimatedRun {
     pub eta_min: f64,
     pub usd: f64,
     pub estimated_usd: Option<f64>,
+    pub started: Option<i64>,
+    pub ended: String,
 }
 
 /// The worker runs that ended in the last `window` with a wall time and an ETA or a Budget.
@@ -329,7 +331,7 @@ pub fn estimated_runs(window: &str) -> NorthResult<Vec<EstimatedRun>> {
         Access::ReadOnly,
         Duration::from_secs(5),
         &format!(
-            "SELECT {ROLE_SQL} AS role, tier, category, model, minutes, COALESCE(eta_min, 0) AS eta_min, budget_usd, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
+            "SELECT {ROLE_SQL} AS role, tier, category, model, COALESCE(started, '') AS started, ended, minutes, COALESCE(eta_min, 0) AS eta_min, budget_usd, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
              FROM runs WHERE outcome != 'running' AND ended >= '{}' AND (eta_min > 0 OR budget_usd > 0) AND minutes > 0",
             since.replace('\'', "")
         ),
@@ -341,7 +343,7 @@ pub fn estimated_runs(window: &str) -> NorthResult<Vec<EstimatedRun>> {
         .filter_map(|row| {
             let tier = text(row, "tier");
             let usd = prices.run_usd(row["model"].as_str(), &tier, row["input"].as_i64().unwrap_or(0), row["cache_read"].as_i64().unwrap_or(0), row["output"].as_i64().unwrap_or(0));
-            Some(EstimatedRun { tier: super::closed::tier_label(&tier), category: text(row, "category"), minutes: row["minutes"].as_f64()?, eta_min: row["eta_min"].as_f64()?, usd, estimated_usd: row["budget_usd"].as_f64().filter(|budget| *budget > 0.0) })
+            Some(EstimatedRun { tier: super::closed::tier_label(&tier), category: text(row, "category"), minutes: row["minutes"].as_f64()?, eta_min: row["eta_min"].as_f64()?, usd, estimated_usd: row["budget_usd"].as_f64().filter(|budget| *budget > 0.0), started: Timestamp::parse(&text(row, "started")).ok().map(Timestamp::unix_seconds), ended: text(row, "ended") })
         })
         .collect())
 }

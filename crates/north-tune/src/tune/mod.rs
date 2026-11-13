@@ -7,8 +7,9 @@
 //! today's beside the last earlier day's. It reads each landed plan issue's dividend from the same
 //! week, keeps the reading once a day in the readings file, and tells the proxy once when one turns
 //! DECAYED. It prints each tier and category's estimates against what the week's runs came to and
-//! keeps the cells whose ratio at the quantile their estimator covers drifted out of the calibrated band in a second rolling north
-//! issue behind the same gate as the rises. It scores each category's runs against the Budget stored at their launch
+//! keeps the cells whose ratio at the quantile their estimator covers drifted out of the calibrated band, where an estimate replayed
+//! from their own runs of the 7 days before each run would have sat inside it, in a second rolling north issue behind the same
+//! gate as the rises, and counts beside it the cells outside the band under every estimator. It scores each category's runs against the Budget stored at their launch
 //! (share over it, actual/E p50 and p90) and reads the budget cells' multiplier from that p90 once
 //! a category holds enough runs carrying one, and moves an ETA or budget cell at most 2x from its prior value per tick. It prints the share of the last day's finished runs
 //! that recorded each essential field and fails when one is under 98%. It prints each skill's
@@ -16,7 +17,7 @@
 //! skills no run loaded and those whose boxes did worse. Before the loop check it runs the skill switch's backtest (`switch`) and tells each
 //! decision's reading to the graph; `--backtest` prints that table alone and tells nothing.
 use crate::foundation::clock::Timestamp;
-use crate::ledger::{self, ClosedReport, EstimatedRun, rises};
+use crate::ledger::{self, ClosedReport, rises};
 use crate::dispatch::tuned::{WRITER, directory};
 use crate::dispatch::LEDGER_WINDOW;
 use crate::threads::calibration::predictions::Brier;
@@ -26,6 +27,7 @@ use cells::{Cells, Change};
 use north_graph_loops::Learned;
 use costs::Cost;
 use dividends::{Dividend, Reading};
+use estimates::EstimatedRuns;
 use serde_json::Value;
 use std::io::Write;
 use std::path::PathBuf;
@@ -43,6 +45,7 @@ mod tests;
 
 const USAGE: &str = "usage: north tune [--dry-run | --backtest]";
 const REPO: &str = "tompassarelli/north";
+const REPLAY_WINDOW: &str = "14d";
 
 /// The north issue tracker a tick reads and files to.
 pub trait Tracker {
@@ -58,7 +61,7 @@ pub trait Tracker {
 pub struct Ledger {
     pub week: ClosedReport,
     pub before: ClosedReport,
-    pub estimates: Result<Vec<EstimatedRun>, String>,
+    pub estimates: Result<EstimatedRuns, String>,
     pub briers: Result<Vec<Brier>, String>,
     pub runs: Result<Vec<Value>, String>,
     pub skills: Vec<String>,
@@ -87,7 +90,7 @@ pub struct Tick {
 
 pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mut dyn Tracker, at: &str, dry_run: bool) -> Tick {
     let mut lines = vec![ledger.week.dashboard(LEDGER_WINDOW)];
-    let scores = ledger.estimates.as_deref().map(budgets::scores).unwrap_or_default();
+    let scores = ledger.estimates.as_ref().map(|runs| budgets::scores(&runs.week)).unwrap_or_default();
     let mut decided = cells::decide(&ledger.week, &budgets::multipliers(&scores));
     cells::limit_steps(&prior.cells, &mut decided);
     let changes = cells::changes(&prior.cells, &decided);
@@ -125,6 +128,9 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
     lines.extend(found_rises.iter().map(rises::Rise::line));
     let risen = keep(tracker, &mut breaches, rises::TITLE, rises::issue_body(&found_rises).as_deref(), &format!("`north tune` on {at}: no staffed cell's cost per closed box sits more than 25% above the week before."), dry_run, &mut lines);
     lines.extend(calibrations.iter().filter(|calibration| calibration.drifted()).map(estimates::Calibration::drift_line));
+    if ledger.estimates.is_ok() {
+        lines.extend(estimates::noise_lines(&calibrations));
+    }
     let drifted = keep(tracker, &mut breaches, estimates::TITLE, estimates::issue_body(&calibrations).as_deref(), &format!("`north tune` on {at}: every tier and category's covered ratio of actual to estimate sits inside {}-{}x.", estimates::CALIBRATED.0, estimates::CALIBRATED.1), dry_run, &mut lines);
     let open = tracker.open();
     lines.push(match &open {
@@ -196,7 +202,7 @@ pub fn failing(tick: Tick, loops: &Result<crate::loops::Checked, String>) -> Tic
 
 fn tune(dry_run: bool) -> Result<Tick, String> {
     let (week, before) = ledger::closed_report_and_previous(LEDGER_WINDOW).map_err(|error| error.user_message())?;
-    let estimates = ledger::estimated_runs(LEDGER_WINDOW).map_err(|error| error.user_message());
+    let estimates = estimated_runs();
     let root = crate::foundation::activation::activation_paths(&|name: &str| std::env::var(name).ok().filter(|value| !value.is_empty())).0.with_file_name("skills/shared");
     let skills = skills::installed(&root).unwrap_or_else(|error| {
         eprintln!("north tune: installed skills unread, so none is flagged unused: {error}");
@@ -313,4 +319,10 @@ impl Tracker for Gh {
     fn rolling(&mut self) -> &mut dyn rolling_issue::Tracker {
         &mut self.rolling
     }
+}
+
+fn estimated_runs() -> Result<EstimatedRuns, String> {
+    let since = ledger::window_start(LEDGER_WINDOW).map_err(|error| error.user_message())?;
+    let (week, earlier) = ledger::estimated_runs(REPLAY_WINDOW).map_err(|error| error.user_message())?.into_iter().partition(|run| run.ended >= since);
+    Ok(EstimatedRuns { week, earlier })
 }

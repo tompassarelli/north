@@ -1,4 +1,5 @@
 use super::{Ledger, Prior, Tick, Tracker, tick};
+use super::estimates::EstimatedRuns;
 use crate::platform::rolling_issue;
 use crate::router::pricing::PriceTable;
 use crate::ledger::{ClosedReport, SpendRun, summarize};
@@ -128,7 +129,7 @@ fn boxes(prefix: &str, count: usize, arm: (&str, &str), category: &str, day: &st
 fn a_cell_of_boxes_no_label_has_named_yet_files_no_rise_however_dear_this_week_is() {
     let week = boxes("1", 3, OPUS, "unknown", "2026-10-24", 9_000_000);
     let before = boxes("3", 3, OPUS, "unknown", "2026-10-17", 1_000_000);
-    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), estimates: Ok(EstimatedRuns::default()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let mut issues = Issues::default();
     let (_, quiet) = two_ticks(&ledger, &mut issues);
     assert!(issues.created.is_empty(), "{:#?}", quiet.lines);
@@ -162,7 +163,7 @@ fn a_tier_that_staffed_no_run_this_week_files_no_rise_for_the_boxes_it_started_e
     assert!((was_n, now_n, was_staffed, now_staffed) == (3, 3, true, false), "{was} -> {now}");
 
     let mut issues = Issues::default();
-    let (_, quiet) = two_ticks(&Ledger { week, before, estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() }, &mut issues);
+    let (_, quiet) = two_ticks(&Ledger { week, before, estimates: Ok(EstimatedRuns::default()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() }, &mut issues);
     assert!(issues.created.is_empty(), "{:#?}", quiet.lines);
     assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
 }
@@ -179,7 +180,7 @@ fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise
     assert!((was_n, now_n) == (3, 4) && now > was * 1.25, "{was} -> {now}");
 
     let mut issues = Issues::default();
-    let (_, ticked) = two_ticks(&Ledger { week, before, estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() }, &mut issues);
+    let (_, ticked) = two_ticks(&Ledger { week, before, estimates: Ok(EstimatedRuns::default()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() }, &mut issues);
     assert!(issues.created.is_empty(), "{:#?}", ticked.lines);
 }
 
@@ -188,7 +189,7 @@ fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise
 fn a_rise_files_only_while_it_holds_with_the_weeks_dearest_box_dropped() {
     let filed = |outputs: [i64; 3]| {
         let week: Vec<SpendRun> = outputs.iter().enumerate().map(|(index, output)| spent(&format!("north#5{index}"), OPUS, "tooling", "2026-10-24", *output)).collect();
-        let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&boxes("40", 3, OPUS, "tooling", "2026-10-17", 2_000_000), "2026-10-13T06:00:00Z"), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
+        let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&boxes("40", 3, OPUS, "tooling", "2026-10-17", 2_000_000), "2026-10-13T06:00:00Z"), estimates: Ok(EstimatedRuns::default()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
         let mut issues = Issues::default();
         let (_, ticked) = two_ticks(&ledger, &mut issues);
         ticked.lines.iter().any(|line| line.starts_with("rose "))
@@ -200,7 +201,7 @@ fn a_rise_files_only_while_it_holds_with_the_weeks_dearest_box_dropped() {
 #[test]
 fn a_tick_moves_an_eta_or_budget_cell_at_most_twofold_from_the_prior_tick_however_far_the_week_lies() {
     let week = boxes("70", 3, SONNET, "tooling", "2026-10-24", 9_000_000);
-    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&[], "2026-10-13T06:00:00Z"), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&[], "2026-10-13T06:00:00Z"), estimates: Ok(EstimatedRuns::default()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let unlimited = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false);
     let (budget, eta) = ("budget_usd sonnet tooling", "eta_minutes sonnet tooling");
     let free = |cell: &str| unlimited.cells[cell].as_f64().unwrap();
@@ -237,28 +238,40 @@ const RECORDED_OPUS_HIGH_DEBUGGING: [(f64, f64); 20] = [
     (42.0, 69.0), (9.0, 69.0), (79.0, 69.0), (56.0, 69.0), (84.0, 69.0), (21.0, 69.0), (10.0, 69.0), (26.0, 69.0), (246.0, 68.0), (5.0, 68.0),
 ];
 
-fn estimated(pairs: &[(f64, f64)]) -> Vec<crate::ledger::EstimatedRun> {
-    let at = |(minutes, eta_min): &(f64, f64)| crate::ledger::EstimatedRun { tier: "opus-high".into(), category: "debugging-unknown-cause".into(), minutes: *minutes, eta_min: *eta_min, usd: 1.0, estimated_usd: None };
+const DAY: i64 = 86_400;
+
+fn estimated(pairs: &[(f64, f64)], ended: i64) -> Vec<crate::ledger::EstimatedRun> {
+    let at = |(minutes, eta_min): &(f64, f64)| crate::ledger::EstimatedRun { tier: "opus-high".into(), category: "debugging-unknown-cause".into(), minutes: *minutes, eta_min: *eta_min, usd: 1.0, estimated_usd: None, started: Some(ended - (*minutes * 60.0) as i64), ended: crate::foundation::clock::Timestamp::from_unix_seconds(ended).iso() };
     pairs.iter().map(at).collect()
+}
+
+fn week_after(week: &[(f64, f64)], earlier: &[(f64, f64)]) -> EstimatedRuns {
+    EstimatedRuns { week: estimated(week, 10 * DAY), earlier: estimated(earlier, 5 * DAY) }
 }
 
 #[test]
 fn an_eta_that_covers_the_quantile_it_targets_is_calibrated_though_the_median_run_sits_far_below_it() {
-    let cell = &super::estimates::calibrations(&estimated(&RECORDED_OPUS_HIGH_DEBUGGING))[0];
+    let cell = &super::estimates::calibrations(&week_after(&RECORDED_OPUS_HIGH_DEBUGGING, &[]))[0];
     let (low, high) = super::estimates::CALIBRATED;
-    assert!(!(low..=high).contains(&cell.minutes.median), "the median ratio {} is the reading that filed the cell as drifted", cell.minutes.median);
-    assert!(!cell.drifted(), "the ETA covers its p{} of the recorded runs at {}x, so it holds", cell.minutes.percent, cell.minutes.covered);
+    assert!(!(low..=high).contains(&cell.minutes.stated.median), "the median ratio {} is the reading that filed the cell as drifted", cell.minutes.stated.median);
+    assert!(!cell.drifted(), "the ETA covers its p{} of the recorded runs at {}x, so it holds", cell.minutes.stated.percent, cell.minutes.stated.covered);
 }
 
+/// Reproduces north#1306: an ETA re-sized from the cell's own runs of the 7 days before each run
+/// still sat outside the band when the week's runs finished faster than the week before's.
 #[test]
-fn an_eta_a_quarter_of_the_runs_that_cover_it_would_need_still_drifts() {
+fn an_eta_drifts_only_where_its_cells_earlier_runs_would_have_covered_its_runs() {
     let short: Vec<(f64, f64)> = RECORDED_OPUS_HIGH_DEBUGGING.iter().map(|(minutes, eta)| (*minutes, eta / 4.0)).collect();
-    assert!(super::estimates::calibrations(&estimated(&short))[0].drifted());
+    assert!(super::estimates::calibrations(&week_after(&short, &RECORDED_OPUS_HIGH_DEBUGGING))[0].drifted(), "an ETA a quarter of what its cell's earlier runs would have set is stale");
+    let faster: Vec<(f64, f64)> = RECORDED_OPUS_HIGH_DEBUGGING.iter().map(|(minutes, eta)| (minutes / 4.0, *eta)).collect();
+    let cells = super::estimates::calibrations(&week_after(&faster, &RECORDED_OPUS_HIGH_DEBUGGING));
+    assert!(!cells[0].drifted(), "{}", cells[0].line());
+    assert_eq!(super::estimates::noise_lines(&cells)[0], "outside the band under every estimator: 1 cells");
 }
 
 #[test]
 fn the_estimate_drift_body_is_filed_through_the_path_north_tune_files_it_by() {
-    let drifted = estimated(&[(60.0, 10.0), (70.0, 10.0), (80.0, 10.0)]);
+    let drifted = week_after(&[(60.0, 10.0), (70.0, 10.0), (80.0, 10.0)], &[(60.0, 60.0), (70.0, 60.0), (80.0, 60.0)]);
     let ledger = Ledger { week: report(&[], "2026-10-20T06:00:00Z"), before: report(&[], "2026-10-13T06:00:00Z"), estimates: Ok(drifted), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let mut issues = Issues::default();
     let (_, ticked) = two_ticks(&ledger, &mut issues);
