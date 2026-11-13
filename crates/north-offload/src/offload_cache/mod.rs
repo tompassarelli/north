@@ -352,7 +352,7 @@ pub fn tend() {
     let path = std::env::var_os("PATH").unwrap_or_default();
     let weight = (north_capacity_host::capacity::admission::default_mib("land_check_cpu_weight") as u32).to_string();
     let started = Command::new("systemd-run")
-        .args(["--user", "--quiet", "--collect", "--unit", KEEP_UNIT])
+        .args(["--user", "--quiet", "--collect", "--slice=agent.slice", "--property=IOAccounting=yes", "--unit", KEEP_UNIT])
         .arg(format!("--property=CPUWeight={weight}"))
         .arg(format!("--property=IOWeight={weight}"))
         .arg(format!("--property=RuntimeMaxSec={}", KEEP_BOUND.as_secs()))

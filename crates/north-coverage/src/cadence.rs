@@ -39,7 +39,7 @@ pub fn start(root: &Path, reason: &str) -> Result<String, String> {
     let path = std::env::var_os("PATH").unwrap_or_default();
     let unit = format!("north-coverage-refresh-{repository}");
     let output = Command::new("systemd-run")
-        .args(["--user", "--quiet", "--collect", "--unit", &unit])
+        .args(["--user", "--quiet", "--collect", "--slice=agent.slice", "--property=IOAccounting=yes", "--unit", &unit])
         .arg(format!("--property=StandardOutput=append:{}", log.display()))
         .arg(format!("--property=StandardError=append:{}", log.display()))
         .arg(format!("--setenv=PATH={}", path.to_string_lossy()))

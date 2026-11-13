@@ -123,7 +123,7 @@ pub fn free_lane(ssh: &Path, destination: &str, machine: &str, lane: &Path, kept
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
     let unit = format!("north-lane-free-{}-{stamp}", std::process::id());
     let mut detached = Command::new("systemd-run");
-    detached.args(["--user", "--quiet", "--collect", "--unit", &unit]);
+    detached.args(["--user", "--quiet", "--collect", "--slice=agent.slice", "--property=IOAccounting=yes", "--unit", &unit]);
     if let Some(socket) = std::env::var("SSH_AUTH_SOCK").ok().filter(|socket| !socket.is_empty()) {
         detached.arg(format!("--setenv=SSH_AUTH_SOCK={socket}"));
     }

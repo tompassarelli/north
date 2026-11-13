@@ -53,7 +53,7 @@ pub(super) fn agent_event_checks(argv: &[String]) -> Result<(), String> {
 pub(super) fn detach(program: &[OsString], arguments: &[&std::ffi::OsStr]) {
     let mut command = if own_scope() {
         let mut scoped = Command::new("systemd-run");
-        scoped.args(["--user", "--scope", "--quiet", "--collect", "--"]).args(program);
+        scoped.args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "--property=IOAccounting=yes", "--"]).args(program);
         scoped
     } else {
         let mut plain = Command::new(&program[0]);
@@ -68,7 +68,7 @@ pub(super) fn detach(program: &[OsString], arguments: &[&std::ffi::OsStr]) {
 
 /// Whether `systemd-run --user --scope` works here: a user manager answers on this host.
 fn own_scope() -> bool {
-    Command::new("systemd-run").args(["--user", "--scope", "--quiet", "--collect", "true"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
+    Command::new("systemd-run").args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "true"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
 }
 
 fn feed(mut child: Child, bytes: Option<Vec<u8>>) -> Child {

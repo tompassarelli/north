@@ -83,7 +83,7 @@ fn request(lander: &Lander, tree: &str, commit: &str, kind: &str, lane: &str) ->
     let path = std::env::join_paths([home.join(".local/bin"), home.join(".nix-profile/bin")].into_iter().chain(std::env::split_paths(&inherited))).unwrap_or(inherited);
     let _ = fs::create_dir_all(log.parent().unwrap_or(Path::new(".")));
     let mut unit = Command::new("systemd-run");
-    unit.args(["--user", "--quiet", "--collect", "--unit"]).arg(format!("{UNIT}-{kind}-{}", &tree[..12]));
+    unit.args(["--user", "--quiet", "--collect", "--slice=agent.slice", "--property=IOAccounting=yes", "--unit"]).arg(format!("{UNIT}-{kind}-{}", &tree[..12]));
     unit.arg(format!("--property=StandardOutput=append:{}", log.display())).arg(format!("--property=StandardError=append:{}", log.display()));
     unit.arg(format!("--setenv=HOME={}", home.display())).arg(format!("--setenv=PATH={}", path.to_string_lossy()));
     if let Some(state) = std::env::var_os("XDG_STATE_HOME") {

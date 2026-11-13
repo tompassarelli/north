@@ -117,7 +117,7 @@ impl Lander {
     /// Starts a scratch user unit running `script` (bash, `$1` = `argument`), which this lander stops when dropped.
     pub fn start_unit(&mut self, unit: &str, script: &str, argument: &Path) -> Result<(), String> {
         let output = Command::new("systemd-run")
-            .args(["--user", "--quiet", "--collect", &format!("--unit={unit}"), "bash", "-c", script, "drill"])
+            .args(["--user", "--quiet", "--collect", "--slice=agent.slice", "--property=IOAccounting=yes", &format!("--unit={unit}"), "bash", "-c", script, "drill"])
             .arg(argument)
             .stdin(Stdio::null())
             .output()

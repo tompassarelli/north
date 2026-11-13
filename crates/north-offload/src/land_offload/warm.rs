@@ -88,7 +88,7 @@ pub fn tend() {
     let path = env::join_paths([home.join(".local/bin"), home.join(".nix-profile/bin")].into_iter().chain(env::split_paths(&inherited))).unwrap_or_else(|_| inherited.clone());
     let log = root.join(LOG).display().to_string();
     let mut unit = Command::new("systemd-run");
-    unit.args(["--user", "--quiet", "--collect", "--unit", UNIT])
+    unit.args(["--user", "--quiet", "--collect", "--slice=agent.slice", "--property=IOAccounting=yes", "--unit", UNIT])
         .arg(format!("--property=StandardOutput=append:{log}"))
         .arg(format!("--property=StandardError=append:{log}"))
         .arg(format!("--setenv=PATH={}", path.to_string_lossy()))
