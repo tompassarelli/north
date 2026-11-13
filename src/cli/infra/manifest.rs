@@ -241,6 +241,12 @@ monthly_usd = "unread"
         let hosts = "mode = \"claude-only\"\n[hosts.nexus]\nresident_cap = 4\nbuck2_caseless_crates = [\"north-buck\"]\n[hosts.nexus.disk_budget_gib]\ncargo_target = 20\n";
         assert!(orchestration(hosts).is_empty());
         assert_eq!(orchestration(&hosts.replace("resident_cap", "resident_cp")), ["agents/orchestration.toml: hosts.nexus.resident_cp: unknown key"]);
+        let copy = tempfile::tempdir().unwrap();
+        std::fs::create_dir(copy.path().join("agents")).unwrap();
+        std::fs::write(copy.path().join("agents/costs.toml"), "[[service]]\nid = \"example\"\nname = \"Plan of the owner's own account\"\nkind = \"ai-plan\"\nusd_per_week = 12.5\n").unwrap();
+        std::fs::write(root.path().join("agents/costs.toml"), "[[service]]\nid = \"alpha\"\nname = \"Plan of the owner's own account\"\nkind = \"ai-plan\"\nusd_per_week = 50.0\n").unwrap();
+        let copied = crate::cli::operator::same_value::findings(copy.path(), root.path(), &["agents/costs.toml"]);
+        assert_eq!(copied, ["agents/costs.toml: service[0].name: equals the owner's value at this key"], "a template string copied from the owner is refused by key, and its value is never printed");
     }
 
     #[test]

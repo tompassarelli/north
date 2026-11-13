@@ -6,7 +6,7 @@ use toml_edit::{DocumentMut, Item, TableLike, Value};
 
 use crate::error::{NorthError, NorthResult};
 
-pub const USAGE: &str = "usage: north config operator check [DIR] [--only NAME,...]";
+pub const USAGE: &str = "usage: north config operator check [DIR] [--only NAME,...] [--distinct-from OWNER]";
 
 #[derive(Clone, Copy)]
 enum Ty {
@@ -255,17 +255,24 @@ pub fn findings(root: &Path, only: Option<&[&str]>) -> Vec<String> {
     SCHEMAS.iter().filter(|schema| only.is_none_or(|names| selects(names, schema))).flat_map(|schema| check_file(schema, root)).collect()
 }
 
+fn files(only: Option<&[&str]>) -> Vec<&'static str> {
+    let mut files: Vec<&str> = SCHEMAS.iter().filter(|schema| only.is_none_or(|names| selects(names, schema))).map(|schema| schema.file).collect();
+    files.dedup();
+    files
+}
+
 fn selects(names: &[&str], schema: &Schema) -> bool {
     names.iter().any(|name| *name == schema.name || GROUPS.iter().any(|(group, members)| group == name && members.contains(&schema.name)))
 }
 
 pub fn run(arguments: &[String]) -> NorthResult<()> {
     let usage = || NorthError::Usage(USAGE.into());
-    let (mut root, mut only) = (None, None::<Vec<&str>>);
+    let (mut root, mut only, mut owner) = (None, None::<Vec<&str>>, None);
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match argument.as_str() {
             "--only" => only = Some(rest.next().ok_or_else(usage)?.split(',').collect()),
+            "--distinct-from" => owner = Some(PathBuf::from(rest.next().ok_or_else(usage)?)),
             flag if flag.starts_with("--") => return Err(usage()),
             _ if root.is_none() => root = Some(PathBuf::from(argument)),
             _ => return Err(usage()),
@@ -276,7 +283,10 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
         return Err(NorthError::Usage(format!("{USAGE}; NAME {unknown} is not one of {}", names.join(", "))));
     }
     let root = root.unwrap_or_else(default_root);
-    let found = findings(&root, only.as_deref());
+    let mut found = findings(&root, only.as_deref());
+    if let Some(owner) = &owner {
+        found.extend(super::same_value::findings(&root, owner, &files(only.as_deref())));
+    }
     if found.is_empty() {
         return Ok(());
     }
