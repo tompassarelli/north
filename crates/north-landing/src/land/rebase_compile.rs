@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use north_base::foundation::offload::LANDER_SLOT_ENV;
 use north_base::platform::harness::{DEFAULTS, document};
 use north_base::platform::process;
 
@@ -42,7 +43,7 @@ fn scope(rebased: &Rebased) -> Result<Option<Scope>, String> {
 
 fn north(program: &Path, tree: &Path, arguments: &[&str], limit: Duration) -> Result<(Option<i32>, String), String> {
     let mut command = Command::new(program);
-    command.args(arguments).current_dir(tree).stdin(Stdio::null());
+    command.args(arguments).current_dir(tree).env(LANDER_SLOT_ENV, "1").stdin(Stdio::null());
     match process::try_run_group_traced_within(command, limit) {
         Ok(Ok(output)) => Ok((output.status.code(), format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))),
         Ok(Err(stalled)) => Err(format!("north {} gave no answer within {} s: {stalled}", arguments.join(" "), limit.as_secs())),
