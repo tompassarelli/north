@@ -2,8 +2,8 @@
 name: workers
 description: >-
   Lead-side staffing: spawn, restaff, review, park or land workers or leads; tiers, ETAs, briefs, reports; cloud workers; auto-wake; fleet take-over.
-grounded: 2026-11-12
-written: 2026-11-12
+grounded: 2026-11-13
+written: 2026-11-13
 ---
 # Workers
 
@@ -18,7 +18,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 - `north fleet dispatch` staffs DeepSeek on leaves outside credentials, sandbox and locking up to the cap in harness/opencode.toml, and sends each DeepSeek `Done:` to a sampled Sonnet review or to safe-push; never launch, relay or forget a DeepSeek worker by hand.
 - Admit a run only when it produces part of the artifact or its result changes the next action and you can name that fork first; uncertainty, confidence, completeness and idle capacity admit none, and no scout, reviewer, verifier, judge, watchdog, status collector or second coordinator shadows ordinary delivery unless asked for that deliverable or an external boundary's answer changes the decision.
 - A leaf needs the owner only for a direction choice or a subjective feel judgment; send the owner no test checklist unless they asked for a playtest.
-- Restaff every stop at the same tier as a fresh worker with `Follows: <agent id and tier>` and the failed evidence; `dispatch::spin` escalates only on `Stop: reasoning`, so keep every other stop on its rung. Message a running worker only with its own task's follow-up; never revive a finished one by message, because its context is spent.
+- Restaff every stop at the same tier as a fresh worker with `Follows: <agent id and tier>` and the failed evidence; dispatch climbs one rung only on a worker-caused spin it reads from the ledger, never from a `Stop:` line, so keep every other stop on its rung ([tiers.md](references/tiers.md)). Message a running worker only with its own task's follow-up; never revive a finished one by message, because its context is spent.
 - Brief header, before the first blank line, then goal, Sources and the state checked at spawn: `Item:`, `Category:`, `Spec:`, `Scope:`, `Surface:`, `Verify:`, `Done when:` (first line an outside oracle, with a backticked command; on a leaf it is the check that closes the issue), `ETA:`, `Files:`, any `Follows:` and `Needs:`.
 - Read [tiers.md](references/tiers.md) when the routing does not settle the tier or the next tier cannot run here; [brief.md](references/brief.md) whenever you write a brief, pick ready work, queue a box behind another lane, or do research Tom asks for inline; [runtime-incidents.md](references/runtime-incidents.md) when a worker or lead fails to start, dies, stops answering or misreports.
 
@@ -39,7 +39,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 
 ## Reports
 
-- Every report begins `Done:`, `Not done:`, `Blocked:` or `Split:`, and every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`. The last message is the report: keep no status files and never resume a worker to check on it. A report that only waits on the coordinator opens `Waiting:` instead, and the reaper keeps its session until the worker's next report.
+- Every report begins `Done:`, `Not done:`, `Blocked:` or `Split:`, and every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision|wait until YYYY-MM-DDTHH:MMZ`. The last message is the report: keep no status files and never resume a worker to check on it. A report that only waits on the coordinator opens `Waiting:` instead, and the reaper keeps its session until the worker's next report.
 - Upward messages are by exception: a child reports a Done, a landing, a refusal or red it cannot fix, or a blocker needing authority it lacks; a lead speaks down when priorities shift.
 - Decide routine calls yourself. A `Stop: decision` or `Blocked: decision` report must name an open gate from `north gate open ... --recommend N --default N --default-after D` (or `--ask-once CATEGORY` in place of the default for an ask-once matter) (Tom, 2026-10-29).
 - Report a fix as landed only once its SHA is an ancestor of a freshly fetched `origin/main`, because queued or Autoland-green is not landed; until then report `Done: queued <worktree> <branch> <sha>`.
