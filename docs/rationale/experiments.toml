@@ -827,3 +827,11 @@ command = "test $(grep -c '^pub mod' crates/north-ops/src/ops/mod.rs) -le 30"
 review = "2026-11-26"
 owner = "tompassarelli/north#1276"
 lead = "proxy"
+
+[[check]]
+id = "n1339-thirty-lane-no-session-share"
+box = "A re-run of the 30-lane measurement on north#1036 reports the no-session stage under 10% of the span minutes"
+command = "sqlite3 -readonly \"${THREADS_DB:-$HOME/.local/state/threads/$(test -e \"$HOME/.config/threads/remote\" && echo snapshot || echo threads).db}\" \"WITH r AS (SELECT replace(lane, rtrim(lane, replace(lane, '/', '')), '') slug, julianday(started) a, julianday(ended) b FROM runs WHERE role = 'worker' AND coalesce(lane, '') <> '' AND started IS NOT NULL), l AS (SELECT lane, julianday(first_commit_at) s, julianday(queued_at) e FROM landings WHERE repo = 'north' AND verdict = 'landed' AND first_commit_at IS NOT NULL AND lane IN (SELECT slug FROM r) ORDER BY queued_at DESC LIMIT 30), c AS (SELECT l.lane, max(r.a, l.s) a, min(r.b, l.e) b FROM l JOIN r ON r.slug = l.lane AND r.b > l.s AND r.a < l.e), m AS (SELECT lane, a, b, max(b) OVER (PARTITION BY lane ORDER BY a ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) p FROM c), i AS (SELECT lane, a, b, sum(p IS NULL OR a > p) OVER (PARTITION BY lane ORDER BY a ROWS UNBOUNDED PRECEDING) k FROM m), u AS (SELECT max(b) - min(a) d FROM i GROUP BY lane, k) SELECT (SELECT count(*) FROM l), round(((SELECT total(e - s) FROM l) - (SELECT total(d) FROM u)) * 1440, 1), round((SELECT total(e - s) FROM l) * 1440, 1)\" | awk -F'|' '{ print \"lanes \" $1 \", no-session \" $2 \" of \" $3 \" span minutes\" } END { exit !($1 >= 30 && $2 < 0.1 * $3) }'"
+review = "2026-11-20"
+owner = "tompassarelli/north#1339"
+lead = "scoreboard-lead"
