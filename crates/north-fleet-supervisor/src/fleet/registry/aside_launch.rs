@@ -24,11 +24,12 @@ pub fn in_eval_unit(cgroup: &str) -> bool {
     leaf.starts_with(EVAL_UNIT_PREFIX) && (leaf.ends_with(".service") || leaf.ends_with(".scope"))
 }
 
-/// Whether the process whose `/proc/PID/cgroup` reads `cgroup` runs in an operator's login scope, `session-N.scope` under the user slice, with no service or north unit among its parents.
-fn in_login_scope(cgroup: &str) -> bool {
+/// Whether the process whose `/proc/PID/cgroup` reads `cgroup` runs in the login scope of the operator with `uid`, `session-N.scope` under that user's `user-UID.slice`, with no service or north unit among its parents.
+fn in_login_scope(cgroup: &str, uid: u32) -> bool {
     let leaves: Vec<&str> = cgroup.lines().last().map(|line| line.split('/').collect()).unwrap_or_default();
     let login = leaves.last().and_then(|leaf| leaf.strip_prefix("session-")?.strip_suffix(".scope")).is_some_and(|number| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()));
-    login && leaves.iter().all(|leaf| !leaf.ends_with(".service") && !leaf.starts_with("north-"))
+    let slice = format!("user-{uid}.slice");
+    login && leaves.contains(&slice.as_str()) && leaves.iter().all(|leaf| !leaf.ends_with(".service") && !leaf.starts_with("north-"))
 }
 
 impl Fleet {
@@ -49,13 +50,17 @@ impl Fleet {
         Err(NorthError::Refused(format!("{} is only for an eval: launch from an {EVAL_UNIT_PREFIX}* unit or from the {EVALS_LEAD} session, so no other session {}", flag.word, flag.misuse)))
     }
 
-    /// Why this launch may not carry `--priority urgent`, or None when it may. Only the coordinator grants urgent, on positive proof: a process in an operator login scope, in an eval unit, in the scope of the live proxy session, or replaying a queue entry admitted as urgent (a replay is judged by its entry, never by the tick that runs it); any other unit, session or not, is refused. `cgroup` is the launcher's `/proc/self/cgroup`, which a worker cannot change.
+    /// Why this launch may not carry `--priority urgent`, or None when it may. Only the coordinator grants urgent, on positive proof: a process in the operator's login scope (the user slice of the uid that owns the fleet root, so another user's login never counts), in an eval unit, in the scope of the live proxy session, or replaying a queue entry admitted as urgent (a replay is judged by its entry, never by the tick that runs it); any other unit, session or not, is refused. `cgroup` is the launcher's `/proc/self/cgroup`, which a worker cannot change.
     pub fn urgent_denied(&self, asked: bool, name: &str, caller: Option<&str>, queued: Option<&str>, cgroup: &str) -> Option<String> {
         let replay = queued == Some(name);
-        if !asked || self.queued_with(|request| request.urgent, name, queued) || (!replay && (in_login_scope(cgroup) || in_eval_unit(cgroup) || self.is_live_proxy(caller, cgroup))) {
+        if !asked || self.queued_with(|request| request.urgent, name, queued) || (!replay && (self.in_operator_login(cgroup) || in_eval_unit(cgroup) || self.is_live_proxy(caller, cgroup))) {
             return None;
         }
         Some(format!("only the coordinator grants urgent priority, so {name} launches at normal priority"))
+    }
+
+    fn in_operator_login(&self, cgroup: &str) -> bool {
+        std::fs::metadata(&self.root).is_ok_and(|root| in_login_scope(cgroup, std::os::unix::fs::MetadataExt::uid(&root)))
     }
 
     fn is_live_proxy(&self, caller: Option<&str>, cgroup: &str) -> bool {
@@ -110,7 +115,9 @@ mod tests {
         assert!(laptop.urgent_denied(true, "child", None, None, WORKER).is_some());
         assert!(laptop.urgent_denied(false, "child", Some("worker"), None, WORKER).is_none());
         assert!(laptop.urgent_denied(true, "child", None, None, EVAL).is_none());
-        assert!(laptop.urgent_denied(true, "child", None, None, "0::/user.slice/user-1000.slice/session-3.scope\n").is_none());
+        let operator = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(home.path()).unwrap());
+        assert!(laptop.urgent_denied(true, "child", None, None, &format!("0::/user.slice/user-{operator}.slice/session-3.scope\n")).is_none());
+        assert!(laptop.urgent_denied(true, "child", None, None, &format!("0::/user.slice/user-{}.slice/session-3.scope\n", operator + 1)).is_some(), "an agent-uid login is not the operator's");
         for unit in ["0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-land@main.service\n", "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-worker-outside-1.service\n"] {
             assert!(laptop.urgent_denied(true, "child", None, None, unit).is_some(), "{unit}");
         }
