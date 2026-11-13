@@ -156,9 +156,6 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
     if ran || checked || boxed {
         settle::outcomes(&tx, context.now)?;
     }
-    if ran {
-        record::restate_fallback_budgets(&tx, context.now)?;
-    }
     tx.commit()?;
     super::claims::lifecycle::record(context.database, &tally.claims, context.now)?;
     let recorded = if readouts.is_empty() { 0 } else { costs::record(&mut db, &readouts, &mut tally.touched)? };

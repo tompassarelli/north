@@ -474,18 +474,3 @@ fn stated_budget_median(db: &Connection, category: &str, started: &str, agent: S
         _ => Some(budgets[middle]),
     })
 }
-
-/// Restates the fallback Budget of recent worker runs whose brief stated none: runs recorded before the fallback took
-/// the stated Budgets' median carry the cost the ledger's runs spent, a different unit from the API-equivalent E.
-pub(super) fn restate_fallback_budgets(db: &Connection, now: Timestamp) -> Result<(), Failure> {
-    let since = Timestamp::from_unix_seconds(now.unix_seconds() - 2 * LEDGER_WEEK).iso();
-    let pending: Vec<(Sql, String, String)> = db
-        .prepare("SELECT agent, category, started FROM runs WHERE role = 'worker' AND budget_source = 'ledger' AND (brief_text IS NULL OR brief_text NOT LIKE '%Budget:%') AND category != 'unknown' AND started >= ?")?
-        .query_map([since], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-        .collect::<Result<_, _>>()?;
-    for (agent, category, started) in pending {
-        let budget = stated_budget_median(db, &category, &started, agent.clone())?;
-        db.execute("UPDATE runs SET budget_usd = ?1, budget_source = CASE WHEN ?1 IS NULL THEN NULL ELSE budget_source END WHERE agent = ?2", params![budget, agent])?;
-    }
-    Ok(())
-}
