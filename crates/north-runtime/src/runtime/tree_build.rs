@@ -15,20 +15,24 @@ const BASE_ENV: &str = "SAFE_PUSH_LAND_BASE";
 const BROKEN: u8 = 1;
 
 pub(super) fn run() -> Result<(), Failure> {
-    let undecided = |error: std::io::Error| failure::failed(failure::DEFERRED, format!("building north from the tree failed, so no older north runs in its place: {error}"));
-    let root = std::env::current_dir().map_err(undecided)?;
+    let undecided = |step: &str, path: &std::path::Path, error: std::io::Error| {
+        failure::failed(failure::DEFERRED, format!("building north from the tree failed at {step} {}, so no older north runs in its place: {error}", path.display()))
+    };
+    let root = std::env::current_dir().map_err(|error| undecided("reading the working directory", std::path::Path::new("."), error))?;
     let base = std::env::var(BASE_ENV).ok().filter(|base| !base.is_empty());
     let mut sides = north_build_system::tree_builders(&root, base.as_deref()).into_iter().peekable();
     while let Some(side) = sides.next() {
         let (invocation, binary) = side.tree_binary(&root, BINARY);
-        binary.parent().map_or(Ok(()), std::fs::create_dir_all).map_err(undecided)?;
+        if let Some(parent) = binary.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| undecided("creating the directory", parent, error))?;
+        }
         if side.copies_out() {
-            std::fs::remove_file(&binary).or_else(|error| if error.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(error) }).map_err(undecided)?;
+            std::fs::remove_file(&binary).or_else(|error| if error.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(error) }).map_err(|error| undecided("removing the previous binary", &binary, error))?;
         }
         eprintln!("north runtime tree-build: {}", invocation.words.join(" "));
-        let output = invocation.command().stdin(Stdio::null()).output().map_err(undecided)?;
+        let output = invocation.command().stdin(Stdio::null()).output().map_err(|error| undecided("running", std::path::Path::new(&invocation.words[0]), error))?;
         if output.status.success() {
-            println!("{}", binary.canonicalize().map_err(undecided)?.display());
+            println!("{}", binary.canonicalize().map_err(|error| undecided("resolving the binary", &binary, error))?.display());
             return Ok(());
         }
         let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
