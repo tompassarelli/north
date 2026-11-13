@@ -4,6 +4,7 @@ use crate::foundation::clock::Timestamp;
 
 const RETIRE: &[north_base::lifecycle::Retire] = &[
     north_base::lifecycle::retire::<north_landing::land::after_landing_lifecycle::AfterLandingRun>,
+    north_landing::land::after_landing_lifecycle::retire_without_lander,
     north_base::lifecycle::retire::<north_core::land_ticket::LandTicket>,
 ];
 

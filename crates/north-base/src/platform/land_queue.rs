@@ -157,6 +157,13 @@ pub fn lander_declared(checkout: &Path) -> bool {
     unit_declared(&lander_unit(checkout))
 }
 
+/// Whether this host declares any lander unit, a repository's own or `north-land-rest`.
+pub fn any_lander_declared() -> bool {
+    let config = std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+    let units = config.map(|config| config.join("systemd/user")).and_then(|directory| std::fs::read_dir(directory).ok());
+    units.into_iter().flatten().flatten().any(|unit| unit.file_name().to_str().is_some_and(|name| name == REST_UNIT || name.starts_with("north-land@")))
+}
+
 /// The declared unit that serves a checkout's queue on this host: its own lander, else `north-land-rest`, which serves every queue no own lander does.
 pub fn serving_unit(checkout: &Path) -> Option<String> {
     let own = lander_unit(checkout);

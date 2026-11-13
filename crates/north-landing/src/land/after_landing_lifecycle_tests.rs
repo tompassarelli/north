@@ -1,7 +1,7 @@
 use north_base::foundation::clock::Timestamp;
 use north_base::lifecycle::{FaultKind, Liveness, Owner, Refusal, Store};
 
-use super::{AfterLandingRun, Main, RedMain, Run, misses, moved};
+use super::{AfterLandingRun, Main, RedMain, Run, misses, moved, retire_unadopted};
 
 struct Gone(u32);
 
@@ -35,7 +35,7 @@ fn a_retired_after_landing_run_may_be_announced_again_and_an_illegal_red_main_mo
 }
 
 #[test]
-fn a_lander_killed_mid_run_leaves_an_orphaned_run_that_health_reports_and_the_next_lander_reruns_keeping_its_misses() {
+fn a_lander_killed_mid_run_leaves_an_orphaned_run_that_health_reports_and_the_next_lander_reruns_keeping_its_misses_and_an_abandoned_after_landing_run_nobody_adopts_is_retired_and_no_longer_reported_overdue() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
     let mut first = lander(&path, 10, 0);
@@ -54,6 +54,18 @@ fn a_lander_killed_mid_run_leaves_an_orphaned_run_that_health_reports_and_the_ne
     assert!(next.history("after-landing-run", "abc").unwrap().iter().any(|logged| logged.to == "abandoned"));
     assert_eq!(misses(&next, "abc"), 1);
     assert!(next.faults(Timestamp::now()).unwrap().is_empty());
+
+    moved::<AfterLandingRun>(&mut first, "def", Run::Journaled, "landed on base").unwrap();
+    moved::<AfterLandingRun>(&mut first, "def", Run::Running, "started").unwrap();
+    let mut third = lander(&path, 12, 10);
+    assert_eq!(third.retire_gone::<AfterLandingRun>(Timestamp::now()).unwrap().len(), 1);
+    let later = Timestamp::from_unix_millis(Timestamp::now().unix_millis() + 31 * 60 * 1000);
+    assert_eq!(third.faults(later).unwrap().len(), 1, "the abandoned run is overdue past its dwell until a pass retires it");
+    assert_eq!(retire_unadopted(&mut third, later).unwrap(), 1);
+    assert_eq!(retire_unadopted(&mut third, later).unwrap(), 0);
+    assert!(third.faults(later).unwrap().is_empty());
+    assert_eq!(third.current::<AfterLandingRun>("def").unwrap().unwrap().state, Run::Retired);
+    assert_eq!(third.current::<AfterLandingRun>("abc").unwrap().unwrap().state, Run::Journaled);
 }
 
 #[test]

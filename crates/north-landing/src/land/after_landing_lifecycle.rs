@@ -4,6 +4,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use north_base::error::NorthResult;
 use north_base::foundation::clock::Timestamp;
 use north_base::lifecycle::{Delivery, Effect, Leased, Lifecycle, Record, Refusal, State, Store};
 
@@ -238,6 +239,25 @@ pub fn take(store: &mut Store, queue: &Path) -> Result<Vec<Leased>, String> {
         println!("north land: after-landing-run {} lost its holder and is now {}", record.instance, record.state.name());
     }
     std::iter::from_fn(|| store.lease(&kind, Timestamp::now(), RUN_HOLD).transpose()).collect::<Result<_, _>>().map_err(|error| error.to_string())
+}
+
+/// Retires each run `Abandoned` past its dwell, which only a lander adopts, so a host with no lander reports it once as
+/// retired instead of overdue on every read; the queue host re-derives the run. Returns how many rows moved.
+pub fn retire_unadopted(store: &mut Store, at: Timestamp) -> NorthResult<usize> {
+    let limit = AfterLandingRun::dwell(Run::Abandoned).map_or(0, |dwell| i64::try_from(dwell.as_millis()).unwrap_or(i64::MAX));
+    let mut retired = 0;
+    for record in store.instances::<AfterLandingRun>()? {
+        if record.state == Run::Abandoned && at.unix_millis().saturating_sub(record.since.unix_millis()) > limit {
+            retired += usize::from(store.transition::<AfterLandingRun>(&record.instance, Run::Retired, "no lander on this host adopts it; the queue host re-derives the run", at)?.is_ok());
+        }
+    }
+    Ok(retired)
+}
+
+/// [`retire_unadopted`] on a host that declares no lander, else nothing: where a lander runs, an abandoned run past its
+/// dwell is the lander stopped, which health must report.
+pub fn retire_without_lander(store: &mut Store, at: Timestamp) -> NorthResult<usize> {
+    if north_base::platform::land_queue::any_lander_declared() { Ok(0) } else { retire_unadopted(store, at) }
 }
 
 /// Settles `head`'s journaled run once its verdict was acted on, or its record says it already was.
