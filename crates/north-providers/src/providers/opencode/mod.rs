@@ -13,6 +13,7 @@ pub mod route;
 pub mod runs;
 mod screen;
 mod shared;
+mod store;
 pub mod turns;
 
 #[cfg(test)]

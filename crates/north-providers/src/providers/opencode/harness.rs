@@ -52,9 +52,9 @@ pub trait Harness: Send + Sync {
         &[]
     }
 
-    /// Whether its JSON events show each compaction of the session, so a turn without one compacted nothing.
-    fn shows_compactions(&self) -> bool {
-        false
+    /// The compactions of the session since `since_ms`, read where this program records them: by default the compaction events its turn printed; none when that record cannot be read.
+    fn compactions(&self, _host: &Host, _since_ms: u64, tally: &Tally) -> Option<u64> {
+        Some(tally.compactions)
     }
 
     /// The variables its child needs on `route`, given the session relay that holds the paid key when the route is Go.
@@ -108,6 +108,10 @@ impl Harness for OpenCode {
 
     fn effort_arms(&self) -> &'static [Effort] {
         &[Effort::High, Effort::Max]
+    }
+
+    fn compactions(&self, host: &Host, since_ms: u64, _tally: &Tally) -> Option<u64> {
+        super::store::compactions(&host.scratch, &host.session, since_ms)
     }
 
     fn environment(&self, host: &Host, route: Route, relay: Option<&Relay>) -> Vec<(String, String)> {

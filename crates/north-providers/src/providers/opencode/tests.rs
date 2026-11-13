@@ -165,9 +165,16 @@ fn a_limited_free_model_runs_the_turn_again_on_go_and_a_go_limit_ends_the_turn_a
     assert!(transcript.entries.iter().any(|entry| entry.kind == EntryKind::Assistant && entry.text == "Done: wrote a.txt"));
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Ended { exit: TurnExit::Completed, .. })));
 
+    assert!(frames.iter().filter(|frame| frame["phase"] == "end").all(|end| end["compactions"].is_null()), "a session whose store cannot be read has no compaction count: {frames:?}");
+
     let limited = tempfile::tempdir().unwrap();
+    let store = limited.path().join("scratch/data/opencode");
+    std::fs::create_dir_all(&store).unwrap();
+    let store = rusqlite::Connection::open(store.join("opencode.db")).unwrap();
+    store.execute_batch("CREATE TABLE session_v2(id TEXT PRIMARY KEY); CREATE TABLE session_message(id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, time_created INTEGER NOT NULL); INSERT INTO session_v2 VALUES ('ses_x'), ('ses_y'); INSERT INTO session_message VALUES ('m0', 'ses_x', 'compaction', 0), ('m1', 'ses_x', 'compaction', 4102444800000), ('m2', 'ses_x', 'assistant', 4102444800000), ('m3', 'ses_y', 'compaction', 4102444800000);").unwrap();
     let (transcript, _, frames) = run_briefs(&runtime, Route::Go, None, limited.path(), &["Box: go-limit"]);
     let end = frames.iter().find(|frame| frame["phase"] == "end").unwrap();
+    assert_eq!(end["compactions"].as_u64(), Some(1), "on 2026-11-14 opencode rows lacked compactions: its run stream shows none, so the count is read from its session store: {end}");
     assert_eq!((end["exit"].as_str(), end["limit"]["resets_at_s"].as_u64()), (Some("failed"), Some(1_794_625_200)), "{end}");
     assert!(frames.iter().all(|frame| frame["phase"] != "fallback"), "a Go limit has no paid route to fall to");
     let message = "OpenCode Go usage limit reached. Switch to a free model, or turn on Extra Usage on the Go page in OpenCode Console to keep going.";

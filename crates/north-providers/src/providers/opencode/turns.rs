@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{Sender, channel};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -62,6 +62,7 @@ struct Turn {
     uuid: String,
     text: String,
     started: Instant,
+    began_ms: u64,
     route: Route,
     attempt: u64,
     pid: u32,
@@ -171,9 +172,13 @@ impl Turn {
             "wall_ms": u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX), "error": self.tally.error,
             "limit": self.tally.limit.as_ref().map(|limit| json!({"resets_at_s": limit.resets_at_s})),
             "tokens": {"input": input, "output": output, "cache_read": cache_read, "cache_write": cache_write},
-            "tool_calls": self.tally.tool_calls, "compactions": host.harness.shows_compactions().then_some(self.tally.compactions),
+            "tool_calls": self.tally.tool_calls, "compactions": host.harness.compactions(host, self.began_ms, &self.tally),
         })
     }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
 }
 
 fn frame(output: &mut impl Write, value: &Value) -> NorthResult<()> {
@@ -200,7 +205,7 @@ fn begin(host: &Host, relay: Option<&Relay>, events: &Sender<Event>, uuid: Strin
         let code = child.wait().ok().and_then(|status| status.code());
         let _ = events.send(Event::Child(attempt, Output::Done(code)));
     });
-    Ok(Turn { uuid, text, started: Instant::now(), route, attempt, pid, tally: Tally::default(), interrupted: false })
+    Ok(Turn { uuid, text, started: Instant::now(), began_ms: now_ms(), route, attempt, pid, tally: Tally::default(), interrupted: false })
 }
 
 fn spawn(host: &Host, relay: Option<&Relay>, route: Route, text: &str) -> NorthResult<Child> {
