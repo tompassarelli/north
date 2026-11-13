@@ -2,7 +2,7 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use super::local::{lane_activity_ms, reflog_ms};
+use super::local::activity::{lane_activity_ms, reflog_ms};
 use super::strays::modified_within;
 use north_base::test_inputs::git::{git_in, init_repo};
 

@@ -1,28 +1,35 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
 use super::Gc;
-use super::archive::{self, window_hours};
-use super::evidence::{IssueState, LaneFacts, committed, committed_each, lane_class, landed, landed_each, lane_issues, origin_repo, protected_branch};
+use super::archive::window_hours;
+use super::evidence::{LaneFacts, committed, committed_each, lane_class, lane_issues, landed, landed_each, origin_repo, protected_branch};
 use super::exec::{command, git, git_slow, real, verified};
+use super::half::Lanes;
+use super::judged::Landed;
+use super::liveness::{holds_git_dir, worktree_admin};
+use super::report::Row;
+use super::state::{LocalStale, Owned};
+use super::strays::modified_within;
 use super::super::landed_tickets::LandedTickets;
 use super::super::{lane_issue, lane_rejection};
 use super::super::live_process::any_inside;
 use super::super::reap::irreplaceable_ignored;
 use super::super::repo::is_lander_tree;
-use super::half::Lanes;
-use super::judged::Landed;
-use super::liveness::{holds_git_dir, worktree_admin};
-use super::report::Row;
-use super::strays::modified_within;
-use super::state::{LocalStale, Owned};
 use super::super::verdict::{Facts, Verdict, retirement_verdict};
 use north_base::foundation::clock::Timestamp;
 use north_base::platform::land_queue;
 
+pub(super) mod activity;
+mod archive_lane;
+mod branch;
+mod config;
+mod surface;
+
+use self::activity::{branch_of, lane_activity_ms, parse_worktrees};
+
+pub(super) const HOUR_MS: f64 = 3_600_000.0;
 const BASES: [&str; 3] = ["refs/remotes/origin/main", "refs/remotes/origin/HEAD", "refs/heads/main"];
-const HOUR_MS: f64 = 3_600_000.0;
 
 struct Container {
     name: String,
@@ -72,81 +79,8 @@ struct Worktree {
     age_h: f64,
 }
 
-pub(super) fn parse_worktrees(porcelain: &str) -> Vec<BTreeMap<String, String>> {
-    porcelain
-        .split("\n\n")
-        .map(|block| block.lines().filter(|line| !line.is_empty()).map(|line| line.split_once(' ').map_or((line.into(), "true".into()), |(k, v)| (k.into(), v.into()))).collect::<BTreeMap<String, String>>())
-        .filter(|fields| fields.contains_key("worktree"))
-        .collect()
-}
-
-fn branch_of(fields: &BTreeMap<String, String>) -> String {
-    fields.get("branch").map(|branch| branch.trim_start_matches("refs/heads/").to_string()).unwrap_or_default()
-}
-
-fn newest_mtime(paths: &[PathBuf]) -> f64 {
-    paths
-        .iter()
-        .filter_map(|path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok())
-        .filter_map(|at| at.duration_since(UNIX_EPOCH).ok())
-        .map(|since| since.as_secs_f64() * 1000.0)
-        .fold(0.0, f64::max)
-}
-
-pub(super) fn reflog_ms(path: &Path) -> f64 {
-    let Ok(text) = std::fs::read_to_string(path) else { return 0.0 };
-    let stamp = |line: &str| line.split('\t').next()?.split_whitespace().rev().nth(1)?.parse::<u64>().ok();
-    text.lines().filter_map(stamp).max().map_or(0.0, |secs| secs as f64 * 1000.0)
-}
-
-pub(super) fn lane_activity_ms(path: &Path, admin: &Path, common: &Path, branch: &str, committed_ms: f64) -> f64 {
-    let mut stamps = vec![reflog_ms(&admin.join("logs/HEAD")), newest_mtime(&[path.to_path_buf(), admin.join("HEAD"), admin.join("index")])];
-    if !branch.is_empty() {
-        stamps.push(reflog_ms(&common.join("logs/refs/heads").join(branch)));
-    }
-    stamps.into_iter().fold(committed_ms, f64::max)
-}
-
 fn cited(issues: &[String]) -> String {
     if issues.is_empty() { String::new() } else { format!(" ({})", issues.join(" ")) }
-}
-
-/// The names of the `branch.<name>` sections listed by `git config --local --get-regexp '^branch\.'`
-/// whose branch is not in `branches`. A key is `branch.<name>.<variable>`, and a variable holds no dot,
-/// so the name is everything before the last dot.
-fn orphaned_branch_sections(listed: &str, branches: &HashSet<String>) -> Vec<String> {
-    let mut names: Vec<String> = listed
-        .lines()
-        .filter_map(|line| line.split_whitespace().next()?.strip_prefix("branch."))
-        .filter_map(|key| key.rsplit_once('.').map(|(name, _)| name.to_owned()))
-        .filter(|name| !branches.contains(name))
-        .collect();
-    names.sort();
-    names.dedup();
-    names
-}
-
-/// The branches other than main whose listed upstream is origin's main: `north lane new` once wrote that
-/// upstream into the shared config for every lane, and a lane needs none because safe-push pushes an
-/// explicit refspec, so the keys only lengthen the config every concurrent lane creation rewrites.
-fn lane_upstreams(listed: &str) -> Vec<String> {
-    let mut remotes: HashMap<&str, &str> = HashMap::new();
-    let mut merges: HashMap<&str, &str> = HashMap::new();
-    for (key, value) in listed.lines().filter_map(|line| line.split_once(' ')) {
-        let Some((name, variable)) = key.strip_prefix("branch.").and_then(|key| key.rsplit_once('.')) else { continue };
-        match variable {
-            "remote" => remotes.insert(name, value),
-            "merge" => merges.insert(name, value),
-            _ => None,
-        };
-    }
-    let mut names: Vec<String> = remotes
-        .into_iter()
-        .filter(|(name, remote)| *name != "main" && *remote == "origin" && merges.get(name) == Some(&"refs/heads/main"))
-        .map(|(name, _)| name.to_owned())
-        .collect();
-    names.sort();
-    names
 }
 
 impl Gc {
@@ -247,37 +181,6 @@ impl Gc {
         deleted
     }
 
-    /// Removes the `branch.<name>` sections whose branch no longer exists and the origin/main upstream of
-    /// every lane branch: `delete_branch` drops the ref with `git update-ref -d`, which leaves the section
-    /// behind, and lanes created before north#1047 each carry an upstream, so a machine that has run whole
-    /// fleets of lanes carries thousands of keys in the config every lane shares (north#1054).
-    fn prune_branch_config(&mut self, sweep: &Container) {
-        let branches: HashSet<String> = git(&sweep.main, &["for-each-ref", "--format=%(refname:short)", "refs/heads"]).out.lines().map(str::to_owned).collect();
-        let listed = git(&sweep.main, &["config", "--local", "--get-regexp", r"^branch\."]).out;
-        let orphans = orphaned_branch_sections(&listed, &branches);
-        let upstreams: Vec<String> = lane_upstreams(&listed).into_iter().filter(|name| branches.contains(name)).collect();
-        if self.options.dry_run {
-            if !orphans.is_empty() {
-                println!("{}: prune {} branch configs whose branch no longer exists", sweep.name, orphans.len());
-            }
-            if !upstreams.is_empty() {
-                println!("{}: drop the origin/main upstream of {} lane branches", sweep.name, upstreams.len());
-            }
-            return;
-        }
-        for name in orphans {
-            if git(&sweep.main, &["config", "--local", "--remove-section", &format!("branch.{name}")]).ok {
-                self.counts.pruned_branch_configs += 1;
-            }
-        }
-        for name in upstreams {
-            let dropped = ["remote", "merge"].map(|variable| git(&sweep.main, &["config", "--local", "--unset", &format!("branch.{name}.{variable}")]).ok);
-            if dropped.iter().all(|ok| *ok) {
-                self.counts.dropped_upstreams += 1;
-            }
-        }
-    }
-
     fn sweep_worktree(&mut self, sweep: &mut Container, fields: &BTreeMap<String, String>, live: &[PathBuf]) -> Result<(), String> {
         let path = PathBuf::from(&fields["worktree"]);
         if real(&path).parent() != Some(sweep.lanes.as_path()) || is_lander_tree(&path) {
@@ -366,13 +269,6 @@ impl Gc {
         why.to_string()
     }
 
-    fn surface(&mut self, sweep: &mut Container, place: &str, branch: &str, age_h: i64, refs: &[String]) -> Result<String, String> {
-        let owner = self.owner(&sweep.name)?;
-        let issues = if refs.is_empty() { vec!["fault: names no issue".to_string()] } else { refs.iter().zip(self.issue_states(refs)).map(|(item, state)| format!("{item}={}", state.label())).collect() };
-        sweep.owned.push(Owned { place: place.into(), branch: branch.into(), age_h, refs: refs.to_vec(), issues, owner: owner.clone() });
-        Ok(owner)
-    }
-
     fn decide_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf]) -> Result<bool, String> {
         let dirty = !lane.dirty.is_empty();
         let issues = lane_issues(&sweep.main, &sweep.own, &sweep.base, &lane.branch, &lane.tip).unwrap_or_default();
@@ -431,60 +327,6 @@ impl Gc {
         self.local_archive_guard(&sweep.main, &sweep.name, issues, &lane.branch, Some(&lane.path))
     }
 
-    fn list_open(&mut self, issues: &[String], states: &[IssueState], place: &str) {
-        for (issue, state) in issues.iter().zip(states) {
-            if *state == IssueState::Open {
-                self.kept_open.entry(issue.clone()).or_default().push(place.to_owned());
-            }
-        }
-    }
-
-    fn archive_lane(&mut self, sweep: &mut Container, lane: &ArchiveLane) -> bool {
-        let why = match lane.rejected {
-            Some(verdict) => format!("rejected: {verdict}"),
-            None if lane.issues.is_empty() => "no issue, no owner".to_owned(),
-            None => format!("issue closed: {}", lane.issues.join(" ")),
-        };
-        let spec = archive::Lane { main: &sweep.main, base: &sweep.base, project: &sweep.name, worktree: lane.worktree, branch: lane.branch, tip: lane.tip, issues: lane.issues, why: &why };
-        if let Some(found) = archive::broken(&spec, &self.options.archive) {
-            self.skip_broken(sweep, lane, &spec, &found);
-            return false;
-        }
-        let directory = self.options.archive.join(&sweep.name);
-        if self.options.dry_run {
-            println!("{}: archive {} ({why}) to {}, then reap", sweep.name, lane.place, self.tilde(&directory));
-            self.count_archived(lane);
-            return true;
-        }
-        match archive::archive(&spec, &self.options.archive, self.now_ms) {
-            Ok(file) => {
-                println!("{}: archived {} ({why}) to {}, then reaped", sweep.name, lane.place, self.tilde(&file));
-                sweep.checked_out.remove(lane.branch);
-                self.count_archived(lane);
-                true
-            }
-            Err(error) => {
-                println!("{}: kept {}: {error}", sweep.name, lane.place);
-                false
-            }
-        }
-    }
-
-    fn skip_broken(&mut self, sweep: &Container, lane: &ArchiveLane, spec: &archive::Lane, found: &archive::Broken) {
-        if self.options.dry_run {
-            println!("{}: broken ref {}: {}; not archived", sweep.name, lane.place, found.detail);
-        } else if !found.recorded {
-            let noted = archive::note_broken(spec, &self.options.archive, found, self.now_ms);
-            println!("{}: broken ref {}: {}; {}", sweep.name, lane.place, found.detail, noted.map_or_else(|error| format!("not recorded ({error})"), |()| "recorded, skipped from now on".to_owned()));
-        }
-    }
-
-    fn count_archived(&mut self, lane: &ArchiveLane) {
-        self.counts.archived += 1;
-        self.counts.retired_worktrees += usize::from(lane.worktree.is_some());
-        self.counts.deleted_branches += usize::from(!lane.branch.is_empty());
-    }
-
     fn retire_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf], basis: &str) -> bool {
         let reason = if let Some(ticket) = land_queue::waiting_on(&land_queue::queues(&self.home.join(".local/state")), &land_queue::local_host(), &lane.path).first() {
             format!("land ticket {} still waits", ticket.display())
@@ -529,59 +371,5 @@ impl Gc {
             self.counts.deleted_branches += 1;
         }
         true
-    }
-
-    fn sweep_branch(&mut self, sweep: &mut Container, branch: &str, tip: &str) -> Result<(), String> {
-        if protected_branch(branch) || sweep.checked_out.contains(branch) {
-            return Ok(());
-        }
-        let verdict = sweep.landed(tip);
-        let branch_age = sweep.cutoff_ms - reflog_ms(&sweep.common.join("logs/refs/heads").join(branch));
-        if !verdict.landed {
-            return self.decide_branch(sweep, branch, tip, &verdict);
-        }
-        self.delete_branch_after_idle(sweep, branch, tip, branch_age, &verdict.how);
-        Ok(())
-    }
-
-    fn delete_branch_after_idle(&mut self, sweep: &Container, branch: &str, tip: &str, branch_age: f64, basis: &str) {
-        let facts = Facts { age: branch_age.floor() as i64, minimum_age: 0, merged: true, equivalent: false, evil_merge: false, archive_age: None, protections: 0 };
-        if retirement_verdict(&facts) == Verdict::Keep {
-            self.counts.kept += 1;
-        } else if self.options.dry_run {
-            println!("{}: delete branch {branch} ({basis})", sweep.name);
-            self.counts.deleted_branches += 1;
-        } else if self.delete_branch(&sweep.main, branch, tip) {
-            self.counts.deleted_branches += 1;
-        }
-    }
-
-    fn decide_branch(&mut self, sweep: &mut Container, branch: &str, tip: &str, verdict: &Landed) -> Result<(), String> {
-        let name = sweep.name.clone();
-        let issues = lane_issues(&sweep.main, &sweep.own, &sweep.base, branch, tip).unwrap_or_default();
-        let states = self.issue_states(&issues);
-        let class = lane_class(&LaneFacts { dirty: false, equivalent: false, issues: &states, idle_hours: 0.0, held: false });
-        if let Some(window) = window_hours(&states) {
-            let touched_ms = reflog_ms(&sweep.common.join("logs/refs/heads").join(branch)).max(sweep.committed(tip) as f64 * 1000.0);
-            let age_h = (self.now_ms as f64 - touched_ms) / HOUR_MS;
-            let why = if age_h < window { format!("touched within {} days", window / 24.0) } else { self.local_archive_guard(&sweep.main, &name, &issues, branch, None) };
-            if why.is_empty() {
-                let found = ArchiveLane { worktree: None, branch, tip, place: &format!("branch {branch}"), issues: &issues, rejected: None };
-                if self.archive_lane(sweep, &found) {
-                    return Ok(());
-                }
-            } else if self.options.dry_run {
-                println!("{name}: {} branch {branch}: keep ({why})", class.label());
-            }
-        }
-        let row = Row { place: "(branch)", branch, ahead: verdict.ahead, dirty: "", class };
-        let hours = self.unlanded_row(&name, &sweep.main, &sweep.base, tip, sweep.committed(tip), &row);
-        let owner = self.surface(sweep, "(branch)", branch, hours, &issues)?;
-        self.list_open(&issues, &states, &format!("branch {branch}"));
-        self.counts.kept += 1;
-        if self.options.dry_run {
-            println!("{name}: {} branch {branch}: surface to {owner}{}", class.label(), cited(&issues));
-        }
-        Ok(())
     }
 }
