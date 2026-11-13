@@ -11,6 +11,7 @@ use super::broker_wire::{Request, read_response, write_request};
 
 pub const SOCKET_ENV: &str = "NORTH_BROKER_SOCKET";
 pub const SYSTEM_SOCKET: &str = "/run/north-broker/broker.sock";
+pub const AGENT_SOCKET: &str = "/run/agent-brokers/broker.sock";
 pub const AGENT_APP: &str = "agent";
 pub const LANDER_APP: &str = "lander";
 const START_LIMIT: Duration = Duration::from_secs(15);
@@ -97,10 +98,8 @@ fn connect() -> Result<UnixStream, String> {
     if let Some(path) = std::env::var_os(SOCKET_ENV).filter(|path| !path.is_empty()) {
         return UnixStream::connect(&path).map_err(|error| format!("the broker socket {} does not answer: {error}", Path::new(&path).display()));
     }
-    match UnixStream::connect(SYSTEM_SOCKET) {
-        Ok(stream) => return Ok(stream),
-        Err(error) if Path::new(SYSTEM_SOCKET).exists() => return Err(format!("the broker socket {SYSTEM_SOCKET} exists and does not answer this user: {error}")),
-        Err(_) => {}
+    if let Some(stream) = connect_shared(Path::new(SYSTEM_SOCKET), Path::new(AGENT_SOCKET))? {
+        return Ok(stream);
     }
     let socket = user_socket().ok_or_else(|| format!("no broker answers at {SYSTEM_SOCKET} and XDG_RUNTIME_DIR is unset"))?;
     if let Ok(stream) = UnixStream::connect(&socket) {
@@ -108,6 +107,15 @@ fn connect() -> Result<UnixStream, String> {
     }
     start_user_broker(&socket)?;
     UnixStream::connect(&socket).map_err(|error| format!("the broker socket {} does not answer: {error}", socket.display()))
+}
+
+fn connect_shared(system: &Path, agent: &Path) -> Result<Option<UnixStream>, String> {
+    match UnixStream::connect(system) {
+        Ok(stream) => return Ok(Some(stream)),
+        Err(error) if system.exists() => return Err(format!("the broker socket {} exists and does not answer this user: {error}", system.display())),
+        Err(_) => {}
+    }
+    Ok(UnixStream::connect(agent).ok())
 }
 
 fn start_user_broker(socket: &Path) -> Result<(), String> {
@@ -126,3 +134,7 @@ fn start_user_broker(socket: &Path) -> Result<(), String> {
     }
     Err(format!("no broker answers at {SYSTEM_SOCKET}, and the one started for this user did not answer at {} within {} s", socket.display(), START_LIMIT.as_secs()))
 }
+
+#[cfg(test)]
+#[path = "broker_client_tests.rs"]
+mod tests;
