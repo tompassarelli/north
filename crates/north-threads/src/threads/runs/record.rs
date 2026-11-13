@@ -4,11 +4,11 @@ use std::collections::BTreeSet;
 
 use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use north_strategy_types::brief::CATEGORIES;
 
 use super::brief::{Fields, Source};
 use super::costs::Touched;
 use crate::foundation::clock::Timestamp;
-use crate::router::brief::CATEGORIES;
 use super::row::{Row, bind, python_repr, text, truthy, value};
 use serde_json::{Value, json};
 use crate::platform::run_roles;

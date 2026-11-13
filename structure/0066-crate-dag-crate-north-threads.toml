@@ -1,5 +1,5 @@
 [[crate_dag.crate]]
 name = "north-threads"
 paths = ["crates/*/src/threads.rs", "crates/*/src/threads/**"]
-may_use = ["north-pace", "north-publish"]
+may_use = ["north-strategy-types", "north-publish"]
 

@@ -29,8 +29,8 @@ rust_library(
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
-        "//crates/north-pace:north-pace",
         "//crates/north-publish:north-publish",
+        "//crates/north-strategy-types:north-strategy-types",
         "//third-party:regex",
         "//third-party:rusqlite",
         "//third-party:rustix",
@@ -55,8 +55,8 @@ north_rust_test(
     rustc_flags = RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
-        "//crates/north-pace:north-pace",
         "//crates/north-publish:north-publish",
+        "//crates/north-strategy-types:north-strategy-types",
         "//third-party:regex",
         "//third-party:rusqlite",
         "//third-party:rustix",

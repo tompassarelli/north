@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use north_strategy_types::credit::Snapshot;
 use serde::{Deserialize, Serialize};
 
-use crate::credit::Snapshot;
 use crate::error::NorthResult;
 use crate::runtime::binary;
 use crate::ssh::{SSH_WAIT, over_ssh_via};

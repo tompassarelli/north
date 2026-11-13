@@ -1,11 +1,10 @@
 //! The fields a worker brief names, read the way bin/threads reads them.
 use std::sync::LazyLock;
 
+use north_strategy_types::brief::CATEGORIES;
 use regex::Regex;
 
-use crate::router::brief::CATEGORIES;
-
-pub use crate::router::brief::FACETS;
+pub use north_strategy_types::brief::FACETS;
 
 fn field(name: &str) -> Regex {
     Regex::new(&format!(r"\b{name}:[ \t]*([^\s`<>]+)")).expect("brief field pattern")

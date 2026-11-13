@@ -11,7 +11,8 @@ use crate::router::pricing::PriceTable;
 pub mod marks;
 pub mod readings;
 mod runs;
-pub use runs::{Finished, Open, Reading, Snapshot, api_runs, store};
+pub use north_strategy_types::credit::{Finished, Open, Snapshot};
+pub use runs::{Reading, api_runs, store, take_snapshot};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Grant {

@@ -70,7 +70,7 @@ fn a_run_the_ledger_recorded_without_an_account_does_not_fail_the_snapshot() {
     db.execute_batch("CREATE TABLE runs(session TEXT NOT NULL, account TEXT, model TEXT, started_ms INTEGER NOT NULL, ended_ms INTEGER NOT NULL, tokens_in INTEGER NOT NULL, tokens_out INTEGER NOT NULL, tokens_cache_read INTEGER NOT NULL, tokens_cache_write INTEGER NOT NULL)").unwrap();
     db.execute("INSERT INTO runs VALUES ('killed-before-its-first-turn', NULL, ?1, ?2, ?3, 0, 0, 0, 0)", rusqlite::params![MODEL, NOW - 5000, NOW - 4000]).unwrap();
     drop(db);
-    let taken = Snapshot::take("whiterabbit", &ledger, Vec::new(), NOW);
+    let taken = take_snapshot("whiterabbit", &ledger, Vec::new(), NOW);
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(taken.unwrap().finished.iter().map(|run| run.account.clone()).collect::<Vec<_>>(), vec![None]);
 }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 const PRICES: &str = include_str!("prices.json");
 
@@ -63,13 +63,7 @@ pub struct Price {
     cache_write: f64,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TokenUse {
-    pub input: i64,
-    pub output: i64,
-    pub cache_read: i64,
-    pub cache_write: i64,
-}
+pub use north_strategy_types::tokens::TokenUse;
 
 impl Price {
     pub fn of(self, tokens: TokenUse) -> f64 {

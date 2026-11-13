@@ -1312,8 +1312,8 @@ name = "north-fleet-store"
 version = "0.1.0"
 dependencies = [
  "north-base",
- "north-pace",
  "north-publish",
+ "north-strategy-types",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1739,6 +1739,7 @@ name = "north-pace"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-strategy-types",
  "proptest",
  "regex",
  "rusqlite",
@@ -1925,8 +1926,8 @@ name = "north-threads"
 version = "0.1.0"
 dependencies = [
  "north-base",
- "north-pace",
  "north-publish",
+ "north-strategy-types",
  "regex",
  "rusqlite",
  "rustix 0.38.44",

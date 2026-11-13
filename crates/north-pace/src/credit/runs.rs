@@ -4,47 +4,19 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
-use serde::{Deserialize, Serialize};
+use north_strategy_types::credit::{Finished, Open, Snapshot};
+use north_strategy_types::tokens::TokenUse;
 
 use crate::foundation::clock::Timestamp;
-use crate::router::pricing::{PriceTable, TokenUse};
+use crate::router::pricing::PriceTable;
 
 const SNAPSHOT_DAYS: i64 = 120;
 const OPEN_FRESH_MS: i64 = 10 * 60 * 1000;
 const DAY_MS: i64 = 86_400_000;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Finished {
-    pub session: String,
-    pub account: Option<String>,
-    pub model: Option<String>,
-    pub started_ms: i64,
-    pub ended_ms: i64,
-    pub tokens: TokenUse,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Open {
-    pub session: String,
-    pub account: String,
-    pub model: Option<String>,
-    pub tokens: TokenUse,
-}
-
-/// What one host knew of its spend at `read_ms`: the runs its ledger holds and the turns running on it then.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Snapshot {
-    pub host: String,
-    pub read_ms: i64,
-    pub finished: Vec<Finished>,
-    pub open: Vec<Open>,
-}
-
-impl Snapshot {
-    /// This host's snapshot: the api runs in `ledger` of the last 120 days, its runs on any account of the last day, and `open`, the turns running now.
-    pub fn take(host: &str, ledger: &Path, open: Vec<Open>, now_ms: i64) -> Result<Self, String> {
-        Ok(Self { host: host.to_owned(), read_ms: now_ms, finished: finished(ledger, now_ms - SNAPSHOT_DAYS * DAY_MS, now_ms - DAY_MS)?, open })
-    }
+/// This host's snapshot: the api runs in `ledger` of the last 120 days, its runs on any account of the last day, and `open`, the turns running now.
+pub fn take_snapshot(host: &str, ledger: &Path, open: Vec<Open>, now_ms: i64) -> Result<Snapshot, String> {
+    Ok(Snapshot { host: host.to_owned(), read_ms: now_ms, finished: finished(ledger, now_ms - SNAPSHOT_DAYS * DAY_MS, now_ms - DAY_MS)?, open })
 }
 
 fn finished(ledger: &Path, api_since_ms: i64, any_since_ms: i64) -> Result<Vec<Finished>, String> {

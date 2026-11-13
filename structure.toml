@@ -351,7 +351,7 @@ may_use = ["north-dispatch", "north-threads", "north-github-mirror", "north-lane
 [[crate_dag.crate]]
 name = "north-pace"
 paths = ["crates/*/src/pace.rs", "crates/*/src/pace/**", "crates/*/src/spend/**", "crates/*/src/router.rs", "crates/*/src/router/**", "crates/*/src/usage.rs", "crates/*/src/usage/**"]
-may_use = ["north-base"]
+may_use = ["north-base", "north-strategy-types"]
 
 [[crate_dag.crate]]
 name = "north-calibration"
@@ -361,7 +361,7 @@ may_use = ["north-threads"]
 [[crate_dag.crate]]
 name = "north-threads"
 paths = ["crates/*/src/threads.rs", "crates/*/src/threads/**"]
-may_use = ["north-pace", "north-publish"]
+may_use = ["north-strategy-types", "north-publish"]
 
 [[crate_dag.crate]]
 name = "north-session-host"
@@ -376,7 +376,7 @@ may_use = ["north-base"]
 [[crate_dag.crate]]
 name = "north-fleet-store"
 paths = ["crates/north-fleet-store/src/**"]
-may_use = ["north-base", "north-pace", "north-publish"]
+may_use = ["north-base", "north-strategy-types", "north-publish"]
 
 [[crate_dag.crate]]
 name = "north-fleet"
@@ -454,7 +454,7 @@ may_use = ["foundation", "platform", "platform.process", "runtime_follow"]
 [[module]]
 name = "strategy_types"
 paths = ["crates/north-strategy-types/src/**"]
-responsibility = "The decision records the kernel writes and strategies read: one Case and one Decision per decision kind."
+responsibility = "The decision records the kernel writes and strategies read: one Case and one Decision per decision kind, and the brief vocabulary, token counts and api-spend snapshot the pace and store crates share."
 may_use = []
 
 [[module]]
@@ -580,7 +580,7 @@ may_use = ["foundation", "lifecycle"]
 name = "domain"
 paths = ["crates/north-core/src/domain/**", "crates/*/src/pace/**", "crates/*/src/spend/**", "crates/*/src/router.rs", "crates/*/src/router/**", "crates/north-pace/src/credit.rs", "crates/north-pace/src/credit/**"]
 responsibility = "Fleet members, messages, briefs, work-item refs, routing, the spend rule and placement policy."
-may_use = ["foundation", "crate-roots", "lifecycle", "platform.harness"]
+may_use = ["foundation", "crate-roots", "lifecycle", "platform.harness", "strategy_types"]
 
 [[module]]
 name = "fleet"
@@ -592,7 +592,7 @@ may_use = ["domain", "foundation", "crate-roots", "lifecycle", "claude_stream", 
 name = "fleet_store"
 paths = ["crates/north-fleet-store/src/**"]
 responsibility = "The fleet's durable rows and their exchange: the sessions, messages, waits and gates in the SQLite store, the spool and ssh exchange between hosts, gate requests and their lifecycle, and the sender, status and delivery words they carry."
-may_use = ["crate-roots", "domain", "foundation", "lifecycle", "platform.harness", "platform.process"]
+may_use = ["crate-roots", "domain", "foundation", "lifecycle", "platform.harness", "platform.process", "strategy_types"]
 
 [[module]]
 name = "claude_stream"
@@ -616,7 +616,7 @@ may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "cap
 name = "threads"
 paths = ["crates/north-threads/src/threads/**", "crates/north-calibration/src/threads/**"]
 responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, remote host access."
-may_use = ["domain", "foundation", "crate-roots", "lifecycle", "build_inputs", "platform.process", "platform", "platform.harness"]
+may_use = ["domain", "foundation", "crate-roots", "lifecycle", "build_inputs", "platform.process", "platform", "platform.harness", "strategy_types"]
 
 [[module]]
 name = "autoland_status"

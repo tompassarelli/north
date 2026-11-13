@@ -11,6 +11,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-strategy-types = { path = "../north-strategy-types" }
 regex.workspace = true
 rusqlite.workspace = true
 rustix.workspace = true

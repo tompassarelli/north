@@ -2,5 +2,5 @@
 name = "threads"
 paths = ["crates/north-threads/src/threads/**", "crates/north-calibration/src/threads/**"]
 responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, remote host access."
-may_use = ["domain", "foundation", "crate-roots", "lifecycle", "build_inputs", "platform.process", "platform", "platform.harness"]
+may_use = ["domain", "foundation", "crate-roots", "lifecycle", "build_inputs", "platform.process", "platform", "platform.harness", "strategy_types"]
 

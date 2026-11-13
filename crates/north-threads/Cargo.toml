@@ -11,7 +11,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
-north-pace = { path = "../north-pace" }
+north-strategy-types = { path = "../north-strategy-types" }
 north-publish = { path = "../north-publish" }
 regex.workspace = true
 rusqlite.workspace = true

@@ -26,7 +26,7 @@ fn marks_dir() -> PathBuf {
 
 pub(super) fn take(fleet: &Fleet) -> NorthResult<Snapshot> {
     let now = i64::try_from(now_ms()).unwrap_or(i64::MAX);
-    Snapshot::take(fleet.host(), &ledger(), fleet.open_api_turns()?, now).map_err(NorthError::State)
+    credit::take_snapshot(fleet.host(), &ledger(), fleet.open_api_turns()?, now).map_err(NorthError::State)
 }
 
 /// Adopts the exhausted marks another host `sent` and answers with every mark this host holds.

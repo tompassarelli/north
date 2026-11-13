@@ -2,5 +2,5 @@
 name = "domain"
 paths = ["crates/north-core/src/domain/**", "crates/*/src/pace/**", "crates/*/src/spend/**", "crates/*/src/router.rs", "crates/*/src/router/**", "crates/north-pace/src/credit.rs", "crates/north-pace/src/credit/**"]
 responsibility = "Fleet members, messages, briefs, work-item refs, routing, the spend rule and placement policy."
-may_use = ["foundation", "crate-roots", "lifecycle", "platform.harness"]
+may_use = ["foundation", "crate-roots", "lifecycle", "platform.harness", "strategy_types"]
 
