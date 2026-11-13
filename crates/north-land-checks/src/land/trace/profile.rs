@@ -150,6 +150,10 @@ fn union(spans: &[&Span]) -> f64 {
     total + current.map_or(0.0, |(from, to)| to - from)
 }
 
+pub fn leaves(members: &[Span], window: (f64, f64)) -> Split {
+    attribute(&members.iter().collect::<Vec<_>>(), None, window)
+}
+
 fn attribute(members: &[&Span], root: Option<&Span>, window: (f64, f64)) -> Split {
     let mut split = Split::default();
     if members.is_empty() || window.1 <= window.0 {

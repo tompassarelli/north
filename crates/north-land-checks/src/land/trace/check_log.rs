@@ -26,6 +26,7 @@ const TEST_RESULT: &str = "test result: ";
 const OFFLOAD_RUNNING: &str = "offload: running ";
 const WAITED_IN_LINE: &str = "offload: waited ";
 const LINE_KEPT: usize = 4 * 1024;
+const CRATES_SPLIT: &str = "north land crate-tests: tested ";
 const RESERVED: &str = "\"decision\":\"RESERVED\"";
 const RELEASED: &str = "\"decision\":\"RELEASED\"";
 const SANDBOX_STEPS: [(&str, &str); 7] = [("scope", "sandbox start: scope"), ("capacity gate", "sandbox start: capacity gate"), ("derivation", "sandbox start: derivation"), ("nix eval", "sandbox start: nix eval"), ("gc root", "sandbox start: gc root"), ("target seed", "sandbox start: target seed"), ("nix develop", "sandbox start: nix develop")];
@@ -35,7 +36,7 @@ pub const SLOT_SHIP: &str = "slot and tree proof: ship";
 
 pub fn is_marker(line: &str) -> bool {
     let line = line.trim();
-    line.starts_with(RUNNING) || line.starts_with(DOC_TESTS) || line.starts_with(FINISHED) || line.starts_with(TEST_RESULT) || line.starts_with(OFFLOAD_RUNNING) || line.starts_with(WAITED_IN_LINE) || line.starts_with(TIMED) || is_reserved(line) || is_released(line)
+    line.starts_with(RUNNING) || line.starts_with(DOC_TESTS) || line.starts_with(FINISHED) || line.starts_with(TEST_RESULT) || line.starts_with(OFFLOAD_RUNNING) || line.starts_with(WAITED_IN_LINE) || line.starts_with(TIMED) || line.starts_with(CRATES_SPLIT) || is_reserved(line) || is_released(line)
 }
 
 pub fn waited_in_line(line: &str) -> Option<f64> {
@@ -62,6 +63,19 @@ pub fn waited_in_stream(stream: impl Read) -> Option<f64> {
         }
     }
     found.or_else(|| waited_in_line(&String::from_utf8_lossy(&line)))
+}
+
+pub fn crates_split_line(decided: usize, tested: usize) -> String {
+    format!("{CRATES_SPLIT}{decided} crates with Buck2, {tested} with the declared line")
+}
+
+pub fn crates_split(line: &str) -> Option<(u32, u32)> {
+    let (decided, rest) = line.trim().strip_prefix(CRATES_SPLIT)?.split_once(" crates with Buck2, ")?;
+    Some((decided.parse().ok()?, rest.strip_suffix(" with the declared line")?.parse().ok()?))
+}
+
+pub fn line_wait(marks: &[Mark]) -> f64 {
+    marks.iter().map(|mark| waited_in_line(&mark.line).or_else(|| is_reserved(&mark.line).then(|| queued_seconds(&mark.line)).flatten()).unwrap_or_default()).sum()
 }
 
 pub fn is_offload_running(line: &str) -> bool {

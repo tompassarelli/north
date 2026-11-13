@@ -219,6 +219,7 @@ pub struct CrateTests {
     daemon: String,
     /// Whether this host runs a passed crate's host cases from the binaries Buck2 builds (`[hosts.NAME] buck2_host_cases`).
     builds_host_cases: bool,
+    members: usize,
 }
 
 impl CrateTests {
@@ -236,6 +237,14 @@ impl CrateTests {
     /// crate's package, run in the declared line's shell.
     pub fn host_runs(&self, root: &Path, target: &str, cases: &BTreeMap<String, Vec<String>>) -> Result<BTreeMap<String, Vec<String>>, String> {
         host_runs(root, &self.shell, &self.daemon, target, &self.packages, cases)
+    }
+
+    /// How many crates the declared line tests once Buck2 passed `passed`: the selected ones left, or the workspace's members but those.
+    pub fn declared_crates(&self, passed: &BTreeSet<String>) -> usize {
+        match &self.selected {
+            Selected::Workspace => self.members.saturating_sub(passed.len()),
+            Selected::Packages(names) => names.iter().filter(|name| !passed.contains(*name)).count(),
+        }
     }
 
     /// The declared line's package selection for what stays on Cargo once Buck2 passed `passed`; `None` when nothing is left.
@@ -297,6 +306,7 @@ pub(crate) fn crate_tests(side: &Buck2, root: &Path, base: &str, declared: &str,
     for name in &unpackaged {
         eprintln!("north land crate-tests: {name} is listed but has no Buck2 package in this tree, so the declared line tests it");
     }
+    let members = packages.len();
     let packages: BTreeMap<String, String> = names.iter().filter_map(|name| Some((name.clone(), packages.get(name)?.clone()))).collect();
     if names.is_empty() {
         return None;
@@ -304,7 +314,7 @@ pub(crate) fn crate_tests(side: &Buck2, root: &Path, base: &str, declared: &str,
     side.enter(root);
     let run = Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Typed(packages.values().cloned().collect()), resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None };
     let line = behind(shell, side.tests(&run));
-    Some(CrateTests { moved: names, packages, line, selected, caseless: BTreeSet::new(), shell: lead(shell), daemon: side.host_cases_daemon(), builds_host_cases })
+    Some(CrateTests { moved: names, packages, line, selected, caseless: BTreeSet::new(), shell: lead(shell), daemon: side.host_cases_daemon(), builds_host_cases, members })
 }
 
 /// How the host-case build uses the store's action results: not at all, since any client on the store's network may write one

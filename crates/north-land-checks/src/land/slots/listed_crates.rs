@@ -25,6 +25,7 @@ use north_build_system::{Cases, CrateTests, TestRun};
 use super::affected::PACKAGES_ENV;
 use super::it_modules::IT_ENV;
 use super::unit_reuse::quote;
+use crate::land::trace::check_log;
 
 const USAGE: &str = "north land crate-tests available | north land crate-tests host-cases [PACKAGE...] | north land crate-tests -- COMMAND";
 const BASE_ENV: &str = "SAFE_PUSH_LAND_BASE";
@@ -214,6 +215,7 @@ fn execute(declared: &str) -> u8 {
             passed.clear();
         }
     }
+    eprintln!("{}", check_log::crates_split_line(passed.len(), split.declared_crates(&passed)));
     split.left(&passed).map_or(0, |packages| declared_line(line, Some(&packages)))
 }
 

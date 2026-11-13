@@ -13,7 +13,7 @@ use crate::landing::check_timings::{Base, BaseResult, Deadline, Timings};
 use super::{Shared, host_name, say, timeout_row, warn};
 use super::checkout::BaseTree;
 use super::log::{log_findings, first_error};
-use super::spawn::{Attempt, Ran};
+use super::spawn::{Attempt, Ended, Ran};
 
 impl Shared {
     pub(super) fn deadline_of(&self, command: &str) -> Deadline {
@@ -39,7 +39,7 @@ impl Shared {
             let _ = fs::remove_file(&ran.log);
             return self.cancelled(command, started, ran.status, ran.seconds, cpu);
         }
-        self.remember(command, started, ran.status, CheckOutcome::of(ran.status), ran.seconds, cpu);
+        self.remember(command, started, CheckOutcome::of(ran.status), &Ended { status: ran.status, wall: ran.seconds, cpu, marks: &ran.marks });
         let _ = timings.record(&self.trees.head, command, &class, ran.timing());
         if ran.exceeded {
             let base = timings.base(&self.trees.base, command, &class, timeout);

@@ -2,14 +2,17 @@ use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::check_times;
+use crate::landing::check_timings::outcomes::Records;
 use super::profile::{Profile, Split, Trace, percentile};
 use super::{Category, Span, Spans};
 use crate::foundation::clock::Timestamp;
 use crate::platform::records_mirror;
 use crate::land::telemetry::epoch;
 
-const USAGE: &str = "usage: north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]";
+const USAGE: &str = "usage: north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--host NAME] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]";
 const TOP: usize = 10;
+const HOST_WINDOW: f64 = 7.0 * 86_400.0;
 
 pub fn duration_seconds(text: &str) -> Option<f64> {
     let split = text.find(|character: char| !character.is_ascii_digit() && character != '.')?;
@@ -163,19 +166,21 @@ pub fn render(profiles: &[Profile<'_>], since: f64) -> String {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    let mut since = 3600.0;
+    let mut since = None;
     let mut files = Vec::new();
     let mut only = None;
     let mut metric = None;
     let mut repo = None;
     let mut last = None;
+    let mut host = None;
     let mut rest = arguments.iter();
     while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next()) {
-            ("--since", Some(value)) if let Some(parsed) = duration_seconds(value) => since = parsed,
+            ("--since", Some(value)) if let Some(parsed) = duration_seconds(value) => since = Some(parsed),
             ("--spans", Some(value)) => files.push(PathBuf::from(value)),
             ("--landing", Some(value)) => only = Some(value.clone()),
             ("--repo", Some(value)) => repo = Some(value.clone()),
+            ("--host", Some(value)) => host = Some(value.clone()),
             ("--last", Some(value)) if value.parse::<usize>().is_ok_and(|count| count > 0) => last = value.parse().ok(),
             ("--metric", Some(value)) if Metric::parse(value).is_some() => metric = Metric::parse(value),
             _ => {
@@ -194,8 +199,16 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let spans: Vec<Span> = files.iter().flat_map(|file| Spans::at(file).read()).collect();
     let trace = Trace::of(&spans);
-    let from = epoch() - since;
-    let profiles: Vec<Profile<'_>> = trace.latest(from, last).into_iter().filter(|landing| only.as_deref().is_none_or(|only| landing.name == only)).map(|landing| trace.profile(landing)).collect();
+    let from = epoch() - since.unwrap_or(if host.is_some() { HOST_WINDOW } else { 3600.0 });
+    let mut profiles: Vec<Profile<'_>> = trace.latest(from, if host.is_some() { None } else { last }).into_iter().filter(|landing| only.as_deref().is_none_or(|only| landing.name == only)).map(|landing| trace.profile(landing)).collect();
+    if let Some(host) = &host {
+        let records = Records::at(Records::default_path()).read();
+        let evidence = check_times::Evidence { records: &records, heads: check_times::lane_heads(&files) };
+        profiles.retain(|profile| check_times::executed_on(profile, &evidence).as_deref() == Some(host.as_str()));
+        profiles.drain(..profiles.len().saturating_sub(last.unwrap_or(profiles.len())));
+        print!("{}", check_times::render(&profiles, &evidence, host, from));
+        return 0;
+    }
     if let Some(metric) = metric {
         metric.print(&profiles, pending);
         return 0;

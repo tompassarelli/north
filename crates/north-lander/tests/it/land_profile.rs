@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use north_lander::land::trace::check_times;
+use north_lander::landing::check_timings::outcomes::{Outcome, Record};
 use north_lander::land::trace::profile::Trace;
 use north_lander::land::trace::report::Metric;
 use north_lander::land::trace::{Category, Spans, report};
@@ -42,7 +44,7 @@ fn a_fixture_trace_splits_queued_at_to_push_by_category_and_reports_verification
         assert!(near(profile.after.get(category), seconds), "{category:?}: {:?}", profile.after);
     }
 
-    let text = report::render(&[profile], 0.0);
+    let text = report::render(std::slice::from_ref(&profile), 0.0);
     for line in [
         "north land profile: 1 landing since ",
         "queued_at to push: p50 700 s, p90 700 s, sum 700 s",
@@ -57,6 +59,22 @@ fn a_fixture_trace_splits_queued_at_to_push_by_category_and_reports_verification
         assert!(text.contains(line), "missing {line:?} in\n{text}");
     }
     assert_eq!(text.lines().filter(|line| line.starts_with(|first: char| first.is_ascii_digit()) && line.contains(". ")).count(), 10, "{text}");
+
+    let row = |started: u64, wall: f64, waited: Option<f64>, command: &str| Record { started, landing: "c1".to_owned(), paths: "crates".to_owned(), outcome: Outcome::Passed, exit: 0, wall, cpu: None, host: Some("gex45".to_owned()), crates: None, waited, command: command.to_owned() };
+    let finish = [row(900, 100.0, Some(20.0), "cargo clippy --all-targets"), row(910, 200.0, Some(0.0), "cargo nextest run --workspace")];
+    let heads = std::collections::BTreeMap::from([("100-lane-a".to_owned(), "c1".to_owned())]);
+    let evidence = check_times::Evidence { records: &finish, heads: heads.clone() };
+    assert_eq!(check_times::executed_on(&profile, &evidence).as_deref(), Some("gex45"));
+    let checks = check_times::render(std::slice::from_ref(&profile), &evidence, "gex45", 0.0);
+    assert!(checks.contains("north land profile --host gex45: the last 1 landing whose checks ran on gex45"), "{checks}");
+    let cells = |values: &[&str]| values.iter().map(|value| format!(" {value:>9}")).collect::<String>();
+    let finished = cells(&["910 s", "210 s", "15 s", "0 s", "40 s", "155 s", "0 s", "700 s"]);
+    for (name, expected) in [("lane-a", finished.clone()), ("p90", finished), ("lane-a", cells(&["200 s", "0 s", "85 s", "0 s", "90 s", "25 s"]))] {
+        assert!(checks.lines().any(|line| line.starts_with(name) && line.contains(&expected)), "missing {name} {expected:?} in\n{checks}");
+    }
+    let old = [Record { waited: None, ..finish[0].clone() }];
+    let unknown = check_times::render(&[profile], &check_times::Evidence { records: &old, heads }, "gex45", 0.0);
+    assert!(unknown.contains("n/a") && unknown.contains("100 s"), "{unknown}");
 }
 
 fn an_old_slow_backlog_outside_the_last_twenty_landings_does_not_refuse_a_lane() {

@@ -4,7 +4,7 @@ Command { name: "crate-tests", usage: "north land crate-tests available | north 
 Command { name: "enqueue", usage: "north land enqueue [--repo DIR] [--message FILE]", run: enqueue::run },
 Command { name: "follow", usage: "", run: after::follow::run },
 Command { name: "lint", usage: "north land lint available | north land lint -- COMMAND", run: slots::lint_gate::run },
-Command { name: "profile", usage: "north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]", run: trace::report::run },
+Command { name: "profile", usage: "north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--host NAME] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]", run: trace::report::run },
 Command { name: "promote", usage: "north land promote [--dry-run] [--judge CANDIDATE [--held RUNTIME]] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]", run: promote::run },
 Command { name: "reuse", usage: "north land reuse report [--since DURATION]", run: shadow::reuse_run },
 Command { name: "replay", usage: "north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...", run: replay::run },

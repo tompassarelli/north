@@ -34,6 +34,12 @@ impl Outcome {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CrateSplit {
+    pub decided: u32,
+    pub tested: u32,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Record {
     pub started: u64,
@@ -43,34 +49,53 @@ pub struct Record {
     pub exit: i32,
     pub wall: f64,
     pub cpu: Option<f64>,
+    pub host: Option<String>,
+    pub crates: Option<CrateSplit>,
+    pub waited: Option<f64>,
     pub command: String,
 }
 
 impl Record {
+    const OLD_FIELDS: usize = 8;
+    const FIELDS: usize = 12;
+
     pub fn cost(&self) -> f64 {
         self.cpu.unwrap_or(self.wall)
     }
 
     fn line(&self) -> String {
-        let cpu = self.cpu.map_or_else(|| "-".to_owned(), |cpu| format!("{cpu:.2}"));
-        let clean = |text: &str| text.replace(['\t', '\n'], " ");
-        format!("{}\t{}\t{}\t{}\t{}\t{:.2}\t{cpu}\t{}\n", self.started, clean(&self.landing), clean(&self.paths), self.outcome.name(), self.exit, self.wall, clean(&self.command))
+        let clean = |text: &str| text.replace(['\t', '\n', ' '], "_");
+        let text = |text: &str| text.replace(['\t', '\n'], " ");
+        let number = |value: Option<f64>| value.map_or_else(|| "-".to_owned(), |value| format!("{value:.2}"));
+        let host = self.host.as_deref().map_or_else(|| "-".to_owned(), clean);
+        let (decided, tested) = self.crates.map_or_else(|| ("-".to_owned(), "-".to_owned()), |split| (split.decided.to_string(), split.tested.to_string()));
+        format!("{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{host}\t{decided}\t{tested}\t{}\t{}\n", self.started, text(&self.landing), text(&self.paths), self.outcome.name(), self.exit, self.wall, number(self.cpu), number(self.waited), text(&self.command))
     }
 
     fn parse(line: &str) -> Option<Self> {
-        let mut fields = line.splitn(8, '\t');
-        let started = fields.next()?.parse().ok()?;
-        let landing = fields.next()?.to_owned();
-        let paths = fields.next()?.to_owned();
-        let outcome = Outcome::parse(fields.next()?)?;
-        let exit = fields.next()?.parse().ok()?;
-        let wall = fields.next()?.parse().ok()?;
-        let cpu = match fields.next()? {
-            "-" => None,
-            cpu => Some(cpu.parse().ok()?),
+        let fields: Vec<&str> = line.splitn(Self::FIELDS, '\t').collect();
+        let (old, new) = (fields.len() == Self::OLD_FIELDS, fields.len() == Self::FIELDS);
+        if !old && !new {
+            return None;
+        }
+        let optional = |field: &str| match field {
+            "-" => Some(None),
+            field => field.parse().ok().map(Some),
         };
-        let command = fields.next()?.to_owned();
-        Some(Record { started, landing, paths, outcome, exit, wall, cpu, command })
+        let crates = if new { fields[8].parse().ok().zip(fields[9].parse().ok()).map(|(decided, tested)| CrateSplit { decided, tested }) } else { None };
+        Some(Record {
+            started: fields[0].parse().ok()?,
+            landing: fields[1].to_owned(),
+            paths: fields[2].to_owned(),
+            outcome: Outcome::parse(fields[3])?,
+            exit: fields[4].parse().ok()?,
+            wall: fields[5].parse().ok()?,
+            cpu: optional(fields[6])?,
+            host: Some(fields[7]).filter(|host| new && *host != "-").map(str::to_owned),
+            crates,
+            waited: if new { optional(fields[10])? } else { None },
+            command: fields[fields.len() - 1].to_owned(),
+        })
     }
 }
 
@@ -98,3 +123,7 @@ impl Records {
         fs::read_to_string(&self.path).unwrap_or_default().lines().filter_map(Record::parse).collect()
     }
 }
+
+#[cfg(test)]
+#[path = "outcomes_tests.rs"]
+mod tests;

@@ -11,7 +11,7 @@ use tokio::process::{Child, Command};
 use crate::land::slots::select::Placement;
 use crate::land::slots::{lint_gate, listed_crates, unit_reuse, verdict_key};
 use north_base::verdict_cache::reuse_log;
-use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
+use crate::landing::check_timings::outcomes::{CrateSplit, Outcome as CheckOutcome, Record, Records};
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
@@ -38,6 +38,15 @@ pub(super) struct Ran {
     pub(super) started_at: f64,
     pub(super) ended_at: f64,
     pub(super) marks: Vec<Mark>,
+}
+
+/// How a check ended, as its timing record keeps it: its exit, its wall seconds, its CPU and the marks its log printed.
+#[derive(Clone, Copy)]
+pub(super) struct Ended<'a> {
+    pub(super) status: i32,
+    pub(super) wall: u64,
+    pub(super) cpu: Option<f64>,
+    pub(super) marks: &'a [Mark],
 }
 
 impl Ran {
@@ -311,16 +320,17 @@ impl Shared {
         trace::record(&spans);
     }
 
-    pub(super) fn remember(&self, command: &str, started: u64, status: i32, outcome: CheckOutcome, wall: u64, cpu: Option<f64>) {
+    pub(super) fn remember(&self, command: &str, started: u64, outcome: CheckOutcome, ended: &Ended<'_>) {
+        let Ended { status, wall, cpu, marks } = *ended;
         #[allow(clippy::cast_precision_loss)]
         let wall = wall as f64;
-        let record = Record { started, landing: self.arguments.head.clone(), paths: self.paths.clone(), outcome, exit: status, wall, cpu, command: command.to_owned() };
+        let record = Record { started, landing: self.arguments.head.clone(), paths: self.paths.clone(), outcome, exit: status, wall, cpu, host: Some(self.offload_host_for(command).unwrap_or_else(trace::this_host)), waited: Some(check_log::line_wait(marks)), crates: marks.iter().rev().find_map(|mark| check_log::crates_split(&mark.line)).map(|(decided, tested)| CrateSplit { decided, tested }), command: command.to_owned() };
         let _ = Records::at(Records::default_path()).append(&record);
     }
 
     pub(super) fn cancelled(&self, command: &str, started: u64, status: i32, wall: u64, cpu: Option<f64>) -> i32 {
         say(&format!("safe-push: land check {command} cancelled: an earlier land check failed"));
-        self.remember(command, started, status, CheckOutcome::Cancelled, wall, cpu);
+        self.remember(command, started, CheckOutcome::Cancelled, &Ended { status, wall, cpu, marks: &[] });
         self.outcome.record(&["event", "land check", "cancelled", &format!("{command}: an earlier land check failed")]);
         0
     }
