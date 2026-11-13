@@ -1,5 +1,5 @@
 [[service]]
-id = "example-claude-plan"
+id = "claude-a"
 name = "Claude plan a"
 kind = "ai-plan"
 billing = "fixed"

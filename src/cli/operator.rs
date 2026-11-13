@@ -2,11 +2,10 @@
 //! in the order of the inventory in `docs/rationale/operator-repository.md` (north#1281).
 pub(in crate::cli) mod check;
 pub(in crate::cli) mod init;
-pub(in crate::cli) mod same_value;
 
 use crate::error::{NorthError, NorthResult};
 
-const USAGE: &str = "usage: north config operator paths [--class CLASS] | check [DIR] [--only NAME,...] [--distinct-from OWNER] | init DIR";
+const USAGE: &str = "usage: north config operator paths [--class CLASS] | check [DIR] [--only NAME,...] | init DIR";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Class {
