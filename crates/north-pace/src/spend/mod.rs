@@ -20,12 +20,16 @@ pub struct Rules {
     pub charge: f64,
     /// Hours after which an account's reading no longer counts toward the pool.
     pub reading_max_h: f64,
+    /// Percent of a window used at which dispatch places no box on an account.
+    pub money_ceiling: f64,
+    /// Dispatched Claude sessions that may work at once.
+    pub claude_sessions: usize,
 }
 
 impl Rules {
     pub fn configured() -> Self {
         let number = crate::platform::harness::default_number;
-        Self { charge: number("spend_worker_charge"), reading_max_h: number("spend_reading_max_h") }
+        Self { charge: number("spend_worker_charge"), reading_max_h: number("spend_reading_max_h"), money_ceiling: number("money_ceiling"), claude_sessions: number("dispatch_claude_sessions") as usize }
     }
 }
 
@@ -61,6 +65,11 @@ impl Account {
         self.week.map_or(0.0, |week| (100.0 - week.used(at)).max(0.0) * self.plan_week)
     }
 
+    fn past(&self, at: f64, ceiling: f64) -> Option<Refusal> {
+        let used = |window: Option<Window>| window.map_or(0.0, |window| window.used(at));
+        [("five-hour", self.five_hour), ("week", self.week)].into_iter().find(|(_, window)| used(*window) >= ceiling).map(|(kind, window)| Refusal { rule: Rule::MoneyCeiling, line: format!("{} has used {:.0}% of its {kind} window, at the {ceiling:.0}% money ceiling", self.name, used(window)) })
+    }
+
     fn limit(&self, at: f64) -> Option<Refusal> {
         let full = |window: Option<Window>| window.is_some_and(|window| window.used(at) >= 100.0);
         [("five-hour", self.five_hour), ("week", self.week)].into_iter().find(|(_, window)| full(*window)).map(|(kind, _)| Refusal { rule: Rule::ProviderLimit, line: format!("{} is at its provider's {kind} limit", self.name) })
@@ -93,6 +102,7 @@ pub enum Rule {
     Held,
     Operational,
     ProviderLimit,
+    MoneyCeiling,
 }
 
 impl fmt::Display for Rule {
@@ -101,6 +111,7 @@ impl fmt::Display for Rule {
             Self::Held => "api hold",
             Self::Operational => "operational reserve",
             Self::ProviderLimit => "provider limit",
+            Self::MoneyCeiling => "money ceiling",
         })
     }
 }
@@ -136,6 +147,14 @@ impl View {
             return Err(Refusal { rule: Rule::Operational, line: format!("{account} is the operational reserve: only the privacy judge, lander and canaries may use it") });
         }
         match self.account(account).and_then(|chosen| chosen.limit(self.at)) {
+            Some(refusal) => Err(refusal),
+            None => Ok(()),
+        }
+    }
+
+    /// Whether `account` is under the money `ceiling` (percent of a window used) in both windows.
+    pub fn under_ceiling(&self, account: &str, ceiling: f64) -> Result<(), Refusal> {
+        match self.account(account).and_then(|chosen| chosen.past(self.at, ceiling)) {
             Some(refusal) => Err(refusal),
             None => Ok(()),
         }

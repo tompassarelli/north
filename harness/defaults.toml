@@ -286,6 +286,14 @@ settles_when = { need = 20, count = "count_worker_runs", what = "worker runs wit
 fallback = "every worker charges one point"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
+[dispatch_claude_sessions]
+value = 12
+allowed = { min = 0, max = 100 }
+unit = "worker sessions working at once, counting this run's launches, past which dispatch starts no more Claude boxes"
+source = "prior: about a third of the 38 session slots the hosts declare, so dispatched Claude work cannot take the fleet before its first measured week (north#1137)"
+fallback = "none: a stated bound, not a measurement"
+consumers = ["crates/north-dispatch/src/dispatch/plan.rs"]
+
 [dispatch_freeze_alarm_min]
 value = 15
 allowed = { min = 5, max = 240 }

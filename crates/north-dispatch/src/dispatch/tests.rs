@@ -142,7 +142,7 @@ fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_cont
 }
 
 #[test]
-fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_native_box_waits_for_a_native_host_and_each_launch_takes_a_session_and_a_build_from_its_host() {
+fn a_claude_routed_box_launches_under_the_cap_and_never_on_the_cloud_lane() {
     super::spread_tests::a_host_whose_admission_queue_is_at_its_limit_or_whose_root_disk_is_past_the_reapers_eviction_line_takes_no_session();
     super::spread_tests::a_host_whose_pushed_github_token_is_past_its_trust_takes_no_session_and_its_box_places_on_another_host();
     super::spread_tests::launches_earlier_in_the_run_count_against_each_hosts_sessions_and_admission_queue();
@@ -156,6 +156,21 @@ fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_na
     let (item, why) = outcome.skipped.last().unwrap();
     assert_eq!(item.to_string(), "makgora#51");
     assert!(why.contains(&format!("gex45 takes nothing: {queued}")), "{why}");
+
+    let (hosts, accounts) = fleet();
+    let boxes = vec![issue("makgora", 60, "- [ ] a", &[]), issue("makgora", 61, "- [ ] b", &[])];
+    let mut open = survey(boxes.clone(), Cloud::Reachable("credit".into()), hosts, accounts);
+    open.rules.claude_sessions = 1;
+    let capped = decide(&open, "test");
+    assert_eq!(capped.launches.len(), 1, "{:?}", capped.skipped);
+    assert!(!capped.launches[0].cloud, "a claude box never goes to the cloud lane");
+    assert!(capped.skipped.iter().any(|(_, why)| why.contains("dispatch_claude_sessions cap of 1")), "{:?}", capped.skipped);
+
+    let (hosts, _) = fleet();
+    let full = vec![account("claude:a", &["nexus"], 5.0)];
+    let refused = decide(&survey(boxes, Cloud::Reachable("credit".into()), hosts, full), "test");
+    assert!(refused.launches.is_empty(), "{:?}", refused.launches);
+    assert!(refused.skipped.iter().any(|(_, why)| why.contains("money ceiling")), "{:?}", refused.skipped);
 }
 
 #[test]

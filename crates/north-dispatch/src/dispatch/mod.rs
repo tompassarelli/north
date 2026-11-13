@@ -192,10 +192,10 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
 
 fn decide_leaving(survey: &Survey, launched_by: &str) -> (Outcome, Pools) {
     let scope = Scope::parse(&survey.cfg);
-    let mut pools = Pools::new(&survey.hosts, &survey.accounts).with_cloud(cloud::SESSIONS - survey.cloud_running);
+    let mut pools = Pools::new(&survey.hosts, &survey.accounts);
     let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
     let planned = issues::planned_predecessors(&survey.issues);
-    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: survey.rules.charge, spend: &survey.spend, scope: &scope };
+    let capacity = Capacity { accounts: &survey.accounts, charge: survey.rules.charge, ceiling: survey.rules.money_ceiling, claude_sessions: survey.rules.claude_sessions, spend: &survey.spend, scope: &scope };
     let revival = revive::plan(&revive::Inputs { strands: &survey.strands, saturated: &survey.saturated, revived: &survey.revived }, &capacity, &mut pools);
     let mut holds = survey.holds.clone();
     holds.extend(revival.holds.clone());

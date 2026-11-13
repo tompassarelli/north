@@ -115,7 +115,8 @@ pub struct Pools {
     signed_in: BTreeMap<String, Vec<String>>,
     /// Points of its own percent each account is charged for the boxes planned on it this run, which orders the next pick.
     charged: BTreeMap<String, Charge>,
-    cloud: i64,
+    /// The Claude sessions this run has started, which count against their own cap.
+    claude: usize,
     /// The opencode workers this run has started, which count against their own slot cap.
     deepseek: usize,
 }
@@ -127,19 +128,17 @@ impl Pools {
             builds: hosts.iter().filter_map(|host| Some((host.name.clone(), host.builds?))).collect(),
             signed_in: accounts.iter().map(|account| (account.name.clone(), account.hosts.clone())).collect(),
             charged: BTreeMap::new(),
-            cloud: 0,
+            claude: 0,
             deepseek: 0,
         }
     }
 
-    pub fn with_cloud(self, free: i64) -> Self {
-        Self { cloud: free.max(0), ..self }
+    pub fn claude_placed(&self) -> usize {
+        self.claude
     }
 
-    pub fn take_cloud(&mut self) -> bool {
-        let free = self.cloud > 0;
-        self.cloud -= i64::from(free);
-        free
+    pub fn take_claude(&mut self) {
+        self.claude += 1;
     }
 
     pub fn deepseek_placed(&self) -> usize {

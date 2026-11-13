@@ -5,7 +5,7 @@
 //! issues when `north fleet dispatch --draft REPO#N...` asks.
 use super::drafts::{self, Draft, Ground, Outcome};
 use super::issues::{Issue, IssueRef};
-use super::plan::{self, Capacity, Cloud, Launch, Ready};
+use super::plan::{self, Capacity, Launch, Ready};
 use super::scope::Scope;
 use super::slots::{Account, Pools};
 use super::survey::Survey;
@@ -128,8 +128,7 @@ pub(super) fn pass(survey: &Survey, outcome: &super::Outcome, pools: &mut Pools,
     }
     let scope = scope.admitting(PROVIDER);
     let accounts: Vec<Account> = survey.accounts.iter().filter(|account| plan_account(account)).cloned().collect();
-    let cloud = Cloud::Closed("drafts run on build hosts".to_owned());
-    let capacity = Capacity { here: &survey.here, cloud: &cloud, accounts: &accounts, charge: survey.rules.charge, spend: &survey.spend, scope: &scope };
+    let capacity = Capacity { accounts: &accounts, charge: survey.rules.charge, ceiling: survey.rules.money_ceiling, claude_sessions: survey.rules.claude_sessions, spend: &survey.spend, scope: &scope };
     let directory = record::directory();
     let spent = crate::ledger::session_spend(SPENT_DAYS);
     let mut lines: Vec<String> = spent.as_ref().err().map(|error| format!("draft spend unread from the runs ledger, so only the count bounds drafts: {error}")).into_iter().collect();

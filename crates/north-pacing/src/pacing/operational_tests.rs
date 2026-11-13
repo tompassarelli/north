@@ -64,7 +64,7 @@ fn every_caller_is_refused_on_a_held_api_organization_before_a_request_leaves_an
     let basis = Basis::new(&policy, NOW);
     assert!(basis.operational("claude:api:fixture-org").is_some_and(|why| why.contains("is held")), "placement offers the canary no API grant");
     assert_eq!(basis.operational("claude:a"), None, "placement offers the plan account");
-    let view = crate::spend::view_from_config(&policy, dir.path(), &crate::spend::Rules { charge: 0.0, reading_max_h: 1.0 }, 0, NOW, |_| true);
+    let view = crate::spend::view_from_config(&policy, dir.path(), &crate::spend::Rules { charge: 0.0, reading_max_h: 1.0, money_ceiling: 100.0, claude_sessions: 0 }, 0, NOW, |_| true);
     assert!(view.admit("claude:api:fixture-org", Starter::Reserved).is_err_and(|refusal| refusal.line.contains("is held")), "an operational caller is refused too");
     assert_eq!(view.admit("claude:a", Starter::Reserved), Ok(()));
 
@@ -73,7 +73,7 @@ fn every_caller_is_refused_on_a_held_api_organization_before_a_request_leaves_an
     for broken in [unparseable, dir.path().join("missing.toml")] {
         let line = reserve::refusal(&reserve::declared(&broken), &login("api", true), Role::Proxy, None, None);
         assert!(line.as_deref().is_some_and(|line| line.contains("cannot be read")), "a policy that cannot be read holds every API organization: {line:?}");
-        let spawn = crate::spend::view_from_policy(&broken, dir.path(), &crate::spend::Rules { charge: 0.0, reading_max_h: 1.0 }, 0, NOW, |_| true);
+        let spawn = crate::spend::view_from_policy(&broken, dir.path(), &crate::spend::Rules { charge: 0.0, reading_max_h: 1.0, money_ceiling: 100.0, claude_sessions: 0 }, 0, NOW, |_| true);
         assert!(spawn.admit("claude:api:fixture-org", Starter::Worker).is_err_and(|refusal| refusal.line.contains("cannot be read")), "the subagent spawn view holds it too");
     }
 

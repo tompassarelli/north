@@ -1,8 +1,6 @@
-//! Where each ready box goes: the cloud lane when it is reachable here and has a free session,
-//! else the first host in placement order that serves the box, has a free slot and signs in an
+//! Where each ready box goes: the first host in placement order that serves the box, has a free slot and signs in an
 //! account the spend rule admits (docs/rationale/spend-rule.md).
 use super::issues::IssueRef;
-use super::cloud::{HOST, SESSIONS};
 use super::scope::{Scope, provider_of};
 use super::slots::{Account, Charge, Pools};
 use super::tier::Route;
@@ -49,11 +47,13 @@ pub struct Candidate {
 }
 
 pub struct Capacity<'a> {
-    pub here: &'a str,
-    pub cloud: &'a Cloud,
     pub accounts: &'a [Account],
     /// Expected cost of one box in Max 5x points, charged to its account so the next box ranks the others first.
     pub charge: f64,
+    /// Percent of a window used at which an account takes no dispatched box (`money_ceiling`).
+    pub ceiling: f64,
+    /// Dispatched Claude sessions that may work at once (`dispatch_claude_sessions`).
+    pub claude_sessions: usize,
     pub spend: &'a View,
     pub scope: &'a Scope,
 }
@@ -63,9 +63,10 @@ impl Capacity<'_> {
         Charge { five_hour: self.charge / account.plan.five_hour, week: self.charge / account.plan.week }
     }
 
-    /// Whether `account` takes one more worker: not the operational reserve and not at its provider's limit.
+    /// Whether `account` takes one more worker: not the operational reserve, not at its provider's limit and under the money ceiling.
     fn admits(&self, account: &Account) -> Result<(), Refusal> {
-        self.spend.admit(&account.name, Starter::Worker)
+        self.spend.admit(&account.name, Starter::Worker)?;
+        self.spend.under_ceiling(&account.name, self.ceiling)
     }
 }
 
@@ -84,10 +85,11 @@ fn refused_on(capacity: &Capacity, pools: &Pools, host: &str) -> Vec<String> {
     capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0).filter_map(|account| capacity.admits(account).err()).map(|refusal| refusal.to_string()).collect()
 }
 
-fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account, local: Option<String>) -> Launch {
+fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account) -> Launch {
     pools.take(host);
+    pools.take_claude();
     pools.charge(&account.name, capacity.charge(account));
-    Launch { item: ready.item.clone(), host: host.into(), account: account.name.clone(), brief: ready.brief.clone(), route: ready.route.clone(), cloud: false, local }
+    Launch { item: ready.item.clone(), host: host.into(), account: account.name.clone(), brief: ready.brief.clone(), route: ready.route.clone(), cloud: false, local: None }
 }
 
 /// Admits reviving a session bound to `host` and `account` by the slot and spend rules a launch
@@ -114,19 +116,9 @@ pub fn revive(capacity: &Capacity, pools: &mut Pools, host: &str, account: &str)
 
 /// Places one ready box, taking its slot from `pools`, or says why no slot takes it.
 pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools: &mut Pools) -> Result<Launch, String> {
-    let mut local = None;
-    if ready.code_only {
-        match capacity.cloud {
-            Cloud::Reachable(credit) => {
-                if pools.take_cloud() {
-                    let account = format!("claude login on {}", capacity.here);
-                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None });
-                }
-                local = Some(format!("north fleet dispatch: cloud lane open ({credit}) but its {SESSIONS} sessions are out"));
-            }
-            Cloud::Unreachable(why) => local = Some(format!("north fleet dispatch: cloud lane unreachable from {}: {why}", capacity.here)),
-            Cloud::Closed(_) => {}
-        }
+    let working = capacity.spend.working + pools.claude_placed();
+    if working >= capacity.claude_sessions {
+        return Err(format!("{working} Claude sessions are working, at the dispatch_claude_sessions cap of {}", capacity.claude_sessions));
     }
     let mut refused = Vec::new();
     for candidate in candidates {
@@ -135,7 +127,7 @@ pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools
             continue;
         }
         match best_account(capacity, pools, &candidate.host) {
-            Some(account) => return Ok(launch(capacity, pools, ready, &candidate.host, account, local)),
+            Some(account) => return Ok(launch(capacity, pools, ready, &candidate.host, account)),
             None if pools.host(&candidate.host) == 0 => refused.push(pools.full(&candidate.host)),
             None => {
                 let held = refused_on(capacity, pools, &candidate.host);
