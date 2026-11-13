@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
@@ -45,6 +45,47 @@ fn issue(node: &Value) -> Option<Issue> {
         labels: names(&node["labels"]["nodes"]).collect(),
         created: node["createdAt"].as_str().and_then(rfc3339_seconds).unwrap_or(0.0) as i64,
         children: node["subIssuesSummary"]["total"].as_u64().unwrap_or(0),
+    })
+}
+
+pub struct Target {
+    pub repository_id: String,
+    pub parent_id: String,
+    pub children: u64,
+    pub labels: BTreeMap<String, String>,
+    pub issue_types: BTreeMap<String, String>,
+}
+
+const TARGET_QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { id labels(first: 100) { totalCount nodes { id name } } issueTypes(first: 20) { nodes { id name } } issue(number: $number) { id subIssuesSummary { total } } } }";
+
+fn pairs(nodes: &Value) -> BTreeMap<String, String> {
+    nodes.as_array().into_iter().flatten().filter_map(|node| Some((node["name"].as_str()?.to_owned(), node["id"].as_str()?.to_owned()))).collect()
+}
+
+/// The ids a child is created with and the parent's children count: one read of the repository and its parent.
+pub fn target(owner: &str, name: &str, number: u64) -> Result<Target, String> {
+    let reference = format!("{owner}/{name}#{number}");
+    let (query, owner_field, name_field, number_field) = (format!("query={TARGET_QUERY}"), format!("owner={owner}"), format!("name={name}"), format!("number={number}"));
+    let args = ["api", "graphql", "-f", query.as_str(), "-f", owner_field.as_str(), "-f", name_field.as_str(), "-F", number_field.as_str()];
+    let answer = github::json(&args)?;
+    if answer.get("errors").is_some() {
+        return Err(format!("GitHub's answer for {reference} holds errors: {}", answer["errors"]));
+    }
+    let found = &answer["data"]["repository"];
+    let issue = &found["issue"];
+    if !issue.is_object() {
+        return Err(format!("{reference} is not an issue"));
+    }
+    let labels = pairs(&found["labels"]["nodes"]);
+    if found["labels"]["totalCount"].as_u64() != Some(labels.len() as u64) {
+        return Err(format!("{owner}/{name} has more labels than one page returns"));
+    }
+    Ok(Target {
+        repository_id: found["id"].as_str().ok_or_else(|| format!("{owner}/{name} has no id"))?.to_owned(),
+        parent_id: issue["id"].as_str().ok_or_else(|| format!("{reference} has no id"))?.to_owned(),
+        children: issue["subIssuesSummary"]["total"].as_u64().unwrap_or(0),
+        labels,
+        issue_types: pairs(&found["issueTypes"]["nodes"]),
     })
 }
 

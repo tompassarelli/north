@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 
 use crate::credentials::{LEDGER_KEY_FILE, Source};
 use crate::github::{Minted, Minter, app};
-use crate::policy::{Caller, Permissions, Policy, Rules};
+use crate::policy::{Caller, Child, Permissions, Policy, Rules};
 use crate::proxy::{Provider, providers, split};
 use crate::threads::Threads;
 
@@ -153,6 +153,7 @@ impl Broker {
         let (answer, what) = match (request.method.as_str(), request.target.as_str()) {
             ("POST", "/github/token") => self.github_token(peer, caller, &body, now),
             ("POST", "/github/inspect") => (self.inspect(peer, &body), "github inspect".to_owned()),
+            ("POST", "/github/child") => self.github_child(peer, caller, &body, now),
             ("POST", "/threads/forward") => self.threads_forward(caller, &body),
             (_, target) if surface == Surface::Typed => (Response::refusal(404, "this socket answers token, inspect and threads requests only"), format!("{:?}", route(target))),
             (_, target) => self.proxy(caller, request, target),
@@ -193,6 +194,22 @@ impl Broker {
         let what = format!("threads {:?}", body["verb"].as_str().unwrap_or_default());
         match self.threads.forward(caller, body) {
             Ok(answer) => (Response::json(200, &answer), what),
+            Err((status, why)) => (Response::refusal(status, &why), what),
+        }
+    }
+
+    fn github_child(&self, peer: Peer, caller: &Caller, body: &Value, now: i64) -> (Response, String) {
+        let what = format!("github child {:?}", body["repository"].as_str().unwrap_or_default());
+        let granted = (|| -> Result<Value, (u16, String)> {
+            let child = Child::from_json(body).ok_or((400, "a child needs repository, repository_id, parent_id, issue_type_id, label_ids, title and body".to_owned()))?;
+            let ceiling = caller.github.get("agent").ok_or_else(|| (403, format!("uid {} may not create issues", peer.uid)))?;
+            let permissions = Permissions::from([("issues".to_owned(), "write".to_owned())]);
+            let scope = ceiling.scope("agent", std::slice::from_ref(&child.repository), &permissions).map_err(|why| (403, why))?;
+            let application = app("agent").ok_or((500, "no agent app".to_owned()))?;
+            self.minter.create_child(application, &scope, ceiling, &child, now)
+        })();
+        match granted {
+            Ok(issue) => (Response::json(200, &issue), what),
             Err((status, why)) => (Response::refusal(status, &why), what),
         }
     }

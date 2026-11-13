@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use serde_json::{Value, json};
 use toml_edit::{DocumentMut, Item, Table};
 
 pub type Permissions = BTreeMap<String, String>;
@@ -218,6 +219,31 @@ fn matches(pattern: &[String], segments: &[&str]) -> bool {
     match pattern.split_last() {
         Some((last, head)) if last == "**" => segments.len() > head.len() && head.iter().zip(segments).all(|(want, got)| want == "*" || want == got),
         _ => pattern.len() == segments.len() && pattern.iter().zip(segments).all(|(want, got)| want == "*" || want == got),
+    }
+}
+
+const CHILD_CREATE: &str = "mutation($input: CreateIssueInput!) { createIssue(input: $input) { issue { number url } } }";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Child {
+    pub repository: String,
+    pub repository_id: String,
+    pub parent_id: String,
+    pub issue_type_id: String,
+    pub label_ids: Vec<String>,
+    pub title: String,
+    pub body: String,
+}
+
+impl Child {
+    pub fn from_json(body: &Value) -> Option<Self> {
+        let text = |name: &str| body[name].as_str().filter(|text| !text.is_empty()).map(str::to_owned);
+        let label_ids = body["label_ids"].as_array()?.iter().map(|id| id.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>()?;
+        Some(Self { repository: text("repository")?, repository_id: text("repository_id")?, parent_id: text("parent_id")?, issue_type_id: text("issue_type_id")?, label_ids, title: text("title")?, body: body["body"].as_str()?.to_owned() })
+    }
+
+    pub fn request(&self) -> Value {
+        json!({ "query": CHILD_CREATE, "variables": { "input": { "repositoryId": self.repository_id, "parentIssueId": self.parent_id, "issueTypeId": self.issue_type_id, "labelIds": self.label_ids, "title": self.title, "body": self.body } } })
     }
 }
 

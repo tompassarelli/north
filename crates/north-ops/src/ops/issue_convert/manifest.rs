@@ -13,7 +13,7 @@ use crate::threads::claims;
 pub const LONGEST_TITLE: usize = 80;
 const SHORTEST_TITLE: usize = 15;
 /// GitHub's limit on the sub-issues of one parent.
-const MOST_CHILDREN: u64 = 100;
+pub const MOST_CHILDREN: u64 = 100;
 const TYPES: [&str; 3] = ["Task", "Bug", "Feature"];
 pub const WAITS: &str = "waits:runtime";
 /// The declared needs only the live runtime or a native client serves.

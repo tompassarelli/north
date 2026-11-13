@@ -14,8 +14,8 @@ use manifest::{Manifest, Parent, Row, Scan, Tracker};
 mod boxes;
 mod closed;
 mod create;
-mod manifest;
-mod read;
+pub(crate) mod manifest;
+pub(crate) mod read;
 #[cfg(test)]
 mod tests;
 
@@ -52,7 +52,7 @@ enum Asked {
     Create { owner: String, name: String, number: u64, manifest: PathBuf, sha256: String },
 }
 
-fn slug(target: &str) -> Result<(String, String), String> {
+pub(crate) fn slug(target: &str) -> Result<(String, String), String> {
     let (owner, name) = target.split_once('/').unwrap_or((OWNER, target));
     let named = |text: &str| !text.is_empty() && text.chars().all(|letter| letter.is_ascii_alphanumeric() || matches!(letter, '-' | '_' | '.'));
     if named(owner) && named(name) { Ok((owner.to_owned(), name.to_owned())) } else { Err(format!("{target} is not [OWNER/]REPO")) }
@@ -124,7 +124,7 @@ fn live_claims(item: &str, opened: i64) -> Result<Vec<Option<String>>, String> {
 }
 
 /// The landing's deny-list scan over a row's text; a private repository's rows are not scanned, as its landings are not.
-fn scan(private: bool) -> Box<Scan> {
+pub(crate) fn scan(private: bool) -> Box<Scan> {
     if private {
         return Box::new(|_: &str| Ok(BTreeSet::new()));
     }

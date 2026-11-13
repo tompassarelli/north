@@ -10,10 +10,12 @@ use serde_json::{Value, json};
 
 use crate::curl;
 use crate::credentials::{AGENT_APP_FILE, INSTALLATION_TOKEN_FILE, LANDER_APP_FILE, Source};
-use crate::policy::{Ceiling, Permissions, Scope, rank};
+use crate::policy::{Ceiling, Child, Permissions, Scope, rank};
 
 const EXCHANGE_LIMIT: Duration = Duration::from_secs(30);
 const INSTALLATION_TOKEN_MARGIN: i64 = 60;
+const CHILD_VALIDITY: i64 = 60;
+const GRAPHQL_LIMIT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct App {
@@ -45,6 +47,27 @@ pub struct Minter {
 impl Minter {
     pub fn new(source: Source) -> Self {
         Self { api: "https://api.github.com".to_owned(), source }
+    }
+
+    pub fn create_child(&self, application: App, scope: &Scope, ceiling: &Ceiling, child: &Child, now: i64) -> Result<Value, (u16, String)> {
+        let minted = self.mint(application, scope, ceiling, CHILD_VALIDITY, now)?;
+        let headers = format!("header = \"Authorization: Bearer {}\"\nheader = \"Accept: application/vnd.github+json\"\nheader = \"X-GitHub-Api-Version: 2022-11-28\"\nuser-agent = \"north-broker\"\n", minted.token);
+        let config = format!("{headers}data-raw = {}\n", curl::quoted(&child.request().to_string()).map_err(|why| (400, why))?);
+        let url = format!("{}/graphql", self.api);
+        let scheme = if self.api.starts_with("https://") { "=https" } else { "=http,https" };
+        let arguments = ["--max-time", "30", "--request", "POST", "--write-out", "\n%{http_code}", "--proto", scheme, url.as_str()];
+        let unreachable = || (502, format!("could not reach {}", self.api));
+        let output = curl::run(&arguments, &config, GRAPHQL_LIMIT).ok_or_else(unreachable)?;
+        let text = String::from_utf8_lossy(&output);
+        let (answer, status) = text.rsplit_once('\n').ok_or_else(unreachable)?;
+        let status: u16 = status.trim().parse().unwrap_or(0);
+        let data: Value = serde_json::from_str(answer).unwrap_or(Value::Null);
+        let issue = &data["data"]["createIssue"]["issue"];
+        if (200..300).contains(&status) && data.get("errors").is_none() && issue.is_object() {
+            return Ok(issue.clone());
+        }
+        let message = data["errors"][0]["message"].as_str().map_or_else(|| format!("HTTP {status}"), str::to_owned);
+        Err((502, format!("the create mutation failed: {message}")))
     }
 
     pub fn holds_installation_token(&self) -> bool {

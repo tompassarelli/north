@@ -55,6 +55,10 @@ impl Client {
         Ok(Grant { token, expires_at, repositories: names(&answer["repositories"]), permissions: levels(&answer["permissions"]) })
     }
 
+    pub fn github_child(&self, child: &Value) -> Result<Value, String> {
+        self.call("POST", "/github/child", Some(child))
+    }
+
     pub fn inspect(&self, token: &str) -> Result<Value, String> {
         self.call("POST", "/github/inspect", Some(&json!({ "token": token })))
     }

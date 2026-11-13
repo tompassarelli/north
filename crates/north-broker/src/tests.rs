@@ -263,6 +263,41 @@ fn a_lane_only_session_gets_no_github_token_and_no_cloud_call() {
 }
 
 #[test]
+fn a_child_issue_is_created_and_linked_in_one_mutation_and_a_repository_is_always_private() {
+    create_repository_is_always_private();
+    a_child_issue_is_created_and_linked_in_one_mutation();
+}
+
+fn a_child_issue_is_created_and_linked_in_one_mutation() {
+    let (github, seen) = fake_upstream(|target, request| {
+        if target == "/graphql" {
+            return (200, json!({ "data": { "createIssue": { "issue": { "number": 9, "url": "https://github.com/tompassarelli/north/issues/9" } } } }));
+        }
+        github_reply(target, request)
+    });
+    let (_keep, broker) = broker(&github, "http://127.0.0.1:9", 1001);
+    let child = json!({ "repository": "north", "repository_id": "R_1", "parent_id": "I_parent", "issue_type_id": "IT_task", "label_ids": ["L_1", "L_2"], "title": "Create a child issue in one call", "body": "Done when: `true` exits 0" });
+    let (status, answer) = call(&broker, 1001, "POST", "/github/child", &[], &child);
+    assert_eq!(status, 200, "{answer}");
+    assert_eq!(answer["number"], 9);
+    let outside = json!({ "repository": "other", "repository_id": "R_2", "parent_id": "I_parent", "issue_type_id": "IT_task", "label_ids": [], "title": "Create a child issue in one call", "body": "Done when: `true` exits 0" });
+    assert_eq!(call(&broker, 1001, "POST", "/github/child", &[], &outside).0, 403);
+    let sent = seen.lock().unwrap();
+    let mutations: Vec<_> = sent.iter().filter(|(target, _, _)| target == "/graphql").collect();
+    assert_eq!(mutations.len(), 1, "a child took {} GraphQL requests", mutations.len());
+    let (_, headers, body) = mutations[0];
+    let request: Value = serde_json::from_str(body).unwrap();
+    assert!(request["query"].as_str().unwrap().contains("createIssue"));
+    let input = &request["variables"]["input"];
+    assert_eq!(input["repositoryId"], "R_1");
+    assert_eq!(input["parentIssueId"], "I_parent");
+    assert_eq!(input["issueTypeId"], "IT_task");
+    assert_eq!(input["labelIds"], json!(["L_1", "L_2"]));
+    assert_eq!(input["title"], "Create a child issue in one call");
+    let authorization = headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("authorization")).unwrap();
+    assert_eq!(authorization.1, "Bearer ghs_minted");
+}
+
 fn create_repository_is_always_private() {
     let (upstream, seen) = fake_upstream(|_, request| (201, json!({ "echo": request })));
     let (_keep, broker) = broker("http://127.0.0.1:9", &upstream, 1001);
