@@ -121,14 +121,14 @@ pub fn render_from(template: &str, inputs: &PromptInputs) -> String {
 fn reach(role: Role) -> &'static str {
     match role {
         Role::Proxy => PROXY_REACH,
-        Role::Lead | Role::Worker => MEMBER_REACH,
+        Role::Lead | Role::Worker | Role::Reviewer => MEMBER_REACH,
     }
 }
 
 fn report_lead(role: Role) -> &'static str {
     match role {
         Role::Proxy => "",
-        Role::Lead | Role::Worker => MEMBER_REPORT_LEAD,
+        Role::Lead | Role::Worker | Role::Reviewer => MEMBER_REPORT_LEAD,
     }
 }
 

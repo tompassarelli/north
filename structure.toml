@@ -620,15 +620,15 @@ may_use = ["strategy_types", "foundation", "platform.process", "platform.host"]
 
 [[module]]
 name = "platform.harness"
-paths = ["crates/north-base/src/platform/harness*.rs", "crates/north-base/src/platform/signin.rs", "crates/north-base/src/platform/orchestration.rs", "crates/north-base/src/platform/frozen_topics.rs", "crates/north-base/src/platform/disk_budget.rs", "crates/north-base/src/platform/verification_budget.rs", "crates/north-base/src/platform/repo_names.rs"]
+paths = ["crates/north-base/src/platform/harness*.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/signin.rs", "crates/north-base/src/platform/orchestration.rs", "crates/north-base/src/platform/frozen_topics.rs", "crates/north-base/src/platform/disk_budget.rs", "crates/north-base/src/platform/verification_budget.rs", "crates/north-base/src/platform/repo_names.rs"]
 responsibility = "The harness tables other repos read (defaults, orchestration, disk budget, frozen topics, repo names) and the rules read from them."
 may_use = ["strategy_types", "foundation", "platform.host", "crate-roots"]
 
 [[module]]
 name = "platform.records"
-paths = ["crates/north-base/src/platform/land_queue.rs", "crates/north-base/src/platform/finish_record.rs", "crates/north-base/src/platform/land_notice.rs", "crates/north-base/src/platform/decision_log.rs", "crates/north-base/src/platform/reader_stamp.rs", "crates/north-base/src/platform/disk_ledger.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-base/src/platform/south_land_limits.rs", "crates/north-base/src/dispatch_pause.rs"]
+paths = ["crates/north-base/src/platform/land_queue.rs", "crates/north-base/src/platform/finish_record.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-base/src/platform/land_notice.rs", "crates/north-base/src/platform/decision_log.rs", "crates/north-base/src/platform/reader_stamp.rs", "crates/north-base/src/platform/disk_ledger.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-base/src/platform/south_land_limits.rs", "crates/north-base/src/dispatch_pause.rs"]
 responsibility = "The state records hosts share under ~/.local/state and south: the land queue and notices, decision logs, reader stamps, the disk ledger, admission roots and the dispatch pause."
-may_use = ["strategy_types", "foundation", "platform.harness", "platform.host"]
+may_use = ["strategy_types", "foundation", "platform.harness", "platform.host", "platform.process", "platform.git"]
 
 [[module]]
 name = "platform"

@@ -14,6 +14,7 @@ use super::layout;
 
 pub(crate) const VERB: &str = "review-hold";
 pub(crate) const COORDINATOR: &str = "proxy";
+pub(crate) const REVIEWER: &str = "reviewer";
 const DIR: &str = "holds";
 const SWITCH: &str = "review_holds";
 const REPOSITORY: &str = "north";
@@ -43,11 +44,12 @@ pub(crate) struct Hold {
     pub lifted: Option<Lift>,
 }
 
-/// The fleet session that asks, as its cgroup scope names it, and whether its record names it the coordinator.
+/// The fleet session that asks, as its cgroup scope names it, and whether its record names it the coordinator or the reviewer role.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Caller {
     pub session: String,
     pub coordinator: bool,
+    pub reviewer: bool,
 }
 
 /// What `north runtime hold` asks, in the words the broker takes: `review-hold place COMMIT LANE HOST WHY` (HOST empty for every host) or `review-hold lift COMMIT WHY`.
@@ -57,7 +59,7 @@ pub(crate) enum Ask {
     Lift { commit: String, why: String },
 }
 
-fn full_sha(commit: &str) -> bool {
+pub(super) fn full_sha(commit: &str) -> bool {
     matches!(commit.len(), 40 | 64) && commit.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
@@ -332,7 +334,7 @@ pub(crate) fn run(flags: &[String], settles: bool, serve: impl FnOnce(Ask) -> Re
     )
 }
 
-fn git(arguments: &[&str]) -> Result<String, Failure> {
+pub(super) fn git(arguments: &[&str]) -> Result<String, Failure> {
     let output = crate::platform::process::run("git", None, arguments).map_err(|error| failed(1, format!("git {}: {error}", arguments.join(" "))))?;
     match output.status.success() {
         true => Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned()),

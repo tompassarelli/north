@@ -24,6 +24,7 @@ pub mod outgoing;
 mod peer_invocations;
 pub mod policy;
 pub mod push_jobs;
+pub mod review_accept;
 pub mod rule_owners;
 pub mod safe_push_verbs;
 pub mod slug;
@@ -51,6 +52,7 @@ pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integ
        north land scan generated-registry BASE..HEAD
        north land scan holdlist-guards-resolve BASE..HEAD
        north land scan host-cases BASE..HEAD
+       north land scan review-accept BASE..HEAD
        north land scan turn-scope BASE..HEAD
        north land scan detector-proof BASE..HEAD
        north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan leftovers BASE..HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan safe-push-verbs [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps\n       north land scan dep-floor LOCK < LOCK-BEFORE";
@@ -111,6 +113,7 @@ fn ranged(directory: &Path, name: &str, range: &str) -> Option<u8> {
         "gate-shadow" => gate_shadow::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "holdlist-guards-resolve" => holdlist::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "host-cases" => host_cases::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
+        "review-accept" => review_accept::scan(directory, range, &north_base::platform::records_mirror::state_home(), &north_base::platform::review_accept::Accepts::here(), &north_base::platform::finish_record::FinishRecords::here(), &mut out),
         "turn-scope" => turn_scope::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "tool-removal" => {
             let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();

@@ -94,3 +94,7 @@ mode = "shadow"
 # A lane whose crate Cargo.toml adds or changes a `[[package.metadata.north.buck.host-cases]]` entry for a case the landing base's `build/host-cases.list` lacks, or beside a file other than Cargo.toml files and the `BUCK` files generated from them, or that changes the list beside any other file; a lane that changes the list alone, or adds entries of listed cases alone, passes and prints `review: host-case change` for the commit reviewer (north#1287). Would-be refusals: $XDG_STATE_HOME/north/gates/host-cases.jsonl on the pushing host.
 [gate.host-cases]
 mode = "shadow"
+
+# A lane that changes a file of trust_boundary_paths in harness/defaults.toml lands only with the review accepts of two distinct reviewer sessions for its patch id (`git patch-id --stable` of base..head, which the lander's rebase keeps), or of one when the change is test files alone or an exact revert (north#1036, `north runtime accept`). Would-be refusals: $XDG_STATE_HOME/north/gates/review-accept.jsonl on the pushing host. It enforces only after a shadow run has named a real lane.
+[gate.review-accept]
+mode = "shadow"

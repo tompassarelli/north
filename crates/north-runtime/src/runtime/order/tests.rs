@@ -361,7 +361,7 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
     let screen = screen_of(Holds(store.clone()), squashed, landings);
     let cleared = |sha: &str| screen.order(sha, &["whiterabbit"], now());
     let ordered = || Order::cleared(NEW.to_owned(), "a reviewed pipeline fix".to_owned(), "f-flow-lead".to_owned(), cleared);
-    let session = |name: &str, coordinator| Caller { session: name.to_owned(), coordinator };
+    let session = |name: &str, coordinator| Caller { session: name.to_owned(), coordinator, reviewer: false };
     let (reviewer, author, coordinator) = (session("f-review", false), session("f-holds", false), session("proxy", true));
     let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() }, caller, now());
     let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: REVIEWED.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now());

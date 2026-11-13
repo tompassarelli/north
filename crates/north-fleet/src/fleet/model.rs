@@ -148,16 +148,18 @@ pub enum Role {
     Proxy,
     Lead,
     Worker,
+    Reviewer,
 }
 
 impl Role {
-    pub const ALL: [Self; 3] = [Self::Proxy, Self::Lead, Self::Worker];
+    pub const ALL: [Self; 4] = [Self::Proxy, Self::Lead, Self::Worker, Self::Reviewer];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Proxy => "proxy",
             Self::Lead => "lead",
             Self::Worker => "worker",
+            Self::Reviewer => "reviewer",
         }
     }
 

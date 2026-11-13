@@ -48,6 +48,16 @@ impl FinishRecords {
         parse(session, &fs::read_to_string(self.path(session)?).ok()?)
     }
 
+    /// Every finish record the store holds that reads as the record of the session it is named for.
+    pub fn all(&self) -> Vec<Finished> {
+        let names = fs::read_dir(&self.0).into_iter().flatten().flatten();
+        names.filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let session = name.strip_suffix(".json")?;
+            parse(session, &fs::read_to_string(entry.path()).ok()?)
+        }).collect()
+    }
+
     pub fn record(&self, finished: &Finished) -> io::Result<()> {
         let path = self.path(&finished.session).ok_or_else(|| io::Error::other(format!("session {:?} names no finish record", finished.session)))?;
         fs::create_dir_all(&self.0)?;

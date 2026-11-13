@@ -8,12 +8,12 @@ use super::{Arguments, Config, Environment, NO_NORTH, Stop, affected, block_on, 
 use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 use north_base::platform::finish_record::acceptance_in_prequeue;
 use north_base::platform::harness::{DEFAULTS, document};
+use north_base::platform::trust_boundary;
 use super::super::select::changed;
 
 const ATTEMPTS: usize = 3;
 const FAILING: &str = "; failing check `";
 const TESTS_AFTER_LANDING: &str = "tests_after_landing";
-const TRUST_BOUNDARY: &str = "trust_boundary_paths";
 
 /// The checks a lane runs alone before its ticket is written: its clippy (build and link), the
 /// `@enqueue` land.check lines, and the land test selection the batch would otherwise run unless `tests_after_landing`
@@ -268,14 +268,5 @@ fn leaves_tests(root: &Path, base: &str, head: &str, line: &str) -> bool {
     if setting(TESTS_AFTER_LANDING).and_then(toml_edit::Item::as_str) != Some("on") || Config::load(root, base).after_only_reason(line).is_none() {
         return false;
     }
-    let Some(boundary) = setting(TRUST_BOUNDARY).and_then(toml_edit::Item::as_array) else { return false };
-    let boundary: Vec<&str> = boundary.iter().filter_map(toml_edit::Value::as_str).collect();
-    let crosses = |file: &String| {
-        boundary.iter().any(|path| match path.strip_prefix("**/") {
-            Some(name) => file == name || file.ends_with(&format!("/{name}")),
-            None if path.ends_with('/') => file.starts_with(path),
-            None => file == path,
-        })
-    };
-    changed(root, base, head, &[]).is_ok_and(|files| !files.iter().any(crosses))
+    changed(root, base, head, &[]).is_ok_and(|files| trust_boundary::crossing(&files).is_some_and(|crossing| crossing.is_empty()))
 }

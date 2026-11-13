@@ -123,6 +123,7 @@ pub(in crate::cli) fn ledger_runner(verb: &str) -> Option<Run> {
 }
 
 const RUNTIME: &[(&str, Run)] = &[
+    ("accept", |arguments| north_runtime::worker_sandbox::hold_client::accept_command(arguments, north_offload::land_offload::settles_fleet_here())),
     ("agents", agent_runtime_update),
     ("agy", crate::ops::vendor_runtime::run_agy),
     ("claude", crate::ops::vendor_runtime::run_claude),
