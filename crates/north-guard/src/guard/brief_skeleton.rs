@@ -30,6 +30,7 @@ pub fn skeleton(category: &str, neighborhood: &[String]) -> Option<String> {
             .map(str::to_owned),
         );
         if INFRA.contains(&category) {
+            lines.push("Cause: <known: name the file or step | unknown: stop and relaunch with Category: debugging-unknown-cause, or performance for a slowness>".into());
             lines.push("Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days".into());
         }
         lines.push(String::new());

@@ -24,3 +24,9 @@ reason = "its token spend approaches Opus medium at a lower effort, which is str
 model = "haiku"
 categories = ["planning", "review", "performance", "netcode-determinism", "debugging-unknown-cause"]
 reason = "category error: these need the reasoning or long-context work a larger model gives, so a Haiku run would spend a box on a cell that cannot keep it"
+
+[[exclude]]
+model = "haiku"
+scopes = ["cross-module", "cross-repo"]
+verifies = ["live-run"]
+reason = "a change across modules checked by running the product has a reach the brief cannot fix in advance, and a Haiku run on one such brief was stopped before any work (2026-11-13)"

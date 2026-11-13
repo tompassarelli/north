@@ -41,6 +41,23 @@ fn every_category_routes_to_a_cell_the_arm_table_keeps() {
         assert_eq!(live.iter().find(|live| live.cell == cell).map(|live| live.role), route.cell_role.map(|role| if role == "leader" { Role::Leader } else { Role::Challenger }));
     }
 
+    for category in crate::router::brief::CATEGORIES {
+        for scope in ["cross-module", "cross-repo"] {
+            let facet = |key: &str| match key {
+                "Category" => category.to_owned(),
+                "Scope" => scope.to_owned(),
+                "Verify" => "live-run".to_owned(),
+                other => super::facets::default(other).to_owned(),
+            };
+            for number in 0..40 {
+                let route = route_for(&format!("north#{number}"), &facet, &History::default(), &unread).unwrap();
+                let cell = route.cell.expect("a drawn cell");
+                assert_ne!(cell.model, "haiku", "{category} at Scope: {scope} drew {}", cell.name());
+            }
+        }
+    }
+    assert!(cells::excluded(cells::Shape { category: "tooling", scope: "module", verify: "live-run" }, "haiku", "high").is_none());
+
     let boxes = |usd: f64| vec![crate::router::settle::Outcome { usd, closed: true, kept: true }; 15];
     let outcomes = BTreeMap::from([("sonnet-high".to_owned(), boxes(10.0))]);
     let live = cells::live("feature", seed_cell("feature"), &outcomes);

@@ -40,24 +40,46 @@ pub struct Live {
     pub role: Role,
 }
 
+/// The facets of a brief that decide which cells it may draw; a facet left empty matches no row that names it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Shape<'a> {
+    pub category: &'a str,
+    pub scope: &'a str,
+    pub verify: &'a str,
+}
+
+impl<'a> From<&'a str> for Shape<'a> {
+    fn from(category: &'a str) -> Self {
+        Self { category, ..Self::default() }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Exclusion {
     pub model: Option<&'static str>,
     pub effort: Option<&'static str>,
     pub categories: Vec<&'static str>,
+    pub scopes: Vec<&'static str>,
+    pub verifies: Vec<&'static str>,
     pub reason: &'static str,
 }
 
 impl Exclusion {
-    fn matches(&self, category: &str, model: &str, effort: &str) -> bool {
+    fn matches(&self, shape: Shape<'_>, model: &str, effort: &str) -> bool {
         self.model.is_none_or(|named| named == model)
             && self.effort.is_none_or(|named| named == effort)
-            && (self.categories.is_empty() || self.categories.contains(&category))
+            && (self.categories.is_empty() || self.categories.contains(&shape.category))
+            && (self.scopes.is_empty() || self.scopes.contains(&shape.scope))
+            && (self.verifies.is_empty() || self.verifies.contains(&shape.verify))
     }
 }
 
+fn words(item: Option<&'static toml_edit::Item>) -> Vec<&'static str> {
+    item.and_then(toml_edit::Item::as_array).map(|array| array.iter().filter_map(toml_edit::Value::as_str).collect()).unwrap_or_default()
+}
+
 fn strings(key: &str) -> Vec<&'static str> {
-    harness::document(TABLE).get(key).and_then(toml_edit::Item::as_array).map(|array| array.iter().filter_map(toml_edit::Value::as_str).collect()).unwrap_or_default()
+    words(harness::document(TABLE).get(key))
 }
 
 pub fn models() -> Vec<&'static str> {
@@ -76,24 +98,28 @@ pub fn exclusions() -> Vec<Exclusion> {
         .map(|table| Exclusion {
             model: table.get("model").and_then(toml_edit::Item::as_str),
             effort: table.get("effort").and_then(toml_edit::Item::as_str),
-            categories: table.get("categories").and_then(toml_edit::Item::as_array).map(|array| array.iter().filter_map(toml_edit::Value::as_str).collect()).unwrap_or_default(),
+            categories: words(table.get("categories")),
+            scopes: words(table.get("scopes")),
+            verifies: words(table.get("verifies")),
             reason: table.get("reason").and_then(toml_edit::Item::as_str).unwrap_or_default(),
         })
         .collect()
 }
 
-pub fn allowed(category: &str) -> Vec<Cell> {
+pub fn allowed<'a>(shape: impl Into<Shape<'a>>) -> Vec<Cell> {
+    let shape = shape.into();
     let exclusions = exclusions();
     models()
         .into_iter()
         .flat_map(|model| efforts().into_iter().map(move |effort| Cell { model, effort }))
-        .filter(|cell| !exclusions.iter().any(|row| row.matches(category, cell.model, cell.effort)))
+        .filter(|cell| !exclusions.iter().any(|row| row.matches(shape, cell.model, cell.effort)))
         .collect()
 }
 
-pub fn excluded(category: &str, model: &str, effort: &str) -> Option<&'static str> {
+pub fn excluded<'a>(shape: impl Into<Shape<'a>>, model: &str, effort: &str) -> Option<&'static str> {
+    let shape = shape.into();
     let model = family(model).unwrap_or(model);
-    exclusions().into_iter().find(|row| row.matches(category, model, effort)).map(|row| row.reason)
+    exclusions().into_iter().find(|row| row.matches(shape, model, effort)).map(|row| row.reason)
 }
 
 pub fn family(model: &str) -> Option<&'static str> {
@@ -139,8 +165,8 @@ fn distance(first: Cell, second: Cell) -> usize {
     model(first).abs_diff(model(second)) + effort(first).abs_diff(effort(second))
 }
 
-pub fn leader(category: &str, seed: Cell, outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>) -> Cell {
-    let allowed = allowed(category);
+pub fn leader<'a>(shape: impl Into<Shape<'a>>, seed: Cell, outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>) -> Cell {
+    let allowed = allowed(shape);
     let priced: Vec<Cell> = allowed.iter().copied().filter(|cell| !boxes(outcomes, *cell).is_empty()).collect();
     let cheapest = |cells: &[Cell]| cells.iter().copied().min_by(|a, b| cost(outcomes, *a).unwrap_or(f64::INFINITY).total_cmp(&cost(outcomes, *b).unwrap_or(f64::INFINITY)).then(a.cmp(b)));
     let mut leader = if priced.contains(&seed) { seed } else { cheapest(&priced).unwrap_or(seed) };
@@ -152,12 +178,13 @@ pub fn leader(category: &str, seed: Cell, outcomes: &std::collections::BTreeMap<
     if allowed.contains(&leader) { leader } else { allowed[0] }
 }
 
-pub fn live(category: &str, seed: Cell, outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>) -> Vec<Live> {
-    let allowed = allowed(category);
+pub fn live<'a>(shape: impl Into<Shape<'a>>, seed: Cell, outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>) -> Vec<Live> {
+    let shape = shape.into();
+    let allowed = allowed(shape);
     if allowed.is_empty() {
         return Vec::new();
     }
-    let leader = leader(category, seed, outcomes);
+    let leader = leader(shape, seed, outcomes);
     let mut candidates: Vec<Cell> = allowed.iter().copied().filter(|cell| *cell != leader).collect();
     candidates.sort_by(|a, b| distance(*a, leader).cmp(&distance(*b, leader)).then(a.cmp(b)));
     let mut live = vec![Live { cell: leader, role: Role::Leader }];
@@ -178,10 +205,11 @@ pub fn shares(live: &[Live], outcomes: &std::collections::BTreeMap<String, Vec<O
     settle::shares(&arms, &format!("{category} cell"))
 }
 
-pub fn draw(category: &str, seed: Cell, seed_text: &str, outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>) -> (Cell, Role, String) {
-    let live = live(category, seed, outcomes);
+pub fn draw(shape: Shape<'_>, seed: Cell, seed_text: &str, outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>) -> (Cell, Role, String) {
+    let category = shape.category;
+    let live = live(shape, seed, outcomes);
     if let [only] = live.as_slice() {
-        return (only.cell, only.role, format!("draws {} as its leader, the only live cell of {}", only.cell.name(), allowed(category).len()));
+        return (only.cell, only.role, format!("draws {} as its leader, the only live cell of {}", only.cell.name(), allowed(shape).len()));
     }
     let (weights, settled) = shares(&live, outcomes, category);
     let at = settle::pick(&weights, seed_text);

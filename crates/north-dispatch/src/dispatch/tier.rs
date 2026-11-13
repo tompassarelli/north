@@ -256,7 +256,7 @@ pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, 
     }
     let seed = Cell::seed(route.tier, route.effort);
     let seed_text = history.seed("cell", item);
-    let (cell, role, drawn) = cells::draw(&category, seed, &seed_text, &evidence.cell_boxes);
+    let (cell, role, drawn) = cells::draw(cells::Shape { category: &category, scope: &facet("Scope").to_lowercase(), verify: &facet("Verify").to_lowercase() }, seed, &seed_text, &evidence.cell_boxes);
     Ok(Route {
         tier: cell.tier(),
         effort: Some(cell.effort()),
