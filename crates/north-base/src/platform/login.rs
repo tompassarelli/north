@@ -37,9 +37,9 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let ssh = root.path().join("ssh");
         std::fs::write(&ssh, "#!/bin/sh\n[ \"$1 $2 $3 $4 $5\" = \"-T -o BatchMode=yes -o ConnectTimeout=10\" ] || exit 9\nprintf 'ssh %s ' \"$6\"; [ \"$7\" = -- ] || exit 8\nexec sh -c \"$8\"\n").unwrap();
-        std::fs::set_permissions(&ssh, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         let ran = |destination: &str| {
-            let output = Login::of(destination).unwrap().command(&ssh, "read line; echo \"$line\" ran", Duration::from_secs(10)).unwrap().stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().and_then(|mut child| {
+            let far = Login::of(destination).unwrap().command(&ssh, "read line; echo \"$line\" ran", Duration::from_secs(10)).unwrap();
+            let output = Command::new("sh").arg(&ssh).args(far.get_args()).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().and_then(|mut child| {
                 std::io::Write::write_all(child.stdin.as_mut().unwrap(), b"the script\n")?;
                 child.wait_with_output()
             });
