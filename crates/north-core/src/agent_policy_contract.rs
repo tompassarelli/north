@@ -98,7 +98,7 @@ impl Locations {
         let pick = |name: &str, default: PathBuf| env(name).map_or(default, PathBuf::from);
         let repo = options.repo.canonicalize().unwrap_or_else(|_| options.repo.clone());
         let north = options.north.clone().unwrap_or_else(|| home.join("code/north/main"));
-        let operator = pick("AGENTS_OPERATOR_DIR", home.join("code/south/main/agents"));
+        let operator = pick("AGENTS_OPERATOR_DIR", crate::platform::shared_config::operator_root(&home).join("agents"));
         let activation = match (env("AGENT_POLICY_ACTIVATION"), env("NORTH_AGENT_STATE_ROOT")) {
             (Some(explicit), _) if !explicit.is_empty() => PathBuf::from(explicit),
             (_, Some(root)) if !root.is_empty() => Path::new(&root).join("current/activation.json"),

@@ -3,7 +3,7 @@
 use super::*;
 
 const HOUR: u64 = 3_600_000;
-const UNITS: &str = "# /home/tom/.config/systemd/user/capacity-watchdog.service -> /nix/store/d1s7-capacity-watchdog.service/capacity-watchdog.service\n[Service]\nEnvironment=PATH=/run/wrappers/bin\nExecStart=/home/tom/.local/share/north/bin/capacity-watchdog sample\nExecStartPre=-/bin/true\n# /home/tom/.config/systemd/user/agents-flow.service\n[Service]\nExecStart=/usr/bin/env bash /home/tom/code/south/main/bin/agents-flow --once\n";
+const UNITS: &str = "# /home/tom/.config/systemd/user/capacity-watchdog.service -> /nix/store/d1s7-capacity-watchdog.service/capacity-watchdog.service\n[Service]\nEnvironment=PATH=/run/wrappers/bin\nExecStart=/home/tom/.local/share/north/bin/capacity-watchdog sample\nExecStartPre=-/bin/true\n# /home/tom/.config/systemd/user/agents-flow.service\n[Service]\nExecStart=/usr/bin/env bash /home/tom/code/north/main/bin/agents-flow --once\n";
 
 #[test]
 fn a_unit_whose_exec_start_runs_capacity_watchdog_blocks_deleting_it_by_name_or_bin_path() {

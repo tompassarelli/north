@@ -17,7 +17,7 @@ pub fn policy_file(file: &str) -> PathBuf {
 }
 
 pub fn under(home: &Path) -> PathBuf {
-    home.join("code/south/main/agents/orchestration.toml")
+    shared::checkout(home).join("agents/orchestration.toml")
 }
 
 /// The orchestration policy at the fetched south revision; once a host has a snapshot, one whose last fetch is past

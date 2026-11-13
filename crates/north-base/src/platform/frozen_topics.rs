@@ -1,6 +1,8 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use north_shared_config as shared;
 use toml_edit::{DocumentMut, Item};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,12 +30,9 @@ pub fn matching<'a>(topics: &'a [Topic], repo: &str, title: &str) -> Option<&'a 
 }
 
 pub fn path() -> PathBuf {
-    if let Some(path) = env::var_os("AGENTS_FROZEN_TOPICS").filter(|path| !path.is_empty()) {
-        return path.into();
-    }
     match env::var_os("AGENTS_OPERATOR_DIR") {
         Some(operator) => PathBuf::from(operator).join("frozen-topics.toml"),
-        None => PathBuf::from(env::var_os("HOME").unwrap_or_default()).join("code/south/main/agents/frozen-topics.toml"),
+        None => shared::operator_root(&PathBuf::from(env::var_os("HOME").unwrap_or_default())).join("agents/frozen-topics.toml"),
     }
 }
 

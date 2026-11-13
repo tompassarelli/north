@@ -47,7 +47,7 @@ fn environment(name: &str) -> Option<PathBuf> {
 }
 
 fn operator_dir(roots: &Roots) -> PathBuf {
-    environment("AGENTS_OPERATOR_DIR").unwrap_or_else(|| roots.home.join("code/south/main/agents"))
+    environment("AGENTS_OPERATOR_DIR").unwrap_or_else(|| crate::platform::shared_config::operator_root(&roots.home).join("agents"))
 }
 
 fn gate_for(repo: PathBuf, operator: PathBuf, roots: Roots) -> Gate {

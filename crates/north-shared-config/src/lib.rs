@@ -3,6 +3,7 @@
 //! Depends only on std and the git binary.
 #![forbid(unsafe_code)]
 
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -45,8 +46,17 @@ pub fn current(home: &Path) -> PathBuf {
     directory(home).join(CURRENT)
 }
 
-pub fn south(home: &Path) -> PathBuf {
-    home.join("code/south/main")
+pub const CHECKOUTS: &str = "code/south";
+
+pub fn checkout(home: &Path) -> PathBuf {
+    home.join(CHECKOUTS).join("main")
+}
+
+pub fn operator_root(home: &Path) -> PathBuf {
+    match env::var_os("NORTH_SOUTH_ROOT").filter(|root| !root.is_empty()) {
+        Some(root) => PathBuf::from(root),
+        None => checkout(home),
+    }
 }
 
 /// The orchestration file a run reads: the one `orchestration` names, else the operator directory's, else the
@@ -62,7 +72,7 @@ pub fn orchestration(home: &Path, orchestration: Option<&Path>, operator: Option
     let snapshot = current(home).join(FILE);
     match snapshot.is_file() {
         true => snapshot,
-        false => south(home).join(TREE).join(FILE),
+        false => checkout(home).join(TREE).join(FILE),
     }
 }
 
@@ -139,7 +149,8 @@ pub fn refresh(home: &Path, repo: &Path, now: u64) -> Result<Stamp, String> {
 /// Refresh when the last fetch is older than the refresh interval; a failed fetch keeps the snapshot, which `fresh` bounds.
 pub fn refresh_if_due(home: &Path, now: u64) -> Option<Result<Stamp, String>> {
     let due = stamp(home).is_none_or(|stamp| now.saturating_sub(stamp.fetched_at) >= REFRESH_SECONDS);
-    (due && south(home).is_dir()).then(|| refresh(home, &south(home), now))
+    let root = checkout(home);
+    (due && root.is_dir()).then(|| refresh(home, &root, now))
 }
 
 /// The line the coordinator gets once the snapshot's last fetch is past three quarters of the bound, once per stamp, so one

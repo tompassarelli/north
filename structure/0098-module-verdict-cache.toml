@@ -2,5 +2,5 @@
 name = "verdict_cache"
 paths = ["crates/north-base/src/verdict_cache.rs", "crates/north-base/src/verdict_cache/**"]
 responsibility = "The key of a land check's inputs and the store of passing verdicts on each check host."
-may_use = ["foundation", "build_inputs"]
+may_use = ["foundation", "build_inputs", "platform"]
 
