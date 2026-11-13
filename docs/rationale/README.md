@@ -113,3 +113,7 @@ Nothing here is needed to use north: these notes record why it is built the way 
 - [Account usage: one reserve, placement that manages work in flight, and a spend breaker](account-capacity.md): Tom finds the account usage talk confusing and surprising: leads hold workers on projections the written rule forbids, and several mechanisms disagree.
 - [Frontier scoreboard: north against plain Claude Code on the same boxes](frontier.md): The owner asked on 2026-11-07 for a scoreboard that shows whether north is at the frontier of agent harnesses, by how much and where it is not (north#730).
 - [The policy climber: north improves its own staffing policy](policy-climber.md): Retired 2026-11-10 by north#970 (bce9c60404): `north-climb`, `north ops climb run` and the archive's rule file are gone, so nothing on main runs this design.
+
+## Not yet sorted
+
+- [The candidate-landing scenario (north#1233)](candidate-scenario.md): A box in the well-specified band can be answered before it is assigned: a candidate change is computed on the small model in idle time, kept as a lane, and a launch lands it after the box's checks pass again on current main (north#1240, folded into north#1233).

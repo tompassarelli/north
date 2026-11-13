@@ -724,3 +724,11 @@ command = "grep -A1 '^\\[after_landing_green\\]' harness/defaults.toml | grep -q
 review = "2026-11-27"
 owner = "tompassarelli/north#1022"
 lead = "f-flow-lead"
+
+[[check]]
+id = "n1233-candidate-scenario"
+box = "Twenty boxes known an hour before they are launched record their launch-to-landed time, landed from candidates, unused-candidate tokens and the fresh-lane verdict"
+command = "b=$(gh issue view 1233 -R tompassarelli/north --json comments -q '.comments[].body'); printf '%s\\n' \"$b\" | awk '/^Candidate scenario: 20 boxes known an hour before/{on=1;next} !on{next} /^- /{boxes++} /^time from launch to landed:/{time=1} /^share landed from candidates:/{share=1} /^tokens spent on candidates that were never used:/{tokens=1} /^candidates a fresh worker/{fresh=1} END{exit !(boxes==20 && time && share && tokens && fresh)}'"
+review = "2026-11-27"
+owner = "tompassarelli/north#1233"
+lead = "proxy"
