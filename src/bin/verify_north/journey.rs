@@ -71,9 +71,10 @@ pub fn walk(north: North, notes: Notes, plan: Plan) -> Option<&'static str> {
         let outcome = step(&mut journey);
         report::step(number, title, &outcome, started.elapsed());
         if outcome.is_err() {
+            let waiting = journey.waiting();
             journey.stop_lander();
             journey.stop_broker();
-            journey.keep_evidence();
+            journey.keep_evidence(&waiting);
             STEPS[index + 1..].iter().for_each(|(number, title, _)| report::skipped(number, title));
             return Some(number);
         }
@@ -180,9 +181,15 @@ impl Journey {
         self.scratch.as_ref().and_then(|scratch| fs::read_to_string(scratch.root.join("lander.log")).ok()).unwrap_or_default()
     }
 
-    fn keep_evidence(&self) {
+    fn waiting(&self) -> String {
+        let roots: Vec<Process> = self.scratch.iter().map(|scratch| scratch.root.as_path()).chain([self.plan.state.as_path()]).flat_map(processes::within).collect::<BTreeSet<_>>().into_iter().collect();
+        let every: BTreeSet<Process> = roots.iter().copied().chain(processes::descendants(&roots)).collect();
+        every.into_iter().map(|process| format!("{}\n", process.waiting())).collect()
+    }
+
+    fn keep_evidence(&self, waiting: &str) {
         let Some(scratch) = &self.scratch else { return };
-        match scratch::keep_ledger(&scratch.root, self.plan.stamp) {
+        match scratch::keep_ledger(&scratch.root, &landing_queues(&self.plan.state), waiting, self.plan.stamp) {
             Ok(kept) => report::say(&format!("verify-north kept the scratch ledger in {}", kept.display())),
             Err(problem) => report::say(&format!("verify-north could not keep the scratch ledger: {problem}")),
         }

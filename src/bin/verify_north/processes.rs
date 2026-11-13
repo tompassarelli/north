@@ -37,6 +37,13 @@ impl Process {
         arguments(self.pid).join(" ")
     }
 
+    pub fn waiting(self) -> String {
+        let read = |name: &str| fs::read_to_string(format!("/proc/{}/{name}", self.pid)).unwrap_or_default();
+        let state = read("stat").rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().next().map(str::to_owned)).unwrap_or_default();
+        let held: Vec<String> = fs::read_dir(format!("/proc/{}/fd", self.pid)).into_iter().flatten().flatten().filter_map(|fd| fs::read_link(fd.path()).ok()).map(|target| target.display().to_string()).collect();
+        format!("{} state {state} in {}: {}\n  holds {}", self.pid, read("wchan"), self.command_line(), held.join(", "))
+    }
+
     pub fn encode(self) -> String {
         format!("{} {}", self.pid, self.start)
     }

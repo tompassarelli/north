@@ -82,7 +82,9 @@ impl Scratch {
     }
 }
 
-pub fn keep_ledger(root: &Path, stamp: u64) -> Result<PathBuf, String> {
+const KEPT_FILE_BYTES: u64 = 1 << 20;
+
+pub fn keep_ledger(root: &Path, queues: &Path, waiting: &str, stamp: u64) -> Result<PathBuf, String> {
     let state = live_state()?;
     let kept = state.join("north/verify-north/failed").join(stamp.to_string());
     fs::create_dir_all(&kept).map_err(|error| format!("{}: {error}", kept.display()))?;
@@ -92,7 +94,27 @@ pub fn keep_ledger(root: &Path, stamp: u64) -> Result<PathBuf, String> {
             fs::copy(&from, kept.join(name)).map_err(|error| format!("{}: {error}", from.display()))?;
         }
     }
+    write(&kept.join("processes"), waiting)?;
+    keep_tree(queues, &kept.join("land-queue"))?;
     Ok(kept)
+}
+
+fn keep_tree(from: &Path, to: &Path) -> Result<(), String> {
+    let Ok(entries) = fs::read_dir(from) else { return Ok(()) };
+    fs::create_dir_all(to).map_err(|error| format!("{}: {error}", to.display()))?;
+    for entry in entries.flatten() {
+        let (source, target) = (entry.path(), to.join(entry.file_name()));
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => keep_tree(&source, &target)?,
+            Ok(kind) if kind.is_file() => {
+                let mut file = fs::File::open(&source).map_err(|error| format!("{}: {error}", source.display()))?;
+                let mut kept = fs::File::create(&target).map_err(|error| format!("{}: {error}", target.display()))?;
+                std::io::copy(&mut std::io::Read::take(&mut file, KEPT_FILE_BYTES), &mut kept).map_err(|error| format!("{}: {error}", source.display()))?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 pub fn removable(path: &Path) -> bool {
