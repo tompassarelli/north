@@ -1,0 +1,1 @@
+  fleet reap [--dry-run]                            Retire idle or parked sessions that nothing would wake once their final report was taken, free their lanes and print each verdict

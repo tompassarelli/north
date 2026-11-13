@@ -3,7 +3,7 @@
 North is an autonomous software factory. It takes issues that carry runnable Done-when checks and
 turns model budget into verified changes landed on main: it staffs and routes workers across
 machines and accounts, lands each change through a checked tree and reverts what breaks main.
-Tom's agents, North's fleet, run on it. Claude Code and Codex are the base harnesses; North
+The agents it staffs run on provider CLIs (Claude Code, Codex, OpenCode and Pi, chosen with `north fleet launch --provider`); North
 adds the staffing, the routing and the landing path, plus hooks that guard each tool call, shared
 skills and the policy checks that keep them honest. It also ships `north`, a terminal fleet screen
 for directing sessions and decisions.
@@ -13,9 +13,10 @@ extra. Today its loops tune numbers from outcomes a machine graded; the plan for
 models repeat into machinery it proves is in
 [docs/rationale/self-improvement-loop.md](docs/rationale/self-improvement-loop.md).
 
-It is built for Tom and the agents in his fleet. Anyone who directs coding agents can read it, try
-the `north` app, or borrow a command, hook or skill. The full factory expects Tom's machines and his
-private policy repository, South, so it does not install elsewhere as is.
+It is built for an operator who directs a fleet of coding agents. Anyone who does can try the `north`
+app, install the factory on their own machines with [docs/onboarding.md](docs/onboarding.md), or borrow a
+command, hook or skill. The factory reads the operator's private policy from a separate repository, which
+[docs/operator-repository.md](docs/operator-repository.md) describes.
 
 The words follow [docs/terms.md](docs/terms.md): a **model** is the weights, the **harness** turns a
 model into an **agent**, and a **fleet** is many agents with roles, staffing and policy. A
@@ -32,8 +33,14 @@ nix develop -c cargo build --locked
 target/debug/north
 ```
 
-How the harness is installed on Tom's machines, how a worker is staffed, where policy lives and how
-a change lands: [docs/harness.md](docs/harness.md).
+Then follow the numbered path, one page per step:
+
+1. What north is: this page and [docs/terms.md](docs/terms.md).
+2. Install it on your machines: [docs/onboarding.md](docs/onboarding.md); `verify-north` walks a brief, a worker, a landed commit and a ledger row on a scratch repository and is the check that it works.
+3. Brief a worker: [docs/briefing.md](docs/briefing.md).
+4. Land a change: [docs/landing.md](docs/landing.md).
+5. Know where policy lives: [docs/operator-repository.md](docs/operator-repository.md).
+6. Look a command up: `north --help`, then [docs/features/](docs/features/).
 
 ## Finding a fact
 
@@ -52,25 +59,29 @@ Read in three rings and stop at the first one that answers:
 ## Where things live
 
 - [src/](src/) and [crates/](crates/): the `north` fleet runtime, terminal screen, landing gates and
-  authorized host effects; [docs/architecture.md](docs/architecture.md) maps the owning boundaries.
-- [bin/](bin/): every harness command (`agents`, `threads`, `safe-push` and more);
-  [docs/features/](docs/features/) says what each one is for.
+  authorized host effects; [ARCHITECTURE.md](ARCHITECTURE.md) maps the crates and their owning boundaries.
+- [bin/](bin/): toolchain shims and a few helper tools; every harness command is a `north` verb, and
+  `north --help` lists them. [docs/features/](docs/features/) says what each one is for.
 - [harness/](harness/): hooks, skills, defaults and policy owners;
-  [docs/harness.md](docs/harness.md) follows them end to end, and
+  [docs/briefing.md](docs/briefing.md), [docs/landing.md](docs/landing.md) and
+  [docs/operator-repository.md](docs/operator-repository.md) follow them, and
   [harness/SKILL-ARCHITECTURE.md](harness/SKILL-ARCHITECTURE.md) says how skills are laid out.
-- [docs/](docs/): the concept documents, the feature entries and the rationale notes.
+- [docs/](docs/): the concept documents, the feature entries and [docs/rationale/](docs/rationale/), the notes on why.
 
 ## Concept documents
 
-- [docs/harness.md](docs/harness.md): install, staffing, policy and landing, end to end.
+- [docs/onboarding.md](docs/onboarding.md): installing north on a host.
+- [docs/briefing.md](docs/briefing.md): staffing a worker and messaging fleet sessions.
+- [docs/landing.md](docs/landing.md): how a change reaches main.
+- [docs/operator-repository.md](docs/operator-repository.md): where policy lives.
 - [docs/terms.md](docs/terms.md): the four layer terms.
-- [docs/architecture.md](docs/architecture.md): the `north` app's owning boundaries.
-- [docs/features/](docs/features/): what each command does.
+- [ARCHITECTURE.md](ARCHITECTURE.md): the crates and the `north` app's owning boundaries.
+- [docs/architecture.md](docs/architecture.md): the `north` app's owning boundaries, until it merges into ARCHITECTURE.md.
+- [docs/features/](docs/features/): one short record per command, what it is for.
 - [docs/feedback-loop.md](docs/feedback-loop.md): each recorded signal, its writer and its reader.
 - [docs/references.md](docs/references.md): outside sources, what they shaped and what came of them.
-- [docs/nexus-run.md](docs/nexus-run.md): running a CPU job on Nexus from an owned worktree.
+- [docs/nexus-run.md](docs/nexus-run.md): running a CPU job on Nexus from an owned worktree, until it moves out.
 - [docs/graph.md](docs/graph.md): the fact graph behind `north graph`: terms, occurrences, the ask query and its timing.
-- [docs/rationale/review-triggers.md](docs/rationale/review-triggers.md): why review is triggered by risk, not a landing trailer.
 - [harness/skills/verification/SKILL.md](harness/skills/verification/SKILL.md): how tests are kept and run.
 
 ## Keeping the docs true

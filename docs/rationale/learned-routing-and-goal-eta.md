@@ -97,3 +97,22 @@ one 1-12 minute run that the worker landed itself under a lead watching the lane
 dependency path multiplies that per-box gap. A goal run that way is better estimated per run; the box duration fits
 goals whose boxes are tracked issues.
 
+
+## Signal definitions and measurements moved from the feedback loop
+
+These five paragraphs stood under the signal table of [the feedback loop](../feedback-loop.md) until 2026-11-13; they are definitions and dated measurements, so they live with the other dated measurements.
+
+The runs activity signal, per worker run from its transcript (north#255): turns = assistant messages;
+tool_calls = tool_use blocks; active_min = the sum of gaps between consecutive transcript events inside an
+assistant turn (model generation and tool execution), leaving out the gap from an assistant turn's end to the
+next user, human or notice message, with any single gap capped at 10 minutes so a hung tool does not count as
+work; wait_min = wall minutes minus active_min, where wall is the first to the last transcript timestamp.
+
+Claude worker creation (north#35): foreground `SubagentStart` lacks the original prompt, and the child prompt is persisted only after that callback. The supported route is `Agent` with `run_in_background: true`: its `PostToolUse` result has `status=async_launched` and the actual child `agentId`, so `worker-handoff` records the original tool input at launch. `worker-tier-guard` requires this route before any `Follows:` exemption.
+
+Attempt chains (2026-11-04): a Done run counts as kept only when no other worker run on its item was staffed within 24 h (`RERUN_WINDOW_MIN`, a constant apart from the 30-minute `box_chain_gap_min`) of its end, so `Follows:` words that never resolve no longer hide re-runs from `ok`, `success` and the recommend rates; `north ledger worker --summary` adds an `attempts` column, the mean rank of a cell's runs in their item's chain (a chain breaks at a gap over 24 h). A reviewer (`Category: review`) or a 0-minute Done run with no known category (a judge or scorer) is read as role `reviewer` or `judge` by `run_roles::ROLE_SQL`, so it leaves the worker cells and appears in the context table under its own role.
+
+Rework (2026-11-04): a Done run whose landing on main is reverted, fixed forward or named a red-main culprit within 48 h (`rework::REWORK_WINDOW_S`; definition in docs/rationale/tier-routing.md) is not kept either. History comes from `git log --first-parent origin/main` in each `~/code/<checkout>/main` (`NORTH_CODE_ROOT` overrides the root) and culprits from the red-main-notify state directory (`RED_MAIN_STATE`). `north ledger worker --summary` adds a `rework` column, reworked landings and their share of the cell's landings found on main, and a `revert/fix/culprit` column splitting them by cause out of the landings found (2026-11-05), and `north health` prints `health: rework 7d:` with each repository's rate and fails above `rework_alarm_pct` (prior 20%).
+
+Unjudged runs (north#35 FX5): an `unclear` run with no `Item:` is an unbriefed session and `ledger::outcome` (`unjudged`) keeps it out of every success denominator (370 of 533 `unclear` worker runs over 14 days); on the 2026-10-12 snapshot, `replay-staffing --since 7d` goes from 830 decisions, 146 changed, old pick 86 (39 ok) to 817, 132 changed, old pick 72 (35 ok), and 7-day `summary` ok moves unknown/sol-high 51% of 658 to 57% of 580, unknown/sol-medium 61% of 276 to 66% of 254, unknown/medium 45% of 87 to 67% of 59, tooling/medium 63% of 138 to 69% of 126, and unknown/luna-medium (0% of 13) and unknown/gemini-pro-high (0% of 17) drop out.
+

@@ -1,0 +1,1 @@
+  fleet need HOST REASON [--item REPO#N]            Record the host or local need (laptop, native, a host name) that can finish this worker's box, so dispatch places the next try there

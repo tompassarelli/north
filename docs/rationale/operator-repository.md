@@ -23,7 +23,7 @@ There is no single locator. The default is the checkout `~/code/south/main`, wit
 - Four readers have no override at all: the infra manifest (`src/cli/infra/manifest.rs:72`), host facts (`crates/north-runtime/src/runtime/host_facts.rs:112`), the shared-configuration snapshot's source (`crates/north-shared-config/src/lib.rs:48`) and the revision in the verdict key (`crates/north-landing-gates/src/landing/base_relative.rs:42`).
 - The repository's name is also its identity. It is matched as a string to route its landing (`crates/north-safe-push/src/landing/south_ledger.rs:41`), to resolve catalog owners (`crates/north-core/src/agent_config_check/gate.rs:105`, `crates/north-core/src/catalog/paths.rs:26`), to keep it from the free model route (`harness/opencode.toml:6`) and to accept the remote that host facts are pushed to (`crates/north-core/src/catalog/live_refs_transport.rs:47`).
 
-The name stays: "south" is the role's name in north's vocabulary ([docs/harness.md](../harness.md)), not a fact about the owner, and a newcomer's operator repository takes the same name and place by default.
+The name stays: "south" is the role's name in north's vocabulary ([docs/operator-repository.md](../operator-repository.md)), not a fact about the owner, and a newcomer's operator repository takes the same name and place by default.
 
 ## Inventory
 
@@ -93,7 +93,7 @@ Three kinds hold method a newcomer would value and cannot be classed from paths 
 - `agents sync` refreshes three checkouts in order, the operator's, north's and the machine-configuration repository's, and publishes nothing when one cannot be fetched (`crates/north-core/src/catalog/sync_gate.rs:44` to `:47`, `:160`). A newcomer does not have the third, and a repository made a minute ago has no origin to fetch.
 - The catalog's `$schema` names a file north does not hold.
 - North already holds synthetic copies of two of the 15 schema files as test fixtures (`harness/lib/fixtures/orchestration.toml`, `harness/lib/fixtures/costs.toml`), so init starts from shapes the tests already exercise.
-- North's own skills and docs point into the operator repository 31 times at 14 distinct places, and [docs/harness.md](../harness.md) says the full harness is not a public install. Those belong to the docs boxes and the privacy sweep of north#1281.
+- North's own skills and docs point into the operator repository 31 times at 14 distinct places, and [docs/onboarding.md](../onboarding.md) is the install page. Those belong to the docs boxes and the privacy sweep of north#1281.
 
 ## Decision
 
