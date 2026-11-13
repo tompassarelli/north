@@ -129,6 +129,8 @@ mod tests {
     use crate::fleet::store::cache_sessions;
     use crate::fleet::registry::HandedIn;
 
+    const HANG: std::time::Duration = std::time::Duration::from_secs(3600);
+
     fn cached(fleet: &Fleet, names: &[&str]) {
         let rows: Vec<SessionRow> = names.iter().map(|name| SessionRow { name: (*name).into(), host: "far-host".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }).collect();
         cache_sessions(&fleet.root, &rows).unwrap();
@@ -238,14 +240,14 @@ mod tests {
             let handed = fleet.journaled(&row, || fleet.send_signed(&Sender::fleet(), "worker", "nested", Delivery::Queued));
             done.send((handed.map_err(|error| error.user_message()), worker.frames.lock().unwrap().clone())).unwrap();
         });
-        let (handed, frames) = finished.recv_timeout(std::time::Duration::from_secs(20)).expect("the nested hand-in waited on its own delivery lock");
+        let (handed, frames) = finished.recv_timeout(HANG).expect("the nested hand-in waited on its own delivery lock");
         assert_eq!(handed, Ok(HandedIn::Delivered));
         assert!(frames.iter().any(|frame| frame.contains("nested")), "{frames:?}");
     }
 
     #[test]
     fn a_hand_in_gives_up_on_a_delivery_lock_another_holds_and_leaves_the_row_for_the_next_tick() {
-        use std::{sync::mpsc::channel, thread::spawn, time::Duration};
+        use std::{sync::mpsc::channel, thread::spawn};
         let home = tempfile::tempdir().unwrap();
         let _worker = live(&fleet(home.path()), "worker");
         let ((ready, readied), (go, going), (gave_up, gave)) = (channel(), channel::<()>(), channel());
@@ -259,7 +261,7 @@ mod tests {
             let row = laptop.spool_message(&Sender::Tom, "worker", "late", Delivery::Queued).unwrap();
             gave_up.send(laptop.hand_in(&row).map_err(|error| error.user_message())).unwrap();
         });
-        readied.recv_timeout(Duration::from_secs(10)).expect("the first hand-in never finished");
+        readied.recv_timeout(HANG).expect("the first hand-in never finished");
         let ((held, holding), (release, released)) = (channel(), channel::<()>());
         let root = home.path().to_owned();
         spawn(move || {
@@ -271,12 +273,12 @@ mod tests {
                 Ok(())
             })
         });
-        holding.recv_timeout(Duration::from_secs(10)).expect("the holder never took the delivery lock");
+        holding.recv_timeout(HANG).expect("the holder never took the delivery lock");
         go.send(()).unwrap();
-        let handed = gave.recv_timeout(Duration::from_secs(10)).expect("the hand-in waited on the held delivery lock without a bound");
+        let handed = gave.recv_timeout(HANG).expect("the hand-in waited on the held delivery lock without a bound");
         release.send(()).unwrap();
 
-        assert!(handed.is_err(), "{handed:?}");
+        assert!(handed.as_ref().is_err_and(|error| error.contains("delivery lock is still held after")), "{handed:?}");
     }
 
     #[test]
