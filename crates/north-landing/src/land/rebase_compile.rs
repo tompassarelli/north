@@ -74,7 +74,6 @@ fn unjudged(logs: &Path, name: &str, why: &str, log: &str) -> Result<Option<Refu
 }
 
 pub fn judge(rebased: &Rebased, program: &Path, logs: &Path, name: &str) -> Result<Option<Refused>, String> {
-    let Some(checked_on) = rebased.checked_on.filter(|checked_on| *checked_on != rebased.picked_onto) else { return Ok(None) };
     if !rebased.tree.join("Cargo.toml").is_file() {
         return Ok(None);
     }
@@ -83,6 +82,7 @@ pub fn judge(rebased: &Rebased, program: &Path, logs: &Path, name: &str) -> Resu
         Manifest::Refused(refused) => return Ok(Some(refused)),
         Manifest::Unjudged => return Ok(None),
     };
+    let Some(checked_on) = rebased.checked_on.filter(|checked_on| *checked_on != rebased.picked_onto) else { return Ok(None) };
     let scope = match affected::rebase_scope(rebased.tree, &metadata, checked_on, rebased.picked_onto, rebased.head) {
         Ok(Some(scope)) => scope,
         Ok(None) => return Ok(None),

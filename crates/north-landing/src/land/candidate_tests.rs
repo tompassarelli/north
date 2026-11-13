@@ -169,4 +169,6 @@ fn rebase_compile_scenario(dir: &Path) {
     let broken = Rebased { tree: &repo, checked_on: Some(&checked_on), picked_onto: &moved, head: &unreadable, shipped_from: &moved };
     let refused = rebase_compile::judge(&broken, &offline, &logs, "lane").unwrap().expect("a rebased tree whose manifest cargo cannot read is refused");
     assert!(refused.verdict.contains("duplicate key") && refused.verdict.contains("--> Cargo.toml:7:1"), "on 2026-11-13 e62678a196 left main's Cargo.toml with a second thiserror key; the compile after the rebase could not read which crates it reached and landed it with no verdict: {}", refused.verdict);
+    let reverted = Rebased { checked_on: None, ..broken };
+    assert!(rebase_compile::judge(&reverted, &offline, &logs, "sheriff-revert").unwrap().is_some_and(|refused| refused.verdict.contains("duplicate key")), "on 2026-11-13 the sheriff's queued revert 7ba951faca, a ticket checked on no base, dropped the workspace's thiserror entry while north-graph still inherited it, and landed past the manifest read");
 }

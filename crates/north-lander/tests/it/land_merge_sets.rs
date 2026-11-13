@@ -15,6 +15,9 @@ const CARGO: &str = r#"[workspace]
 members = ["crates/north-a", "crates/north-b"]
 default-members = [".", "crates/north-a", "crates/north-b"]
 
+[workspace.dependencies]
+serde = "1"
+
 [package]
 name = "north"
 version = "0.1.0"
@@ -80,7 +83,7 @@ fn main_repo(root: &Path) -> std::path::PathBuf {
     run(root, &["clone", "-q", origin.to_str().unwrap(), main.to_str().unwrap()]);
     write(&main, ".gitattributes", include_str!("../../../../.gitattributes"));
     write(&main, "harness/merge-sets.toml", &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../harness/merge-sets.toml")).unwrap());
-    for (path, text) in [("Cargo.toml", CARGO), ("structure.toml", STRUCTURE), ("src/main.rs", MAIN), ("docs/features/a.md", "# a\n"), (CAPACITY_PATH, CAPACITY)] {
+    for (path, text) in [("Cargo.toml", CARGO), ("structure.toml", STRUCTURE), ("src/main.rs", MAIN), ("docs/features/a.md", "# a\n"), (CAPACITY_PATH, CAPACITY), ("crates/north-a/Cargo.toml", member("a").as_str()), ("crates/north-a/src/lib.rs", ""), ("crates/north-b/Cargo.toml", member("b").as_str()), ("crates/north-b/src/lib.rs", "")] {
         write(&main, path, text);
     }
     for (path, text) in STRUCTURE_FILES {
@@ -91,6 +94,10 @@ fn main_repo(root: &Path) -> std::path::PathBuf {
     commit(&main, "base");
     run(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
     main
+}
+
+fn member(name: &str) -> String {
+    format!("[package]\nname = \"north-{name}\"\nversion = \"0.1.0\"\n")
 }
 
 fn edit(root: &Path, path: &str, edit: impl FnOnce(String) -> String) {
@@ -116,6 +123,8 @@ fn adds_everything(root: &Path, name: &str) {
     edit(root, "src/main.rs", |text| text.replace("mod run;\n", &format!("mod run;\nmod {name};\n")));
     edit(root, CAPACITY_PATH, |text| text.replace("mod aperture;\n", &format!("mod aperture;\npub mod {name};\n")));
     write(root, &format!("docs/features/{name}.md"), &format!("# {name}\n"));
+    write(root, &format!("{krate}/Cargo.toml"), &member(name));
+    write(root, &format!("{krate}/src/lib.rs"), "");
 }
 
 fn scenario(home: &Path) {
