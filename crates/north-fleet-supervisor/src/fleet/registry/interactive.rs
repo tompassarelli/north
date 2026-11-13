@@ -41,7 +41,9 @@ impl Fleet {
         if after_turn {
             self.await_turn_end(name, pause, show)?;
         }
-        self.halt(name, Halt::Interactive)?;
+        if !record.ended() {
+            self.halt(name, Halt::Interactive)?;
+        }
         Host::new(record.host_dir.clone()).await_end()?;
         launch(&spec)
     }
