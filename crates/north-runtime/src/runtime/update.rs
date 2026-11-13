@@ -360,7 +360,7 @@ fn install(layout: &Layout, target: &str, runtime: &Path, previous: Option<&Path
     }
     super::deploy::stage_for_lander(layout, target, runtime);
     let synced = sync(layout, previous, target, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))?;
-    agent_link::follow(layout, published.as_deref())?;
+    agent_link::follow(layout, published.as_ref())?;
     Ok(synced)
 }
 

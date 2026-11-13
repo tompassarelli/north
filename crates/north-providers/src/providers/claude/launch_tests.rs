@@ -28,6 +28,24 @@ fn a_session_on_an_agent_login_runs_the_published_agent_claude_and_never_a_copy_
     let output = std::process::Command::new("sh").current_dir(dir.path()).args(["-c", &script, "claude"]).output().unwrap();
     assert_eq!(output.status.code(), Some(127), "{output:?}");
     assert!(output.stdout.is_empty(), "{output:?}");
+    let shims = dir.path().join("shims");
+    std::fs::create_dir_all(&shims).unwrap();
+    std::fs::write(shims.join("stat"), "#!/bin/sh\ncase \"$3\" in %u) echo 0;; %a) echo \"$NAMING_MODE\";; esac\n").unwrap();
+    std::fs::set_permissions(shims.join("stat"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let agent_link = dir.path().join("current");
+    let naming = dir.path().join("agent-runtime-link");
+    std::fs::write(&naming, format!("{}\n", agent_link.display())).unwrap();
+    assert_eq!(agent_runtime::claude_link(&agent_link).join("bin/claude"), claude, "the publish lane's link is not the one the agent's argv execs");
+    let script = agent_runtime::claude_script_naming(&naming.to_string_lossy());
+    let path = format!("{}:{}", shims.display(), std::env::var("PATH").unwrap_or_default());
+    let run = |mode: &str| std::process::Command::new("sh").env("PATH", &path).env("NAMING_MODE", mode).args(["-c", &script, "claude"]).output().unwrap();
+    let ran = run("644");
+    assert_eq!((ran.status.code(), String::from_utf8_lossy(&ran.stdout).trim()), (Some(0), "ran"), "{ran:?}");
+    for writable in ["2664", "2646", "664", "0646"] {
+        let refused = run(writable);
+        assert_eq!(refused.status.code(), Some(127), "a root-owned naming file at mode {writable} was followed: {refused:?}");
+        assert!(refused.stdout.is_empty(), "{refused:?}");
+    }
 }
 
 fn request() -> LaunchRequest {

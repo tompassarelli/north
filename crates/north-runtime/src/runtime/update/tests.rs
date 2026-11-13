@@ -217,6 +217,8 @@ fn an_update_by_a_caller_who_cannot_write_the_agent_link_is_refused_and_a_rollba
     fs::create_dir_all(&previous).unwrap();
     let published = directory.path().join("published-agent-runtime");
     std::os::unix::fs::symlink(&published, previous.join("agent-runtime")).unwrap();
+    let claude = directory.path().join("published-agent-claude");
+    std::os::unix::fs::symlink(&claude, previous.join(north_base::platform::agent_runtime::CLAUDE_LINK)).unwrap();
     fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o500)).unwrap();
     let refused = agent_link::require_writable(&link);
     agent_link::roll_back_at(&layout, Some(&link), &previous, &failed);
@@ -227,6 +229,8 @@ fn an_update_by_a_caller_who_cannot_write_the_agent_link_is_refused_and_a_rollba
     assert!(stuck.starts_with(&format!("{failed} ")), "{stuck}");
     agent_link::roll_back_at(&layout, Some(&link), &previous, &failed);
     assert_eq!(fs::read_link(&link).unwrap(), published);
+    assert_eq!(fs::read_link(north_base::platform::agent_runtime::claude_link(&link)).unwrap(), claude, "the agent's Claude Code stayed on the runtime rolled back from");
+    assert_eq!(agent_link::targets_of(&link), [published, claude], "a runtime prune may take the root of what an agent link names");
     assert!(!layout.agent_link_stuck().exists(), "the link moved, yet its stuck record stayed");
 }
 
@@ -253,7 +257,7 @@ fn a_host_names_its_agent_link_by_variable_else_by_the_first_line_of_a_file_only
     assert!(std::env::var_os(agent_link::ENV).is_none());
     let state = tempfile::tempdir().unwrap();
     assert!(agent_link::guard().is_ok());
-    assert_eq!(agent_link::publish(state.path()).unwrap(), None);
+    assert!(agent_link::publish(state.path()).unwrap().is_none());
     assert!(agent_link::follow(&Layout { state: state.path().to_path_buf() }, None).is_ok());
     agent_link::roll_back(&Layout { state: state.path().to_path_buf() }, state.path(), &"f".repeat(40));
     assert_eq!(fs::read_dir(state.path()).unwrap().count(), 0);

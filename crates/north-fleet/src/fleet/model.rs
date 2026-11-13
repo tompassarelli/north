@@ -72,10 +72,11 @@ impl Machine {
         Self::login_home(self.session_login(), operator_home)
     }
 
+    /// The home of the Unix user a session login names, None when it names none, names one that is no plain user name, or names the operator, and None too when the operator's home is unknown, so a host never counts the operator's login as an agent's.
     pub fn login_home(login: &str, operator_home: &Path) -> Option<PathBuf> {
-        let user = login.split_once('@').map(|(user, _)| user).filter(|user| !user.is_empty())?;
+        let user = login.split_once('@').map(|(user, _)| user).filter(|user| unix_user(user))?;
         let home = PathBuf::from(format!("/home/{user}"));
-        (home != operator_home).then_some(home)
+        (operator_home.is_absolute() && home != operator_home).then_some(home)
     }
 }
 
@@ -706,3 +707,7 @@ impl Transcript {
     }
 }
 
+
+fn unix_user(user: &str) -> bool {
+    user.chars().next().is_some_and(|first| first.is_ascii_lowercase() || first == '_') && user.chars().all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || matches!(character, '_' | '-'))
+}
