@@ -63,7 +63,6 @@ const HAND_OFF: &str = "--hand-off";
 const SOCKETS_HIDDEN: &str = north_base::platform::session_scope::SOCKETS_HIDDEN;
 const CONFINED: &str = north_base::platform::session_scope::CONFINED;
 const MARK: &str = north_base::platform::gh_session::SANDBOX_MARK;
-const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 const LANE_ONLY: &str = north_base::platform::session_scope::LANE_ONLY;
 const HOSTS_HIDDEN: &str = north_base::platform::session_scope::HOSTS_HIDDEN;
 const SESSION_SCOPE: &str = "NORTH_WORKER_SESSION_SCOPE";
@@ -166,9 +165,9 @@ fn hand_off(program: &[String]) -> std::process::ExitCode {
     std::process::ExitCode::from(126)
 }
 
-/// A fleet worker is confined beyond the logins and build output once the `worker-sandbox` gate of harness/gates.toml enforces, or for a canary launch made with NORTH_WORKER_SANDBOX=1 while it is in shadow (north#706): its removal is confined and the sockets that start processes outside the domain are hidden (south#86). The proxy, leads and sessions started by hand keep both open, since they drive windows and units.
+/// A fleet worker, and a lead that holds a task (session_scope::confined_role, north#1137), is confined beyond the logins and build output once the `worker-sandbox` gate of harness/gates.toml enforces, or for a canary launch made with NORTH_WORKER_SANDBOX=1 while it is in shadow (north#706): its removal is confined and the sockets that start processes outside the domain are hidden (south#86). The proxy, a lead with no task and sessions started by hand keep both open, since they drive windows and units.
 fn confines_worker() -> bool {
-    let worker = std::env::var_os(ROLE_ENV).is_some_and(|role| role == "worker");
+    let worker = north_base::platform::session_scope::confined_session();
     let applies = north_base::platform::harness::document("harness/gates.toml")["gate"]["worker-sandbox"]["mode"].as_str() == Some("enforce") || std::env::var_os("NORTH_WORKER_SANDBOX").is_some_and(|canary| canary == "1");
     worker && applies
 }

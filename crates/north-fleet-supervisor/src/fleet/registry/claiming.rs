@@ -10,6 +10,7 @@ use crate::fleet::records::{CLAIMS_RELEASED, CLAIMS_SWEEP_LOG, read_record, writ
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::LAUNCH_GRACE_MS;
 
+use super::spooled::Holding;
 use super::{Fleet, session_running};
 
 /// How many owners one `threads holder` read names, so a fleet with hundreds of exited sessions never asks for them all in a read the ledger cannot answer within its bound.
@@ -39,6 +40,13 @@ impl Fleet {
 impl Fleet {
     /// Adds `task` to the issues the running session `name` holds, as a launch's `--task` would have: the session's record names it, so `north fleet list --json` shows it to every dispatch whatever the threads ledger says, and its claim in the ledger is taken on top. A ledger that cannot be read is a warning, never a failure, because the record already holds the issue.
     pub fn hold_task(&self, name: &str, task: &str) -> NorthResult<()> {
+        if self.writes_records() {
+            return self.hold_task_here(name, task);
+        }
+        self.spool_hold(name, task, Holding::Take).map(|row| println!("spooled HOLD row {}: {name} holds {task} once this host's fleet tick applies it", row.id))
+    }
+
+    pub(super) fn hold_task_here(&self, name: &str, task: &str) -> NorthResult<()> {
         let session_dir = self.session_dir(name)?;
         let mut record = read_record(&session_dir)?;
         if record.verification {
@@ -58,6 +66,13 @@ impl Fleet {
 
     /// Undoes [`Self::hold_task`]: the session's record drops `task`, so `north fleet list --json` stops showing it to dispatch, and every claim the session holds on its issue is given up. A ledger that cannot be read is a warning, because the record no longer holds the issue.
     pub fn release_task(&self, name: &str, task: &str) -> NorthResult<()> {
+        if self.writes_records() {
+            return self.release_task_here(name, task);
+        }
+        self.spool_hold(name, task, Holding::Drop).map(|row| println!("spooled HOLD row {}: {name} stops holding {task} once this host's fleet tick applies it", row.id))
+    }
+
+    pub(super) fn release_task_here(&self, name: &str, task: &str) -> NorthResult<()> {
         let session_dir = self.session_dir(name)?;
         let mut record = read_record(&session_dir)?;
         let dropped = record.release(task);

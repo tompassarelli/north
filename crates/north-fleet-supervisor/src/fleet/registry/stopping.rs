@@ -201,6 +201,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let admission = home.path().join("agent-capacity-v1");
         let fleet = fleet(home.path()).reading_admission(admission.clone());
+        super::super::fixtures::lead(&fleet, "n757-lead", "north#757");
         let worker = super::super::fixtures::live_under(&fleet, "n757-leases", Some("n757-lead"));
         let stream = serde_json::json!({"type": "assistant", "session_id": "n757-leases", "message": {"content": [{"type": "text", "text": REPORT}]}});
         fs::write(fleet.root.join("n757-leases/g1/stream.jsonl"), format!("{stream}\n")).unwrap();
@@ -225,19 +226,103 @@ mod tests {
         assert!(fleet.record("n757-leases").unwrap().ended(), "the stop never ran once the builds had");
     }
 
+    fn recorded(root: &std::path::Path, caller: &str, cwd: &std::path::Path, words: &[String]) -> std::io::Result<()> {
+        fs::write(root.join("started"), format!("{caller} in {}: {}", cwd.display(), words.join(" ")))
+    }
+
     #[test]
-    fn a_forgotten_session_holds_no_claim_in_the_ledger_including_boxes_it_claimed_itself() {
+    fn a_worker_role_writer_spooling_a_lead_launch_is_refused_by_the_tick() {
+        use std::os::unix::fs::PermissionsExt;
         use crate::fleet::claims::Rows;
-        let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path());
+        let tempdir = tempfile::tempdir().unwrap();
+        let home = tempdir.path().canonicalize().unwrap();
+        let fleet = fleet(&home);
         live(&fleet, "n870-a");
         fleet.claims.hold("north#870@the first box", "n870-a", &Default::default()).unwrap();
         fleet.claims.hold("north#870@the second box", "n870-a", &Default::default()).unwrap();
         fleet.claims.hold("north#871@another box", "n871-b", &Default::default()).unwrap();
-
         fleet.forget("n870-a").unwrap();
-
         let items = ["north#870".to_owned(), "north#871".to_owned()];
         assert_eq!(fleet.claims.holders(Rows::Items(&items)).unwrap(), [("north#871@another box".to_owned(), "n871-b".to_owned())]);
+        super::super::fixtures::lead(&fleet, "n870-lead", "tompassarelli/north#870");
+        fleet.hold_task("n870-lead", "makgora#1").unwrap();
+        super::super::fixtures::live_under(&fleet, "n870-child", Some("n870-lead"));
+        let stopped = fleet.root.join("n870-stopped");
+        fs::create_dir_all(&stopped).unwrap();
+        fs::write(stopped.join("session.json"), serde_json::json!({"name": "n870-stopped", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "n870-stopped", "parent": "n870-lead", "host_dir": stopped, "stream_offset": 0}).to_string()).unwrap();
+        let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
+        let spool = fleet.root.join("spool/sessions/n870-lead");
+        fs::create_dir_all(&spool).unwrap();
+        fs::set_permissions(&fleet.root, fs::Permissions::from_mode(0o555)).unwrap();
+        assert!(!fleet.writes_records(), "the fleet root stayed writable, as it does to root, so no sandbox was simulated");
+        let lead = Fleet { spools_as: Some("n870-lead".into()), ..fleet.clone() };
+        let spooled = |kind: RowKind| -> FleetRow {
+            let rows: Vec<FleetRow> = fs::read_dir(&spool).unwrap().flatten().map(|file| serde_json::from_slice(&fs::read(file.path()).unwrap()).unwrap()).filter(|row: &FleetRow| row.kind == kind).collect();
+            assert_eq!(rows.len(), 1, "{kind:?}: {rows:?}");
+            FleetRow { sender: Sender::Session("n870-lead".into()), spooled_by: Some("n870-lead".into()), ..rows[0].clone() }
+        };
+        let forgotten = lead.forget_unless_queued("n870-child", None, None).unwrap();
+        lead.hold_task("n870-lead", "north#872").unwrap();
+        lead.spool_verb(RowKind::Launch, "n870-lead", &words("--name n870-new --task north#870 brief")).unwrap();
+        lead.spool_verb(RowKind::Revive, "n870-lead", &words("n870-stopped --effort high")).unwrap();
+        fs::set_permissions(&fleet.root, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(matches!(forgotten.controlled, Controlled::Spooled(_)));
+        assert!(fleet.record("n870-child").is_ok(), "the sandbox forgot the session itself");
+        assert!(!fleet.record("n870-lead").unwrap().tasks().any(|task| task == "north#872"), "the sandbox wrote the lead's own record");
+        let (forget, hold, launch, revive) = (spooled(RowKind::Control), spooled(RowKind::Hold), spooled(RowKind::Launch), spooled(RowKind::Revive));
+        let tick = Fleet { starts: recorded, ..fleet.clone() };
+        let started = || fs::read_to_string(fleet.root.join("started")).ok();
+        let from = |row: &FleetRow, writer: &str| FleetRow { id: format!("{}-{writer}", row.id), to: writer.into(), sender: Sender::Session(writer.into()), spooled_by: Some(writer.into()), ..row.clone() };
+        let asking = |row: &FleetRow, id: &str, text: &str| FleetRow { id: id.into(), text: serde_json::json!({"words": words(text)}).to_string(), ..row.clone() };
+        tick.deliver_row(&FleetRow { sender: Sender::Session("n870-other".into()), spooled_by: Some("n870-other".into()), ..forget.clone() }).unwrap();
+        assert!(fleet.record("n870-child").is_ok(), "a forget from a session that is not the child's parent forgot it");
+        assert!(tick.deliver_row(&FleetRow { sender: Sender::Session("n870-other".into()), spooled_by: Some("n870-other".into()), ..launch.clone() }).is_err());
+        for row in [from(&launch, "n870-child"), from(&revive, "n870-child"), from(&hold, "n870-child"), from(&forget, "n870-child")] {
+            tick.deliver_row(&row).unwrap();
+        }
+        assert_eq!(started(), None, "a worker's spooled launch or revive started a session");
+        assert!(fleet.record("n870-child").is_ok() && !fleet.record("n870-child").unwrap().tasks().any(|task| task == "north#872"), "a worker's spooled hold or forget took effect");
+        let main = home.join("code/north/main");
+        fs::create_dir_all(home.join("code/north/worktrees/n870-lane")).unwrap();
+        fs::create_dir_all(home.join("code/other/main")).unwrap();
+        std::os::unix::fs::symlink(&main, home.join("main-link")).unwrap();
+        let (main_text, home_text) = (main.display().to_string(), home.display().to_string());
+        let refused = [
+            "--parent proxy", "--parent n870-lead", "--role lead", "--role worker", "--role proxy", "--account a", "--system-prompt /etc/passwd", "--prompt vanilla",
+            "--container-shell", "--container-dir /work", "--take-over", "--dispatched", "--test", "--gates-aside", "--priority urgent", "--local why", "--pin why",
+            "--foreground-cap 10", "--provider opencode", "--route api:org", "--model api:key", "--route claude-opus,api", "--model SK-abc", "--effort huge", "--idle-exit 1h",
+            "--task north#999", "--task makgora#1", "--name n870-again",
+        ];
+        let checkouts = [format!("{home_text}/code/north/worktrees/n870-lane"), format!("{home_text}/code/other/main"), format!("{main_text}/../main"), format!("{home_text}/main-link")];
+        for (index, extra) in refused.iter().map(|flag| (*flag).to_owned()).chain(checkouts.iter().map(|path| format!("--cwd {path}"))).enumerate() {
+            tick.deliver_row(&asking(&launch, &format!("refused-{index}"), &format!("--name n870-new --task north#870 {extra} brief"))).unwrap();
+            assert_eq!(started(), None, "a spooled launch carrying {extra} started");
+        }
+        for (id, text) in [("no-task", "--name n870-new brief"), ("no-brief", "--name n870-new --task north#870"), ("bad-name", "--name ../n870 --task north#870 brief")] {
+            tick.deliver_row(&asking(&launch, id, text)).unwrap();
+            assert_eq!(started(), None, "the spooled launch {text} started");
+        }
+        for (id, text) in [("live", "n870-child"), ("not-a-child", "n870-lead"), ("no-session", "n870-none"), ("climbs", "../n870-stopped"), ("prompt", "n870-stopped --system-prompt /etc/passwd"), ("account", "n870-stopped --account a"), ("effort", "n870-stopped --effort huge")] {
+            tick.deliver_row(&asking(&revive, id, text)).unwrap();
+            assert_eq!(started(), None, "the spooled revive {text} started");
+        }
+        tick.deliver_row(&FleetRow { id: "other-project-hold".into(), text: "hold makgora#2".into(), ..hold.clone() }).unwrap();
+        assert!(!fleet.record("n870-lead").unwrap().tasks().any(|task| task == "makgora#2"), "a lead's spooled hold took an issue of another project");
+        tick.deliver_row(&FleetRow { id: "unspooled".into(), spooled_by: None, ..launch.clone() }).unwrap();
+        tick.deliver_row(&FleetRow { id: "unspooled-hold".into(), spooled_by: None, ..hold.clone() }).unwrap();
+        assert_eq!(started(), None, "a launch row no spool carried started a session");
+        assert!(!fleet.record("n870-lead").unwrap().tasks().any(|task| task == "north#872"), "a hold row no spool carried took effect");
+        tick.deliver_row(&FleetRow { id: "taken".into(), text: launch.text.replace("n870-new", "n870-lead"), ..launch.clone() }).unwrap();
+        assert_eq!(started(), None, "a launch took the name of a session that is not the lead's child");
+        tick.deliver_row(&forget).unwrap();
+        tick.deliver_row(&hold).unwrap();
+        tick.deliver_row(&launch).unwrap();
+        assert!(fleet.record("n870-child").is_err(), "the lead's forget of its own child never ran");
+        assert!(fleet.record("n870-lead").unwrap().tasks().any(|task| task == "north#872"));
+        assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: launch --provider claude --role worker --parent n870-lead --name n870-new --task north#870 --cwd {main_text} brief"));
+        tick.deliver_row(&asking(&launch, "own-cwd", &format!("--name n870-new --task north#870 --cwd {main_text} --no-wait brief"))).unwrap();
+        assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: launch --provider claude --role worker --parent n870-lead --name n870-new --task north#870 --no-wait --cwd {main_text} brief"));
+        tick.deliver_row(&revive).unwrap();
+        assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: revive n870-stopped --effort high"));
     }
 }

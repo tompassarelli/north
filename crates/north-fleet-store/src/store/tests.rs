@@ -14,7 +14,7 @@ CREATE INDEX events_item ON events(item, seq);
 CREATE TABLE fleet_sessions(name TEXT PRIMARY KEY, host TEXT NOT NULL, status TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL, provider TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', cwd TEXT NOT NULL DEFAULT '', parent TEXT, placement TEXT, machine TEXT, tasks TEXT NOT NULL DEFAULT '[]', conversation TEXT) STRICT;";
 
 #[test]
-fn an_old_state_registry_opens_writable_and_read_only_and_keeps_its_rows() {
+fn an_old_state_registry_opens_read_only_unwidened_then_writable_and_keeps_its_rows() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("threads.db");
     Connection::open(&path).unwrap().execute_batch(OLD_STATE).unwrap();
@@ -25,6 +25,14 @@ fn an_old_state_registry_opens_writable_and_read_only_and_keeps_its_rows() {
              INSERT INTO events(seq, ts, kind, actor, tier, data) VALUES (1, '2026-11-10T00:00:00Z', 'MESSAGE', 'whiterabbit', '', '{\"id\":\"m-1\",\"kind\":\"MESSAGE\",\"to_node\":\"north-0\",\"sender\":\"tom\",\"text\":\"hello\"}');",
         )
         .unwrap();
+
+    let schema = || count(&path, "SELECT count(*) FROM sqlite_schema WHERE name = 'events_fleet_id' OR sql LIKE '%''HOLD''%'");
+    let chmod = |mode| std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(mode)).unwrap();
+    chmod(0o444);
+    let read_only = Store::open(&path).map(drop);
+    chmod(0o644);
+    assert!(read_only.is_ok(), "a worker seat's read-only handle opens the registry an older build wrote: {:?}", read_only.err().map(|error| error.user_message()));
+    assert_eq!(schema(), 0, "the read-only open widened no table and added no index");
 
     let store = Store::open(&path).unwrap();
     let opened: Vec<String> = store.sessions().unwrap().into_iter().map(|row| row.name).collect();

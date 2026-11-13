@@ -39,6 +39,7 @@ mod spend;
 mod spares;
 mod spend_queue;
 mod spool;
+mod spooled_verbs;
 mod tick;
 mod tier;
 mod tree;

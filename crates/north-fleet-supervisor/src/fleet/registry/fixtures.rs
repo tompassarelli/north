@@ -18,6 +18,21 @@ pub fn live(fleet: &Fleet, name: &str) -> Session {
     live_under(fleet, name, None)
 }
 
+/// A live lead holding `task`, running in the main checkout of a project under the `code` directory of the fleet's home.
+#[cfg(test)]
+pub(crate) fn lead(fleet: &Fleet, name: &str, task: &str) -> Session {
+    let session = live(fleet, name);
+    let main = fleet.home.join("code/north/main");
+    std::fs::create_dir_all(&main).unwrap();
+    let path = fleet.root.join(name).join("session.json");
+    let mut record: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    record["role"] = "lead".into();
+    record["task_ref"] = task.into();
+    record["cwd"] = main.display().to_string().into();
+    std::fs::write(&path, record.to_string()).unwrap();
+    session
+}
+
 pub(crate) fn live_under(fleet: &Fleet, name: &str, parent: Option<&str>) -> Session {
     let dir = fleet.root.join(name);
     std::fs::create_dir_all(dir.join("g1")).unwrap();

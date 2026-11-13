@@ -20,7 +20,7 @@ const COMMAND_KEYS: &str = r"^(filter\..+\.(clean|smudge|process)|core\.sshcomma
 const WITHHELD: &str = "[token withheld]";
 static TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}").expect("the token pattern compiles"));
 
-/// The host this broker serves: where the fleet keeps its session records, the home whose gh shim the command reaches GitHub through, the directories that hold the projects it serves requests from (`~/code`, and the one a broker was started to serve beside it), the broker's own environment a granted command starts from, and where the cgroup filesystem is mounted.
+/// The host this broker serves: where the fleet of the state root the broker was started under keeps its session records (`NORTH_FLEET_DIR`, else `north/fleet` under `XDG_STATE_HOME`, as the fleet itself places them, so a broker verify-north starts for its scratch state root finds its worker there), the home whose gh shim the command reaches GitHub through, the directories that hold the projects it serves requests from (`~/code`, and the one a broker was started to serve beside it), the broker's own environment a granted command starts from, and where the cgroup filesystem is mounted.
 pub(super) struct Host {
     pub fleet: PathBuf,
     pub home: PathBuf,
@@ -32,7 +32,8 @@ pub(super) struct Host {
 impl Host {
     pub fn own() -> Self {
         let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map_or_else(|| PathBuf::from("/"), PathBuf::from);
-        let fleet = std::env::var_os("NORTH_FLEET_DIR").filter(|fleet| !fleet.is_empty()).map_or_else(|| home.join(".local/state/north/fleet"), PathBuf::from);
+        let state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).filter(|state| state.is_absolute()).unwrap_or_else(|| home.join(".local/state"));
+        let fleet = std::env::var_os("NORTH_FLEET_DIR").filter(|fleet| !fleet.is_empty()).map_or_else(|| state.join("north/fleet"), PathBuf::from);
         let environment = std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect();
         Self { fleet, code: vec![home.join("code")], home, environment, cgroups: PathBuf::from("/sys/fs/cgroup") }
     }

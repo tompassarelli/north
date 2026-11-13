@@ -59,7 +59,7 @@ impl Fixture {
             write_executable(&bin.join(program), "#!/bin/sh\nexit 0\n");
         }
         let north = root.path().join("north");
-        write_executable(&north, format!("#!/bin/sh\nprintf '%s' \"${{{URGENT_ENV}:-}}\" > {}\n", root.path().join("mark").display()));
+        write_executable(&north, format!("#!/bin/sh\nprintf '%s' \"${{{URGENT_ENV}:-}}\" > {}\nprintf '%s' \"${{NORTH_FLEET_SESSION:-}}\" > {}\n", root.path().join("mark").display(), root.path().join("session").display()));
         let environment = vec![("HOME".to_owned(), home.display().to_string()), ("PATH".to_owned(), bin.display().to_string())];
         let host = Host { fleet, code: vec![home.join("code")], home, environment, cgroups: root.path().join("cgroup") };
         Self { root, host, north, lane }
@@ -71,7 +71,7 @@ impl Fixture {
         let (_out, out_writer) = std::io::pipe().unwrap();
         let (_err, err_writer) = std::io::pipe().unwrap();
         let stdin = File::open("/dev/null").unwrap();
-        let claimed = vec![(URGENT_ENV.to_owned(), "1".to_owned())];
+        let claimed = vec![(URGENT_ENV.to_owned(), "1".to_owned()), ("NORTH_FLEET_SESSION".to_owned(), "coordinated".to_owned())];
         std::thread::scope(|scope| {
             let served = scope.spawn(|| broker::answer(&self.north, &server, Some(cgroup), &self.host));
             let request = Request { arguments: words.split(' ').map(str::to_owned).collect(), directory: self.lane.clone(), environment: claimed };
@@ -103,15 +103,19 @@ impl Fixture {
 }
 
 #[test]
-fn an_urgent_job_queued_after_a_normal_one_is_taken_first() {
+fn an_urgent_job_queued_after_a_normal_one_is_taken_first_and_a_brokered_command_runs_as_its_callers_own_session() {
     let fixture = Fixture::new();
     let gate = "safe-push --to main";
     let offload = "capacity offload slots";
     let mut failures = Vec::new();
-    for (caller, words, expected) in [(in_unit(URGENT_SCOPE), gate, "1"), (in_unit(URGENT_SCOPE), offload, "1"), (in_unit(HELD_UNIT), gate, "1"), (in_unit(NORMAL_SCOPE), gate, ""), (in_unit(NORMAL_SCOPE), offload, "")] {
+    for (caller, words, expected, session) in [(in_unit(URGENT_SCOPE), gate, "1", "coordinated"), (in_unit(URGENT_SCOPE), offload, "1", "coordinated"), (in_unit(HELD_UNIT), gate, "1", "placed"), (in_unit(NORMAL_SCOPE), gate, "", "worker"), (in_unit(NORMAL_SCOPE), offload, "", "worker")] {
         let seen = fixture.mark(&caller, words);
         if seen != expected {
             failures.push(format!("the broker gave `{words}` from {} the urgent mark {seen:?}, not {expected:?}", caller.trim()));
+        }
+        let ran_as = std::fs::read_to_string(fixture.root.path().join("session")).unwrap_or_default();
+        if ran_as != session {
+            failures.push(format!("the broker ran `{words}` from {} as the session {ran_as:?}, not its own {session:?}, though the request named coordinated", caller.trim()));
         }
     }
     let places = fixture.places();

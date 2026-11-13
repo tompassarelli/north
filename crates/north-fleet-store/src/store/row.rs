@@ -27,11 +27,17 @@ pub enum RowKind {
     Wait,
     #[serde(rename = "SPEND")]
     Spend,
+    #[serde(rename = "HOLD")]
+    Hold,
+    #[serde(rename = "LAUNCH")]
+    Launch,
+    #[serde(rename = "REVIVE")]
+    Revive,
 }
 
 impl RowKind {
-    pub const ALL: [RowKind; 9] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobStart, Self::JobBeat, Self::JobExit, Self::Control, Self::Wait, Self::Spend];
-    pub const DELIVERED: [RowKind; 7] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobExit, Self::Control, Self::Wait, Self::Spend];
+    pub const ALL: [RowKind; 12] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobStart, Self::JobBeat, Self::JobExit, Self::Control, Self::Wait, Self::Spend, Self::Hold, Self::Launch, Self::Revive];
+    pub const DELIVERED: [RowKind; 10] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobExit, Self::Control, Self::Wait, Self::Spend, Self::Hold, Self::Launch, Self::Revive];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -44,6 +50,9 @@ impl RowKind {
             Self::Control => "CONTROL",
             Self::Wait => "WAIT",
             Self::Spend => "SPEND",
+            Self::Hold => "HOLD",
+            Self::Launch => "LAUNCH",
+            Self::Revive => "REVIVE",
         }
     }
 }
@@ -170,7 +179,7 @@ impl FleetRow {
     /// Why the spool location of `session` may not hold this row: it holds only rows `session` sends, its gate, wait and spend rows only for itself, and job rows of its own.
     pub fn refused_from(&self, session: &str) -> Option<String> {
         let job = matches!(self.kind, RowKind::JobStart | RowKind::JobBeat | RowKind::JobExit);
-        let own = matches!(self.kind, RowKind::Gate | RowKind::Wait | RowKind::Spend);
+        let own = matches!(self.kind, RowKind::Gate | RowKind::Wait | RowKind::Spend | RowKind::Hold | RowKind::Launch | RowKind::Revive);
         match &self.sender {
             Sender::Tom if self.kind == RowKind::GateAnswer => Some(format!("row {} in {session}'s spool answers a gate as Tom", self.id)),
             _ if (job || own) && self.to != session => Some(format!("row {} in {session}'s spool is a {} for {}", self.id, self.kind.label(), self.to)),
