@@ -154,7 +154,7 @@ fn lines(schedule: Schedule, events: &[Event], now: i64) -> String {
     let promotions = events.iter().filter(|event| matches!(event, Event::Promoted { at, .. } if recent(*at))).count();
     let fast = events.iter().filter(|event| matches!(event, Event::Due { reason: Reason::FastPath, at, .. } if recent(*at))).count();
     let next = schedule.next_free(events, now);
-    format!("promotions in 24 h: {promotions} of at most {}\nfast paths in 24 h: {fast}\nnext slot: {} (unix {next})\n", DAY / schedule.spacing, pin::iso(next))
+    format!("promotions in 24 h: {promotions}\nfast paths in 24 h: {fast}\nnext slot: {} (unix {next})\n", pin::iso(next))
 }
 
 #[cfg(test)]

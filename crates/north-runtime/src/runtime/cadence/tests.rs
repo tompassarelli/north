@@ -59,7 +59,7 @@ fn a_landing_between_slots_waits_for_the_slot_and_a_live_fix_promotes_at_once() 
 
     let events = pin::read(&layout.state);
     let shown = lines(SLOTS, &events, MIDNIGHT + 12 * HOUR + 30);
-    assert_eq!(shown, format!("promotions in 24 h: 2 of at most 6\nfast paths in 24 h: 1\nnext slot: 1970-04-11T16:00:00Z (unix {})\n", MIDNIGHT + 16 * HOUR));
+    assert_eq!(shown, format!("promotions in 24 h: 2\nfast paths in 24 h: 1\nnext slot: 1970-04-11T16:00:00Z (unix {})\n", MIDNIGHT + 16 * HOUR));
     assert_eq!(pin::bars(&events, MIDNIGHT, MIDNIGHT + 12 * HOUR + 30).due_to_live_seconds, [40.0, 60.0, 30.0], "the bar reads due to live, and a landing waiting for its slot is not late");
     assert_eq!(pin::bars(&events, MIDNIGHT, MIDNIGHT + 12 * HOUR).runtime_age_hours, Some(6.0), "the runtime is as old as the wait of the oldest landing no promotion has made live");
 }

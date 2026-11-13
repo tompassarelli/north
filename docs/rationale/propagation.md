@@ -131,13 +131,12 @@ it. The north#1081 ask (propagation at the speed of the network) is about how fa
 cadence keeps that: each promotion still goes live everywhere within the 2-minute propagation target.
 
 - **Slots.** The settling host promotes at fixed slots every 4 hours: 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00
-  UTC (7 AM, 11 AM, 3 PM, 7 PM, 11 PM and 3 AM +07). At most 6 a day. The spacing lives in harness/defaults.toml, not
+  UTC (7 AM, 11 AM, 3 PM, 7 PM, 11 PM and 3 AM +07). The spacing lives in harness/defaults.toml, not
   in a constant. A slot promotes origin/main's newest head that has a release artifact ready, and only if some commit
   since the pin changes a runtime input. Otherwise the slot passes and the pin stays.
 - **Fast path.** A landing whose commit carries a `Live-fix: REASON` trailer is promoted at once. REASON names what
   is broken: red main, or the running runtime itself (a lander that cannot land, a broken worker loop, a canary
-  that rolls back good runtimes). A fast-path promotion takes the next slot's place, so a day with at most one
-  fast path per slot interval stays at 6. This replaces the `Main-red:` trailer of 64f4e8ec6b, because a broken
+  that rolls back good runtimes). A fast-path promotion takes the next slot's place. This replaces the `Main-red:` trailer of 64f4e8ec6b, because a broken
   lander (north#902) is the same emergency as red main and needs the same path. `north runtime status` prints the
   fast-path count for the last 24 h, so overuse shows.
 - **Ordered promotion.** A commit already on origin/main reaches the settling host and every deploy host at once with
@@ -174,8 +173,14 @@ cadence keeps that: each promotion still goes live everywhere within the 2-minut
   means the promotion machinery is broken, which is the one thing the page is for.
 - **The bars.** `ready-runtime-live-p90` becomes due to live p90 ≤ 2 min over 24 h, since one hour holds at most
   one slot. The runtime-age bar returns (main's oldest unpromoted runtime-input landing ≤ 24 h). Breaks reaching a
-  second host (0) and rollback (≤ 2 min) stay. `north runtime status` prints `promotions in 24 h: N of at most 6`
-  again.
+  second host (0) and rollback (≤ 2 min) stay. `north runtime status` prints `promotions in 24 h: N` with no limit
+  beside it.
+- **No count limit (2026-11-13).** The owner rejected a ceiling on promotions per day as no stability mechanism: it
+  made no promotion safer, since the one harmful promotion of 29 on 2026-11-13 passed its canary and would have done
+  the same harm as the first of the day, and its only effect was that about twenty reviewed fixes waited two hours.
+  The rule is the canary's probes, the per-host rollback and the reviewer's read. The coordinator orders whenever a
+  reviewed commit that work waits on is on main, and its rule of 5:40 AM that orders happen at set times only is
+  withdrawn. The slots above are a build-batching schedule, not a count.
 
 ### As built (n1022-slots, 2026-11-11)
 
