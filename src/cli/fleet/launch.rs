@@ -97,6 +97,7 @@ impl LaunchFlags {
         Ok(LaunchRequest {
             verification: self.verification,
             gates_aside: self.gates_aside,
+            urgent: self.priority == Priority::Urgent,
             container_shell: self.container_shell,
             container_dir: self.container_dir,
             name,

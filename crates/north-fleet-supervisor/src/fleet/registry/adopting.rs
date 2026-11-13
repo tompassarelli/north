@@ -54,6 +54,7 @@ impl Fleet {
         let request = LaunchRequest {
             verification: false,
             gates_aside: false,
+            urgent: false,
             container_shell: false,
             container_dir: None,
             name: name.to_owned(),

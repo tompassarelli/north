@@ -214,6 +214,7 @@ mod launch_tests {
         LaunchRequest {
             verification: false,
             gates_aside: false,
+            urgent: false,
             container_shell: false,
             container_dir: None,
             name: "north-1042-d0525".into(),
@@ -273,6 +274,7 @@ mod ghost_tests {
         LaunchRequest {
             verification: false,
             gates_aside: false,
+            urgent: false,
             container_shell: false,
             container_dir: None,
             name: "safety-lead".into(),
@@ -376,6 +378,7 @@ mod queued_claim_tests {
         LaunchRequest {
             verification: false,
             gates_aside: false,
+            urgent: false,
             container_shell: false,
             container_dir: None,
             name: name.into(),

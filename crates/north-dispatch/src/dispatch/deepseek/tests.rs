@@ -150,6 +150,7 @@ fn a_private_lane_opencode_launch_past_the_zero_retention_date_is_refused_and_a_
     let request = LaunchRequest {
         verification: false,
         gates_aside: false,
+        urgent: false,
         container_shell: false,
         container_dir: None,
         name: "worker".into(),

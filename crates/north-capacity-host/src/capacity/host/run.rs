@@ -87,6 +87,10 @@ pub(super) fn fleet_session() -> bool {
     env("NORTH_FLEET_SCOPE").is_some_and(|scope| !scope.is_empty())
 }
 
+fn urgent_session() -> bool {
+    env(crate::fleet::runtime::SESSION_ENV).is_some_and(|name| crate::fleet::records::launched_urgent(&crate::fleet::audience::fleet_dir(), &name))
+}
+
 fn wait_ticket(root: &Path, request: &Request, create: &Create, pullable: bool) -> String {
     enqueue(
         root,
@@ -101,6 +105,7 @@ fn wait_ticket(root: &Path, request: &Request, create: &Create, pullable: bool) 
             .put("newDesktops", request.new_desktops)
             .put_some("alone", request.alone.then_some(true))
             .put_some("priority", request.priority)
+            .put_some("urgent", urgent_session().then_some(true))
             .put_some("pullable", pullable.then_some(true)),
     )
 }
