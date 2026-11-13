@@ -10,6 +10,7 @@ use crate::platform::harness;
 pub const USAGE: &str = "usage: north config operator init DIR | init --check DIR";
 
 const TEMPLATE: &[(&str, &str)] = &[
+    ("agents/AGENTS.md", include_str!("template/agents/AGENTS.md")),
     ("agents/orchestration.toml", include_str!("template/agents/orchestration.toml")),
     ("agents/costs.toml", include_str!("template/agents/costs.toml")),
     ("agents/claude-accounts.toml", include_str!("template/agents/claude-accounts.toml")),

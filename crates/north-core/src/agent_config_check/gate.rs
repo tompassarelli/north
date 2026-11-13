@@ -210,6 +210,9 @@ impl Gate {
         let Some(point) = point else {
             return Err("agents sync: no operating point; run the sweep and promote one".into());
         };
+        if point.get("n").and_then(Value::as_u64).unwrap_or(0) == 0 {
+            return Ok("no measured operating point yet (starter n 0); the first policy replay sets one".into());
+        }
         let point_row = point.get("policy_sha256").and_then(Value::as_str).and_then(|point_sha| self.sweep_row(point_sha, None)).unwrap_or(Value::Null);
         let mut wanted = self.scenario_ids();
         let point_scenarios = scenarios_of(point_row.get("scenarios"));
