@@ -102,7 +102,7 @@ State files the loops above write, relative to `~/.local/state`. `north health` 
 
 ## Recorded readings
 
-Rows a writer records into a database, judged like the file signals above. The database `ledger` is the threads ledger of the host (`threads.db`, or its snapshot on a mirrored host); the query returns the newest write time.
+Rows a writer records into a database, judged like the file signals above. The database `ledger` is the threads ledger of the host (`threads.db`, or its snapshot on a mirrored host); the query returns the newest write time. A host that reads a mirrored snapshot of the ledger judges each reading as of the snapshot's pull, not the present, because the snapshot is pulled about every 15 minutes and would otherwise make a 5-minute writer look silent (north#35, 2026-11-13).
 
 | reading | database | query | writer | cadence | owner |
 |---|---|---|---|---|---|

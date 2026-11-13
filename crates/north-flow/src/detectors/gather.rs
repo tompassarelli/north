@@ -211,6 +211,14 @@ impl<'a> Gatherer<'a> {
         }
     }
 
+    fn read_at(&self, declared: &Declared) -> Option<f64> {
+        let mirrored = self.places.ledger.file_name().is_some_and(|name| name == "snapshot.db");
+        match &declared.origin {
+            Origin::Query { database, .. } if database == "ledger" && mirrored => modified(&self.places.ledger),
+            _ => None,
+        }
+    }
+
     pub fn corrections(&self) -> correction::Facts {
         correction::seen(&self.places.graph)
     }
@@ -218,7 +226,7 @@ impl<'a> Gatherer<'a> {
     pub fn signals(&self) -> signal::Facts {
         let Ok(doc) = fs::read_to_string(self.checkout().join("docs/feedback-loop.md")) else { return signal::Facts::default() };
         let declared = loops::declared_files(&doc).into_iter().chain(loops::declared_readings(&doc));
-        signal::Facts { signals: declared.map(|declared| Signal { last_written: self.written(&declared), name: declared.name, writer: declared.writer, cadence_s: declared.cadence_s, owner: declared.owner }).collect() }
+        signal::Facts { signals: declared.map(|declared| Signal { last_written: self.written(&declared), read_at: self.read_at(&declared), name: declared.name, writer: declared.writer, cadence_s: declared.cadence_s, owner: declared.owner }).collect() }
     }
 
     fn ticket_refusals(&self, since: f64) -> Vec<Refusal> {
