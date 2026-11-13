@@ -2,6 +2,7 @@ use super::*;
 
 const OLD: &str = "1111111111111111111111111111111111111111";
 const LIVE: &str = "2222222222222222222222222222222222222222";
+const FAKE_UPTIME_SECS: u64 = 1_000_000;
 
 fn north(runtime: &str) -> String {
     format!("/home/tom/.local/state/north/runtimes/{runtime}/tree/bin/../../north")
@@ -13,7 +14,7 @@ impl FakeProc {
     fn new() -> Self {
         let proc = Self(tempfile::tempdir().unwrap(), 100);
         std::fs::write(proc.0.path().join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
-        std::fs::write(proc.0.path().join("uptime"), "1000000.00 0.00\n").unwrap();
+        std::fs::write(proc.0.path().join("uptime"), format!("{FAKE_UPTIME_SECS}.00 0.00\n")).unwrap();
         proc
     }
 
@@ -22,12 +23,25 @@ impl FakeProc {
     }
 
     fn spawn_under(&mut self, parent: u32, comm: &str, argv: &[&str]) -> u32 {
+        self.spawn_aged(parent, comm, argv, 0)
+    }
+
+    fn spawn_aged(&mut self, parent: u32, comm: &str, argv: &[&str], age_secs: u64) -> u32 {
+        self.spawn_in_aged(parent, "", comm, argv, age_secs)
+    }
+
+    fn spawn_in(&mut self, unit: &str, comm: &str, argv: &[&str]) -> u32 {
+        self.spawn_in_aged(1, unit, comm, argv, 0)
+    }
+
+    fn spawn_in_aged(&mut self, parent: u32, unit: &str, comm: &str, argv: &[&str], age_secs: u64) -> u32 {
         self.1 += 1;
         let pid = self.0.path().join(self.1.to_string());
         std::fs::create_dir(&pid).unwrap();
         std::fs::write(pid.join("comm"), format!("{comm}\n")).unwrap();
-        std::fs::write(pid.join("stat"), format!("{} ({comm}) S {parent} 0 0\n", self.1)).unwrap();
+        std::fs::write(pid.join("stat"), format!("{} ({comm}) S {parent}{} {}\n", self.1, " 0".repeat(17), (FAKE_UPTIME_SECS - age_secs) * 100)).unwrap();
         std::fs::write(pid.join("cmdline"), argv.iter().map(|word| format!("{word}\0")).collect::<String>()).unwrap();
+        std::fs::write(pid.join("cgroup"), format!("0::/user.slice/agent.slice/{unit}\n")).unwrap();
         self.1
     }
 
@@ -35,15 +49,16 @@ impl FakeProc {
         let north = north(LIVE);
         for session in 0..live {
             let name = format!("worker-{session}");
+            let unit = unit_of(&name);
             for _ in 0..hosts_each {
-                self.spawn("north", &[&north, "session-host", "--name", &name, "--generation", "1", "--", &north, "session-link", "--ssh", "gex45"]);
+                self.spawn_in(&unit, "north", &[&north, "session-host", "--name", &name, "--generation", "1", "--", &north, "session-link", "--ssh", "gex45"]);
             }
-            self.spawn("north", &[&north, "session-link", "--ssh", "gex45", "--unit", &name]);
-            self.spawn("north", &[&north, "fleet", "watchdog", &name]);
+            self.spawn_in(&unit, "north", &[&north, "session-link", "--ssh", "gex45", "--unit", &name]);
+            self.spawn_in(&unit, "north", &[&north, "fleet", "watchdog", &name]);
         }
     }
 
-    fn problems(&self) -> (Vec<String>, Value) {
+    fn read(&self) -> NorthProcesses {
         let output = Command::new("bash")
             .arg("-c")
             .arg(facts_script())
@@ -52,9 +67,17 @@ impl FakeProc {
             .env("XDG_STATE_HOME", self.0.path())
             .output()
             .unwrap();
-        let north = NorthProcesses::read(&sections(&String::from_utf8_lossy(&output.stdout))["north"], Some(LIVE));
+        NorthProcesses::read(&sections(&String::from_utf8_lossy(&output.stdout))["north"], Some(LIVE), default_number("north_process_leak_window_sec") as u64)
+    }
+
+    fn problems(&self) -> (Vec<String>, Value) {
+        let north = self.read();
         (north.problems(), north.record())
     }
+}
+
+fn unit_of(session: &str) -> String {
+    format!("north-fleet-{session}-00000000.service")
 }
 
 #[test]
@@ -68,7 +91,7 @@ fn only_processes_named_north_count_and_a_multi_line_argument_stays_one_process(
     proc.spawn("rustc", &["rustc", "--crate-name", "north_core", "/home/tom/code/north/main/crates/north-core/src/lib.rs"]);
     let (problems, record) = proc.problems();
     assert_eq!(problems, Vec::<String>::new());
-    assert_eq!(record, json!({"transient": 0, "liveSessions": 3, "residents": {"session-host": 3, "session-link": 2, "fleet watchdog": 2, "land serve": 0}, "strayWatchdogs": 0}));
+    assert_eq!(record, json!({"transient": 0, "outlasting": 0, "liveSessions": 3, "residents": {"session-host": 3, "session-link": 2, "fleet watchdog": 2, "land serve": 0}, "strayWatchdogs": 0}));
 }
 
 #[test]
@@ -130,8 +153,7 @@ fn unit_problems(watchdog: (&str, &str, &str), age_secs: u64) -> Vec<String> {
     const UPTIME_SECS: u64 = 1_000_000;
     let dir = tempfile::tempdir().unwrap();
     let systemctl = dir.path().join("systemctl");
-    std::fs::write(&systemctl, "#!/usr/bin/env bash\nunit=\"${@: -1}\"\ncase \"$2\" in\nis-active) cat \"$FAKE_UNITS/$unit.active\"; exit 3;;\nshow) cat \"$FAKE_UNITS/$unit.$4\";;\nesac\n").unwrap();
-    std::fs::set_permissions(&systemctl, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    crate::foundation::shim::write_executable(&systemctl, "#!/usr/bin/env bash\nunit=\"${@: -1}\"\ncase \"$2\" in\nis-active) cat \"$FAKE_UNITS/$unit.active\"; exit 3;;\nshow) cat \"$FAKE_UNITS/$unit.$4\";;\nesac\n");
     for (unit, active, sub, result) in [("capacity-watchdog.service", watchdog.0, watchdog.1, watchdog.2), TIMER] {
         std::fs::write(dir.path().join(format!("{unit}.active")), format!("{active}\n")).unwrap();
         std::fs::write(dir.path().join(format!("{unit}.SubState")), format!("{sub}\n")).unwrap();
@@ -189,4 +211,24 @@ fn a_remote_job_counts_once_with_its_wrapper_chain_and_orphaned_wrappers_still_c
         proc.spawn("north", &[&north, "capacity", "offload", "run", "--host", "gex45", "--head", &orphan.to_string()]);
     }
     assert_eq!(proc.problems().1["transient"], json!(101));
+}
+
+#[test]
+fn a_tool_server_per_live_session_is_growth_and_one_that_outlives_its_session_is_a_leak() {
+    let mut proc = FakeProc::new();
+    proc.sessions(2, 1);
+    let tool = north(LIVE);
+    proc.spawn_in(&unit_of("worker-0"), "north", &[&tool, "--tool-server", "hand-in", "finish"]);
+    proc.spawn_in(&unit_of("worker-1"), "north", &[&tool, "--tool-server", "hand-in", "finish"]);
+    let read = proc.read();
+    assert_eq!(read.problems(), Vec::<String>::new());
+    assert_eq!(read.growth(), "transient growth: 2 for 2 live sessions");
+    assert_eq!(read.leak(None), "transient leak: none");
+    let unit = unit_of("worker-ended");
+    proc.spawn_in(&unit, "north", &[&tool, "--tool-server", "hand-in", "finish"]);
+    let read = proc.read();
+    let message = format!("1 transient north processes outlived their ended session {unit}");
+    assert_eq!(read.problems(), vec![message.clone()]);
+    assert_eq!(read.leak(None), format!("transient leak: {message}"));
+    assert_eq!(read.growth(), "transient growth: 2 for 2 live sessions");
 }

@@ -1,10 +1,11 @@
 use super::layout::linked_sha;
 use super::live::{Swap, SWAPS_KEPT};
+use super::north_processes::NorthProcesses;
 use super::remote::{limit, ssh_on};
 use crate::platform::ssh_retry::{Link, Reply, Rerun, retried};
 use crate::platform::{hook_commands, process};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::{Command, Output};
 use std::sync::LazyLock;
@@ -14,133 +15,6 @@ use toml_edit::DocumentMut;
 const ASK: Duration = Duration::from_secs(60);
 const MARK: &str = "==north-settle== ";
 const UNITS: [&str; 2] = ["capacity-watchdog.service", "north-runtime-follow.timer"];
-const RESIDENTS: [Resident; 2] = [Resident::SessionHost, Resident::SessionLink];
-const WATCHDOG: &str = "fleet watchdog";
-const LANDER: &str = "land serve";
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Resident {
-    SessionHost,
-    SessionLink,
-}
-
-impl Resident {
-    fn of(argv: &[&str]) -> Option<Self> {
-        match argv {
-            ["session-host", ..] => Some(Self::SessionHost),
-            ["session-link", ..] => Some(Self::SessionLink),
-            _ => None,
-        }
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::SessionHost => "session-host",
-            Self::SessionLink => "session-link",
-        }
-    }
-}
-
-fn promoted(program: &str) -> bool {
-    program.split('/').any(|part| part == "runtimes")
-}
-
-fn runs(program: &str, runtime: &str) -> bool {
-    let mut parts = program.split('/');
-    parts.any(|part| part == "runtimes") && parts.next() == Some(runtime)
-}
-
-fn lander(argv: &[&str]) -> Option<String> {
-    match argv {
-        ["land", "serve", "--all"] => Some("all repositories".to_owned()),
-        ["land", "serve", "--repo", repo] => Some((*repo).to_owned()),
-        _ => None,
-    }
-}
-
-#[derive(Default)]
-pub(super) struct NorthProcesses {
-    transient: u64,
-    residents: BTreeMap<Resident, u64>,
-    sessions: BTreeSet<String>,
-    watchdogs: BTreeMap<String, u64>,
-    landers: BTreeMap<String, u64>,
-    stray: u64,
-}
-
-impl NorthProcesses {
-    fn read(section: &str, runtime: Option<&str>) -> Self {
-        let mut processes = Self::default();
-        let mut watchdogs: Vec<(&str, &str)> = Vec::new();
-        let mut transient: Vec<(&str, &str)> = Vec::new();
-        for line in section.lines().filter(|line| !line.is_empty()) {
-            let mut fields = line.splitn(3, '\t');
-            let (Some(pid), Some(parent), Some(command)) = (fields.next(), fields.next(), fields.next()) else { continue };
-            let argv: Vec<&str> = command.split('\t').collect();
-            match (Resident::of(&argv[1..]).filter(|_| promoted(argv[0])), &argv[1..]) {
-                (Some(resident), _) => {
-                    *processes.residents.entry(resident).or_default() += 1;
-                    if let (Resident::SessionHost, Some(name)) = (resident, argv.iter().position(|word| *word == "--name").and_then(|at| argv.get(at + 1))) {
-                        processes.sessions.insert((*name).to_owned());
-                    }
-                }
-                (None, ["fleet", "watchdog", session, ..]) => watchdogs.push((argv[0], session)),
-                (None, rest) => match lander(rest).filter(|_| promoted(argv[0])) {
-                    Some(repo) => *processes.landers.entry(repo).or_default() += 1,
-                    None => transient.push((pid, parent)),
-                },
-            }
-        }
-        let pids: BTreeSet<&str> = transient.iter().map(|(pid, _)| *pid).collect();
-        processes.transient = transient.iter().filter(|(_, parent)| !pids.contains(parent)).count() as u64;
-        for (program, session) in watchdogs {
-            match processes.sessions.contains(session) && runtime.is_some_and(|runtime| runs(program, runtime)) {
-                true => *processes.watchdogs.entry(session.to_owned()).or_default() += 1,
-                false => processes.stray += 1,
-            }
-        }
-        processes
-    }
-
-    fn resident(&self, resident: Resident) -> u64 {
-        self.residents.get(&resident).copied().unwrap_or_default()
-    }
-
-    pub(super) fn transient(&self) -> u64 {
-        self.transient
-    }
-
-    fn problems(&self) -> Vec<String> {
-        let live = self.sessions.len() as u64;
-        let mut problems = Vec::new();
-        for resident in RESIDENTS {
-            let count = self.resident(resident);
-            if count > live {
-                problems.push(format!("{count} {} processes for {live} live sessions", resident.name()));
-            }
-        }
-        for (session, count) in self.watchdogs.iter().filter(|(_, count)| **count > 1) {
-            problems.push(format!("{count} {WATCHDOG} processes of the live runtime for live session {session}"));
-        }
-        for (repo, count) in self.landers.iter().filter(|(_, count)| **count > 1) {
-            problems.push(format!("{count} {LANDER} processes for {repo}"));
-        }
-        problems
-    }
-
-    fn record(&self) -> Value {
-        let mut residents: serde_json::Map<String, Value> = RESIDENTS.iter().map(|resident| (resident.name().to_owned(), json!(self.resident(*resident)))).collect();
-        residents.insert(WATCHDOG.to_owned(), json!(self.watchdogs.values().sum::<u64>()));
-        residents.insert(LANDER.to_owned(), json!(self.landers.values().sum::<u64>()));
-        json!({
-            "transient": self.transient,
-            "liveSessions": self.sessions.len(),
-            "residents": residents,
-            "strayWatchdogs": self.stray,
-        })
-    }
-}
-
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
 pub(super) fn default_number(name: &str) -> f64 {
@@ -234,7 +108,7 @@ pub(super) fn facts(shell: &Shell) -> Facts {
         units: UNITS.iter().zip(section("units").lines()).map(|(unit, state)| ((*unit).to_owned(), state.trim().to_owned())).collect(),
         psi60: psi60(section("pressure")),
         load_per_core: load_per_core(section("load")),
-        north: sections.get("north").map(|north| NorthProcesses::read(north, linked_sha(Path::new(section("runtime").trim())))),
+        north: sections.get("north").map(|north| NorthProcesses::read(north, linked_sha(Path::new(section("runtime").trim())), default_number("north_process_leak_window_sec") as u64)),
         ..Facts::default()
     };
     if let (true, Some(runtime), Some(at)) = (facts.swaps.is_empty(), facts.runtime.clone(), facts.swapped_at) {
@@ -367,9 +241,9 @@ fn facts_script() -> String {
          if [ \"$unit_state\" = activating ]; then sub=$(systemctl --user show -p SubState --value \"$unit\"); result=$(systemctl --user show -p Result --value \"$unit\"); changed=$(systemctl --user show -p StateChangeTimestampMonotonic --value \"$unit\"); timeout=$(systemctl --user show -p TimeoutStartUSec --value \"$unit\"); [ -n \"$changed\" ] || changed=0; age_us=$(( now_us - changed )); [ \"$age_us\" -ge 0 ] || age_us=0; timeout=${{timeout// /_}}; unit_state=\"$unit_state $sub $result $age_us $timeout\"; fi; echo \"$unit_state\"; done\n\
          mark pressure; cat \"$proc/pressure/cpu\"\n\
          mark load; cat \"$proc/loadavg\"; nproc\n\
-         mark north; for pid in \"$proc\"/[0-9]*; do read -r name <\"$pid/comm\" 2>/dev/null && [ \"$name\" = north ] || continue; \
-         read -r _ _ _ parent _ <\"$pid/stat\" 2>/dev/null || parent=0; \
-         mapfile -d '' -t argv <\"$pid/cmdline\" 2>/dev/null || continue; [ ${{#argv[@]}} -gt 0 ] || argv=(north); argv=(\"${{pid##*/}}\" \"$parent\" \"${{argv[@]//[$'\\t\\n']/ }}\"); (IFS=$'\\t'; echo \"${{argv[*]}}\"); done\n\
+         mark north; up=$(cut -d. -f1 \"$proc/uptime\" 2>/dev/null || echo 0); hz=$(getconf CLK_TCK 2>/dev/null || echo 100); for pid in \"$proc\"/[0-9]*; do read -r name <\"$pid/comm\" 2>/dev/null && [ \"$name\" = north ] || continue; \
+         read -r -a stat <\"$pid/stat\" 2>/dev/null || stat=(); parent=${{stat[3]:-0}}; age=$(( up - ${{stat[21]:-0}} / hz )); \
+         mapfile -d '' -t argv <\"$pid/cmdline\" 2>/dev/null || continue; [ ${{#argv[@]}} -gt 0 ] || argv=(north); cgroup=; read -r cgroup <\"$pid/cgroup\" 2>/dev/null; unit=; [[ $cgroup =~ (north-fleet-[^/]*\\.service) ]] && unit=${{BASH_REMATCH[1]}}; argv=(\"${{pid##*/}}\" \"$parent\" \"$age\" \"$unit\" \"${{argv[@]//[$'\\t\\n']/ }}\"); (IFS=$'\\t'; echo \"${{argv[*]}}\"); done\n\
          for settings in \"$HOME/.claude/settings.json\" \"$state\"/profiles/*/settings.json; do\n\
          case \"$settings\" in */profiles/stale-*) continue ;; esac\n\
          [ -f \"$settings\" ] && {{ mark \"settings $settings\"; cat \"$settings\"; }}\ndone\ntrue\n",

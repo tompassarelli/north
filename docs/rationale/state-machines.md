@@ -34,7 +34,7 @@ fixes in each machine's code from history.
    after its report, before dispatch reads it (0c54814b5, 952e8132c). `host.pid` is never removed and liveness has no
    start time. Shapes: lifecycle-bools, pid-liveness, status-string (`fleet_sessions.status TEXT`,
    `fleet/store/schema.rs:23`).
-   Converted (`crates/north-session-host/src/session_lifecycle.rs`): `fleet-session` keeps one record per launch
+   Converted (`crates/north-fleet-store/src/session_lifecycle.rs`): `fleet-session` keeps one record per launch
    (`NAME@CREATED_MS`; live, parked, idle-exited, host-ended, stopped, adopted, retired) in the host's `ledger.db` and
    replaces `stopped` and `ended`. Live is held by the session host's process with its start time, so a dead host
    orphans to parked and a reused pid never reads as live; a stop or a new host preempts a live hold; retired is

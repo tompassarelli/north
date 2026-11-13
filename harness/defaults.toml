@@ -923,10 +923,10 @@ consumers = ["crates/north-runtime/src/runtime/cadence.rs"]
 [north_process_leak_window_sec]
 value = 3600
 allowed = { min = 600, max = 86400 }
-unit = "seconds of settle readings over which north runtime settle judges a host's transient north processes, every north process other than a live session's resident session-host, session-link and fleet watchdog and the resident land serve of each repository, with a process tree counted once; the host has a leak, and is unhealthy, only when the fewest it ran in each of north_process_leak_slices equal slices of the window rose in every slice, so a count that rises with legitimate work and falls when the work ends is never a fault"
+unit = "seconds of settle readings over which north runtime settle judges a host's transient north processes that no live fleet session owns, every north process other than a live session's resident session-host, session-link and fleet watchdog, the resident land serve of each repository and a live session's own tool servers, with a process tree counted once; a process whose session has ended is a leak at once, and the host has a window leak, and is unhealthy, only when the fewest it ran in each of north_process_leak_slices equal slices of the window rose in every slice, so a count that rises with legitimate work and falls when the work ends is never a fault"
 source = "measured: on 2026-11-08 the snapshot bound of 100 this replaced refused whiterabbit on 20 settle ticks from 8:30 AM to 9:41 AM, 14 in a row from 9:32 AM, while the count rose to 238 within 2 minutes and fell back to 102 within 9 as offloaded land checks came and went; an hour of 10-minute slices lets a working day's land check rounds fall back many times while a leak that adds a process every 10 minutes shows within the hour; a slower leak waits for a longer window (north#892)"
 fallback = "a host with a slice of the window unread is not judged for a leak"
-consumers = ["crates/north-runtime/src/runtime/growth.rs"]
+consumers = ["crates/north-runtime/src/runtime/growth.rs", "crates/north-runtime/src/runtime/probe.rs"]
 
 [north_process_leak_slices]
 value = 6

@@ -1,7 +1,7 @@
 use super::canary::{self, Verdict};
 use super::deploy;
 use super::failure::{Failure, failed};
-use super::growth::Growth;
+use super::growth::{Growth, print_north};
 use super::history::History;
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Judge, Judgement};
@@ -60,8 +60,9 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let here = walk_and_ship(layout, &hosts, &checkout);
     let others = if canaries_at_once() { judged_at_once(layout, &hosts[1..]) } else { hosts[1..].iter().map(|host| probed(layout, host).0).collect() };
     for facts in std::iter::once(here).chain(others) {
-        let problems = judged_problems(&facts, live, &mut growth);
+        let (problems, window) = judged_problems(&facts, live, &mut growth);
         println!("north runtime settle: {}: {}", facts.host, verdict::verdict(&facts, &problems, landing.is_some()));
+        print_north(&facts, window.as_deref());
         if !problems.is_empty() {
             failing.push(format!("{}: {}", facts.host, problems.join("; ")));
             let inherited = judging.map_or(&[][..], |landing| history.before(&facts.host, &landing.sha, |earlier| ancestor(&checkout, earlier, &landing.sha)));
@@ -178,13 +179,15 @@ fn handed_to_live(layout: &Layout) -> Option<String> {
     layout.live_sha().filter(|live| *live != own && layout::has_programs(&layout.runtime(live)))
 }
 
-fn judged_problems(facts: &probe::Facts, live: impl Fn(&str) -> bool, growth: &mut Growth) -> Vec<String> {
+fn judged_problems(facts: &probe::Facts, live: impl Fn(&str) -> bool, growth: &mut Growth) -> (Vec<String>, Option<String>) {
     let mut problems = probe::problems(facts, live);
+    let mut window = None;
     if let (Some(north), None, false) = (&facts.north, &facts.unreachable, probe::installing(facts)) {
-        growth.note(&facts.host, now(), north.transient());
-        problems.extend(growth.leak(&facts.host, now()));
+        growth.note(&facts.host, now(), north.outlasting());
+        window = growth.leak(&facts.host, now());
+        problems.extend(window.clone());
     }
-    problems
+    (problems, window)
 }
 
 fn due_landing(layout: &Layout, checkout: &Path) -> Result<Option<Landing>, Failure> {
