@@ -938,3 +938,11 @@ command = "for p in galileo glide beagle gjoa nixos-config makgora; do v=$(north
 review = "2026-11-27"
 owner = "tompassarelli/north#1247"
 lead = "f-buck-side-4"
+
+[[check]]
+id = "n1247-slow-many-checks-idle-host"
+box = "Speed up the slow test land_offload::ship::tests::many_checks_queued_at_once_on_an_idle_host_all_start."
+command = "north ledger flow slow-tests --test slow-test:north-offload:land_offload::ship::tests::many_checks_queued_at_once_on_an_idle_host_all_start"
+review = "2026-11-16"
+owner = "tompassarelli/north#1247"
+lead = "f-buck-side-4"
