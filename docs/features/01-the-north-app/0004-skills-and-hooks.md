@@ -1,1 +1,1 @@
-- Skills and hooks: `agents status`, `stale`, `inspect ID`, `path ID`, `on ID`, `off ID` and `sync` (each also `north config agents ...`) list, toggle and publish the catalog's skills and hooks; [harness.md](harness.md#install) describes what `agents sync` publishes.
+- Skills and hooks: `north config agents status`, `stale`, `inspect ID`, `path ID`, `on ID`, `off ID` and `sync` (each also `north config agents ...`) list, toggle and publish the catalog's skills and hooks; [harness.md](harness.md#install) describes what `north config agents sync` publishes.

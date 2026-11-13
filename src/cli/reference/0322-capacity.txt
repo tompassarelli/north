@@ -1,0 +1,7 @@
+  capacity disk                                 Measure each registered store on this host's root disk against harness/disk-ledger.toml and print the bytes no store explains
+  capacity disk-share SHARE                     Print this host's disk_budget_gib share in GiB for one store, nothing when unset
+  capacity reap-orphans                         Stop the scope of every run lease whose wrapper process is gone, freeing its slot
+  capacity pull [--host NAME]                   Copy each other host's capacity_runs rows into this machine's capacity.db under a host column
+  capacity actions-pull                         Record each started job of the Actions runs as an actions:LABEL row and print the p50 queue per runner label
+  capacity model [KEY]                          Print the per-host resource model levels for a command key
+  capacity calibration [--since 24h]            Print predicted against actual wall time and memory per key and host, flagging drift

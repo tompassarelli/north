@@ -5,6 +5,8 @@ after three Nix or dev-shell classes refused or hung lander candidates in one ni
 2026-10-05 to 2026-11-05, the classes it falls into, the deterministic guard per class, the guards that exist and their
 gaps, and the boxes in landing order. Nothing here is built yet.
 
+Status, 2026-11-13: part of this is built. `harness/nix/cards.toml` is tracked, so the footgun cards exist; the guards and boxes below are read as a plan where no card or check backs them.
+
 ## Sources and method
 
 - Session transcripts on gex45: `~/.local/state/north/profiles/claude-{a,b,c,d}/projects/**/*.jsonl`, the retired

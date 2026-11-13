@@ -1,0 +1,1 @@
+  graph retain [--db PATH]                      Remove the history no reader needs, under the graph's retention rule

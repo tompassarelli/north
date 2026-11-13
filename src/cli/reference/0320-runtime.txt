@@ -1,0 +1,6 @@
+  runtime settle                                Run the core-loop probes on the promoted runtime here, then ship it to the other hosts only when every probe passed
+  runtime status                                Print the pinned runtime SHA, when it was promoted, and the promotions and fast paths of the last 24 hours
+  runtime build SHA                             Build the runtime of a commit on origin/main under the build host's lease and keep it with the host that built it
+  runtime build-ahead --tree TREE --commit COMMIT  Build a candidate commit's runtime while its checks run, so its promotion finds the build ready
+  runtime mirror                                Copy the landing records to every host this host ships runtimes to
+  runtime checkouts                             Ask every host this host ships runtimes to fast-forward its main checkouts onto origin/main

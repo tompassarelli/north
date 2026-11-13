@@ -4,6 +4,8 @@ Plan of 2026-11-04 (laptop time), revised the same day after review. Tom asked f
 north's compile cost per lane, per landing and per runtime promotion, build caches included (2026-11-04). Nothing here
 is built yet; each candidate is a box below.
 
+Status, 2026-11-13: parts are built. The part recorded as superseded on 2026-11-11 below was replaced under north#1022, and [compile-reuse.md](compile-reuse.md) holds the current direction for build time.
+
 ## Measured baseline, 24 h to 5:45 AM 2026-11-04
 
 Sources: leased runs in `~/.local/state/agents/machine-capacity-usage.jsonl` (laptop and gex45, `cpuSeconds` summed

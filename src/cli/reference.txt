@@ -339,6 +339,44 @@ Commands:
   box path REPO#N [--box K]                     Each state one box passed through from its claim to the runtime holding its landing (claimed, launching, working, handing-in, queued, checking, landed, reported, delivered, verified, promoted), with its start, the time spent in it and its source record; a state no record holds prints as unrecorded with its gap
   issue convert [OWNER/]REPO#N --dry-run [--manifest FILE]  Write a manifest with one row per unticked checkbox of the issue (leaf, third-level issue, prose, gate or held by a live claim, with its title, type, labels and body), creating nothing; exits 1 when the rows do not add up to the open boxes or a row has no title, a title over 80 characters or equal to an open issue's, a leaf without a runnable Done when or declared class, or a deny-listed word
   issue convert [OWNER/]REPO --closed-boxes     List every unticked checkbox on a closed issue of the repository with the open issue that holds the same text, or `no copy`; it edits nothing
+  land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]  Print each landing's wall time split by category from the span traces, the same split summed with p50 and p90, and the longest leaf spans
+  land doctor [--dry-run]                       Read every lander health bound, apply each known remedy and page the proxy once per unknown state
+  land drill [FAULT]...                         Inject each lander stuck state into a scratch lander and require its remedy to clear it within the doctor's patience, nobody paged
+  land urgent TICKET --reason TEXT [--repo DIR]  Move a queued ticket ahead of every urgent ticket marked later and print the place the lander gives it
+  land requeue TICKET --reason TEXT [--repo DIR]  Put a quarantined ticket back in the landing queue for another check, recording the reason
+  land break-glass TICKET --reason TEXT --approval GATE [--repo DIR] [--app-token PROGRAM]  Land one queued ticket onto main without a lander round, only under a recorded approval, after the secret and privacy scans
+  land reuse report [--since DURATION]          Count the land-check units answered from a cache, from the north-reuse lines the lander harvests
+  land reuse observe -- COMMAND...              Run a buck2 test line and print one north-reuse unit per test binary, with the action key when Buck2 answered it from its cache
+  land follow                                   Run after each landing: ingest the fact graph from every source on this host
+  fleet need HOST REASON [--item REPO#N]         Record that a session needs a host or local need (laptop, native) that only another host can satisfy
+  fleet wait RUN [NAME]                         Register a run (job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME) and park the session until it is over
+  fleet waits                                   Revive each parked session whose run is over with the run's result
+  fleet spool ...                               Machine-side verbs of the fleet spool (take, drop, set-aside, deliver, cache, registry, api-spend) that a far host's tick calls over ssh
+  fleet break-glass --issue REPO#N REASON...    Lift the proxy's look budgets for at most 30 minutes, only while the last two launches failed or the launch probe exits non-zero
+  runtime settle                                Run the core-loop probes on the promoted runtime here, then ship it to the other hosts only when every probe passed
+  runtime status                                Print the pinned runtime SHA, when it was promoted, and the promotions and fast paths of the last 24 hours
+  runtime build SHA                             Build the runtime of a commit on origin/main under the build host's lease and keep it with the host that built it
+  runtime build-ahead --tree TREE --commit COMMIT  Build a candidate commit's runtime while its checks run, so its promotion finds the build ready
+  runtime mirror                                Copy the landing records to every host this host ships runtimes to
+  runtime checkouts                             Ask every host this host ships runtimes to fast-forward its main checkouts onto origin/main
+  capacity disk                                 Measure each registered store on this host's root disk against harness/disk-ledger.toml and print the bytes no store explains
+  capacity disk-share SHARE                     Print this host's disk_budget_gib share in GiB for one store, nothing when unset
+  capacity reap-orphans                         Stop the scope of every run lease whose wrapper process is gone, freeing its slot
+  capacity pull [--host NAME]                   Copy each other host's capacity_runs rows into this machine's capacity.db under a host column
+  capacity actions-pull                         Record each started job of the Actions runs as an actions:LABEL row and print the p50 queue per runner label
+  capacity model [KEY]                          Print the per-host resource model levels for a command key
+  capacity calibration [--since 24h]            Print predicted against actual wall time and memory per key and host, flagging drift
+  finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...  Run the check, and only when it passes commit the named paths, queue the lane and return the ticket
+  finish --judge-message SESSION                Judge a commit message read from standard input for the session
+  proxy [--interactive]                         Open the fleet screen on the proxy session, attaching, reviving or launching it; --interactive resumes its conversation in claude
+  proxy move [--to ACCOUNT] [--auto] [--dry-run]  Move the proxy session to an account with headroom
+  spend [--json]                                Print the week points left across accounts, the worker sessions working and the waste of the last 24 hours
+  depbox fetch|run -- COMMAND [ARG...]         Run a command in the dependency sandbox: fetch with the network shared, run with no network
+  code-health layers [--repo DIR] BASE HEAD     Exit 1 for each reference a changed Rust file adds that breaks a structure.toml module or crate DAG rule
+  hook stop                                     Run the Stop hook guards: permission offers, command handoffs and recommendations that act
+  hook recommend-acts                           Run the recommendations-act guard on a final reply
+  policy-replay case CASE... [--arm NAME=GENERATION]... [--samples N] [--jobs N] [--out ROWS.jsonl] [--judge-model M] [--max-turns N] [--budget-usd N] [--dry-run]  Replay recorded correction cases against policy arms and write one row per sample
+  graph retain [--db PATH]                      Remove the history no reader needs, under the graph's retention rule
 
 Options:
   -h, --help  Show the operator and agent commands
