@@ -195,7 +195,10 @@ fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Re
     let script = remote_script(&name, land.class);
     let base = land.base.as_ref().map_or("", CommitId::as_str);
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
-    let red_fix = std::env::var(RED_FIX_ENV).unwrap_or_default();
+    let red_fix = match std::env::var(RED_FIX_ENV) {
+        Ok(marked) if !marked.is_empty() => marked,
+        _ => north_base::platform::session_scope::reserve_caller().unwrap_or_default(),
+    };
     let lander_slot = std::env::var(LANDER_SLOT_ENV).unwrap_or_default();
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();

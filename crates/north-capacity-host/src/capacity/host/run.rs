@@ -87,8 +87,11 @@ pub(super) fn fleet_session() -> bool {
     env("NORTH_FLEET_SCOPE").is_some_and(|scope| !scope.is_empty())
 }
 
+/// Whether this process runs in the scope of a session its launcher recorded as `--priority urgent`, read from its cgroup, which the session cannot leave or rename.
 fn urgent_session() -> bool {
-    env(crate::fleet::runtime::SESSION_ENV).is_some_and(|name| crate::fleet::records::launched_urgent(&crate::fleet::audience::fleet_dir(), &name))
+    let cgroup = read_text(Path::new("/proc/self/cgroup")).unwrap_or_default();
+    let unit = cgroup.split('/').map(str::trim_end).find(|segment| segment.starts_with(north_base::platform::session_scope::SESSION_UNIT_PREFIX) && segment.ends_with(".scope"));
+    unit.is_some_and(|unit| crate::fleet::records::launched_urgent_in(&crate::fleet::audience::fleet_dir(), unit))
 }
 
 fn wait_ticket(root: &Path, request: &Request, create: &Create, pullable: bool) -> String {

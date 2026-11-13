@@ -125,9 +125,9 @@ pub fn recorded_names(root: &Path) -> BTreeSet<String> {
     current.chain(past_records(root)).map(|record| record.name).collect()
 }
 
-
-/// Whether the launcher recorded the session `name` of the fleet at `root` as launched `--priority urgent`; a missing or unreadable record is not urgent. The name is the caller's own NORTH_FLEET_SESSION, as trusted as the rest of the caller's environment.
-pub fn launched_urgent(root: &Path, name: &str) -> bool {
-    let valid = !name.is_empty() && !name.starts_with('.') && !name.contains('/');
-    valid && fs::read_to_string(root.join(name).join(RECORD)).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).is_some_and(|record| record["urgent"] == Value::Bool(true))
+/// Whether the launcher recorded the session whose scope unit is `unit`, among the fleet at `root`, as launched `--priority urgent`; a unit no session names, or an unreadable record, is not urgent.
+pub fn launched_urgent_in(root: &Path, unit: &str) -> bool {
+    let named = |entry: &fs::DirEntry| fs::read_to_string(crate::platform::session_host_files::scope_path(&entry.path())).is_ok_and(|scope| scope.trim() == unit);
+    let urgent = |entry: &fs::DirEntry| fs::read_to_string(record_file(&entry.path())).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).is_some_and(|record| record["urgent"] == Value::Bool(true));
+    fs::read_dir(root).into_iter().flatten().flatten().any(|entry| named(&entry) && urgent(&entry))
 }
