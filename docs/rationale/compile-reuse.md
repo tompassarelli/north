@@ -356,6 +356,20 @@ sandbox, where nextest itself fails 12 cases, so its differences said nothing ab
 - So box 5's count holds and its verdicts do not yet. The tests belong on the workers, where an undeclared read
   fails and a pass is cached; a run on the host is neither fenced nor reused.
 
+**Tests, Measured: whole-suite count, 2026-11-14, commit 819c188964.** Read from the two runs the lander makes after
+that one landing, not run again. Cargo (gex45, `cargo nextest run --workspace --lib --bins --test it`, exit 0, 819 s):
+1971 run, 1971 passed (3 leaky), 2 skipped. Buck2 (`north land crate-tests` after landing, which ran
+`buck2 test --unstable-allow-compatible-tests-on-re` over 69 crates, "tested 69 crates with Buck2, 0 with the
+declared line"; exit 0, 82 targets passed, 0 failed): 1944 cases run, 1944 passed, 0 failed, 29 skipped. Compared by
+name, the 1944 are all among Cargo's 1971, and the 27 Cargo cases Buck2 did not run are exactly the 27 entries of
+`build/host-cases.list` at that commit; no case ran on one side only, and neither side failed one. The remaining
+two skips are Cargo's own 2. So the remotely run cases are equal by name and verdict; the 27 host cases passed under
+Cargo and have no Buck2 verdict at this commit, because no after-landing Buck2 log shows the host-case step
+(`buck2_host_cases`) running, so box 5g stays open for them. `root//:north-test-it` took 35.7 s in that run, over
+the box's 30 s. A whole-suite `buck2 test //...` cannot be run by hand from an offload slot: with `--remote-only` it
+exits 1 at once (the host-case targets take the local executor by design), and without it the slot, which has no
+network, fails 177 third-party crate downloads and runs no test (cpx62b, 953661e2a5, 2026-11-14).
+
 ### The 51 by cause, 2026-11-12
 
 At origin/main c013d6124c on gex45, tests on the workers: 1813 cases, 1762 passed and 51 failed, in 126 s. Each
