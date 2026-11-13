@@ -28,6 +28,7 @@ enum HookKind {
     PreBash,
     Safety,
     PreEdit,
+    PreRead,
     PreAgent,
     PreTimer,
     PreMessage,
@@ -50,6 +51,7 @@ impl HookKind {
             "pre-bash" => Self::PreBash,
             "safety" => Self::Safety,
             "pre-edit" => Self::PreEdit,
+            "pre-read" => Self::PreRead,
             "pre-agent" => Self::PreAgent,
             "pre-timer" => Self::PreTimer,
             "pre-message" => Self::PreMessage,
@@ -91,7 +93,7 @@ impl HookKind {
 
     fn event(self) -> &'static str {
         match self {
-            Self::PreBash | Self::Safety | Self::PreEdit | Self::PreAgent | Self::PreTimer | Self::PreMessage | Self::PreAsk | Self::SpawnCapacity | Self::NativeSpawn => "PreToolUse",
+            Self::PreBash | Self::Safety | Self::PreEdit | Self::PreRead | Self::PreAgent | Self::PreTimer | Self::PreMessage | Self::PreAsk | Self::SpawnCapacity | Self::NativeSpawn => "PreToolUse",
             Self::PostTool => "PostToolUse",
             Self::PermissionRequest => "PermissionRequest",
             Self::Stop | Self::RecommendActs => "Stop",
@@ -154,6 +156,7 @@ impl HookKind {
                 Guard("north-hook", crate::guard::file_tool_reach::decide, Host),
                 Guard("north-hook", crate::guard::nix_activity::evaluate, Host),
             ],
+            Self::PreRead => &[Guard("", crate::guard::file_read_reach::decide, Host)],
             Self::PreAgent => &[Guard("north-hook", crate::guard::proxy_role::evaluate, Anywhere), Guard("", crate::guard::agent_cwd::evaluate, Anywhere), Guard("worker-tier-guard", crate::guard::worker_tier::evaluate, Anywhere), Guard("spawn-capacity-guard", crate::guard::spawn_capacity::admission, Anywhere)],
             Self::PreTimer => &[Guard("north-hook", crate::guard::lead_timer::evaluate, Anywhere)],
             Self::PreMessage => &[Guard("", crate::guard::subagent_message::evaluate, Anywhere)],
@@ -366,7 +369,7 @@ pub fn run(arguments: &[String], request: &[u8], writer: &mut impl Write) -> Res
             return Ok(Vec::new());
         }
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),
-        _ => return Err("Usage: north hook [stats [--since 7d]|dispatch|pre-bash|safety|pre-edit|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]".into()),
+        _ => return Err("Usage: north hook [stats [--since 7d]|dispatch|pre-bash|safety|pre-edit|pre-read|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]".into()),
     };
     Ok(process(
         request,

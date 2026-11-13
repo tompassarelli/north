@@ -106,6 +106,17 @@ fn provider_events_select_matching_guard_list() {
         .unwrap();
         assert!(output.is_empty());
     }
+    assert_eq!(HookKind::explicit("pre-read"), Some(HookKind::PreRead));
+    assert!(HookKind::PreRead.guards().iter().all(|guard| guard.0.is_empty()), "no unit name switches the reading guard off");
+    let reached = |tool: &str, tool_input: Value| crate::guard::file_read_reach::reached(&HookInput::parse(json!({"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input}).to_string().as_bytes()).unwrap());
+    assert_eq!(reached("Read", json!({"file_path": "/a/b"})), ["/a/b"]);
+    assert_eq!(reached("NotebookRead", json!({"notebook_path": "/a/n.ipynb"})), ["/a/n.ipynb"]);
+    assert_eq!(reached("Grep", json!({"pattern": "x", "path": "/a"})), ["/a"]);
+    assert_eq!(reached("Grep", json!({"pattern": "x"})), ["."]);
+    assert_eq!(reached("Glob", json!({"pattern": "**/*.rs", "path": "/a"})), ["/a/"]);
+    assert_eq!(reached("Glob", json!({"pattern": "/h/.ssh/*"})), ["/h/.ssh/"]);
+    assert_eq!(reached("Glob", json!({"pattern": "src/x*/y", "path": "/a"})), ["/a/src/"]);
+    assert!(reached("Bash", json!({"command": "ls"})).is_empty());
     let (start, prompt) = (HookKind::SessionStart.guards(), HookKind::UserPromptSubmit.guards());
     assert!(spare_guards(start, "SessionStart", Binding::Awaited, || true).is_empty(), "a spare no launch has taken gives no session-start context, which would be the spare's");
     assert_eq!(spare_guards(prompt, "UserPromptSubmit", Binding::Written, || true).len(), start.len() + prompt.len(), "a taken spare's first prompt gets the session-start context of the session it was bound to");

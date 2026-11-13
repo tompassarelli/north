@@ -11,6 +11,7 @@ pub type FreeCall = fn(&str, &Value) -> bool;
 pub type ReadStreakOf = fn(&str, &Value, FreeCall) -> ReadStreak;
 pub type StatusVerb = fn(&[&str]) -> bool;
 pub type FileToolRefusal = fn(&[String], &Path) -> Option<String>;
+pub type FileReadRefusal = fn(&[String], &Path) -> Option<String>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MessageReads {
@@ -35,6 +36,7 @@ pub struct Host {
     pub read_streak: ReadStreakOf,
     pub status_verb: StatusVerb,
     pub file_tool_refusal: FileToolRefusal,
+    pub file_read_refusal: FileReadRefusal,
 }
 
 static INSTALLED: OnceLock<Host> = OnceLock::new();
@@ -74,4 +76,9 @@ pub fn status_verb(words: &[&str]) -> bool {
 /// The first of `paths` a file tool of this session may not write, where this host confines its shell; `None` where no host is installed, which only a test is.
 pub fn file_tool_refusal(paths: &[String], cwd: &Path) -> Option<String> {
     installed().ok().and_then(|host| (host.file_tool_refusal)(paths, cwd))
+}
+
+/// The first of `paths` a reading tool of this session may not reach, where this host confines its shell; `None` where no host is installed, which only a test is.
+pub fn file_read_refusal(paths: &[String], cwd: &Path) -> Option<String> {
+    installed().ok().and_then(|host| (host.file_read_refusal)(paths, cwd))
 }

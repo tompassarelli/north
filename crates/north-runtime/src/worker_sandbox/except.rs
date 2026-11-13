@@ -11,7 +11,7 @@ pub enum Entries {
 
 type Identity = (u64, u64);
 
-fn identity(path: &Path) -> Option<Identity> {
+pub(super) fn identity(path: &Path) -> Option<Identity> {
     std::fs::metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()))
 }
 

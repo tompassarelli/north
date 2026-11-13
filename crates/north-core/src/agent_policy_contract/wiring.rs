@@ -162,5 +162,13 @@ mod tests {
             .collect();
         assert!(commands.iter().any(|command| command.ends_with(" north hook prompt-grounding")), "{commands:?}");
         assert!(!commands.iter().any(|command| command.contains("prompt-grounding.sh")), "{commands:?}");
+        let reads: Vec<String> = wiring(&policy, "claude")
+            .into_iter()
+            .filter(|(event, _)| event == "PreToolUse")
+            .flat_map(|(_, groups)| groups)
+            .filter(|(matcher, _)| ["Read", "NotebookRead", "Grep", "Glob"].iter().all(|tool| matcher.split('|').any(|name| name == *tool)))
+            .flat_map(|(_, commands)| commands)
+            .collect();
+        assert!(reads.iter().any(|command| command.ends_with(" north hook pre-read")), "{reads:?}");
     }
 }

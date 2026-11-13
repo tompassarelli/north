@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use super::readable::{Reader, reaches_unreadable};
 use super::{Context, confines_worker, removable, writable};
 
 const CONFIG_DIR: &str = "CLAUDE_CONFIG_DIR";
@@ -9,6 +10,21 @@ const SETTINGS: [&str; 2] = ["settings.json", "settings.local.json"];
 pub fn unwritable_by_file_tool(paths: &[String], cwd: &Path) -> Option<String> {
     let profile = std::env::var_os(CONFIG_DIR).filter(|directory| !directory.is_empty()).map(PathBuf::from);
     confines_worker().then(|| outside(&Context::from_env_in(&paths.join(" "), cwd), paths, profile.as_deref())).flatten()
+}
+
+/// The first of `paths`, which a reading tool of this session names, that a command of this session may not read, or `None` for a session whose shell is not confined: a path that is, lies inside or holds what a worker command is refused to read (`unreadable`), since the Claude Code process that runs Read, Grep and Glob is never inside the shell's domain. Links and `..` resolve as for a file tool that writes, relative paths against `cwd`, and `~` against the home. A boundary that cannot be computed refuses every path.
+pub fn unreadable_by_file_tool(paths: &[String], cwd: &Path) -> Option<String> {
+    confines_worker().then(|| shut(&Context::from_env_in("", cwd), paths)).flatten()
+}
+
+fn shut(context: &Context, paths: &[String]) -> Option<String> {
+    let usable = context.home.is_absolute() && context.cwd.is_absolute();
+    let named = |path: &str| match path.strip_prefix("~/") {
+        Some(rest) => context.home.join(rest),
+        None if path == "~" => context.home.clone(),
+        None => context.cwd.join(path),
+    };
+    paths.iter().find(|path| !usable || resolved(&named(path)).is_none_or(|real| reaches_unreadable(context, Reader::Worker, &real))).cloned()
 }
 
 fn outside(context: &Context, paths: &[String], profile: Option<&Path>) -> Option<String> {
@@ -55,9 +71,13 @@ mod tests {
         let home = sandbox.path().canonicalize().unwrap();
         let lane = home.join("code/north/worktrees/worker");
         let state = home.join(".local/state/north");
-        for directory in [lane.join(".claude"), home.join("code/north/main"), state.join("fleet/worker"), state.join("fleet/.archive/worker-1"), state.join("land-queue/abc"), state.join("fleet/spool/sessions/other"), state.join("profiles/claude-c")] {
+        for directory in [lane.join(".claude"), home.join("code/north/main"), state.join("fleet/worker"), state.join("fleet/.archive/worker-1"), state.join("land-queue/abc"), state.join("fleet/spool/sessions/other"), state.join("profiles/claude-c"), home.join(".ssh"), home.join(".config/gh"), home.join(".config/git")] {
             std::fs::create_dir_all(directory).unwrap();
         }
+        let (key, login) = (home.join(".ssh/id_scratch"), home.join(".config/gh/hosts.yml"));
+        std::fs::write(&key, "scratch").unwrap();
+        std::fs::write(&login, "scratch").unwrap();
+        std::os::unix::fs::symlink(&key, lane.join("linked-key")).unwrap();
         let record = state.join("fleet/worker/session.json");
         let queued = state.join("land-queue/abc/1-guards.json");
         let other_spool = state.join("fleet/spool/sessions/other/report.json");
@@ -77,5 +97,14 @@ mod tests {
         assert_eq!(outside(&context, &[named(&fine), "docs/readme.md".into(), named(&own_spool)], Some(&profile)), None);
         let unknown_home = Context::from_request("", &lane, &[]);
         assert_eq!(outside(&unknown_home, &[named(&fine)], None), Some(named(&fine)));
+        let refused = [named(&key), named(&login), named(&home.join(".ssh")), named(&home.join(".ssh/id_new")), named(&lane.join("linked-key")), "linked-key".into(), "../../../../.ssh/id_scratch".into(), "~/.ssh/id_scratch".into(), named(&home.join(".config/gh")), named(&home), "~".into(), "/".into()];
+        for path in &refused {
+            assert_eq!(shut(&context, std::slice::from_ref(path)), Some(path.clone()), "{path}");
+        }
+        for path in [named(&fine), "docs/readme.md".into(), ".".into(), named(&lane), named(&home.join(".config/git")), named(&home.join("code/north/main")), "~/code".into()] {
+            assert_eq!(shut(&context, std::slice::from_ref(&path)), None, "{path}");
+        }
+        assert_eq!(shut(&context, &[named(&fine), named(&key)]), Some(named(&key)));
+        assert_eq!(shut(&unknown_home, &[named(&fine)]), Some(named(&fine)));
     }
 }

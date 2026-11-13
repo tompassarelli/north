@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::Context;
-use super::except::{Entries, beneath_except};
+use super::except::{Entries, beneath_except, identity};
 
 const SECRETS: [&str; 2] = ["/run/secrets", "/run/secrets.d"];
 
@@ -34,4 +34,11 @@ pub(super) fn unreadable(context: &Context, reader: Reader) -> Vec<PathBuf> {
 /// Every file a command of `reader` may read: all of them but the unreadable ones.
 pub fn readable(context: &Context, reader: Reader) -> Vec<PathBuf> {
     beneath_except(Path::new("/"), &unreadable(context, reader), Entries::All)
+}
+
+/// Whether `real`, a path with its links resolved, is, lies inside or holds something `reader` may not read: a read of it, or a search from it, would reach what a command of `reader` is refused. Entries match by device and inode as in [`beneath_except`], since one directory can sit at several paths; an entry that does not exist yet holds nothing to read.
+pub(super) fn reaches_unreadable(context: &Context, reader: Reader, real: &Path) -> bool {
+    let chain = |path: &Path| path.ancestors().filter_map(identity).collect::<Vec<_>>();
+    let (own, around) = (identity(real), chain(real));
+    unreadable(context, reader).iter().filter_map(|path| path.canonicalize().ok()).any(|hidden| identity(&hidden).is_some_and(|id| around.contains(&id)) || own.is_some_and(|id| chain(&hidden).contains(&id)))
 }
