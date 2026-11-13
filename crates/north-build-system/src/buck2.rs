@@ -11,6 +11,7 @@ use super::{Build, BuildSystem, Invocation, Lint, Mutants, Profile, Resolution, 
 
 pub(crate) mod generation;
 pub(crate) mod test_record;
+mod test_build;
 
 /// Buck2 over the generated BUCK targets (north#1115): the root package is `//:north`, a workspace crate `//crates/NAME:NAME`
 /// with its tests beside it. A host chooses it with `build_system = "buck2"`. Until the host also sets `buck2_tests`, this side
@@ -617,6 +618,15 @@ impl BuildSystem for Buck2 {
 
     fn mutants(&self, request: &Mutants) -> Result<Invocation, String> {
         Cargo.mutants(request)
+    }
+
+    fn test_build(&self, root: &Path) -> Result<Invocation, String> {
+        test_build::request(self, root)
+    }
+
+    fn test_executables(&self, _root: &Path, printed: &str) -> Result<Vec<PathBuf>, String> {
+        let outputs: BTreeMap<String, PathBuf> = serde_json::from_str(printed).map_err(|error| format!("buck2 build printed no JSON map of its outputs: {error}"))?;
+        Ok(outputs.into_values().collect())
     }
 }
 

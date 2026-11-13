@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 use north_base::platform::process::child_within;
 use north_mutants::env::{Stop, git, git_text};
 
+/// The exit status of the build line when the tests do not build; any other status without a verdict stops the check.
+pub const TESTS_DO_NOT_BUILD: u8 = 2;
 const DEFAULT_RUNS: usize = 8;
 const DEADLINE: Duration = Duration::from_secs(120);
 const TAIL_LINES: usize = 30;
@@ -27,6 +29,12 @@ struct Batch {
 struct Finished {
     code: Option<i32>,
     output: String,
+}
+
+enum Verdict {
+    Pass,
+    Flaky(usize),
+    Unlisted,
 }
 
 fn setting(cwd: &Path, base: &str) -> Result<Option<Setting>, Stop> {
@@ -62,42 +70,78 @@ pub(super) fn check(cwd: &Path, base: &str, head: &str, names: &BTreeSet<String>
         return unverified(out, "the checked-out tree is not the lane head");
     }
     let started = Instant::now();
-    let Some(executables) = build(cwd, &setting.build)? else {
+    let Some(printed) = build(cwd, &setting.build, names, setting.runs)? else {
         return unverified(out, "the lane's tests do not build");
     };
-    let batches = batches(&executables, names);
-    let tests: usize = batches.iter().map(|batch| batch.tests.len()).sum();
-    if tests == 0 {
-        return unverified(out, "no built test executable lists a changed test");
+    let verdicts = parse_verdicts(&printed)?;
+    if let Some(name) = names.iter().find(|name| !verdicts.contains_key(name.as_str())) {
+        return Err(Stop::Fail(format!("flake: the build line gave no verdict for {name}")));
     }
-    writeln!(out, "fails-first: running {tests} changed test(s) {} times concurrently on the lane head", setting.runs)?;
-    let finished = run(cwd, &batches, setting.runs);
-    let mut flaky = BTreeMap::<&str, (usize, &Finished)>::new();
-    for (batch, runs) in batches.iter().zip(&finished) {
-        for test in &batch.tests {
-            let failures: Vec<&Finished> = runs.iter().filter(|run| failed(run, test)).collect();
-            if let Some(first) = failures.first() {
-                flaky.insert(test, (failures.len(), first));
-            }
-        }
+    let unlisted: Vec<&str> = verdicts.iter().filter(|(_, verdict)| matches!(verdict, Verdict::Unlisted)).map(|(name, _)| *name).collect();
+    if !unlisted.is_empty() {
+        writeln!(out, "safe-push: ✗ fails-first: no built test executable lists the added tests, so they cannot be run: {}; NOT pushed.", unlisted.join(", "))?;
+        return Err(Stop::Refused);
     }
-    if let Some((test, (_, run))) = flaky.iter().next() {
-        for (test, (count, _)) in &flaky {
+    let flaky: Vec<(&str, usize)> = verdicts.iter().filter_map(|(name, verdict)| if let Verdict::Flaky(count) = verdict { Some((*name, *count)) } else { None }).collect();
+    if !flaky.is_empty() {
+        for (test, count) in &flaky {
             writeln!(out, "fails-first: flaky {test} failed {count} of {} runs", setting.runs)?;
         }
-        let lines: Vec<&str> = run.output.lines().collect();
-        writeln!(out, "fails-first: output of a failing {test} run ends:\n{}", lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n"))?;
-        let listed: Vec<&str> = flaky.keys().copied().collect();
+        let listed: Vec<&str> = flaky.iter().map(|(test, _)| *test).collect();
         writeln!(out, "safe-push: ✗ fails-first: these tests fail when run {} times concurrently, so they are flaky: {}; make them deterministic, never retry them to green; NOT pushed.", setting.runs, listed.join(", "))?;
         return Err(Stop::Refused);
     }
-    writeln!(out, "fails-first: ✓ {tests} changed test(s) passed {} concurrent runs ({:.1} s)", setting.runs, started.elapsed().as_secs_f64())?;
+    writeln!(out, "fails-first: ✓ {} changed test(s) passed {} concurrent runs ({:.1} s)", names.len(), setting.runs, started.elapsed().as_secs_f64())?;
     Ok(())
+}
+
+fn parse_verdicts(printed: &str) -> Result<BTreeMap<&str, Verdict>, Stop> {
+    let mut verdicts = BTreeMap::new();
+    for line in printed.lines() {
+        let verdict = match line.split(' ').collect::<Vec<_>>().as_slice() {
+            ["pass", name] => (*name, Verdict::Pass),
+            ["unlisted", name] => (*name, Verdict::Unlisted),
+            ["flaky", name, count] => (*name, Verdict::Flaky(count.parse().map_err(|_| Stop::Fail(format!("flake: no count in the verdict line {line}")))?)),
+            _ => return Err(Stop::Fail(format!("flake: the build line printed an unknown verdict line: {line}"))),
+        };
+        verdicts.insert(verdict.0, verdict.1);
+    }
+    Ok(verdicts)
 }
 
 fn unverified(out: &mut dyn Write, reason: &str) -> Result<(), Stop> {
     writeln!(out, "fails-first: flake runs unverified ({reason})")?;
     Ok(())
+}
+
+/// The verdict line of each added test the build line runs: `pass NAME`, `flaky NAME FAILED_RUNS`, or `unlisted NAME` when no built executable lists it. Progress and the output of a failing run go to `log`.
+pub fn verdicts(cwd: &Path, executables: &[PathBuf], names: &BTreeSet<String>, runs: usize, log: &mut dyn Write, out: &mut dyn Write) -> io::Result<()> {
+    let batches = batches(executables, names);
+    let cases: Vec<(&str, usize, &str)> = batches.iter().enumerate().flat_map(|(index, batch)| batch.tests.iter().map(move |path| (name_of(path), index, path.as_str()))).collect();
+    let known = names.iter().filter(|name| cases.iter().any(|(case, ..)| case == name)).count();
+    writeln!(log, "fails-first: running {known} changed test(s) {runs} times concurrently on the lane head")?;
+    let finished = run(cwd, &batches, runs);
+    for name in names {
+        let found: Vec<(usize, &str)> = cases.iter().filter(|(case, ..)| case == name).map(|(_, index, path)| (*index, *path)).collect();
+        if found.is_empty() {
+            writeln!(out, "unlisted {name}")?;
+            continue;
+        }
+        let failures: Vec<&Finished> = found.iter().flat_map(|(index, path)| finished[*index].iter().filter(|run| failed(run, path))).collect();
+        match failures.first() {
+            None => writeln!(out, "pass {name}")?,
+            Some(first) => {
+                let lines: Vec<&str> = first.output.lines().collect();
+                writeln!(log, "fails-first: output of a failing {name} run ends:\n{}", lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n"))?;
+                writeln!(out, "flaky {name} {}", failures.len())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn name_of(path: &str) -> &str {
+    path.rsplit("::").next().unwrap_or(path)
 }
 
 fn failed(run: &Finished, test: &str) -> bool {
@@ -109,22 +153,15 @@ fn failed(run: &Finished, test: &str) -> bool {
     seen == Some(false) || (run.code != Some(0) && seen != Some(true))
 }
 
-fn build(cwd: &Path, command: &str) -> Result<Option<Vec<PathBuf>>, Stop> {
-    let output = Command::new("sh").args(["-c", command]).current_dir(cwd).stdin(Stdio::null()).stderr(Stdio::inherit()).output()?;
-    if !output.status.success() {
-        return Ok(None);
+fn build(cwd: &Path, command: &str, names: &BTreeSet<String>, runs: usize) -> Result<Option<String>, Stop> {
+    let added: Vec<&str> = names.iter().map(String::as_str).collect();
+    let line = format!("{command} {runs} {}", added.join(" "));
+    let output = Command::new("sh").args(["-c", &line]).current_dir(cwd).stdin(Stdio::null()).stderr(Stdio::inherit()).output()?;
+    match output.status.code() {
+        Some(0) => Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned())),
+        Some(code) if code == i32::from(TESTS_DO_NOT_BUILD) => Ok(None),
+        code => Err(Stop::Fail(format!("the build line {command} gave no verdict (exit {})", code.map_or_else(|| "none".to_owned(), |code| code.to_string())))),
     }
-    let mut found = Vec::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let Ok(message) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        let executable = (message["reason"] == "compiler-artifact" && message["profile"]["test"] == true).then(|| message["executable"].as_str()).flatten();
-        if let Some(path) = executable.map(PathBuf::from).filter(|path| !found.contains(path)) {
-            found.push(path);
-        }
-    }
-    Ok(Some(found))
 }
 
 fn batches(executables: &[PathBuf], names: &BTreeSet<String>) -> Vec<Batch> {
@@ -136,7 +173,7 @@ fn batches(executables: &[PathBuf], names: &BTreeSet<String>) -> Vec<Batch> {
             let tests: Vec<String> = text
                 .lines()
                 .filter_map(|line| line.strip_suffix(": test"))
-                .filter(|path| names.contains(path.rsplit("::").next().unwrap_or(path)))
+                .filter(|path| names.contains(name_of(path)))
                 .map(str::to_owned)
                 .collect();
             (!tests.is_empty()).then(|| Batch { exe: exe.clone(), tests })

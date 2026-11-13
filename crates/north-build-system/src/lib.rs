@@ -65,6 +65,10 @@ pub trait BuildSystem {
     /// The line this side runs for `declared`, a land check line of `.safe-push`, which names Cargo until the removal rewrites it (north#1115 box 8): every side returns it as declared. The executing host's wrappers, `north land crate-tests` and `north land lint`, are the only place a line moves to Buck2, under the host's own keys.
     fn land_line(&self, declared: &str) -> String;
     fn mutants(&self, request: &Mutants) -> Result<Invocation, String>;
+    /// Builds every test executable of the workspace at `root` for a check that runs them from the tree: Cargo's test build, or Buck2's test binaries built on the workers, one per test target.
+    fn test_build(&self, root: &Path) -> Result<Invocation, String>;
+    /// The test executables a [`BuildSystem::test_build`] run in the tree at `root` printed, as paths relative to `root`, so a caller in another view of the tree joins them to its own root.
+    fn test_executables(&self, root: &Path, printed: &str) -> Result<Vec<PathBuf>, String>;
 }
 
 /// The build system this host runs: Buck2 when `[hosts.NAME] build_system` in the orchestration policy says `buck2`, with its test run once `buck2_tests` is set too, and Cargo when the key is unset, the policy unreadable, or the host holds no readable store generation, which it says.

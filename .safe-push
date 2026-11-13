@@ -15,7 +15,7 @@
 	source = ":(exclude,glob)**/*tests*.rs"
 	source = ":(exclude,glob)**/tests/**"
 [flake]
-	build = cargo test --locked --offline --no-run --message-format=json-render-diagnostics
+	build = CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-build-system/src/,crates/north-landing-gates/src/landing/flake.rs,src/cli/ land fails-first-runs
 	owner = NixOS
 	owner = tompassarelli
 	owner = oxalica
@@ -68,7 +68,7 @@
 	after = ** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-graph/,src/cli/ graph guards harness/graph-guards --shadow
 	after = @enqueue,** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/catalog/,crates/north-core/src/agent_catalog.rs,crates/north-base/ config agents check-owners --north-root $PWD --south-root $HOME/code/south/main --nixos-root $HOME/code/nixos-config/main # hardcoded-repo-path:allow
 	after = src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only portable
-	after = @lane,src/,crates/,tests/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission.rs,crates/north-landing-gates/src/landing/fails_first.rs,src/cli/ land scan test-admission run ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
+	after = @lane,src/,crates/,tests/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission.rs,crates/north-landing-gates/src/landing/fails_first.rs,crates/north-landing-gates/src/landing/flake.rs,src/cli/ land scan test-admission run ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	after = bin/,lib/,harness/,src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only machine-bound
 	machine-bound = reads the graph database the landed code wrote, which no lane tree holds, and its guards are in shadow so it fails only when a guard cannot be read or run :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-graph/,src/cli/ graph guards harness/graph-guards --shadow
 	host-input = ~/.local/state/north/graph.db :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-graph/,src/cli/ graph guards harness/graph-guards --shadow
@@ -84,7 +84,7 @@
 	after-only = it reads the graph database the landed code wrote, which no lane tree holds, and its guards are in shadow :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-graph/,src/cli/ graph guards harness/graph-guards --shadow
 	after-only = it judges north against the south and nixos-config checkouts on main beside the host, which a lane tree does not hold :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/catalog/,crates/north-core/src/agent_catalog.rs,crates/north-base/ config agents check-owners --north-root $PWD --south-root $HOME/code/south/main --nixos-root $HOME/code/nixos-config/main # hardcoded-repo-path:allow
 	after-only = the changed portable integration tests are the slowest land check, 125 s on the critical path of a landing (docs/rationale/landing-latency.md), and the lane's unit and changed-crate tests run before it lands :: CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only portable
-	after-only = it replays each added test on a scratch checkout of base through the fails-first runner on a build host, a second build of the workspace per lane :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission.rs,crates/north-landing-gates/src/landing/fails_first.rs,src/cli/ land scan test-admission run ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
+	after-only = it replays each added test on a scratch checkout of base through the fails-first runner on a build host, a second build of the workspace per lane :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission.rs,crates/north-landing-gates/src/landing/fails_first.rs,crates/north-landing-gates/src/landing/flake.rs,src/cli/ land scan test-admission run ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	after-only = needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests), which an offload slot does not have :: CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only machine-bound
 	after-only = "the lane test line decides on the landed commit and a red after-landing run reverts the lane, by the owner's direction of 2026-11-13 that a change making landing faster goes live with its revert ready and is proven by backtest, since the line costs 83 to 112 s of a one-line core change, and it still runs before landing for a lane on a trust_boundary_paths path and whenever tests_after_landing is off (north#1036) :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --locked --offline --no-tests=fail ${SAFE_PUSH_LAND_PACKAGES:---workspace} $([[ ${SAFE_PUSH_LAND_PACKAGES:-} == '-p north' ]] || echo --lib) --bins ${SAFE_PUSH_LAND_IT:---test it -E kind(lib)|kind(bin)|kind(test)}"
 	after-only = it plants a fault in a scratch copy of the landed main and checks buck2 test, clippy and the portable skill check still catch it, which judges the gates, not a lane :: .github/workflows/canary.yml:rust

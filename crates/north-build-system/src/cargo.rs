@@ -211,6 +211,22 @@ impl BuildSystem for Cargo {
         declared.to_owned()
     }
 
+    fn test_build(&self, root: &Path) -> Result<Invocation, String> {
+        Ok(Invocation::new(root, Shell::Inherited, words(&["test", "--locked", "--offline", "--no-run", "--message-format=json-render-diagnostics"])).set("CARGO_TARGET_DIR", root.join("target").display().to_string()))
+    }
+
+    fn test_executables(&self, root: &Path, printed: &str) -> Result<Vec<PathBuf>, String> {
+        let mut found: Vec<PathBuf> = Vec::new();
+        for line in printed.lines() {
+            let Ok(message) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+            let executable = (message["reason"] == "compiler-artifact" && message["profile"]["test"] == true).then(|| message["executable"].as_str()).flatten();
+            if let Some(path) = executable.map(PathBuf::from).filter(|path| !found.contains(path)) {
+                found.push(path);
+            }
+        }
+        found.iter().map(|path| relative_to_root(root, path).ok_or_else(|| format!("{} is not inside {}", path.display(), root.display()))).collect()
+    }
+
     fn mutants(&self, request: &Mutants) -> Result<Invocation, String> {
         let in_diff = ["--in-diff".to_owned(), request.diff.display().to_string()];
         let words = match &request.step {
@@ -227,4 +243,14 @@ impl BuildSystem for Cargo {
         };
         Ok(Invocation::new(request.root, request.shell, words))
     }
+}
+
+fn relative_to_root(root: &Path, path: &Path) -> Option<PathBuf> {
+    path.strip_prefix(root).map(Path::to_path_buf).ok().or_else(|| from_sandbox_target(path))
+}
+
+fn from_sandbox_target(path: &Path) -> Option<PathBuf> {
+    let parts: Vec<_> = path.components().collect();
+    let at = parts.windows(2).position(|pair| pair[0].as_os_str() == "sandbox" && pair[1].as_os_str() == "target")?;
+    Some(parts[at + 1..].iter().collect())
 }
