@@ -48,6 +48,9 @@ fn run_row(shared: &Shared, name: &str, turns: &[&Run], brief: &str) -> Option<(
     let last = turns.iter().max_by_key(|turn| turn.ended_ms)?;
     let (started, ended) = (Timestamp::from_unix_millis(first.started_ms).iso(), Timestamp::from_unix_millis(last.ended_ms).iso());
     let model = last.model.clone().unwrap_or_default();
+    let wall_min = (last.ended_ms - first.started_ms).max(0) as f64 / 60_000.0;
+    let active_min = (turns.iter().map(|turn| turn.wall_ms.max(0)).sum::<i64>() as f64 / 60_000.0).min(wall_min);
+    let tenths = |minutes: f64| (minutes * 10.0).round() / 10.0;
     let effort = last.effort.clone().unwrap_or_else(|| "default".to_owned());
     let row = json!({
         "id": name,
@@ -70,6 +73,10 @@ fn run_row(shared: &Shared, name: &str, turns: &[&Run], brief: &str) -> Option<(
         "tokens": turns.iter().map(|turn| turn.tokens_out).sum::<i64>(),
         "peak_ctx": turns.iter().map(|turn| turn.tokens_in + turn.tokens_cache_read).max().unwrap_or(0),
         "turns": turns.iter().map(|turn| turn.turns).sum::<i64>(),
+        "active_min": tenths(active_min),
+        "wait_min": tenths(wall_min - active_min),
+        "brief_text": (!brief.is_empty()).then_some(brief),
+        "brief_origin": (!brief.is_empty()).then(|| format!("{}.prompt", first.provider)),
         "outcome": rows::ENDED,
         "report": "",
         "backfill": shared.recorded.contains(name),
