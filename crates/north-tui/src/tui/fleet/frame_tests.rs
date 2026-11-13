@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use crate::fleet::model::{ProviderName, SessionRecord, Status, Account};
 
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
@@ -88,10 +89,17 @@ fn help_fact(screen: &mut Screen, label: &str) -> String {
 }
 
 #[test]
-fn help_with_the_proxy_focused_shows_the_proxys_account_and_log_path() {
+fn help_shows_the_proxys_account_and_log_path_and_closes_when_its_slash_is_backspaced() {
     let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
     screen.sync(vec![lodged("lander-precheck", "c", 1, Status::Idle), lodged("proxy", "e", 2, Status::Parked)]);
     screen.help.open(Tab::General);
     assert!(help_fact(&mut screen, "Account:").ends_with("e (claude)"));
     assert!(help_fact(&mut screen, "Session Logs:").ends_with("/logs/proxy"));
+    screen.help.close();
+    screen.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    assert_eq!(help_fact(&mut screen, "Available Commands"), "Available Commands");
+    screen.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    assert!(screen.composer.is_empty());
+    assert_eq!(screen.help.tab(), None);
+    assert_eq!(help_fact(&mut screen, "Available Commands"), "");
 }

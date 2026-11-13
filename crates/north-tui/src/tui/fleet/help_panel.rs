@@ -88,7 +88,6 @@ impl HelpPanel {
             KeyCode::Left | KeyCode::BackTab => self.switch(tab, false),
             KeyCode::Char('l' | 'L') if control => self.switch(tab, true),
             KeyCode::Char('h' | 'H') if control => self.switch(tab, false),
-            KeyCode::Backspace if !self.editing_filter(tab, composer) => self.switch(tab, false),
             KeyCode::Up if plain => self.walk(tab, false),
             KeyCode::Down if plain => self.walk(tab, true),
             KeyCode::Enter if plain => self.confirm(tab),
@@ -121,10 +120,6 @@ impl HelpPanel {
             }
         }
         Reaction::Pass
-    }
-
-    fn editing_filter(&self, tab: Tab, composer: &str) -> bool {
-        tab == Tab::Commands && composer.starts_with('/') && composer.chars().count() > 1
     }
 
     fn switch(&mut self, tab: Tab, forward: bool) -> Reaction {
