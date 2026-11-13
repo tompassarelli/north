@@ -48,6 +48,7 @@ fn a_fixture_trace_splits_queued_at_to_push_by_category_and_reports_verification
     for line in [
         "north land profile: 1 landing since ",
         "queued_at to push: p50 700 s, p90 700 s, sum 700 s",
+        "hand-in to push: p50 750 s, p90 750 s over 1 landing",
         "wall 700 s, categories sum 700 s (+0.0%)",
         "  queue wait 310 s 44%, host wait 10 s 1%, sync/offload 15 s 2%, compile 80 s 11%, test run 180 s 26% (north 100, it (tests/it/main.rs) 70), lint 30 s 4%, docs/index checks 5 s 1%, git rebase/push 40 s 6%, safe-push and lander 30 s 4%",
         "  after push, 200 s of verification: compile 85 s 42%, test run 90 s 45% (north 80), safe-push and lander 15 s 8%, CI 10 s 5%",

@@ -293,9 +293,15 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
     }
     commit(repo, "n882-context: pack context from graph-ground");
     let queued = crate::land::slots::runner::queue_commands(repo, &base, "HEAD").unwrap();
-    for gate in ["cargo clippy --all-targets", "code-health layers", "check experiments", "check citations", "land scan test-admission kills", "code-health habits", "cargo nextest run"] {
+    for gate in ["cargo clippy --all-targets", "code-health layers", "check experiments", "check citations", "land scan test-admission kills", "code-health habits"] {
         assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
     }
+    assert!(queued.iter().all(|command| !command.contains("cargo nextest run")), "a lane outside the trust boundary leaves its test line to the run after landing: {queued:#?}");
+    fs::create_dir_all(repo.join("crates/north-runtime/src/worker_sandbox")).unwrap();
+    fs::write(repo.join("crates/north-runtime/src/worker_sandbox/grant.rs"), "pub fn grant() {}\n").unwrap();
+    let bounded = commit(repo, "widen a worker sandbox grant");
+    let kept = crate::land::slots::runner::queue_commands(repo, &base, &bounded).unwrap();
+    assert!(kept.iter().any(|command| command.contains("cargo nextest run")), "a lane that changes a trust-boundary path keeps its test line before queueing: {kept:#?}");
     assert!(queued.iter().all(|command| !command.contains("--shadow")), "a shadow line gates nothing and runs after landing, so none is run before queueing: {queued:#?}");
     let (store, entry) = ("~/.local/share/makgora-build-inputs/store", "14fbf7845b5d9c9705d0f0b4b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0");
     fs::create_dir_all(repo.join("build-inputs")).unwrap();

@@ -341,6 +341,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             published: published(&root, &branch, &destination),
             gated_from,
             hand_in: Some(hand_in),
+            tests_after_landing: runner::tests_after_landing(&root, &base, &lane_head),
             ..checked_alone(&root, head, &checked_tree, gate, &base)
         };
         let directory = if outbox { queue.join(queue::OUTBOX) } else { queue };

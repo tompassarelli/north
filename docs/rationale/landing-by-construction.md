@@ -17,7 +17,10 @@ under it, including ones that have not happened yet.
 1. **Alone before together.** A lane joins a merged batch only after every verdict that judges the
    lane alone has passed: its diff gates, plus its build, link and selected tests on current main
    in the probes' environment. One bad lane then costs one solo check, never a batch. Bisection
-   is left with interaction failures only, which are rare.
+   is left with interaction failures only, which are rare. A repository whose landing base names
+   its test line in a `land.after-only` line (north alone, north#1036) keeps the diff gates, the
+   build and link of the rebased tree, clippy, the scans and the manifest check before landing,
+   and its tests judge the landed commit, where a red run reverts the lane (invariant 5).
 2. **No verdict is not a fail.** A check has three outcomes: pass, fail and no verdict. Only a fail
    that the subject itself produced, and that is differential, may refuse, hold or revert.
    Differential means it fails on the lane where the same check passes on the lane's parent on
@@ -37,7 +40,10 @@ under it, including ones that have not happened yet.
 5. **Every gate runs before it can bite.** Any gate a repository runs after landing (land.after,
    after-landing.check, a push-to-main CI job) also runs before landing, or a
    `land.after-only = REASON :: COMMAND` line names why it cannot. A gate that only runs after the
-   push can only revert. It can never refuse.
+   push can only revert. It can never refuse. A reason may name a land.check line too, and that
+   line then leaves the checks before queueing: north's test line does so, read from the landing
+   base so a lane cannot grant itself the exception, while `tests_after_landing` in
+   harness/defaults.toml is on and the lane changes no path in `trust_boundary_paths` (class 5).
 
 ## Classes
 
@@ -195,6 +201,15 @@ updates its own class's line when its lane lands.
 - Status: enforced (north-892-d0231 and n892-ciparity). Reasons landed in south b00e47cb, makgora 3300cefa,
   wisp c2121f87, firn ac135e3da10e and nixos-config dd13c9128d (9b38429b23 relanded after a
   host-fault revert, class 9). North's own after-only reasons landed with 521411db26.
+- Revision (north#1036, 2026-11-13): a `land.after-only` reason on the landing base may also name a
+  land.check line, which then leaves the checks before queueing, by the owner's direction that a
+  change making landing faster goes live with its revert ready and is proven by backtest. North names
+  its test line so (83 to 112 s of a one-line core change), and its after-landing run reverts a lane
+  that turns it red. The diff gates, the rebased build and link, clippy, the scans and the manifest
+  check stay before landing. A lane on a `trust_boundary_paths` path keeps the line before landing,
+  and `tests_after_landing = "off"` in harness/defaults.toml restores it for every lane. No other
+  repository names such a line. A ticket that left its test line records it, so the after-landing
+  selection never counts that lane's tests as already run.
 
 ### 6. A host runs on stale shared configuration
 

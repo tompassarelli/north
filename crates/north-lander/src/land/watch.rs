@@ -423,7 +423,7 @@ fn landed(lander: &Lander, batch: &Batch) -> post_land::Landed {
     let names = batch.lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
     let tips = batch.lanes.iter().map(|lane| lane.tip.clone()).collect();
     let currency = Currency::at(&lander.repo, &batch.base);
-    let ran = batch.lanes.iter().filter_map(|lane| lane.ticket.passed_alone_on().filter(|on| currency.current(on)).map(|on| format!("{}={on}..{}", lane.ticket.branch, lane.ticket.head))).collect();
+    let ran = batch.lanes.iter().filter(|lane| !lane.ticket.tests_after_landing).filter_map(|lane| lane.ticket.passed_alone_on().filter(|on| currency.current(on)).map(|on| format!("{}={on}..{}", lane.ticket.branch, lane.ticket.head))).collect();
     post_land::Landed::on(lander, &batch.base, &batch.head, heads, names, tips, ran)
 }
 

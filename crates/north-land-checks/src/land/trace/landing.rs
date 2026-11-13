@@ -2,6 +2,7 @@ use super::{Category, Span, check_id};
 use crate::land::telemetry::Stages;
 
 pub const ROOT: &str = "landing";
+pub const HAND_IN: &str = "hand-in";
 
 pub struct Landed<'a> {
     pub ticket: &'a str,
@@ -58,7 +59,7 @@ pub fn spans(stages: &Stages, landed: &Landed<'_>) -> Vec<Span> {
     let queue = Span::new(&trace, "queued", Category::Queue, landed.queued, started.max(landed.queued)).under(&id);
     let mut spans = vec![root, queue];
     if let Some(hand_in) = &landed.hand_in {
-        let mut worker = Span::new(&trace, "hand-in", Category::Queue, hand_in.called, landed.queued).under(&id).with("gates_done", hand_in.gates.to_string()).with("verdict_asked", hand_in.asked.to_string()).with("ticket_written", landed.queued.to_string());
+        let mut worker = Span::new(&trace, HAND_IN, Category::Queue, hand_in.called, landed.queued).under(&id).with("gates_done", hand_in.gates.to_string()).with("verdict_asked", hand_in.asked.to_string()).with("ticket_written", landed.queued.to_string());
         if let Some(verdict) = hand_in.verdict {
             worker = worker.with("verdict_in", verdict.to_string());
             spans.push(Span::new(&trace, "private-kind verdict", Category::Scans, hand_in.asked, verdict).under(&id).with("judge", hand_in.judge.clone().unwrap_or_else(|| north_base::platform::private_text::CACHED.to_owned())));

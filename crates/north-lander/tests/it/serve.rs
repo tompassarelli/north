@@ -203,6 +203,7 @@ impl Repository {
             gated_from: None,
             hand_in: None,
             queued_micros: Some(micros),
+            tests_after_landing: false,
         };
         queue::write(&self.queue.join(queue::file_name(micros, branch)), &ticket).unwrap();
         ticket.head

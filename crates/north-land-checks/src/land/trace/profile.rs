@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use super::landing::HAND_IN;
 use super::{AFTER, COVERED_BY, Category, PHASE, REFUSED, Span, VERDICT};
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -38,11 +39,16 @@ pub struct Profile<'a> {
     pub after_ran: usize,
     pub verdicts: Vec<&'a str>,
     pub spans: Vec<&'a Span>,
+    pub handed_in: Option<f64>,
 }
 
 impl Profile<'_> {
     pub fn wall(&self) -> f64 {
         self.landing.seconds()
+    }
+
+    pub fn from_hand_in(&self) -> Option<f64> {
+        self.handed_in.map(|called| self.landing.end - called)
     }
 }
 
@@ -137,7 +143,8 @@ impl<'a> Trace<'a> {
         let cached = |state: &str| after.iter().filter(|span| span.attribute("cache") == Some(state)).count();
         let (after_reused, after_ran) = (cached("hit"), cached("miss"));
         before.extend(after);
-        Profile { landing, before: before_split, after: after_split, after_wall, after_reused, after_ran, verdicts, spans: before }
+        let handed_in = self.children.get(landing.id.as_str()).into_iter().flatten().find(|span| span.name == HAND_IN && span.start > 0.0).map(|span| span.start);
+        Profile { landing, before: before_split, after: after_split, after_wall, after_reused, after_ran, verdicts, spans: before, handed_in }
     }
 }
 
