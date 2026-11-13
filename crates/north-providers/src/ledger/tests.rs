@@ -254,6 +254,7 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     let mut graph = Graph::open(&path).unwrap();
     let mut tell = |writer: &str, t1: Term, t2: &str, t3: Term| graph.tell(writer, north_graph::Triple::new(t1, Term::keyword(t2), t3)).unwrap();
     tell("n882-worker", Term::string("n882-worker"), "claims", Term::triple(Term::string(&node), Term::keyword("done-at"), Term::string(SHA)));
+    tell("mirror", Term::string("north#882"), "has-box", Term::string(&node));
     tell("mirror", Term::string(&node), "done-when", Term::string(COMMAND));
     tell("push-log", Term::string(SHA), "landed-by", Term::string("n882-worker"));
     let forged = format!("- [x] {box_text}. Done when: `{COMMAND}` exits 0. Evidence: `{COMMAND}` passed on main 59ff4fb9c2d2 on 2026-11-08, exit 0.\n");
@@ -284,8 +285,24 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
         report.arms[0].verified
     };
     assert!(!verified(&path), "a self-ticked box whose own stamp claims a pass reads unverified while no checker assertion corroborates it");
-    let mut graph = Graph::open(&path).unwrap();
-    graph.tell("checker", north_graph::Triple::new(Term::string("211159d7ca5b0e8f0c4d6a1e2b3c4d5e6f708192"), Term::keyword("check-passed"), Term::string(COMMAND))).unwrap();
+    let checked = |sha: &str, issue: &str, passed: bool| {
+        let mut graph = Graph::open(&path).unwrap();
+        let mut tell = |subject: &str, relation: &str, object: &str| graph.tell("checker", north_graph::Triple::new(Term::string(subject), Term::keyword(relation), Term::string(object))).unwrap();
+        tell(sha, if passed { "check-passed" } else { "check-failed" }, COMMAND);
+        tell(sha, "checked-for", issue);
+        if passed {
+            tell(issue, "passed-check", COMMAND);
+        }
+    };
+    let main = "211159d7ca5b0e8f0c4d6a1e2b3c4d5e6f708192";
+    checked("0840a94290aa1b2c3d4e5f60718293a4b5c6d7e8", "north#9", true);
+    assert!(!verified(&path), "a pass of the box's command checked for another issue does not corroborate it");
+    Graph::open(&path).unwrap().tell("n882-worker", north_graph::Triple::new(Term::string("north#9"), Term::keyword("has-box"), Term::string(&node))).unwrap();
+    assert!(!verified(&path), "a has-box the worker tells to join its box to another issue's pass does not corroborate it");
+    checked(main, "north#9", true);
+    checked(main, "north#882", false);
+    assert!(!verified(&path), "another issue's pass on the main head the box's own check failed on does not corroborate it");
+    checked(main, "north#882", true);
     assert!(verified(&path), "the checker passing the box's Done-when command on the later main head it ran on corroborates the claim");
     assert!(verified(&directory.path().join("absent.db")), "where no graph exists the box's stamp is read");
 }

@@ -148,8 +148,8 @@ query can join a claim to the checks of the commit it names.
   `(north#572 :doc-waits-on box:...)` for each `prerequisite -> dependent` line of its DAG section whose ends read as
   `north#N`, `north#N box K` or `north#N boxes K, L and M`; any other DAG line is printed as `cannot parse a wait in
   backlog-ranking.md`. It reads the file from `~/code/north/main` and the box ids from the mirror, so it runs after `mirror`.
-- `ledger` (writers `checker`, `ledger` and `threads`): `(SHA :check-passed|:check-failed COMMAND)` and `(SHA :checked-for north#634)`
-  by `checker`, from the ledger's checks; `(SESSION :works-on north#634)` and `(north#634 :landed-as SHA)` by `ledger`; `(OWNER :holds box:...|north#634)` by `threads` from the threads claims table (see Guards).
+- `ledger` (writers `checker`, `ledger` and `threads`): `(SHA :check-passed|:check-failed COMMAND)`, `(SHA :checked-for north#634)`
+  and, for a passing row, `(north#634 :passed-check COMMAND)` by `checker`, from the ledger's checks; `(SESSION :works-on north#634)` and `(north#634 :landed-as SHA)` by `ledger`; `(OWNER :holds box:...|north#634)` by `threads` from the threads claims table (see Guards).
 - `pushes` (writer `push-log`): per pushed commit `:repo`, `:branch`, `:pushed-at`, `(SESSION :pushed SHA)`, and for a
   commit that reached main `:landed-as`, `:landed-by` and `:landed-at`.
 - `touches` (writer `git`): `(SHA :touched FILE)` for each commit the push log landed in the last 30 days, from `git log
@@ -184,8 +184,9 @@ query can join a claim to the checks of the commit it names.
 
 A worker's claim counts only when a mechanical writer corroborates it. `harness/graph-rules/corroborated.json` derives
 `corroborated(BOX, SHA, WRITER)`: a quoted `(BOX :done-at SHA)` claim whose SHA is not `:none`, with `checker` asserting
-`(CHECKED :check-passed CMD)` for the box's own `:done-when` CMD on any commit it checked on main (it runs a box's check on
-the main head of its run, not at the claimed commit), or with `lander` asserting `(SHA :landed-on "main")` and `git`
+`(ISSUE :passed-check CMD)` for the box's own `:done-when` CMD and the issue that holds it, `(ISSUE :has-box
+BOX)`, both read only as `mirror`'s assertions so no other writer can join a box to a pass: one fact keys the pass to the issue it ran for, so a pass for another issue on the same main head never counts (the
+checker runs a box's check on the main head of its run, not at the claimed commit), or with `lander` asserting `(SHA :landed-on "main")` and `git`
 asserting `(SHA :ancestor-of "origin/main")`. The closed-box report (`north dash --closed`, dispatch's arm shares) marks a
 kept box checker-verified only when the rule holds by `checker` for the box its run's brief named; the
 `Evidence:` stamp in the issue body, which any writer of the body can type, is read only on a host with no graph.
@@ -296,7 +297,7 @@ graph as fresh as its last `north graph ingest`, and a host with no graph answer
 - `dropped-thread`: a box whose wait names something the ingest cannot resolve (`unparsed-wait`), until the box names
   `north#N box K` or a sibling label.
 - `unverified-tick`: a worker's Done claim on a ticked box whose commit landed or was pushed over 24 h ago and that
-  `corroborated` (a checker passing the box's `Done when:` command on main, or the lander's landing on main) does
+  `corroborated` (a checker passing the box's `Done when:` command on main for its issue, or the lander's landing on main) does
   not confirm. A claim that names no commit is never corroborated and never found here, since it has no time to wait from.
 - `duplicate-claim`: each holder of an unticked box another session also holds. The `ledger` source tells
   `(OWNER :holds box:...)` under writer `threads` for each claim in the threads claims table on an open issue's box (the

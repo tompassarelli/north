@@ -53,9 +53,12 @@ fn checks(connection: &Connection, facts: &mut Facts) -> rusqlite::Result<()> {
 
 pub fn check(facts: &mut Facts, task: &str, sha: &str, command: String, exit: i64) {
     let sha = sha.to_ascii_lowercase();
-    facts.tell(CHECKER, text(&sha), if exit == 0 { "check-passed" } else { "check-failed" }, text(command));
+    facts.tell(CHECKER, text(&sha), if exit == 0 { "check-passed" } else { "check-failed" }, text(command.as_str()));
     if let Some(issue) = issue_ref(task) {
-        facts.tell(CHECKER, text(&sha), "checked-for", text(issue));
+        facts.tell(CHECKER, text(&sha), "checked-for", text(&issue));
+        if exit == 0 {
+            facts.tell(CHECKER, text(&issue), "passed-check", text(command));
+        }
     }
 }
 

@@ -34,6 +34,7 @@ fn a_box_closes_and_an_arm_is_rewarded_only_on_a_mechanical_assertion_corroborat
     let mut graph = Graph::open(&path).unwrap();
     let mut tell = |writer: &str, subject: Term, relation: &str, object: Term| graph.tell(writer, Triple::new(subject, Term::keyword(relation), object)).unwrap();
     tell("worker", Term::string("worker"), "claims", Term::triple(Term::string(&node), Term::keyword("done-at"), Term::string(SHA)));
+    tell("mirror", Term::string("north#882"), "has-box", Term::string(&node));
     tell("mirror", Term::string(&node), "done-when", Term::string(COMMAND));
     tell("push-log", Term::string(SHA), "landed-by", Term::string("worker"));
     let stamped = format!("- [x] {BOX}. Done when: `{COMMAND}` exits 0. Evidence: `{COMMAND}` passed on main 59ff4fb9c2d2 on 2026-11-08, exit 0.\n");
@@ -45,6 +46,9 @@ fn a_box_closes_and_an_arm_is_rewarded_only_on_a_mechanical_assertion_corroborat
         crate::ledger::closed::summarize(&[run()], &items, &Default::default(), "2026-11-01T00:00:00Z", &prices).verified(&bodies, corroborated.as_ref()).arms[0].verified
     };
     assert!(!rewarded(&path), "a worker's quoted claim with no checker, lander or git assertion earns no reward");
-    Graph::open(&path).unwrap().tell("checker", Triple::new(Term::string(SHA), Term::keyword("check-passed"), Term::string(COMMAND))).unwrap();
+    let mut graph = Graph::open(&path).unwrap();
+    graph.tell("checker", Triple::new(Term::string(SHA), Term::keyword("check-passed"), Term::string(COMMAND))).unwrap();
+    graph.tell("checker", Triple::new(Term::string(SHA), Term::keyword("checked-for"), Term::string("north#882"))).unwrap();
+    graph.tell("checker", Triple::new(Term::string("north#882"), Term::keyword("passed-check"), Term::string(COMMAND))).unwrap();
     assert!(rewarded(&path), "the checker passing the box's Done-when at the claimed commit rewards the arm");
 }
