@@ -1,6 +1,7 @@
+use std::fs;
 use std::path::PathBuf;
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 
 use super::Fleet;
 use super::stopping::Halt;
@@ -12,6 +13,7 @@ use super::super::store::{Addressee, Claim, FleetRow, RowKind};
 /// The session a takeover ended, and where its directory now lies.
 pub(super) struct Predecessor {
     record: SessionRecord,
+    archived: PathBuf,
 }
 
 impl Predecessor {
@@ -34,7 +36,7 @@ impl Fleet {
         let record = self.record(name)?;
         let archived = self.archive(name, Halt::TakenOver, Halt::TakenOver.label())?;
         eprintln!("north fleet: {name} was held by conversation {}; it is stopped and archived at {}, and the name and its messages now go to the new session", record.conversation.as_deref().unwrap_or("none"), archived.display());
-        Ok(Some(Predecessor { record }))
+        Ok(Some(Predecessor { record, archived }))
     }
 
     /// Removes a directory that holds a name with no session record in it, as a launch killed after claiming the name leaves, and gives up the claims the dead launch took under the name; true when it removed one. The caller holds the name's start lock, so no live launch is building a record there.
@@ -54,7 +56,22 @@ impl Fleet {
     /// Retires the session holding `name` for a take-over and runs `succeed` to bring up its successor, all under the name's start lock, so a revive racing them either runs before the old session is stopped or finds the successor running.
     pub(super) fn succeed<T>(&self, name: &str, claim: Claim, succeed: impl FnOnce(Option<Predecessor>) -> NorthResult<T>) -> NorthResult<T> {
         let _start = self.start_lock(name)?;
-        succeed(self.retire_for(name, claim)?)
+        let predecessor = self.retire_for(name, claim)?;
+        let archived = predecessor.as_ref().map(|predecessor| predecessor.archived.clone());
+        let launched = succeed(predecessor);
+        if let (Err(error), Some(archived)) = (&launched, archived) {
+            self.restore_predecessor(name, &archived, error);
+        }
+        launched
+    }
+
+    /// Puts the session a failed take-over archived back under its name and starts it again on its own account, so a successor that never came up leaves the working session running; a name already holding a directory is left as the failed launch left it.
+    fn restore_predecessor(&self, name: &str, archived: &std::path::Path, failure: &NorthError) {
+        let restored = self.session_dir(name).and_then(|dir| if dir.exists() { Ok(false) } else { fs::rename(archived, &dir).map(|()| true).map_err(Into::into) });
+        match restored.and_then(|moved| if moved { self.reopened(name).and_then(|_| self.revive_held(name, None, None, None)).map(drop) } else { Ok(()) }) {
+            Ok(()) => eprintln!("north fleet: the take-over of {name} failed ({}); the session it was to replace is running again", failure.user_message()),
+            Err(error) => eprintln!("north fleet: the take-over of {name} failed ({}) and the session it was to replace was not restarted: {}; `north fleet revive {name}` restarts it", failure.user_message(), error.user_message()),
+        }
     }
 
     pub fn fleet_proxy(&self) -> NorthResult<Option<SessionRecord>> {
@@ -151,7 +168,10 @@ mod tests {
             Stream.assign_conversation()
         }
 
-        fn host(&self, _account: &Account, _request: &LaunchRequest, _opening: Opening, _instructions: &str) -> NorthResult<HostSpec> {
+        fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec> {
+            if account.label == "a" {
+                return Stream.host(account, request, opening, instructions);
+            }
             Err(NorthError::State("the client did not come up within its deadline".into()))
         }
 
@@ -189,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn a_hand_over_whose_client_never_comes_up_leaves_the_session_revivable_on_its_own_account() {
+    fn a_hand_over_whose_client_never_comes_up_leaves_the_session_revivable_on_its_own_account_and_a_take_over_record_with_no_live_successor_leaves_the_working_session_running() {
         let home = tempfile::tempdir().unwrap();
         let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(NeverUp)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
         let dir = fleet.root.join("worker");
@@ -204,6 +224,16 @@ mod tests {
         assert!(refused.is_err(), "{refused:?}");
         let kept = fleet.session("worker").unwrap_or_else(|error| panic!("no session is left under the name: {}", error.user_message()));
         assert_eq!((kept.account.as_str(), kept.conversation.as_deref(), kept.task_ref.as_deref()), ("a", Some("kept"), Some("north#1115")));
+
+        live(&fleet, "steady");
+        let working = fleet.session("steady").unwrap();
+        let successor = LaunchRequest { account: "b".into(), prompt: "carry on".into(), resume: None, ..working.relaunch_request() };
+
+        let refused = fleet.take_over(&successor);
+
+        assert!(refused.is_err(), "{refused:?}");
+        let kept = fleet.session("steady").unwrap_or_else(|error| panic!("the working session was archived: {}", error.user_message()));
+        assert_eq!((kept.account.as_str(), kept.conversation.as_deref(), kept.live()), ("a", Some("steady"), true), "{kept:?}");
     }
 
     #[test]

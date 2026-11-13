@@ -11,7 +11,6 @@ use crate::capacity::saturation::Saturation;
 use crate::capacity::{agent_load, laptop_auto, mode};
 use crate::fleet::roster::Roster;
 use crate::usage::decide::world::ModelFamily;
-use crate::usage::decide::SUBSCRIPTION_FLOOR;
 use crate::usage::meter;
 use north_strategy_types::placement::{Case, Config, GrantSource, Here, Host, Launch, Usage, Window};
 use serde_json::{Map, Value, json};
@@ -83,7 +82,7 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
     if coordinator && family == ModelFamily::Fable && !fable_has_room {
         let mut opus = gate::verdicts_of_for(&gate_value, &case.roster, &basis, Some(ModelFamily::Opus));
         rank_by_headroom(&mut opus);
-        if opus.iter().any(has_floor_headroom) {
+        if opus.iter().any(gate::has_floor_headroom) {
             opus.extend(case.grants.iter().map(|source| gate::grant_verdict(source, basis.operational(&source.account))));
             decision = gate::decide(&case.brief, &cfg, opus, credit, &machines, here, case.here.gaming);
             decision.family = Some(ModelFamily::Opus);
@@ -113,17 +112,8 @@ fn is_coordinator(launch: &Launch) -> bool {
     matches!(launch.role.as_deref(), Some("proxy" | "coordinator"))
 }
 
-/// Headroom below the subscription floor: the coordinator hands over before its meter reaches it.
-fn floor_headroom() -> f64 {
-    (100.0 - SUBSCRIPTION_FLOOR.0).max(0.0)
-}
-
-fn has_floor_headroom(verdict: &gate::Verdict) -> bool {
-    verdict.available && verdict.headroom > floor_headroom()
-}
-
 fn has_headroom(verdicts: &[gate::Verdict]) -> bool {
-    verdicts.iter().any(has_floor_headroom)
+    verdicts.iter().any(gate::has_floor_headroom)
 }
 
 fn rank_by_headroom(verdicts: &mut [gate::Verdict]) {

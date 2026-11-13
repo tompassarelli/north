@@ -13,6 +13,7 @@ use crate::capacity::{agent_load, laptop_auto};
 use crate::capacity::saturation::Saturation;
 use crate::fleet::model::ProviderName;
 use crate::fleet::roster::{Roster, Standing};
+use crate::usage::decide::SUBSCRIPTION_FLOOR;
 use crate::usage::decide::world::ModelFamily;
 use crate::usage::meter;
 use serde_json::Value;
@@ -203,6 +204,14 @@ impl Decision {
         self.machine = Some(next);
     }
 
+    /// Says on the placement why an account at or under the subscription floor was passed over for one with room.
+    fn note_spent_accounts(&mut self) {
+        let Some(open) = self.verdicts.iter().find(|verdict| has_floor_headroom(verdict) && verdict.account.starts_with("claude:")).map(|verdict| verdict.account.clone()) else { return };
+        let floor = SUBSCRIPTION_FLOOR.0;
+        let lines: Vec<String> = self.verdicts.iter().filter(|verdict| verdict.available && !has_floor_headroom(verdict)).map(|verdict| format!("{} skipped: {:.0}% headroom is under the {floor:.0}% subscription floor while {open} has room", verdict.account, verdict.headroom)).collect();
+        self.machine_lines.extend(lines);
+    }
+
     pub fn verdict(&self, account: &str) -> Option<&Verdict> {
         self.verdicts.iter().find(|v| v.account == account)
     }
@@ -218,7 +227,19 @@ impl Decision {
 }
 
 fn best(verdicts: &[Verdict], allowed: impl Fn(&str) -> bool, order: impl Fn(&Verdict, &Verdict) -> Ordering) -> Option<&Verdict> {
-    verdicts.iter().filter(|v| v.available && allowed(v.account.trim_start_matches("claude:"))).max_by(|a, b| order(a, b).then(b.account.cmp(&a.account)))
+    let candidates: Vec<&Verdict> = verdicts.iter().filter(|v| v.available && allowed(v.account.trim_start_matches("claude:"))).collect();
+    let spared = candidates.iter().any(|v| has_floor_headroom(v));
+    candidates.into_iter().filter(|v| !spared || has_floor_headroom(v)).max_by(|a, b| order(a, b).then(b.account.cmp(&a.account)))
+}
+
+/// Headroom below the subscription floor: no worker starts on an account with less while another has more, and the coordinator hands over before its meter reaches it.
+fn floor_headroom() -> f64 {
+    (100.0 - SUBSCRIPTION_FLOOR.0).max(0.0)
+}
+
+/// Whether the verdict is available with room above the subscription floor; an API grant's headroom is dollars and always counts.
+pub(super) fn has_floor_headroom(verdict: &Verdict) -> bool {
+    verdict.available && (!verdict.account.starts_with("claude:") || verdict.headroom > floor_headroom())
 }
 
 /// The label of the Claude account that runs here with the most headroom in the last usage sample,
@@ -629,6 +650,7 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
     }
     decision.sign_in_on_machine();
     decision.keep_here_on_local_account();
+    decision.note_spent_accounts();
     decision
 }
 
