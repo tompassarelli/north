@@ -521,12 +521,7 @@ impl BuildSystem for Buck2 {
     }
 
     fn land_line(&self, declared: &str) -> String {
-        let (Some((shell, cargo)), 1) = (declared.split_once(DECLARED), declared.matches(DECLARED).count()) else { return declared.to_owned() };
-        self.enter(Path::new("."));
-        if !self.tests || !(cargo.starts_with("nextest run ") || cargo.starts_with("test ")) || cargo.contains("--no-run") {
-            return declared.to_owned();
-        }
-        behind(shell, self.tests(&Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None }))
+        declared.to_owned()
     }
 
     fn mutants(&self, request: &Mutants) -> Result<Invocation, String> {

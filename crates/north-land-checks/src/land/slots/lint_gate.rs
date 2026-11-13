@@ -2,7 +2,7 @@
 //! `[hosts.NAME] buck2_lint` is set runs the Buck2 clippy gate in its place (north#1115) and judges it by Buck2's exit
 //! status alone; every other host, and every other line, runs the command as declared. The checks before a landing wrap
 //! their lint line in it, so a check offloaded from a host without the key is linted the executing host's way. The run
-//! after a landing never wraps it and keys its verdict apart, so the landed tree is always linted by Cargo itself.
+//! after a landing wraps it too, but a host runs the gate for it only when its `buck2_after_run` is set; it keys its verdict apart.
 
 use std::process::Command;
 
@@ -10,7 +10,7 @@ use north_base::foundation::exit::NO_VERDICT;
 
 use super::unit_reuse::quote;
 
-const USAGE: &str = "north land lint available | north land lint -- COMMAND";
+const USAGE: &str = "north land lint available | north land lint after-run-available | north land lint -- COMMAND";
 const BASE_ENV: &str = "SAFE_PUSH_LAND_BASE";
 /// Buck2's exit status for a build the tree's own targets or code failed; an engine or daemon failure exits with another.
 const TREE_ERROR: i32 = 3;
@@ -25,7 +25,16 @@ pub fn wraps(command: &str) -> bool {
 
 /// `command` handed to the executing host's `north`, or run as it is where that north has no such verb.
 pub fn wrapped(north: &str, command: &str) -> String {
-    format!("n={north}; if \"$n\" land lint available >/dev/null 2>&1; then exec \"$n\" land lint -- {}; fi\n{command}", quote(command))
+    wrapped_by(north, command, "available")
+}
+
+/// `command` handed to the executing host's `north` only where its `buck2_after_run` is set, else run as it is: the wrapper of the run after a landing.
+pub fn wrapped_after(north: &str, command: &str) -> String {
+    wrapped_by(north, command, "after-run-available")
+}
+
+fn wrapped_by(north: &str, command: &str, probe: &str) -> String {
+    format!("n={north}; if \"$n\" land lint {probe} >/dev/null 2>&1; then exec \"$n\" land lint -- {}; fi\n{command}", quote(command))
 }
 
 /// The check's exit status for the gate's: Buck2's success and its tree error are verdicts, any other status is none.
@@ -59,6 +68,7 @@ fn execute(declared: &str) -> u8 {
 pub fn run(arguments: &[String]) -> u8 {
     match arguments {
         [verb] if verb == "available" => 0,
+        [verb] if verb == "after-run-available" => u8::from(!north_build_system::after_run_here()),
         [separator, command] if separator == "--" => execute(command),
         _ => {
             eprintln!("usage: {USAGE}");

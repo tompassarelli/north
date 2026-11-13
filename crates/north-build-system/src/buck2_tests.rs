@@ -21,7 +21,7 @@ fn a_buck2_host_runs_its_own_tests_only_behind_the_test_switch_and_moves_a_lint_
 
     assert_eq!((builds.land_line(CLIPPY), tests_too.land_line(CLIPPY)), (CLIPPY.to_owned(), CLIPPY.to_owned()), "a lint line is not rewritten where the checks are listed: only the gate, behind buck2_lint and the base's gate and configuration, moves it");
     assert_eq!(builds.land_line(NEXTEST), NEXTEST, "the test run stays Cargo's until the host sets buck2_tests");
-    assert_eq!(tests_too.land_line(NEXTEST), "./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re //... --event-log buck-out/north/test-runs/8ca4292b6fe1c642.pb.zst");
+    assert_eq!(tests_too.land_line(NEXTEST), NEXTEST, "a line keeps its package selection, filters and host cases: only the executing host's wrappers move it to Buck2");
     assert_eq!((tests_too.land_line(SCAN), Cargo.land_line(CLIPPY)), (SCAN.to_owned(), CLIPPY.to_owned()), "a line that runs no lint or test, and every line on a Cargo host, runs as declared");
     assert!(crate::lints(CLIPPY) && crate::lints(GATE) && !crate::lints(NEXTEST), "the lint line of either side is told from a test line");
     assert!(Buck2::deciding(true, &missing).is_err(), "a line that decides a land check needs the store generation");
@@ -29,8 +29,7 @@ fn a_buck2_host_runs_its_own_tests_only_behind_the_test_switch_and_moves_a_lint_
 
     std::fs::write(&file, "3\n").unwrap();
     let generation = Buck2::deciding(true, &file).unwrap();
-    assert_eq!(generation.land_line(NEXTEST), "./bin/land-shell --dev -- buck2 --isolation-dir north-g3 test --remote-only --unstable-allow-compatible-tests-on-re //... --event-log buck-out/north/test-runs/44698662b4e72091.pb.zst", "every line runs under the generation's own isolation directory");
-    assert_eq!(Buck2::tool(true, &file).unwrap().land_line(NEXTEST), generation.land_line(NEXTEST));
+    assert_eq!(generation.land_line(NEXTEST), NEXTEST, "a store generation does not rewrite a line either");
     assert_eq!(generation.host_cases_daemon(), "north-g3-host-cases", "the host-case build's own daemon is the generation's too");
     for malformed in ["3", "three\n", "3\n4\n", "\n"] {
         std::fs::write(&file, malformed).unwrap();

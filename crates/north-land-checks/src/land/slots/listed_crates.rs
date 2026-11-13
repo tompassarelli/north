@@ -12,8 +12,8 @@
 //! host that also sets `buck2_host_cases` runs them instead from the binaries Buck2 builds on the workers, each listed
 //! case by name on this host in the declared line's shell, and fails the check unless every case of the class ran and
 //! passed; `north land crate-tests host-cases [PACKAGE...]` runs that step alone. The
-//! checks before a landing alone wrap their line in this, and key the verdict apart, so the run after a landing tests the
-//! landed tree with Cargo itself.
+//! checks before a landing wrap their line in this, and key the verdict apart; the run after a landing wraps it too, and a
+//! host splits it only when its `buck2_after_run` is set, else the declared line runs as it is.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader};
@@ -28,7 +28,7 @@ use super::unit_reuse::quote;
 use crate::foundation::check_log::{Failure, failures};
 use crate::land::trace::check_log;
 
-const USAGE: &str = "north land crate-tests available | north land crate-tests host-cases [PACKAGE...] | north land crate-tests after-landing | north land crate-tests -- COMMAND";
+const USAGE: &str = "north land crate-tests available | north land crate-tests after-run-available | north land crate-tests host-cases [PACKAGE...] | north land crate-tests after-landing | north land crate-tests -- COMMAND";
 const BASE_ENV: &str = "SAFE_PUSH_LAND_BASE";
 /// Buck2's exit statuses for a build the tree's own targets or code failed, and for a test run that did not pass.
 const BUILD_FAILED: i32 = 3;
@@ -78,7 +78,16 @@ pub fn decides(command: &str, selected: Option<&str>) -> bool {
 
 /// `command` handed to the executing host's `north`, or run as it is where that north has no such verb.
 pub fn wrapped(north: &str, command: &str) -> String {
-    format!("n={north}; if \"$n\" land crate-tests available >/dev/null 2>&1; then exec \"$n\" land crate-tests -- {}; fi\n{command}", quote(command))
+    wrapped_by(north, command, "available")
+}
+
+/// `command` handed to the executing host's `north` only where its `buck2_after_run` is set, else run as it is: the wrapper of the run after a landing.
+pub fn wrapped_after(north: &str, command: &str) -> String {
+    wrapped_by(north, command, "after-run-available")
+}
+
+fn wrapped_by(north: &str, command: &str, probe: &str) -> String {
+    format!("n={north}; if \"$n\" land crate-tests {probe} >/dev/null 2>&1; then exec \"$n\" land crate-tests -- {}; fi\n{command}", quote(command))
 }
 
 /// How many tests the summary counts under `label`.
@@ -336,6 +345,7 @@ fn after_landing() -> u8 {
 pub fn run(arguments: &[String]) -> u8 {
     match arguments {
         [verb] if verb == "available" => 0,
+        [verb] if verb == "after-run-available" => u8::from(!north_build_system::after_run_here()),
         [verb] if verb == "after-landing" => after_landing(),
         [separator, command] if separator == "--" => execute(command),
         [verb, packages @ ..] if verb == "host-cases" => host_cases_here(packages),

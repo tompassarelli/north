@@ -188,9 +188,9 @@ impl Shared {
         !self.arguments.after && unit_reuse::runs_tests(command)
     }
 
-    /// Whether the lint line `command` is handed to the executing host's north, which may run its Buck2 gate instead: before a landing only, so the run after it lints the landed tree with Cargo.
+    /// Whether the lint line `command` is handed to the executing host's north, which may run its Buck2 gate instead: before a landing always, and in the run after one only where that host sets `buck2_after_run`.
     fn gated(&self, command: &str) -> bool {
-        !self.arguments.after && lint_gate::wraps(command)
+        lint_gate::wraps(command)
     }
 
     pub(super) fn lane_scoped(&self, command: &str) -> bool {
@@ -203,8 +203,10 @@ impl Shared {
         } else if self.observes(command) {
             let tested = if listed_crates::wraps(command) { listed_crates::wrapped(north, command) } else { command.to_owned() };
             unit_reuse::wrapped(north, &self.arguments.head, self.environment.record_reuse, &tested)
+        } else if self.arguments.after && listed_crates::wraps(command) {
+            listed_crates::wrapped_after(north, command)
         } else if self.gated(command) {
-            lint_gate::wrapped(north, command)
+            if self.arguments.after { lint_gate::wrapped_after(north, command) } else { lint_gate::wrapped(north, command) }
         } else {
             command.to_owned()
         }

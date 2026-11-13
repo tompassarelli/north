@@ -24,6 +24,7 @@ const TEST_CRATES: &str = "buck2_test_crates";
 const TREE_BUILD_SWITCH: &str = "buck2_tree_build";
 const CASELESS_CRATES: &str = "buck2_caseless_crates";
 const HOST_CASES_SWITCH: &str = "buck2_host_cases";
+const AFTER_RUN_SWITCH: &str = "buck2_after_run";
 
 pub trait BuildSystem {
     /// Whether `root` is a workspace this build system builds.
@@ -56,7 +57,7 @@ pub trait BuildSystem {
     fn check(&self, root: &Path, package: &str, output: Option<&Path>) -> Invocation;
     /// Lints every target of the selection and fails on any warning.
     fn lint(&self, request: &Lint) -> Invocation;
-    /// The line this side runs for `declared`, a land check line of `.safe-push`, which names Cargo until the removal rewrites it (north#1115 box 8): this side's own test run behind the declared line's shell, else the line as declared. A lint line stays as declared here: only [`lint_gate`] moves it, on a host with `buck2_lint` and for a tree whose gate and Buck2 configuration are the base's.
+    /// The line this side runs for `declared`, a land check line of `.safe-push`, which names Cargo until the removal rewrites it (north#1115 box 8): every side returns it as declared. The executing host's wrappers, `north land crate-tests` and `north land lint`, are the only place a line moves to Buck2, under the host's own keys.
     fn land_line(&self, declared: &str) -> String;
     fn mutants(&self, request: &Mutants) -> Result<Invocation, String>;
 }
@@ -89,6 +90,11 @@ pub fn for_tree(root: &Path) -> Box<dyn BuildSystem> {
 /// and a tree whose gate script or Buck2 configuration is not `base`'s.
 pub fn lint_gate(root: &Path, base: Option<&str>, declared: &str) -> Option<String> {
     if switched(LINT_SWITCH) { buck2::gate(&deciding(false)?, root, base?, declared) } else { None }
+}
+
+/// Whether this host's `[hosts.NAME] buck2_after_run` is true: the run after a landing hands its test and lint lines to `north land crate-tests` and `north land lint` here, which move them to Buck2 under the host's other keys.
+pub fn after_run_here() -> bool {
+    switched(AFTER_RUN_SWITCH)
 }
 
 /// The sides that build the tree's own binary for a check that runs it from the tree, in the order `north runtime
