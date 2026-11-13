@@ -196,7 +196,7 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
 /// A finish call whose named check passed and whose lane the repository's checks before queueing then failed, as the
 /// finish record the road turned failed says, keeps its attempt for a route's second rung like a failed named check (north#1233).
 fn keep_refused(verb: &str, check: &str, named: &Named) {
-    let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.trim().is_empty());
+    let session = north_base::platform::session_scope::proved_session_here();
     let turned = session.and_then(|session| FinishRecords::here().read(&session)).is_some_and(|finished| !finished.passed && finished.command == check.trim());
     if !turned {
         return;
@@ -231,7 +231,7 @@ fn rebase_onto_destination(lane: &Lane, facts: Option<&Facts>) -> Option<String>
 }
 
 fn record_finished(check: &str, head: Option<&str>, passed: bool) {
-    let Some(session) = std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.trim().is_empty()) else { return };
+    let Some(session) = north_base::platform::session_scope::proved_session_here() else { return };
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
     let finished = Finished { session, command: check.trim().to_owned(), head: head.unwrap_or_default().to_owned(), passed, at };
     if let Err(error) = FinishRecords::here().record(&finished) {

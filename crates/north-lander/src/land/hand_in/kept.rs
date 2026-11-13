@@ -16,7 +16,7 @@ pub fn path(root: &Path, file: &str) -> Option<PathBuf> {
 }
 
 pub fn for_session(root: &Path, file: &str) -> Option<String> {
-    let own = std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.trim().is_empty())?;
+    let own = north_base::platform::session_scope::proved_session_here()?;
     let kept = fs::read_to_string(path(root, file)?).ok()?;
     let (session, text) = kept.split_once('\n')?;
     Some(text.to_owned()).filter(|text| session == own && !text.trim().is_empty())

@@ -196,7 +196,7 @@ const FINISH_ARGUMENTS: &str = "NORTH_FINISH_IT_ARGUMENTS";
 fn finishing(world: &World, session: &str, check: &str, message: &str, path: &Path) -> std::process::Command {
     let arguments = ["--check", check, "--message", message, "--", path.to_str().unwrap()];
     let mut command = queueing(world, FINISH, FINISH_ARGUMENTS, &arguments);
-    command.env("NORTH_FLEET_SESSION", session).env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts"));
+    command.env("NORTH_FLEET_SESSION", session).env("NORTH_FLEET_SESSION_PROVED", "1").env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts"));
     command
 }
 
@@ -585,7 +585,7 @@ fn finish_runs_acceptance_inside_the_pre_queue_run() {
         fs::write(lane.join("note.txt"), format!("the {session} note\n")).unwrap();
         let (queued_before, accepted_before) = (count(&queued), count(&accepted));
         let mut call = queueing(&world, PREQUEUE, PREQUEUE_ARGUMENTS, &["--check", &check, "--message", "Add the note (north#1036)", "--", lane.join("note.txt").to_str().unwrap()]);
-        let output = call.env("NORTH_FLEET_SESSION", session).env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts")).env("NORTH_HOME", &harness_home).output().unwrap();
+        let output = call.env("NORTH_FLEET_SESSION", session).env("NORTH_FLEET_SESSION_PROVED", "1").env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts")).env("NORTH_HOME", &harness_home).output().unwrap();
         let text = report(&output);
         let runs: Vec<&str> = text.lines().filter(|line| line.contains("check(s) before queueing the lane") && line.contains(&check)).collect();
         assert!(matches!(runs[..], [run] if run.contains(&check)), "the acceptance command did not run as one more check of one run before queueing: {text}");

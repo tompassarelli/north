@@ -167,7 +167,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     assert_eq!(git(&rig.lane, &["show", "--format=", "--name-only", "HEAD"]), "worker.txt");
     let lane_head = git(&rig.lane, &["rev-parse", "HEAD"]);
 
-    let enqueued = rig.command(rig.safe_push(), &rig.lane).args(["--to", "main"]).env("NORTH_FLEET_SESSION", "worker").output().unwrap();
+    let enqueued = rig.command(rig.safe_push(), &rig.lane).args(["--to", "main"]).env("NORTH_FLEET_SESSION", "worker").env("NORTH_FLEET_SESSION_PROVED", "1").output().unwrap();
     let said = text(&enqueued);
     assert!(enqueued.status.success(), "{said}");
     for line in ["language-gate: passed", "build-cache-gate: passed", &format!("Done: queued {} worker {lane_head}", rig.lane.display())] {

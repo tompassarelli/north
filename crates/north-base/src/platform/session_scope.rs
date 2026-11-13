@@ -28,6 +28,22 @@ pub const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 /// Set to `1` by the fleet launcher on a session that holds a task, so a lead launched for an issue is confined as a worker is (north#1137).
 pub const TASKED: &str = "NORTH_FLEET_TASKED";
 
+/// The fleet session a request runs as, which the outside broker sets beside `PROVED` from the caller's own scope; a name without the proof is the client's word.
+pub const SESSION: &str = "NORTH_FLEET_SESSION";
+
+/// Set to `1` by the outside broker on a request whose session name it read from the caller's scope, never the client's word.
+pub const PROVED: &str = "NORTH_FLEET_SESSION_PROVED";
+
+/// The session `session` names when the broker set `proof` to `1`, else none.
+pub fn proved_session(session: Option<String>, proof: Option<&str>) -> Option<String> {
+    session.filter(|name| !name.trim().is_empty() && proof == Some("1"))
+}
+
+/// The fleet session this process runs as, when the outside broker proved its name.
+pub fn proved_session_here() -> Option<String> {
+    proved_session(std::env::var(SESSION).ok(), std::env::var(PROVED).ok().as_deref())
+}
+
 /// Whether a fleet session whose launcher gave it `role` and, when `tasked`, a task runs in the worker domain: every worker, and a lead that holds a task, whose launches, revives, holds and forgets go through its spool to the host's fleet tick (fleet/registry/lead_grant.rs). The coordinator and a lead with no task keep the domain open.
 pub fn confined_role(role: Option<&str>, tasked: bool) -> bool {
     role == Some("worker") || (role == Some("lead") && tasked)

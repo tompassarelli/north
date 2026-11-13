@@ -390,7 +390,7 @@ pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
     };
     let repo = parsed.repo;
     let host = repositories::local_host();
-    let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|name| !name.is_empty());
+    let session = north_base::platform::session_scope::proved_session_here();
     let state_home = state_home();
     let sources = Denylist::from_env();
     let north = land_north();
