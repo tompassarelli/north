@@ -362,8 +362,10 @@ pub(super) fn irreplaceable_ignored(tree: &Path) -> Vec<String> {
 
 pub(super) fn disposable(path: &str) -> bool {
     let cache = |name: &str| path.starts_with(&format!("{name}/")) || path.contains(&format!("/{name}/"));
-    let build_output = |suffix: &str| path.strip_prefix("build/").is_some_and(|name| !name.contains('/') && name.ends_with(suffix));
-    cache(".direnv") || cache(".firn-cache") || cache("target") || cache("__pycache__") || cache("node_modules") || path == "target" || path.starts_with("buck-out/") || path == ".buckconfig.flake" || path == ".safe-push-deps" || path.starts_with(".safe-push-deps/") || build_output(".tsbuildinfo") || path == "build/number-rules.json" || ((path == "result" || path.starts_with("result-")) && !path.contains('/'))
+    let inside_build = path.starts_with("build/") || path.contains("/build/");
+    let compiled = [".tsbuildinfo", ".d.ts", ".d.ts.map", ".js", ".js.map"].iter().any(|suffix| path.ends_with(suffix));
+    let generated_rules = path == "build/number-rules.json" || path.ends_with("/build/number-rules.json");
+    cache(".direnv") || cache(".firn-cache") || cache("target") || cache("__pycache__") || cache("node_modules") || cache("dist") || cache(".astro") || path == "node_modules" || path == "target" || path.starts_with("buck-out/") || path == ".buckconfig.flake" || path == ".safe-push-deps" || path.starts_with(".safe-push-deps/") || path.ends_with(".tsbuildinfo") || (inside_build && compiled) || generated_rules || ((path == "result" || path.starts_with("result-")) && !path.contains('/'))
 }
 
 fn lane_age(tree: &Path, now: SystemTime) -> i64 {

@@ -125,10 +125,21 @@ fn a_lane_whose_only_ignored_files_are_regenerable_caches_is_bundled() {
         ("build/number-rules.json", "generated number rules"),
         (".safe-push-deps", "safe-push dependency cache"),
         (".safe-push-deps/lock.json", "safe-push dependency cache"),
+        ("node_modules", "bare npm dependencies entry"),
+        ("ts/build/app.tsbuildinfo", "typescript build info below the lane root"),
+        ("examples/sample/tsconfig.tsbuildinfo", "typescript build info beside a config"),
+        ("build/nested/app.tsbuildinfo", "typescript build info in a build subdirectory"),
+        ("ts/build/src/game/sim.d.ts", "compiled typescript declarations"),
+        ("build/lua-tests/src/runtime/config.js.map", "compiled typescript source map"),
+        ("ts/build/number-rules.json", "generated number rules below the lane root"),
+        ("dist/es/lib.mjs", "package build output"),
+        ("site/.astro/types.d.ts", "astro generated types"),
     ];
     let kept = [
         ("secrets.env", "a credentials file"),
-        ("build/nested/app.tsbuildinfo", "build output outside build/ itself"),
+        ("src/build.js", "a script outside a build directory"),
+        ("build/golden/golden.lua", "a golden output that is not compiled typescript"),
+        ("distro/notes.md", "a directory named like dist"),
         ("build/number-rules.json.bak", "a backup of generated rules"),
         ("result-notes/todo.md", "a directory named like a result link"),
     ];
