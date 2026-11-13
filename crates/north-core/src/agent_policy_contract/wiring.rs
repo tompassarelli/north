@@ -119,12 +119,12 @@ pub(super) fn render_codex(policy: &Value) -> String {
         for (matcher, commands) in groups {
             out.push_str(&format!("\n[[hooks.{event}]]\n"));
             if !matcher.is_empty() {
-                out.push_str(&format!("matcher = {}\n", north_base::json_text::ascii_string(&matcher)));
+                out.push_str(&format!("matcher = {}\n", north_base::json_text::ascii_string_escaping_del(&matcher)));
             }
             for command in commands {
                 out.push_str(&format!(
                     "\n[[hooks.{event}.hooks]]\ntype = \"command\"\ncommand = {}\ntimeout = {HOOK_TIMEOUT}\n",
-                    north_base::json_text::ascii_string(&command)
+                    north_base::json_text::ascii_string_escaping_del(&command)
                 ));
             }
         }

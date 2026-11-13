@@ -13,3 +13,7 @@ pub fn ascii_string(text: &str) -> String {
     }
     out
 }
+
+pub fn ascii_string_escaping_del(text: &str) -> String {
+    ascii_string(text).replace('\u{7f}', "\\u007f")
+}

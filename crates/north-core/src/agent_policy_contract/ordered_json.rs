@@ -84,7 +84,7 @@ impl Json {
             Json::Null => out.push_str("null"),
             Json::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
             Json::Number(value) => out.push_str(&value.to_string()),
-            Json::String(value) => out.push_str(&north_base::json_text::ascii_string(value)),
+            Json::String(value) => out.push_str(&north_base::json_text::ascii_string_escaping_del(value)),
             Json::Array(items) if items.is_empty() => out.push_str("[]"),
             Json::Object(entries) if entries.is_empty() => out.push_str("{}"),
             Json::Array(items) => {
@@ -108,7 +108,7 @@ impl Json {
             out.push_str(if index == 0 { "\n" } else { ",\n" });
             out.push_str(&"  ".repeat(depth + 1));
             if let Some(key) = key {
-                out.push_str(&north_base::json_text::ascii_string(key));
+                out.push_str(&north_base::json_text::ascii_string_escaping_del(key));
                 out.push_str(": ");
             }
             value.write(out, depth + 1);

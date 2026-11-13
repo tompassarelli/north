@@ -29,7 +29,7 @@ fn spaced(value: &Value, out: &mut String) {
             }
             out.push('}');
         }
-        Value::String(text) => out.push_str(&north_base::json_text::ascii_string(text)),
+        Value::String(text) => out.push_str(&north_base::json_text::ascii_string_escaping_del(text)),
         other => out.push_str(&other.to_string()),
     }
 }
