@@ -109,7 +109,7 @@ fn begin(ask: Ask, routed: Option<&Routed>, issue: IssueRead) -> NorthResult<Sta
 
 pub(super) fn admit_class(request: &LaunchRequest) -> NorthResult<()> {
     let header = header(request)?;
-    let refusal = crate::router::brief::class_refusal(&header).or_else(|| crate::platform::signin::brief_refusal(&header));
+    let refusal = crate::router::brief::class_refusal(&header).or_else(|| crate::router::brief::facet_refusal(&header)).or_else(|| crate::platform::signin::brief_refusal(&header));
     refusal.map_or(Ok(()), |why| Err(NorthError::Refused(format!("brief refused: {why}"))))
 }
 
