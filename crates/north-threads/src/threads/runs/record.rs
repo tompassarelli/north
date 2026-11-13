@@ -195,7 +195,8 @@ impl Ingest<'_> {
     }
 
     /// The run's launch estimates, kept once set: the ETA's source, and E from the Budget line, else the median
-    /// cost of the category's landed worker runs in the week before it started.
+    /// Budget the briefs of the category's worker runs stated in the week before it started, so E stays the
+    /// API-equivalent figure a Budget line states.
     fn estimates(&self, run: &Run) -> Result<(), Failure> {
         let stated = &run.f.estimates;
         let budget = match stated.budget {
@@ -215,17 +216,17 @@ impl Ingest<'_> {
         let started: Option<String> = self.db.query_row("SELECT started FROM runs WHERE agent = ?", [run.agent()?], |row| row.get(0)).optional()?.flatten();
         let Some(started) = started.and_then(|started| Timestamp::parse(&started).ok()) else { return Ok(None) };
         let since = Timestamp::from_unix_seconds(started.unix_seconds() - LEDGER_WEEK).iso();
-        let mut costs: Vec<f64> = self
+        let mut budgets: Vec<f64> = self
             .db
-            .prepare("SELECT cost_usd FROM runs WHERE category = ? AND role = 'worker' AND landed = 1 AND cost_usd > 0 AND ended >= ? AND ended < ? AND agent != ?")?
+            .prepare("SELECT budget_usd FROM runs WHERE category = ? AND role = 'worker' AND brief_text IS NOT NULL AND budget_usd > 0 AND started >= ? AND started < ? AND agent != ?")?
             .query_map(params![category, since, started.iso(), run.agent()?], |row| row.get(0))?
             .collect::<Result<_, _>>()?;
-        costs.sort_by(f64::total_cmp);
-        let middle = costs.len() / 2;
-        Ok(match costs.len() {
+        budgets.sort_by(f64::total_cmp);
+        let middle = budgets.len() / 2;
+        Ok(match budgets.len() {
             0 => None,
-            n if n % 2 == 0 => Some((costs[middle - 1] + costs[middle]) / 2.0),
-            _ => Some(costs[middle]),
+            n if n % 2 == 0 => Some((budgets[middle - 1] + budgets[middle]) / 2.0),
+            _ => Some(budgets[middle]),
         })
     }
 
