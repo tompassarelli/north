@@ -2038,6 +2038,14 @@ source = "measured: a ship to the slowest deploy host sent 27.3 MB over a laptop
 fallback = "an unreadable value reads as true"
 consumers = ["crates/north-runtime/src/runtime/order.rs"]
 
+[settle_remote_canaries_at_once]
+value = true
+allowed = {}
+unit = "whether a promotion's settle, once every ship to the other hosts has returned, runs their canaries side by side, each host on its own thread; false judges them one after another"
+source = "measured: the promotion of cd052409c8 on 2026-11-13 took 129 s; the remote hosts went live 9 to 30 s after the laptop, but their canaries of 1 to 13 s each ended 65 to 108 s after it, one after another (north#1036)"
+fallback = "an unreadable value reads as true"
+consumers = ["crates/north-runtime/src/runtime/settle.rs"]
+
 [build_ahead_at_hand_in]
 value = true
 allowed = {}

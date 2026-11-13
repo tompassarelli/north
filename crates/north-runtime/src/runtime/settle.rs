@@ -58,7 +58,8 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let mut incidents = Vec::new();
     let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
     let here = walk_and_ship(layout, &hosts, &checkout);
-    for facts in std::iter::once(here).chain(hosts[1..].iter().map(|host| probed(layout, host).0)) {
+    let others = if canaries_at_once() { judged_at_once(layout, &hosts[1..]) } else { hosts[1..].iter().map(|host| probed(layout, host).0).collect() };
+    for facts in std::iter::once(here).chain(others) {
         let problems = judged_problems(&facts, live, &mut growth);
         println!("north runtime settle: {}: {}", facts.host, verdict::verdict(&facts, &problems, landing.is_some()));
         if !problems.is_empty() {
@@ -130,6 +131,18 @@ fn walk_and_ship(layout: &Layout, hosts: &[Shell], checkout: &Path) -> probe::Fa
         eprintln!("north runtime settle: {}", failure.message);
     }
     facts
+}
+
+/// Every other host on its own thread, its canary and then its facts, once every ship has returned: the hosts' canaries probe the hub, so none starts while another host's update is still swapping its runtime. Every thread is joined before this returns, and one that panicked comes back as that host unreachable, never as a host left out of the report.
+fn judged_at_once(layout: &Layout, hosts: &[Shell]) -> Vec<probe::Facts> {
+    std::thread::scope(|scope| {
+        let judging: Vec<_> = hosts.iter().map(|host| scope.spawn(move || probed(layout, host).0)).collect();
+        judging.into_iter().zip(hosts).map(|(judged, host)| judged.join().unwrap_or_else(|_| probe::Facts { host: host.name().to_owned(), unreachable: Some("its settle probe panicked".to_owned()), ..probe::Facts::default() })).collect()
+    })
+}
+
+fn canaries_at_once() -> bool {
+    north_base::platform::harness::document(north_base::platform::harness::DEFAULTS).get("settle_remote_canaries_at_once").and_then(|entry| entry.get("value")).and_then(|value| value.as_bool()).unwrap_or(true)
 }
 
 fn ship_behind(hosts: &[Shell], here: &str, runtime: &Path, checkout: &Path) {
