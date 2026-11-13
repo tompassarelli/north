@@ -370,10 +370,13 @@ fn a_check_refused_by_an_infrastructure_failure_its_log_names_is_rerun_once() {
     cure(&Facts { queues: vec![found], ..Facts::default() }, &mut Book::default(), &hands, now);
     assert_eq!(hands.incidents.borrow()[0].0, "lander-infrastructure-failure");
     let requeued = queue::read(&queue_dir.join(&name)).unwrap();
+    let queues = [("north".to_owned(), queue_dir.clone())];
+    assert_eq!(crate::host_gate::busy(&queues), ["north"], "a requeued ticket keeps the host gate waiting");
     assert_eq!((requeued.branch.as_str(), requeued.verdict), ("n634-lane", None));
     assert!(!done.exists());
     queue::write(&done, &ticket("n634-lane", Some(format!("failed land check again; log: {}", log.display())))).unwrap();
     fs::remove_file(queue_dir.join(&name)).unwrap();
+    assert!(crate::host_gate::busy(&queues).is_empty(), "a queue holding only decided tickets lets the host gate go on");
     let again = facts::queue_facts("north", &queue_dir, Path::new("/home/tom/code/north/main"), now);
     assert!(again.infrastructure.is_empty(), "a ticket reruns once: {again:?}");
 }

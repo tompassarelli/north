@@ -31,7 +31,10 @@ rust_library(
         "//crates/north-lander:north-lander",
         "//third-party:serde",
         "//third-party:serde_json",
+        "//third-party:sha2",
         "//third-party:tempfile",
+        "//third-party:time",
+        "//third-party:toml_edit",
     ],
     visibility = ["PUBLIC"],
 )
@@ -53,7 +56,10 @@ north_rust_test(
         "//crates/north-lander:north-lander",
         "//third-party:serde",
         "//third-party:serde_json",
+        "//third-party:sha2",
         "//third-party:tempfile",
+        "//third-party:time",
+        "//third-party:toml_edit",
     ],
     visibility = ["PUBLIC"],
 )

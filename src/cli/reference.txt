@@ -357,6 +357,7 @@ Commands:
   land reuse report [--since DURATION]          Count the land-check units answered from a cache, from the north-reuse lines the lander harvests
   land reuse observe -- COMMAND...              Run a buck2 test line and print one north-reuse unit per test binary, with the action key when Buck2 answered it from its cache
   land follow                                   Run after each landing: ingest the fact graph from every source on this host
+  land host-gate --switch | --repo DIR --host NAME --fact FILE  Decide whether a delivery-liveness floor builds the host's whole system now: wait for every landing queue on this host to empty unless the fact is over 45 min old, then reuse the fact when host-diff.sh finds the toplevel unchanged; exit 3 skips the build, and --switch prints the laptop_system_check_gate switch
   depbox fetch|run -- COMMAND [ARGS...]         Run a command in the dependency sandbox: home masked except the checkout, no sudo, and under run no network; fetch may reach the network
   fleet need HOST REASON [--item REPO#N]         Record that a session needs a host or local need (laptop, native) that only another host can satisfy
   fleet wait RUN [NAME]                         Register a run (job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME) and park the session until it is over

@@ -1973,3 +1973,11 @@ unit = "whether a hand-in's checks before queueing take one build-host slot as a
 source = "prior: capacity scheduler box one slot per hand-in (north#1036), 2026-11-13"
 fallback = "false sends every step with a ticket of its own, so a hand-in's checks wait in a slot line once per step as before"
 consumers = ["crates/north-runtime/src/land_offload/ship/hold.rs"]
+
+[laptop_system_check_gate]
+value = "on"
+allowed = { one_of = ["on", "off"] }
+unit = "on: a host's delivery-liveness floor builds its whole system only after every landing queue on the host is empty (or its fact is over 45 min old) and only when host-diff.sh finds the toplevel changed since the last buildable fact, and nixos-config's after-landing lines build no host toplevel on the laptop; off builds as before, every landing on the laptop"
+source = "prior: six system-configuration landings on 2026-11-13 each started the laptop's after-landing flake check and its delivery-liveness build beside the lander and every lead, and the laptop's load reached 41 (north#1036)"
+fallback = "anything but a readable on, a missing or unparsable harness/defaults.toml included, reads as off"
+consumers = ["crates/north-lander-doctor/src/host_gate.rs"]
