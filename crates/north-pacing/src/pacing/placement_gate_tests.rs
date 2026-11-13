@@ -250,6 +250,9 @@ fn a_brief_with_no_surface_line_takes_its_repositorys_default_surfaces_and_a_rep
     };
     let replay = super::placement::case::decide(&case).unwrap();
     assert_eq!((replay.code_only, replay.surface.as_str()), (false, "needs tui, not cloud"));
+
+    let dropped = super::placement::case::decided_keys_lost();
+    assert!(dropped.is_empty(), "the case document drops {dropped:?}, which decide() reads");
 }
 
 /// A replay of a coordinator launch on Fable with two accounts, each carrying its shared week and its

@@ -13,7 +13,7 @@ use crate::capacity::{agent_load, laptop_auto, mode};
 use crate::fleet::roster::Roster;
 use crate::usage::decide::world::ModelFamily;
 use crate::usage::meter;
-use north_strategy_types::placement::{Case, Config, GrantSource, Here, Host, Launch, Usage, Window};
+use north_strategy_types::placement::{ApiHold, Case, Config, GrantSource, Here, Host, Launch, Usage, Window};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use toml_edit::{Array, DocumentMut, Item, Table, value};
@@ -235,15 +235,24 @@ fn config(cfg: &DocumentMut, sha256: String) -> Config {
         launches: host.get("launches").and_then(Item::as_bool) == Some(true),
     }));
     let plans = cfg.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("plans")).and_then(Item::as_table_like);
+    let surfaces = placement.and_then(|p| p.get("surfaces")).and_then(Item::as_table_like).into_iter().flat_map(|surfaces| surfaces.iter()).filter_map(|(repo, surface)| Some((repo.to_owned(), surface.as_str()?.to_owned()))).collect();
+    let claude = cfg.get("accounts").and_then(|accounts| accounts.get("claude"));
+    let api_hold = claude.and_then(|claude| claude.get("api_hold")).map(|hold| ApiHold {
+        since: hold.get("since").and_then(Item::as_str).map(str::to_owned),
+        reason: hold.get("reason").and_then(Item::as_str).map(str::to_owned),
+    });
+    let reserve = claude.and_then(|claude| claude.get("reserve")).and_then(Item::as_array).into_iter().flatten().filter_map(|account| account.as_str().map(str::to_owned)).collect();
     Config {
         sha256,
         order: listed("order"),
         public_repos: listed("public_repos"),
         private_repos: listed("private_repos"),
         cloud_credit: placement.and_then(|p| p.get("cloud_credit")).and_then(Item::as_str).map(str::to_owned),
+        surfaces,
         hosts: hosts.collect(),
         plans: plans.into_iter().flat_map(|plans| plans.iter()).filter_map(|(label, plan)| Some((label.to_owned(), plan.as_str()?.to_owned()))).collect(),
-        surfaces: placement.and_then(|p| p.get("surfaces")).and_then(Item::as_table_like).into_iter().flat_map(|surfaces| surfaces.iter()).filter_map(|(repo, surface)| Some((repo.to_owned(), surface.as_str()?.to_owned()))).collect(),
+        api_hold,
+        reserve,
     }
 }
 
@@ -292,6 +301,19 @@ fn document(config: &Config) -> DocumentMut {
     }
     let mut claude = Table::new();
     claude.insert("plans", Item::Table(plans));
+    if let Some(hold) = &config.api_hold {
+        let mut api_hold = Table::new();
+        if let Some(since) = &hold.since {
+            api_hold.insert("since", value(since.as_str()));
+        }
+        if let Some(reason) = &hold.reason {
+            api_hold.insert("reason", value(reason.as_str()));
+        }
+        claude.insert("api_hold", Item::Table(api_hold));
+    }
+    if !config.reserve.is_empty() {
+        claude.insert("reserve", array(&config.reserve));
+    }
     let mut accounts = Table::new();
     accounts.insert("claude", Item::Table(claude));
     let mut document = DocumentMut::new();
@@ -377,4 +399,14 @@ pub fn verdicts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
     verdicts.extend(reserved);
     verdicts.sort_by(|a, b| b.available.cmp(&a.available).then(b.rank.order(&a.rank)).then(a.account.cmp(&b.account)));
     Ok(verdicts)
+}
+
+#[cfg(test)]
+#[path = "case_keys.rs"]
+mod keys;
+
+/// The keys `decide()` reads that the case document does not give back, for the test that guards the gather.
+#[cfg(test)]
+pub(crate) fn decided_keys_lost() -> Vec<&'static str> {
+    keys::decided_keys_lost()
 }

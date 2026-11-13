@@ -90,6 +90,21 @@ pub struct Config {
     /// `[placement] surfaces`: repository to the `Surface:` its briefs default to.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub surfaces: BTreeMap<String, String>,
+    /// `[accounts.claude] api_hold`, present even when it records no day or reason: every API organization is held.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_hold: Option<ApiHold>,
+    /// `[accounts.claude] reserve`: the accounts no worker may draw.
+    #[serde(default)]
+    pub reserve: Vec<String>,
+}
+
+/// The owner's hold on every API organization, as `[accounts.claude] api_hold` records it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ApiHold {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
