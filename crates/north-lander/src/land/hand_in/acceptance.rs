@@ -4,14 +4,18 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use super::super::enqueue::{Facts, fetch_base, git};
+use super::super::enqueue::{Facts, fetch_base, git, judge_static_first};
 use super::{Lane, Road};
 use crate::land::slots::runner::{self, Accepted, QueueRefusal};
+use north_base::platform::north_binary::land_north;
 
 /// The verdict of the finish call's `check` of the would-be head in `checked` (none for a hand-in) on `lane`, and whether the road ran it and wrote its finish record itself.
 pub(super) fn verdict(road: &impl Road, lane: &Lane, checked: Option<(&str, &str)>, check: Option<&str>, facts: Option<&Facts>) -> (Result<(), (String, String)>, bool) {
     let base = checked.and_then(|_| destination_base(lane, facts));
     if let Some(((check, head), base)) = checked.zip(base.as_deref()).filter(|((check, head), base)| runner::joins_queue_run(&lane.root, base, head, check)) {
+        if let Err(refusal) = judge_static_first(&lane.root, base, head) {
+            return (Err(("failed as a check before queueing".to_owned(), refusal)), false);
+        }
         return match road.check(&lane.root, check, Some(head)) {
             Some(verdict) => (verdict, true),
             None => (in_queue_run(&lane.root, check, head, base), false),
@@ -32,7 +36,7 @@ fn as_land_check(lane: &Lane, check: &str, head: &str, facts: Option<&Facts>) ->
     git(&lane.root, &["show", &format!("{head}:.safe-push")]).ok().filter(|config| config.contains(check.trim()))?;
     let (_, base) = facts?.base().or_else(|_| fetch_base(&lane.root, &lane.destination)).ok()?;
     let commands = runner::queue_commands(&lane.root, &base, head).ok()?;
-    commands.iter().any(|command| command.trim() == check.trim()).then(|| runner::refuse_queue_checks(&lane.root, &base, head))
+    commands.iter().any(|command| command.trim() == check.trim()).then(|| judge_static_first(&lane.root, &base, head).and_then(|()| runner::refuse_queue_checks(&lane.root, &base, head, &land_north())))
 }
 
 /// The tip of the lane's destination as the finish call's own fetch left it, the base its checks before queueing are keyed on.
@@ -44,7 +48,7 @@ fn destination_base(lane: &Lane, facts: Option<&Facts>) -> Option<String> {
 /// the would-be head `head`'s tree in the same slot (north#1036): the verdict is the run's, so the finish record written
 /// from it says what the lander's own keyed run found, and the safe-push the lane is handed to reuses that run.
 fn in_queue_run(root: &Path, check: &str, head: &str, base: &str) -> Result<(), (String, String)> {
-    let judged = runner::judge_with_acceptance(root, base, head, check, None);
+    let judged = runner::judge_with_acceptance(root, base, head, check, None, &land_north());
     if judged.passed() {
         return Ok(());
     }

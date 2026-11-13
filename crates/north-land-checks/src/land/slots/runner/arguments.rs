@@ -111,14 +111,15 @@ pub(super) struct Environment {
     pub(super) lander_slot: bool,
     pub(super) record_reuse: bool,
     pub(super) after_at_lander_rank: bool,
+    pub(super) north: String,
 }
 
 impl Environment {
-    pub(super) fn local() -> Self {
-        Self { capacity: String::new(), offload_host: String::new(), timeout: std::env::var("SAFE_PUSH_LAND_CHECK_TIMEOUT").ok().and_then(|value| value.parse().ok()), runner: None, off_host: false, local: false, lander_slot: false, record_reuse: false, after_at_lander_rank: true }
+    pub(super) fn local(north: String) -> Self {
+        Self { capacity: String::new(), offload_host: String::new(), timeout: std::env::var("SAFE_PUSH_LAND_CHECK_TIMEOUT").ok().and_then(|value| value.parse().ok()), runner: None, off_host: false, local: false, lander_slot: false, record_reuse: false, after_at_lander_rank: true, north }
     }
 
-    pub(super) fn load() -> Self {
+    pub(super) fn load(north: String) -> Self {
         let text = |name: &str| std::env::var(name).unwrap_or_default();
         Self {
             capacity: text("SAFE_PUSH_LAND_CAPACITY"),
@@ -130,6 +131,7 @@ impl Environment {
             lander_slot: std::env::var(LANDER_SLOT_ENV).is_ok_and(|value| value == "1"),
             record_reuse: std::env::var(RECORD_ENV).is_ok_and(|value| value == "1"),
             after_at_lander_rank: harness::document(harness::DEFAULTS).get(AT_LANDER_RANK).and_then(|entry| entry.get("value")).and_then(|value| value.as_bool()).unwrap_or(true),
+            north,
         }
     }
 }

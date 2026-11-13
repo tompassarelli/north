@@ -160,13 +160,12 @@ pub(super) fn allows(repo: &Path, range: &[&str]) -> Result<Vec<Allow>, String> 
 
 pub(super) fn churn_at(state: &State, repo: &Path, rev: &str) -> Result<Vec<(String, usize)>, String> {
     let sha = git(repo, &["rev-parse", &format!("{rev}^{{commit}}")])?.trim().to_owned();
-    let directory = state.directory(repo).join("churn");
+    let directory = state.churn_directory(repo);
     let path = directory.join(format!("{sha}-{WINDOW_DAYS}-{WINDOW_COMMITS}.json"));
     if let Some(cached) = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()) {
         return Ok(cached);
     }
     let churn = history(repo, &sha)?.churn;
-    std::fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
-    std::fs::write(&path, serde_json::to_string(&churn).map_err(|error| error.to_string())?).map_err(|error| format!("{}: {error}", path.display()))?;
+    std::fs::create_dir_all(&directory).and_then(|()| std::fs::write(&path, serde_json::to_string(&churn).unwrap_or_default())).ok();
     Ok(churn)
 }

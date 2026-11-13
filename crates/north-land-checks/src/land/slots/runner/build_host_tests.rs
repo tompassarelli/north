@@ -38,8 +38,8 @@ async fn a_check_before_queueing_gives_up_only_when_no_build_host_answers_and_ru
     assert_eq!(placed(hostless.to_str().unwrap(), "build-host", "whiterabbit", &[]).await, Placed::Here);
     let answers = directory.path().join("answers");
     write_script(&answers, "echo gex45\n");
-    let replay = Environment { off_host: true, ..Environment::local() };
+    let replay = Environment { off_host: true, ..Environment::local("north".to_owned()) };
     assert_eq!(runner_host(answers.to_str().unwrap(), &replay, None, &[]).await.as_deref(), Some("gex45"), "on 2026-11-12 a promotion replay with no runner configured was placed on the lander's host, and its test listing ran cargo there before any host was chosen");
     assert_eq!(runner_host(silent.to_str().unwrap(), &replay, Some("build-host"), &[]).await, None, "an off-host replay with no build host answering reaches no verdict rather than building on the lander's host");
-    assert_eq!(runner_host(silent.to_str().unwrap(), &Environment::local(), None, &[]).await.as_deref(), Some(""), "a set that is not off-host and names no runner runs where it is");
+    assert_eq!(runner_host(silent.to_str().unwrap(), &Environment::local("north".to_owned()), None, &[]).await.as_deref(), Some(""), "a set that is not off-host and names no runner runs where it is");
 }

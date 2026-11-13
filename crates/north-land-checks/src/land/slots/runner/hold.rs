@@ -8,7 +8,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin, Command};
 use tokio::sync::watch;
 
-use super::{Arguments, program, steps, warn};
+use super::{Arguments, steps, warn};
 use crate::land::telemetry::epoch;
 use crate::land::trace::check_log::Mark;
 
@@ -24,21 +24,21 @@ pub(super) struct Held {
 }
 
 /// The slot a hold takes on the run's build host before the run lists its tests, so the listing and every check wait in one slot line, once; nothing when `prequeue_one_slot` is off, the run is placed on no build host, or the host gives it no slot, so each step takes a slot of its own as before.
-pub(super) async fn taken(root: &Path, arguments: &Arguments, cancel: watch::Receiver<bool>) -> Option<Held> {
+pub(super) async fn taken(root: &Path, arguments: &Arguments, north: &str, cancel: watch::Receiver<bool>) -> Option<Held> {
     if !on(SETTING) || arguments.after || arguments.runner_host.is_empty() {
         return None;
     }
-    let held = hold(root, arguments, cancel).await;
+    let held = hold(root, arguments, north, cancel).await;
     if held.is_none() {
         warn(&format!("safe-push: {} held no slot for the checks before queueing, so each takes a slot of its own", arguments.runner_host));
     }
     held
 }
 
-async fn hold(root: &Path, arguments: &Arguments, mut cancel: watch::Receiver<bool>) -> Option<Held> {
+async fn hold(root: &Path, arguments: &Arguments, north: &str, mut cancel: watch::Receiver<bool>) -> Option<Held> {
     let seconds = HOLD_SECONDS.to_string();
     let words = ["capacity", "offload", "hold", "--host", &arguments.runner_host, "--base", &arguments.base, "--head", arguments.tree(), "--timeout", &seconds];
-    let mut holder = Command::new(program()).args(words).current_dir(root).env(carry::LANDING, "1").envs(arguments.line_budget().map(|left| (carry::LINE_WITHIN, left.to_string()))).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true).spawn().ok()?;
+    let mut holder = Command::new(north).args(words).current_dir(root).env(carry::LANDING, "1").envs(arguments.line_budget().map(|left| (carry::LINE_WITHIN, left.to_string()))).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true).spawn().ok()?;
     let (input, said) = (holder.stdin.take()?, holder.stdout.take()?);
     if let Some(stderr) = holder.stderr.take() {
         tokio::spawn(relayed(stderr));

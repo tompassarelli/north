@@ -602,7 +602,7 @@ fn finish_runs_acceptance_inside_the_pre_queue_run() {
     fs::write(pinned.join(".safe-push"), format!("[landing]\n\tpush-app = lander\n[land]\n\tlocal-only = it reads this host :: {local}\n")).unwrap();
     git(&pinned, &["commit", "-qam", "Run a check only on this host"]);
     let (base, head) = (git(&pinned, &["rev-parse", "origin/main"]), git(&pinned, &["rev-parse", "HEAD"]));
-    let judged = north_lander::land::slots::runner::judge_with_acceptance(&pinned, &base, &head, &local, Some("builder"));
+    let judged = north_lander::land::slots::runner::judge_with_acceptance(&pinned, &base, &head, &local, Some("builder"), &north_base::platform::north_binary::land_north());
     assert_eq!(judged.accepted, north_lander::land::slots::runner::Accepted::Unjudged, "{judged:?}");
     assert!(judged.run.as_ref().is_err_and(|refusal| format!("{refusal:?}").contains("would run on this host rather than on builder")), "a run pinned to a build host started with a check that runs on this host: {judged:?}");
     assert!(!marker.exists(), "a run pinned to a build host ran a local-only check here");

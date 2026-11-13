@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use super::refuse::{refuse_static_gates, refuse_unfetchable};
+use super::refuse::refuse_unfetchable;
 use super::timings::Timings;
-use super::{Environment, git, judged};
+use super::git;
 use crate::land::queue::Ticket;
 use crate::land::scans::outgoing;
 use crate::land::slots::runner;
@@ -19,14 +19,9 @@ pub(super) fn checked_alone(root: &Path, head: String, checked_tree: &str, gate:
     Ticket { alone_green: passed.then(|| head.clone()), alone_base: passed.then(|| base.to_owned()), unjudged_on: unjudged.then(|| base.to_owned()), head, ..Ticket::default() }
 }
 
-pub(super) fn check_lane(root: &Path, base: &str, branch: &str, environment: &Environment, timings: &Timings) -> Result<String, String> {
+pub(super) fn check_lane(root: &Path, base: &str, north: &str, timings: &Timings) -> Result<String, String> {
     let lane_head = git(root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-    if let Err(gate) = timings.stage("static gates", || refuse_static_gates(root, base, "HEAD")) {
-        judged(environment, root, branch, &lane_head, gate, Err(format!("{gate} refused the landing")))?;
-    }
-    let bodies = git(root, &["log", "--format=%B", &format!("{base}..HEAD")])?;
-    judged(environment, root, branch, &lane_head, "commit trailers", crate::land::divergence::refuse_malformed(&bodies))?;
-    timings.stage("fails first", || runner::fails_first(root, base, &lane_head))?;
+    timings.stage("fails first", || runner::fails_first(root, base, &lane_head, north))?;
     timings.stage("crate fetch", || refuse_unfetchable(root, base, &lane_head))?;
     git(root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])
 }

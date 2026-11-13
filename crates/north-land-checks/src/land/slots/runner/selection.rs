@@ -14,7 +14,6 @@ use super::arguments::{Arguments, Outcome};
 use super::super::graph_selection::{self, Away, SELECTED, Selected};
 use crate::platform::records_mirror::state_home;
 use super::{say, warn};
-use crate::platform::north_binary::land_north as program;
 
 pub(super) struct Selections {
     pub(super) scope: Option<Scope>,
@@ -28,9 +27,9 @@ struct It {
     no_test: Option<String>,
 }
 
-pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str) -> Selections {
+pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, (runner, north): (&str, &str)) -> Selections {
     let closure = scope_for(root, arguments, commands, recorded);
-    let it = it_for(root, arguments, commands, recorded, runner, closure.as_ref());
+    let it = it_for(root, arguments, commands, recorded, (runner, north), closure.as_ref());
     let packages = it.as_ref().map(|it| it.packages.clone()).unwrap_or_default();
     let scope = closure.map(|scope| scope.including(&packages));
     let no_test = it.as_ref().and_then(|it| it.no_test.clone());
@@ -100,7 +99,7 @@ fn checked_out(root: &Path, tree: &str) -> bool {
     clean && commit("HEAD").is_some_and(|head| Some(head) == commit(tree))
 }
 
-fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str, closure: Option<&Scope>) -> Option<It> {
+fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, (runner, north): (&str, &str), closure: Option<&Scope>) -> Option<It> {
     if !verdict_key::reads_it(commands) {
         return None;
     }
@@ -108,10 +107,9 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
         say(&format!("safe-push: the after-landing tests/it run reuses the candidate's selection, {filters}"));
         return Some(It { filters, packages: BTreeSet::new(), no_test: None });
     }
-    let program = program();
     let closure = closure.map(packages_of);
     let held = arguments.hold.as_deref().filter(|_| super::hold::builds_tests_once());
-    let away = Away::on(Path::new(&program), runner, &arguments.base, arguments.tree()).map(|away| match held {
+    let away = Away::on(Path::new(north), runner, &arguments.base, arguments.tree()).map(|away| match held {
         Some(hold) => away.holding(hold, closure.as_ref()),
         None => away,
     });

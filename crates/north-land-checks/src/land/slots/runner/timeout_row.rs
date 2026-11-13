@@ -2,7 +2,6 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::platform::push_ledger;
-use crate::platform::north_binary::land_north as program;
 
 pub struct Timeout<'a> {
     pub base: &'a str,
@@ -32,10 +31,10 @@ pub fn arguments(origin: &str, timeout: &Timeout) -> Vec<String> {
     words
 }
 
-pub fn record(root: &Path, timeout: &Timeout) {
+pub fn record(north: &str, root: &Path, timeout: &Timeout) {
     let origin = Command::new("git").args(["remote", "get-url", "origin"]).current_dir(root).stderr(Stdio::null()).output().ok().filter(|output| output.status.success());
     let Some(origin) = origin.map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|origin| !origin.is_empty()) else { return };
-    let spawned = Command::new(program()).args(arguments(&origin, timeout)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    let spawned = Command::new(north).args(arguments(&origin, timeout)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
     if let Ok(mut child) = spawned {
         std::thread::spawn(move || child.wait());
     }

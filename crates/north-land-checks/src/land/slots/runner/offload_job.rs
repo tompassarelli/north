@@ -83,7 +83,7 @@ impl Shared {
         let Job { host, commands, timeouts, script, outer, what, span, dependents } = job;
         let started = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
         let tree = self.arguments.tree().to_owned();
-        let argv = shell_deadline(outer + OFFLOAD_GRACE, &self.offload_argv(host, &tree, outer, &script));
+        let argv = shell_deadline(&self.environment.north, outer + OFFLOAD_GRACE, &self.offload_argv(host, &tree, outer, &script));
         let ran = match self.spawn_argv(what, argv, &tree, outer, &self.root).await {
             Ok(ran) => ran,
             Err(status) => return vec![status; commands.len()],

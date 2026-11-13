@@ -12,7 +12,6 @@ use crate::land::slots::select::Placement;
 use crate::land::slots::{lint_gate, listed_crates, unit_reuse, verdict_key};
 use north_base::verdict_cache::reuse_log;
 use crate::landing::check_timings::outcomes::{CrateSplit, Outcome as CheckOutcome, Record, Records};
-use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
 use crate::land::trace::check_log::{self, Line, Mark};
@@ -80,14 +79,14 @@ fn check_ends(timeout: u64) -> String {
     std::env::var(carry::CHECK_ENDS).ok().and_then(|ends| ends.parse::<u64>().ok()).map_or(own, |outer| outer.min(own)).to_string()
 }
 
-pub(super) fn shell_deadline(seconds: u64, argv: &[String]) -> Vec<String> {
+pub(super) fn shell_deadline(north: &str, seconds: u64, argv: &[String]) -> Vec<String> {
     let mut command = vec![
         "bash".to_owned(),
         "-euo".to_owned(),
         "pipefail".to_owned(),
         "-c".to_owned(),
         r#"lease=-; [ -z "${AGENT_CAPACITY_LEASE:-}" ] || lease="${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/$AGENT_CAPACITY_LEASE.json"; exec "$0" capacity deadline "$lease" "$@""#.to_owned(),
-        program(),
+        north.to_owned(),
         seconds.to_string(),
         "--".to_owned(),
     ];
@@ -167,11 +166,11 @@ impl Shared {
     }
 
     pub(super) async fn north(&self, arguments: &[&str]) -> Option<std::process::Output> {
-        Command::new(program()).args(arguments).current_dir(&self.root).stdin(Stdio::null()).output().await.ok()
+        Command::new(&self.environment.north).args(arguments).current_dir(&self.root).stdin(Stdio::null()).output().await.ok()
     }
 
     pub(super) fn offload_argv(&self, host: &str, tree: &str, timeout: u64, command: &str) -> Vec<String> {
-        vec![program(), "capacity".into(), "offload".into(), "run".into(), "--host".into(), host.to_owned(), "--base".into(), self.arguments.base.clone(), "--head".into(), tree.to_owned(), "--timeout".into(), timeout.to_string(), "--".into(), command.to_owned()]
+        vec![self.environment.north.clone(), "capacity".into(), "offload".into(), "run".into(), "--host".into(), host.to_owned(), "--base".into(), self.arguments.base.clone(), "--head".into(), tree.to_owned(), "--timeout".into(), timeout.to_string(), "--".into(), command.to_owned()]
     }
 
     async fn landing(&self) -> &'static str {
@@ -228,12 +227,12 @@ impl Shared {
             let capacity = if environment.offload_host.is_empty() { "" } else { environment.capacity.as_str() };
             let suffix = if environment.offload_host.is_empty() { "" } else { " while this host is in game-reserve" };
             say(&format!("safe-push: offloading to {host}{suffix}"));
-            under_capacity(capacity, shell_deadline(timeout + OFFLOAD_GRACE, &offload))
+            under_capacity(capacity, shell_deadline(&environment.north, timeout + OFFLOAD_GRACE, &offload))
         } else {
-            let observed = self.wrapped(&unit_reuse::quote(&program()), command);
+            let observed = self.wrapped(&unit_reuse::quote(&environment.north), command);
             let local = ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed];
             let capacity = if leased { "" } else { environment.capacity.as_str() };
-            under_capacity(capacity, shell_deadline(timeout, &local))
+            under_capacity(capacity, shell_deadline(&environment.north, timeout, &local))
         };
         let ran = self.spawn_argv(command, argv, tree, timeout, dir).await;
         if observing && let Ok(ran) = &ran {
@@ -328,16 +327,23 @@ impl Shared {
         let _ = Records::at(Records::default_path()).append(&record);
     }
 
+    pub(super) fn cancelling(&self) -> bool {
+        (self.fail_fast || self.stoppable) && *self.cancel.borrow()
+    }
+
     pub(super) fn cancelled(&self, command: &str, started: u64, status: i32, wall: u64, cpu: Option<f64>) -> i32 {
-        say(&format!("safe-push: land check {command} cancelled: an earlier land check failed"));
-        self.remember(command, started, CheckOutcome::Cancelled, &Ended { status, wall, cpu, marks: &[] });
-        self.outcome.record(&["event", "land check", "cancelled", &format!("{command}: an earlier land check failed")]);
+        let why = if self.fail_fast { "an earlier land check failed" } else { "a gate refused the lane" };
+        say(&format!("safe-push: land check {command} cancelled: {why}"));
+        if self.fail_fast {
+            self.remember(command, started, CheckOutcome::Cancelled, &Ended { status, wall, cpu, marks: &[] });
+            self.outcome.record(&["event", "land check", "cancelled", &format!("{command}: an earlier land check failed")]);
+        }
         0
     }
 
     pub(super) async fn run_check(self: Arc<Self>, command: String, leased: bool) -> i32 {
         let started = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-        if self.fail_fast && *self.cancel.borrow() {
+        if self.cancelling() {
             return self.cancelled(&command, started, CANCELLED_STATUS, 0, None);
         }
         self.outcome.record(&["ran"]);

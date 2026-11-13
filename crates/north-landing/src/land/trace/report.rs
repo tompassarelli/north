@@ -165,6 +165,18 @@ pub fn render(profiles: &[Profile<'_>], since: f64) -> String {
     out
 }
 
+pub fn render_refusals(refusals: &[&Span]) -> String {
+    if refusals.is_empty() {
+        return "\nhand-in refusals: none\n".to_owned();
+    }
+    let waits: Vec<f64> = refusals.iter().map(|span| span.seconds()).collect();
+    let mut out = format!("\nhand-in refusals: {}, hand-in to refusal p50 {:.1} s, p90 {:.1} s\n", refusals.len(), percentile(&waits, 0.5), percentile(&waits, 0.9));
+    for span in refusals {
+        let _ = writeln!(out, "- {} refused at {}, {:.1} s after hand-in: {}", span.name, Timestamp::from_unix_seconds_f64(span.end).local_twelve_hour(), span.seconds(), span.attribute(super::REFUSED).unwrap_or_default());
+    }
+    out
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let mut since = None;
     let mut files = Vec::new();
@@ -213,7 +225,7 @@ pub fn run(arguments: &[String]) -> u8 {
         metric.print(&profiles, pending);
         return 0;
     }
-    print!("{}", render(&profiles, from));
+    print!("{}{}", render(&profiles, from), render_refusals(&trace.refusals(from, last)));
     0
 }
 

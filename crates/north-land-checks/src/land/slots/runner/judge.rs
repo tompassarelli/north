@@ -35,7 +35,7 @@ impl Shared {
             return ran.status;
         }
         self.trace_line(command, ran, cpu, parent);
-        if self.fail_fast && *self.cancel.borrow() {
+        if self.cancelling() {
             let _ = fs::remove_file(&ran.log);
             return self.cancelled(command, started, ran.status, ran.seconds, cpu);
         }
@@ -62,7 +62,7 @@ impl Shared {
     fn record_timeout(&self, command: &str, deadline: u64, started: u64) {
         let finished = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(started, |since| since.as_secs());
         let (base, candidate, tree) = (&self.arguments.base, &self.arguments.head, &self.trees.head);
-        timeout_row::record(&self.root, &timeout_row::Timeout { base, candidate, tree, command, deadline, started, finished });
+        timeout_row::record(&self.environment.north, &self.root, &timeout_row::Timeout { base, candidate, tree, command, deadline, started, finished });
     }
 
     async fn judge_failure(&self, command: &str, leased: bool, timeout: u64, ran: &Ran) -> i32 {

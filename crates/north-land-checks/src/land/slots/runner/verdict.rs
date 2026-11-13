@@ -10,7 +10,6 @@ use tokio::task::JoinSet;
 use super::{ACTIONS_CLASS, Shared, say};
 use crate::land::slots::affected::PACKAGES_ENV;
 use crate::land::slots::{lint_gate, listed_crates, verdict_key};
-use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category};
 
@@ -59,8 +58,8 @@ async fn keys(inputs: &Arc<Inputs>, commands: &[String]) -> BTreeMap<String, Str
     keys
 }
 
-async fn north(root: &Path, arguments: &[String]) -> Option<std::process::Output> {
-    Command::new(program()).args(arguments).current_dir(root).stdin(Stdio::null()).stderr(Stdio::null()).output().await.ok()
+async fn north(program: &str, root: &Path, arguments: &[String]) -> Option<std::process::Output> {
+    Command::new(program).args(arguments).current_dir(root).stdin(Stdio::null()).stderr(Stdio::null()).output().await.ok()
 }
 
 impl Shared {
@@ -106,7 +105,7 @@ impl Shared {
         if wanted.is_empty() {
             return BTreeMap::new();
         }
-        match north(&self.root, &verdict_key::hit_arguments(wanted)).await {
+        match north(&self.environment.north, &self.root, &verdict_key::hit_arguments(wanted)).await {
             Some(output) if output.status.success() => verdict_key::hits(&String::from_utf8_lossy(&output.stdout)),
             _ => {
                 say("safe-push: the verdict cache could not be read, so every land check runs");
@@ -121,7 +120,7 @@ impl Shared {
             let class = class.map_or_else(|| self.cache_class(&command), str::to_owned);
             let host = if class == ACTIONS_CLASS { LOCAL } else { class.as_str() };
             let arguments = verdict_key::record_arguments(host, &key, (status == 0).then_some(inputs.tree.as_str()));
-            let _ = north(&self.root, &arguments).await;
+            let _ = north(&self.environment.north, &self.root, &arguments).await;
         }
     }
 

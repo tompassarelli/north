@@ -11,7 +11,6 @@ use north_base::foundation::exit::NO_VERDICT_STATUS;
 use crate::land::slots::shared_build;
 use north_base::foundation::exit::SLOTS_BUSY_STATUS;
 use crate::landing::check_timings::outcomes::Records;
-use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
 use crate::landing::check_timings;
@@ -261,7 +260,7 @@ impl Shared {
 
     async fn red_main_check(&self, log: &Path) {
         let lane = std::process::Command::new("git").args(["symbolic-ref", "--quiet", "--short", "HEAD"]).current_dir(&self.root).output().map(|output| String::from_utf8_lossy(&output.stdout).trim_end().to_owned()).unwrap_or_default();
-        let status = Command::new(program())
+        let status = Command::new(&self.environment.north)
             .args(["land", "red-check", "--main", &self.arguments.base, "--log"])
             .arg(log)
             .args(["--lane", &lane])
@@ -286,7 +285,7 @@ impl Shared {
         let Ok((_, log)) = tempfile::Builder::new().tempfile().and_then(|file| file.keep().map_err(|error| error.error)) else { return Err(1) };
         let arguments = &self.arguments;
         let timeout = self.environment.timeout.unwrap_or(check_timings::CEILING);
-        let spawned = Command::new(program())
+        let spawned = Command::new(&self.environment.north)
             .args(["land", "actions", "--workflow", &self.workflow, "--base", &arguments.base, "--head", &arguments.head, "--timeout", &timeout.to_string(), "--"])
             .args(commands)
             .current_dir(&self.root)
@@ -310,7 +309,7 @@ impl Shared {
         let mut failed = 0;
         if status == NO_VERDICT_STATUS {
             say(&format!("safe-push: GitHub Actions is unavailable (infrastructure, not a check failure); its {} land check(s) run on a build host", commands.len()));
-            let fallback = Arc::new(self.without_actions(resolve_runner_host(&program(), "build-host", &[]).await));
+            let fallback = Arc::new(self.without_actions(resolve_runner_host(&self.environment.north, "build-host", &[]).await));
             failed = fallback.run_list(commands).await.status();
         } else if status != 0 {
             warn(&format!("safe-push: land checks on GitHub Actions exited {status}; NOT pushed."));

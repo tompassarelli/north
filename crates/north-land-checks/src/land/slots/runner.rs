@@ -38,18 +38,21 @@ mod queue_checks;
 mod selection;
 mod spawn;
 mod steps;
+mod stop;
 mod timeout_row;
 mod verdict;
-pub use queue_checks::{Accepted, Judged, QueueRefusal, joins_queue_run, judge_queue_checks, judge_with_acceptance, queue_commands, refuse_queue_checks};
+pub use queue_checks::{Accepted, Judged, QueueRefusal, joins_queue_run, judge_queue_checks, judge_queue_checks_until, judge_with_acceptance, queue_commands, refuse_queue_checks};
+pub use stop::{STOPPED, Stop};
 pub use steps::taken as queue_steps;
 pub use steps::{LINE_WAIT, SANDBOX_START, Window, windows as queue_windows};
-use crate::platform::north_binary::land_north as program;
+use crate::platform::north_binary::land_north;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
 use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_STATUS, RED_MAIN_STATUS, SLOTS_BUSY_STATUS, TIMED_OUT_STATUS};
 
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
 pub const BASE_FAILS: &str = "and also fails on base tree";
+const NO_NORTH: &str = "the land check runner was given an empty north program, so no land check can start";
 const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--tree TREE] [--outcome FILE] [--fresh]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]\n       north land checks --accept COMMAND (--joins | [--runner-host HOST]) --base BASE --head HEAD";
 const OFFLOAD_GRACE: u64 = 900;
 const BATCH_GRACE: u64 = 30;
@@ -75,6 +78,7 @@ struct Shared {
     actions_down: bool,
     paths: String,
     fail_fast: bool,
+    stoppable: bool,
     scope: Option<Scope>,
     it: Option<String>,
     selected_paths: Option<String>,
@@ -120,7 +124,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         warn("safe-push: not in a git repo");
         return 1;
     };
-    let mut placed = Environment::load();
+    let mut placed = Environment::load(land_north());
     let off_host = placed.off_host;
     let mut loaded = Config::load(&root, &arguments.head);
     if placed.local && !arguments.after && !off_host {
@@ -137,7 +141,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     };
     let (cancel_sender, cancel) = watch::channel(false);
     tokio::spawn(forward_signals(cancel_sender));
-    let environment = if local { Environment::local() } else { placed.clone() };
+    let environment = if local { Environment::local(placed.north.clone()) } else { placed.clone() };
     let commands = if arguments.leased {
         arguments.commands.clone()
     } else if !arguments.commands.is_empty() {
@@ -206,9 +210,9 @@ struct Chosen {
 async fn selected(root: &Path, arguments: &Arguments, (environment, config): (&Environment, &Config), avoid: &[String], commands: Vec<String>) -> Result<Chosen, i32> {
     let recorded = arguments.after.then(|| selection_record::load(&arguments.head)).flatten();
     let lists = !arguments.leased && verdict_key::reads_it(&commands) && recorded.as_ref().is_none_or(|recorded| recorded.it.is_none());
-    let ahead = if lists { Some(runner_host(&program(), environment, config.runner.as_deref(), avoid).await.ok_or_else(no_build_host)?) } else { None };
+    let ahead = if lists { Some(runner_host(&environment.north, environment, config.runner.as_deref(), avoid).await.ok_or_else(no_build_host)?) } else { None };
     let listing = ahead.as_deref().or(environment.runner.as_deref()).unwrap_or_default();
-    let Selections { scope, it, no_test } = selections(root, arguments, &commands, recorded.as_ref(), listing);
+    let Selections { scope, it, no_test } = selections(root, arguments, &commands, recorded.as_ref(), (listing, &environment.north));
     let commands = match &no_test {
         Some(reason) => without_tests(commands, reason),
         None => commands,
@@ -251,6 +255,7 @@ async fn run_set_on(root: PathBuf, arguments: Arguments, config: Config, environ
         trees,
         paths,
         fail_fast: false,
+        stoppable: false,
         workflow: config.workflow.clone(),
         outcome: Outcome(arguments.outcome.clone()),
         root,
@@ -274,7 +279,7 @@ async fn run_set_on(root: PathBuf, arguments: Arguments, config: Config, environ
     }
     let host = match ahead {
         Some(host) => host,
-        None => match runner_host(&program(), &shared.environment, shared.config.runner.as_deref(), avoid).await {
+        None => match runner_host(&shared.environment.north, &shared.environment, shared.config.runner.as_deref(), avoid).await {
             Some(host) => host,
             None => return (no_build_host(), String::new()),
         },
@@ -326,7 +331,7 @@ fn accept(arguments: &Arguments, command: &str) -> u8 {
         return u8::from(!joins_queue_run(&root, &arguments.base, &arguments.head, command));
     }
     let on = (!arguments.runner_host.is_empty()).then_some(arguments.runner_host.as_str());
-    let judged = judge_with_acceptance(&root, &arguments.base, &arguments.head, command, on);
+    let judged = judge_with_acceptance(&root, &arguments.base, &arguments.head, command, on, &land_north());
     let status = judged.status();
     if let Err(refusal) = judged.run {
         warn(&format!("safe-push: {}", refusal.into_text()));
@@ -352,7 +357,10 @@ fn block_on<T>(work: impl Future<Output = T>) -> std::io::Result<T> {
     Ok(tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(work))
 }
 
-pub fn fails_first(root: &Path, base: &str, head: &str) -> Result<(), String> {
+pub fn fails_first(root: &Path, base: &str, head: &str, north: &str) -> Result<(), String> {
+    if north.is_empty() {
+        return Err(NO_NORTH.to_owned());
+    }
     let config = Config::load(root, head);
     let queued = queue_commands(root, base, head)?;
     let commands: Vec<String> = config.added_since(&Config::load(root, base)).commands(root, base, head)?.into_iter().filter(|command| !queued.contains(&shared_build::built(command))).collect();
@@ -360,7 +368,7 @@ pub fn fails_first(root: &Path, base: &str, head: &str) -> Result<(), String> {
         return Ok(());
     }
     say(&format!("safe-push: running the {} land check(s) this lane adds before queueing it", commands.len()));
-    let status = block_on(run_added(root.to_owned(), Arguments { base: base.to_owned(), head: head.to_owned(), ..Arguments::default() }, config, commands)).map_err(|error| error.to_string())?;
+    let status = block_on(run_added(root.to_owned(), Arguments { base: base.to_owned(), head: head.to_owned(), ..Arguments::default() }, (config, Environment::load(north.to_owned())), commands)).map_err(|error| error.to_string())?;
     match status {
         0 => Ok(()),
         NO_VERDICT_STATUS => {
@@ -378,18 +386,17 @@ pub(super) struct Added {
     pub(super) accepted: Option<bool>,
 }
 
-async fn run_added(root: PathBuf, arguments: Arguments, config: Config, commands: Vec<String>) -> i32 {
-    run_added_avoiding(root, arguments, config, commands, None, &[]).await.status
+async fn run_added(root: PathBuf, arguments: Arguments, placed: (Config, Environment), commands: Vec<String>) -> i32 {
+    run_added_avoiding(root, arguments, placed, commands, None, &[], &Stop::new()).await.status
 }
 
-async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Config, commands: Vec<String>, watched: Option<&str>, failed: &[String]) -> Added {
-    let mut environment = Environment::load();
+async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, (config, mut environment): (Config, Environment), commands: Vec<String>, watched: Option<&str>, failed: &[String], stop: &Stop) -> Added {
     if environment.capacity.is_empty() {
         environment.capacity = config.capacity.clone().unwrap_or_default();
     }
     let wanted = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
     if !wanted.is_empty() && arguments.runner_host.is_empty() {
-        match steps::awaited("placement", build_host::placed(&program(), &wanted, &north_base::platform::host::name(), failed)).await {
+        match steps::awaited("placement", build_host::placed(&environment.north, &wanted, &north_base::platform::host::name(), failed)).await {
             build_host::Placed::Host(host) => arguments.runner_host = host,
             build_host::Placed::Here => warn("safe-push: no build host has room, so the checks before queueing run on this host under the land-check capacity lease"),
             build_host::Placed::Unanswered => {
@@ -399,16 +406,16 @@ async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Con
         }
     }
     arguments.twin_away = Some(failed.to_vec());
-    let (_cancel_sender, cancel) = watch::channel(false);
-    let held = steps::awaited("hold", hold::taken(&root, &arguments, cancel.clone())).await;
+    let cancel = stop.watch();
+    let held = steps::awaited("hold", hold::taken(&root, &arguments, &environment.north, cancel.clone())).await;
     arguments.hold = held.as_ref().map(|held| held.value.clone());
     let host = arguments.runner_host.clone();
     let commands = steps::awaited("coverage", async { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() }).await;
     let watched = rewritten(&root, &arguments, watched).await;
-    let Selections { scope, it, .. } = steps::selection(|| selections(&root, &arguments, &commands, None, &arguments.runner_host));
+    let Selections { scope, it, .. } = steps::selection(|| selections(&root, &arguments, &commands, None, (&arguments.runner_host, &environment.north)));
     let (trees, paths) = steps::timed("trees", || (Trees::of(&root, &arguments.base, &arguments.head), path_class(&root, &arguments.base, &arguments.head)));
     let outcome = Outcome(arguments.outcome.clone());
-    let shared = Arc::new(Shared { root, arguments, environment, config, outcome, cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome, cancel, workflow: String::new(), trees, paths, fail_fast: false, stoppable: true, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
     let pending = steps::awaited("key lookup", shared.cached(&commands)).await;
     let status = if pending.is_empty() { 0 } else { shared.run_list(&pending).await.status() };
     let accepted = shared.passed(&watched, status).await;

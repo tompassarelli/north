@@ -17,6 +17,13 @@ pub fn enforcing() -> bool {
     document(DEFAULTS)["landing_refusals"]["value"].as_str() == Some("enforce")
 }
 
+pub fn standing(gate: &str, outcome: Result<(), String>) -> Result<(), String> {
+    match outcome {
+        Err(_) if !enforcing() && !always_refuses(gate) => Ok(()),
+        other => other,
+    }
+}
+
 pub const TEST_ADMISSION: &str = "test admission";
 pub const REBASE_COMPILE: &str = "rebase compile";
 

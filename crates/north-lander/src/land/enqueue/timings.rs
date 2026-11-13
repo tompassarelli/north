@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use crate::land::telemetry::epoch;
 use crate::land::slots::runner::{LINE_WAIT, SANDBOX_START, Window};
-use crate::land::trace::{Category, PHASE, Span, Spans};
+use crate::land::trace::{Category, PHASE, REFUSED, Span, Spans};
 
 pub(super) const BEFORE_TICKET: &str = "enqueue";
 const LANE: &str = "lane";
@@ -54,11 +54,22 @@ impl Timings {
     pub(super) fn record(&self, logs: &Path, head: &str, lane: &str, ticket: &str, host: &str) {
         let trace = format!("{BEFORE_TICKET}:{head}");
         let stamp = |span: Span| span.on(host).with(PHASE, BEFORE_TICKET).with(LANE, lane).with(TICKET, ticket);
-        let setup = (self.called > 0.0 && self.begun > self.called).then(|| stamp(Span::new(&trace, SETUP, category(SETUP), self.called, self.begun)));
-        let spans: Vec<Span> = setup.into_iter().chain(self.stages.lock().unwrap_or_else(PoisonError::into_inner).iter().flat_map(|stage| stage_spans(&trace, stage, &stamp))).collect();
-        if let Err(error) = Spans::beside(logs).append(&spans) {
-            println!("safe-push: could not record the checks before the ticket: {error}");
-        }
+        append(logs, self.spans(&trace, &stamp));
+    }
+
+    pub(super) fn record_refused(&self, logs: &Path, head: &str, lane: &str, host: &str, why: &str) {
+        let trace = format!("{BEFORE_TICKET}:{head}");
+        let stamp = |span: Span| span.on(host).with(PHASE, BEFORE_TICKET).with(LANE, lane);
+        let from = if self.called > 0.0 { self.called } else { self.begun };
+        let refusal = stamp(Span::new(&trace, lane, Category::Check, from, epoch()).with(REFUSED, why));
+        let mut spans = self.spans(&trace, &stamp);
+        spans.push(refusal);
+        append(logs, spans);
+    }
+
+    fn spans(&self, trace: &str, stamp: &impl Fn(Span) -> Span) -> Vec<Span> {
+        let setup = (self.called > 0.0 && self.begun > self.called).then(|| stamp(Span::new(trace, SETUP, category(SETUP), self.called, self.begun)));
+        setup.into_iter().chain(self.stages.lock().unwrap_or_else(PoisonError::into_inner).iter().flat_map(|stage| stage_spans(trace, stage, stamp))).collect()
     }
 }
 
@@ -108,4 +119,10 @@ fn described(stage: &Stage) -> String {
 
 fn seconds(took: Duration) -> String {
     format!("{:.2} s", took.as_secs_f64())
+}
+
+fn append(logs: &Path, spans: Vec<Span>) {
+    if let Err(error) = Spans::beside(logs).append(&spans) {
+        println!("safe-push: could not record the checks before the ticket: {error}");
+    }
 }
