@@ -126,7 +126,7 @@ fn judge(root: &Path, (base, head): (&str, &str), acceptance: Option<(&str, &str
         return Judged::unjudged(NO_NORTH.to_owned());
     }
     steps::begin();
-    let (config, clippy, mut commands) = match steps::timed("commands", || listed(root, base, head)) {
+    let (config, mut commands) = match steps::timed("commands", || listed(root, base, head)) {
         Ok(listed) => listed,
         Err(text) => return Judged::unjudged(text),
     };
@@ -150,16 +150,15 @@ fn judge(root: &Path, (base, head): (&str, &str), acceptance: Option<(&str, &str
     };
     let (own, others) = command.zip(outcome.as_ref()).map(|(command, outcome)| failed_output(outcome.path(), command)).unwrap_or_default();
     let failing = outcome.as_ref().and_then(|outcome| failing_step(outcome.path(), status));
-    let run = if status == 0 { Ok(()) } else { Err(refusal(status, clippy.is_some(), (root, base, head), failing)) };
+    let run = if status == 0 { Ok(()) } else { Err(refusal(status, (root, base, head), failing)) };
     Judged { accepted: accepted(&run, passed, own.is_some()), output: own.unwrap_or(others), run }
 }
 
-type Listed = (Config, Option<String>, Vec<String>);
+type Listed = (Config, Vec<String>);
 
 fn listed(root: &Path, base: &str, head: &str) -> Result<Listed, String> {
     let config = Config::load(root, head);
-    let clippy = clippy_first::listed(&config.after_set().commands(root, base, head)?, |command| !config.is_inferred(command));
-    Ok((config, clippy, queue_commands(root, base, head)?))
+    Ok((config, queue_commands(root, base, head)?))
 }
 
 /// The run's exit status and whether `watched` passed in it, running it again on another host when one reached no verdict, up to `ATTEMPTS` times; why it cannot run when no build host answers.
@@ -225,14 +224,14 @@ pub fn failing(refusal: &str) -> Option<(&str, &str)> {
     refusal.split_once(FAILING)?.1.split_once("`: ")
 }
 
-fn refusal(status: i32, clippy: bool, (root, base, head): (&Path, &str, &str), failing: Option<String>) -> QueueRefusal {
+fn refusal(status: i32, (root, base, head): (&Path, &str, &str), failing: Option<String>) -> QueueRefusal {
     if status == ALREADY_PLACED_STATUS {
         return QueueRefusal::Unjudged("the same checks of this head already wait or run on a build host, named above, so this run was refused rather than queued a second time; the lane is not queued uncompiled, so run safe-push again once they end".to_owned());
     }
     if status == NO_VERDICT_STATUS {
         return QueueRefusal::Unjudged(format!("the checks before queueing reached no verdict {ATTEMPTS} times (exit 75: the host or its connection failed before they reported); the lane is not queued uncompiled, so run safe-push again"));
     }
-    let rerun = if clippy {
+    let rerun = if failing.as_deref().and_then(self::failing).is_some_and(|(command, _)| command.contains("cargo clippy")) {
         let crates = affected::scope(root, base, head).map_or_else(|_| "--workspace".to_owned(), |scope| scope.changed_arguments());
         format!("; to rerun clippy alone: cargo clippy --all-targets {crates} -- -D warnings")
     } else {
