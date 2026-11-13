@@ -14,6 +14,7 @@ use super::{CONFINED, LANE_ONLY, MARK, SOCKETS_HIDDEN};
 
 const DESTINATION: &str = "main";
 pub(super) const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
+pub(super) const PROVED_ENV: &str = "NORTH_FLEET_SESSION_PROVED";
 const SHIM_DIRECTORIES: [&str; 2] = [".local/bin", ".local/share/north/bin"];
 pub(super) const GIT_HARDENING: [(&str, &str); 3] = [("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"), ("core.sshCommand", "false")];
 const COMMAND_KEYS: &str = r"^(filter\..+\.(clean|smudge|process)|core\.sshcommand)$";
@@ -245,13 +246,14 @@ pub(super) fn environment(session: &Session, own: impl IntoIterator<Item = (Stri
     for (name, value) in own {
         match name.as_str() {
             "PATH" => path = Some(value),
-            MARK | LANE_ONLY | SOCKETS_HIDDEN | CONFINED | REMOVAL_ROOTS | SESSION_ENV => {}
+            MARK | LANE_ONLY | SOCKETS_HIDDEN | CONFINED | REMOVAL_ROOTS | SESSION_ENV | PROVED_ENV => {}
             _ if name.starts_with("GIT_CONFIG") => {}
             _ => kept.push((name, value)),
         }
     }
     kept.push(("PATH".to_owned(), shimmed_path(home, path.as_deref().unwrap_or_default())?));
     kept.push((SESSION_ENV.to_owned(), session.name.clone()));
+    kept.push((PROVED_ENV.to_owned(), "1".to_owned()));
     kept.extend(git_credential::session_env_with(&GIT_HARDENING));
     Ok(kept)
 }

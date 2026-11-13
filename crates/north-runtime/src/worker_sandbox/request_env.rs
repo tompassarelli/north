@@ -26,7 +26,7 @@ fn builds(name: &str) -> bool {
 }
 
 fn unsafe_name(name: &str) -> bool {
-    name == MARK || name == SOCKETS_HIDDEN || name == CONFINED || name == HOSTS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name) || [opencode::KEY_ENV, pi::KEY_ENV].contains(&name)
+    name == MARK || name == SOCKETS_HIDDEN || name == CONFINED || name == HOSTS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name == lane_grant::PROVED_ENV || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name) || [opencode::KEY_ENV, pi::KEY_ENV].contains(&name)
 }
 
 /// The programs a brokered safe-push runs, `None` for every other request: the `PATH` in `own`, the broker's environment, behind `home`'s gh shims, `north`, the broker's own build, as every north it starts, and the compiler, wrapper, flags, cache and test runner `own` sets, since the programs its checks before queueing run, the north whose `verdict hit` decides which of them run, how they build and where they run decide the verdict a ticket carries.
@@ -44,11 +44,12 @@ pub(super) fn own_path(arguments: &[String], own: &[(String, String)]) -> Option
     (arguments.first().is_some_and(|verb| ["lane", "home"].contains(&verb.as_str())) || super::broker::reaches_ledger(arguments)).then(|| ("PATH".to_owned(), absolute))
 }
 
-/// The fleet session a brokered `gate open` or `fleet need` speaks as, `None` for every other request: the session whose own scope the caller's `cgroup` names on `host` (lane_grant.rs), never a word or variable of the client's, since a gate's question and default answer reach its session's parent and come back into that session as its decision, and a need is placed for its session's next try. A request whose `--session` names any other session is refused, as is one from a caller in no session's scope.
-pub(super) fn asking_session(arguments: &[String], cgroup: Option<&str>, host: &lane_grant::Host) -> Result<Option<(String, String)>, String> {
+/// The variables that name the fleet session a brokered request speaks as, `None` for every other request: a gate or a need speaks as the session whose own scope the caller's `cgroup` names on `host` (lane_grant.rs), and a safe-push enqueues as it (`enqueuing_as`), never as a word or variable of the client's, since a gate's question and default answer reach its session's parent and come back into that session as its decision, a need is placed for its session's next try, and a ticket is queued under its session's name. A gate or need whose `--session` names any other session is refused, as is one from a caller in no session's scope.
+pub(super) fn asking_session(arguments: &[String], cgroup: Option<&str>, host: &lane_grant::Host) -> Result<Option<Vec<(String, String)>>, String> {
     let flags = match arguments {
         [noun, verb, flags @ ..] if noun == "gate" && verb == "open" => flags,
         [noun, verb, ..] if noun == "fleet" && verb == "need" => &[][..],
+        [verb, ..] if verb == "safe-push" => return Ok(Some(enqueuing_as(cgroup, host))),
         _ => return Ok(None),
     };
     let (directory, record) = lane_grant::own_session(cgroup.unwrap_or_default(), host, "a gate or a need is asked from a fleet session's own scope, and this caller runs in none")?;
@@ -56,16 +57,22 @@ pub(super) fn asking_session(arguments: &[String], cgroup: Option<&str>, host: &
     if let Some([_, other]) = flags.chunks(2).find(|pair| matches!(pair, [flag, other] if flag == "--session" && other != session)) {
         return Err(format!("{session} asks as itself, not as {other}"));
     }
-    Ok(Some((lane_grant::SESSION_ENV.to_owned(), session.to_owned())))
+    Ok(Some(vec![(lane_grant::SESSION_ENV.to_owned(), session.to_owned())]))
 }
 
-/// `variables` with the session `asker` names in place of any the client sent, unchanged when `asker` is `None`.
-pub(super) fn speaking_as(variables: Vec<(String, String)>, asker: Option<(String, String)>) -> Vec<(String, String)> {
+/// The variables a brokered `safe-push` enqueues under: the session whose own scope the caller's `cgroup` names on `host`, with `PROVED_ENV` set to say the broker read it there, or an empty session name from a caller in no session's scope, which the readers take as no session.
+fn enqueuing_as(cgroup: Option<&str>, host: &lane_grant::Host) -> Vec<(String, String)> {
+    let session = lane_grant::own_session(cgroup.unwrap_or_default(), host, "").ok().and_then(|(_, record)| record["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned));
+    match session {
+        Some(name) => vec![(lane_grant::SESSION_ENV.to_owned(), name), (lane_grant::PROVED_ENV.to_owned(), "1".to_owned())],
+        None => vec![(lane_grant::SESSION_ENV.to_owned(), String::new())],
+    }
+}
+
+/// `variables` without the session and proof names the client sent, with `asker`'s in their place; unchanged when `asker` is `None`.
+pub(super) fn speaking_as(variables: Vec<(String, String)>, asker: Option<Vec<(String, String)>>) -> Vec<(String, String)> {
     match asker {
-        Some(session) => {
-            let kept: Vec<_> = variables.into_iter().filter(|(name, _)| *name != session.0).collect();
-            kept.into_iter().chain([session]).collect()
-        }
+        Some(pairs) => variables.into_iter().filter(|(name, _)| name.as_str() != lane_grant::SESSION_ENV && name.as_str() != lane_grant::PROVED_ENV).chain(pairs).collect(),
         None => variables,
     }
 }

@@ -520,6 +520,46 @@ fn a_brokered_safe_push_queues_in_its_caller_s_state_home_and_every_other_reques
 }
 
 #[test]
+fn review_pass_records_only_a_reviewer_session_s_accept_and_a_forged_session_never_reaches_the_enqueue_north_1287() {
+    use north_base::platform::review_accept::Accepts;
+
+    use crate::runtime::review_accept::Accept;
+
+    const PATCH: &str = "0123456789abcdef0123456789abcdef01234567";
+    let unit = |name: &str| format!("north-session-{name}.scope");
+    let cgroup = |name: &str| format!("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/{}\n", unit(name));
+    let root = tempfile::tempdir().unwrap();
+    let fleet = root.path().join("fleet");
+    for (name, role) in [("north-reviewer", "reviewer"), ("north-author", "worker")] {
+        let directory = fleet.join(name);
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("host.scope"), unit(name)).unwrap();
+        std::fs::write(directory.join("session.json"), json!({"name": name, "role": role, "cwd": root.path()}).to_string()).unwrap();
+    }
+    let host = super::lane_grant::Host { fleet, home: root.path().join("home"), code: Vec::new(), environment: Vec::new(), cgroups: root.path().join("cgroup") };
+
+    let store = Accepts(root.path().join("accepts"));
+    let accept = Accept { patch_id: PATCH.to_owned() };
+    let caller = |name: &str| super::hold_request::caller(&cgroup(name), &host).unwrap();
+    accept.serve(&store, &caller("north-reviewer"), 1).unwrap();
+    assert_eq!(store.sessions(PATCH).unwrap().into_iter().collect::<Vec<_>>(), ["north-reviewer"]);
+    assert!(accept.serve(&store, &caller("north-author"), 2).is_err(), "a worker-role session, the lane's author among them, records no review pass");
+    assert_eq!(store.sessions(PATCH).unwrap().len(), 1);
+
+    let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
+    let forged: Vec<(String, String)> = [("NORTH_FLEET_SESSION", "north-reviewer"), ("NORTH_FLEET_SESSION_PROVED", "0")].map(|(name, value)| (name.to_owned(), value.to_owned())).to_vec();
+    let enqueue = |scope: &str| {
+        let asker = super::request_env::asking_session(&words("safe-push --to main"), Some(scope), &host).unwrap();
+        super::request_env::speaking_as(super::request_env::environment_for(&words("safe-push --to main"), forged.clone(), Some(scope), Path::new("/run/user/1000"), &[], &[]), asker)
+    };
+    let named = |variables: &[(String, String)], wanted: &str| variables.iter().filter(|(name, _)| name == wanted).map(|(_, value)| value.clone()).collect::<Vec<_>>();
+    let author = enqueue(&cgroup("north-author"));
+    assert_eq!((named(&author, "NORTH_FLEET_SESSION"), named(&author, "NORTH_FLEET_SESSION_PROVED")), (vec!["north-author".to_owned()], vec!["1".to_owned()]), "a brokered safe-push enqueued under a session name its caller forged, not the one whose scope the broker read");
+    let unscoped = enqueue("0::/user.slice/app.slice/tool.scope\n");
+    assert_eq!((named(&unscoped, "NORTH_FLEET_SESSION"), named(&unscoped, "NORTH_FLEET_SESSION_PROVED")), (vec![String::new()], Vec::<String>::new()), "a brokered safe-push from a caller in no session's scope enqueued under the name it sent");
+}
+
+#[test]
 fn merge_tree_leaves_main_clean() {
     let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     std::fs::create_dir_all(&outside_tmp).unwrap();
