@@ -19,11 +19,12 @@ use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint,
 use north_github_mirror as github_mirror;
 use north_tui::tui;
 use north_ops::ops;
-use north_runtime::{agent_contain, laptop_runner, privacy, runtime, runtime_access, timers, worker_sandbox};
+use north_runtime::{agent_contain, laptop_runner, runtime, worker_sandbox};
 use north_dispatch::{dispatch, laptop, pacing, resident_cap, spend};
 use north_tune::{loops, tune};
 use north_flow::{agents, experiments, flow, tempo, tool_mine};
 use north_convo::{context_audit, convo, policy_replay};
+use north_timers::{privacy, runtime_access, timers};
 
 static RUN_TIME_READERS: [run_time_data::Consumer; 6] = [
     run_time_data::Consumer { path: "harness/defaults.toml", validate: router::policy::validate_defaults },

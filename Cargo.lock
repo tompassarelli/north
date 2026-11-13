@@ -992,6 +992,7 @@ dependencies = [
  "north-shared-config",
  "north-strategy-types",
  "north-threads",
+ "north-timers",
  "north-tui",
  "north-tune",
  "percent-encoding",
@@ -1986,6 +1987,23 @@ dependencies = [
  "rusqlite",
  "rustix 0.38.44",
  "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-timers"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-dispatch",
+ "north-providers",
+ "percent-encoding",
+ "regex",
+ "rustix 0.38.44",
  "serde_json",
  "sha2",
  "tempfile",

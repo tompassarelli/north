@@ -43,7 +43,7 @@ Reverts and flip-flops: none. Every content commit only adds lines, and no line 
   `modules/north-profile/firn/skills/firn/SKILL.md` carry `nix-version: 2.34` and `nixpkgs-lock: 2026-11-02`, the
   date of north's `flake.lock` nixpkgs (nixos-26.05); wisp window and makgora lock the same date.
 - Follow: live. Watch-review counted 58 commits on this path and launched this cycle.
-- Trigger: the version leg is live. `crates/north-runtime/src/timers/skill_triggers.rs:61` compares each
+- Trigger: the version leg is live. `crates/north-timers/src/timers/skill_triggers.rs:61` compares each
   `<tool>-version:` with `<tool> --version` (north#112, `7ba1919a1`), and nix-development has `cadence: 14`. The
   plan's other two legs were never built, and no box owned them:
   - Lock leg: `skill_triggers.rs` reads no `nixpkgs-lock:`, so nothing compares it with a `flake.lock`.
@@ -68,7 +68,7 @@ Ranked by expected effect on landing speed, quality and usage per closed box.
 3. `xdg.directories`: dropped. It is opt-in, firn does not enable it (`rg` count 0), and firn sets
    `XDG_CACHE_HOME` only on two system services, which a session variable does not reach. Enabling it would not
    move watch-review's cache, which already falls back from `XDG_CACHE_HOME` to `~/.cache`
-   (`crates/north-runtime/src/timers/watch_review/system.rs:20`). North mentions these variables 131 times in 99
+   (`crates/north-timers/src/timers/watch_review/system.rs:20`). North mentions these variables 131 times in 99
    files, not audited one by one, and nothing proposes enabling the module.
 4. Falco, OpenLogi, phrog, LaSuite Docs, tdarr: dropped. Firn has no `falco`, `phrog` or `phosh`, `lasuite` or
    `tdarr` line and configures no HID++ tool; north uses none of them.
@@ -103,9 +103,9 @@ Together the two changes take this source from 17 to 2 xhigh research cycles per
 ## Decisions
 
 - Landed with this record: watch-review counts `--no-merges` (`content_commits` in
-  `crates/north-runtime/src/timers/watch_review/system.rs`, test
+  `crates/north-timers/src/timers/watch_review/system.rs`, test
   `a_merge_carrying_two_branches_changes_across_counts_as_no_new_commit`) and a source may set
-  `cadence = "monthly"` (`crates/north-runtime/src/timers/watch_review/mod.rs`, test
+  `cadence = "monthly"` (`crates/north-timers/src/timers/watch_review/mod.rs`, test
   `a_monthly_source_waits_out_its_month_however_many_commits_arrive`). South's `agents/watch.toml` sets the monthly
   cadence for this source once this lands.
 - No card or skill is regrounded: none of the 8 entries touches what the stamped files teach.

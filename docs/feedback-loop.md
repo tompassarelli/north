@@ -56,7 +56,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | capacity_runs io, diskBusyShare | crates/north-capacity-host/src/capacity/host/run.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate output | read | |
 | capacity_runs.exitCode | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
 | capacity_runs.command, cpuSeconds | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/model.rs Subject::levels keys the model by command; update folds cpu_seconds into each level | read | |
-| job_runs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/jobs/mod.rs job_runs; crates/north-runtime/src/job_watch/mod.rs | read | |
+| job_runs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/jobs/mod.rs job_runs; crates/north-timers/src/job_watch/mod.rs | read | |
 | machine-capacity-usage.jsonl | crates/north-capacity-host/src/capacity/host/database.rs record_usage | crates/north-capacity-host/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | crates/north-pace/src/usage/gate.rs | crates/north-guard/src/guard/spawn_capacity/usage.rs | read | |
 | spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | crates/north-ops/src/ops/report/mod.rs jsonl | read | 871718bb |
@@ -65,7 +65,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | goal-scores.jsonl | crates/north-flow/src/agents/goal/score.rs | crates/north-ops/src/ops/report/mod.rs jsonl | read | 871718bb |
 | S:costs.toml | hand | crates/north-pace/src/usage/settings.rs services | read | |
 | costs/*.json | crates/north-pace/src/usage/refresh/digitalocean.rs | crates/north-pace/src/usage/settings.rs service lines | read | |
-| S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-runtime/src/timers/skill_prune.rs | read | |
+| S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-timers/src/timers/skill_prune.rs | read | |
 | injected context per session (startup, SKILL bodies, skill references, grounding, other hook context; grounding precision and notification-triggered injections), derived from Claude transcripts | Claude Code transcripts under the north profiles' `projects` directories | crates/north-convo/src/context_audit/scan.rs audit_file; `north config context audit` measures the skill and hook slimming program | read | |
 | S:incidents.jsonl | north incident-mine (crates/north-ops/src/ops/incident_mine) | crates/north-core/src/agent_config_check/rules.rs | read | |
 | incidents (class, noticed_by, started_at, detected_at, fixed_at, guard, recurred_after_guard) | north ledger incident record from the lander (crates/north-landing/src/land/incidents.rs, every verdict but landed and every held candidate) and north land withdraw | crates/north-threads/src/threads/incidents/report.rs, printed by north ledger flow per 7 days and north ledger incident report | read | |
@@ -84,7 +84,7 @@ State files the loops above write, relative to `~/.local/state`. `north health` 
 | `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` | crates/north-guard/src/guard/spawn_capacity/logs.rs | event | north#35 |
 | `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` | crates/north-flow/src/agents/goal/score.rs | event | north#35 |
 | `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-capacity-host/src/capacity/host/database.rs | event | north#35 |
-| `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-runtime/src/usage_web_read | 6h | north#35 |
+| `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-timers/src/usage_web_read | 6h | north#35 |
 
 ## Recorded readings
 

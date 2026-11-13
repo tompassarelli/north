@@ -198,7 +198,7 @@ fixes in each machine's code from history.
     file (`crates/north-base/src/dispatch_pause.rs`, `crates/north-dispatch/src/dispatch/pause.rs`) beside the timer
     it stops; health compares the two. Shapes: presence-flag, unit-intent.
 29. **Private-text judge** (none counted). No in-flight record: absent means not judged, judging or dead
-    (`crates/north-base/src/platform/private_text.rs:41`, `crates/north-runtime/src/privacy/judge.rs:29-132`); a
+    (`crates/north-base/src/platform/private_text.rs:41`, `crates/north-timers/src/privacy/judge.rs:29-132`); a
     failed judge keeps answering "judging". Shapes: presence-flag.
 30. **Review and distill locks** (none counted). `code-health/REPO/review.lock` is released by the launched agent's
     `rm` and a dry run keeps a real lock (`crates/north-code-health/src/code_health/tick.rs:95-173`); `distill.lock.d` is
@@ -214,7 +214,7 @@ fixes in each machine's code from history.
     compare-and-swap (`crates/north-ops/src/ops/observation_boxes/mod.rs:43-109` reads no fresh copy), so concurrent
     writers lose each other's ticks. The fix is a guarded edit, not a record. Shapes: reviewer-only.
 34. **Timers that read a session name as running** (none counted). incident-retro and watch-review count a fleet row
-    named with their prefix and not `exited` as running (`crates/north-runtime/src/timers/incident_retro/mod.rs:71`,
+    named with their prefix and not `exited` as running (`crates/north-timers/src/timers/incident_retro/mod.rs:71`,
     `timers/watch_review/mod.rs:144`); a session that dies leaves the week unclassified. Shapes: status-string.
 35. **Laptop availability** (none counted). Automatic versus manual is decided by comparing `by` and `reason`
     strings (`crates/north-pacing/src/laptop/tick.rs:80,95`); draining stays forever when the job queue is

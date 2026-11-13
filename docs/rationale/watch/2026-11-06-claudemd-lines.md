@@ -116,7 +116,7 @@ instructions, and no text was copied.
   instruction Tom repeats into a line.
 - **Log friction per session and review it weekly; turn repeated actions into skills only when evals show a gain**
   (thread lines on observation notes, a session-reflection skill and a weekly skill cron). The weekly
-  `north incident-retro` timer (`crates/north-runtime/src/timers/incident_retro/mod.rs`) classifies mined failures
+  `north incident-retro` timer (`crates/north-timers/src/timers/incident_retro/mod.rs`) classifies mined failures
   into modes with no enforcer. The policy climber proposes and scores changes against the ledger. Per-session
   observation markdown files are rejected under the next item.
 - **No new markdown files without need; one fact in one owner file** (two thread lines). The `handoff_record` guard

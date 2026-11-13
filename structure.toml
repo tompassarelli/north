@@ -726,11 +726,6 @@ paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**"
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
 may_use = ["strategy_types", "cargo_manifest", "coverage", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "concerns", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host", "graph_loops", "git_locks", "platform.records", "runtime_follow", "build_system", "buck"]
 
-[[module.limit]]
-commit = "2cd072a294"
-cognitive = { was = 105, now = 112 }
-reason = "north#1249 puts a lane back as it was when its hand-in rebase stops after writing files: the restore is new code in crates/north-lander/src/land/hand_in/lane_sync.rs (7), the feature itself"
-
 [[module]]
 name = "landing.safe_push.shell"
 paths = ["crates/north-safe-push/src/shell/**"]
@@ -895,7 +890,7 @@ may_use = ["crate-roots", "graph", "platform.harness"]
 
 [[module]]
 name = "ops"
-paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-offload/src/lib.rs", "crates/north-runtime/src/agent_contain/**", "crates/north-offload/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-offload/src/land_offload/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/lib.rs", "crates/north-offload/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**", "crates/north-pacing/src/laptop/**", "crates/north-pacing/src/lib.rs", "crates/north-pacing/src/pacing/**", "crates/north-pacing/src/resident_cap/**", "crates/north-tune/src/lib.rs", "crates/north-tune/src/loops/**", "crates/north-tune/src/tune/**", "crates/north-runtime/src/worker_sandbox/**"]
+paths = ["crates/north-timers/src/lib.rs", "crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-offload/src/lib.rs", "crates/north-runtime/src/agent_contain/**", "crates/north-offload/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-offload/src/land_offload/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-timers/src/lib.rs", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/lib.rs", "crates/north-offload/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**", "crates/north-pacing/src/laptop/**", "crates/north-pacing/src/lib.rs", "crates/north-pacing/src/pacing/**", "crates/north-pacing/src/resident_cap/**", "crates/north-tune/src/lib.rs", "crates/north-tune/src/loops/**", "crates/north-tune/src/tune/**", "crates/north-runtime/src/worker_sandbox/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
 may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.ssh", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow", "registries", "build_system", "platform.store", "platform.git"]
 
@@ -1308,3 +1303,9 @@ name = "docs"
 paths = ["crates/north-docs/src/**"]
 responsibility = "The north docs command: each generated index and the per-unit source tree it is written from."
 may_use = ["crate-roots", "registries"]
+
+[[crate_dag.crate]]
+name = "north-timers"
+layer = 6
+paths = ["crates/north-timers/src/**"]
+may_use = ["north-base", "north-dispatch", "north-providers"]

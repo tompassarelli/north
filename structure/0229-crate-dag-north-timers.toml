@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-timers"
+layer = 6
+paths = ["crates/north-timers/src/**"]
+may_use = ["north-base", "north-dispatch", "north-providers"]

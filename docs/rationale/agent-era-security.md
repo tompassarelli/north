@@ -121,7 +121,7 @@ once wherever the vulnerable code sits, transitively, and remove the patch when 
 
 What exists: `north supply-chain-scan` runs daily on a timer (firn's modules/supply-chain-scan) and runs osv-scanner
 over the lock files on origin/main of four projects, alerting on malware and on advisories with a fix
-(crates/north-runtime/src/timers/supply_chain.rs). The lander refuses an advisory a lane adds unless a
+(crates/north-timers/src/timers/supply_chain.rs). The lander refuses an advisory a lane adds unless a
 `Dependency-Advisory:` trailer accepts it. firn applies one overlay set to every host.
 
 2026-11-09: claim 5, an overlay reaches only what one nixpkgs instance builds; crates and npm packages are patched in

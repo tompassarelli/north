@@ -79,6 +79,7 @@ crates_before = [
   "north-strategy-types",
   "north-test-cases",
   "north-threads",
+  "north-timers",
   "north-tui",
   "north-tune",
 ]

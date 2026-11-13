@@ -410,15 +410,15 @@ Four boxes cannot be 60 minutes or less, and each says why: L14, L31, L41, L48.
 - Check: `test ! -e crates/north-runtime/src/land_offload && test -d crates/north-offload`.
 
 **L21 Split: the timers leave north-runtime (new crate north-timers, layer 6).** 0.75 h. After: L20.
-- Files: `crates/north-runtime/src/timers/`, `crates/north-runtime/src/outside_watch/`, `crates/north-runtime/src/job_watch/`, `crates/north-runtime/src/usage_web_read/`, `crates/north-runtime/src/runtime_access.rs`, `crates/north-runtime/src/lib.rs`, a crate-dag part, the generated files, `docs/rationale/experiments.toml`.
+- Files: `crates/north-timers/src/timers/`, `crates/north-timers/src/outside_watch/`, `crates/north-timers/src/job_watch/`, `crates/north-timers/src/usage_web_read/`, `crates/north-timers/src/runtime_access.rs`, `crates/north-runtime/src/lib.rs`, a crate-dag part, the generated files, `docs/rationale/experiments.toml`.
 - Behavior: unchanged.
-- Check: `test ! -e crates/north-runtime/src/timers && test -d crates/north-timers`.
+- Check: `test ! -e crates/north-timers/src/timers && test -d crates/north-timers`.
 
 **L22 Move: the privacy judge becomes a land scan with its model call passed in.** 1.0 h. After: L21.
-- Files: `crates/north-runtime/src/privacy/` (595 lines), north-land-scans, `src/cli/tools.rs`, `crates/north-land-checks/src/land/slots/guard_suites_tests.rs`.
+- Files: `crates/north-timers/src/privacy/` (595 lines), north-land-scans, `src/cli/tools.rs`, `crates/north-land-checks/src/land/slots/guard_suites_tests.rs`.
 - Change: the judge's one provider call becomes a parameter the command layer supplies, so the judge is a rule.
 - Behavior: unchanged.
-- Check: `test ! -e crates/north-runtime/src/privacy`, and north-runtime's product lines are under 8,000.
+- Check: `test ! -e crates/north-timers/src/privacy`, and north-runtime's product lines are under 8,000.
 
 **L23 Move: the crate-split tool and the build-time reading join code health.** 0.5 h. After: nothing.
 - Files: north-core's `split` and `build_time` modules, `crates/north-core/src/lib.rs`, `crates/north-code-health/src/lib.rs`, `crates/north-code-health/Cargo.toml`.

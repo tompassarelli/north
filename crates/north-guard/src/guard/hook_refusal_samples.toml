@@ -1805,7 +1805,7 @@ command = "cd /home/tom/code/north/worktrees/n696-adopt && cargo check -p north-
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/worktrees/n701-judge; f=crates/north-runtime/src/privacy/judge.rs; cat > /tmp/n701-test.rs <<'EOF' #[cfg(test)] mod tests {   "
+command = "cd /home/tom/code/north/worktrees/n701-judge; f=crates/north-timers/src/privacy/judge.rs; cat > /tmp/n701-test.rs <<'EOF' #[cfg(test)] mod tests {   "
 label = "true"
 
 [[sample.row]]

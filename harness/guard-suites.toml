@@ -29,14 +29,14 @@ paths = [
     "crates/north-landing-gates/src/landing/denylist_tests.rs",
     "crates/north-safe-push/src/publication/outgoing.rs",
     "crates/north-base/src/platform/private_text.rs",
-    "crates/north-runtime/src/privacy/",
+    "crates/north-timers/src/privacy/",
 ]
 tests = [
     "north-land-scans outgoing::",
     "north-landing-gates landing::denylist",
     "north-safe-push publication::outgoing::",
     "north-base platform::private_text::",
-    "north-runtime privacy::",
+    "north-timers privacy::",
 ]
 it = []
 

@@ -72,7 +72,8 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 4 capacity | north-capacity-host | Host leases, the dependency box, the watchdog and the PATH gate. |
 | 5 orchestration | north-pacing | Placement of work on hosts and accounts, laptop state and the resident cap. |
 | 5 orchestration | north-dispatch | The dispatch decision: which box runs next, on which tier, with which brief. |
-| 5 orchestration | north-runtime | Runtime update, canary, order and pin, and the worker sandbox, the offload, the timers and the privacy judge. |
+| 5 orchestration | north-runtime | Runtime update, canary, order and pin, and the worker sandbox, the offload. |
+| 6 operations | north-timers | The timers and watches, the outside, job and usage-web readers, and the privacy judge. |
 | 6 operations | north-tune | Tuned values and the learning-loop checks. |
 | 6 operations | north-replay | Strategy replay: logged decision cases decided again by the linked code. |
 | 6 operations | north-flow | The flow report, and agents, detectors, experiments, tempo and tool mining. |
