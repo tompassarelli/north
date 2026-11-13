@@ -3,13 +3,20 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use toml_edit::Item;
 
+pub mod admit;
+#[cfg(test)]
+mod admit_tests;
+#[cfg(test)]
+mod burst_tests;
 pub mod case;
+pub mod cloud;
 mod credit;
 pub mod gate;
 mod hosts;
 pub use hosts::{Pass, build_hosts, pass, read_lines, surveyed_lines};
 mod inputs;
 mod keeper;
+pub mod launch;
 pub mod line_wait;
 /// `north placement-survey keep`, refreshing every build host's survey answer while launches place work.
 pub fn keep_surveys(arguments: &[String]) -> u8 {
@@ -34,8 +41,10 @@ pub fn hold_spares(arguments: &[String]) -> u8 {
     hosts::hold_spares(arguments)
 }
 pub mod needs;
+pub mod place;
 mod reach;
 pub mod recent;
+pub mod refusal;
 mod repository;
 pub mod room;
 use credit::credit;

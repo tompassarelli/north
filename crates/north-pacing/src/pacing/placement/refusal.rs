@@ -5,7 +5,7 @@ use crate::error::NorthError;
 use north_strategy_types::placement as record;
 
 #[derive(Debug, PartialEq)]
-pub(super) enum Refusal {
+pub enum Refusal {
     Saturated(String),
     Spend(String),
     Final(String),
@@ -15,16 +15,16 @@ pub(super) enum Refusal {
 impl Refusal {
     /// Whether the launch queue holds a launch this refusal stops: a spend refusal until a window resets, a landing line over the
     /// bar until it eases, and a saturated host for a harness launch, which has no wait of its own.
-    pub(super) fn queues(&self, provider: &str) -> bool {
+    pub fn queues(&self, provider: &str) -> bool {
         matches!(self, Self::Spend(_) | Self::Line(_)) || (provider != "claude" && matches!(self, Self::Saturated(_)))
     }
 
     /// The hold a harness launch meets while every build host's landing line is over the bar: a worker waits.
-    pub(super) fn line_hold(worker: bool) -> Option<Self> {
-        worker.then(crate::pacing::placement::line_held_now).flatten().map(Self::Line)
+    pub fn line_hold(worker: bool) -> Option<Self> {
+        worker.then(super::line_held_now).flatten().map(Self::Line)
     }
 
-    pub(super) fn kind(&self) -> record::Refusal {
+    pub fn kind(&self) -> record::Refusal {
         match self {
             Self::Saturated(_) => record::Refusal::Saturated,
             Self::Spend(_) => record::Refusal::Spend,

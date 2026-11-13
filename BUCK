@@ -20,7 +20,6 @@ rust_binary(
     srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
-        "//crates/north-pacing:src/pacing/placement/fixtures/burst-2026-11-12.json": "crates/north-pacing/src/pacing/placement/fixtures/burst-2026-11-12.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
     },
     crate = "fake_claude",
@@ -100,7 +99,6 @@ north_rust_test(
     srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
-        "//crates/north-pacing:src/pacing/placement/fixtures/burst-2026-11-12.json": "crates/north-pacing/src/pacing/placement/fixtures/burst-2026-11-12.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
     },
     crate = "fake_claude",
@@ -183,7 +181,6 @@ rust_binary(
     srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
-        "//crates/north-pacing:src/pacing/placement/fixtures/burst-2026-11-12.json": "crates/north-pacing/src/pacing/placement/fixtures/burst-2026-11-12.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
     },
     crate = "north",
@@ -263,7 +260,6 @@ north_rust_test(
     srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
-        "//crates/north-pacing:src/pacing/placement/fixtures/burst-2026-11-12.json": "crates/north-pacing/src/pacing/placement/fixtures/burst-2026-11-12.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
     },
     crate = "north",
@@ -346,7 +342,6 @@ rust_binary(
     srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
-        "//crates/north-pacing:src/pacing/placement/fixtures/burst-2026-11-12.json": "crates/north-pacing/src/pacing/placement/fixtures/burst-2026-11-12.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
     },
     crate = "push_trace_git",
@@ -426,7 +421,6 @@ north_rust_test(
     srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
-        "//crates/north-pacing:src/pacing/placement/fixtures/burst-2026-11-12.json": "crates/north-pacing/src/pacing/placement/fixtures/burst-2026-11-12.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
     },
     crate = "push_trace_git",
@@ -509,7 +503,6 @@ rust_binary(
     srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
-        "//crates/north-pacing:src/pacing/placement/fixtures/burst-2026-11-12.json": "crates/north-pacing/src/pacing/placement/fixtures/burst-2026-11-12.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
     },
     crate = "verify_north",
@@ -589,7 +582,6 @@ north_rust_test(
     srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
-        "//crates/north-pacing:src/pacing/placement/fixtures/burst-2026-11-12.json": "crates/north-pacing/src/pacing/placement/fixtures/burst-2026-11-12.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
     },
     crate = "verify_north",

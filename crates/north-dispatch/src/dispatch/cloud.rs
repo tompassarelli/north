@@ -15,7 +15,6 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 pub const SOURCES: &str = "/tmp/cloud/src";
-pub const AUTOLAND: [&str; 2] = ["makgora", "wisp"];
 pub const HOST: &str = "anthropic-cloud";
 const LAUNCH_WAIT: Duration = Duration::from_secs(180);
 static SESSION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"session_[A-Za-z0-9]+").expect("session pattern"));
@@ -29,13 +28,7 @@ pub struct Launched {
     pub directory: PathBuf,
 }
 
-pub fn branch(slug: &str) -> String {
-    format!("claude/land-{slug}")
-}
-
-pub fn autoland(repo: &str) -> bool {
-    AUTOLAND.contains(&repo)
-}
+pub use crate::pacing::placement::cloud::{autoland, branch};
 
 pub fn checkout_steps(repo: &str, directory: &Path, fresh: bool) -> Vec<Vec<String>> {
     let dir = directory.to_string_lossy();

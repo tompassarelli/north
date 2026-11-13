@@ -1,12 +1,20 @@
-use super::*;
+use super::launch::{Launch, Overrides};
+use super::place::decide;
+use crate::fleet::model::Role;
+use crate::usage::decide::world::ModelFamily;
+use north_strategy_types::placement::Case;
+use std::collections::BTreeMap;
+use std::path::Path;
 
 #[test]
 fn a_burst_placed_from_a_slow_survey_spreads_over_the_build_hosts_and_keeps_none_on_the_control_host() {
-    let mut recorded: Case = serde_json::from_str(include_str!("../../../crates/north-pacing/src/pacing/placement/fixtures/burst-2026-11-12.json")).unwrap();
+    let mut recorded: Case = serde_json::from_str(include_str!("fixtures/burst-2026-11-12.json")).unwrap();
     for machine in &mut recorded.machines {
         machine.has_cwd = None;
         machine.stale_age_s = Some(1.0);
-        if machine.name == "gex45" && let Some(backlog) = machine.saturation.as_mut().and_then(|reading| reading.backlog.as_mut()) {
+        if machine.name == "gex45"
+            && let Some(backlog) = machine.saturation.as_mut().and_then(|reading| reading.backlog.as_mut())
+        {
             backlog.load = 8.0;
             machine.hosted = 0;
         }

@@ -24,7 +24,6 @@ mod lineage;
 pub(super) mod page_flood;
 mod list;
 mod placement;
-mod refusal;
 mod promises;
 mod ranked;
 mod typed;

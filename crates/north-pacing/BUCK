@@ -85,8 +85,3 @@ north_files(
     srcs = glob(["**", "**/.*", "**/.*/**"]),
     visibility = ["PUBLIC"],
 )
-
-export_file(
-    name = "src/pacing/placement/fixtures/burst-2026-11-12.json",
-    visibility = ["PUBLIC"],
-)
