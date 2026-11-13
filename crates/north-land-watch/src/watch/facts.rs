@@ -54,6 +54,8 @@ pub struct Run {
     pub html_url: String,
     #[serde(skip)]
     pub environment_only: bool,
+    #[serde(skip)]
+    pub started_no_job: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -165,8 +167,13 @@ fn mark_environment_failures(runs: &mut [Run], slug: &str) {
     }
     for index in newest.into_values() {
         let jobs = output("gh", None, &["api", &format!("repos/{slug}/actions/runs/{}/jobs?per_page=100", runs[index].id)]);
+        runs[index].started_no_job = jobs.as_deref().is_ok_and(started_no_job);
         runs[index].environment_only = jobs.is_ok_and(|text| failed_only_in_environment_steps(&text));
     }
+}
+
+pub fn started_no_job(jobs: &str) -> bool {
+    serde_json::from_str::<Value>(jobs).is_ok_and(|body| body["jobs"].as_array().is_some_and(|jobs| jobs.is_empty()))
 }
 
 pub fn failed_only_in_environment_steps(jobs: &str) -> bool {

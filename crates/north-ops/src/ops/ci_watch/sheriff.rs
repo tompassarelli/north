@@ -110,6 +110,9 @@ pub fn decide(s: &Situation) -> Decision {
     if matches!(s.conclusion.as_deref(), None | Some("cancelled")) {
         return Decision::new(Kind::None, "The run was cancelled or never concluded; nothing to revert");
     }
+    if failed(&s.conclusion) && s.original.is_empty() {
+        return Decision::new(Kind::None, "the provider started no job");
+    }
     if failed(&s.conclusion) && failed_only_in_environment(s.original.iter().flat_map(|job| &job.steps).map(|step| (step.name.as_str(), step.conclusion.as_deref()))) {
         return Decision::new(Kind::None, "Environment not set up: only environment steps failed, so no commit is blamed and the run is not a red main");
     }

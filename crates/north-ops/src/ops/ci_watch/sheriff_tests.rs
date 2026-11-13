@@ -97,4 +97,6 @@ fn a_run_that_failed_only_in_its_environment_steps_is_not_a_red_main() {
     assert!(verdict.reason.starts_with("Environment not set up"), "{}", verdict.reason);
     let mixed = situation(vec![job(1, "failure", vec![step("Environment: cargo tests", "failure"), step("Test", "failure")])]);
     assert_eq!(decide(&mixed).kind, Kind::Confirm);
+    let none = decide(&situation(Vec::new()));
+    assert_eq!((none.kind, none.reason.as_str()), (Kind::None, "the provider started no job"));
 }

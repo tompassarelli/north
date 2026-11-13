@@ -33,4 +33,8 @@ fn a_main_run_that_failed_only_in_its_environment_steps_warns_and_does_not_page_
     let jobs = r#"{"jobs":[{"steps":[{"name":"Environment: cargo tests","conclusion":"failure"},{"name":"Test","conclusion":"skipped"}]}]}"#;
     assert!(super::super::facts::failed_only_in_environment_steps(jobs));
     assert!(!super::super::facts::failed_only_in_environment_steps(&jobs.replace("skipped", "failure")));
+    assert!(super::super::facts::started_no_job(r#"{"total_count":0,"jobs":[]}"#));
+    assert!(!super::super::facts::started_no_job(jobs));
+    let jobless = WatchContext { now: NOW, repos: vec![RepoFacts { name: "north".into(), runs: vec![Run { started_no_job: true, ..run(false) }], ..RepoFacts::default() }], ..WatchContext::default() };
+    assert!(red_main(&jobless, &jobless.repos[0]).is_empty());
 }
