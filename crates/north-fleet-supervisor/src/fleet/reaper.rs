@@ -107,7 +107,7 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
     if seen.lane_holds && seen.quiet < stale {
         return Verdict::Keep;
     }
-    if seen.ended {
+    if seen.ended && !waiting(seen) {
         return Verdict::Ended;
     }
     if seen.status == Status::Exited {
@@ -132,6 +132,10 @@ fn finished(seen: &Seen, report: &Report) -> bool {
 
 fn waits(report: &str) -> bool {
     opens(report, "Not done") || opens(report, "Blocked")
+}
+
+fn waiting(seen: &Seen) -> bool {
+    seen.report.as_ref().is_some_and(|report| opens(&report.text, "Waiting"))
 }
 
 fn owes_landing(lanes: &[Lane], ended_ms: u64) -> bool {

@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 const SHA_CHARS: usize = 7;
-const OPENINGS: [&str; 5] = ["Done", "Not done", "Split", "Stop", "Blocked"];
+const OPENINGS: [&str; 6] = ["Done", "Not done", "Split", "Stop", "Blocked", "Waiting"];
 const TOLD: &str = "told:";
 
 static WAITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^[\W_]*Stop:[*_` \t]*(?:landing|wait)\b").expect("waiting stop pattern"));

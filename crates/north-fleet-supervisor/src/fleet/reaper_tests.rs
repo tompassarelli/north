@@ -106,22 +106,34 @@ fn a_done_report_retires_its_session_only_once_its_parent_took_it_and_each_sha_i
 }
 
 #[test]
-fn a_not_done_or_split_retires_only_when_it_names_a_stop_its_parent_took_and_new_work_after_a_done_keeps_it() {
+fn a_waiting_report_outlives_its_idled_host_until_a_done_report_retires_it_and_a_not_done_or_split_retires_only_when_it_names_a_stop() {
     let home = tempfile::tempdir().unwrap();
     let (fleet, paper) = fleet(home.path());
     let _lead = live(&fleet, "lead");
     reported(&fleet, "stopped", Some("lead"), "Split: boxes 1 and 2 landed; box 3 is its own item.\nStop: budget");
     reported(&fleet, "unstopped", Some("lead"), "Not done: the suite is red on main.");
+    reported(&fleet, "waiting", Some("lead"), "Waiting: the coordinator holds the hand-in until main is green.");
+    let record_path = fleet.root.join("waiting").join("session.json");
+    let mut idled: Value = serde_json::from_slice(&std::fs::read(&record_path).unwrap()).unwrap();
+    idled["stopped"] = json!(true);
+    idled["ended"] = json!("idle-exit");
+    std::fs::write(&record_path, idled.to_string()).unwrap();
     let result = json!({"type": "result", "subtype": "success", "session_id": "rehired"});
     parked(&fleet, "rehired", Some("lead"), &[said("rehired", "assistant", "Done: nothing to land."), result.clone(), said("rehired", "user", "[from lead] also port the shell test"), said("rehired", "assistant", "Porting it now."), result]);
-    for name in ["stopped", "unstopped", "rehired"] {
+    for name in ["stopped", "unstopped", "waiting", "rehired"] {
         paper.claim_receipt(name, "turn:1", now_ms()).unwrap();
     }
 
     let reaped = reap_after(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true);
 
     assert_eq!(retired(&reaped), ["stopped"]);
-    assert!(fleet.session("unstopped").is_ok() && fleet.session("rehired").is_ok());
+    assert!(fleet.session("unstopped").is_ok() && fleet.session("rehired").is_ok() && fleet.session("waiting").is_ok());
+    reported(&fleet, "waiting", Some("lead"), "Done: nothing to land.");
+    paper.claim_receipt("waiting", "turn:2", now_ms()).unwrap();
+
+    let finished = reap_after(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true);
+
+    assert_eq!(retired(&finished), ["waiting"]);
 }
 
 /// Eight workers parked under the coordinator's hold were retired on 2026-11-12 after a taken Not done report, lanes ahead of main and their parent untold (north#1235).

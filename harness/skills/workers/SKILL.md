@@ -38,7 +38,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 
 ## Reports
 
-- Every report begins `Done:`, `Not done:`, `Blocked:` or `Split:`, and every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`. The last message is the report: keep no status files and never resume a worker to check on it.
+- Every report begins `Done:`, `Not done:`, `Blocked:` or `Split:`, and every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`. The last message is the report: keep no status files and never resume a worker to check on it. A report that only waits on the coordinator opens `Waiting:` instead, and the reaper keeps its session until the worker's next report.
 - Upward messages are by exception: a child reports a Done, a landing, a refusal or red it cannot fix, or a blocker needing authority it lacks; a lead speaks down when priorities shift.
 - Decide routine calls yourself. A `Stop: decision` or `Blocked: decision` report must name an open gate from `north gate open ... --recommend N --default N --default-after D` (or `--ask-once CATEGORY` in place of the default for an ask-once matter) (Tom, 2026-10-29).
 - Report a fix as landed only once its SHA is an ancestor of a freshly fetched `origin/main`, because queued or Autoland-green is not landed; until then report `Done: queued <worktree> <branch> <sha>`.
