@@ -4,8 +4,6 @@ use crate::foundation::clock::Timestamp;
 
 pub(super) fn run(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
     match flags {
-        [] => listing(fleet, false),
-        ["--claude-ai"] => listing(fleet, true),
         ["--api"] => api_pool_listing(),
         ["--plan"] => plan(),
         ["--reading", account, usd] => reading(account, usd),
@@ -113,8 +111,17 @@ fn api_pool_listing() -> NorthResult<()> {
     Ok(())
 }
 
-fn listing(fleet: &Fleet, claude_ai: bool) -> NorthResult<()> {
-    let roster = fleet.roster();
+/// The plain and `--claude-ai` listings read only the roster, so they run before the ledger opens and work where it cannot be written.
+pub(super) fn listed(flags: &[&str]) -> Option<NorthResult<()>> {
+    let claude_ai = match flags {
+        [] => false,
+        ["--claude-ai"] => true,
+        _ => return None,
+    };
+    Some(super::roster().map(|roster| listing(&roster, claude_ai)))
+}
+
+fn listing(roster: &crate::fleet::roster::Roster, claude_ai: bool) {
     for account in roster.accounts.iter().filter(|account| !claude_ai || account.home.join(".credentials.json").is_file()) {
         match &account.api {
             Some(key) => println!("{}\t{}\t{}", account.provider.label(), account.label, key.org),
@@ -124,7 +131,6 @@ fn listing(fleet: &Fleet, claude_ai: bool) -> NorthResult<()> {
     for omitted in roster.omitted() {
         eprintln!("omitted: {omitted}");
     }
-    Ok(())
 }
 
 

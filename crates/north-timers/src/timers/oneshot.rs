@@ -93,12 +93,15 @@ pub(crate) fn ask(profiles: &Path, limited: &mut Limited, labels: &[String], att
     if failed { Asked::Failed("a claude account failed".to_owned()) } else { Asked::AtLimit }
 }
 
-fn claude_accounts() -> Vec<String> {
-    let listed = Command::new(north_program()).args(["fleet", "accounts"]).output().map(|output| text(&output)).unwrap_or_default();
-    listed.lines().filter_map(|line| {
+fn claude_accounts() -> Result<Vec<String>, String> {
+    let output = Command::new(north_program()).args(["fleet", "accounts"]).stdin(std::process::Stdio::null()).output().map_err(|error| format!("north fleet accounts did not start: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("listing the claude accounts failed: {}", super::child_failure("north fleet accounts", output.status.code(), &output.stderr)));
+    }
+    Ok(text(&output).lines().filter_map(|line| {
         let mut fields = line.split_whitespace();
         (fields.next() == Some("claude")).then(|| fields.next().map(str::to_owned)).flatten()
-    }).collect()
+    }).collect())
 }
 
 /// The `env` words that start `claude` as the profile at `config_dir`: through its account's
@@ -191,7 +194,11 @@ pub(crate) fn ask_claude_answered(question: &Ask, limit: Duration, access: &Runt
 fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String), answered_by: &mut Option<String>) -> Asked {
     let profiles = env_or("NORTH_PROFILES", || home().join(".local/state/north/profiles"));
     let accounts = crate::fleet::registry::roster(&access.runtimes).map(|roster| roster.accounts).unwrap_or_default();
-    let shared: Vec<String> = claude_accounts().into_iter().filter(|label| !accounts.iter().any(|account| &account.label == label && account.api.is_some())).collect();
+    let listed = match claude_accounts() {
+        Ok(listed) => listed,
+        Err(reason) => return Asked::Failed(reason),
+    };
+    let shared: Vec<String> = listed.into_iter().filter(|label| !accounts.iter().any(|account| &account.label == label && account.api.is_some())).collect();
     let reserve = crate::platform::orchestration::read().map(|policy| crate::spend::operational::declared(&policy)).unwrap_or_default();
     let answered = std::fs::read_to_string(answered_record()).ok();
     let subscription = answered_first(crate::spend::operational::order(&reserve, shared), &reserve, answered.as_deref().map(str::trim));

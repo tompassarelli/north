@@ -45,11 +45,18 @@ use super::tick;
 use crate::cli::{gate, orders, send};
 
 pub fn run(arguments: &[String]) -> ExitCode {
-    let result = open_fleet_claiming(ThreadsCli::for_verb(arguments)).and_then(|fleet| {
-        crate::cli::gate_closing::close_moot(&fleet);
-        sweep_gates(&fleet);
-        release_exited_claims(&fleet, arguments);
-        dispatch(fleet, arguments)
+    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let listed = match words.as_slice() {
+        ["accounts", flags @ ..] => accounts::listed(flags),
+        _ => None,
+    };
+    let result = listed.unwrap_or_else(|| {
+        open_fleet_claiming(ThreadsCli::for_verb(arguments)).and_then(|fleet| {
+            crate::cli::gate_closing::close_moot(&fleet);
+            sweep_gates(&fleet);
+            release_exited_claims(&fleet, arguments);
+            dispatch(fleet, arguments)
+        })
     });
     match result {
         Ok(()) => ExitCode::SUCCESS,
