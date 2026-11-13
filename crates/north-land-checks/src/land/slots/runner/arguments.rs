@@ -1,11 +1,13 @@
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use north_base::foundation::offload::{LANDER_SLOT_ENV, LOCAL_ENV, OFF_HOST_ENV};
 use north_base::platform::harness;
 
 use crate::land::slots::graph_selection::Batch;
+use crate::land::slots::judged;
+use crate::land::slots::select::Config;
 use crate::land::slots::unit_reuse::RECORD_ENV;
 
 #[derive(Clone, Default)]
@@ -91,6 +93,11 @@ impl Arguments {
 
     pub(super) fn tree(&self) -> &str {
         if self.tree.is_empty() { &self.head } else { &self.tree }
+    }
+
+    /// The lines that judge this run of `tree`: the landing's own for an after-landing run, else the lane's judged by `judged::config`.
+    pub(super) fn judged(&self, root: &Path, tree: &str) -> Config {
+        if self.after { Config::load(root, tree) } else { judged::config(root, &self.base, tree) }
     }
 
     pub(super) fn pinned(&self) -> bool {

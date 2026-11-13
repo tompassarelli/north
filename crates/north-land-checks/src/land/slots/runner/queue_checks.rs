@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::super::clippy_first;
+use super::super::judged;
 use super::super::verdict_key;
 use super::line_refusals::Refusals;
 use super::log::first_error;
@@ -22,7 +23,7 @@ const TESTS_AFTER_LANDING: &str = "tests_after_landing";
 /// for on tests that did not run (north#1230). Read without running them, so a test can pin the set
 /// (north#892).
 pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
-    let config = Config::load(root, head);
+    let config = judged::config(root, base, head);
     let landing = config.after_set().commands(root, base, head)?;
     let clippy = clippy_first::listed(&landing, |command| !config.is_inferred(command));
     let queued_lines = config.queue_set(crate::landing_refusals::enforcing()).commands(root, base, head)?;
@@ -112,7 +113,7 @@ impl Judged {
 /// switch `finish_acceptance_in_prequeue` is on, the repository runs no check on GitHub Actions, and the command and
 /// every check before queueing are portable, so a build host runs the whole run and none of it runs on this host.
 pub fn joins_queue_run(root: &Path, base: &str, head: &str, command: &str) -> bool {
-    let config = Config::load(root, head);
+    let config = judged::config(root, base, head);
     let portable = |command: &str| config.local_reason(command.trim()).is_none();
     acceptance_in_prequeue() && !command.trim().is_empty() && config.workflow.is_empty() && portable(command) && queue_commands(root, base, head).is_ok_and(|commands| commands.iter().all(|command| portable(command)))
 }
@@ -163,7 +164,7 @@ fn judge(root: &Path, (base, head): (&str, &str), acceptance: Option<(&str, &str
 type Listed = (Config, Vec<String>);
 
 fn listed(root: &Path, base: &str, head: &str) -> Result<Listed, String> {
-    let config = Config::load(root, head);
+    let config = judged::config(root, base, head);
     Ok((config, queue_commands(root, base, head)?))
 }
 

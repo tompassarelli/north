@@ -8,7 +8,7 @@ use crate::landing::{land_test_runner, land_test_selection};
 use super::super::affected::Scope;
 use super::super::it_modules::{Selection, Stage};
 use super::super::verdict_key;
-use super::super::select::{Config, changed};
+use super::super::select::changed;
 use super::super::selection_record::Recorded;
 use super::arguments::{Arguments, Outcome};
 use super::super::graph_selection::{self, Away, SELECTED, Selected};
@@ -75,7 +75,7 @@ pub(super) fn defined_on_tree(root: &Path, arguments: &Arguments, commands: Vec<
     if !arguments.pinned() {
         return commands;
     }
-    let tree = Config::load(root, arguments.tree());
+    let tree = arguments.judged(root, arguments.tree());
     let tree = if arguments.after { tree.after_set() } else { tree };
     commands.into_iter().filter(|command| tree.runs(command)).collect()
 }

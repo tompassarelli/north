@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 
@@ -34,6 +35,16 @@ fn authored(directory: &Path, fork: &str, head: &str, finished: &Finished) -> bo
     in_lane || git::text(directory, &["cherry", head, tip, fork]).is_some_and(|lines| lines.lines().any(|line| line.starts_with('-')))
 }
 
+/// The patch id of `fork..head` and the distinct reviewer sessions that accepted it, leaving out every session that handed in a commit of the lane.
+pub(crate) fn reviewers(directory: &Path, fork: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(String, BTreeSet<String>), String> {
+    let patch = patch_id(directory, fork, head)?;
+    let mut accepted = accepts.sessions(&patch)?;
+    for author in finished.iter().filter(|finished| authored(directory, fork, head, finished)) {
+        accepted.remove(&author.session);
+    }
+    Ok((patch, accepted))
+}
+
 /// `Err` is a lane that changes a `trust_boundary_paths` file and holds fewer accepts than it needs: the accepts of two distinct reviewer sessions for its patch id, or one for a change of test files alone or an exact revert.
 pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     let fork = git::merge_base(directory, base, head);
@@ -42,12 +53,8 @@ pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finish
     if crossing.is_empty() {
         return Ok(());
     }
-    let patch = patch_id(directory, &fork, head)?;
+    let (patch, accepted) = reviewers(directory, &fork, head, accepts, finished)?;
     let needed = if files.iter().all(is_test_file) || reverts(directory, &fork, head, &patch) { 1 } else { 2 };
-    let mut accepted = accepts.sessions(&patch)?;
-    for author in finished.iter().filter(|finished| authored(directory, &fork, head, finished)) {
-        accepted.remove(&author.session);
-    }
     if accepted.len() >= needed {
         return Ok(());
     }

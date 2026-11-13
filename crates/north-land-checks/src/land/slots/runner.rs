@@ -11,6 +11,7 @@ use tokio::signal::unix::{SignalKind, signal};
 
 use super::affected::{self, Scope};
 use super::selection_record::{self, Recorded};
+use super::judged;
 use super::shared_build;
 use super::verdict_key;
 use super::select::{Config, changed, path_class};
@@ -126,7 +127,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     };
     let mut placed = Environment::load(land_north());
     let off_host = placed.off_host;
-    let mut loaded = Config::load(&root, &arguments.head);
+    let mut loaded = arguments.judged(&root, &arguments.head);
     if placed.local && !arguments.after && !off_host {
         loaded = loaded.without_placement();
         placed.runner = None;
@@ -358,7 +359,7 @@ pub fn fails_first(root: &Path, base: &str, head: &str, north: &str) -> Result<(
     if north.is_empty() {
         return Err(NO_NORTH.to_owned());
     }
-    let config = Config::load(root, head);
+    let config = judged::config(root, base, head);
     let queued = queue_commands(root, base, head)?;
     let commands: Vec<String> = config.added_since(&Config::load(root, base)).commands(root, base, head)?.into_iter().filter(|command| !queued.contains(&shared_build::built(command))).collect();
     if commands.is_empty() {

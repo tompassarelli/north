@@ -98,3 +98,7 @@ mode = "shadow"
 # A lane that changes a file of trust_boundary_paths in harness/defaults.toml lands only with the review accepts of two distinct reviewer sessions for its patch id (`git patch-id --stable` of base..head, which the lander's rebase keeps), or of one when the change is test files alone or an exact revert (north#1036, `north runtime accept`). Would-be refusals: $XDG_STATE_HOME/north/gates/review-accept.jsonl on the pushing host. It enforces only after a shadow run has named a real lane.
 [gate.review-accept]
 mode = "shadow"
+
+# A lane that changes a key of .safe-push is judged by the check and landing lines of the landing base's .safe-push, not its own, and lands only with a review accept of its patch id from a reviewer session that did not author it (`north runtime accept`, north#1287). A reviewer named in the commit message grants nothing. Would-be refusals: $XDG_STATE_HOME/north/gates/safe-push-keys.jsonl on the pushing host. It enforces only after a shadow run has named a real lane.
+[gate.safe-push-keys]
+mode = "shadow"
