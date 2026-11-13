@@ -28,6 +28,7 @@ fn draft(name: &str, checkout: &Path, base: &str, file: &str) -> Draft {
         session: None,
         tokens: Some(27_877),
         cost_usd: Some(0.0033),
+        failure: None,
     }
 }
 

@@ -16,6 +16,7 @@ pub enum Outcome {
     DraftFail,
     PassesOnBase,
     Abandoned,
+    Landed,
 }
 
 impl Outcome {
@@ -26,6 +27,7 @@ impl Outcome {
             Self::DraftFail => "draft-fail",
             Self::PassesOnBase => "passes-on-base",
             Self::Abandoned => "abandoned",
+            Self::Landed => "landed",
         }
     }
 }
@@ -57,6 +59,8 @@ pub struct Draft {
     pub tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

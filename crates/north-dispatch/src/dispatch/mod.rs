@@ -31,6 +31,7 @@ mod cloud;
 mod decision;
 pub mod drafts;
 pub mod drafting;
+mod from_draft;
 #[cfg(test)]
 mod drafts_tests;
 mod effects;
@@ -163,6 +164,16 @@ fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Opti
     if let Some(why) = survey::github::recheck(&launch.item, facets::declared_in(&launch.brief, "Box")) {
         return Started::Skipped(format!("skip {}: {why}", launch.item));
     }
+    let noted;
+    let launch = match from_draft::at_launch(survey, launch, dry_run) {
+        Some(from_draft::FromDraft::Landed(line)) => return Started::Launched(line),
+        Some(from_draft::FromDraft::Held(line)) => return Started::Skipped(line),
+        Some(from_draft::FromDraft::Note(note)) => {
+            noted = Launch { brief: format!("{}{note}", launch.brief), ..launch.clone() };
+            &noted
+        }
+        None => launch,
+    };
     if dry_run {
         let why = std::iter::once(launch.route.why.as_str()).chain(launch.local.as_deref()).collect::<Vec<_>>().join("; ");
         return Started::Launched(format!("would {line} ({why})"));

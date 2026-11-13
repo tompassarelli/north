@@ -31,7 +31,7 @@ fn qualifies(issue: &Issue, box_text: &str, category: &str) -> Result<String, St
     super::facets::test_command(box_text).ok_or_else(|| "its box names no backticked test command".to_owned())
 }
 
-fn box_sha256(box_text: &str) -> String {
+pub(super) fn box_sha256(box_text: &str) -> String {
     crate::platform::decision_log::sha256_hex(box_text.trim().as_bytes())
 }
 
@@ -85,6 +85,7 @@ fn marked(draft: &Draft, mark: &serde_json::Value) -> Draft {
         settled.outcome = outcome;
         settled.check_exit = matches!(outcome, Outcome::DraftPass | Outcome::PassesOnBase).then_some(0);
     }
+    settled.failure = mark.get("failure").and_then(serde_json::Value::as_str).map(str::to_owned).or(settled.failure);
     settled.commit = mark.get("commit").and_then(serde_json::Value::as_str).map(str::to_owned).or(settled.commit);
     if let Some(files) = mark.get("files").and_then(|files| serde_json::from_value::<Vec<String>>(files.clone()).ok()).filter(|files| !files.is_empty()) {
         settled.files = files;
@@ -232,6 +233,7 @@ fn start(survey: &Survey, launch: &Launch, issue: &Issue, text: &str, check: &st
         session: Some(name.clone()),
         tokens: None,
         cost_usd: None,
+        failure: None,
     };
     let note = format!(
         "\n\nDraft (north#1240): this launch computes a draft of the box above, not a landing. Your working directory {lane_text} is the box's draft lane on base {base}; edit there, not in a lane of your own, and end with one finish call whose check is `{check}`. The call commits in the lane, records the draft and queues nothing; report Done when it has."

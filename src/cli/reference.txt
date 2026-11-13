@@ -263,6 +263,7 @@ Commands:
   lane remove [--rejected VERDICT] LANE...         Remove a finished lane directory under worktrees/ that holds no unlanded or uncommitted work, from outside a worker sandbox, so no unregistered directory is left behind; --rejected bundles a review-rejected lane to ~/archive/lanes with its verdict first; --rejected VERDICT --branch NAME does the same for a local branch with no worktree
   lane new --issue REPO#N [--from REF] [--draft NAME --check CMD] LANE  Create a lane under a project's worktrees/ on a new branch from origin/main and record the issue it serves in git config; --draft marks it as a box's draft lane, whose finish call records the draft and queues nothing
   lane exec [--lane CHECKOUT] [--] PROGRAM [ARGS...]  Run a lane's own build output (target/, node_modules/) outside depbox, which an agent's worker sandbox refuses by path, when the lane's lock files equal origin/main's, else inside depbox
+  lane land-draft LANE --item REPO#N --box TEXT  Land a passing draft when its box is launched: rebase it onto current main, run its check again, stamp the Item and Box trailers and safe-push it; prints landed SHA
   usage-web-read                                Read the Claude reset counts from the automation browser into the usage cache (6 h timer)
   runtime update                                Promote origin/main as this host's north runtime with its own tree
   supply-chain-scan                             Scan origin/main lockfiles with osv-scanner and alert on new advisories (daily timer)

@@ -119,6 +119,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("landed-tree", Bookkeeping),
     ("lane audit", Diagnosis),
     ("lane gc", Bookkeeping),
+    ("lane land-draft", Landing),
     ("lane layout", Diagnosis),
     ("lane reap", Bookkeeping),
     ("lane reclaim", Bookkeeping),
