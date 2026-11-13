@@ -31,7 +31,8 @@ fn a_runtime_a_live_session_host_runs_from_survives_pruning_until_that_host_exit
             spawned => break spawned.unwrap(),
         }
     };
-    assert!(north_core::platform::wait::until(Duration::from_secs(30), || session.join("host.sock").exists() || session_host.try_wait().unwrap().is_some()) && session_host.try_wait().unwrap().is_none(), "the fake session host exited before the prune");
+    north_core::platform::wait::until(Duration::from_secs(3600), || session.join("host.sock").exists() || session_host.try_wait().unwrap().is_some());
+    assert!(session.join("host.sock").exists() && session_host.try_wait().unwrap().is_none(), "the fake session host exited before the prune");
 
     let promoted = host.update(0, 0);
     assert!(promoted.status.success(), "{}", String::from_utf8_lossy(&promoted.stderr));

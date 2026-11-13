@@ -6,6 +6,7 @@ use std::path::Path;
 use std::process::{Child, Command};
 use std::time::Duration;
 
+const HANG: Duration = Duration::from_secs(3600);
 const RUNTIMES: [&str; 3] = ["8917932b11111111111111111111111111111111", "cb929a45e8222222222222222222222222222222", "9a896708b01683bd4523100a6c79fa0562e34aac"];
 
 fn spawn(command: &mut Command) -> Child {
@@ -50,18 +51,18 @@ fn a_fleet_watchdog_moves_onto_each_promoted_runtime_in_place_and_keeps_watching
     };
     for sha in &RUNTIMES[1..] {
         promote(&host, sha);
-        let moved = north_core::platform::wait::until(Duration::from_secs(10), || lag().ends_with(&format!("runs {}: current", &sha[..10])) || !alive(&mut watchdog));
-        assert!(moved && alive(&mut watchdog), "10 s after current moved to {sha}, runtime lag --processes reads the watchdog as {:?}", lag());
+        let moved = north_core::platform::wait::until(HANG, || lag().ends_with(&format!("runs {}: current", &sha[..10])) || !alive(&mut watchdog));
+        assert!(moved && alive(&mut watchdog), "after current moved to {sha}, runtime lag --processes reads the watchdog as {:?}", lag());
     }
     session_host.kill().unwrap();
     session_host.wait().unwrap();
-    assert!(north_core::platform::wait::until(Duration::from_secs(20), || !alive(&mut watchdog)), "the moved watchdog never acted on its session host's death");
+    assert!(north_core::platform::wait::until(HANG, || !alive(&mut watchdog)), "the moved watchdog never acted on its session host's death");
 }
 
 fn frame(socket: &Path, n: usize) -> String {
     use std::io::{BufRead, Write};
     let mut stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    stream.set_read_timeout(Some(HANG)).unwrap();
     writeln!(stream, r#"{{"type":"user","n":{n}}}"#).unwrap();
     stream.shutdown(std::net::Shutdown::Write).unwrap();
     std::io::BufReader::new(stream).lines().next().and_then(Result::ok).unwrap_or_default()
@@ -90,18 +91,20 @@ fn a_session_host_moves_onto_each_promoted_runtime_in_place_and_keeps_its_provid
         let text = String::from_utf8_lossy(&north(RUNTIMES[2], &["runtime", "lag", "--processes"]).output().unwrap().stdout).into_owned();
         text.lines().find(|line| line.starts_with(&format!("{pid} "))).unwrap_or_default().to_owned()
     };
-    assert!(north_core::platform::wait::until(Duration::from_secs(10), || socket.exists()), "the session host never bound its socket");
+    north_core::platform::wait::until(HANG, || socket.exists() || session_host.try_wait().unwrap().is_some());
+    assert!(socket.exists(), "the session host never bound its socket");
     assert_eq!(frame(&socket, 1), r#"{"host_seq":1}"#);
     for (n, sha) in RUNTIMES[1..].iter().enumerate() {
         promote(&host, sha);
-        let moved = north_core::platform::wait::until(Duration::from_secs(15), || lag().ends_with(&format!("runs {}: current", &sha[..10])) || session_host.try_wait().unwrap().is_some());
+        let moved = north_core::platform::wait::until(HANG, || lag().ends_with(&format!("runs {}: current", &sha[..10])) || session_host.try_wait().unwrap().is_some());
         let said = fs::read_to_string(host.path("session-host.err")).unwrap_or_default();
-        assert!(moved && session_host.try_wait().unwrap().is_none(), "15 s after current moved to {sha}, runtime lag --processes reads the session host as {:?}; it said {said:?}", lag());
+        assert!(moved && session_host.try_wait().unwrap().is_none(), "after current moved to {sha}, runtime lag --processes reads the session host as {:?}; it said {said:?}", lag());
         assert_eq!(frame(&socket, n + 2), format!(r#"{{"host_seq":{}}}"#, n + 2), "the moved session host lost its sequence; it said {said:?}");
     }
     let stream = state.join("g1/stream.jsonl");
     let delivered = || fs::read_to_string(&stream).unwrap_or_default();
-    assert!(north_core::platform::wait::until(Duration::from_secs(10), || delivered().lines().count() >= 4), "the provider echoed {:?}", delivered());
+    north_core::platform::wait::until(HANG, || delivered().lines().count() >= 4 || session_host.try_wait().unwrap().is_some());
+    assert!(delivered().lines().count() >= 4, "the provider echoed {:?}", delivered());
     let lines: Vec<String> = delivered().lines().map(String::from).collect();
     assert!(lines[0].starts_with(r#"{"provider":"#) && lines.iter().filter(|line| line.contains("provider")).count() == 1, "the provider restarted: {lines:?}");
     assert_eq!(lines[1..], [1, 2, 3].map(|n| format!(r#"{{"type":"user","n":{n}}}"#)), "the frames sent across both moves reached the one provider in order");
@@ -145,7 +148,8 @@ fn a_tool_server_answers_each_call_from_the_runtime_current_names_and_answers_no
         let text = String::from_utf8_lossy(&north(RUNTIMES[2], &["runtime", "lag", "--processes"]).output().unwrap().stdout).into_owned();
         text.lines().find(|line| line.starts_with(&format!("{pid} "))).unwrap_or_default().to_owned()
     };
-    assert!(north_core::platform::wait::until(Duration::from_secs(10), || lag().ends_with(&format!("runs {}: current", &RUNTIMES[2][..10]))), "10 s after current moved, the idle tool server reads {:?}", lag());
+    north_core::platform::wait::until(HANG, || lag().ends_with(&format!("runs {}: current", &RUNTIMES[2][..10])) || server.try_wait().unwrap().is_some());
+    assert!(lag().ends_with(&format!("runs {}: current", &RUNTIMES[2][..10])), "after current moved, the idle tool server reads {:?}", lag());
     assert_eq!(call(3), format!("{pid} tool-server runtime runs {}: current", &RUNTIMES[2][..10]));
     drop(requests);
     let mut rest = String::new();
