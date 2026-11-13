@@ -142,7 +142,7 @@ fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_cont
 }
 
 #[test]
-fn a_claude_account_named_in_dispatch_accounts_excluded_receives_no_dispatched_box() {
+fn a_claude_routed_box_launches_under_the_cap_and_never_on_the_cloud_lane() {
     super::spread_tests::a_host_whose_admission_queue_is_at_its_limit_or_whose_root_disk_is_past_the_reapers_eviction_line_takes_no_session();
     super::spread_tests::a_host_whose_pushed_github_token_is_past_its_trust_takes_no_session_and_its_box_places_on_another_host();
     super::spread_tests::launches_earlier_in_the_run_count_against_each_hosts_sessions_and_admission_queue();
@@ -172,16 +172,6 @@ fn a_claude_account_named_in_dispatch_accounts_excluded_receives_no_dispatched_b
     let refused = decide(&survey(boxes, hosts, full), "test");
     assert!(refused.launches.is_empty(), "{:?}", refused.launches);
     assert!(refused.skipped.iter().any(|(_, why)| why.contains("money ceiling")), "{:?}", refused.skipped);
-
-    let (hosts, accounts) = fleet();
-    let mut excluded = survey(vec![issue("makgora", 70, "- [ ] a", &[]), issue("makgora", 71, "- [ ] b", &[])], hosts, accounts);
-    excluded.cfg = format!("dispatch_accounts_excluded = [\"claude:a\"]\n{CONFIG}").parse().unwrap();
-    let spared = decide(&excluded, "test");
-    assert!(!spared.launches.is_empty() && spared.launches.iter().all(|launch| launch.account != "claude:a"), "{:?}", spared.launches);
-    excluded.cfg = format!("dispatch_accounts_excluded = [\"claude:a\", \"claude:b\"]\n{CONFIG}").parse().unwrap();
-    let held = decide(&excluded, "test");
-    assert!(held.launches.is_empty(), "{:?}", held.launches);
-    assert!(held.skipped.iter().any(|(_, why)| why.contains("claude:a is in dispatch_accounts_excluded")), "{:?}", held.skipped);
 }
 
 #[test]
@@ -465,7 +455,7 @@ fn a_dispatch_round_places_only_on_the_listed_providers_draws_only_the_band_ther
     assert!(why("north#8").contains("Scope: not declared"), "{}", why("north#8"));
     assert!(why("galileo#4").contains("galileo is not a public repository"), "{}", why("galileo#4"));
     let lines = super::scope::Scope::parse(&planned.cfg).lines();
-    assert_eq!(lines, ["dispatch providers: opencode".to_owned(), "dispatch hosts excluded: whiterabbit".to_owned(), "dispatch accounts excluded: none".to_owned()]);
+    assert_eq!(lines, ["dispatch providers: opencode".to_owned(), "dispatch hosts excluded: whiterabbit".to_owned()]);
 }
 
 /// north#1187: on 2026-11-12 a dry-run planned a launch on an issue one of whose boxes an open gate with no default held, and named neither the box nor a skip.

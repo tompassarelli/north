@@ -441,7 +441,7 @@ and lead staffing lives in north-dispatch.
   tells the parent when a child goes quiet for twice its brief's ETA, and a lead never sends a final report.
   S3 makes that note skip sessions whose role is lead. Until then the lead brief's ETA line reads `n/a` with
   the reason that a lead ends with its subtree.
-- The caps: `dispatch_claude_sessions` (100), the spend rule's money ceiling, and the launch hold by the build
+- The caps: `dispatch_claude_sessions` (12), the spend rule's money ceiling, and the launch hold by the build
   hosts' measured wait (north#1036, slice A2). A lead launch passes all three in the same plan step as a
   worker launch, and nothing here raises them.
 
