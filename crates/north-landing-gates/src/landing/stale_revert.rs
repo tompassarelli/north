@@ -96,9 +96,10 @@ fn carried(repo: &Path, fork: &str, base: &str, lane: &str) -> Result<BTreeSet<S
 }
 
 fn named_reverts(repo: &Path, base: &str, head: &str) -> Result<BTreeSet<String>, String> {
-    let trailers = git(repo, &["log", "--format=%(trailers:key=Reverts,valueonly)", &format!("{base}..{head}")])?;
-    Ok(trailers
+    let messages = git(repo, &["log", "--format=%B", &format!("{base}..{head}")])?;
+    Ok(messages
         .lines()
+        .filter_map(|line| line.strip_prefix("Reverts:"))
         .flat_map(|line| line.split([',', ' ']))
         .filter(|name| !name.is_empty())
         .filter_map(|name| git(repo, &["rev-parse", "--verify", "-q", &format!("{name}^{{commit}}")]).ok())

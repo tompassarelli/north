@@ -86,3 +86,13 @@ fn restoring_an_import_line_while_moving_the_recent_call_into_another_file_is_no
     commit_at(root, "read.rs", owner, "the owner of the recipe", START + 103 * HOUR);
     assert_eq!(shas(&reverted(root, "main", "lane", "lane").unwrap()), Vec::<&str>::new());
 }
+
+#[test]
+fn a_revert_naming_the_commit_by_full_sha_before_another_trailer_paragraph_is_no_revert() {
+    let scratch = fixture();
+    let root = scratch.path();
+    let x = commit_at(root, "app.txt", "alpha\nbeta from x\ngamma from x\n", "x", START + 100 * HOUR);
+    let message = format!("Revert x\n\nwhy\n\nReverts: {x}\n\nIncident-test: none; a revert restores the prior state.\n");
+    let revert = commit_at(root, "app.txt", "alpha\nbeta\ngamma\n", &message, START + 101 * HOUR);
+    assert_eq!(shas(&reverted(root, &x, &revert, &revert).unwrap()), Vec::<&str>::new());
+}
