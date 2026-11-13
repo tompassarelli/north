@@ -1,7 +1,7 @@
 use north_base::foundation::clock::Timestamp;
 use north_base::lifecycle::{FaultKind, Liveness, Owner, Refusal, Store};
 
-use super::{AfterLandingRun, Main, RedMain, Run, misses, moved, retire_unadopted};
+use super::{AfterLandingRun, Main, RedMain, Run, journal, misses, moved, retire_unadopted, settled, take};
 
 struct Gone(u32);
 
@@ -78,4 +78,23 @@ fn a_second_writer_may_announce_a_retired_head_again_so_the_table_promises_the_r
     let again = moved::<AfterLandingRun>(&mut store, "abc", Run::Retired, "verdict green").unwrap();
     assert_eq!(again.state, Run::Retired);
     assert_eq!(store.history("after-landing-run", "abc").unwrap().iter().filter(|logged| !logged.refused && logged.to == "retired").count(), 2);
+}
+
+#[test]
+fn an_after_landing_run_lost_to_each_lander_killed_mid_run_is_taken_by_the_next_and_stays_unfinished_until_a_verdict() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    let queue = std::path::Path::new("/queue");
+    journal(&mut lander(&path, 100, 0), queue, "abc", "landed on base", serde_json::json!({ "head": "abc" })).unwrap();
+    for pid in 101..=110 {
+        let mut next = lander(&path, pid, pid - 1);
+        let taken = take(&mut next, queue).unwrap();
+        assert_eq!(taken.iter().map(|leased| leased.instance.as_str()).collect::<Vec<_>>(), ["abc"], "lander {pid} did not take the run its killed predecessor held");
+        assert_ne!(next.current::<AfterLandingRun>("abc").unwrap().unwrap().state, Run::Retired);
+        moved::<AfterLandingRun>(&mut next, "abc", Run::Running, "started").unwrap();
+    }
+    let mut last = lander(&path, 110, 0);
+    moved::<AfterLandingRun>(&mut last, "abc", Run::Retired, "verdict green").unwrap();
+    settled(&mut last, queue, "abc");
+    assert!(take(&mut lander(&path, 111, 110), queue).unwrap().is_empty());
 }

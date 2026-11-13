@@ -9,7 +9,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 use crate::lifecycle::{Delivery, Effect, Fault, FaultKind, Leased, Lifecycle, Liveness, Moved, Owner, Stage};
 
-/// Leases an effect gets before it stays pending for `north health` to report.
+/// Leases an effect gets before it stays pending for `north health` to report; a lease whose lessee is gone is not one.
 pub(crate) const MAX_ATTEMPTS: i64 = 5;
 /// How long a failed delivery waits before its next lease.
 const RETRY: Duration = Duration::from_secs(60);
@@ -52,7 +52,7 @@ impl Store {
     }
 
     /// The oldest pending effect of `kind` this process may deliver, leased to it for `hold`. First requeues every
-    /// lease of `kind` whose lessee is gone or whose hold ran out, and retires every process-bound effect of `kind`
+    /// lease of `kind` whose lessee is gone, uncounted, or whose hold ran out, and retires every process-bound effect of `kind`
     /// whose committing process is gone.
     pub fn lease(&mut self, kind: &str, at: Timestamp, hold: Duration) -> NorthResult<Option<Leased>> {
         let transaction = self.connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
@@ -152,7 +152,7 @@ impl Store {
 
 }
 
-/// Requeues each lease of `kind` whose lessee is gone or whose hold ran out, and retires each process-bound effect of
+/// Requeues each lease of `kind` whose lessee is gone, uncounted as a release is, or whose hold ran out, and retires each process-bound effect of
 /// `kind` whose committing process is gone.
 fn recover(transaction: &Transaction, (who, liveness): (&Owner, &dyn Liveness), kind: &str, at: Timestamp) -> NorthResult<()> {
         let mut statement = transaction.prepare("SELECT effect_id, delivery, owner, stage, lessee, lease_until_ms FROM lifecycle_effects WHERE kind = ?1 AND stage IN ('pending', 'leased')").map_err(sql)?;
@@ -174,10 +174,11 @@ fn recover(transaction: &Transaction, (who, liveness): (&Owner, &dyn Liveness), 
                 continue;
             }
             let lessee: Option<Owner> = lessee.map(|lessee| serde_json::from_str(&lessee)).transpose()?;
-            let lapsed = lessee.as_ref().is_some_and(gone) || lease_until_ms.is_some_and(|until| until < at.unix_millis());
+            let killed = lessee.as_ref().is_some_and(gone);
+            let lapsed = killed || lease_until_ms.is_some_and(|until| until < at.unix_millis());
             if stage == Stage::Leased.name() && lapsed {
                 let note = lessee.map_or_else(|| "its lease ran out".to_owned(), |lessee| format!("its lease by {lessee} lapsed"));
-                transaction.execute("UPDATE lifecycle_effects SET stage = 'pending', note = ?2, lessee = NULL, lease_until_ms = NULL WHERE effect_id = ?1", params![id, note]).map_err(sql)?;
+                transaction.execute("UPDATE lifecycle_effects SET stage = 'pending', attempts = attempts - ?3, note = ?2, lessee = NULL, lease_until_ms = NULL WHERE effect_id = ?1", params![id, note, i64::from(killed)]).map_err(sql)?;
             }
         }
         Ok(())
