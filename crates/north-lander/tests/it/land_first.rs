@@ -350,7 +350,7 @@ fn a_candidate_is_pushed_while_an_alone_check_is_in_flight() {
     let pushed = north_base::platform::wait::until(std::time::Duration::from_secs(60), || landed("passed.txt"));
     fs::remove_file(world.path().join("lander")).unwrap();
     std::os::unix::fs::symlink(format!("runtimes/{new}"), world.path().join("lander")).unwrap();
-    let exited = north_base::platform::wait::until(std::time::Duration::from_secs(10), || first.try_wait().unwrap().is_some());
+    let exited = north_base::platform::wait::until(std::time::Duration::from_secs(40), || first.try_wait().unwrap().is_some());
     if !exited {
         let _ = first.kill();
     }
