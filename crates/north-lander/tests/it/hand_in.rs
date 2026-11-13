@@ -4,6 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Output, Stdio};
 
+use landlock::{AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, path_beneath_rules};
 use north_base::foundation::shim::write_executable;
 use north_base::platform::wait;
 use north_lander::land::{enqueue, hand_in, queue};
@@ -13,6 +14,7 @@ use super::serve::{HANG, Repository, World, git, report};
 
 const VERB: &str = "hand_in::a_hand_in_verb_call_lands_named_paths_staged_now_or_committed_first";
 const VERB_ARGUMENTS: &str = "NORTH_HAND_IN_IT_ARGUMENTS";
+const VERB_CONFINED: &str = "NORTH_HAND_IN_IT_CONFINED";
 const ROAD: &str = "serve::enqueue_process";
 const ROAD_ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
 const JUDGE_PASSES: &str = "#!/bin/sh\ncat > /dev/null\nexit 0\n";
@@ -51,6 +53,15 @@ fn verb(world: &World, message: &str, paths: &[&Path]) -> Child {
     queueing(world, VERB, VERB_ARGUMENTS, &arguments).spawn().unwrap()
 }
 
+/// Denies this process, and what it starts, removal beneath `denied` and leaves it everywhere else, as a worker sandbox's domain does in a lane its command did not name.
+fn confine_removal_beneath(denied: &Path) {
+    let removal = AccessFs::RemoveDir | AccessFs::RemoveFile | AccessFs::Refer;
+    let elsewhere: Vec<PathBuf> = denied.ancestors().skip(1).filter_map(|parent| fs::read_dir(parent).ok()).flatten().flatten().map(|entry| entry.path()).filter(|path| path.is_dir() && !denied.starts_with(path)).collect();
+    let ruleset = Ruleset::default().set_compatibility(CompatLevel::HardRequirement).handle_access(removal).unwrap().create().unwrap();
+    let ruleset = ruleset.add_rules(path_beneath_rules(["/"], AccessFs::Refer)).unwrap().add_rules(path_beneath_rules(elsewhere, removal)).unwrap();
+    assert!(matches!(ruleset.restrict_self().unwrap().ruleset, RulesetStatus::FullyEnforced), "this host cannot deny removal in a lane");
+}
+
 fn safe_push_road(world: &World, lane: &Path) -> Child {
     queueing(world, ROAD, ROAD_ARGUMENTS, &["--repo", lane.to_str().unwrap(), "--wait"]).spawn().unwrap()
 }
@@ -83,6 +94,9 @@ fn refusals(output: &Output) -> Vec<String> {
 fn a_hand_in_verb_call_lands_named_paths_staged_now_or_committed_first() {
     if let Ok(arguments) = std::env::var(VERB_ARGUMENTS) {
         let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
+        if let Ok(denied) = std::env::var(VERB_CONFINED) {
+            confine_removal_beneath(Path::new(&denied));
+        }
         let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string(), "--wait".to_owned()]);
         std::process::exit(i32::from(hand_in::run(&arguments, road)));
     }
@@ -408,7 +422,7 @@ fn a_hand_in_verb_call_takes_a_named_path_literally_so_a_glob_or_pathspec_magic_
 }
 
 #[test]
-fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_a_stopped_rebase_leaves_no_untracked_file_and_a_real_conflict_stays_a_refusal_naming_the_file() {
+fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_a_stopped_rebase_or_a_lane_it_may_not_remove_in_keeps_no_untracked_file_and_a_real_conflict_stays_a_refusal_naming_the_file() {
     let (world, north) = scanned_world(JUDGE_PASSES);
     fs::create_dir_all(north.checkout.join("zzz")).unwrap();
     fs::write(north.checkout.join("zzz/keep.txt"), "kept\n").unwrap();
@@ -418,6 +432,7 @@ fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_a_stopped_rebase_l
     let behind = worktree(&north, "behind");
     let conflicting = worktree(&north, "conflicting");
     let stopped = worktree(&north, "stopped");
+    let confined = worktree(&north, "confined");
     fs::write(north.checkout.join("moved.txt"), "main moved on\n").unwrap();
     fs::write(north.checkout.join("README"), "main's readme\n").unwrap();
     fs::create_dir_all(north.checkout.join("added")).unwrap();
@@ -461,4 +476,14 @@ fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_a_stopped_rebase_l
     assert!(!text.contains("rebased the lane's"), "a lane whose rebase stopped was reported as rebased: {text}");
     assert_eq!(untracked, "", "a rebase that stopped left files its HEAD does not track: {text}");
     assert!(!added, "a rebase that stopped left main's added directory in the lane: {text}");
+
+    let note = confined.join("confined.txt");
+    fs::write(&note, "a change handed in from a process that may not remove files in its lane\n").unwrap();
+    let arguments = ["--message", "Add the note handed in from a confined process", "--", note.to_str().unwrap()];
+    let hand = queueing(&world, VERB, VERB_ARGUMENTS, &arguments).env(VERB_CONFINED, confined.parent().unwrap()).spawn().unwrap();
+    let (output, journal) = decided(&world, &north, hand);
+    let text = report(&output);
+    assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
+    let kept = if confined.exists() { git(&confined, &["ls-files", "--others", "--exclude-standard"]) } else { String::new() };
+    assert!(!confined.exists(), "a landed lane whose hand-in may not remove files in it was kept, holding untracked {kept:?}: {text}");
 }

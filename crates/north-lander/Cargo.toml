@@ -30,4 +30,5 @@ time.workspace = true
 workspace = true
 
 [dev-dependencies]
+landlock = "0.4.7"
 north-machine-model = { path = "../north-machine-model" }

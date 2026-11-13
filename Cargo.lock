@@ -1575,6 +1575,7 @@ dependencies = [
 name = "north-lander"
 version = "0.1.0"
 dependencies = [
+ "landlock",
  "north-base",
  "north-check-environment",
  "north-concerns",
