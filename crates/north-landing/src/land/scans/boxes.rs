@@ -7,11 +7,17 @@ use crate::land::after::tick::{self, Tick};
 
 const SHORT_SHA: usize = 12;
 
-fn verdict(body: &str, box_text: &str) -> Result<Option<&'static str>, Tick> {
+enum Matched {
+    Unticked(Option<&'static str>),
+    Ticked,
+}
+
+fn verdict(body: &str, box_text: &str) -> Result<Matched, Tick> {
     match tick::tick(body, box_text, None) {
-        Tick::Ticked(_) => Ok(None),
-        Tick::NeedsObservation => Ok(Some("the landing will not tick it: it needs observation")),
-        Tick::OpenChildren(_) => Ok(Some("the landing will not tick it until the boxes under it are ticked")),
+        Tick::Ticked(_) => Ok(Matched::Unticked(None)),
+        Tick::AlreadyTicked => Ok(Matched::Ticked),
+        Tick::NeedsObservation => Ok(Matched::Unticked(Some("the landing will not tick it: it needs observation"))),
+        Tick::OpenChildren(_) => Ok(Matched::Unticked(Some("the landing will not tick it until the boxes under it are ticked"))),
         refused => Err(refused),
     }
 }
@@ -76,8 +82,9 @@ pub fn scan(directory: &Path, base: &str, head: &str, github: &Gh, out: &mut imp
             };
             let body = bodies.entry(issue.to_string()).or_insert_with(|| github.body(&issue));
             let line = match body.as_deref().map(|body| verdict(body, &trailer.box_text)) {
-                Ok(Ok(None)) => format!("{short}: Box: {} matches an unticked box on {issue}", trailer.box_text),
-                Ok(Ok(Some(note))) => format!("{short}: Box: {} matches an unticked box on {issue}; {note}", trailer.box_text),
+                Ok(Ok(Matched::Unticked(None))) => format!("{short}: Box: {} matches an unticked box on {issue}", trailer.box_text),
+                Ok(Ok(Matched::Unticked(Some(note)))) => format!("{short}: Box: {} matches an unticked box on {issue}; {note}", trailer.box_text),
+                Ok(Ok(Matched::Ticked)) => format!("{short}: Box: {} matches a box already ticked on {issue}; the landing has nothing to tick", trailer.box_text),
                 Ok(Err(why)) => {
                     refused += 1;
                     format!("{short}: Box: {} matches no unticked box on {issue} ({why}); copy the box text from the issue", trailer.box_text)
