@@ -847,6 +847,7 @@ north_tree(
     name = "tree",
     parts = [
         ":files",
+        "//crates/north-agent-starts:files",
         "//crates/north-base:files",
         "//crates/north-broker:files",
         "//crates/north-buck:files",

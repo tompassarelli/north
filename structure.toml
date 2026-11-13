@@ -126,6 +126,16 @@ paths = ["crates/north-ssh-spare/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
+name = "north-agent-starts"
+paths = ["crates/north-agent-starts/src/**"]
+may_use = []
+
+[[module]]
+name = "agent_starts"
+paths = ["crates/north-agent-starts/src/**"]
+responsibility = "Local agent starts: a spooled start request read as fixed fields, the starter that hands it to the agent's fixed entry through machined, and the entry that records it."
+may_use = []
+[[crate_dag.crate]]
 name = "north-git-locks"
 paths = ["crates/north-git-locks/src/**"]
 may_use = []

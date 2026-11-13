@@ -29,6 +29,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 1 platform | north-cli-reference | The command reference text and the calls it names. |
 | 1 platform | north-git-locks | Stale git lock files: the one removal an agent may make in a primary checkout's git directory. |
 | 1 platform | north-runtime-follow | How a long-lived process moves onto the runtime its link promotes. |
+| 1 platform | north-agent-starts | Local agent starts: a spooled start request read as fixed fields and handed to the agent user only through the host shell its polkit rule admits. |
 | 1 platform | north-ssh-spare | A spare ssh connection held ready and the framed run over it. |
 | 1 platform | north-build-system | The one interface north builds, lists and runs Rust tests through, with its Cargo and Buck2 sides. |
 | 1 platform | north-buck | The Buck2 targets of the workspace crates, written from cargo metadata. |

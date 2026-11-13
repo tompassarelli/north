@@ -1011,6 +1011,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-agent-starts"
+version = "0.1.0"
+dependencies = [
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "north-base"
 version = "0.1.0"
 dependencies = [
