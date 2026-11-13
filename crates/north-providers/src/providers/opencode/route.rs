@@ -61,6 +61,13 @@ impl Route {
         }
     }
 
+    pub fn exposure(self) -> &'static str {
+        match self {
+            Self::Go => "the Go plan's zero-retention agreement has ended",
+            Self::Free => "the free model may train on requests",
+        }
+    }
+
     pub fn fallback(self) -> Option<Self> {
         (self == Self::Free).then_some(Self::Go)
     }

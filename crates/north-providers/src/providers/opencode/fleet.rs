@@ -86,7 +86,7 @@ impl Deepseek {
         }
         if route == Route::Free || (visibility == Visibility::Public && (self.today)() > until) {
             let private: Vec<String> = settings["private"]["repos"].as_array().into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
-            screen::refuse_for_free(brief, &private).map_err(NorthError::Refused)?;
+            screen::refuse_for_free(route, brief, &private).map_err(NorthError::Refused)?;
         }
         Ok(route)
     }

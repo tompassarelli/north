@@ -191,7 +191,7 @@ fn a_private_a_public_and_an_unreadable_repo_pick_go_and_only_a_public_one_askin
     assert!(refused.is_err_and(|error| error.user_message().contains("fixes this lane's model")));
     let naming_private = LaunchRequest { prompt: "Follow tompassarelli/south#94".into(), ..request(home.path()) };
     let on_go = |today| seeing(Visibility::Public, day(today)).host(&account, &naming_private, Opening::Fresh(Some("ses_x")), "");
-    assert!(on_go("2026-12-01").is_err_and(|error| error.user_message().contains("free model may train")));
+    assert!(on_go("2026-12-01").is_err_and(|error| error.user_message().contains("Go plan's zero-retention agreement has ended")));
     assert!(on_go("2026-11-30").is_ok());
 }
 
