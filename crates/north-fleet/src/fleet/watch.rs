@@ -6,39 +6,36 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::fleet::session_host::{FrameWatch, Rest, SentLog};
+use crate::fleet::session_host::SentLog;
 
 use north_base::lifecycle::State as _;
 use north_base::platform::attribution::{self, Cause, Harness};
 
 use super::books::WatchBooks;
-use super::claims::{self, Claims};
-use super::host::Host;
-use super::detached::{NoScope, Scope};
-use super::gates::Question;
+use super::claims::Claims;
 use super::checkpoint::{self, Checkpoints};
-use super::idle::{self, Step};
+use super::detached::{NoScope, Scope};
+use super::idle;
 use super::jobs::{HeldLeases, JobLeases};
-use super::landings::{self, push_log};
 use super::model::{Delivery, Entry, EntryKind, Machine, Phase, Phases, Role, SessionRecord, Transcript};
-use super::prompt::is_deepened;
-use super::promises::{Book, Promise, Reckon, Unreckoned, promised, resolver};
-use super::receipts::{Courier, Report, deliver_report, is_final, retires};
+use super::promises::{Reckon, Unreckoned};
+use super::receipts::{Courier, is_final, retires};
 use super::records::{find_session, host_sessions, parents_live};
-use super::silent::{self, Quiet, Silence, State};
-use super::rungs;
 use super::run_recording::{NoRecording, RunRecording};
 use super::runtime::{Runtime, new_uuid, now_ms};
 use super::sender::Sender;
+use super::silent::{self, Quiet, Silence, State};
 use super::stranded::{Checkout, Lane, Lanes, Worktree};
 use super::tickets::{NoTickets, Tickets};
-use super::turns::{RunRecord, Turn, TurnExit, TurnSignal, Turns};
+use super::turns::{TurnSignal, Turns};
 use super::unaccepted::Unaccepted;
 use super::usage_sink::{NoUsage, UsageSink};
 use super::wait;
 use super::waits::Waits;
 
+mod frames;
 mod handover;
+mod records;
 
 const KEPT_LINES: usize = 5;
 
@@ -362,193 +359,10 @@ impl TurnWatch {
             }
         }
     }
-
-    fn record(&mut self, mut turn: Turn) {
-        let session = find_session(&self.root, &self.host_dir, &turn.conversation);
-        identify(&mut turn, session.as_ref());
-        let run = RunRecord {
-            session: session.as_ref().map_or_else(|| turn.conversation.clone(), |record| record.name.clone()),
-            task_ref: session.as_ref().and_then(|record| record.task_ref.clone()),
-            provider: self.runtime.provider().label().to_owned(),
-            overlay: session.as_ref().and_then(|record| record.overlay.clone()),
-            account: session.as_ref().map(|record| Host::served_by(&self.host_dir).unwrap_or_else(|| record.account.clone())),
-            system_prompt_sha: session.as_ref().and_then(|record| record.system_prompt_sha.clone()),
-            deepen: turn.prompt.as_deref().is_some_and(is_deepened),
-            turn,
-        };
-        let number = self.ledger.record_run(&run).map_err(|error| eprintln!("north ledger: {}", error.user_message())).ok();
-        let reply = self.views.get(&run.turn.conversation).and_then(|view| view.reply.clone()).unwrap_or_default();
-        let lines = self.views.get(&run.turn.conversation).map(|view| view.transcript.entries.clone()).unwrap_or_default();
-        let Some(record) = session else { return };
-        self.observe_landing(&record);
-        rungs::escalate(self.ledger.as_ref(), self.courier.as_ref(), &record, (run.turn.exit == TurnExit::Completed).then_some(reply.as_str()), &self.verdicts, now_ms());
-        if let Some(number) = number {
-            if matches!(run.turn.exit, TurnExit::Completed | TurnExit::Interrupted) {
-                self.quiet.insert(run.turn.conversation.clone(), Quiet::after(number, reply, run.turn.exit == TurnExit::Completed, record.eta_min, self.idle.eta_minute, lines));
-            }
-            self.report(&record, &run.turn, number);
-        }
-    }
-
-    fn report(&mut self, record: &SessionRecord, turn: &Turn, number: u64) {
-        let view = self.views.remove(&turn.conversation);
-        let Some(parent) = record.parent.as_deref() else { return };
-        let (reply, lines) = view.map(|view| (view.reply, view.transcript.entries)).unwrap_or_default();
-        let landed = landings::landed_between(record, &landings::pushes_of(record, &push_log()), turn.started_ms, turn.ended_ms);
-        if turn.exit == TurnExit::Completed {
-            self.keep_promises(record, parent, turn, number, reply.as_deref().unwrap_or_default());
-        }
-        let waiting = self.tickets.unlanded(&record.name).is_ok_and(|tickets| !tickets.is_empty()) || !Waits::in_root(&self.root).of(&record.name).is_empty();
-        let report = Report { child: record.name.clone(), turn: number, exit: turn.exit, landed, reply, waiting };
-        if let Err(error) = deliver_report(self.ledger.as_ref(), self.ledger.as_ref(), self.courier.as_ref(), parent, &report, &lines, now_ms()) {
-            eprintln!("north fleet: receipt to {parent} not sent: {}", error.user_message());
-        }
-    }
-
-    fn keep_promises(&self, record: &SessionRecord, parent: &str, turn: &Turn, number: u64, reply: &str) {
-        let mut promises = Vec::new();
-        let search = std::env::var_os("PATH").unwrap_or_default();
-        for claim in promised(reply, turn.ended_ms, self.reckon.as_ref(), &resolver(&record.cwd, &search)) {
-            match claim.command {
-                Some(command) => promises.push(Promise { session: record.name.clone(), turn: number, line: claim.line, command, when: claim.when, said_ms: turn.ended_ms, parent: parent.to_owned() }),
-                None => eprintln!("north fleet: {}'s line {:?} names a time but no backticked command whose program resolves, so it holds no promise to remind its parent of", record.name, claim.line),
-            }
-        }
-        if let Err(error) = Book::at(&self.root).keep(&promises) {
-            eprintln!("north fleet: {}'s promises were not kept for the tick to remind its parent of: {}", record.name, error.user_message());
-        }
-    }
-
-    fn relay(&self, question: Question) {
-        let Some(record) = find_session(&self.root, &self.host_dir, &question.conversation) else { return };
-        for ask in &question.asks {
-            self.courier.ask(ask.gate(&record.name));
-        }
-        self.courier.answer(&self.host_dir, question.reply);
-    }
-
-    fn record_usage(&self, frame: &Value) {
-        if self.runtime.quota(frame).is_none() {
-            return;
-        }
-        let Some(session) = self.runtime.frame_conversation(frame).and_then(|conversation| find_session(&self.root, &self.host_dir, conversation)) else { return };
-        self.usage.observe(self.runtime.provider().label(), &session.account, frame);
-    }
-
-    fn observe_landing(&self, record: &SessionRecord) {
-        if let Err(error) = landings::observe_among(self.ledger.as_ref(), record, &landings::pushes_of(record, &push_log())) {
-            eprintln!("north ledger: {}", error.user_message());
-        }
-    }
-}
-
-impl FrameWatch for TurnWatch {
-    fn line(&mut self, line: &[u8]) {
-        let Ok(frame) = serde_json::from_slice::<Value>(line) else { return };
-        if let Some(question) = self.runtime.question(&frame) {
-            self.relay(question);
-        }
-        if let Some(id) = self.runtime.accepted_prompt(&frame) {
-            self.unaccepted.journal().accepted(&id);
-        }
-        self.record_usage(&frame);
-        let signals = self.runtime.signals(&frame);
-        for signal in &signals {
-            self.views.entry(signal.conversation().to_owned()).or_insert_with(|| View::of(signal.conversation()));
-        }
-        let answers: Vec<_> = self.views.iter_mut().map(|(conversation, view)| (conversation.clone(), view.observe(self.runtime.as_ref(), &frame))).filter(|(_, said)| !said.is_empty()).collect();
-        let answers: Vec<_> = answers.into_iter().filter(|(conversation, _)| self.checkpoints.awaiting(conversation)).collect();
-        for (conversation, said) in answers {
-            let model = find_session(&self.root, &self.host_dir, &conversation).and_then(|record| record.model);
-            self.checkpoints.answered(&conversation, &said, model.as_deref());
-        }
-        for signal in signals {
-            self.follow(&signal);
-            if let Some(turn) = self.turns.observe(signal, now_ms()) {
-                self.record(turn);
-            }
-        }
-    }
-
-    fn sent_log(&self) -> Arc<dyn SentLog> {
-        self.unaccepted.clone()
-    }
-
-    fn in_flight(&self) -> bool {
-        self.turns.in_flight()
-    }
-
-    fn soonest_rest(&self) -> Option<Duration> {
-        Some(self.idle.registered_park_after)
-    }
-
-    fn hand_over(&mut self) -> Value {
-        handover::hand_over(self)
-    }
-
-    fn take_over(&mut self, state: Value) {
-        handover::take_over(self, state);
-    }
-
-    fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest {
-        let finished = !self.finished.is_empty() && self.finished.values().all(|finished| *finished);
-        let registered = self.registered_wait();
-        let session = idle::Session { idle, in_flight: self.turns.in_flight(), turn_open: self.turns.turn_open(), context: self.turns.context(), rolled_over: self.rolled_over, finished, registered };
-        let step = self.idle.step(session, park_after);
-        match step {
-            Step::Park => {
-                self.speak_up(State::Parked, idle);
-            }
-            _ if self.quiet.values().any(|quiet| quiet.due(idle)) => self.speak_up(State::Idle, idle),
-            _ => {}
-        }
-        match step {
-            Step::Wait => self.checkpoint_frames().map_or(Rest::Wait, Rest::Send),
-            Step::Park => Rest::End,
-            Step::Compact => {
-                self.rolled_over = true;
-                self.runtime.compact(None).map_or(Rest::Wait, |frame| Rest::Send(vec![frame]))
-            }
-            Step::Exit if self.retire(Phase::IdleExited) => {
-                self.speak_up(State::Exited, idle);
-                Rest::End
-            }
-            Step::Exit => self.rest(idle, park_after),
-        }
-    }
-
-    fn close(&mut self) {
-        self.closing = true;
-        for turn in self.turns.abandon(now_ms()) {
-            self.record(turn);
-        }
-        let ended: HashSet<String> = host_sessions(&self.root, &self.host_dir).into_iter().filter_map(|record| record.conversation).collect();
-        for conversation in &ended {
-            self.recording.ended(conversation);
-        }
-        let retired = !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.journal().is_empty() && self.retire(Phase::HostEnded);
-        let waits = Waits::in_root(&self.root);
-        for record in host_sessions(&self.root, &self.host_dir).into_iter().filter(|record| record.ended() || waits.of(&record.name).is_empty()) {
-            claims::release_for(self.claims.as_ref(), &record);
-        }
-        self.finish_probes();
-        self.speak_up(if retired { State::Exited } else { State::Parked }, Duration::ZERO);
-        self.finish_probes();
-    }
 }
 
 fn own(runtime: &dyn Runtime, text: &str) -> Option<Vec<String>> {
     runtime.message(&Transcript::new(), &new_uuid().ok()?, &Sender::session_host().sign(text)).ok()
-}
-
-/// A turn's model and effort as observed, else as its session was launched.
-fn identify(turn: &mut Turn, session: Option<&SessionRecord>) {
-    if turn.model.is_none() {
-        turn.model = session.and_then(|record| record.model.clone());
-    }
-    if turn.effort.is_none() {
-        turn.effort = session.and_then(|record| record.effort).map(|effort| effort.label().to_owned());
-    }
 }
 
 #[cfg(test)]
