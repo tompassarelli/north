@@ -153,8 +153,9 @@ fn rows(database: &Path, query: &str, columns: usize) -> Vec<Vec<String>> {
 }
 
 #[test]
-fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it() {
+fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client() {
     let rig = Rig::new();
+    shim::write_script(&rig.root.join("bin/claude"), &format!("trap 'sleep 8; exit 0' TERM\n{} --trace commit \"$@\" <&0 &\nwait $!\n", crate::support::bin_exe!("CARGO_BIN_EXE_fake_claude")));
     let base = git(&rig.origin, &["rev-parse", "refs/heads/main"]);
 
     let launched = rig.launch_worker();
