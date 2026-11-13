@@ -225,7 +225,8 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
     }
     let carried = carried(land, |name| std::env::var(name).ok());
     let secret = proof::secret().map_err(|why| unreached(&why))?;
-    let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret, land.confined);
+    let bundled = bundle.metadata().map_err(|error| unreached(&format!("bundle file: {error}")))?.len();
+    let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret, land.confined, bundled);
     let spilled = header.len().to_string();
     let generated = generated::paths(land);
     let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled, &generated, urgent];

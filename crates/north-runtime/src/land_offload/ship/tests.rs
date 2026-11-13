@@ -893,7 +893,7 @@ fn a_200_kb_land_check_command_reaches_the_host_intact() {
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
     let command = format!("printf 'x' >{0}\n# {1}\nprintf 'y' >>{0}", seen.display(), "z".repeat(200 * 1024));
-    let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "", "secret", false);
+    let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "", "secret", false, fs::metadata(&bundle_path).unwrap().len());
     let script = remote_script("code-p-main", super::SlotClass::LandCheck);
     let spilled = header.len().to_string();
     let mut child = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", "", &spilled], &[])
@@ -1235,4 +1235,87 @@ fn remote_script(name: &str, class: super::SlotClass) -> String {
     let script = super::remote_script(name, class);
     assert!(script.contains("operator_file=/etc/north/operator"), "fill.sh no longer names the operator file the ship tests replace");
     script.replace("operator_file=/etc/north/operator", "operator_file=/nonexistent/north-operator")
+}
+
+#[test]
+fn a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_a_slot_or_waits_while_one_whose_connection_dropped_waits_for_its_client_to_reattach() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let root = home.path().join(".cache/land-offload");
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let connection = bin.path().join("sshd-session");
+    crate::foundation::shim::write_script(&connection, "cat | \"$@\"\n");
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let script = remote_script("code-p-main", super::SlotClass::LandCheck);
+    let bundled = fs::metadata(&bundle).unwrap().len();
+    let release = home.path().join("release");
+    let start = |label: &str, through: Option<&Path>| {
+        let pid = home.path().join(format!("{label}.pid"));
+        let header = bundle::spilled(&format!("echo $$ >{}; while [ ! -e {} ]; do sleep 0.1; done; exit 3", pid.display(), release.display()), "", "", "secret", false, bundled);
+        let spilled = header.len().to_string();
+        let header_path = home.path().join(format!("{label}.header"));
+        fs::write(&header_path, header).unwrap();
+        let mut client = Command::new("setsid").args(["sh", "-c", "cat \"$1\" \"$2\"; exec sleep 600", "client"]).arg(&header_path).arg(&bundle).stdout(Stdio::piped()).spawn().unwrap();
+        let marker = format!("north-offload-ran:job-{label}");
+        let words: [&str; 15] = ["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", &marker, "", "", &spilled];
+        let mut job = match through {
+            Some(connection) => {
+                let mut job = Command::new(connection);
+                job.args(["setsid", "-w", "sh", "-c", &script, "offload"]).args(words);
+                std::os::unix::process::CommandExt::process_group(&mut job, 0);
+                job
+            }
+            None => super::on_host("", &script, &words, &[]),
+        };
+        let job = job
+            .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+            .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+            .env("PATH", &path)
+            .env_remove(north_base::foundation::offload::SLOT_ENV)
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .stdin(Stdio::from(client.stdout.take().unwrap()))
+            .stdout(Stdio::null())
+            .stderr(fs::File::create(home.path().join(format!("{label}.err"))).unwrap())
+            .spawn()
+            .unwrap();
+        (client, job, pid, marker)
+    };
+    let kill_group = |child: &std::process::Child| {
+        let _ = rustix::process::kill_process_group(rustix::process::Pid::from_raw(child.id() as i32).unwrap(), rustix::process::Signal::Kill);
+    };
+    let alive = |pid: &Path| fs::read_to_string(pid).ok().and_then(|pid| pid.trim().parse::<i32>().ok()).and_then(rustix::process::Pid::from_raw).is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok());
+    let (mut holder_client, mut holder, holder_pid, _) = start("holder", None);
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || holder_pid.exists()), "the first job never ran: {}", fs::read_to_string(home.path().join("holder.err")).unwrap_or_default());
+    let (mut waiter_client, mut waiter, waiter_pid, _) = start("waiter", None);
+    let queue = root.join("queue");
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_dir(&queue).map(|entries| entries.count()).unwrap_or(0) == 1), "the second job never queued: {}", fs::read_to_string(home.path().join("waiter.err")).unwrap_or_default());
+    for client in [&mut holder_client, &mut waiter_client] {
+        kill_group(client);
+        client.wait().unwrap();
+    }
+    let held = || Command::new("sh").arg("-c").arg("for lock in \"$1\"/code-p-main*.lock; do flock -n \"$lock\" true || echo \"$lock\"; done").arg("held").arg(&root).output().unwrap().stdout;
+    let freed = north_base::platform::wait::until(std::time::Duration::from_secs(28), || {
+        holder.try_wait().unwrap().is_some() && waiter.try_wait().unwrap().is_some() && !alive(&holder_pid) && held().is_empty() && fs::read_dir(&queue).unwrap().count() == 0
+    });
+    let left = (holder.try_wait().unwrap(), waiter.try_wait().unwrap(), alive(&holder_pid), String::from_utf8_lossy(&held()).into_owned(), fs::read_dir(&queue).unwrap().count());
+    for job in [&mut holder, &mut waiter] {
+        kill_group(job);
+        let _ = job.wait();
+    }
+    assert!(freed, "28 s after their clients were killed (holder exit, waiter exit, check alive, held locks, tickets): {left:?}");
+    assert!(!waiter_pid.exists(), "the job that waited ran its check after its client was gone");
+    let (mut dropped_client, mut dropped, dropped_pid, marker) = start("dropped", Some(&connection));
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || dropped_pid.exists()), "the third job never ran: {}", fs::read_to_string(home.path().join("dropped.err")).unwrap_or_default());
+    kill_group(&dropped);
+    let _ = dropped.wait();
+    let survived = !north_base::platform::wait::until(std::time::Duration::from_secs(29), || !alive(&dropped_pid));
+    let reattached = Command::new("sh").args(["-c", &super::script::reattach_script(), "offload-reattach", &marker, "30"]).env("HOME", home.path()).env_remove("NORTH_OFFLOAD_ROOT").stdout(Stdio::piped()).spawn().unwrap();
+    fs::write(&release, "").unwrap();
+    let read = reattached.wait_with_output().unwrap();
+    kill_group(&dropped_client);
+    let _ = dropped_client.wait();
+    assert!(survived, "a running job whose connection dropped while its client lived ended before the client's reattach window: {}", fs::read_to_string(home.path().join("dropped.err")).unwrap_or_default());
+    let ran = super::relay(read.stdout.as_slice(), &mut Vec::new(), &marker, "", || {}).ran;
+    assert_eq!(super::verdict(read.status.code().and_then(|code| u8::try_from(code).ok()), ran), Ok(3), "the reattached client reads the check's own exit");
 }

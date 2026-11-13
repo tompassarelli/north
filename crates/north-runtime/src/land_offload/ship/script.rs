@@ -111,8 +111,45 @@ bundle=$(mktemp "$root/$name.bundle.XXXXXX")
 trap 'rm -f "$bundle" "${script:-}"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 trap 'exit 143' HUP INT TERM
 [ "$spilled" -eq 0 ] || eval "$(head -c "$spilled")"
-cat >"$bundle"
-fill
+@TETHER@fill
+"#;
+
+/// Seconds past the client's pause before a reattach a running job whose caller closed its standard input waits for that client while the ssh connection it came in on still lives, which a killed caller leaves up since every job rides one shared connection, and so does a live caller whose own ssh client for the job died.
+const TETHER_MARGIN_SECONDS: u64 = 18;
+/// Seconds past the client's reattach window a running job waits once the ssh connection it came in on has ended, since a live caller keeps trying to reattach for that window.
+const DROPPED_MARGIN_SECONDS: u64 = 30;
+
+/// Reads a bundle of the length the header names, then watches the rest of standard input, which the caller holds open while it lives: once it closes, a job not yet running ends its process group and leaves its ticket at once, a running job once no client reattached within the client's pause and `TETHER_MARGIN_SECONDS`, or within the client's reattach window and `DROPPED_MARGIN_SECONDS` when its ssh connection has ended.
+const TETHER: &str = r#"if [ -n "${bundled:-}" ]; then
+  head -c "$bundled" >"$bundle"
+  exec 3<&0
+  {
+    trap - EXIT
+    trap '' HUP TERM
+    link= p=$$
+    while [ "$p" -gt 1 ] && read -r comm <"/proc/$p/comm" && read -r stat <"/proc/$p/stat"; do
+      case $comm in sshd*) link=$p; break ;; esac
+      set -- ${stat##*) }
+      p=$2
+    done 2>/dev/null
+    cat <&3 >/dev/null || true
+    stay=
+    if [ -n "$ran" ] && [ -e "$root/results/${ran#*:}.out" ]; then
+      attached=$root/results/${ran#*:}.attached waited=0 grace=@TETHER_SECONDS@
+      rm -f "$attached"
+      while [ "$waited" -lt "$grace" ]; do
+        [ ! -e "$attached" ] || { stay=1; break; }
+        [ -z "$link" ] || [ -e "/proc/$link" ] || grace=@DROPPED_SECONDS@
+        sleep 1
+        waited=$((waited + 1))
+      done
+    fi
+    [ -n "$stay" ] || kill -TERM "-$$" 2>/dev/null || true
+  } </dev/null >/dev/null 2>&1 &
+  exec 3<&- </dev/null
+else
+  cat >"$bundle"
+fi
 "#;
 
 const NESTED: &str = r#"caller_slot=${@SLOT_ENV@:-} holder=${@SLOT_HOLDER_ENV@:-} nested=
@@ -154,11 +191,11 @@ kind=
 [ "$rank" -gt 1 ] || kind=floor
 [ "$rank" -ne 2 ] || kind=landing
 @JOBS@@ADMIT@@LINE@ticket=$queue/$rank-$(date +%s%N)-$$@$name
+trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 mkdir -p "$root/inflight"
 find "$root/inflight" -type f -mmin +1440 -delete 2>/dev/null || true
 [ -n "$nested" ] || { exec 3>>"$root/inflight/$(printf '%s\n%s' "$head" "$command" | sha256sum | cut -c1-32)"; flock -n 3 || true; }
 [ -n "$nested" ] || { exec 8>"$ticket"; flock 8; }
-trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 if [ -z "$nested" ] && [ -n "$north_bin" ]; then
   rc=0
   line_slots=@SLOTS@
@@ -542,7 +579,7 @@ pub(crate) fn jobs_part() -> String {
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@FILL@", &fill_part()).replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@TETHER@", &TETHER.replace("@TETHER_SECONDS@", &(super::reattach::PAUSE.as_secs() + TETHER_MARGIN_SECONDS).to_string()).replace("@DROPPED_SECONDS@", &(super::reattach::WINDOW.as_secs() + DROPPED_MARGIN_SECONDS).to_string())).replace("@FILL@", &fill_part()).replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
 }
 
 pub(super) fn beside_part() -> String {

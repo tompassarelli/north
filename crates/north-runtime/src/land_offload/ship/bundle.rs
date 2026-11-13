@@ -65,13 +65,14 @@ pub(super) fn carried(land: &Land, value: impl Fn(&str) -> Option<String>) -> St
 }
 
 /// The words of a land check that can outgrow one argument, and the run's secret, written as the shell assignments the host reads from the head of its stdin: the ssh command line and the host's own `sh -c` take a word of 128 KB at most, and the shim that scopes the call carries it twice (north#951).
-pub(super) fn spilled(command: &str, carried: &str, pins: &str, secret: &str, confined: bool) -> Vec<u8> {
-    format!("command={}\ncarried={}\npins={}\nproof={}\nconfined={}\n", quote(command), quote(carried), quote(pins), quote(secret), if confined { "1" } else { "" }).into_bytes()
+pub(super) fn spilled(command: &str, carried: &str, pins: &str, secret: &str, confined: bool, bundled: u64) -> Vec<u8> {
+    format!("command={}\ncarried={}\npins={}\nproof={}\nconfined={}\nbundled={bundled}\n", quote(command), quote(carried), quote(pins), quote(secret), if confined { "1" } else { "" }).into_bytes()
 }
 
-/// Writes `header`, then `bundle`, to the job's standard input through a pipe, so the header's secret is in no file a process on either host could read back.
-pub(super) fn feed(header: Vec<u8>, mut bundle: File, mut stdin: std::process::ChildStdin) -> std::thread::JoinHandle<()> {
+/// Writes `header`, then `bundle`, to the job's standard input through a pipe, so the header's secret is in no file a process on either host could read back, and hands the pipe back to be held open while the caller lives, so the host ends the job once its caller is gone.
+pub(super) fn feed(header: Vec<u8>, mut bundle: File, mut stdin: std::process::ChildStdin) -> std::thread::JoinHandle<std::process::ChildStdin> {
     std::thread::spawn(move || {
         let _ = stdin.write_all(&header).and_then(|()| std::io::copy(&mut bundle, &mut stdin).map(drop));
+        stdin
     })
 }
