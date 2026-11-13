@@ -6,6 +6,11 @@ fill() {
   fi
   git -C "$repo" fetch -q --no-auto-maintenance "$bundle" "+$ref:$ref"
   git -C "$repo" update-ref "refs/offload-held/$name" "$head"
+  if [ -n "$(git -C "$repo" bundle list-heads "$bundle" "$ref-base" 2>/dev/null)" ]; then
+    git -C "$repo" fetch -q --no-auto-maintenance "$bundle" "+$ref-base:$ref-base"
+    git -C "$repo" update-ref "refs/offload-held/$name-base" "$base"
+    git -C "$repo" update-ref -d "$ref-base"
+  fi
 }
 place() {
   if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree remove --force "$slot" 2>/dev/null || true; git -C "$repo" worktree add -q --detach "$slot" "$head"; fi

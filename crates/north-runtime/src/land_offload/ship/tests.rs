@@ -65,11 +65,11 @@ fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home:
     (String::from_utf8(output.stdout).unwrap().replace(&shown, "SLOT"), String::from_utf8(output.stderr).unwrap().replace(&shown, "SLOT"))
 }
 
-fn shell(word: &Path) -> String {
+pub(super) fn shell(word: &Path) -> String {
     super::quote(&word.display().to_string())
 }
 
-fn git(dir: &Path, args: &[&str]) -> String {
+pub(super) fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git").current_dir(dir).args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"]).args(args).output().unwrap();
     assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
@@ -264,17 +264,6 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     let asked = fs::read_to_string(home.path().join("asked-current")).unwrap_or_default();
     assert!(asked.lines().any(|line| line == format!("{}|capacity offload slot record code-p-main", repo.display())), "a north that predates the record verb answered with its usage and the script asked no other north for the record: {asked:?}; {told}");
     assert!(!told.contains("cannot record"), "{told}");
-}
-
-#[test]
-fn a_job_whose_base_is_its_head_bundles_the_head_over_its_parent() {
-    let (dir, _, _) = repository_with_two_commits();
-    let head = CommitId::resolve(dir.path(), "HEAD").unwrap();
-    let reference = job_ref(&head);
-    let land = Land { ssh: "", checkout: dir.path(), base: Some(head.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck, confined: false };
-    let file = bundle(&land, &reference, None).unwrap();
-    let listed = Command::new("git").current_dir(dir.path()).args(["bundle", "list-heads", "-"]).stdin(file).output().unwrap();
-    assert_eq!(String::from_utf8(listed.stdout).unwrap().trim(), format!("{} {reference}", head.as_str()));
 }
 
 

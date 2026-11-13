@@ -5,7 +5,7 @@ use std::process::Command;
 use super::{CommitId, Land, quote};
 use crate::capacity::carry;
 
-/// The bundle of `reference` cut at the shipped base, or at each commit in `held` when the host named the commits its checkout holds.
+/// The bundle of `reference` cut at the shipped base, or at each commit in `held` when the host named the commits its checkout holds; a base the head's history does not contain travels in it too, as `base_reference(reference)`, so the host reads every commit the shipped context names.
 pub(super) fn bundle(land: &Land, reference: &str, held: Option<&[CommitId]>) -> Result<File, String> {
     let git = || {
         let mut command = Command::new(north_base::foundation::offload::git());
@@ -17,21 +17,35 @@ pub(super) fn bundle(land: &Land, reference: &str, held: Option<&[CommitId]>) ->
     if !made {
         return Err(format!("cannot name {} for the bundle", land.head.as_str()));
     }
+    let moved = land.base.as_ref().filter(|base| !git().args(["merge-base", "--is-ancestor", base.as_str(), land.head.as_str()]).status().is_ok_and(|status| status.success()));
+    let carried = moved.filter(|base| git().args(["update-ref", &base_reference(reference), base.as_str()]).status().is_ok_and(|status| status.success()));
     let mut command = git();
     command.args(["bundle", "create", "-q", "-", reference]);
-    let cut = |commit: &CommitId| if *commit == land.head { format!("^{}^", commit.as_str()) } else { format!("^{}", commit.as_str()) };
-    match held {
-        Some(held) => command.args(held.iter().map(cut)),
-        None => command.args(land.base.iter().map(cut)),
+    if carried.is_some() {
+        command.arg(base_reference(reference));
+    }
+    let cut = |commit: &CommitId| if *commit == land.head || carried == Some(commit) { format!("^{}^", commit.as_str()) } else { format!("^{}", commit.as_str()) };
+    match (held, moved) {
+        (Some(held), _) => command.args(held.iter().map(cut)),
+        (None, Some(base)) => {
+            let fork = git().args(["merge-base", base.as_str(), land.head.as_str()]).output().ok().map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|sha| !sha.is_empty());
+            command.args(fork.map(|sha| cut(&CommitId(sha))))
+        }
+        (None, None) => command.args(land.base.iter().map(cut)),
     };
     let bundled = command.stdout(file.try_clone().map_err(|error| error.to_string())?).status().is_ok_and(|status| status.success());
     let _ = git().args(["update-ref", "-d", reference]).status();
+    let _ = git().args(["update-ref", "-d", &base_reference(reference)]).status();
     if !bundled {
         return Err("git bundle failed".to_owned());
     }
     let mut file = file;
     file.rewind().map_err(|error| error.to_string())?;
     Ok(file)
+}
+
+pub(super) fn base_reference(reference: &str) -> String {
+    format!("{reference}-base")
 }
 
 /// The landing context a land check carries to the offload host as `NAME='value'` words, naming the shipped base and head; empty for any other run. A landing marked `after` carries the same context, and the host's line ranks it below a hand-in's checks.

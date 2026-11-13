@@ -321,5 +321,7 @@ pub(super) fn reap(ssh: &str, owner: &str) -> u8 {
 }
 
 #[cfg(test)]
+mod base_tests;
+#[cfg(test)]
 mod tests;
 

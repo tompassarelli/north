@@ -206,7 +206,15 @@ fn refusal(status: i32, clippy: bool, (root, base, head): (&Path, &str, &str)) -
     } else {
         String::new()
     };
-    QueueRefusal::Failed(format!("a check before queueing exited {status}; fix the failure above{rerun}"))
+    QueueRefusal::Failed(format!("a check before queueing exited {status}; fix the failure above{rerun}{}", off_base(root, base, head)))
+}
+
+fn off_base(root: &Path, base: &str, head: &str) -> String {
+    let contained = std::process::Command::new("git").arg("-C").arg(root).args(["merge-base", "--is-ancestor", base, head]).output().map_or(true, |output| output.status.code() != Some(1));
+    if contained {
+        return String::new();
+    }
+    format!("; the checks ran against base {base}, which the lane's history does not contain: the lane stays on its older base when it cannot be rebased in place; rebase it onto {base} and hand in again")
 }
 
 fn lane_tests(landing: &[String]) -> Option<String> {
