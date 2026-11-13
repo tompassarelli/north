@@ -1,6 +1,7 @@
 use super::super::layout::Layout;
 use super::super::live::Swap;
-use super::{RESTART_S, Verdict, Window, capacity_parked, judge, launch_failures, lasting_host_exits, named, risen};
+use super::exits::RESTART_S;
+use super::{Verdict, Window, capacity_parked, judge, launch_failures, lasting_host_exits, named, risen};
 use std::collections::HashSet;
 use north_base::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, Liveness, Owner, State, Store};
@@ -44,6 +45,36 @@ impl Lifecycle for Session {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Delivered;
+
+impl State for Delivered {
+    const ALL: &'static [Self] = &[Self];
+
+    fn name(self) -> &'static str {
+        "delivered"
+    }
+}
+
+struct Row;
+
+impl Lifecycle for Row {
+    const NAME: &'static str = "row-delivery";
+    type State = Delivered;
+
+    fn legal(_: Option<Delivered>, _: Delivered) -> bool {
+        true
+    }
+
+    fn dwell(_: Delivered) -> Option<Duration> {
+        None
+    }
+
+    fn orphan(_: Delivered) -> Option<Delivered> {
+        None
+    }
+}
+
 fn failed(reasons: &[&str]) -> Vec<String> {
     reasons.iter().map(|reason| (*reason).to_owned()).collect()
 }
@@ -58,34 +89,6 @@ fn a_kind_rolls_the_runtime_back_only_when_it_ran_faster_since_the_swap_than_the
     let launching = Window { launches: 6, ..Window::default() };
     let broken = Window { launches: 1, failures: failed(&["session host died at start: exit 101", "session host died at start: exit 101"]), land_refusals: 3, ..Window::default() };
     assert_eq!(risen(&broken, &launching, 600), ["launch failures", "land refusals"]);
-}
-
-#[test]
-fn a_session_host_restarted_onto_the_new_runtime_is_not_an_exit_and_one_that_stays_down_is() {
-    let directory = tempfile::tempdir().unwrap();
-    let ledger = directory.path().join("ledger.db");
-    let mut store = Store::open(&ledger).unwrap();
-    let at = |seconds: i64| Timestamp::from_unix_seconds(1_800_000_000 + seconds);
-    let mut stops = |session: &str, stopped: i64, started_again: Option<i64>| {
-        store.transition::<Session>(session, Phase::Live, "launched", at(stopped - 100)).unwrap().unwrap();
-        store.transition::<Session>(session, Phase::Parked, "the holder, pid 1 on laptop, is gone", at(stopped)).unwrap().unwrap();
-        if let Some(again) = started_again {
-            store.transition::<Session>(session, Phase::Live, "revived", at(again)).unwrap().unwrap();
-        }
-    };
-    stops("north-1@1", 200, Some(205));
-    stops("vn-2@1", 250, None);
-    stops("north-3@1", 300, None);
-    stops("north-4@1", 400, Some(400 + RESTART_S + 10));
-    stops("north-5@1", 590, None);
-    let span = (at(0), at(1000));
-
-    let none = HashSet::new();
-    assert_eq!(lasting_host_exits(&ledger, span, at(600), &none).len(), 2,"north-3 stayed down and north-4 came back too late; north-1 restarted, vn-2 is a scratch host, north-5 stopped too recently to tell");
-    assert_eq!(lasting_host_exits(&ledger, span, at(700), &none).len(), 3, "north-5 is still down once the restart window has passed");
-    let lasting = |span| Window { host_exits: lasting_host_exits(&ledger, span, at(700), &none), ..Window::default() };
-    assert_eq!(risen(&lasting((at(0), at(260))), &Window::default(), 260), Vec::<&str>::new(), "a restart and a scratch host are no exits");
-    assert_eq!(risen(&lasting(span), &Window::default(), 1000), ["session-host exits"]);
 }
 
 #[test]
@@ -190,6 +193,58 @@ fn asked_for_exits_do_not_roll_a_runtime_back() {
     assert_eq!(named(&risen, &since, &Window::default()), "session-host exits (north-8, north-9)");
 }
 
+/// On 2026-11-11 at about 5:55 AM +07 the watch rolled 26ae80bb back on whiterabbit for session-host exits from 5:50:52 to 5:54:46 that the runtime did not cause: the canary's three probe sessions, the verify walk's vn-1794351061, the lander-precheck unit after its turn, and a DeepSeek worker that finished its box before the swap. A session that started a turn under the new runtime and died before finishing it, launched after the swap or moved onto it in place, is still an exit. A host the supervisor started again within `RESTART_S` is a restart, and one that stopped more recently than that is not yet known to be either.
+#[test]
+fn the_watch_counts_only_sessions_that_died_mid_work_under_the_new_runtime() {
+    let state = tempfile::tempdir().unwrap();
+    let ledger = state.path().join("ledger.db");
+    let process = |pid: u32| Owner { host: "whiterabbit".into(), pid, started: 1, booted_ms: 1 };
+    let (swapped, judged) = (1_794_351_045, 1_794_351_350);
+    let at = Timestamp::from_unix_seconds;
+    let mut host = Store::open_as(&ledger, process(10), Box::new(Gone)).unwrap();
+    let runs = rusqlite::Connection::open(&ledger).unwrap();
+    runs.execute_batch("CREATE TABLE runs(session TEXT NOT NULL, ended_ms INTEGER NOT NULL, exit TEXT NOT NULL)").unwrap();
+    let completed = |session: &str, ended: i64| runs.execute("INSERT INTO runs VALUES (?1, ?2, 'completed')", rusqlite::params![session, at(ended).unix_millis()]).unwrap();
+    let sessions = [
+        ("canary-pi-1484999-1@1", swapped + 2, 1_794_351_052),
+        ("canary-claude-1485004-1@1", swapped + 3, 1_794_351_100),
+        ("canary-opencode-1485001-1@1", swapped + 4, 1_794_351_130),
+        ("vn-1794351061@1", 1_794_351_061, 1_794_351_150),
+        ("lander-precheck@1", swapped + 10, 1_794_351_180),
+        ("north-1022-d2116-old-state-stores-for-threads-db-graph-db-capacit@1", swapped - 1800, 1_794_351_210),
+        ("north-1115-mid-turn@1", swapped + 20, 1_794_351_230),
+        ("north-1081-adopted@1", swapped - 1200, 1_794_351_286),
+        ("north-1-restarted@1", swapped + 30, 1_794_351_200),
+        ("north-4-late@1", swapped + 40, 1_794_351_240),
+        ("north-5-recent@1", swapped + 50, 1_794_351_300),
+    ];
+    for (session, started, _) in sessions {
+        host.transition::<Session>(session, Phase::Live, "a session host started for it", at(started)).unwrap().unwrap();
+    }
+    completed("lander-precheck", 1_794_351_170);
+    completed("north-1022-d2116-old-state-stores-for-threads-db-graph-db-capacit", swapped - 600);
+    completed("north-1081-adopted", swapped - 900);
+    host.transition::<Row>("north-1081-adopted/7", Delivered, "delivered", at(swapped + 60)).unwrap().unwrap();
+    let mut reader = Store::open_as(&ledger, process(11), Box::new(Gone)).unwrap();
+    for (session, _, ended) in sessions {
+        reader.settle::<Session>(session, at(ended)).unwrap();
+    }
+    let mut supervisor = Store::open_as(&ledger, process(12), Box::new(Gone)).unwrap();
+    for (session, again) in [("north-1-restarted@1", 1_794_351_205), ("north-4-late@1", 1_794_351_240 + RESTART_S + 10)] {
+        supervisor.transition::<Session>(session, Phase::Live, "a session host started for it", at(again)).unwrap().unwrap();
+    }
+
+    let none = HashSet::new();
+    let window = |start: i64, end: i64, judged: i64| Window { host_exits: lasting_host_exits(&ledger, (at(start), at(end)), at(judged), &none), ..Window::default() };
+    let replay = window(swapped, 1_794_351_220, judged);
+    assert_eq!(replay.host_exits, Vec::<String>::new(), "probes, a finished turn, a host idle since before the swap and a host restarted within RESTART_S are no exits");
+    assert_eq!(risen(&replay, &window(swapped - 3600, swapped, judged), 175), Vec::<&str>::new());
+    let since = window(swapped, judged, judged);
+    assert_eq!(since.host_exits, ["north-1081-adopted", "north-1115-mid-turn", "north-4-late"], "a launched turn and a taken row that never finished are exits, and a host restarted too late is one; north-5-recent stopped too recently to tell");
+    assert_eq!(window(swapped, judged + 100, judged + 100).host_exits, ["north-1081-adopted", "north-1115-mid-turn", "north-4-late", "north-5-recent"], "north-5-recent is still down once the restart window has passed");
+    assert_eq!(risen(&since, &window(swapped - 3600, swapped, judged), judged - swapped), ["session-host exits"]);
+}
+
 /// On 2026-11-13 the watch rolled cd052409 back at 4:33 PM +07, then 439abac8, which that rollback had made live, at 4:35 PM, and the window that opened rolled the runtime back again at 4:43 PM; here the exits of those windows are hosts nobody stopped.
 #[test]
 fn a_window_a_rollback_opened_is_reported_and_rolls_nothing_back() {
@@ -199,8 +254,9 @@ fn a_window_a_rollback_opened_is_reported_and_rolls_nothing_back() {
     let at = Timestamp::from_unix_seconds;
     let mut host = Store::open_as(&layout.ledger(), process(10), Box::new(Gone)).unwrap();
     let exits = [("f-agent-opus-a@1", 1_794_562_237), ("f-rebase-gap@1", 1_794_562_313), ("f-queue-wait@1", 1_794_562_429), ("burnb2-fin-op16@1", 1_794_562_465)];
-    for (session, _) in exits {
+    for (session, ended) in exits {
         host.transition::<Session>(session, Phase::Live, "a session host started for it", at(1_794_560_000)).unwrap().unwrap();
+        host.transition::<Row>(&format!("{}/1", session.split_once('@').unwrap().0), Delivered, "delivered", at(ended - 30)).unwrap().unwrap();
     }
     let mut reader = Store::open_as(&layout.ledger(), process(11), Box::new(Gone)).unwrap();
     for (session, ended) in exits {

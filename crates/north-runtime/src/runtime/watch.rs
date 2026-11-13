@@ -7,7 +7,7 @@ use super::update;
 use crate::foundation::clock::Timestamp;
 use north_offload::land_offload;
 use crate::platform::host;
-use north_base::lifecycle::{ORPHANED_LIKE, Store};
+use north_base::lifecycle::Store;
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::HashSet;
@@ -15,12 +15,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+mod exits;
+
+use exits::{capacity_parked, lasting_host_exits};
+
 const WATCH_S: i64 = 10 * 60;
 const PRIOR_S: i64 = 60 * 60;
 const LEAST: usize = 2;
 const SAMPLE: usize = 3;
-const RESTART_S: i64 = 60;
-const SCRATCH: &str = "vn-";
 
 static READING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d[\d.]*").expect("a reading pattern"));
 
@@ -46,27 +48,6 @@ impl Window {
     }
 }
 
-/// The sessions whose host stopped in `span` with nobody asking and went on running nothing: only the store's own move for a holder that is gone counts, so a session its host parked at its idle limit, as every idle session is after `--idle-exit`, is asked for and no exit; a host the supervisor started again within `RESTART_S` is a restart, as a promotion moving hosts onto the new runtime makes, and a session the fleet stopped within `RESTART_S` (`north fleet stop`, forget, retire, or a launch whose first turn the account limit refused) is stopped by order, and a `vn-*` session is the canary walk's own scratch host, so none is an exit, and a stop younger than `RESTART_S` at `judged` is not yet known to be any of them; a session in `parked`, which the fleet parked for capacity such as its account reaching its limit, is a decision rather than an exit.
-fn lasting_host_exits(ledger: &Path, (start, end): (Timestamp, Timestamp), judged: Timestamp, parked: &HashSet<String>) -> Vec<String> {
-    let Ok(db) = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY) else { return Vec::new() };
-    let Ok(mut statement) = db.prepare(
-        "SELECT stop.instance FROM lifecycle_moves stop WHERE stop.machine = 'fleet-session' AND stop.from_state = 'live' AND stop.to_state = 'parked' AND stop.refused = 0 AND stop.cause LIKE ?6 \
-         AND stop.at_ms >= ?1 AND stop.at_ms < ?2 AND stop.at_ms <= ?3 - ?4 AND substr(stop.instance, 1, length(?5)) <> ?5 \
-         AND NOT EXISTS (SELECT 1 FROM lifecycle_moves again WHERE again.machine = stop.machine AND again.instance = stop.instance AND again.to_state IN ('live', 'stopped') AND again.refused = 0 AND again.move_id > stop.move_id AND again.at_ms <= stop.at_ms + ?4) ORDER BY stop.instance",
-    ) else {
-        return Vec::new();
-    };
-    let stopped = statement.query_map(rusqlite::params![start.unix_millis(), end.unix_millis(), judged.unix_millis(), RESTART_S * 1000, SCRATCH, ORPHANED_LIKE], |row| row.get::<_, String>(0));
-    let sessions = stopped.map(|rows| rows.filter_map(Result::ok).map(|instance| instance.split_once('@').map_or(instance.clone(), |(name, _)| name.to_owned())).collect::<Vec<_>>()).unwrap_or_default();
-    sessions.into_iter().filter(|name| !parked.contains(name)).collect()
-}
-
-/// The sessions the fleet parked for capacity in the span, by the boundary cause it recorded for each.
-fn capacity_parked(ledger: &Path, start: &str, end: &str) -> HashSet<String> {
-    let Ok(db) = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY) else { return HashSet::new() };
-    let Ok(mut statement) = db.prepare("SELECT session FROM boundary_causes WHERE source = 'fleet' AND cause = 'capacity' AND at >= ?1 AND at < ?2") else { return HashSet::new() };
-    statement.query_map([start, end], |row| row.get::<_, String>(0)).map(|rows| rows.filter_map(Result::ok).collect()).unwrap_or_default()
-}
 
 /// A failure's cause: its reason with every reading blanked, so a failure at load 10.19 and at 10.79 is one cause.
 fn cause(reason: &str) -> String {
