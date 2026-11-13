@@ -922,3 +922,11 @@ command = "north runtime lag --json | jq -e 'all(.[]; .seconds != null) and (map
 review = "2026-11-16"
 owner = "tompassarelli/north#1115"
 lead = "f-1081-readings"
+
+[[check]]
+id = "n1247-nixpkgs-bound-stable-1100"
+box = "The six nixpkgs-bound projects put Rust 1.100.0 in their dev shells"
+command = "for p in galileo glide beagle gjoa nixos-config makgora; do v=$(north capacity dev-shell run --dir /home/tom/code/$p/main -- rustc --version) || exit 1; echo \"$v\" | awk -F \"[ .]\" \"\\$1 == \\\"rustc\\\" && (\\$2 > 1 || (\\$2 == 1 && \\$3 >= 100)) { found = 1 } END { exit !found }\" || exit 1; done"
+review = "2026-11-27"
+owner = "tompassarelli/north#1247"
+lead = "f-buck-side-4"
