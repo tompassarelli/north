@@ -1,0 +1,6 @@
+[[topic]]
+repo = "example"
+name = "example-topic"
+terms = ["example term"]
+since = "2026-01-01"
+reason = "an example of a topic held frozen; delete it"

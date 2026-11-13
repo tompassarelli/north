@@ -1,0 +1,6 @@
+[[service]]
+id = "claude-a"
+name = "Claude plan a"
+kind = "ai-plan"
+billing = "fixed"
+usd_per_week = 50.0

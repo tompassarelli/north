@@ -1,0 +1,7 @@
+currency_usd_per_eur = 1.1
+currency_source = "an example rate"
+
+[[machine]]
+id = "laptop"
+role = "workstation"
+monthly_usd = 0

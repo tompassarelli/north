@@ -1,0 +1,6 @@
+[[rule]]
+id = "example-rule"
+section = "Act and finish"
+text = "Finish what you start and say what was observed."
+placement = "global"
+fixes = "an example rule; replace it with your own"
