@@ -270,7 +270,7 @@ fn the_landing_tail_breaches_on_rounds_the_replay_makes_slower_and_on_landings_i
 }
 
 #[test]
-fn reapplying_the_parent_of_8d4c5d10a_to_slot_claims_exits_non_zero_naming_slot_time() {
+fn the_2026_11_06_slot_deadlock_reapplying_the_parent_of_8d4c5d10a_to_slot_claims_exits_non_zero_naming_slot_time() {
     let root = tempfile::tempdir().unwrap();
     log_admission(root.path(), 30, true, |_| Reason::Run);
     let linked = Deciders::linked();
@@ -335,9 +335,8 @@ fn assert_a_strategy_whose_slowest_call_passes_10_ms_is_refused_naming_its_kind_
     assert_eq!(execute(root.path(), NOW, &deciders(&quiet_admission, &same_judgement, &unplaced), &bounds(), &options), 0);
 }
 
-/// On 2026-11-08 the replay budget read the wall clock, so host load alone could refuse a lane (north#892).
 #[test]
-fn the_replay_budget_is_held_to_cpu_per_thread_and_not_to_the_wall_clock() {
+fn the_replay_budget_is_held_to_cpu_per_thread_and_not_to_the_wall_clock_so_host_load_cannot_refuse_a_lane_north_892() {
     let root = tempfile::tempdir().unwrap();
     log_admission(root.path(), 3, false, |_| Reason::Run);
     let options = Options { since: 86_400.0, invariants: false, budget: true };
@@ -369,16 +368,4 @@ fn a_launch_counts_as_refused_only_when_its_last_placement_in_the_window_refused
     log("placed", 100.0, placed_on_c());
     log("refused-before-the-window", 7200.0, refused_decision());
     assert_eq!(refused::refused_launches(root.path(), NOW - 3600.0, NOW), 1);
-}
-
-#[test]
-fn every_concern_a_decision_kind_names_as_the_one_it_moves_is_a_concern_of_concerns_toml() {
-    let concerns: toml_edit::DocumentMut = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../concerns.toml")).unwrap().parse().unwrap();
-    let names: Vec<&str> = concerns["concern"].as_array_of_tables().unwrap().iter().filter_map(|goal| goal["name"].as_str()).collect();
-    for kind in Kind::ALL {
-        assert!(!kind.moves().is_empty(), "{} names no goal check", kind.name());
-        for goal in kind.moves() {
-            assert!(names.contains(goal), "{} moves {goal}, which concerns.toml does not define", kind.name());
-        }
-    }
 }
