@@ -169,7 +169,7 @@ E2 measures only the diff-visible part. The classified rows and modes, with tran
 in south `agents/decisions/harness/watch-2026-11-04-mattpocock-e1/`.
 
 Follow-up, 2026-11-04. Each of the 8 modes has a decision as a `[[candidate]]` entry in south `agents/rules.toml`
-(south `8145946`): enforcer candidates for the spec gap (a Spec-axis reviewer at landing, pending E2), a retried
+(south `8145946`): enforcer candidates for the spec gap (a Spec-axis reviewer at landing, which E2 did not keep on 2026-11-05), a retried
 refused landing (the lander and safe-push refuse an already-refused tree), a stray bulk reformat (safe-push flags
 formatting-only hunks outside the brief's Files) and a fix left unlanded (the stop hook refuses a report over
 unlanded passing commits); the unfollowable explanation, the re-asked instruction and the wrong cause stay prose,

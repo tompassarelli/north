@@ -24,8 +24,11 @@ model for protocol bugs once that model exists.
 
 ## Enforcement
 
-The fails-first landing gate (lane fails-first-gate, built in parallel) enforces both directions. Until it lands, the
-brief's Done when and the worker's pasted failure and passing run carry the rule.
+`north land fails-first` ([fails_first.rs](../../crates/north-landing-gates/src/landing/fails_first.rs)) runs in the
+lander before a lane lands and enforces both directions: a lane that changes code and tests is refused when every added
+or changed test passes on the base, and a lane marked `Behavior: unchanged` is refused when any of its changed tests
+fails there. After landing, `north land scan test-admission` replays each added test with the lane's non-test changes
+reverted.
 
 ## Review
 
