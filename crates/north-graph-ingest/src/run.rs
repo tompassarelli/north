@@ -115,7 +115,7 @@ pub fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((verb, rest)) if verb == "ingest" => ingest_command(rest),
         Some((verb, rest)) if verb == "retain" => retain_command(rest),
-        _ => north_graph::run(arguments),
+        _ => north_graph::run_guarded(arguments, &|verb, writer| crate::trusted_writers::refusal(verb, writer, std::fs::read_to_string("/proc/self/cgroup").ok().as_deref())),
     }
 }
 

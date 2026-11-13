@@ -18,6 +18,7 @@ mod reads;
 mod run;
 mod shas;
 mod touches;
+mod trusted_writers;
 mod waits;
 
 #[cfg(test)]

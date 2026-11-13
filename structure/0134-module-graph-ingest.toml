@@ -2,5 +2,5 @@
 name = "graph_ingest"
 paths = ["crates/north-graph-ingest/src/**"]
 responsibility = "Loading what north already records into the fact graph: the GitHub mirror, ledger, push log, corrections, coverage map, workspace manifests and recorded test reads, each told as a set by its own writer."
-may_use = ["coverage", "crate-roots", "fleet", "foundation", "github_mirror", "graph", "threads", "lifecycle", "platform.harness", "platform.store", "platform.records", "verdict_cache"]
+may_use = ["coverage", "crate-roots", "fleet", "foundation", "github_mirror", "graph", "threads", "lifecycle", "platform.harness", "platform.process", "platform.store", "platform.records", "verdict_cache"]
 

@@ -57,12 +57,22 @@ fn options(arguments: &[String]) -> Result<Options, String> {
     Ok(parsed)
 }
 
+/// Why a write under `writer` is refused before it runs, or `None` to let it through; called with the verb and the writer the parser resolved.
+pub type Guard<'a> = &'a dyn Fn(&str, &str) -> Option<String>;
+
 pub fn run(arguments: &[String]) -> u8 {
+    run_guarded(arguments, &|_, _| None)
+}
+
+pub fn run_guarded(arguments: &[String], guard: Guard) -> u8 {
     let Some((verb, rest)) = arguments.split_first() else {
         eprintln!("{USAGE}");
         return 2;
     };
-    let outcome = options(rest).and_then(|options| dispatch(verb, &options));
+    let outcome = options(rest).and_then(|options| match guard(verb, &options.writer) {
+        Some(why) => Err(why),
+        None => dispatch(verb, &options),
+    });
     match outcome {
         Ok(code) => code,
         Err(why) => {
