@@ -23,7 +23,7 @@ State lives on more than one machine: the ledger and the tune cells on the ledge
 
 No host reads another: the gex45 and nexus access decisions keep those hosts pull-only, with no keys to reach the laptop, so an ssh read of the lander host from nexus could never succeed (2026-11-05). `north loops check` reads from the local files only the closed loops whose role this host holds, and lists every other closed loop as `checked on ROLE`, which does not fail. An unresolvable lander host means this host does not hold the lander role. `north loops check --role ROLE` checks only the loops of that role, read locally, whatever this host is named.
 
-Each role is checked where its records live. The daily `north tune` on the ledger host checks the ledger and here loops. On the laptop, the lander host, the hourly north-tempo user timer in nixos-config (modules/north-tempo) runs `north loops check --role lander` after recording tempo, so a stale lander loop fails that unit.
+Each role is checked where its records live, so a loop whose writer ticks only on the laptop names `host = "lander"`: the scoreboard and corrections loops did not on 2026-11-14, and the ledger host's daily `north tune` printed both as never updated while the laptop read none failing (north#35). The daily `north tune` on the ledger host checks the ledger and here loops. On the laptop, the lander host, the hourly north-tempo user timer in nixos-config (modules/north-tempo) runs `north loops check --role lander` after recording tempo, so a stale lander loop fails that unit.
 
 ## Where a loop's facts live: the graph
 

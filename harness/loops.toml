@@ -273,6 +273,7 @@ cadence_hours = 24
 store = "graph"
 writer = "distill"
 score = "north/grounding/corrections-week.txt"
+host = "lander"
 
 [[loop]]
 name = "scoreboard"
@@ -284,6 +285,7 @@ cadence_hours = 168
 store = "graph"
 writer = "scoreboard"
 score = "north/scoreboard/week.txt"
+host = "lander"
 
 [[loop]]
 name = "code-health-review"
