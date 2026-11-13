@@ -195,7 +195,7 @@ gate enters the shell itself) come first among the guards.
 One rule runs through every guard below: a footgun is closed where its wrong assumption is first observable, by the
 program that holds the fact, and its message names the fix. Most classes here share one root. North has five places
 that enter a dev shell on their own (`bin/land-shell --dev`, the offload's `RUN` script in
-`crates/north-runtime/src/land_offload/ship.rs:61`, `capacity::dev_shell::enter`, three `exec nix develop` check
+`crates/north-offload/src/land_offload/ship.rs:61`, `capacity::dev_shell::enter`, three `exec nix develop` check
 scripts), each with its own idea of "already inside", none with `--offline`, and one GC
 root among them. So the first guard is architecture: one entry, `north dev-shell run`, that every other caller goes
 through (box D1). Several classes below close by moving their callers onto it.

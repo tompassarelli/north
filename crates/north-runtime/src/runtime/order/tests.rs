@@ -182,7 +182,7 @@ fn an_ordered_promotion_of_a_landed_commit_runs_the_canary_then_goes_live_on_the
     }).collect();
     assert_eq!(left_out, [("nexus".to_owned(), "f-promote-order: the lander cannot take a landing".to_owned())]);
     assert!(super::super::pin::status(&layout.state, None).contains("held: nexus"));
-    let deployment = crate::land_offload::Deployment { destinations: vec!["tom@gex45".to_owned(), "nexus".to_owned()], names: vec!["gex45".to_owned(), "nexus".to_owned()], ..Default::default() };
+    let deployment = north_offload::land_offload::Deployment { destinations: vec!["tom@gex45".to_owned(), "nexus".to_owned()], names: vec!["gex45".to_owned(), "nexus".to_owned()], ..Default::default() };
     let named = |except: &[&str]| super::leave_out(&deployment, &except.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>(), "whiterabbit");
     assert_eq!(named(&["nexus"]).unwrap(), (vec!["tom@gex45".to_owned()], vec!["nexus".to_owned()]));
     assert!(named(&["whiterabbit"]).is_err() && named(&["nowhere"]).is_err() && named(&["gex45", "nexus"]).is_err());

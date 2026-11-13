@@ -981,6 +981,7 @@ dependencies = [
  "north-lanes",
  "north-machine-model",
  "north-mutants",
+ "north-offload",
  "north-ops",
  "north-providers",
  "north-registries",
@@ -1726,6 +1727,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-offload"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "north-base",
+ "north-build-system",
+ "north-capacity-host",
+ "north-dispatch",
+ "north-lanes",
+ "north-pacing",
+ "north-runtime-follow",
+ "regex",
+ "rustix 0.38.44",
+ "serde_json",
+ "tempfile",
+ "toml_edit",
+]
+
+[[package]]
 name = "north-ops"
 version = "0.1.0"
 dependencies = [
@@ -1875,6 +1895,7 @@ dependencies = [
  "north-build-system",
  "north-dispatch",
  "north-lanes",
+ "north-offload",
  "north-pacing",
  "north-providers",
  "north-runtime-follow",
@@ -1893,6 +1914,11 @@ dependencies = [
 [[package]]
 name = "north-runtime-follow"
 version = "0.1.0"
+dependencies = [
+ "north-base",
+ "rustix 0.38.44",
+ "sha2",
+]
 
 [[package]]
 name = "north-safe-push"

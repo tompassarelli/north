@@ -52,7 +52,7 @@ pub(super) fn offload_refusal(arguments: &[String], lane_only: bool, reached: im
     if lane_only {
         return Some("a lane-only session's command reaches no build host through the broker".to_owned());
     }
-    match crate::land_offload::worker_request(rest) {
+    match north_offload::land_offload::worker_request(rest) {
         Some(Some(host)) => reached(host).err(),
         _ => None,
     }
@@ -83,7 +83,7 @@ pub(super) fn environment(own: &[(String, String)], runtime: &Path, homes: &[(St
     let named = |name: &str| name == RUNTIME_ENV || WITHHELD.contains(&name) || PLACES.contains(&name) || name.starts_with("GIT_CONFIG") || homes.iter().any(|(home, _)| home == name);
     let path: Vec<PathBuf> = own.iter().find(|(name, _)| name == "PATH").map(|(_, value)| std::env::split_paths(value).filter(|entry| entry.is_absolute()).collect()).unwrap_or_default();
     let resolved = |program: &str| path.iter().map(|entry| entry.join(program)).find(|found| found.metadata().is_ok_and(|file| file.is_file() && file.permissions().mode() & 0o111 != 0)).map(|found| found.to_string_lossy().into_owned()).ok_or_else(|| format!("the broker's own PATH finds no {program}, so no offload starts"));
-    let programs = [(SSH_ENV.to_owned(), resolved("ssh")?), (GIT_ENV.to_owned(), resolved("git")?), (crate::land_offload::WORKER_REQUEST_ENV.to_owned(), "1".to_owned())];
+    let programs = [(SSH_ENV.to_owned(), resolved("ssh")?), (GIT_ENV.to_owned(), resolved("git")?), (north_offload::land_offload::WORKER_REQUEST_ENV.to_owned(), "1".to_owned())];
     let path = std::env::join_paths(path.iter()).map_err(|error| error.to_string())?.to_string_lossy().into_owned();
     let kept = own.iter().filter(|(name, _)| !named(name)).cloned();
     Ok(kept.chain([("PATH".to_owned(), path), (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned())]).chain(homes.iter().cloned()).chain(programs).chain(checkout.into_iter().flat_map(Checkout::pinned)).chain(git_credential::session_env_with(&GIT_HARDENING)).collect())

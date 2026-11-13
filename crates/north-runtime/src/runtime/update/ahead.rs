@@ -13,7 +13,7 @@ use super::super::failure::{Failure, failed};
 use super::super::layout::{self, BUILT_FROM, BUILT_HERE, BUILT_ON, Layout, PROGRAMS};
 use super::super::pin::{self, Event};
 use super::super::remote;
-use crate::land_offload::{self, BuildHost};
+use north_offload::land_offload::{self, BuildHost};
 use crate::platform::process;
 use rustix::fs::{FlockOperation, flock};
 use std::fs::{self, File};

@@ -19,7 +19,7 @@ fn route(arguments: &[String], host: &Host) -> Option<u8> {
             status
         }
         Some("seat-idle-hint") => seat_idle::run(&arguments[1..]),
-        Some("offload") => line::or_offload(&arguments[1..], host.offload),
+        Some("offload") => line::or_offload(&arguments[1..], host),
         Some("pull") => host::pull(&arguments[1..]),
         Some("actions-pull") => host::actions_pull(&arguments[1..]),
         Some("reap-orphans") if arguments.len() == 1 => {

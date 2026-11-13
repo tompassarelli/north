@@ -1,7 +1,12 @@
 //! How a long-lived north process moves onto the runtime its link promotes (docs/rationale/runtime-follow.md): it asks
 //! `replaced` at each of its safe points and, once the link names another runtime, re-execs that runtime in place or
-//! exits so its unit starts it. This crate uses only std, so every crate that runs a resident process can depend on it.
+//! exits so its unit starts it. It also holds the tree layout those runtimes live in, the runtime this process runs
+//! from, and the collection that deletes the ones no link, lease, live process or agent link needs, so a crate that
+//! only places or builds a runtime can read them without depending on a whole product line.
 #![forbid(unsafe_code)]
+
+pub mod collection;
+pub mod layout;
 
 use std::ffi::OsString;
 use std::fs;
@@ -114,6 +119,15 @@ pub fn runtime_of(executable: &Path) -> Option<(String, PathBuf)> {
 
 fn is_sha(name: &str) -> bool {
     name.len() == 40 && name.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// The runtime this process runs from: its executable's `runtimes/SHA` directory, when the directory carries every
+/// program a runtime holds.
+pub fn own_runtime() -> Option<(String, std::path::PathBuf)> {
+    let executable = fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+    let directory = executable.parent()?;
+    let sha = directory.file_name()?.to_str()?;
+    (layout::is_sha(sha) && layout::has_programs(directory)).then(|| (sha.to_owned(), directory.to_path_buf()))
 }
 
 /// Linux reports /proc/self/exe with a " (deleted)" suffix once the running binary has been replaced on disk.

@@ -2,7 +2,7 @@ use super::bounded;
 use super::layout::{self, PROGRAMS};
 use super::remote::limit;
 use super::store::references;
-use crate::land_offload;
+use north_offload::land_offload;
 use std::fs;
 use std::path::Path;
 use std::process::Command;

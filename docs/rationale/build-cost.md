@@ -69,7 +69,7 @@ in design), not a candidate here.
 Candidate 3 is decided: the laptop builds the runtime and gex45 never supplies a binary the laptop runs; a separate
 lane is closing the gex45-to-laptop pull in `crates/north-runtime/src/runtime/pull.rs`. With `settles_fleet = true`
 on whiterabbit, the laptop deploys to a gex45 set to `builds_runtime = false`
-(`crates/north-runtime/src/land_offload/destinations.rs:27`).
+(`crates/north-offload/src/land_offload/destinations.rs:27`).
 
 Superseded 2026-11-11 (north#1022): the laptop may now run a runtime a build host built, so it has
 the build host with the most free cores build each runtime and builds one itself only when none answers

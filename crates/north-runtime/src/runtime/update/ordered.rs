@@ -3,7 +3,7 @@ use super::super::layout::{self, Layout};
 use super::super::pin;
 use super::super::remote;
 use super::{Flight, PINNED_LOCK_WAIT, PROMOTE_LOCK, advance, built, caller, checkout, follow_main, named_lock, named_lock_waiting, promotion_waiting, usable};
-use crate::land_offload;
+use north_offload::land_offload;
 use rustix::fs::FlockOperation;
 use std::fs::{self, File};
 use std::time::{Duration, Instant};

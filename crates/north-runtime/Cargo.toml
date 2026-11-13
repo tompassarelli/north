@@ -11,6 +11,7 @@ test-resources = ["//:tree"]
 
 [dependencies]
 north-runtime-follow = { path = "../north-runtime-follow" }
+north-offload = { path = "../north-offload" }
 north-build-system = { path = "../north-build-system" }
 north-base = { path = "../north-base" }
 north-lanes = { path = "../north-lanes" }

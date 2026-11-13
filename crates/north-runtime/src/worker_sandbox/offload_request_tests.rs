@@ -386,7 +386,7 @@ fn offload(root: &Path) {
         let read = Command::new("git").args(["rev-parse", "--path-format=absolute", "--git-common-dir", "--absolute-git-dir"]).output().unwrap();
         std::fs::write(root.join("read"), [read.stdout, read.stderr].concat()).unwrap();
     }
-    let code = if words.get(2).is_some_and(|word| word == "free" || word == "slot") || words.last().is_some_and(|word| word == HERE) { crate::land_offload::run(&words[2..]) } else { 0 };
+    let code = if words.get(2).is_some_and(|word| word == "free" || word == "slot") || words.last().is_some_and(|word| word == HERE) { north_offload::land_offload::run(&words[2..], |_, _, _| Ok(()), |_| None) } else { 0 };
     std::process::exit(i32::from(code));
 }
 

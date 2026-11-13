@@ -1,0 +1,86 @@
+//! Runs a heavy build this host would defer on another host with room: the lane's commit and uncommitted diff go to a per-lane checkout there, the command runs under that host's own admission, and its output and exit code come back.
+use std::time::Duration;
+
+use north_capacity_host::capacity::build_offload::{Candidate, Declined, Job, PROBE_LIMIT_SECONDS, Room, Route, refusal, route, wants_offload};
+use crate::land_offload::{check_hosts, room};
+
+mod lane;
+mod remote;
+mod returned;
+mod script;
+pub mod take;
+#[cfg(test)]
+mod tests;
+
+fn room_for(read: &room::Room) -> Room {
+    room::build_shortfall(read).map_or(Room::Free { free_cpus: read.admission.free_cpus() }, Room::Short)
+}
+
+fn room_of(ssh: &str) -> Room {
+    room::read_within(ssh, Duration::from_secs(PROBE_LIMIT_SECONDS)).map_or(Room::Unreachable, |read| room_for(&read))
+}
+
+/// Ok(exit code) when the build ran on another host, trying each host with room in turn when one cannot take the lane; Err leaves it to the local path, naming why when an offload host was configured.
+pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
+    if !wants_offload(candidate) {
+        return Err(None);
+    }
+    let hosts = check_hosts();
+    if hosts.is_empty() {
+        return Err(None);
+    }
+    if let Some(refused) = refusal(candidate) {
+        return Err(Some(refused));
+    }
+    let mut rooms: Vec<(String, Room)> = hosts.iter().map(|(name, ssh)| (name.clone(), room_of(ssh))).collect();
+    let mut failed = Vec::new();
+    loop {
+        let host = match route(candidate, || rooms.clone()) {
+            Route::Offload { host } => host,
+            Route::Declined(_) if !failed.is_empty() => return Err(Some(Declined::Failed(failed.join("; ")))),
+            Route::Declined(declined) => return Err(Some(declined)),
+            Route::Local => return Err(None),
+        };
+        let position = hosts.iter().position(|(name, _)| *name == host).ok_or(None)?;
+        match run_on(&host, hosts[position].1.as_str(), job, announce)? {
+            remote::Ran::Exit(code) => return Ok(code),
+            remote::Ran::Abandoned => return Err(None),
+            remote::Ran::NotSynced(why) => {
+                failed.push(format!("{host}: {why}"));
+                rooms[position].1 = Room::Short(why);
+            }
+        }
+    }
+}
+
+struct Prepared {
+    lane: lane::Lane,
+    command: Vec<String>,
+    sink: Option<std::fs::File>,
+}
+
+fn prepare(job: &Job) -> Result<Prepared, Option<Declined>> {
+    let directory = std::env::current_dir().map_err(|error| Some(Declined::Failed(error.to_string())))?;
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or_else(|| Some(Declined::Failed("HOME is unset".to_owned())))?;
+    let plan = script::plan(job.command, &directory, &home).map_err(Some)?;
+    let lane = lane::capture(&plan.directory, &plan.command).map_err(Some)?;
+    let sink = plan.sink.as_ref().map(script::Sink::open).transpose().map_err(|error| Some(Declined::Failed(format!("the redirect target: {error}"))))?;
+    Ok(Prepared { lane, command: plan.command, sink })
+}
+
+fn run_on(host: &str, ssh: &str, job: &Job, announce: &dyn Fn(&str) -> bool) -> Result<remote::Ran, Option<Declined>> {
+    let Prepared { lane, command, sink } = prepare(job)?;
+    Ok(remote::run(ssh, &lane, &Job { command: &command, ..*job }, sink, &|| announce(host)))
+}
+
+/// Ok(exit code) when the peer that opened `peer` took this queued run and ran it; Err leaves the run queued here, naming why when the peer could not take it.
+pub fn hand_over(candidate: &Candidate, job: &Job, peer: std::os::unix::net::UnixStream, announce: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
+    if let Some(refused) = refusal(candidate) {
+        return Err(Some(refused));
+    }
+    if candidate.artifact {
+        return Err(Some(Declined::artifact()));
+    }
+    let Prepared { lane, command, sink } = prepare(job)?;
+    remote::hand_over(peer, &lane, &Job { command: &command, ..*job }, sink, announce)
+}

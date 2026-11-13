@@ -5,7 +5,7 @@ use super::pin::{self, Event};
 use super::remote::{OWN_RSH, limit, output, run, run_reporting, ssh};
 use super::store::references;
 use super::update::{built_main, checkout, named_lock_waiting, promotion_waiting};
-use crate::land_offload;
+use north_offload::land_offload;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;

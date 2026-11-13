@@ -61,6 +61,7 @@ crates_before = [
   "north-lanes",
   "north-machine-model",
   "north-mutants",
+  "north-offload",
   "north-ops",
   "north-pace",
   "north-pacing",

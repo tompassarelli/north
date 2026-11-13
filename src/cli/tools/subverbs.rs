@@ -126,7 +126,7 @@ const RUNTIME: &[(&str, Run)] = &[
     ("agents", agent_runtime_update),
     ("agy", crate::ops::vendor_runtime::run_agy),
     ("claude", crate::ops::vendor_runtime::run_claude),
-    ("hold", |arguments| north_runtime::worker_sandbox::hold_client::command(arguments, north_runtime::land_offload::settles_fleet_here())),
+    ("hold", |arguments| north_runtime::worker_sandbox::hold_client::command(arguments, north_offload::land_offload::settles_fleet_here())),
     ("opencode", crate::ops::vendor_runtime::run_opencode),
     ("pi", crate::ops::vendor_runtime::run_pi),
 ];

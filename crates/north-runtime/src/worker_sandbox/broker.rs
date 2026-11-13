@@ -89,7 +89,7 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
         ["home", "move", ..] | ["threads", _, ..] | ["fleet", "need", _, ..] | ["gate", "open", _, ..] => true,
         ["capacity", "host", "run", rest @ ..] => payload(rest).is_some(),
         ["capacity", "host", "status" | "backlog"] => true,
-        ["capacity", "offload", rest @ ..] => crate::land_offload::worker_request(rest).is_some(),
+        ["capacity", "offload", rest @ ..] => north_offload::land_offload::worker_request(rest).is_some(),
         [finish_request::VERB, ..] => true,
         [crate::runtime::review_hold::VERB, ..] => true,
         _ => lane_grant::privileged(arguments),
@@ -340,7 +340,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if let Some(asked) = crate::runtime::review_hold::Ask::asked(&request.arguments) {
         return hold_request::answer(asked, streams, cgroup, host);
     }
-    let unrefused = |checkout: request_checkout::Checkout| offload_refusal(&request.arguments, cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup), crate::land_offload::reached_destination).map_or(Ok(checkout), Err);
+    let unrefused = |checkout: request_checkout::Checkout| offload_refusal(&request.arguments, cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup), north_offload::land_offload::reached_destination).map_or(Ok(checkout), Err);
     let placed = asking_session(&request.arguments, cgroup, host).and_then(|asker| request_checkout::served(&host.code, &request_checkout::Slots::of(&host.environment, &host.home), &request.directory).and_then(unrefused).and_then(|checkout| Ok((offload_request::granted(&request.arguments, &checkout, &host.environment, &runtime(), &own_homes())?, checkout, asker))));
     let (offload, checkout, asker) = match placed {
         Ok(placed) => placed,

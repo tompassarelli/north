@@ -3,7 +3,7 @@ use super::layout::{self, BUILT_FROM, BUILT_ON, Layout, PROGRAMS};
 use super::pin::{self, Event};
 use super::pull;
 use super::remote;
-use crate::land_offload::BuildHost;
+use north_offload::land_offload::BuildHost;
 use crate::platform::ssh_retry::Rerun;
 use std::fs;
 use std::path::Path;

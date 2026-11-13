@@ -405,7 +405,7 @@ Four boxes cannot be 60 minutes or less, and each says why: L14, L31, L41, L48.
 - Check: `! rg -q 'crate::runtime::' crates/north-runtime/src/land_offload crates/north-runtime/src/build_offload crates/north-runtime/src/offload_cache`.
 
 **L20 Split: the offload leaves north-runtime (new crate north-offload, layer 5).** 0.75 h. After: L19, and the Buck2 remote-execution work in flight.
-- Files: `crates/north-runtime/src/land_offload/`, `crates/north-runtime/src/build_offload/`, `crates/north-runtime/src/offload_cache/` (4,003 lines), `crates/north-runtime/src/lib.rs`, `crates/north-runtime/src/runtime/mod.rs`, a crate-dag part, the generated files, `docs/rationale/experiments.toml`.
+- Files: `crates/north-offload/src/land_offload/`, `crates/north-offload/src/build_offload/`, `crates/north-offload/src/offload_cache/` (4,003 lines), `crates/north-runtime/src/lib.rs`, `crates/north-runtime/src/runtime/mod.rs`, a crate-dag part, the generated files, `docs/rationale/experiments.toml`.
 - Behavior: unchanged.
 - Check: `test ! -e crates/north-runtime/src/land_offload && test -d crates/north-offload`.
 

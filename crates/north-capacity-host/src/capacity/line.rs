@@ -37,10 +37,10 @@ pub fn run(words: &[&str]) -> u8 {
     }
 }
 
-pub fn or_offload(arguments: &[String], offload: fn(&[String]) -> u8) -> u8 {
+pub fn or_offload(arguments: &[String], host: &super::effects::Host) -> u8 {
     match arguments.split_first() {
         Some((verb, rest)) if verb == "line" => run(&rest.iter().map(String::as_str).collect::<Vec<_>>()),
-        _ => offload(arguments),
+        _ => (host.offload)(arguments, host.stage_runtime, host.reenter_outside),
     }
 }
 

@@ -5,7 +5,7 @@ use std::process::Command;
 use toml_edit::DocumentMut;
 
 use super::ledgers_among;
-use crate::land_offload;
+use north_offload::land_offload;
 use crate::pacing::placement::gate;
 
 const HOSTS: &str = include_str!("../runtime/fixtures/orchestration-hosts.toml");

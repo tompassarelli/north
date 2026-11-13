@@ -1353,7 +1353,7 @@ resident processes and up to three minutes to start them.
 
 The run case. `relax run --quiet north --bin north -- capacity offload choose` against `cargo build --bin north` then
 `target/debug/north capacity offload choose`, the edit being a word added to a message in
-`crates/north-runtime/src/land_offload/mod.rs`; seconds from the edit to the changed text on screen, one warm-up edit
+`crates/north-offload/src/land_offload/mod.rs`; seconds from the edit to the changed text on screen, one warm-up edit
 of each first (relax 5.06 s; cargo 38.50 s, cpu 100.7), then three rounds:
 
 - Round 1 (load 18.6): relax 4.30 s (exit at 6.07 s, cpu 15.1); cargo 7.27 s (cpu 7.1).

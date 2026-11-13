@@ -1,7 +1,7 @@
 use super::bounded;
 use super::layout::Layout;
 use super::remote::ssh;
-use crate::land_offload;
+use north_offload::land_offload;
 use crate::platform::host;
 use std::fs;
 use std::path::{Path, PathBuf};

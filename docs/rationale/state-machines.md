@@ -132,7 +132,7 @@ fixes in each machine's code from history.
     JOB-START never meets a JOB-EXIT (`crates/north-ops/src/ops/job_run/records.rs`). Shapes: status-string.
 12. **Offload slots** (66: 33 x 2). `SLOT.{lock,busy,holder,owner,pgid}` (a holder keeps `.lock` exclusive and `.busy` shared, and probes test only `.busy`), queue tickets held by flock, the warmer's
     `warm.lock` and `.warmed`, build-offload claims whose liveness is `/proc/PID`
-    (`crates/north-runtime/src/land_offload/ship/script.rs:97-155`, `build_offload/claims.rs:11-55`); a SIGKILL leaves
+    (`crates/north-offload/src/land_offload/ship/script.rs:97-155`, `build_offload/claims.rs:11-55`); a SIGKILL leaves
     `.owner` and `.pgid`, and a reused pid whose cmdline says "offload" can be killed. Shapes: lock-flag,
     pid-liveness.
 13. **Window adoption and interactive hand-off** (66: 22 x 3). An adopted name is `adopted_ms` plus `stopped` plus
@@ -163,7 +163,7 @@ fixes in each machine's code from history.
     (`crates/north-landing-gates/src/landing/judge.rs:79`), which nothing calls, so after 24 h every lane selecting that test
     file is held (`landing/base_relative.rs:108`). Shapes: status-string.
 19. **Host disk episode and watchdog caps** (32: 16 x 2). `host-disk.episode` written only if its page succeeded
-    (`crates/north-runtime/src/offload_cache/mod.rs:307-325`); overload caps recorded even when `systemctl` failed and
+    (`crates/north-offload/src/offload_cache/mod.rs:307-325`); overload caps recorded even when `systemctl` failed and
     forgotten when `overload.json` is lost (`crates/north-capacity-host/src/capacity/watchdog/act.rs:202`);
     `disk-reclaim.stamp` written before the reclaim. Shapes: presence-flag, marker-stamp.
 20. **Usage gate** (30: 15 x 2). Each reader of `usage-gate.json` judges its staleness alone. Shape: mtime-read. The spend

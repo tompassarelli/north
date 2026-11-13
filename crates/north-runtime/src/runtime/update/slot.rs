@@ -5,7 +5,7 @@ use super::super::pin::Outcome;
 use super::super::review_hold::{self, Screen};
 use super::sync::send_alert;
 use super::{ahead, ancestor, built, checkout, named_lock, usable};
-use crate::land_offload;
+use north_offload::land_offload;
 use crate::platform::host;
 use rustix::fs::FlockOperation;
 use std::path::Path;

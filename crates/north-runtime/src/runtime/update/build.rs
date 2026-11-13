@@ -5,7 +5,7 @@ use super::super::build_host;
 use super::super::pull;
 use super::git;
 use crate::capacity::game_reserve::Confinement;
-use crate::land_offload;
+use north_offload::land_offload;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};

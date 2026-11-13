@@ -1,6 +1,6 @@
 //! Each declared host's long-lived processes and the runtime the settling host pinned, as this host can read them.
 use super::behind::{Pin, Process, Seen};
-use crate::land_offload;
+use north_offload::land_offload;
 use crate::platform::host;
 use crate::runtime::layout::Layout;
 use crate::runtime::pin::{self, Event};

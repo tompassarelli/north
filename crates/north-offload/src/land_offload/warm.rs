@@ -1,0 +1,238 @@
+//! Keeps a host's land-check slots warm between landings: a build host's, and the lander host's own, which its after-landing runs use when no
+//! build host has room. While the host's job admission (`north capacity host admit-job`) starts another job and no land check waits in the slot queue or a lease in the capacity queue, the lease reaper (the laptop-auto tick on the laptop) starts
+//! one warm job: it takes the unlocked slot whose last warm build is furthest behind its repository's origin/main (a land check that left a
+//! slot at the head may not have built what the next one needs), a slot that has never built while the disk keeps its eviction line and the slots their
+//! land_offload budget with one more of the largest target here, the lander's reserved one among them (its pick-time rebase compile and revert runs build there), checks it out at
+//! that head and runs the repository's `landing.warm` command there under a heavy lease at the lowest CPU priority, so the next check on any
+//! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since. A land check that queues for a slot, or a lease that queues in the capacity queue, stops the warm job, which holds a slot or cores the check could take.
+use std::collections::{BTreeMap, HashSet};
+use std::env;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+use north_base::foundation::offload;
+
+use rustix::fs::{FlockOperation, flock};
+
+use super::ship::{SLOTS, slot_ports};
+use super::slot_lock;
+use crate::offload_cache::{Disk, closing, disk_of, land_slots_take};
+use north_base::platform::disk_budget::DiskBudget;
+
+pub(super) const LOCK: &str = "warm.lock";
+const LOG: &str = "warm.log";
+const WARMED: &str = ".warmed";
+const UNIT: &str = "north-slot-warm";
+const SETTING: &str = "landing.warm";
+const DEADLINE: Duration = Duration::from_secs(1800);
+const POLL: Duration = Duration::from_millis(500);
+const QUEUE: &str = "queue";
+const BACKGROUND_TICKET: &str = "3-";
+const GIB: f64 = (1u64 << 30) as f64;
+
+struct Slot {
+    name: String,
+    checkout: String,
+    repo: PathBuf,
+    at: String,
+    cold: bool,
+}
+
+fn held(lock: &Path) -> bool {
+    File::open(lock).is_ok_and(|file| flock(&file, FlockOperation::NonBlockingLockShared).is_err())
+}
+
+fn take(lock: &Path) -> Option<File> {
+    let file = OpenOptions::new().create(true).append(true).open(lock).ok()?;
+    flock(&file, FlockOperation::NonBlockingLockExclusive).ok().map(|()| file)
+}
+
+fn refusal(root: &Path) -> Option<String> {
+    if checks_waiting(root) {
+        Some("a land check waits for a slot".to_owned())
+    } else if north_capacity_host::capacity::host::lease_waiting(None) {
+        Some("a lease waits in the capacity queue".to_owned())
+    } else {
+        north_capacity_host::capacity::host::job_refusal()
+    }
+}
+
+fn skip(root: &Path, why: &str) {
+    let _ = OpenOptions::new().create(true).append(true).open(root.join(LOG)).and_then(|mut log| log.write_all(format!("warm: skipped, {why}\n").as_bytes()));
+}
+
+fn checks_waiting(root: &Path) -> bool {
+    fs::read_dir(root.join(QUEUE)).into_iter().flatten().flatten().any(|entry| !entry.file_name().to_string_lossy().starts_with(BACKGROUND_TICKET) && held(&entry.path()))
+}
+
+/// The lease reaper's step: starts the warm job as its own transient user unit when none is in flight, the host's job admission starts
+/// another job and no land check waits for a slot. The reaper is a oneshot unit, and systemd ends every process left in its cgroup when it exits, so a child of the reaper
+/// would die with it; the fixed unit name also keeps a second warm job from starting beside a running one.
+pub fn tend() {
+    if !super::warms_slots_here() {
+        return;
+    }
+    let Some(root) = offload::root().filter(|root| root.is_dir()) else { return };
+    if held(&root.join(LOCK)) {
+        return;
+    }
+    if let Some(why) = refusal(&root) {
+        skip(&root, &why);
+        return;
+    }
+    let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let inherited = env::var_os("PATH").unwrap_or_default();
+    let path = env::join_paths([home.join(".local/bin"), home.join(".nix-profile/bin")].into_iter().chain(env::split_paths(&inherited))).unwrap_or_else(|_| inherited.clone());
+    let log = root.join(LOG).display().to_string();
+    let mut unit = Command::new("systemd-run");
+    unit.args(["--user", "--quiet", "--collect", "--unit", UNIT])
+        .arg(format!("--property=StandardOutput=append:{log}"))
+        .arg(format!("--property=StandardError=append:{log}"))
+        .arg(format!("--setenv=PATH={}", path.to_string_lossy()))
+        .arg(format!("--setenv=HOME={}", home.display()));
+    if let Some(offload_root) = env::var_os(offload::ROOT_ENV) {
+        unit.arg(format!("--setenv={}={}", offload::ROOT_ENV, offload_root.to_string_lossy()));
+    }
+    let started = unit.arg("--").arg(north_base::platform::north_binary::north_binary()).args(["capacity", "offload", "warm"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    if let Err(error) = started {
+        eprintln!("north capacity: could not start the slot warmer: {error}");
+    }
+}
+
+/// `north capacity offload warm`: warms one slot, or does nothing when another warm job, a busy host or no stale slot stands in the way.
+pub fn run() -> u8 {
+    if !super::warms_slots_here() {
+        return 0;
+    }
+    let Some(root) = offload::root() else { return 0 };
+    let Some(_warming) = take(&root.join(LOCK)) else { return 0 };
+    if let Some(why) = refusal(&root) {
+        skip(&root, &why);
+        return 0;
+    }
+    let slots = slots(&root);
+    let cold_fits = slots.iter().any(|slot| slot.cold) && room_for_a_cold_slot(&root, &slots);
+    let mut heads = BTreeMap::new();
+    let mut stale: Vec<(usize, Slot, String)> = slots
+        .into_iter()
+        .filter(|slot| !slot.cold || cold_fits)
+        .filter_map(|slot| {
+            let head = heads.entry(slot.repo.clone()).or_insert_with(|| main_head(&slot.repo)).clone()?;
+            (slot.at != head).then(|| (changed_files(&slot.repo, &slot.at, &head), slot, head))
+        })
+        .collect();
+    stale.sort_by_key(|(distance, _, _)| std::cmp::Reverse(*distance));
+    for (_, slot, head) in stale {
+        let Some(_held) = slot_lock::take(&root.join(format!("{}.lock", slot.name))) else {
+            println!("warm: {} is held by a run, skipped", slot.name);
+            continue;
+        };
+        return warm(&root, &slot, &head);
+    }
+    0
+}
+
+fn slots(root: &Path) -> Vec<Slot> {
+    let Ok(entries) = fs::read_dir(root) else { return Vec::new() };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let path = entry.path();
+            let gitdir = fs::read_to_string(path.join(".git")).ok()?;
+            let repo = PathBuf::from(gitdir.strip_prefix("gitdir:")?.trim()).ancestors().nth(3)?.to_path_buf();
+            let checkout = (1..SLOTS).find_map(|index| name.strip_suffix(&format!("-{index}"))).unwrap_or(&name).to_owned();
+            let at = fs::read_to_string(root.join(format!("{name}{WARMED}"))).map(|warmed| warmed.trim().to_owned()).unwrap_or_default();
+            Some(Slot { name, checkout, repo, at, cold: !path.join("target").is_dir() })
+        })
+        .collect()
+}
+
+fn room_for_a_cold_slot(root: &Path, slots: &[Slot]) -> bool {
+    let largest = slots.iter().filter(|slot| !slot.cold).filter_map(|slot| north_base::platform::shared_target::allocated_tree(&root.join(&slot.name).join("target"), &mut HashSet::new()).ok()).map(|(bytes, _)| bytes).max();
+    let (Some(largest), Some(disk)) = (largest, disk_of(root)) else { return false };
+    let (_, held) = closing(&DiskBudget::local(), Some(disk));
+    land_slots_take(root, largest) && !Disk { free_gib: disk.free_gib - largest as f64 / GIB, ..disk }.past(held)
+}
+
+fn git(directory: &Path, arguments: &[&str]) -> Option<String> {
+    let output = match Command::new(offload::git()).arg("-C").arg(directory).args(arguments).stdin(Stdio::null()).stderr(Stdio::null()).output() {
+        Ok(output) => output,
+        Err(error) => {
+            eprintln!("north capacity: the slot warmer could not run git: {error}");
+            return None;
+        }
+    };
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|text| !text.is_empty())
+}
+
+fn main_head(repo: &Path) -> Option<String> {
+    let _ = git(repo, &["fetch", "-q", "--no-auto-maintenance", "origin", "main"]);
+    git(repo, &["rev-parse", "refs/remotes/origin/main"])
+}
+
+fn changed_files(repo: &Path, at: &str, head: &str) -> usize {
+    git(repo, &["diff", "--name-only", at, head]).map_or(usize::MAX, |files| files.lines().count())
+}
+
+fn warm(root: &Path, slot: &Slot, head: &str) -> u8 {
+    let Some(command) = git(&slot.repo, &["config", "--blob", "refs/remotes/origin/main:.safe-push", "--get", SETTING]) else { return 0 };
+    let path = root.join(&slot.name);
+    if !north_build_system::for_tree(&path).warms() {
+        println!("warm: {} builds and tests with Buck2, whose outputs every slot shares, so nothing is warmed", slot.name);
+        let _ = fs::write(root.join(format!("{}{WARMED}", slot.name)), format!("{head}\n"));
+        return 0;
+    }
+    if git(&path, &["checkout", "-q", "--detach", "-f", head]).is_none() && git(&path, &["rev-parse", "HEAD"]).as_deref() != Some(head) {
+        eprintln!("north capacity: could not check {} out at {head}", path.display());
+        return 1;
+    }
+    let _ = git(&path, &["clean", "-ffdxq", "-e", "/target"]);
+    let holder = root.join(format!("{}.holder", slot.name));
+    let _ = fs::write(&holder, format!("{} warming\n", &head[..head.len().min(12)]));
+    let port = slot_ports(&slot.checkout).into_iter().find(|(name, _)| *name == slot.name).map(|(_, port)| port.to_string());
+    let share = std::thread::available_parallelism().map_or(1, |cores| (cores.get() / 2).max(1)).to_string();
+    let north = north_base::platform::north_binary::north_binary();
+    let mut child = Command::new("nice");
+    child.args(["-n", "19"]).arg(&north).args(["capacity", "host", "run", "--class", "heavy", "--owner", "land-offload", "--timeout-seconds", &DEADLINE.as_secs().to_string(), "--"]);
+    child.arg(&north).args(["capacity", "dev-shell", "run", "--dir"]).arg(&path).args(["--", "bash", "-euo", "pipefail", "-c", &command]);
+    child.current_dir(&path).env("SCCACHE_BASEDIRS", &path).env("CARGO_BUILD_JOBS", &share).stdin(Stdio::null()).process_group(0);
+    if let Some(port) = port {
+        child.env("SCCACHE_SERVER_PORT", port);
+    }
+    let started = Instant::now();
+    let status = match child.spawn() {
+        Ok(mut running) => loop {
+            if let Ok(Some(status)) = running.try_wait() {
+                break status.code().map_or_else(|| "a signal".to_owned(), |code| format!("exit {code}"));
+            }
+            let ended = if started.elapsed() > DEADLINE {
+                Some(format!("killed after {} s", DEADLINE.as_secs()))
+            } else if checks_waiting(root) {
+                Some("stopped for a queued land check".to_owned())
+            } else if north_capacity_host::capacity::host::lease_waiting(Some(u64::from(running.id()))) {
+                Some("stopped for a lease waiting in the capacity queue".to_owned())
+            } else {
+                None
+            };
+            if let Some(ended) = ended {
+                if let Some(pid) = rustix::process::Pid::from_raw(running.id().cast_signed()) {
+                    let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::Kill);
+                }
+                let _ = running.wait();
+                break ended;
+            }
+            std::thread::sleep(POLL);
+        },
+        Err(error) => format!("not started: {error}"),
+    };
+    let _ = fs::remove_file(&holder);
+    if status == "exit 0" {
+        let _ = fs::write(root.join(format!("{}{WARMED}", slot.name)), format!("{head}\n"));
+    }
+    eprintln!("north capacity: warmed {} at {} in {} s ({status})", slot.name, &head[..head.len().min(12)], started.elapsed().as_secs());
+    0
+}

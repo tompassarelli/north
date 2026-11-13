@@ -13,7 +13,7 @@ use super::failure::{Failure, failed};
 use super::follow::own_scope;
 use super::layout::{self, Layout};
 use super::remote::ssh;
-use crate::land_offload::{self, ship::quote};
+use north_offload::land_offload::{self, ship::quote};
 
 /// Seconds one host may take: a fetch of each checkout it keeps and a fast-forward, with room for a slow link.
 const LIMIT: Duration = Duration::from_secs(25);

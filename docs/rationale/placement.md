@@ -44,9 +44,9 @@ Host picks, each with its own signal:
 3. A session's compile: `most_free` in `crates/north-capacity/src/capacity/build_offload.rs` takes the build
    host with the most CPUs its admission has not committed. Only a host that is not a build host offers first
    (`offers_first`); a build host runs its own sessions' compiles itself. Not recorded.
-4. A queued run pulled off a full host: `pick` in `crates/north-runtime/src/build_offload/take.rs`, most free
+4. A queued run pulled off a full host: `pick` in `crates/north-offload/src/build_offload/take.rs`, most free
    CPUs less four per run already sent (docs/rationale/pull-hand-over.md). Not recorded.
-5. Land checks and pre-queue gate checks: `check_host` in `crates/north-runtime/src/land_offload/room.rs`,
+5. Land checks and pre-queue gate checks: `check_host` in `crates/north-offload/src/land_offload/room.rs`,
    least busy by slot backlog or committed share, with three standings for the laptop. Not recorded.
 6. Runtime builds and the lander's build-ahead: `freest` in `crates/north-runtime/src/runtime/build_host.rs`,
    most free CPUs. Until this morning build-ahead (`crates/north-lander/src/land/serve/ahead.rs`) built on the

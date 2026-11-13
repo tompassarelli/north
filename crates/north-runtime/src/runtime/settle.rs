@@ -13,7 +13,7 @@ use super::watch;
 use super::follow;
 use super::probe::{self, Shell};
 use super::update;
-use crate::land_offload;
+use north_offload::land_offload;
 use crate::platform::{host, process};
 use rustix::fs::{FlockOperation, flock};
 use serde_json::json;

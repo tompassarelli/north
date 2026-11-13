@@ -5,7 +5,7 @@ use super::queue::Ticket;
 
 pub const TRAILER: &str = "Lander-fix:";
 
-pub const PATHS: &[&str] = &["crates/north-land", "crates/north-safe-push/", "crates/north-check-environment/", "crates/north-runtime/src/land_offload/", "tests/it/land", "docs/features/04-landing-and-lanes/", "docs/features.md", "docs/rationale/land"];
+pub const PATHS: &[&str] = &["crates/north-land", "crates/north-safe-push/", "crates/north-check-environment/", "crates/north-offload/src/land_offload/", "tests/it/land", "docs/features/04-landing-and-lanes/", "docs/features.md", "docs/rationale/land"];
 
 pub fn reason(bodies: &str) -> Option<String> {
     bodies.lines().find_map(|line| line.strip_prefix(TRAILER)).map(str::trim).filter(|reason| !reason.is_empty()).map(str::to_owned)

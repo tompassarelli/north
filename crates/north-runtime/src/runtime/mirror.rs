@@ -2,7 +2,7 @@ use super::bounded;
 use super::failure::{Failure, failed};
 use super::follow::own_scope;
 use super::remote::OWN_RSH;
-use crate::land_offload;
+use north_offload::land_offload;
 use crate::platform::host;
 use crate::platform::records_mirror::{self, CHECKOUT_PREFIX, QUEUES, ROOT, STAMP, Stamp, TICK_JOURNAL};
 use rustix::fs::{FlockOperation, flock};

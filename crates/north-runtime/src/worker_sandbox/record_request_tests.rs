@@ -30,7 +30,7 @@ pub(super) fn played() -> bool {
                 let status = Command::new("sh").arg("-c").arg(words[5..].join(" ")).status().unwrap();
                 std::process::exit(status.code().unwrap_or(137));
             }
-            std::process::exit(i32::from(crate::land_offload::run(&words[2..])));
+            std::process::exit(i32::from(north_offload::land_offload::run(&words[2..], |_, _, _| Ok(()), |_| None)));
         }
         _ => return false,
     }

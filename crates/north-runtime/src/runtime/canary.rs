@@ -322,12 +322,12 @@ impl Machine for Live<'_> {
     }
 
     fn settles_fleet(&self, _host: &str) -> bool {
-        matches!(self.host, super::probe::Shell::Here(_)) && crate::land_offload::settles_fleet_here()
+        matches!(self.host, super::probe::Shell::Here(_)) && north_offload::land_offload::settles_fleet_here()
     }
 
     fn takes_land_checks(&self, host: &str) -> bool {
         let name = host.rsplit_once('@').map_or(host, |(_, name)| name);
-        crate::land_offload::offloads_builds_in(name)
+        north_offload::land_offload::offloads_builds_in(name)
     }
 
     fn lander_repositories(&self) -> Option<Landers> {

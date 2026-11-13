@@ -134,7 +134,7 @@ fn north_reads_none_of_the_variables_its_check_keys_ignore() {
         "crates/north-land-checks/src/land/slots/it_modules.rs",
         "crates/north-foundation/src/foundation/carry.rs",
         "crates/north-capacity-host/src/capacity/host/mod.rs",
-        "crates/north-runtime/src/land_offload/ship/script.rs",
+        "crates/north-offload/src/land_offload/ship/script.rs",
     ];
     let root = workspace();
     let mut files = Vec::new();

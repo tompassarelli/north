@@ -13,7 +13,7 @@ use super::remote;
 use super::reuse;
 use super::review_hold;
 use super::store;
-use crate::land_offload;
+use north_offload::land_offload;
 use crate::platform::{host, process};
 use rustix::fs::{FlockOperation, flock};
 use std::ffi::OsStr;
@@ -49,7 +49,7 @@ pub(super) mod slot;
 mod sync;
 
 use build::{build, export_tree};
-pub(crate) use collect::collect;
+use collect::collect;
 use hold::Verdict;
 use ordered::unordered;
 pub(super) use ordered::{build_ordered, go_live_ordered, order_handed_over, order_marked, order_waiting, update_ordered_to};

@@ -8,7 +8,7 @@ use super::pin::{self, Event};
 use super::probe::Shell;
 use super::review_hold::{self, Screen};
 use super::update;
-use crate::land_offload;
+use north_offload::land_offload;
 
 mod hold;
 

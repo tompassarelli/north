@@ -14,7 +14,7 @@ mod health;
 mod history;
 mod host_facts;
 pub mod lag;
-pub mod layout;
+pub use north_runtime_follow::{layout, own_runtime};
 pub mod live;
 mod peers;
 pub mod pin;
@@ -34,10 +34,8 @@ mod walk;
 mod watch;
 #[cfg(test)]
 pub(crate) use canary::scratch_project_probes;
-#[cfg(test)]
-pub(crate) use update::collect;
 
-use crate::land_offload;
+use north_offload::land_offload;
 use std::path::Path;
 
 const USAGE: &str = "usage: north runtime update [--sha SHA [--ordered]] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime build SHA | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime order --reason REASON [--commit REV] [--except HOST]... | north runtime hold COMMIT [--host HOST] --why TEXT | north runtime hold --lift COMMIT --why TEXT | north runtime mirror | north runtime checkouts | north runtime lag --processes|--json | north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR] | north runtime follow --repo-dir DIR | north runtime agents|claude|agy|pi|opencode [VERSION] | north runtime probe services | north runtime probe list HOST | north runtime walk | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host
@@ -71,13 +69,6 @@ tree-build             build north from the checkout it runs in, with Buck2 on a
 
 pub fn stage_on(host: &str, sha: &str, runtime: &Path) -> Result<(), String> {
     deploy::stage_runtime(host, sha, runtime).map_err(|failure| failure.message)
-}
-
-pub fn own_runtime() -> Option<(String, std::path::PathBuf)> {
-    let executable = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
-    let directory = executable.parent()?;
-    let sha = directory.file_name()?.to_str()?;
-    (layout::is_sha(sha) && layout::has_programs(directory)).then(|| (sha.to_owned(), directory.to_path_buf()))
 }
 
 pub fn run(arguments: &[String]) -> u8 {

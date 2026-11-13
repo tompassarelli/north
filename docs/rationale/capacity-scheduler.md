@@ -46,7 +46,7 @@ cut the admissions one landed change takes. It edits no code.
 
 - Host lease admission (`crates/north-capacity/src/capacity/admission.rs`, `queued_ahead.rs`) decides on
   pressure and memory. It does not hold the slot line, where the 600 s waits happen.
-- The slot line (`crates/north-runtime/src/land_offload/ship/script.rs`) orders tickets by rank: red fix,
+- The slot line (`crates/north-offload/src/land_offload/ship/script.rs`) orders tickets by rank: red fix,
   lander, landing, other, background. It answers only by timing out. It records no wait: the
   `offload: waited` line goes to the caller's log and nowhere else.
 - Placement's `choose --any` ranks hosts by backlog per slot (`land_offload/room.rs`, the slot probe). That is
@@ -142,7 +142,7 @@ measurement.
 
 **A1. The line answers at once (outcome 1, first slice).**
 - Files: capacity::line_wait (new, `crates/north-capacity/src/capacity/`); the offload verb in
-  `crates/north-runtime/src/land_offload/mod.rs`; `ship/script.rs` (ask before the ticket, write the line
+  `crates/north-offload/src/land_offload/mod.rs`; `ship/script.rs` (ask before the ticket, write the line
   record); `room.rs` (print the wait); `runner/queue_checks.rs` and `slots/select.rs` (place on the next host,
   keep the first placement time); `crates/north-landing/src/land/post_land/execute.rs` (the same answer for
   the after-landing run).
@@ -694,11 +694,11 @@ compute and actual box wall is reported.
 **W2-6. Offload concurrency from the remote host's own admission, not a slot count.** Category: feature. Spec:
 measured. Scope: cross-module. Surface: rust. Verify: local-test. After: the offload dev-shell lane (same file),
 elastic-cpu, and the pending-load rule of W2-3 (review finding 8). Files:
-`crates/north-runtime/src/land_offload/ship.rs` (`SLOTS`), `build_offload.rs`. Spec: each offloaded command runs on
+`crates/north-offload/src/land_offload/ship.rs` (`SLOTS`), `build_offload.rs`. Spec: each offloaded command runs on
 the remote host under that host's own `north capacity host run` admission (memory and pressure once elastic CPU is
 live); the per-repository lock only guards one worktree and target dir, created on demand, so concurrency follows
 measured room; the asking host counts its dispatched-not-started offloads as pending load on the target. Done when:
-`rg -n 'const SLOTS' crates/north-runtime/src/land_offload` prints nothing; a fixture test with remote admission
+`rg -n 'const SLOTS' crates/north-offload/src/land_offload` prints nothing; a fixture test with remote admission
 admitting four and deferring the fifth shows four offloads running at once in four on-demand worktrees and the
 fifth waiting with the remote admission's reason printed; and a test shows a target with two dispatched-not-started
 offloads reported with that pending load by the asking host.

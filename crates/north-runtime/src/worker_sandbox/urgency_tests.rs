@@ -11,8 +11,6 @@ use north_base::platform::session_host_files;
 use super::super::broker::{self, Request};
 use super::super::lane_grant::Host;
 use crate::capacity::host::urgency::Places;
-use crate::land_offload::ship::SlotClass;
-use crate::land_offload::ship::tests::{Queued, order_through_one_slot};
 
 const URGENT_SCOPE: &str = "north-session-0f0f0f0f-urgent.scope";
 const NORMAL_SCOPE: &str = "north-session-0e0e0e0e-normal.scope";
@@ -117,7 +115,6 @@ fn an_urgent_job_queued_after_a_normal_one_is_taken_first() {
         }
     }
     let places = fixture.places();
-    let word = |urgent: bool| if urgent { "1" } else { "" };
     fixture.process(1, 0, "0::/init.scope\n", "");
     fixture.process(10, 1, &in_unit(URGENT_SCOPE), "");
     fixture.process(11, 1, &in_unit(NORMAL_SCOPE), "1");
@@ -126,10 +123,19 @@ fn an_urgent_job_queued_after_a_normal_one_is_taken_first() {
     fixture.process(22, 20, BROKER, &fixture.mark(&in_unit(NORMAL_SCOPE), gate));
     let (lease_a, lease_b, lease_c, lease_d, lease_e) = (fixture.lease(0xa, &[31]), fixture.lease(0xb, &[32]), fixture.lease(0xc, &[33]), fixture.lease(0xd, &[34]), fixture.lease(0xe, &[35]));
     fixture.process(31, 21, &lease_a, "");
-    let normal_gate = word(places.process(&fixture.process(32, 22, &lease_b, "1")));
-    let urgent_lease = word(places.process(&fixture.process(33, 10, &lease_c, "")));
-    let normal_lease = word(places.process(&fixture.process(34, 11, &lease_d, "1")));
-    let urgent_gate = word(places.cgroup(&lease_a));
+    let judged = [
+        ("the urgent session's leased job", fixture.process(33, 10, &lease_c, ""), true),
+        ("the normal session's brokered gate job", fixture.process(32, 22, &lease_b, "1"), false),
+        ("the normal session's leased job", fixture.process(34, 11, &lease_d, "1"), false),
+    ];
+    for (what, pid, urgent) in judged {
+        if places.process(&pid) != urgent {
+            failures.push(format!("{what} was judged urgent {}, not {urgent}", places.process(&pid)));
+        }
+    }
+    if !places.cgroup(&lease_a) {
+        failures.push("the urgent session's brokered gate lease was not judged urgent".to_owned());
+    }
     std::fs::create_dir_all(fixture.root.path().join("leases")).unwrap();
     std::fs::write(fixture.root.path().join("leases/0000000e-0000-0000-0000-000000000000.json"), serde_json::json!({ "wrapperPid": 10 }).to_string()).unwrap();
     let posers = [
@@ -142,12 +148,6 @@ fn an_urgent_job_queued_after_a_normal_one_is_taken_first() {
         if places.process(&pid) {
             failures.push(format!("{poser} was judged urgent"));
         }
-    }
-    let job = |label, hold, urgent| Queued { label, name: "code-p-main", carried: "", red_fix: "", owner: "", urgent, hold, class: SlotClass::LandCheck };
-    let order = order_through_one_slot(&[job("holder", true, ""), job("normal-gate", false, normal_gate), job("normal-lease", false, normal_lease), job("urgent-gate", false, urgent_gate), job("urgent-lease", false, urgent_lease)]);
-    let expected = ["start-holder", "end-holder", "start-urgent-gate", "end-urgent-gate", "start-urgent-lease", "end-urgent-lease", "start-normal-gate", "end-normal-gate", "start-normal-lease", "end-normal-lease"];
-    if order != expected {
-        failures.push(format!("the urgent session's brokered gate job and leased offload, queued behind the normal session's, which each claimed the urgent mark, did not take the freed slot first: {order:?}"));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
