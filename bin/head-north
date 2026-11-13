@@ -76,15 +76,12 @@ pick() {
   elif [ "$defer" = 1 ]; then
     printf 'head-north: refused, no live runtime covers the checker code (%s); the lander runs this check without --no-build on a build host, which builds north from the tree\n' "${reason%%$'\n'*}" >&2
     exit 1
-  else
-    from_tree
+  elif [ -n "${NORTH_OFFLOAD_SLOT:-}" ] && [ ! -x "$live" ]; then north=$live
+  else from_tree
   fi
 }
 covered=${SAFE_PUSH_LAND_RUNTIME_HEAD:-${SAFE_PUSH_LAND_HEAD:-HEAD}} shun=0 leased=0
-if [ "${1:-}" = --build ]; then
-  pick
-  exit 0
-fi
+[ "${1:-}" != --build ] || { pick; exit 0; }
 for attempt in 1 2 3 4 5; do
   pick
   if lease "$north"; then
@@ -96,6 +93,7 @@ for attempt in 1 2 3 4 5; do
 done
 if [ "$leased" = 0 ]; then
   [ "$defer" = 0 ] || { printf 'head-north: refused, the live runtime %s stayed unreadable\n' "$(dirname "$north")" >&2; exit 1; }
+  [ -z "${NORTH_OFFLOAD_SLOT:-}" ] || { printf 'head-north: refused, no whole runtime at %s after waiting, and an offload slot never builds north from the tree it checks\n' "$(dirname "$north")" >&2; exit 75; }
   shun=1 reason="the live runtime stayed unreadable"
   from_tree
   lease "$north" || { printf 'head-north: the north built from the tree cannot be leased\n' >&2; exit 75; }

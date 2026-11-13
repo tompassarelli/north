@@ -464,7 +464,7 @@ fn head_north(fixture: &Fixture, command: &str, uncovered: bool) -> Output {
     let mut run = Command::new("bash");
     run.current_dir(&fixture.repo).args(["-c", command]);
     run.env("REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
-    run.env_remove("SAFE_PUSH_LAND_RUNTIME_HEAD");
+    run.env_remove("SAFE_PUSH_LAND_RUNTIME_HEAD").env_remove("NORTH_OFFLOAD_SLOT");
     if uncovered {
         run.env("STUB_UNCOVERED", "1");
     }
@@ -557,7 +557,7 @@ fn run_head_north(fixture: &Fixture, command: &str) -> Output {
 
 fn head_north_command(fixture: &Fixture, command: &str) -> Command {
     let mut run = Command::new("bash");
-    run.current_dir(&fixture.repo).args(["-c", command]).env("HEAD_NORTH_SETTLE", "1");
+    run.current_dir(&fixture.repo).args(["-c", command]).env("HEAD_NORTH_SETTLE", "1").env_remove("NORTH_OFFLOAD_SLOT");
     run.env("REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
     run
 }
@@ -589,7 +589,7 @@ fn a_land_check_waits_for_a_runtime_another_process_is_still_building_instead_of
 }
 
 #[test]
-fn a_land_check_runs_on_the_trees_own_north_when_the_live_runtime_stays_unreadable() {
+fn a_land_check_runs_on_the_trees_own_north_when_the_live_runtime_stays_unreadable_except_in_an_offload_slot() {
     let (fixture, _lease) = head_north_on_a_runtime_mid_build();
     let output = run_head_north(&fixture, "./bin/head-north --code docs/ docs --help");
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
@@ -597,6 +597,17 @@ fn a_land_check_runs_on_the_trees_own_north_when_the_live_runtime_stays_unreadab
     let refused = run_head_north(&fixture, "./bin/head-north --code docs/ --no-build docs --help");
     assert_eq!(refused.status.code(), Some(1), "{}", text(&refused));
     assert!(text(&refused).contains("stayed unreadable"), "{}", text(&refused));
+    let in_slot = |fixture: &Fixture| head_north_command(fixture, "./bin/head-north --code docs/ docs --help").env("NORTH_OFFLOAD_SLOT", "slot-1").output().unwrap();
+    for state in ["unreadable", "absent"] {
+        if state == "absent" {
+            fs::remove_file(fixture.path("state/north/current/north")).unwrap();
+        }
+        fs::write(fixture.path("trace"), "").unwrap();
+        let slot = in_slot(&fixture);
+        assert_eq!(slot.status.code(), Some(75), "an offload slot whose live runtime was {state} reached a verdict: {}", text(&slot));
+        assert!(text(&slot).contains("an offload slot never builds north from the tree") && !text(&slot).contains("from the tree:") && !text(&slot).contains("built from tree"), "the gex45 slot of 2026-11-13 built north from a lane's tree when its live runtime was {state}: {}", text(&slot));
+        assert!(fixture.trace().is_empty(), "{}", fixture.trace());
+    }
 }
 
 const HEAD_NORTH_SHIM: &str = "[ \"$1\" = --code ] && shift 2\n[ \"$1\" = --build ] && exit 0\n[ \"$1\" = --no-build ] && shift\nexec \"$REAL_NORTH\" \"$@\"\n";
