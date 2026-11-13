@@ -456,9 +456,12 @@ and lead staffing lives in north-dispatch.
   its parent. Dispatch never staffs a parent as work, so that claim conflicts with nothing, and with the name
   it refuses a second lead. A live session with role lead holding the parent's claim, including one launched
   by hand, counts as that parent's lead. So does a hand-launched session with any role or none (the burn-down,
-  flow and evals leads of 2026-11-13 hold no claim on a parent) when it is not the proxy and is the fleet
-  parent of a live session holding an item in the subtree. Dispatch staffs no lead for that parent while such
-  a session lives.
+  flow and evals leads of 2026-11-13 hold no claim on a parent) when it is neither the proxy nor a dispatched
+  lead and is the fleet parent of a live session holding an item in the subtree. Dispatch staffs no lead for
+  that parent while such a session lives (S1c). Excluding dispatched leads keeps a deeper lead's children from
+  blocking a higher parent. Whether a session is the proxy is read from the registry's live-proxy fact (its
+  cgroup and owner), never from a name or role a launcher can set. Any worker with a child holding a subtree
+  item suppresses the lead, which fails toward no lead.
 - Placement. A lead launch goes through the same placement step as a worker launch: `plan::place` with its
   candidates' refusals (best, reserve and hold in the operational basis, the API hold, the 98% subscription
   floor, the reserved account), never an API account, and the spend rule's `admits`.
@@ -468,7 +471,8 @@ and lead staffing lives in north-dispatch.
   item back on its next run. When a lead does restaff by hand, that launch meets dispatch's own bounds:
   `dispatch_claude_sessions` already counts every working worker session fleet-wide (`spend.working`), so a
   lead's hand launch counts against the cap in dispatch's next decision. What `north fleet launch` lacks is a
-  check of the cap at launch time, so S3 adds that check for a launch from a session whose role is lead. The
+  check of the cap at launch time, so S3 adds that check for a launch from a session whose registry role is
+  lead, whatever `--role` the launch names, so a lead cannot evade it by launching role worker. The
   money ceiling, the floor and A2's hold already apply at that launch's placement.
 - Recursion. The same rule applies at every level. A child that is itself a parent with load over the bound
   gets a lead parented to the lead above it, and its subtree leaves the upper lead's load.
@@ -501,12 +505,13 @@ with either unset it plans no lead and stops none, so promoting the runtime turn
   box length, so nothing moves mid-turn. When a parent's own leaves alone exceed the bound, no child can take
   them. Dispatch then holds that parent's direct work at the bound, and the lead reference tells the lead to
   group the leaves under child issues.
-- End. Dispatch stops the lead in the second consecutive run that finds its parent closed, or its subtree with
+- End (S1c). Dispatch stops the lead in the second consecutive run that finds its parent closed, or its subtree with
   nothing ready and no live child (every item done, parked, gated or waiting on the runtime). Two runs keep it
   from stopping a lead that is about to file its next child or is waiting on a landing. The stop writes a
   dispatch record row and a fleet record naming the reason, so a reviewer can tell it from an unexplained stop.
   The lead writes each ruling as a comment on its parent when it makes it, because a successor has only the
-  issue tree and the gates. Dispatch staffs another lead if the load passes the bound again.
+  issue tree and the gates; a comment paraphrases a ruling and never quotes the owner's words. Dispatch staffs
+  another lead if the load passes the bound again.
 - Hand-over. At the session host's 250k-token checkpoint, a session whose role is lead is taken over under its
   name (`--take-over`) instead of being asked for turns left. The successor gets the same brief plus its
   subtree from `north fleet tree` and the open gates under its parent.
@@ -545,17 +550,17 @@ with either unset it plans no lead and stops none, so promoting the runtime turn
   lead whose parent session holds no ancestor of its issue.
 - Two leads for one parent. The parent's claim and the name `lead-REPO-N` each refuse a second, and a
   hand-launched lead covering the parent stops dispatch from staffing one. Check: S1a's second-run case, and
-  its case of a hand-launched lead with role worker or none whose child holds a leaf of the parent.
+  S1c's `a_hand_launched_parent_of_a_subtree_holder_blocks_a_lead`.
 - A lead's hand launch around the bounds. A lead launching work by hand would bypass dispatch's cap if
   nothing checked it at launch. Check: S3's case that a lead's launch is refused at the
   `dispatch_claude_sessions` cap.
 - A lead outliving its subtree. S1a's end rule runs every dispatch run, and the reaper is the backstop. Check:
-  S1a's closed-parent case, and live, no lead in `north fleet tree` whose issue closed more than one dispatch
-  interval ago.
+  S1a's closed-parent case, S1c's `a_lead_is_stopped_on_the_second_empty_run_with_a_dispatch_record`, and
+  live, no lead in `north fleet tree` whose issue closed more than one dispatch interval ago.
 - Sessions past the money ceiling or the measured-wait hold. A lead launch passes the spend rule's `admits`,
   takes a slot under `dispatch_claude_sessions` and, once A2 lands, meets its hold, because a lead's only
-  output is the work under it. Check: S1a's cases of an account at the ceiling, an account under the API hold
-  and the reserved account.
+  output is the work under it. Check: S1a's cases of an account at the ceiling and of a lead launch whose only
+  open account is the reserved one; the API hold is held for every caller by the place step's own tests.
 
 ### Precondition and price of the first slice
 
@@ -585,10 +590,18 @@ S1 is two boxes on north#1137, the coordinator's text:
   the `dispatched` field of the fleet session record. Test: `cargo nextest run -p north-dispatch -E
   'test(/a_parent_over_the_bound_gets_one_lead_and_loses_it_when_its_subtree_closes/)'`. Its cases, after the
   commit review: a parent with 9 ready items gets one lead and its launches carry `--parent`; a second run with
-  the lead live staffs none; a hand-launched lead with role worker or none, whose child holds a leaf of the
-  parent, stops dispatch from staffing one; an account at the money ceiling, under the API hold or reserved
-  takes no lead; and a closed parent's lead is stopped on the second consecutive run, not the first. Size:
+  the lead live staffs none; a hand-launched lead with role lead covers its parent, never counts toward
+  `dispatch_leads` and is never stopped by dispatch; an account at the money ceiling takes no lead; and a lead launch whose only open account is the reserved one is
+  refused (the place step's reserved-account test names a worker, not a lead). Size:
   one Opus lane, about 45 minutes. Reviewer: commit-reviewer.
+- S1c, after S2. Dispatch staffs no lead for a parent while a live session other than the coordinator or a
+  dispatched lead already parents a live holder in that parent's subtree, scoped so a deeper dispatched lead's
+  children do not block a higher parent, and it stops a lead only on the second consecutive run that finds its
+  subtree empty, writing a dispatch record row for the stop. That needs per-run state, since today's stop
+  sends its reason into the fleet log and stops the session. File: `crates/north-dispatch/src/dispatch/leads.rs`.
+  Tests, each failing with the change reverted: `a_hand_launched_parent_of_a_subtree_holder_blocks_a_lead` and
+  `a_lead_is_stopped_on_the_second_empty_run_with_a_dispatch_record`. No separate test that a lead launch
+  meets the API hold: it goes through the same place step as a box, whose tests hold it for every caller. Size: about 30 minutes. Reviewer: commit-reviewer.
 - S1b. The workers skill carries a lead's standing rules in one reference (references/lead.md), with one
   pointer in the skill and the fleet reference's line on when a lead exists replaced; changed through the
   agent-policy route.
@@ -608,7 +621,8 @@ After S1, each slice with its files, test, size and reviewer:
 - S3, only dispatch or the proxy launches a lead, and the silent-child note skips a lead. Files:
   `src/cli/fleet/launch.rs`, `src/cli/fleet/lineage.rs`, `crates/north-fleet/src/fleet/silent.rs`. Tests:
   `a_lead_or_worker_cannot_launch_a_lead` and `a_quiet_lead_raises_no_silent_child_note`. After the commit
-  review, a launch from a session whose role is lead also meets the `dispatch_claude_sessions` cap. That is a
+  review, a launch from a session whose registry role is lead, whatever its `--role`, also meets the
+  `dispatch_claude_sessions` cap. That is a
   follow-up on S3's box if its first lane is already out. Size: about 30 minutes. Reviewer: commit-reviewer.
 - S4, a lead's hand-over at its checkpoint. Files: `crates/north-fleet/src/fleet/checkpoint.rs` and the
   session host's checkpoint call. Test: `a_lead_at_its_checkpoint_is_taken_over_under_its_name`. Size: about
