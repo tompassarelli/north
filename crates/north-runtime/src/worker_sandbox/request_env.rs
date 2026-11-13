@@ -36,11 +36,11 @@ pub(super) fn landing_choices(arguments: &[String], home: &Path, own: &[(String,
     arguments.first().is_some_and(|verb| verb == "safe-push").then(|| [("PATH".to_owned(), path)].into_iter().chain(NORTH_PINS.map(|pin| (pin.to_owned(), north.clone()))).chain(own.iter().filter(|(name, _)| builds(name)).cloned()).collect())
 }
 
-/// The `PATH` of a request whose verb starts no command of the caller's (`lane`, `home`, `threads`), `None` for every other request: the absolute entries of the `PATH` in `own`, the broker's environment, since the git, ssh and file tools such a verb starts by name run as the operator outside the caller's domain, where a program found on the caller's `PATH` would be the caller's own (south#118). A verb that starts the caller's command (a build, a depbox run) still finds it on the caller's `PATH`.
+/// The `PATH` of a request whose verb starts no command of the caller's (`lane`, `home`, `threads`, `fleet need`), `None` for every other request: the absolute entries of the `PATH` in `own`, the broker's environment, since the git, ssh and file tools such a verb starts by name run as the operator outside the caller's domain, where a program found on the caller's `PATH` would be the caller's own (south#118). A verb that starts the caller's command (a build, a depbox run) still finds it on the caller's `PATH`.
 pub(super) fn own_path(arguments: &[String], own: &[(String, String)]) -> Option<(String, String)> {
     let path = own.iter().find(|(name, _)| name == "PATH").map_or("", |(_, value)| value.as_str());
     let absolute = std::env::join_paths(std::env::split_paths(path).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
-    arguments.first().is_some_and(|verb| ["lane", "home", "threads"].contains(&verb.as_str())).then(|| ("PATH".to_owned(), absolute))
+    (arguments.first().is_some_and(|verb| ["lane", "home"].contains(&verb.as_str())) || super::broker::reaches_ledger(arguments)).then(|| ("PATH".to_owned(), absolute))
 }
 
 /// The XDG homes a brokered command reads and writes: this broker's own, since the command runs as the host's process and its state, cache and data belong under the host's homes. Taking the client's scratch ones would record a build's capacity admissions beside the worker instead of in the host's decision ledger (north#1030).
