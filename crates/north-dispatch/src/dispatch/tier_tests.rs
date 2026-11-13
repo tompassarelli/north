@@ -283,6 +283,9 @@ fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_ru
     let open = super::facets::launch_header(&["\n", "Item: north#706\nCategory: feature\nSpec: open\n\nDo the box.", ""]);
     let refused = crate::router::brief::facet_refusal(&open).unwrap_or_default();
     assert!(refused.contains("Spec: open") && refused.contains("exact, measured, judged"), "a hand launch whose Spec is outside the vocabulary is refused naming it, though its system prompt and named brief are empty: {refused:?}");
+    let bug = super::facets::launch_header(&["\n", "Item: north#706\nCategory: bug\nSpec: exact\n\nDo the box.", ""]);
+    let refused = crate::router::brief::facet_refusal(&bug).unwrap_or_default();
+    assert!(refused.contains("Category: bug") && refused.contains("bug-known-cause"), "a hand launch whose Category is outside the vocabulary is refused naming it: {refused:?}");
     let fable = Ask { model: Some("claude-fable-5-2"), reason: Some("the proxy staffs this box on Fable"), ..ask };
     let sized = start(&fable, "", &cfg, &History::default(), &BTreeMap::new(), &cells).unwrap();
     let head: Vec<&str> = sized.prompt.lines().take_while(|line| !line.is_empty()).collect();
