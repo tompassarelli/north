@@ -101,7 +101,6 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         listed: BTreeSet::new(),
         cloud,
         laptop: Some("whiterabbit".into()),
-        cloud_running: 0,
         notes: Vec::new(),
         frozen: Vec::new(),
         history: super::tier::History::default(),
