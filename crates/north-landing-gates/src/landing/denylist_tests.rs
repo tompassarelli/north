@@ -205,8 +205,10 @@ fn denylist_a_scan_started_while_another_fetches_scans_a_list_fetched_after_it_b
     std::fs::remove_file(&record).unwrap();
     assert!(std::process::Command::new("mkfifo").arg(&record).status().unwrap().success());
     let finished = std::thread::spawn(move || {
-        std::fs::write(&record, &earlier).unwrap();
+        let mut writer = std::fs::OpenOptions::new().write(true).open(&record).unwrap();
+        std::io::Write::write_all(&mut writer, earlier.as_bytes()).unwrap();
         std::fs::rename(&replaced, &record).unwrap();
+        drop(writer);
         drop(earlier_scan);
     });
     let rules = south_denylist_in(south.path(), &mirror).unwrap();
