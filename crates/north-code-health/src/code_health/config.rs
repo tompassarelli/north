@@ -261,7 +261,7 @@ impl Config {
         if !is_source(path) {
             return Kind::Other;
         }
-        if self.ignore.iter().any(|glob| glob.is_match(path)) {
+        if self.is_ignored(path) {
             return Kind::Ignored;
         }
         if self.safe_push_generated.contains(path) {
@@ -271,6 +271,10 @@ impl Config {
             return Kind::Generated;
         }
         Kind::Hand
+    }
+
+    pub(super) fn is_ignored(&self, path: &str) -> bool {
+        self.ignore.iter().any(|glob| glob.is_match(path))
     }
 
     pub(super) fn module_of(&self, path: &str) -> Option<&Module> {

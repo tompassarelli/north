@@ -81,10 +81,10 @@ fn signal_judges_the_named_revision_not_a_stale_checkout() {
 #[test]
 fn a_moved_file_counts_only_the_lines_its_move_changed_so_a_crate_split_does_not_read_as_new_code() {
     let source = "export const x = 1;\n".repeat(40);
-    let repo = scratch(&[("structure.toml", "[review]\ncommits = 0\nhand_lines_added = 5\ntest_lines_changed = 5\ndays = 0\n".to_owned()), ("src/big.ts", source.clone()), ("tests/big.test.ts", "t\n".repeat(40))], true);
+    let repo = scratch(&[("structure.toml", "[review]\ncommits = 0\nhand_lines_added = 5\ntest_lines_changed = 5\ndays = 0\n\n[ignore]\npaths = [\"repos/**\"]\n".to_owned()), ("src/big.ts", source.clone()), ("tests/big.test.ts", "t\n".repeat(40))], true);
     repo.git(&["mv", "src", "crate"]);
     repo.git(&["mv", "tests", "crate-tests"]);
-    repo.commit(&[("crate/big.ts", format!("{source}export const y = 2;\n"))]);
+    repo.commit(&[("crate/big.ts", format!("{source}export const y = 2;\n")), ("repos/dep/tests/vendored.test.ts", "t\n".repeat(40))]);
     assert_eq!(repo.fire(&[]).1, "quiet");
     repo.commit(&[("crate/new.ts", "export const n = 1;\n".repeat(5))]);
     assert_eq!(repo.fire(&[]).1, "FIRE 6 hand lines added since review (limit 5)");

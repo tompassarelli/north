@@ -50,7 +50,7 @@ fn churn(repo: &Path, rev: &str, base: &str, config: &Config) -> Result<(usize, 
         if kinds.get(path) == Some(&Kind::Hand) {
             added += a;
         }
-        if TEST_PATH.is_match(path) {
+        if TEST_PATH.is_match(path) && !config.is_ignored(path) {
             tests += a + d;
         }
     }
