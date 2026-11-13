@@ -36,7 +36,7 @@ impl World {
         let home = var("HOME").unwrap_or_default();
         let state = var("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state"));
         World {
-            south: var("NORTH_SOUTH_ROOT").unwrap_or_else(|| home.join("code/south/main")),
+            south: north_base::platform::shared_config::operator_root(&home),
             orchestration: north_base::platform::orchestration::path(),
             chrome_profile: var("AUTOMATION_CHROME_PROFILE").unwrap_or_else(|| state.join("automation-chrome/profile")),
             host: north_base::platform::host::name(),

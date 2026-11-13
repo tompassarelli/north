@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use north_base::platform::shared_config;
+
 use super::origin::repository;
 
 const WATCH_DEFAULT: &str = ".local/state/north/current/north";
@@ -24,7 +26,7 @@ impl Settings {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
         Self {
             state_home: std::env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from),
-            south: std::env::var_os("SAFE_PUSH_SOUTH").map_or_else(|| home.join("code/south"), PathBuf::from),
+            south: std::env::var_os("SAFE_PUSH_SOUTH").map_or_else(|| home.join(shared_config::CHECKOUTS), PathBuf::from),
             mirrors: std::env::var_os("LANE_GC_MIRRORS").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/agents/lane-gc/mirrors"), PathBuf::from),
             safe_push: entry(),
             fleet_session: std::env::var("NORTH_FLEET_SESSION").unwrap_or_default(),

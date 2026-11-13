@@ -20,7 +20,6 @@ pub(crate) mod read;
 mod tests;
 
 const OWNER: &str = north_github_mirror::store::OWNER;
-const DENYLIST_UNDER_HOME: &str = "code/south/main/privacy/public-denylist.toml";
 const MANIFESTS_UNDER_HOME: &str = ".local/state/north/convert";
 
 const USAGE: &str = "usage: north issue convert [OWNER/]REPO#N --dry-run [--manifest FILE]
@@ -128,7 +127,7 @@ pub(crate) fn scan(private: bool) -> Box<Scan> {
     if private {
         return Box::new(|_: &str| Ok(BTreeSet::new()));
     }
-    let denylist = home().join(DENYLIST_UNDER_HOME);
+    let denylist = north_base::platform::shared_config::checkout(&home()).join("privacy/public-denylist.toml");
     Box::new(move |text: &str| if denylist.is_file() { betterleaks::scan_text(&denylist, text) } else { Err(format!("the public deny-list {} is missing", denylist.display())) })
 }
 

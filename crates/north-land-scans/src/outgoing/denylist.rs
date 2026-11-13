@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use north_base::foundation::exit::NO_VERDICT;
 use north_base::platform::private_text::{self, Finding};
+use north_base::platform::shared_config;
 
 use crate::landing::denylist::{self, Fault};
 use crate::landing::step::cancelled;
@@ -73,7 +74,7 @@ impl Denylist {
         let south = named(SOUTH_ENV);
         Self {
             south_named: south.is_some(),
-            south: south.unwrap_or_else(|| PathBuf::from(var("HOME").unwrap_or_default()).join("code/south")),
+            south: south.unwrap_or_else(|| PathBuf::from(var("HOME").unwrap_or_default()).join(shared_config::CHECKOUTS)),
             config: named(DENYLIST_ENV),
             kinds: named(private_text::KINDS_ENV),
             mirror: None,

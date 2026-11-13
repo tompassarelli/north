@@ -45,7 +45,7 @@
           "tool": "Bash"
         },
         {
-          "command": "cd /home/tom/code/south/main; rg -n -i 'host|laptop|whiterabbit|check_|build' agents/orchestration.toml | cut -c1-200 | sed -n 1,60p",
+          "command": "cd /home/tom/code/operator/main; rg -n -i 'host|laptop|whiterabbit|check_|build' agents/orchestration.toml | cut -c1-200 | sed -n 1,60p",
           "looking": true,
           "looks": 2,
           "tool": "Bash"
@@ -57,7 +57,7 @@
           "tool": "Bash"
         },
         {
-          "command": "cd /home/tom/code/south/main; sed -n 87,105p agents/orchestration.toml | cut -c1-1500; echo; sed -n 20,27p agents/orchestration.toml | cut -c1-300; sed -n 38,48p agents/orchestration.toml | cut -c1-300",
+          "command": "cd /home/tom/code/operator/main; sed -n 87,105p agents/orchestration.toml | cut -c1-1500; echo; sed -n 20,27p agents/orchestration.toml | cut -c1-300; sed -n 38,48p agents/orchestration.toml | cut -c1-300",
           "looking": true,
           "looks": 4,
           "tool": "Bash"
@@ -171,7 +171,7 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; timeout 60 north fleet accounts --plan 2>&1 | rg -i -e '^claude|d |e |window|week|%' | cut -c1-220 | sed -n 1,14p; date '+%I:%M %p'",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 60 north fleet accounts --plan 2>&1 | rg -i -e '^claude|d |e |window|week|%' | cut -c1-220 | sed -n 1,14p; date '+%I:%M %p'",
           "looking": false,
           "looks": 14,
           "tool": "Bash"
@@ -183,7 +183,7 @@
           "tool": "Bash"
         },
         {
-          "command": "tail -c 1500 /home/tom/.local/state/north/land-queue/de2e0e8479546ba9/logs/post-land-bd34b8ad5fb0.log | cut -c1-500; echo; echo \"== lander queue\"; cd /home/tom/code/south/main; NORTH_FLEET_SESSION=proxy timeout 30 north ledger flow 2>&1 | sed -n 1,14p | cut -c1-260",
+          "command": "tail -c 1500 /home/tom/.local/state/north/land-queue/de2e0e8479546ba9/logs/post-land-bd34b8ad5fb0.log | cut -c1-500; echo; echo \"== lander queue\"; cd /home/tom/code/operator/main; NORTH_FLEET_SESSION=proxy timeout 30 north ledger flow 2>&1 | sed -n 1,14p | cut -c1-260",
           "looking": false,
           "looks": 15,
           "tool": "Bash"
@@ -193,7 +193,7 @@
     {
       "calls": [
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; north gate answer gex45:76 1 --note 'Tom allowed it in his own words on 2026-11-11 at 4:20 AM +07: the laptop may run a north release built on gex45, cpx62 or cpx62b, with verify and canary on the laptop and the builder host and hash re",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; north gate answer gex45:76 1 --note 'Tom allowed it in his own words on 2026-11-11 at 4:20 AM +07: the laptop may run a north release built on gex45, cpx62 or cpx62b, with verify and canary on the laptop and the builder host and hash re",
           "looking": true,
           "looks": 1,
           "tool": "Bash"
@@ -217,7 +217,7 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; S=$T/scratchpad; for name in land-lead fleet-lead safety-lead; do echo \"== $name\"; north fleet launch --provider claude --account e --model opus --name $name --parent proxy --role lead --local 'a lead may only run on the laptop or nexus",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; S=$T/scratchpad; for name in land-lead fleet-lead safety-lead; do echo \"== $name\"; north fleet launch --provider claude --account e --model opus --name $name --parent proxy --role lead --local 'a lead may only run on the laptop or nexus",
           "looking": true,
           "looks": 4,
           "tool": "Bash"
@@ -235,13 +235,13 @@
           "tool": "Bash"
         },
         {
-          "command": "cd /home/tom/code/north/main; git show -s --format='%ci%n%B' 93ac2d1b36 | cut -c1-1200 | sed -n 1,14p; echo ==; git show -s --format='%ci%n%B' f6687c7493 | cut -c1-900 | sed -n 1,8p; echo \"== key source\"; rg -n -i 'opencode' /home/tom/code/south/main/agents/orchestration.toml | cut -c1-260 | sed -n ",
+          "command": "cd /home/tom/code/north/main; git show -s --format='%ci%n%B' 93ac2d1b36 | cut -c1-1200 | sed -n 1,14p; echo ==; git show -s --format='%ci%n%B' f6687c7493 | cut -c1-900 | sed -n 1,8p; echo \"== key source\"; rg -n -i 'opencode' /home/tom/code/operator/main/agents/orchestration.toml | cut -c1-260 | sed -n ",
           "looking": true,
           "looks": 7,
           "tool": "Bash"
         },
         {
-          "command": "cat $T/tasks/bz2guprsi.output | cut -c1-300 | tail -8; export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; timeout 40 north fleet tree 2>&1 | rg -e '-lead \\[' | cut -c1-120",
+          "command": "cat $T/tasks/bz2guprsi.output | cut -c1-300 | tail -8; export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 40 north fleet tree 2>&1 | rg -e '-lead \\[' | cut -c1-120",
           "looking": false,
           "looks": 7,
           "tool": "Bash"
@@ -253,7 +253,7 @@
           "tool": "Bash"
         },
         {
-          "command": "cd /home/tom/code/north/main; rg -n -i 'breaker' harness/*.toml /home/tom/code/south/main/agents/orchestration.toml 2>/dev/null | cut -c1-330 | sed -n 1,12p; echo \"== code\"; rg -n -l 'breaker' crates src 2>/dev/null | head -5; rg -n 'fn .*breaker|breaker_(reset|clear|off)|exp",
+          "command": "cd /home/tom/code/north/main; rg -n -i 'breaker' harness/*.toml /home/tom/code/operator/main/agents/orchestration.toml 2>/dev/null | cut -c1-330 | sed -n 1,12p; echo \"== code\"; rg -n -l 'breaker' crates src 2>/dev/null | head -5; rg -n 'fn .*breaker|breaker_(reset|clear|off)|exp",
           "looking": true,
           "looks": 8,
           "tool": "Bash"
@@ -271,7 +271,7 @@
           "tool": "Bash"
         },
         {
-          "command": "tail -5 $T/tasks/bz2guprsi.output | cut -c1-300; export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; timeout 40 north fleet tree 2>&1 | rg -e '(land|fleet|safety)-lead \\[' -A12 | rg -v exited | cut -c1-130 | sed -n 1,30p; uptime",
+          "command": "tail -5 $T/tasks/bz2guprsi.output | cut -c1-300; export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 40 north fleet tree 2>&1 | rg -e '(land|fleet|safety)-lead \\[' -A12 | rg -v exited | cut -c1-130 | sed -n 1,30p; uptime",
           "looking": false,
           "looks": 10,
           "tool": "Bash"
@@ -295,7 +295,7 @@
           "tool": "Bash"
         },
         {
-          "command": "tail -4 $T/tasks/bz2guprsi.output | cut -c1-200; ps -eo etimes,args | rg -e '[f]leet launch .*--name (fleet|safety)-lead' | cut -c1-12; export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; timeout 30 north fleet show land-lead 2>&1 | tail -6 | cut -c1-300",
+          "command": "tail -4 $T/tasks/bz2guprsi.output | cut -c1-200; ps -eo etimes,args | rg -e '[f]leet launch .*--name (fleet|safety)-lead' | cut -c1-12; export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 30 north fleet show land-lead 2>&1 | tail -6 | cut -c1-300",
           "looking": false,
           "looks": 12,
           "tool": "Bash"
@@ -349,13 +349,13 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; tail -6 $T/tasks/bz2guprsi.output | cut -c1-160; north fleet send fleet-lead \"Priority order from the proxy, 2026-11-11 4:30 AM +07, ahead of routine triage. Tom asked today for every machine and the whole DeepSeek account at full use, ",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; tail -6 $T/tasks/bz2guprsi.output | cut -c1-160; north fleet send fleet-lead \"Priority order from the proxy, 2026-11-11 4:30 AM +07, ahead of routine triage. Tom asked today for every machine and the whole DeepSeek account at full use, ",
           "looking": true,
           "looks": 20,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; north work brief new --category debugging-unknown-cause 2>&1 | cut -c1-220 | sed -n 1,30p; echo \"== stale 956 session\"; timeout 30 north fleet show north-956-d0754-every-transcript-has-a-verified-cold-copy-on-the 2>&1 | tail -4 | cut -c",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; north work brief new --category debugging-unknown-cause 2>&1 | cut -c1-220 | sed -n 1,30p; echo \"== stale 956 session\"; timeout 30 north fleet show north-956-d0754-every-transcript-has-a-verified-cold-copy-on-the 2>&1 | tail -4 | cut -c",
           "looking": false,
           "looks": 20,
           "tool": "Bash"
@@ -409,43 +409,43 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; S=$T/scratchpad; timeout 60 north fleet stop north-956-d0754-every-transcript-has-a-verified-cold-copy-on-the 2>&1 | tail -2 | cut -c1-200; timeout 110 north fleet launch --provider claude --account e --model opus --name safety-lead --p",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; S=$T/scratchpad; timeout 60 north fleet stop north-956-d0754-every-transcript-has-a-verified-cold-copy-on-the 2>&1 | tail -2 | cut -c1-200; timeout 110 north fleet launch --provider claude --account e --model opus --name safety-lead --p",
           "looking": false,
           "looks": 23,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; S=$T/scratchpad; north fleet launch --provider claude --account e --model opus --name safety-lead --parent proxy --role lead --local 'a lead may only run on the laptop or nexus; it reads reports, runs box checks over ssh and edits issue",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; S=$T/scratchpad; north fleet launch --provider claude --account e --model opus --name safety-lead --parent proxy --role lead --local 'a lead may only run on the laptop or nexus; it reads reports, runs box checks over ssh and edits issue",
           "looking": true,
           "looks": 24,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; timeout 60 north fleet tree 2>&1 | rg -v exited | rg -e 'lead \\[|n892-reap|n1106|n1022' | cut -c1-120; timeout 30 north fleet accounts --plan 2>&1 | rg -e 'claude:(e|d) ' | cut -c1-120; date '+%I:%M %p'; uptime | sed 's/.*load/load/'",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 60 north fleet tree 2>&1 | rg -v exited | rg -e 'lead \\[|n892-reap|n1106|n1022' | cut -c1-120; timeout 30 north fleet accounts --plan 2>&1 | rg -e 'claude:(e|d) ' | cut -c1-120; date '+%I:%M %p'; uptime | sed 's/.*load/load/'",
           "looking": false,
           "looks": 24,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; tail -4 $T/tasks/bqr0591rg.output | cut -c1-250; timeout 60 north fleet tree 2>&1 | rg -v exited | rg -e 'lead \\[' | cut -c1-100; for hn in \"cpx62 cpx62-n892-reap-test\" \"gex45 gex45-n1106-proxy-table\"; do set -- $hn; echo \"== $2\"; ssh -",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; tail -4 $T/tasks/bqr0591rg.output | cut -c1-250; timeout 60 north fleet tree 2>&1 | rg -v exited | rg -e 'lead \\[' | cut -c1-100; for hn in \"cpx62 cpx62-n892-reap-test\" \"gex45 gex45-n1106-proxy-table\"; do set -- $hn; echo \"== $2\"; ssh -",
           "looking": false,
           "looks": 24,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; timeout 40 north fleet show safety-lead 2>&1 | tail -5 | cut -c1-260",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 40 north fleet show safety-lead 2>&1 | tail -5 | cut -c1-260",
           "looking": false,
           "looks": 24,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; S=$T/scratchpad; north fleet launch --take-over --provider claude --account e --model opus --name safety-lead --parent proxy --role lead --local 'a lead may only run on the laptop or nexus; it reads reports, runs box checks over ssh and",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; S=$T/scratchpad; north fleet launch --take-over --provider claude --account e --model opus --name safety-lead --parent proxy --role lead --local 'a lead may only run on the laptop or nexus; it reads reports, runs box checks over ssh and",
           "looking": true,
           "looks": 25,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; timeout 40 north fleet show fleet-lead 2>&1 | tail -7 | cut -c1-330",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 40 north fleet show fleet-lead 2>&1 | tail -7 | cut -c1-330",
           "looking": false,
           "looks": 25,
           "tool": "Bash"
@@ -469,49 +469,49 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; cut -c1-260 $T/tasks/bb0vgu5bw.output | tail -8; timeout 60 north fleet tree 2>&1 | rg -v exited | rg -e 'lead \\[' -A14 | cut -c1-110 | sed -n 1,40p",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; cut -c1-260 $T/tasks/bb0vgu5bw.output | tail -8; timeout 60 north fleet tree 2>&1 | rg -v exited | rg -e 'lead \\[' -A14 | cut -c1-110 | sed -n 1,40p",
           "looking": false,
           "looks": 28,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; S=$T/scratchpad; north fleet launch --take-over --provider claude --account d --model opus --name safety-lead --parent proxy --role lead --local 'a lead may only run on the laptop or nexus; it reads reports, runs box checks over ssh and",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; S=$T/scratchpad; north fleet launch --take-over --provider claude --account d --model opus --name safety-lead --parent proxy --role lead --local 'a lead may only run on the laptop or nexus; it reads reports, runs box checks over ssh and",
           "looking": true,
           "looks": 29,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; timeout 60 north fleet send fleet-lead \"From the proxy, 4:40 AM +07: the spend tripwire now queues every new launch on claude:e (the safety lead's launch was queued, not started), so a breaker-fix worker launched on e will sit in the qu",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 60 north fleet send fleet-lead \"From the proxy, 4:40 AM +07: the spend tripwire now queues every new launch on claude:e (the safety lead's launch was queued, not started), so a breaker-fix worker launched on e will sit in the qu",
           "looking": true,
           "looks": 30,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; cut -c1-260 $T/tasks/benvslde6.output | tail -6; timeout 40 north fleet show safety-lead 2>&1 | tail -3 | cut -c1-240",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; cut -c1-260 $T/tasks/benvslde6.output | tail -6; timeout 40 north fleet show safety-lead 2>&1 | tail -3 | cut -c1-240",
           "looking": false,
           "looks": 30,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; S=$T/scratchpad; north fleet launch --take-over --provider claude --account d --model opus --name safety-lead --parent proxy --role lead --local 'a lead may only run on the laptop or nexus; it reads reports, runs box checks over ssh and",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; S=$T/scratchpad; north fleet launch --take-over --provider claude --account d --model opus --name safety-lead --parent proxy --role lead --local 'a lead may only run on the laptop or nexus; it reads reports, runs box checks over ssh and",
           "looking": true,
           "looks": 31,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; cut -c1-420 $T/tasks/bkuya2dlx.output | tail -10; timeout 40 north fleet tree 2>&1 | rg -e 'safety-lead' | cut -c1-100",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; cut -c1-420 $T/tasks/bkuya2dlx.output | tail -10; timeout 40 north fleet tree 2>&1 | rg -e 'safety-lead' | cut -c1-100",
           "looking": false,
           "looks": 31,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; S=$T/scratchpad; north fleet launch --provider claude --account d --model opus --name safety-lead --parent proxy --role lead --local 'a lead may only run on the laptop or nexus; it reads reports, runs box checks over ssh and edits issue",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; S=$T/scratchpad; north fleet launch --provider claude --account d --model opus --name safety-lead --parent proxy --role lead --local 'a lead may only run on the laptop or nexus; it reads reports, runs box checks over ssh and edits issue",
           "looking": true,
           "looks": 32,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; cut -c1-420 $T/tasks/bi1m8s5ad.output | tail -8; timeout 40 north fleet show safety-lead 2>&1 | tail -3 | cut -c1-260",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; cut -c1-420 $T/tasks/bi1m8s5ad.output | tail -8; timeout 40 north fleet show safety-lead 2>&1 | tail -3 | cut -c1-260",
           "looking": false,
           "looks": 32,
           "tool": "Bash"
@@ -523,7 +523,7 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; timeout 60 north fleet send fleet-lead \"From the proxy, 4:50 AM +07, one box to add to the fleet issue that fits (north#872 or north#1054) and staff when a slot frees; not urgent. A launch that is killed or queued leaves a ghost name: a",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 60 north fleet send fleet-lead \"From the proxy, 4:50 AM +07, one box to add to the fleet issue that fits (north#872 or north#1054) and staff when a slot frees; not urgent. A launch that is killed or queued leaves a ghost name: a",
           "looking": true,
           "looks": 34,
           "tool": "Bash"
@@ -535,13 +535,13 @@
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; timeout 100 north fleet forget safety-lead --force 'ghost name left by a launch killed during its claims at 4:27 AM and a queued launch at 4:35 AM on 2026-11-11; no session ever started under it' 2>&1 | tail -3 | cut -c1-300; timeout 30",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; timeout 100 north fleet forget safety-lead --force 'ghost name left by a launch killed during its claims at 4:27 AM and a queued launch at 4:35 AM on 2026-11-11; no session ever started under it' 2>&1 | tail -3 | cut -c1-300; timeout 30",
           "looking": false,
           "looks": 35,
           "tool": "Bash"
         },
         {
-          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/south/main; north threads --help 2>&1 | rg -o -e 'release [^|]{0,120}' -e 'unclaim [^|]{0,100}' -e 'reap [^|]{0,100}' -e 'transfer [^|]{0,100}' | head -5; timeout 30 north threads list 2>&1 | rg 'safety-lead' | cut -c1-140 | head -4",
+          "command": "export NORTH_FLEET_SESSION=proxy; cd /home/tom/code/operator/main; north threads --help 2>&1 | rg -o -e 'release [^|]{0,120}' -e 'unclaim [^|]{0,100}' -e 'reap [^|]{0,100}' -e 'transfer [^|]{0,100}' | head -5; timeout 30 north threads list 2>&1 | rg 'safety-lead' | cut -c1-140 | head -4",
           "looking": false,
           "looks": 35,
           "tool": "Bash"

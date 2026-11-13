@@ -258,7 +258,7 @@ rule = "blind-stage"
 window = "2026-11-04 to 2026-11-07"
 
 [[sample.row]]
-command = "M='Drop the lib/defaults.py provider-hook entry: north#88 deletes harness/lib/defaults.py, which nothing imports' cd /home/tom/code/south/wo"
+command = "M='Drop the lib/defaults.py provider-hook entry: north#88 deletes harness/lib/defaults.py, which nothing imports' cd /home/tom/code/operator/wo"
 label = "true"
 
 [[sample.row]]
@@ -374,7 +374,7 @@ command = "cd ~/code/north/worktrees/p88-hook-switch && git diff HEAD --binary -
 label = "true"
 
 [[sample.row]]
-command = "cd ~/code/south && git -C main worktree add ~/code/south/worktrees/reserve-confined-note -b reserve-confined-note 2>&1 | tail -1 && cd workt"
+command = "cd ~/code/operator && git -C main worktree add ~/code/operator/worktrees/reserve-confined-note -b reserve-confined-note 2>&1 | tail -1 && cd workt"
 label = "true"
 
 [[sample]]
@@ -741,7 +741,7 @@ command = "cd /home/tom/code/north/worktrees/bars-order 2>/dev/null || { cd /hom
 label = "false"
 
 [[sample.row]]
-command = "cd /home/tom/code/south/main && git pull -q --ff-only; cat agents/routines/ssh-master-probe.md; ssh gex45 'systemctl --user list-timers --all --no-pag"
+command = "cd /home/tom/code/operator/main && git pull -q --ff-only; cat agents/routines/ssh-master-probe.md; ssh gex45 'systemctl --user list-timers --all --no-pag"
 label = "true"
 
 [[sample.row]]
@@ -871,7 +871,7 @@ command = "cd /home/tom/code/north/worktrees/n680-incremental-costs; rm -rf /tmp
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/south/main && git fetch -q origin && git worktree add -q -b cx53-stock-0711 ../cx53-stock-0711 origin/main && cd ../cx53-stock-0711 "
+command = "cd /home/tom/code/operator/main && git fetch -q origin && git worktree add -q -b cx53-stock-0711 ../cx53-stock-0711 origin/main && cd ../cx53-stock-0711 "
 label = "true"
 
 [[sample.row]]
@@ -1236,7 +1236,7 @@ command = "cd ~/code/north/worktrees/p88-hook-switch && perl -0pi -e 's/(    let
 label = "true"
 
 [[sample.row]]
-command = "cd ~/code/south/worktrees/bun-144 && git fetch -q origin && git merge -q --ff-only origin/main; F=agents/decisions/makgora/perf-smooth-plan.md; sed -n"
+command = "cd ~/code/operator/worktrees/bun-144 && git fetch -q origin && git merge -q --ff-only origin/main; F=agents/decisions/makgora/perf-smooth-plan.md; sed -n"
 label = "true"
 
 [[sample.row]]
@@ -1418,7 +1418,7 @@ command = "cd /home/tom/code/north/main && rg -n \"OnCalendar|lane-gc\" --glob '
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/main && rg -n \"routing\\.py|run_outcome\" /home/tom/code/south /home/tom/code/nixos-config /home/tom/code/north/main --glob '!*."
+command = "cd /home/tom/code/north/main && rg -n \"routing\\.py|run_outcome\" /home/tom/code/operator /home/tom/code/nixos-config /home/tom/code/north/main --glob '!*."
 label = "true"
 
 [[sample.row]]
@@ -1466,7 +1466,7 @@ command = "cd /home/tom/code/smashcraft/sc-912/ts && rg -l \"four humans on the 
 label = "false"
 
 [[sample.row]]
-command = "cd /home/tom/code/south/main && git -C /home/tom/code/south/main worktree add /home/tom/code/south/worktrees/fleet-tick-enable -b fleet-tick-enable 2>"
+command = "cd /home/tom/code/operator/main && git -C /home/tom/code/operator/main worktree add /home/tom/code/operator/worktrees/fleet-tick-enable -b fleet-tick-enable 2>"
 label = "false"
 
 [[sample.row]]
@@ -1498,7 +1498,7 @@ command = "cd ~/code/smashcraft/worktrees/spirit-wolf-slow/ts/src/game/sim/speci
 label = "false"
 
 [[sample.row]]
-command = "f=$(fd -H orchestration.toml ~/code/south 2>/dev/null | head -3); echo \"$f\"; for x in $f; do awk '/^\\[hosts|^\\[placement|^\\[dispatch/{p=1} /^\\[/{if($0"
+command = "f=$(fd -H orchestration.toml ~/code/operator 2>/dev/null | head -3); echo \"$f\"; for x in $f; do awk '/^\\[hosts|^\\[placement|^\\[dispatch/{p=1} /^\\[/{if($0"
 label = "true"
 
 [[sample.row]]
@@ -1521,7 +1521,7 @@ drawn = "1 in 8 of 241 distinct refused calls"
 narrowed = "2026-11-08 north#706: a glob segment counts as archives or accounts only when it can match them, a search reading a pipe has no default `.`, `fd -dN` is read as a depth, and redirect targets are no longer operands"
 
 [[sample.row]]
-command = "cat /tmp/claude-1000/-home-tom-code-north-main/f1a617db-c1e5-4278-8a4a-e99b9c8902e2/tasks/bndwsrn8x.output; grep -n 'nixos-anywhere' ~/code/south/main"
+command = "cat /tmp/claude-1000/-home-tom-code-north-main/f1a617db-c1e5-4278-8a4a-e99b9c8902e2/tasks/bndwsrn8x.output; grep -n 'nixos-anywhere' ~/code/operator/main"
 label = "true"
 
 [[sample.row]]
@@ -1980,7 +1980,7 @@ command = "cd ~/code/north/worktrees/n112-loops && sed -i 's#crates/north-core/s
 label = "false"
 
 [[sample.row]]
-command = "cd ~/code/south/main; f=$(grep -rl \"B6\" agents/decisions | grep -i -E 'gex45|access' | head -3); echo $f; for x in $f; do grep -n -E '^\\s*-?\\s*\\**B(6|"
+command = "cd ~/code/operator/main; f=$(grep -rl \"B6\" agents/decisions | grep -i -E 'gex45|access' | head -3); echo $f; for x in $f; do grep -n -E '^\\s*-?\\s*\\**B(6|"
 label = "true"
 
 [[sample.row]]
@@ -2054,7 +2054,7 @@ command = "cd ~/code/north/worktrees/north-834-envelope && cargo test -p north-c
 label = "true"
 
 [[sample.row]]
-command = "cd ~/code/south/worktrees/host-follow-739 && git fetch -q && git rebase -q origin/main && timeout 25 nix flake lock --override-input firn github:tompa"
+command = "cd ~/code/operator/worktrees/host-follow-739 && git fetch -q && git rebase -q origin/main && timeout 25 nix flake lock --override-input firn github:tompa"
 label = "true"
 
 
@@ -2373,7 +2373,7 @@ command = "cd /home/tom/code/north/main && git push -q origin refs/tags/archive/
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/main; sed -n 10,45p crates/north-core/src/catalog/live_refs_transport.rs; echo ---; git -C /home/tom/code/south/main ls-remote"
+command = "cd /home/tom/code/north/main; sed -n 10,45p crates/north-core/src/catalog/live_refs_transport.rs; echo ---; git -C /home/tom/code/operator/main ls-remote"
 label = "false"
 
 [[sample.row]]
@@ -2527,7 +2527,7 @@ command = "S=/home/tom/code/north-data/runtimes/cbb252dcabdfcf68d0b6d6039f27d9bb
 label = "true"
 
 [[sample.row]]
-command = "T=$(cat /tmp/n259-scratch-path); shred -u $T/tok 2>/dev/null; rm -rf \"$T\" /tmp/n259-scratch-path; ls $T 2>&1 | head -1 cd ~/code/south; ls lanes workt"
+command = "T=$(cat /tmp/n259-scratch-path); shred -u $T/tok 2>/dev/null; rm -rf \"$T\" /tmp/n259-scratch-path; ls $T 2>&1 | head -1 cd ~/code/operator; ls lanes workt"
 label = "true"
 
 [[sample.row]]
@@ -2606,75 +2606,75 @@ narrowed = "2026-11-08 north#706: jq keys, an awk that prints only length or a m
 drawn = "1 in 1 of 18 distinct refused calls"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/main && ls ~/code/south/main/secrets | rg -n 'github|nexus'; sops -d ~/code/south/main/secrets/app-key.yaml 2>&1 | sed 's/:"
+command = "cd /home/tom/code/north/main && ls ~/code/operator/main/secrets | rg -n 'github|nexus'; sops -d ~/code/operator/main/secrets/app-key.yaml 2>&1 | sed 's/:"
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/main && rg -n \"decrypt\" crates/north-base/src/platform/github_app.rs | head; sops -d --output-type json ~/code/south/main/secr"
+command = "cd /home/tom/code/north/main && rg -n \"decrypt\" crates/north-base/src/platform/github_app.rs | head; sops -d --output-type json ~/code/operator/main/secr"
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/main && sed -n 120,145p crates/north-base/src/platform/github_app.rs; ls -l /var/lib/sops-nix/key.txt; ls ~/code/south/main/se"
+command = "cd /home/tom/code/north/main && sed -n 120,145p crates/north-base/src/platform/github_app.rs; ls -l /var/lib/sops-nix/key.txt; ls ~/code/operator/main/se"
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/main; sops -d ~/code/south/main/secrets/app-key.yaml 2>&1 | head -3 | sed 's/:.*/: …/'; rg -n 'sops|age' crates/north-base/"
+command = "cd /home/tom/code/north/main; sops -d ~/code/operator/main/secrets/app-key.yaml 2>&1 | head -3 | sed 's/:.*/: …/'; rg -n 'sops|age' crates/north-base/"
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/south/main && sed -n 60,110p hosts/whiterabbit.nix; sed -n 90,135p agents/costs.toml; sed -n 185,200p agents/credentials.toml; cat t"
+command = "cd /home/tom/code/operator/main && sed -n 60,110p hosts/whiterabbit.nix; sed -n 90,135p agents/costs.toml; sed -n 185,200p agents/credentials.toml; cat t"
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/south/main/secrets && sops -d app-key.yaml 2>&1 | sed 's/: .*/: <v>/' | head -6; echo \"XDG=$XDG_RUNTIME_DIR SOPS_AGE_KEY_FILE=$SO"
+command = "cd /home/tom/code/operator/main/secrets && sops -d app-key.yaml 2>&1 | sed 's/: .*/: <v>/' | head -6; echo \"XDG=$XDG_RUNTIME_DIR SOPS_AGE_KEY_FILE=$SO"
 label = "true"
 
 [[sample.row]]
-command = "cd ~/code/north/worktrees/lander-credential && sudo -n env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt sops -d --output-type json ~/code/south/main/se"
+command = "cd ~/code/north/worktrees/lander-credential && sudo -n env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt sops -d --output-type json ~/code/operator/main/se"
 label = "false"
 
 [[sample.row]]
-command = "cd ~/code/south/main && command -v gh-token openssl jq sops; mkdir -p /tmp/n522 && chmod 700 /tmp/n522 && sops -d --output-type json secrets/nexus/git"
+command = "cd ~/code/operator/main && command -v gh-token openssl jq sops; mkdir -p /tmp/n522 && chmod 700 /tmp/n522 && sops -d --output-type json secrets/nexus/git"
 label = "false"
 
 [[sample.row]]
-command = "cd ~/code/south/main && command -v gh-token openssl jq sops; sops -d --extract '[\"app_id\"]' secrets/app-key.yaml | wc -c; sops -d --extract '[\"app_"
+command = "cd ~/code/operator/main && command -v gh-token openssl jq sops; sops -d --extract '[\"app_id\"]' secrets/app-key.yaml | wc -c; sops -d --extract '[\"app_"
 label = "false"
 
 [[sample.row]]
-command = "cd ~/code/south/main/secrets && sops -d gex45/github.yaml 2>&1 | head -c 60 | sed 's/[A-Za-z0-9_]\\{20,\\}/<redacted>/g'; echo; north gh-app-token --app"
+command = "cd ~/code/operator/main/secrets && sops -d gex45/github.yaml 2>&1 | head -c 60 | sed 's/[A-Za-z0-9_]\\{20,\\}/<redacted>/g'; echo; north gh-app-token --app"
 label = "true"
 
 [[sample.row]]
-command = "cd ~/code/south/main; git fetch -q origin; wt=~/code/south/worktrees/anthropic-api-key; git worktree add -q -b anthropic-api-key $wt origin/main 2>&1 "
+command = "cd ~/code/operator/main; git fetch -q origin; wt=~/code/operator/worktrees/anthropic-api-key; git worktree add -q -b anthropic-api-key $wt origin/main 2>&1 "
 label = "false"
 
 [[sample.row]]
-command = "cd ~/code/south/main; ls -la /var/lib/sops-nix/key.txt; sudo -n true && echo sudo-ok; timeout 15 sudo -n env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.t"
+command = "cd ~/code/operator/main; ls -la /var/lib/sops-nix/key.txt; sudo -n true && echo sudo-ok; timeout 15 sudo -n env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.t"
 label = "true"
 
 [[sample.row]]
-command = "cd ~/code/south/main; t=$(mktemp); chmod 600 $t; printf 'header = \"Authorization: Bearer %s\"\\n' \"$(timeout 15 sudo -n env SOPS_AGE_KEY_FILE=/var/lib/s"
+command = "cd ~/code/operator/main; t=$(mktemp); chmod 600 $t; printf 'header = \"Authorization: Bearer %s\"\\n' \"$(timeout 15 sudo -n env SOPS_AGE_KEY_FILE=/var/lib/s"
 label = "false"
 
 [[sample.row]]
-command = "cd ~/code/south/worktrees/hetzner-cloud-token; git status --short; sudo env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt sops -d secrets/hetzner-cloud."
+command = "cd ~/code/operator/worktrees/hetzner-cloud-token; git status --short; sudo env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt sops -d secrets/hetzner-cloud."
 label = "true"
 
 [[sample.row]]
-command = "cd ~/code/south/worktrees/lander-app; D=/run/user/1000/lander sops -d --extract '[\"app_id\"]' secrets/nexus/lander-key.yaml; echo a=$(sops -d --extra"
+command = "cd ~/code/operator/worktrees/lander-app; D=/run/user/1000/lander sops -d --extract '[\"app_id\"]' secrets/nexus/lander-key.yaml; echo a=$(sops -d --extra"
 label = "true"
 
 [[sample.row]]
-command = "d=/tmp/tmp.tJOHQWWlsl; sudo env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt sops -d --output-type json ~/code/south/main/secrets/hetzner-robot.yaml | "
+command = "d=/tmp/tmp.tJOHQWWlsl; sudo env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt sops -d --output-type json ~/code/operator/main/secrets/hetzner-robot.yaml | "
 label = "false"
 
 [[sample.row]]
-command = "ls -la ~/code/south/main/secrets/app-key.yaml 2>&1; sops -d ~/code/south/main/secrets/app-key.yaml 2>&1 | sed 's/:.*/: <v>/' | head -5; env | gr"
+command = "ls -la ~/code/operator/main/secrets/app-key.yaml 2>&1; sops -d ~/code/operator/main/secrets/app-key.yaml 2>&1 | sed 's/:.*/: <v>/' | head -5; env | gr"
 label = "true"
 
 [[sample.row]]
-command = "set -e; cd ~/code/south/main && git fetch -q origin && git worktree add -q ~/code/south/worktrees/lander-app -b lander-app origin/main D=/run/user/100"
+command = "set -e; cd ~/code/operator/main && git fetch -q origin && git worktree add -q ~/code/operator/worktrees/lander-app -b lander-app origin/main D=/run/user/100"
 label = "true"
 
 
@@ -3513,7 +3513,7 @@ command = "git commit -qam \"Raise the spend rule's worker cap from 12 to 18 ses
 label = "false"
 
 [[sample.row]]
-command = "set -e; cd ~/code/south/worktrees/cap-raise-0330; sed -i 's/^resident_cap = 12$/resident_cap = 20/' agents/orchestration.toml; sed -i '/^# 2026-11-07 "
+command = "set -e; cd ~/code/operator/worktrees/cap-raise-0330; sed -i 's/^resident_cap = 12$/resident_cap = 20/' agents/orchestration.toml; sed -i '/^# 2026-11-07 "
 label = "true"
 
 
@@ -4323,35 +4323,35 @@ window = "2026-11-01 to 2026-11-08"
 drawn = "every call still refused, of 8 distinct refusals on gex45, replayed through main plus this change"
 
 [[sample.row]]
-command = "ls -la ~/code/south/main/secrets/app-key.yaml 2>&1; sops -d ~/code/south/main/secrets/app-key.yaml 2>&1 | sed 's/:.*/: <v>/' | head -5; env | gr"
+command = "ls -la ~/code/operator/main/secrets/app-key.yaml 2>&1; sops -d ~/code/operator/main/secrets/app-key.yaml 2>&1 | sed 's/:.*/: <v>/' | head -5; env | gr"
 label = "true"
 
 [[sample.row]]
-command = "cd ~/code/south/main/secrets && sops -d gex45/github.yaml 2>&1 | head -c 60 | sed 's/[A-Za-z0-9_]\\{20,\\}/<redacted>/g'; echo; north gh-app-token --app"
+command = "cd ~/code/operator/main/secrets && sops -d gex45/github.yaml 2>&1 | head -c 60 | sed 's/[A-Za-z0-9_]\\{20,\\}/<redacted>/g'; echo; north gh-app-token --app"
 label = "true"
 
 [[sample.row]]
-command = "cd ~/code/south/main; ls -la /var/lib/sops-nix/key.txt; sudo -n true && echo sudo-ok; timeout 15 sudo -n env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.t"
+command = "cd ~/code/operator/main; ls -la /var/lib/sops-nix/key.txt; sudo -n true && echo sudo-ok; timeout 15 sudo -n env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.t"
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/main; sops -d ~/code/south/main/secrets/app-key.yaml 2>&1 | head -3 | sed 's/:.*/: …/'; rg -n 'sops|age' crates/north-base/"
+command = "cd /home/tom/code/north/main; sops -d ~/code/operator/main/secrets/app-key.yaml 2>&1 | head -3 | sed 's/:.*/: …/'; rg -n 'sops|age' crates/north-base/"
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/south/main/secrets && sops -d app-key.yaml 2>&1 | sed 's/: .*/: <v>/' | head -6; echo \"XDG=$XDG_RUNTIME_DIR SOPS_AGE_KEY_FILE=$SO"
+command = "cd /home/tom/code/operator/main/secrets && sops -d app-key.yaml 2>&1 | sed 's/: .*/: <v>/' | head -6; echo \"XDG=$XDG_RUNTIME_DIR SOPS_AGE_KEY_FILE=$SO"
 label = "true"
 
 [[sample.row]]
-command = "sed -n 120,145p crates/north-base/src/platform/github_app.rs; ls -l /var/lib/sops-nix/key.txt; ls ~/code/south/main/secrets/app-key.yaml; echo SOUT"
+command = "sed -n 120,145p crates/north-base/src/platform/github_app.rs; ls -l /var/lib/sops-nix/key.txt; ls ~/code/operator/main/secrets/app-key.yaml; echo SOUT"
 label = "true"
 
 [[sample.row]]
-command = "rg -n \"decrypt\" crates/north-base/src/platform/github_app.rs | head; sops -d --output-type json ~/code/south/main/secrets/app-key.yaml 2>&1 | head "
+command = "rg -n \"decrypt\" crates/north-base/src/platform/github_app.rs | head; sops -d --output-type json ~/code/operator/main/secrets/app-key.yaml 2>&1 | head "
 label = "true"
 
 [[sample.row]]
-command = "ls ~/code/south/main/secrets | rg -n 'github|nexus'; sops -d ~/code/south/main/secrets/app-key.yaml 2>&1 | sed 's/:.*/: .../' | head; ls ~/.config/"
+command = "ls ~/code/operator/main/secrets | rg -n 'github|nexus'; sops -d ~/code/operator/main/secrets/app-key.yaml 2>&1 | sed 's/:.*/: .../' | head; ls ~/.config/"
 label = "true"
 
 
@@ -4532,7 +4532,7 @@ command = "cd /home/tom/code/north/main; git status --porcelain | head -5; git r
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/south/main && git pull -q --ff-only; cat agents/routines/ssh-master-probe.md; ssh gex45 'systemctl --user list-timers --all --no-pag"
+command = "cd /home/tom/code/operator/main && git pull -q --ff-only; cat agents/routines/ssh-master-probe.md; ssh gex45 'systemctl --user list-timers --all --no-pag"
 label = "true"
 
 [[sample.row]]
@@ -4799,7 +4799,7 @@ command = "cd /home/tom/code/north/worktrees/n956-replay && rm -rf homes scr && 
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/south/worktrees/credential-reach-94/agents && rm XX2blB2h XX71gDlv XXc6JEJe XXGqiUxO XXoLNe4l XXSHBVid && cd /home/tom/code/north/ma"
+command = "cd /home/tom/code/operator/worktrees/credential-reach-94/agents && rm XX2blB2h XX71gDlv XXc6JEJe XXGqiUxO XXoLNe4l XXSHBVid && cd /home/tom/code/north/ma"
 label = "true"
 
 [[sample.row]]

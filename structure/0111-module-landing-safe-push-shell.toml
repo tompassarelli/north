@@ -2,5 +2,5 @@
 name = "landing.safe_push.shell"
 paths = ["crates/north-safe-push/src/shell/**"]
 responsibility = "safe-push's thin typed effect layer: the Git, Origin, GitHub, StateFiles, Processes and Settings traits, their live adapters and the recorded test double."
-may_use = ["foundation", "lifecycle", "platform.git", "platform.process", "platform.ssh"]
+may_use = ["foundation", "lifecycle", "platform", "platform.git", "platform.process", "platform.ssh"]
 

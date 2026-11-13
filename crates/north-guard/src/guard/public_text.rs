@@ -2,12 +2,12 @@ use super::gh_write::{self, GhWrite};
 use crate::hook_input::{HookInput, Verdict};
 use crate::platform::betterleaks;
 use crate::platform::private_text::{self, Finding};
+use north_base::platform::shared_config;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::Command;
 
 const CONFIG_ENV: &str = "NORTH_PUBLIC_DENYLIST";
-const CONFIG_UNDER_HOME: &str = "code/south/main/privacy/public-denylist.toml";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     let Some(config) = config() else {
@@ -26,7 +26,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 fn config() -> Option<PathBuf> {
     let named = std::env::var_os(CONFIG_ENV)
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(CONFIG_UNDER_HOME)))?;
+        .or_else(|| std::env::var_os("HOME").map(|home| shared_config::checkout(&PathBuf::from(home)).join("privacy/public-denylist.toml")))?;
     named.is_file().then_some(named)
 }
 

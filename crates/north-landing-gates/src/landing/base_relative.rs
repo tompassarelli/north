@@ -1,6 +1,7 @@
 use super::judge::{self, Quarantine, Verdict};
 use super::results::{Case, Env, Key, Results, Store};
 use north_base::foundation::clock::Timestamp;
+use north_base::platform::shared_config;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
@@ -39,7 +40,7 @@ fn here() -> Env {
         _ => fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned(),
     };
     Env {
-        south_revision: checkout_head(&home.join("code/south/main")),
+        south_revision: checkout_head(&shared_config::checkout(&home)),
         nixos_config_revision: checkout_head(&home.join("code/nixos-config/main")),
         shell_closure,
         runner,

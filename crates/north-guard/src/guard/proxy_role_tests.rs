@@ -74,7 +74,7 @@ fn denied(world: &Fake, input: &HookInput) -> bool {
 fn implementation() -> Vec<HookInput> {
     vec![
         tool("Edit", json!({"file_path": "/home/tom/code/north/worktrees/x/src/lib.rs", "old_string": "a", "new_string": "b"})),
-        tool("Write", json!({"file_path": "~/code/south/main/agents/x.md", "content": "x"})),
+        tool("Write", json!({"file_path": "~/code/operator/main/agents/x.md", "content": "x"})),
         tool("Write", json!({"file_path": "src/main.rs", "content": "x"})),
         bash("git commit -m wip src/lib.rs"),
         bash("cd /home/tom/code/north/worktrees/x && git -C . commit --amend"),
@@ -290,7 +290,7 @@ fn the_proxy_cannot_build_test_or_edit_a_repository() {
         "nix flake check",
         "cargo run -p north-guard",
         "echo x > ~/code/north/main/README.md",
-        "printf x >> /home/tom/code/south/main/agents/x.md",
+        "printf x >> /home/tom/code/operator/main/agents/x.md",
         "cat notes | tee ~/code/north/main/docs/x.md",
         "git apply /tmp/fix.diff",
         "patch -p1 < /tmp/fix.diff",

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-use north_base::platform::process;
+use north_base::platform::{process, shared_config};
 use serde_json::Value;
 
 const DECRYPT_LIMIT: Duration = Duration::from_secs(60);
@@ -29,7 +29,7 @@ impl Source {
 
     pub fn south() -> Self {
         let var = |name| std::env::var_os(name).filter(|value: &std::ffi::OsString| !value.is_empty());
-        let secrets = var("SOUTH_SECRETS").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(var("HOME").unwrap_or_default()).join("code/south/main/secrets"));
+        let secrets = var("SOUTH_SECRETS").map(PathBuf::from).unwrap_or_else(|| shared_config::checkout(&PathBuf::from(var("HOME").unwrap_or_default())).join("secrets"));
         Self::Sops(secrets)
     }
 
