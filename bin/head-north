@@ -7,9 +7,15 @@ code=() defer=0
 live=${XDG_STATE_HOME:-$HOME/.local/state}/north/current/north
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/north/head-north
 keep=4 hold=3600 settle=${HEAD_NORTH_SETTLE:-2}
+engine=${HEAD_NORTH_ENGINE:-/etc/buildbarn/store-generation}
 build() {
   printf 'head-north: building north from the tree: %s (git status: %s)\n' "${reason%%$'\n'*}" "$(git -C "$root" status --porcelain | head -3 | tr '\n' ' ')" >&2
-  [ -x "$live" ] || { local out; out=$("$root/bin/land-shell" --dev -- cargo test -q --no-run --locked --offline -p north --test it 2>&1) || { printf '%s\n' "$out" >&2; [[ $out != *'error: could not compile'* ]] || { printf 'head-north: north does not compile from this tree, so the check fails\n' >&2; exit 1; }; printf 'head-north: building north from the tree failed, so no older north runs in its place\n' >&2; exit 75; }; readlink -f "${CARGO_TARGET_DIR:-target}/debug/north"; return; }
+  if [ ! -f "$engine" ]; then
+    local artifact=${XDG_STATE_HOME:-$HOME/.local/state}/north/runtime-artifacts/$tree/north
+    [ -n "$tree" ] && [ -x "$artifact" ] || { printf 'head-north: no build-ahead artifact for tree %s, so no verdict\n' "${tree:-of this unclean checkout}" >&2; exit 75; }
+    printf '%s\n' "$artifact"; return
+  fi
+  [ -x "$live" ] || { local out=$root/buck-out/north/head-north; mkdir -p "${out%/*}"; rm -f "$out"; printf 'head-north: buck2 build --remote-only //:north --out %s\n' "$out" >&2; "$root/bin/land-shell" --dev -- buck2 build --remote-only //:north --out "$out" >&2 || { [ $? != 3 ] || { printf 'head-north: north does not compile from this tree, so the check fails\n' >&2; exit 1; }; printf 'head-north: building north from the tree failed, so no older north runs in its place\n' >&2; exit 75; }; printf '%s\n' "$out"; return; }
   local built status=0; built=$("$live" runtime tree-build) || status=$?
   case $status in 0) printf '%s\n' "${built##*$'\n'}"; return ;; 1 | 75) exit "$status" ;; esac
   printf 'head-north: the live runtime %s could not build north from the tree (exit %s), so no older north runs in its place\n' "$live" "$status" >&2; exit 75
