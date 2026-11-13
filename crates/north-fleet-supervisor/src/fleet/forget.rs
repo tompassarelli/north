@@ -158,6 +158,7 @@ mod tests {
         let fleet = fleet(home.path()).freeing_lanes(freed.clone());
         let _worker = live(&fleet, "n903-orphan");
         let heir = live(&fleet, "n903-heir");
+        let _child = live_under(&fleet, "n903-child", Some("n903-orphan"));
         let lane = ticket(home.path(), "", "1-n903.json", "n903-orphan", "/code/north/worktrees/n903-waits");
 
         let forgotten = fleet.forget_unless_queued("n903-orphan", None, Some("n903-heir")).unwrap();
@@ -166,6 +167,7 @@ mod tests {
         assert_eq!(serde_json::from_str::<serde_json::Value>(&fs::read_to_string(lane).unwrap()).unwrap()["session"], "n903-heir");
         assert!(heir.frames.lock().unwrap().iter().any(|frame| frame.contains("n903-orphan is leaving the fleet")));
         assert!(fleet.session("n903-orphan").is_err(), "the forget still ran");
+        assert_eq!(fleet.record("n903-child").unwrap().parent.as_deref(), Some("n903-heir"), "forget --to left the forgotten session's live child with no live parent");
         assert!(fleet.forget_unless_queued("n903-heir", None, Some("nobody")).is_err());
 
         let main = Path::new("/code/north/main");

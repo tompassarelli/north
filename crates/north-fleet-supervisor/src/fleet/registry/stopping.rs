@@ -130,6 +130,9 @@ impl Fleet {
             let _ = self.hand_over_lanes(record, successor, true)?;
         }
         let controlled = self.control(ControlVerb::Forget, name)?;
+        if let (Controlled::Here, Some(_), Some(heir)) = (&controlled, successor, heir.as_deref()) {
+            self.move_live_children(name, heir)?;
+        }
         Ok(Forgotten { controlled, overrode: if heir.is_some() { Vec::new() } else { lanes } })
     }
 

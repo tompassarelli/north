@@ -15,11 +15,16 @@ impl Fleet {
         if predecessor == successor.name || !self.is_gone(&predecessor)? {
             return Ok(Vec::new());
         }
+        self.move_live_children(&predecessor, &successor.name)
+    }
+
+    /// Makes `heir` the parent of every live child of `from` on this host other than `heir` itself; returns the children it moved.
+    pub(super) fn move_live_children(&self, from: &str, heir: &str) -> NorthResult<Vec<String>> {
         let mut taken = Vec::new();
-        for child in self.sessions()?.into_iter().filter(|child| child.parent.as_deref() == Some(predecessor.as_str()) && self.status(child) != Status::Exited) {
+        for child in self.sessions()?.into_iter().filter(|child| child.parent.as_deref() == Some(from) && child.name != heir && self.status(child) != Status::Exited) {
             let session_dir = self.session_dir(&child.name)?;
             let mut record = read_record(&session_dir)?;
-            record.parent = Some(successor.name.clone());
+            record.parent = Some(heir.to_owned());
             write_record(&session_dir, &record)?;
             taken.push(child.name);
         }
