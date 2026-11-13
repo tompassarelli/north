@@ -86,7 +86,7 @@ pub(super) struct Launch<'a> {
 
 /// Whether this launch comes from the operator, never a confined caller: outside every worker sandbox, not a queue replay, whose original caller is unproven, and judged by the launcher's own cgroup (`Fleet::operator_caller`).
 pub(super) fn operator_launcher(fleet: &Fleet, caller: Option<&str>, queued: Option<&str>) -> bool {
-    let cgroup = std::fs::read_to_string("/proc/self/cgroup").unwrap_or_default();
+    let Ok(cgroup) = std::fs::read_to_string("/proc/self/cgroup") else { return false };
     queued.is_none() && !north_runtime::worker_sandbox::confined() && fleet.operator_caller(caller, &cgroup)
 }
 
