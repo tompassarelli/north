@@ -10,6 +10,7 @@ const CORE_THRESHOLD: f64 = 1.0;
 const STALE_MILLISECONDS: f64 = 90_000.0;
 const TAIL_BYTES: u64 = 65536;
 const SKIPPED: [&str; 4] = ["session.slice", "native.slice", "init.scope", "agent.slice/agent-capacity.slice"];
+const BUILDBARN_UNITS: &str = "system.slice/buildbarn-";
 const SESSION_PROVIDERS: [&str; 2] = ["claude", "codex"];
 const SESSION_FLAGS: [&str; 3] = ["--session-id", "--resume", "resume"];
 
@@ -48,13 +49,15 @@ pub(super) fn summarize(sample: &Value, now: f64) -> Option<Value> {
     let heavy_sum: f64 = heavy.iter().map(|(_, cores, _)| cores).sum();
     let agent_heavy: f64 = heavy.iter().filter(|(cgroup, ..)| cgroup.starts_with("agent.slice/")).map(|(_, cores, _)| cores).sum();
     let batch_leases: f64 = cgroups.iter().filter_map(|entry| Some((entry["cgroup"].as_str()?, entry["cores"].as_f64()?))).filter(|(cgroup, _)| cgroup.starts_with("agent.slice/") && !skipped(cgroup) && lease_scope(cgroup.rsplit('/').next().unwrap_or_default()) && !cgroup.rsplit_once('/').is_some_and(|(parent, _)| leased(parent))).map(|(_, cores)| cores).sum();
+    let buildbarn: f64 = cgroups.iter().filter_map(|entry| Some((entry["cgroup"].as_str()?, entry["cores"].as_f64()?))).filter(|(cgroup, cores)| cgroup.starts_with(BUILDBARN_UNITS) && *cores <= CORE_THRESHOLD).map(|(_, cores)| cores).sum();
     let residual = (cores_of("agent.slice") - cores_of("agent.slice/agent-capacity.slice") - agent_heavy - batch_leases).max(0.0);
     let sessions: Vec<Value> = tops.iter().filter(|item| item["cores"].as_f64().is_some_and(|cores| cores >= 0.25) && provider(item)).take(5).map(session).collect();
     Some(json!({
         "heavy": heavy.iter().map(|(.., entry)| entry).collect::<Vec<_>>(),
         "sessions": sessions,
         "agentResidualCores": round(residual),
-        "cores": round(heavy_sum + residual),
+        "buildbarnCores": round(buildbarn),
+        "cores": round(heavy_sum + residual + buildbarn),
         "windowSeconds": sample["intervalSeconds"].as_f64().map(|seconds| (seconds + 0.5).floor() as i64),
     }))
 }
