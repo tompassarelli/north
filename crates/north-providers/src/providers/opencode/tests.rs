@@ -13,6 +13,7 @@ use crate::fleet::turns::{TurnExit, TurnSignal};
 use super::route::{self, Route, Visibility};
 use super::harness::{Harness, OPENCODE};
 use super::overlay::Arm;
+use super::relay::{self, Relay};
 use super::{Deepseek, config, turns};
 
 const FAKE: &str = r#"#!/bin/sh
@@ -221,18 +222,19 @@ fn a_brief_naming_a_private_repo_or_a_secret_is_refused_for_the_free_model_and_n
 }
 
 fn the_launched_config_lists_only_the_one_chosen_provider_and_model() {
-    let go = config::content(Route::Go);
+    let relay = Relay::start(Path::new("/nonexistent/go.key")).unwrap();
+    let go = config::content(Route::Go, Some(&relay));
     assert_eq!(go["enabled_providers"], json!(["opencode-go"]));
     assert_eq!(go["model"], route::GO_MODEL);
-    assert_eq!(go["provider"]["opencode-go"]["options"]["apiKey"], "{env:NORTH_OPENCODE_KEY}");
-    let free = config::content(Route::Free);
+    assert_eq!(go["provider"]["opencode-go"]["options"], json!({"baseURL": relay.api(), "apiKey": relay.token()}));
+    let free = config::content(Route::Free, None);
     assert_eq!(free["enabled_providers"], json!(["opencode"]));
     assert_eq!(free["model"], route::FREE_MODEL);
     assert!(free.get("provider").is_none());
 }
 
 #[test]
-fn a_launched_opencode_config_lists_only_the_chosen_model_and_the_guard_refuses_a_bare_opencode_run() {
+fn a_child_the_client_starts_sees_no_go_key() {
     let guarded = |command: &str| north_base::shell::started(command, &crate::fleet::claude_only::DEEPSEEK_PROVIDERS);
 
     let home = tempfile::tempdir().unwrap();
@@ -248,6 +250,40 @@ fn a_launched_opencode_config_lists_only_the_chosen_model_and_the_guard_refuses_
     assert_eq!(launched["small_model"], route::GO_MODEL, "the small model is the same one, so no cheap step slides onto another model: {launched}");
     let providers: Vec<&str> = launched["provider"].as_object().map(|providers| providers.keys().map(String::as_str).collect()).unwrap_or_default();
     assert_eq!(providers, [route::GO_PROVIDER], "the config names no provider besides the chosen one: {launched}");
+
+    for harness in [&OPENCODE as &'static dyn Harness, &crate::providers::pi::PI] {
+        let home = tempfile::tempdir().unwrap();
+        let key = home.path().join("go.key");
+        std::fs::write(&key, "key-material\n").unwrap();
+        let program = home.path().join("client");
+        north_base::foundation::shim::write_script(&program, "sh -c env > \"$(dirname \"$0\")/child.env\"\n");
+        let host = turns::Host { harness, route: Route::Go, effort: None, session: "ses_x".into(), scratch: home.path().join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program, cwd: home.path().into() };
+        turns::serve(&host, Cursor::new(r#"{"type":"user","uuid":"u0","text":"hi"}"#), &mut Vec::new()).unwrap();
+        let child = std::fs::read_to_string(home.path().join("child.env")).unwrap();
+        let held: Vec<&str> = child.lines().filter(|line| line.starts_with(&format!("{}=", config::KEY_ENV)) || line.starts_with(&format!("{}=", crate::providers::pi::KEY_ENV)) || line.contains("key-material")).map(|line| line.split('=').next().unwrap_or_default()).collect();
+        assert!(held.is_empty(), "a child the {} client started holds the Go key in {held:?}", harness.provider());
+    }
+
+    let head = |text: &str| relay::read_request(&mut Cursor::new(text.to_owned())).unwrap();
+    let asked = head("POST /inference/go/openai/v1/chat/completions HTTP/1.1\r\n@/home/a/notes: x\r\nX-Title: a\r\nAuthorization: Bearer t\r\n\r\n").unwrap();
+    assert_eq!((asked.headers, asked.authorization.as_str()), (vec!["X-Title: a".to_owned()], "Bearer t"), "a header named like @FILE would make curl read FILE outside the sandbox");
+    for outside in ["GET /zen/go/v1/usage HTTP/1.1", "GET /inference/go/openai/v1/../../../zen/go/v1/usage HTTP/1.1", "GET @/home/a/notes HTTP/1.1", "GET /inference/go/openai/v1/.%2e/.%2e/zen HTTP/1.1", "GET /inference/go/openai/v1/{a,b} HTTP/1.1"] {
+        assert!(head(&format!("{outside}\r\n\r\n")).is_none(), "the relay sends the paid key outside Go's API: {outside}");
+    }
+    assert!(head(&format!("POST /inference/go/openai/v1/chat/completions HTTP/1.1\r\nX-Pad: {}\r\n\r\n", "a".repeat(70_000))).is_none(), "a request head without end must be refused, not buffered");
+    let gate = Relay::start(Path::new("/nonexistent/go.key")).unwrap();
+    let ask = |request: String| {
+        use std::io::{Read, Write};
+        let mut stream = std::net::TcpStream::connect(gate.api().trim_start_matches("http://").split('/').next().unwrap()).unwrap();
+        stream.write_all(request.as_bytes()).unwrap();
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut answer = String::new();
+        stream.read_to_string(&mut answer).unwrap();
+        answer.lines().next().unwrap_or_default().to_owned()
+    };
+    assert_eq!(ask(format!("POST /inference/go/openai/v1/chat/completions HTTP/1.1\r\nAuthorization: Bearer {}\r\nContent-Length: 18446744073709551615\r\n\r\n{{}}", gate.token())), "HTTP/1.1 413 Content Too Large", "an oversize declared length must be refused before the relay allocates or reads it");
+    assert_eq!(ask(format!("GET /zen/go/v1/usage HTTP/1.1\r\nAuthorization: Bearer {}\r\n\r\n", gate.token())), "HTTP/1.1 400 Bad Request");
+    assert_eq!(ask("POST /inference/go/openai/v1/chat/completions HTTP/1.1\r\nAuthorization: Bearer wrong\r\n\r\n".to_owned()), "HTTP/1.1 401 Unauthorized");
 
     for command in ["opencode run -m opencode-go/deepseek-v4.1-flash hi", "cd lane && opencode run hi", "env FOO=1 /usr/bin/opencode run hi", "bash -c 'opencode run hi'"] {
         assert_eq!(guarded(command).as_deref(), Some("opencode"), "{command}");

@@ -5,6 +5,8 @@ pub const FREE_PROVIDER: &str = "opencode";
 pub const GO_MODEL: &str = "opencode-go/deepseek-v4.1-flash";
 pub const FREE_MODEL: &str = "opencode/deepseek-v4.1-flash-free";
 pub const MODELS: &[&str] = &[GO_MODEL, FREE_MODEL];
+pub const GO_ORIGIN: &str = "https://opencode.ai";
+pub const GO_API_PATH: &str = "/inference/go/openai/v1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Visibility {

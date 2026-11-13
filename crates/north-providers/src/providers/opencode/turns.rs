@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use crate::error::{NorthError, NorthResult};
 
 use super::harness::{self, Harness, Tally};
+use super::relay::Relay;
 use super::route::Route;
 
 pub const PHASE_FRAME: &str = "north_turn";
@@ -80,8 +81,9 @@ pub fn serve(host: &Host, input: impl BufRead + Send + 'static, output: &mut imp
         }
         let _ = reader.send(Event::Closed);
     });
+    let relay = host.key_file.as_deref().map(Relay::start).transpose()?;
     frame(output, &json!({"type": PHASE_FRAME, "phase": "ready", "sessionID": host.session}))?;
-    let mut serving = Serving { host, route: host.route, events, output, queue: VecDeque::new(), turn: None, attempts: 0, closed: false };
+    let mut serving = Serving { host, relay: relay.as_ref(), route: host.route, events, output, queue: VecDeque::new(), turn: None, attempts: 0, closed: false };
     loop {
         if serving.turn.is_none() && !serving.next()? {
             return Ok(());
@@ -97,6 +99,7 @@ pub fn serve(host: &Host, input: impl BufRead + Send + 'static, output: &mut imp
 
 struct Serving<'a, W> {
     host: &'a Host,
+    relay: Option<&'a Relay>,
     route: Route,
     events: Sender<Event>,
     output: &'a mut W,
@@ -117,7 +120,7 @@ impl<W: Write> Serving<'_, W> {
             Some(file) => format!("{}\n\n{text}", std::fs::read_to_string(file)?.trim_end()),
             None => text,
         };
-        self.turn = Some(begin(self.host, &self.events, uuid, sent, route, self.attempts)?);
+        self.turn = Some(begin(self.host, self.relay, &self.events, uuid, sent, route, self.attempts)?);
         Ok(true)
     }
 
@@ -153,7 +156,7 @@ impl<W: Write> Serving<'_, W> {
         self.attempts += 1;
         self.route = route;
         frame(self.output, &json!({"type": PHASE_FRAME, "phase": "fallback", "uuid": running.uuid, "sessionID": self.host.session, "from": running.route.label(), "to": route.label(), "reason": running.tally.error}))?;
-        self.turn = Some(begin(self.host, &self.events, running.uuid, running.text, route, self.attempts)?);
+        self.turn = Some(begin(self.host, self.relay, &self.events, running.uuid, running.text, route, self.attempts)?);
         Ok(())
     }
 }
@@ -184,8 +187,8 @@ fn stop(pid: u32) {
     }
 }
 
-fn begin(host: &Host, events: &Sender<Event>, uuid: String, text: String, route: Route, attempt: u64) -> NorthResult<Turn> {
-    let mut child = spawn(host, route, &text)?;
+fn begin(host: &Host, relay: Option<&Relay>, events: &Sender<Event>, uuid: String, text: String, route: Route, attempt: u64) -> NorthResult<Turn> {
+    let mut child = spawn(host, relay, route, &text)?;
     let pid = child.id();
     let stdout = child.stdout.take().ok_or_else(|| NorthError::State(format!("{} started without a stdout", host.harness.provider())))?;
     let events = events.clone();
@@ -199,7 +202,7 @@ fn begin(host: &Host, events: &Sender<Event>, uuid: String, text: String, route:
     Ok(Turn { uuid, text, started: Instant::now(), route, attempt, pid, tally: Tally::default(), interrupted: false })
 }
 
-fn spawn(host: &Host, route: Route, text: &str) -> NorthResult<Child> {
+fn spawn(host: &Host, relay: Option<&Relay>, route: Route, text: &str) -> NorthResult<Child> {
     let mut words: Vec<String> = host.launcher.clone();
     words.push(host.program.display().to_string());
     words.extend(host.harness.words(&host.session, route, host.effort.as_deref(), text));
@@ -218,17 +221,14 @@ fn spawn(host: &Host, route: Route, text: &str) -> NorthResult<Child> {
     }
     std::fs::create_dir_all(host.scratch.join("tmp"))?;
     command.env("TMPDIR", host.scratch.join("tmp")).env("NORTH_SANDBOX_SCRATCH", &host.scratch);
-    let shell = command_shell(host);
-    host.harness.bind_shell(host, &shell)?;
-    command.env("SHELL", shell);
-    let key = match route {
-        Route::Go => {
-            let file = host.key_file.as_ref().ok_or_else(|| NorthError::Refused("the paid Go route has no key file".into()))?;
-            Some(std::fs::read_to_string(file)?.trim().to_owned())
-        }
+    let relay = match route {
+        Route::Go => Some(relay.ok_or_else(|| NorthError::Refused("the paid Go route has no key file".into()))?),
         Route::Free => None,
     };
-    harness::apply(&mut command, host.harness.environment(host, route, key.as_deref()));
+    let shell = command_shell(host);
+    host.harness.bind(host, &shell, route, relay)?;
+    command.env("SHELL", shell);
+    harness::apply(&mut command, host.harness.environment(host, route, relay));
     command.spawn().map_err(|error| NorthError::State(format!("{}: {error}", words[0])))
 }
 
@@ -236,7 +236,7 @@ fn spawn(host: &Host, route: Route, text: &str) -> NorthResult<Child> {
 fn command_shell(host: &Host) -> PathBuf {
     let path = host.scratch.join("shell");
     let north = north_base::platform::north_binary::north_binary();
-    let script = format!("exec env -u {} SHELL=/bin/sh {} --worker-sandbox --outside -- {} --worker-sandbox --lane -- /bin/sh \"$@\"\n", host.harness.key_env(), north.display(), north.display());
+    let script = format!("exec env SHELL=/bin/sh {} --worker-sandbox --outside -- {} --worker-sandbox --lane -- /bin/sh \"$@\"\n", north.display(), north.display());
     north_base::foundation::shim::write_script(&path, &script);
     path
 }

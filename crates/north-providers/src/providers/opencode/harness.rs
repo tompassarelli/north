@@ -7,6 +7,7 @@ use crate::foundation::clock::rfc3339_seconds;
 use crate::fleet::runtime::summarize;
 
 use super::config;
+use super::relay::Relay;
 use super::route::Route;
 use super::turns::Host;
 
@@ -49,14 +50,11 @@ pub trait Harness: Send + Sync {
         &[]
     }
 
-    /// The variable that carries the paid key to its child, which no command its shell tool runs may read.
-    fn key_env(&self) -> &'static str;
+    /// The variables its child needs on `route`, given the session relay that holds the paid key when the route is Go.
+    fn environment(&self, host: &Host, route: Route, relay: Option<&Relay>) -> Vec<(String, String)>;
 
-    /// The variables its child needs on `route`, given the paid key when the route is Go.
-    fn environment(&self, host: &Host, route: Route, key: Option<&str>) -> Vec<(String, String)>;
-
-    /// Points its shell tool at `shell`, the session's wrapper that runs each command in a fresh lane-only domain after the hook deciders (north#1033, north#1041), for a program that reads its shell from a file rather than from the variables `environment` gives.
-    fn bind_shell(&self, _host: &Host, _shell: &std::path::Path) -> std::io::Result<()> {
+    /// Points its shell tool at `shell`, the session's wrapper that runs each command in a fresh lane-only domain after the hook deciders (north#1033, north#1041), and its `route` provider at `relay`, for a program that reads them from files rather than from the variables `environment` gives.
+    fn bind(&self, _host: &Host, _shell: &std::path::Path, _route: Route, _relay: Option<&Relay>) -> std::io::Result<()> {
         Ok(())
     }
 
@@ -105,16 +103,10 @@ impl Harness for OpenCode {
         &[Effort::High, Effort::Max]
     }
 
-    fn key_env(&self) -> &'static str {
-        config::KEY_ENV
-    }
-
-    fn environment(&self, host: &Host, route: Route, key: Option<&str>) -> Vec<(String, String)> {
-        let mut config = config::content(route);
+    fn environment(&self, host: &Host, route: Route, relay: Option<&Relay>) -> Vec<(String, String)> {
+        let mut config = config::content(route, relay);
         config["shell"] = Value::String(host.scratch.join("shell").display().to_string());
-        let mut variables = vec![("OPENCODE_CONFIG_CONTENT".to_owned(), config.to_string())];
-        variables.extend(key.map(|key| (config::KEY_ENV.to_owned(), key.to_owned())));
-        variables
+        vec![("OPENCODE_CONFIG_CONTENT".to_owned(), config.to_string())]
     }
 
     fn read(&self, tally: &mut Tally, line: &str) {

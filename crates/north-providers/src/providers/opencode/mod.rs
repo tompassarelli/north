@@ -7,6 +7,7 @@ mod lane;
 mod live;
 mod remote;
 pub mod overlay;
+pub mod relay;
 pub mod report;
 pub mod route;
 pub mod runs;

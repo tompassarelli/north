@@ -22,7 +22,7 @@ use super::PI;
 use super::windows::PiWindows;
 
 const FAKE: &str = r#"printf '%s\n' "$*" >> "$(dirname "$0")/args.txt"
-printf '%s %s\n' "$PI_CODING_AGENT_DIR" "$OPENCODE_API_KEY" >> "$(dirname "$0")/env.txt"
+printf '%s %s\n' "$PI_CODING_AGENT_DIR" "$(cat "$PI_CODING_AGENT_DIR/models.json")" >> "$(dirname "$0")/env.txt"
 case "$*" in
   *"--provider opencode "*) printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"stopReason":"error","errorMessage":"429: Free usage limit reached"}}'; exit 0;;
 esac
@@ -114,7 +114,8 @@ fn a_pi_worker_runs_a_brief_and_reports_through_the_fleet() {
     let launched = std::fs::read_to_string(home.path().join("args.txt")).unwrap();
     assert!(launched.contains("--mode json ") && launched.contains("--provider opencode-go --model deepseek-v4.1-flash --session-id ses_x -- Item: north#1"), "{launched}");
     let env = std::fs::read_to_string(home.path().join("env.txt")).unwrap();
-    assert_eq!(env.trim(), format!("{} key-material", home.path().join("scratch/agent").display()));
+    let models = format!("{} {{\"providers\":{{\"opencode-go\":{{\"apiKey\":", home.path().join("scratch/agent").display());
+    assert!(env.starts_with(&models) && env.contains("\"baseUrl\":\"http://127.0.0.1:") && !env.contains("key-material"), "{env}");
     assert_eq!(transcript.status, Status::Idle);
     assert_eq!(transcript.conversation.as_deref(), Some("ses_x"));
     let kinds: Vec<_> = transcript.entries.iter().map(|entry| entry.kind).collect();
@@ -173,7 +174,7 @@ fn a_limited_free_model_runs_the_turn_again_on_paid_go_flash() {
     assert_eq!(starts, ["free"]);
     assert_eq!(frames.iter().filter(|frame| frame["phase"] == "fallback" && frame["from"] == "free" && frame["to"] == "go").count(), 1);
     let env = std::fs::read_to_string(home.path().join("env.txt")).unwrap();
-    assert!(env.lines().next().unwrap().ends_with(" public") && env.lines().nth(1).unwrap().ends_with(" key-material"), "{env}");
+    assert!(env.lines().next().unwrap().ends_with(r#" {"providers":{"opencode":{"apiKey":"public"}}}"#) && env.lines().nth(1).unwrap().contains(r#"{"providers":{"opencode-go":{"apiKey":"#) && !env.contains("key-material"), "{env}");
     assert!(transcript.entries.iter().any(|entry| entry.kind == EntryKind::Assistant && entry.text == "Done: wrote a.txt"));
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Ended { exit: TurnExit::Completed, .. })));
 }
