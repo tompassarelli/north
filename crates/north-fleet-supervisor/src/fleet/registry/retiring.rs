@@ -13,6 +13,7 @@ use crate::fleet::forget;
 use crate::fleet::jobs::Lease;
 use crate::fleet::model::{Role, SessionRecord, Status};
 use crate::fleet::records::{ARCHIVE, RETIRED_NOTE as NOTE, read_record};
+use crate::fleet::run_recording::RetiredRun;
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::{FleetRow, LeaseTable, cache_leases, cached_leases};
 
@@ -39,6 +40,21 @@ impl Fleet {
         let cause = stop.map_or_else(|| why.to_owned(), |stop| format!("{why}; {stop}"));
         self.release_all_claims_of(name)?;
         let archived = self.archive(name, Halt::Retired, &cause)?;
+        if let Some(report) = last {
+            self.recording.retired(&RetiredRun {
+                name: record.name.clone(),
+                conversation: record.conversation.clone(),
+                account: record.account.clone(),
+                provider: record.provider.label().to_owned(),
+                model: record.model.clone(),
+                item: record.task_ref.clone(),
+                box_name: record.claim_box.clone().or_else(|| record.box_name.clone()),
+                started_ms: record.created_ms,
+                ended_ms: now_ms(),
+                outcome: if report.trim_start().starts_with("Done") { "done" } else { "not done" },
+                report: report.to_owned(),
+            });
+        }
         self.free_remote_lane(&record.name, lane.as_ref());
         self.uncache_session(name)?;
         Ok(archived)

@@ -260,7 +260,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
                 reaped.kept.push(Retired { name: record.name.clone(), why });
                 continue;
             }
-            let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant && is_final(&entry.text)).or_else(|| entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant)).map(|entry| entry.text.chars().take(LAST_CHARS).collect::<String>());
+            let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant && is_final(&entry.text)).or_else(|| entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant)).map(|entry| tail(&entry.text));
             due.push((record, judged.why(stale), last, ahead));
         }
         let leases = fleet.job_leases(&due.iter().map(|(record, _, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(spent()));
@@ -275,6 +275,10 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
         eprintln!("fleet reaper: graph tick failed: {why}");
     }
     reaped
+}
+
+fn tail(text: &str) -> String {
+    text.chars().skip(text.chars().count().saturating_sub(LAST_CHARS)).collect()
 }
 
 fn told(verdict: &Verdict, status: Status) -> Option<&'static str> {
