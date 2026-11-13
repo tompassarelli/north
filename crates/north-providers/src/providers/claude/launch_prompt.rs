@@ -12,6 +12,7 @@ const SHELL_PREFIX_ENV: &str = "CLAUDE_CODE_SHELL_PREFIX";
 const WORKER_TOOLS: &str = "Bash,Read,Edit,Write,Grep,Glob,TaskStop";
 const RESEARCH_TOOLS: &str = ",WebSearch,WebFetch";
 const POLICY_FILE: &str = "CLAUDE.md";
+const LAUNCH_OWNED: [&str; 6] = ["apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper", "forceLoginMethod", "forceLoginOrgUUID"];
 
 /// A worker's system prompt is north's text followed by the account profile's policy file, which is the same for every session of the account; its repository's own instruction files come back through the project and local setting sources, and its one settings file is its profile's hook registration because Claude Code keeps only the last `--settings`. A settings file's env outranks the process environment and the profile's names a prefix of two words, so the launch's `prefix` goes into that one settings file (north#1172).
 pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &str, prefix: &Path) -> NorthResult<Vec<String>> {
@@ -36,8 +37,22 @@ pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &st
 fn worker_settings(account: &Account, request: &LaunchRequest, prefix: &Path) -> NorthResult<String> {
     let path = account.home.join("settings.json");
     let text = where_it_runs(request, &path)?.ok_or_else(|| NorthError::State(format!("{}{}: no such file", path.display(), on(request))))?;
-    let profile = serde_json::from_str(&text).map_err(|error| NorthError::State(format!("{}{}: {error}", path.display(), on(request))))?;
-    Ok(with_prefix(profile, prefix).to_string())
+    let profile: Value = serde_json::from_str(&text).map_err(|error| NorthError::State(format!("{}{}: {error}", path.display(), on(request))))?;
+    if !profile.is_object() {
+        return Err(NorthError::State(format!("{}{}: its top level is not a JSON object", path.display(), on(request))));
+    }
+    Ok(with_prefix(without_credentials(profile), prefix).to_string())
+}
+
+/// `settings` without what would pick the session's credential, endpoint or login, which an agent user's own profile file could carry: its whole env block, whose one entry the launch needs it writes itself, and the settings that run a credential command or steer the login.
+fn without_credentials(mut settings: Value) -> Value {
+    if let Some(settings) = settings.as_object_mut() {
+        settings.remove("env");
+        for key in LAUNCH_OWNED {
+            settings.remove(key);
+        }
+    }
+    settings
 }
 
 /// The text of the profile file at `path` where the session runs: on its machine through the session login when it is placed on one, here otherwise; None when no such file is there, an error naming the path and the login when it cannot be read.

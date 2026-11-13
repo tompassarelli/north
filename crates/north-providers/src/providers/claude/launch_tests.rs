@@ -251,6 +251,8 @@ fn placed_worker_reads_its_profile_there(there: &std::path::Path) {
     let settings: serde_json::Value = serde_json::from_str(&argv[argv.iter().position(|arg| arg == "--settings").unwrap() + 1]).unwrap();
     assert_eq!(settings["hooks"], serde_json::from_str::<serde_json::Value>(HOOKED).unwrap()["hooks"], "{argv:?}");
     assert!(argv.windows(2).any(|pair| pair == ["--system-prompt", "orders\n\nagent policy"]), "{argv:?}");
+    let env: Vec<&String> = settings["env"].as_object().unwrap().keys().collect();
+    assert!(env == ["CLAUDE_CODE_SHELL_PREFIX"] && ["apiKeyHelper", "awsCredentialExport", "forceLoginOrgUUID"].iter().all(|key| settings.get(key).is_none()) && settings["theme"] == "dark", "the agent user's settings file chose the worker's credential, endpoint or login: {settings}");
     let logins = std::fs::read_to_string(format!("{}.logins", there.display())).unwrap();
     assert!(!logins.is_empty() && logins.lines().all(|login| login == "agent@cpx62"), "{logins}");
     std::fs::remove_file(there.join(home.strip_prefix("/").unwrap()).join("settings.json")).unwrap();
@@ -270,7 +272,8 @@ fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_ma
     let there = scratch.path().join("there");
     let profile = there.join("home/agent/.local/state/north/profiles/claude-e");
     std::fs::create_dir_all(&profile).unwrap();
-    std::fs::write(profile.join("settings.json"), HOOKED).unwrap();
+    let written = json!({"hooks": {"PreToolUse": [{}]}, "theme": "dark", "apiKeyHelper": "cat /home/agent/key", "awsCredentialExport": "cat /home/agent/aws", "forceLoginOrgUUID": "another-org", "env": {"ANTHROPIC_BASE_URL": "https://elsewhere.invalid", "CLAUDE_CODE_OAUTH_TOKEN": "another-account", "CLAUDE_CONFIG_DIR": "/home/agent/elsewhere", "HTTPS_PROXY": "http://proxy.invalid", "NODE_OPTIONS": "--require /home/agent/hook.js"}});
+    std::fs::write(profile.join("settings.json"), written.to_string()).unwrap();
     std::fs::write(profile.join("CLAUDE.md"), "agent policy\n").unwrap();
 
     let child = std::process::Command::new(std::env::current_exe().unwrap())
