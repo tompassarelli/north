@@ -41,7 +41,11 @@ impl Process {
         let read = |name: &str| fs::read_to_string(format!("/proc/{}/{name}", self.pid)).unwrap_or_default();
         let state = read("stat").rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().next().map(str::to_owned)).unwrap_or_default();
         let held: Vec<String> = fs::read_dir(format!("/proc/{}/fd", self.pid)).into_iter().flatten().flatten().filter_map(|fd| fs::read_link(fd.path()).ok()).map(|target| target.display().to_string()).collect();
-        format!("{} state {state} in {}: {}\n  holds {}", self.pid, read("wchan"), self.command_line(), held.join(", "))
+        let threads = threads(self.pid);
+        let stalled = threads.first().is_some_and(|thread| thread.waits_in.starts_with("futex"));
+        let listed: String = threads.iter().map(|thread| format!("\n  thread {} {} state {} in {}", thread.id, thread.name, thread.state, thread.waits_in)).collect();
+        let traced = if stalled { backtrace(self.pid) } else { String::new() };
+        format!("{} state {state} in {}: {}\n  holds {}{listed}{traced}", self.pid, read("wchan"), self.command_line(), held.join(", "))
     }
 
     pub fn encode(self) -> String {
@@ -125,4 +129,31 @@ pub fn within(root: &Path) -> Vec<Process> {
         .filter(|(pid, _)| arguments(*pid).iter().any(|word| word.contains(marker.as_ref())) || fs::read_link(format!("/proc/{pid}/cwd")).is_ok_and(|cwd| cwd.starts_with(root)))
         .map(|(pid, stat)| Process { pid, start: stat.start })
         .collect()
+}
+
+struct Thread {
+    id: u32,
+    name: String,
+    state: String,
+    waits_in: String,
+}
+
+fn threads(pid: u32) -> Vec<Thread> {
+    let mut ids: Vec<u32> = fs::read_dir(format!("/proc/{pid}/task")).into_iter().flatten().flatten().filter_map(|task| task.file_name().to_str()?.parse().ok()).collect();
+    ids.sort_unstable_by_key(|id| (*id != pid, *id));
+    ids.into_iter()
+        .map(|id| {
+            let read = |name: &str| fs::read_to_string(format!("/proc/{pid}/task/{id}/{name}")).unwrap_or_default().trim().to_owned();
+            let state = read("stat").rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().next().map(str::to_owned)).unwrap_or_default();
+            Thread { id, name: read("comm"), state, waits_in: read("wchan") }
+        })
+        .collect()
+}
+
+fn backtrace(pid: u32) -> String {
+    let (Ok(gdb), Ok(timeout)) = (super::product::installed("gdb"), super::product::installed("timeout")) else { return String::new() };
+    let traced = std::process::Command::new(timeout).args(["--kill-after=1", "9"]).arg(gdb).args(["-batch", "-p", &pid.to_string(), "-ex", "thread apply all bt"]).stdin(std::process::Stdio::null()).output();
+    let text = traced.map_or_else(|error| format!("gdb: {error}"), |output| format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
+    let lines: String = text.lines().filter(|line| !line.is_empty()).map(|line| format!("\n    {line}")).collect();
+    format!("\n  gdb thread apply all bt:{lines}")
 }
