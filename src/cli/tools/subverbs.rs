@@ -47,6 +47,7 @@ pub(super) fn land(arguments: &[String]) -> u8 {
         Some((verb, rest)) if let Some(run) = runner(LAND, verb) => return run(rest),
         Some((verb, rest)) if verb == "doctor" => return north_lander_doctor::run(rest),
         Some((verb, rest)) if verb == "drill" => return north_lander_doctor::drill::run(rest),
+        Some((verb, rest)) if verb == "withdraw" => return outside_the_sandbox("land", "withdraw", crate::land::withdraw::run, rest),
         Some((verb, rest)) if verb == "gate-stats" => return north_lander_doctor::gate_stats::run(rest),
         Some((verb, rest)) if verb == "host-gate" => return north_lander_doctor::host_gate::run(rest),
         _ => {}

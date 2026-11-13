@@ -179,7 +179,7 @@ fn serve(root: &Path) {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-fn ask(north: &Path, host: &Host, cgroup: &str, arguments: &[String], directory: &Path) -> (u8, String) {
+pub(super) fn ask(north: &Path, host: &Host, cgroup: &str, arguments: &[String], directory: &Path) -> (u8, String) {
     let (client, server) = UnixStream::pair().unwrap();
     let (mut out, out_writer) = std::io::pipe().unwrap();
     let (mut err, err_writer) = std::io::pipe().unwrap();

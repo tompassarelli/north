@@ -16,6 +16,8 @@ const OUTSIDE_MARKER: &str = "NORTH_CAPACITY_LOOP_MARKER";
 mod offload_request;
 #[path = "record_request_tests.rs"]
 mod record_request;
+#[path = "withdraw_request_tests.rs"]
+mod withdraw_request;
 
 fn git(directory: &Path, arguments: &[&str]) {
     let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always"]).args(arguments).output().unwrap();

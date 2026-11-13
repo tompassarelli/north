@@ -26,6 +26,7 @@ mod hook_screen;
 mod sockets;
 mod state;
 mod sweep;
+mod withdraw_request;
 mod writable;
 pub mod tool_server;
 
