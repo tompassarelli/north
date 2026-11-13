@@ -67,7 +67,7 @@ fn no_native_is_forced_whatever_the_caller_sends() {
 
 
 #[test]
-fn nexus_reaches_a_worker_only_through_its_own_verb_set() {
+fn nexus_reaches_a_worker_only_through_its_own_verb_set_and_a_threads_only_key_reaches_only_threads() {
     use super::{Grants, Job, Jobs, NEXUS_PEER, plan_for};
     struct NoJobs;
     impl Jobs for NoJobs {
@@ -75,12 +75,19 @@ fn nexus_reaches_a_worker_only_through_its_own_verb_set() {
             None
         }
     }
-    let nexus = Grants { peer: NEXUS_PEER.into(), repos: vec![] };
+    let nexus = Grants { peer: NEXUS_PEER.into(), repos: vec![], threads_only: false };
     for allowed in ["north fleet spool cache", "north fleet spool registry", "north fleet list --json", "north dash --closed --since 30d", "north runtime health", "north session-attach /home/w/.local/state/north/held/u1 u1 0a1b 0", "north session-attach /home/w/.local/state/north/held/u1 u1 0a1b 4096"] {
         assert!(plan_for(allowed, &nexus, &NoJobs).is_ok(), "{allowed}");
     }
     for refused in ["sh -s", "bash -s", "sh -c id", "north fleet spool", "north dash --closed --since 3w", "threads claim north#1", "south land", "cat x", "north session-attach /tmp/x u1 n 0", "north session-attach /home/w/.local/state/north/held/../../x u1 n 0", "north session-attach /home/w/.local/state/north/held/u1 u1 n 1x", "north session-attach /home/w/.local/state/north/held/u1 -x n 0"] {
         assert!(plan_for(refused, &nexus, &NoJobs).is_err(), "{refused}");
     }
-    assert!(plan_for("north fleet spool cache", &Grants { peer: "w1".into(), repos: vec![] }, &NoJobs).is_err());
+    assert!(plan_for("north fleet spool cache", &Grants { peer: "w1".into(), repos: vec![], threads_only: false }, &NoJobs).is_err());
+    let broker = Grants { peer: "cpx62".into(), repos: vec!["north".into()], threads_only: true };
+    for allowed in ["threads list", "north threads show north#1", "env THREADS_ACTOR=w1 threads claim north#1"] {
+        assert!(plan_for(allowed, &broker, &NoJobs).is_ok(), "{allowed}");
+    }
+    for refused in ["north fleet row put --peer cpx62", "north fleet row register", "north fleet dispatch needs north#1", "south land", "north runtime health", "north fleet laptop status", "threads show wisp#1"] {
+        assert!(plan_for(refused, &broker, &NoJobs).is_err(), "a threads-only key ran {refused}");
+    }
 }

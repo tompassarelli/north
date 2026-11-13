@@ -43,3 +43,8 @@ fn threads(rest: &[&str], north: bool) -> Option<&'static str> {
         .or_else(|| (*verb == THREADS_INCIDENT && arguments.first() == Some(&INCIDENT_RECORD)).then_some(THREADS_INCIDENT))
         .or_else(|| north.then(|| named(&NORTH_ONLY_THREADS)).flatten())
 }
+
+/// What a threads-only peer key reaches: a threads verb and nothing else, so the key an agent host's broker holds runs no fleet row, dispatch or south land.
+pub(super) fn authorize_threads(argv: &[String]) -> Result<String, Refusal> {
+    authorize(argv).and_then(|verb| if verb.starts_with("threads ") { Ok(verb) } else { Err(Refusal::Verb(verb)) })
+}

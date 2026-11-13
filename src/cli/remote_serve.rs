@@ -10,7 +10,7 @@ use crate::foundation::clock::Timestamp;
 use crate::ops::remote_serve::{self, Grants, Launch, LedgerJobs, Plan, audit, log};
 use crate::threads::{client, outside::FleetView};
 
-const USAGE: &str = "Usage: north remote-serve --peer HOST [--repos REPO,...] [--log FILE] | north remote-serve audit --peer HOST [--log FILE] [--keys FILE]";
+const USAGE: &str = "Usage: north remote-serve --peer HOST [--repos REPO,...] [--threads-only] [--log FILE] | north remote-serve audit --peer HOST [--log FILE] [--keys FILE]";
 const UNLAUNCHED: i32 = 127;
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -18,6 +18,7 @@ pub(super) struct Options {
     pub audit: bool,
     pub peer: String,
     pub repos: Vec<String>,
+    pub threads_only: bool,
     pub log: Option<PathBuf>,
     pub keys: Option<PathBuf>,
 }
@@ -48,6 +49,10 @@ pub(super) fn options(arguments: &[String]) -> NorthResult<Options> {
     };
     let mut options = Options { audit, ..Options::default() };
     while let Some(flag) = rest.next() {
+        if flag == "--threads-only" && !audit {
+            options.threads_only = true;
+            continue;
+        }
         let value = rest.next().ok_or_else(usage)?;
         match flag.as_str() {
             "--peer" => options.peer = value.clone(),
@@ -80,7 +85,7 @@ pub(super) fn serve(options: &Options, command: Option<&str>, host: &Host, err: 
             return log::REFUSED_EXIT;
         }
     };
-    let grants = Grants { peer: options.peer.clone(), repos: options.repos.clone() };
+    let grants = Grants { peer: options.peer.clone(), repos: options.repos.clone(), threads_only: options.threads_only };
     let jobs = LedgerJobs(remote_serve::ledger(&host.env).unwrap_or_default());
     match remote_serve::serve(command, &grants, &jobs, host, &mut log, err) {
         Ok(exit) => exit,

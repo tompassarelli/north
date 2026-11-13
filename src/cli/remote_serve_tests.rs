@@ -31,7 +31,7 @@ impl Launch for Recorded {
 }
 
 fn gex45() -> Grants {
-    Grants { peer: "gex45".into(), repos: vec!["north".into(), "wisp".into(), "makgora".into()] }
+    Grants { peer: "gex45".into(), repos: vec!["north".into(), "wisp".into(), "makgora".into()], threads_only: false }
 }
 
 fn planned(command: &str) -> Result<Plan, Refusal> {

@@ -79,6 +79,7 @@ fn plan_with(original_command: &str, authorize: fn(&[String]) -> Result<String, 
 pub struct Grants {
     pub peer: String,
     pub repos: Vec<String>,
+    pub threads_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,7 +117,9 @@ pub fn ledger(env: &BTreeMap<String, String>) -> Option<PathBuf> {
 }
 
 pub fn plan_for(original_command: &str, grants: &Grants, jobs: &dyn Jobs) -> Result<Plan, Refusal> {
-    if grants.peer == NEXUS_PEER {
+    if grants.threads_only {
+        guards::guard(plan_with(original_command, verbs::authorize_threads)?, grants, jobs)
+    } else if grants.peer == NEXUS_PEER {
         plan_with(original_command, worker_verbs::authorize)
     } else {
         guards::guard(plan(original_command)?, grants, jobs)
