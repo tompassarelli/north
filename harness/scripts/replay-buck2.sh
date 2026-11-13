@@ -7,8 +7,8 @@ count=${3:-20}
 root=$(git rev-parse --show-toplevel)
 records=${REPLAY_RECORDS:-$HOME/.local/state/safe-push/check-timings/outcomes.tsv}
 declared() { git -C "$root" show "$1:.safe-push" | grep -F 'SAFE_PUSH_LAND_PACKAGES' | head -n 1 | sed 's/^[[:space:]]*check = [^:]* :: //'; }
-targets() { while read -r crate; do git -C "$root" grep -l "^name = \"$crate\"" "$1" -- '*Cargo.toml' | sed "s|^$1:\(.*\)/Cargo.toml\$|//\1:|"; done | paste -sd' ' -; }
-named() { awk -F"\t" -v OFS="\t" -v names="$(tr , "\n" <"$2" | while read -r c; do git -C "$root" grep -l "^name = \"$c\"" "$1" -- "*Cargo.toml" | sed "s|^$1:||; s|/Cargo.toml$| $c|"; done)" 'BEGIN { n = split(names, l, "\n"); for (i = 1; i <= n; i++) { split(l[i], p, " "); m[p[1]] = p[2] } } { if ($1 in m) $1 = m[$1]; print }'; }
+targets() { while read -r crate; do git -C "$root" grep -l "^name = \"$crate\"" "$1" -- '*Cargo.toml' | sed "s|^$1:Cargo.toml\$|//:|; s|^$1:\(.*\)/Cargo.toml\$|//\1:|"; done | paste -sd' ' -; }
+named() { awk -F"\t" -v OFS="\t" -v names="$(tr , "\n" <"$2" | while read -r c; do git -C "$root" grep -l "^name = \"$c\"" "$1" -- "*Cargo.toml" | sed "s|^$1:||; s|^Cargo.toml$|\t$c|; s|/Cargo.toml$|\t$c|"; done)" 'BEGIN { n = split(names, l, "\n"); for (i = 1; i <= n; i++) { split(l[i], p, "\t"); m[p[1]] = p[2] } } { if ($1 in m) $1 = m[$1]; print }'; }
 logs=$(mktemp -d)
 echo "replay: logs in $logs" >&2
 git -C "$root" fetch --quiet origin main
