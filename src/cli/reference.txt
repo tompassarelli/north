@@ -278,6 +278,7 @@ Commands:
   eta-calibration                               Post the last 7 days of stated ETA against measured active minutes, per category and tier, to north#255 (weekly timer)
   git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
   github-mirror sync [--repo NAME]...            Copy north's, makgora's, wisp's and firn's issues, branch tips, tags, releases, main CI runs and main check results into ~/.local/state/north/github-mirror.db with conditional reads (an unchanged read answers 304), so dispatch, the CI watch, lane gc --remote and repo audit read the copy instead of GitHub (timer every two minutes)
+  github-mirror serve | pull DEST                Write a consistent copy of this host's GitHub mirror to stdout (serve, a remote-serve verb), or replace this host's mirror whole with the copy DEST serves over ssh (pull), so a host with no GitHub reader of its own reads the ledger host's mirror
   ops github budget                              Print each GitHub token's hourly limit left, every fleet session's spend against its hourly share and the costliest callers of the last hour from the broker's calls.log
   ops github push-token --host HOST...           Copy the short-lived push token to each HOST, trying a failed host again every 10 s until it has a fresh token or 27 min have passed
   runtime agents [VERSION]                      Update the North, Claude, Agy, Pi and OpenCode runtimes

@@ -162,11 +162,14 @@ pub fn repository(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> 
     rows
 }
 
-const USAGE: &str = "usage: north github-mirror sync [--repo NAME]... | fetch [-C DIR]";
+const USAGE: &str = "usage: north github-mirror sync [--repo NAME]... | fetch [-C DIR] | serve | pull DEST";
 
 pub fn run(arguments: &[String]) -> u8 {
     if arguments.first().is_some_and(|verb| verb == "fetch") {
         return crate::tip::run(&arguments[1..]);
+    }
+    if let Some(code) = crate::share::run(arguments) {
+        return code;
     }
     let Some((_, rest)) = arguments.split_first().filter(|(verb, _)| verb.as_str() == "sync") else {
         eprintln!("{USAGE}");
