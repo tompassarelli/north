@@ -257,6 +257,10 @@ pub fn run(arguments: &[String]) -> u8 {
         println!("red check: environment: git could not lock a ref ({line}); not this lane's failure");
         return NO_VERDICT;
     }
+    if let Some(line) = fs::read_to_string(&request.log).ok().and_then(|text| north_base::foundation::check_log::github_rate_limit(&text)) {
+        println!("red check: environment: GitHub rate limit ({line}); not this lane's failure");
+        return NO_VERDICT;
+    }
     let failed = failures(&fs::read_to_string(&request.log).unwrap_or_default());
     if failed.is_empty() {
         println!("red check: the failed log names no test; treating it as this lane's failure");

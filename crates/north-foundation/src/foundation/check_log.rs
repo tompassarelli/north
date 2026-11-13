@@ -85,6 +85,11 @@ pub fn ref_lock(log: &str) -> Option<String> {
     log.lines().find(|line| line.contains("cannot lock ref")).map(|line| line.trim().chars().take(200).collect())
 }
 
+/// The first line of `log` where GitHub refused an API call for its rate limit, which no lane caused (north#1247).
+pub fn github_rate_limit(log: &str) -> Option<String> {
+    log.lines().find(|line| line.contains("API rate limit exceeded") || ((line.contains("HTTP 403") || line.contains("HTTP 429")) && line.contains("rate limit"))).map(|line| line.trim().chars().take(200).collect())
+}
+
 /// How old the pushed GitHub App token is when `log` shows a host's credential helper or `gh` refusing it as past its 55 min trust, which only a late copy of the token fixes (north#1175); None when the log shows no such refusal.
 pub fn stale_token(log: &str) -> Option<String> {
     let line = log.lines().find(|line| line.contains("outside its 55 min trust"))?;

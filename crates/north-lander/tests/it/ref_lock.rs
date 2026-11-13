@@ -7,6 +7,7 @@ use north_landing::land::checks::Verdict;
 use north_landing::land::post_land::{Landed, Run, settle};
 
 const LOCK: &str = "error: cannot lock ref 'refs/remotes/origin/main': is at aaa but expected bbb";
+const RATE_LIMIT: &str = "HTTP 403 for run 42112065121/jobs: API rate limit exceeded";
 
 fn git(repo: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").arg("-C").arg(repo).args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
@@ -15,7 +16,13 @@ fn git(repo: &Path, arguments: &[&str]) -> String {
 }
 
 #[test]
-fn a_ref_lock_failure_in_an_after_landing_check_is_rerun_and_judged_environment() {
+fn a_github_rate_limit_in_an_after_landing_check_is_judged_transient_and_reverts_nothing() {
+    for refusal in [LOCK, RATE_LIMIT] {
+        refused(refusal);
+    }
+}
+
+fn refused(refusal: &str) {
     let scratch = tempfile::tempdir().unwrap();
     let repo = scratch.path().join("repo");
     fs::create_dir(&repo).unwrap();
@@ -26,7 +33,7 @@ fn a_ref_lock_failure_in_an_after_landing_check_is_rerun_and_judged_environment(
     let head = git(&repo, &["rev-parse", "HEAD"]);
     let (log, outcome, runs) = (scratch.path().join("post-land.log"), scratch.path().join("post-land.outcome"), scratch.path().join("runs"));
     let script = format!(
-        "echo run >> {runs}; if [ \"$(wc -l < {runs})\" -eq 1 ]; then echo \"{LOCK}\"; printf 'failed-step\\tbash bin/catalog-owner-check\\t/x.log\\n' > {outcome}; exit 1; fi; exit 0",
+        "echo run >> {runs}; if [ \"$(wc -l < {runs})\" -eq 1 ]; then echo \"{refusal}\"; printf 'failed-step\\tbash bin/catalog-owner-check\\t/x.log\\n' > {outcome}; exit 1; fi; exit 0",
         runs = runs.display(),
         outcome = outcome.display(),
     );
@@ -36,7 +43,7 @@ fn a_ref_lock_failure_in_an_after_landing_check_is_rerun_and_judged_environment(
     assert_eq!(verdict, Verdict::Green, "the rerun passed, so main is not red");
     assert_eq!(fs::read_to_string(&runs).unwrap().lines().count(), 2, "the check ran once more before main was judged");
 
-    fs::write(&log, format!("{LOCK}\n")).unwrap();
+    fs::write(&log, format!("{refusal}\n")).unwrap();
     let judged = north_lander::landing::red_check::run(&["--main".into(), head, "--log".into(), log.display().to_string(), "--lane".into(), "lane".into()]);
     assert_eq!(judged, NO_VERDICT, "red-check answers environment rather than blaming the lane");
 }
