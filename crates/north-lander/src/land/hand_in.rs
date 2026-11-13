@@ -1,4 +1,4 @@
-//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them, and rebases a lane behind its destination onto it, with its uncommitted changes, when that applies without a conflict (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged. `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running a portable one as one more check of the lane's run before queueing on the would-be head's tree, in the same slot and keyed and recorded as the lander's own run, so the safe-push it hands the lane to reuses that run and a hand-in takes one build-host admission (north#1230, north#1036; the switch `finish_acceptance_in_prequeue` off runs it alone first, as a command that is not portable always runs), and returns at the ticket (north#1194), refusing first while a lane of the same name in a project beside its own holds a commit not on that repository's main, since each repository a task changes is handed in from its own lane (north#1233), and when the road's checks before queueing then judge that lane and fail it, the finish record turns failed and the attempt is kept as for a failed check (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
+//! `north hand-in` and `north finish`: the calls a session hands its lane in with. Each stages and commits exactly the named paths in the lane that holds them, refusing a path in another checkout or paths with no changes before anything is committed, lands the lane's earlier commits whole, printing which paths they change that the call did not name and refusing only an unnamed deletion among them, and rebases a lane behind its destination onto it, with its uncommitted changes, when that applies without a conflict (north#1239), then hands the lane to the road `safe-push --to main` takes, so every gate comes back unchanged, passing the call's message as the landing message a squashed lane lands under (north#1247). `hand-in` waits there for the lander's verdict (north#1158); `finish` first runs the session's acceptance command, commits and queues only when it passes, running a portable one as one more check of the lane's run before queueing on the would-be head's tree, in the same slot and keyed and recorded as the lander's own run, so the safe-push it hands the lane to reuses that run and a hand-in takes one build-host admission (north#1230, north#1036; the switch `finish_acceptance_in_prequeue` off runs it alone first, as a command that is not portable always runs), and returns at the ticket (north#1194), refusing first while a lane of the same name in a project beside its own holds a commit not on that repository's main, since each repository a task changes is handed in from its own lane (north#1233), and when the road's checks before queueing then judge that lane and fail it, the finish record turns failed and the attempt is kept as for a failed check (north#1233); given `--files`, it first writes into the session's own lane, the checkout holding its directory, each file's whole content or, for a file that exists, its replacements of old text that occurs exactly once, refusing a path outside the lane, an entry carrying both forms, or an absent or repeated old text before anything is written (north#1218). `finish --judge-message` scans a launch's proposed message, keeps it as the lane's proposal for the launched session once the scan passes and asks its private-kind verdict, and a `finish` whose message is empty commits with that proposal only when it is its own session's; any launch into the lane clears the proposal it finds (north#1239).
 
 use std::fs;
 use std::io;
@@ -28,6 +28,7 @@ pub const REFUSED: &str = "refused";
 pub struct Lane {
     pub root: PathBuf,
     pub destination: String,
+    pub message: String,
 }
 
 /// Where a handed-in lane goes once its paths are committed. It may refuse a lane before anything is staged, as a worker sandbox refuses a lane whose git lock files it could create but not remove (north#1172).
@@ -79,7 +80,6 @@ struct Request<'a> {
 
 struct Named {
     lane: Lane,
-    message: String,
     paths: Vec<String>,
     targets: Vec<PathBuf>,
     committed: bool,
@@ -153,7 +153,7 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
     if !named.added.is_empty() {
         println!("{verb}: also landing {}, which the lane's commits change and the call did not name", named.added.join(" "));
     }
-    let head = request.check.and_then(|_| would_be(&named.lane.root, &named.message, &named.paths));
+    let head = request.check.and_then(|_| would_be(&named.lane.root, &named.lane.message, &named.paths));
     if let (Some(head), Some(facts)) = (&head, &facts) {
         ask_early(&named, head.clone(), facts.clone());
     }
@@ -283,7 +283,7 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     if !unnamed_deletions.is_empty() {
         return Err(format!("the lane's commits also delete {}, which the hand-in did not name", unnamed_deletions.join(" ")));
     }
-    Ok(Named { lane: Lane { root, destination }, message, paths: named, targets, committed: !committed.is_empty(), added: unnamed })
+    Ok(Named { lane: Lane { root, destination, message }, paths: named, targets, committed: !committed.is_empty(), added: unnamed })
 }
 
 fn apply(named: Named, files: &[File]) -> Result<Named, String> {
@@ -329,7 +329,7 @@ fn changed(target: &Path, file: &File, earlier: Option<&str>) -> Result<String, 
 }
 
 fn commit(named: &Named) -> Result<(), String> {
-    let message = named.message.as_str();
+    let message = named.lane.message.as_str();
     let (root, paths) = (&named.lane.root, named.paths.iter().map(String::as_str).collect::<Vec<_>>());
     literal(root, &[&["add", "--all", "--"][..], &paths].concat())?;
     if literal(root, &[&["diff", "--cached", "--name-only", "HEAD", "--"][..], &paths].concat())?.is_empty() {

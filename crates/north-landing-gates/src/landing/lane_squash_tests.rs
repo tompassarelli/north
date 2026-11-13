@@ -11,7 +11,7 @@ fn commit(root: &Path, file: &str, message: &str) {
 }
 
 #[test]
-fn a_squash_without_message_keeps_every_commit_explanation_and_trailers_once() {
+fn a_squashed_two_commit_lane_lands_under_its_stated_or_first_subject() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     git_ok(root, &["init", "-q", "-b", "main"]);
@@ -23,17 +23,19 @@ fn a_squash_without_message_keeps_every_commit_explanation_and_trailers_once() {
     git_ok(root, &["remote", "add", "origin", remote.path().to_str().unwrap()]);
     git_ok(root, &["push", "-q", "origin", "main"]);
     git_ok(root, &["checkout", "-q", "-b", "lane"]);
-    commit(root, "a.txt", "Return a clean checkout parked on a landed branch to main\n\nsync-heal-branch body line\n\nTest-contract: sync");
-    commit(root, "b.txt", "Read both yq error forms in the frontmatter check\n\nyq-error-forms body line\n\nMain-red: yq at abc");
-    commit(root, "c.txt", "Check a red-fix ticket before every urgent one\n\nred-fix-first body line\n\nMain-red: yq at abc");
-    commit(root, "d.txt", "Land an empty tip\n\nlanded-empty-tip body line\n\nMain-red: tip at def");
-    let outcome = squash(root, "main", None).unwrap();
-    assert!(matches!(outcome, Squash::Squashed { commits: 4, .. }));
+    commit(root, "a.txt", "Read both yq error forms in the frontmatter check\n\nyq-error-forms body line\n\nItem: north#1\nMain-red: yq at abc");
+    commit(root, "b.txt", "Fix the typo the review found\n\nreview-typo body line\n\nMain-red: yq at abc");
+    let lane = git_ok(root, &["rev-parse", "HEAD"]);
+
+    assert!(matches!(squash(root, "main", None).unwrap(), Squash::Squashed { commits: 2, .. }));
     let landed = git_ok(root, &["show", "-s", "--format=%B", "HEAD"]);
-    let expected = "Land an empty tip\n\nlanded-empty-tip body line\n\n\
-        Return a clean checkout parked on a landed branch to main\n\nsync-heal-branch body line\n\n\
-        Read both yq error forms in the frontmatter check\n\nyq-error-forms body line\n\n\
-        Check a red-fix ticket before every urgent one\n\nred-fix-first body line\n\n\
-        Test-contract: sync\nMain-red: yq at abc\nMain-red: tip at def";
-    assert_eq!(landed, expected);
+    let expected = "Read both yq error forms in the frontmatter check\n\nyq-error-forms body line\n\n\
+        Fix the typo the review found\n\nreview-typo body line\n\n\
+        Item: north#1\nMain-red: yq at abc";
+    assert_eq!(landed, expected, "697193f179 landed under its late fixup's subject");
+
+    git_ok(root, &["reset", "-q", "--hard", &lane]);
+    assert!(matches!(squash(root, "main", Some("Read yq's two error forms\n\nStated body.\n\nTest-contract: sync\n")).unwrap(), Squash::Squashed { commits: 2, .. }));
+    let landed = git_ok(root, &["show", "-s", "--format=%B", "HEAD"]);
+    assert_eq!(landed, "Read yq's two error forms\n\nStated body.\n\nTest-contract: sync\nItem: north#1\nMain-red: yq at abc");
 }

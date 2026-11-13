@@ -122,7 +122,7 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     let queued = lane.enqueue(super::Shape::OneCommit { message: None });
     assert_eq!((queued.ticket.head, run(&lane.repo, &["rev-parse", "HEAD^"]), run(&lane.repo, &["rev-parse", "HEAD^{tree}"])), (run(&lane.repo, &["rev-parse", "HEAD"]), lane.base.clone(), tree));
     let message = run(&lane.repo, &["show", "-s", "--format=%B", "HEAD"]);
-    assert_eq!(message.lines().next(), Some("add the second lane line"), "{message}");
+    assert_eq!(message.lines().next(), Some("outgoing"), "the lane lands under its first commit's subject: {message}");
     assert_eq!(run(&lane.repo, &["show", "-s", "--format=%(trailers:only,unfold)", "HEAD"]), "Refs: #7\nLane-note: first\nLane-note: second");
 
     let lane = Lane::new();

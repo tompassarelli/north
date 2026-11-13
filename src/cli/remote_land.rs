@@ -6,6 +6,8 @@ use crate::pacing::placement;
 use north_lander::land::hand_in::{Lane, Road};
 use north_safe_push::entry::{self, HostFacts};
 
+const LANDING_MESSAGE: &str = "north-landing-message";
+
 pub fn safe_push(arguments: &[String]) -> u8 {
     if let Some(refusal) = north_runtime::worker_sandbox::lane_only_safe_push_refusal() {
         eprintln!("{refusal}");
@@ -67,14 +69,31 @@ impl Road for SafePush {
     }
 
     fn take(self, lane: &Lane) -> u8 {
+        let message = match landing_message(lane) {
+            Ok(message) => message,
+            Err(error) => {
+                eprintln!("{}: {error}; committed, NOT queued.", self.verb);
+                return 1;
+            }
+        };
         match std::env::set_current_dir(&lane.root) {
-            Ok(()) => safe_push(&["--to", lane.destination.as_str()].into_iter().chain(self.flags.iter().copied()).map(str::to_owned).collect::<Vec<_>>()),
+            Ok(()) => safe_push(&["--to", lane.destination.as_str(), "--message", &message].into_iter().chain(self.flags.iter().copied()).map(str::to_owned).collect::<Vec<_>>()),
             Err(error) => {
                 eprintln!("{}: {}: {error}", self.verb, lane.root.display());
                 1
             }
         }
     }
+}
+
+fn landing_message(lane: &Lane) -> Result<String, String> {
+    let output = std::process::Command::new("git").arg("-C").arg(&lane.root).args(["rev-parse", "--path-format=absolute", "--git-path", LANDING_MESSAGE]).output().map_err(|error| format!("git rev-parse: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("git rev-parse --git-path {LANDING_MESSAGE}: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    std::fs::write(&path, &lane.message).map_err(|error| format!("{path}: {error}"))?;
+    Ok(path)
 }
 
 pub fn ledger_client(config: &DocumentMut, here: &str) -> bool {

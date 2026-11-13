@@ -3,6 +3,8 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use super::landing_message::{LaneCommit, message, split_trailers, unfinished_subject};
+
 const USAGE: &str = "usage: north lane squash [--repo DIR] [--message FILE] DESTINATION_TIP";
 
 #[derive(Debug, Eq, PartialEq)]
@@ -10,12 +12,6 @@ pub enum Squash {
     Unchanged,
     Kept(String),
     Squashed { commits: usize, head: String },
-}
-
-struct LaneCommit {
-    text: String,
-    trailers: Vec<String>,
-    merge: bool,
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
@@ -35,35 +31,6 @@ fn succeeds(repo: &Path, args: &[&str]) -> bool {
     Command::new("git").arg("-C").arg(repo).args(args).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
 }
 
-fn is_trailer(line: &str) -> bool {
-    let Some((key, value)) = line.split_once(": ") else { return false };
-    !value.trim().is_empty()
-        && key.chars().next().is_some_and(|first| first.is_ascii_alphanumeric())
-        && key.chars().all(|character| character.is_ascii_alphanumeric() || character == '-')
-}
-
-fn split_trailers(message: &str) -> (String, Vec<String>) {
-    let message = message.trim_end();
-    let Some((head, last)) = message.rsplit_once("\n\n") else { return (message.to_owned(), Vec::new()) };
-    let lines: Vec<&str> = last.lines().filter(|line| !line.trim().is_empty()).collect();
-    if lines.first().is_none_or(|line| !is_trailer(line))
-        || !lines.iter().all(|line| is_trailer(line) || line.starts_with([' ', '\t']))
-    {
-        return (message.to_owned(), Vec::new());
-    }
-    let mut trailers: Vec<String> = Vec::new();
-    for line in lines {
-        match trailers.last_mut() {
-            Some(previous) if line.starts_with([' ', '\t']) => {
-                previous.push(' ');
-                previous.push_str(line.trim());
-            }
-            _ => trailers.push(line.trim_end().to_owned()),
-        }
-    }
-    (head.trim_end().to_owned(), trailers)
-}
-
 fn lane_commit(repo: &Path, oid: &str) -> Result<LaneCommit, String> {
     let parents = git(repo, &["show", "-s", "--format=%P", oid])?;
     let message = git(repo, &["show", "-s", "--format=%B", oid])?;
@@ -71,40 +38,11 @@ fn lane_commit(repo: &Path, oid: &str) -> Result<LaneCommit, String> {
     Ok(LaneCommit { text: text.trim().to_owned(), trailers, merge: parents.split_whitespace().count() > 1 })
 }
 
-fn message(commits: &[&LaneCommit], supplied: Option<&str>) -> String {
-    let mut text = match supplied {
-        Some(supplied) => split_trailers(supplied).0,
-        None => {
-            let (last, earlier) = commits.split_last().expect("a squash has a commit");
-            std::iter::once(last).chain(earlier.iter().filter(|commit| !unfinished_subject(commit.text.lines().next().unwrap_or_default()))).map(|commit| commit.text.as_str()).collect::<Vec<_>>().join("\n\n")
-        }
-    };
-    let mut seen = BTreeSet::new();
-    let supplied_trailers = supplied.map(|supplied| split_trailers(supplied).1).unwrap_or_default();
-    let trailers: Vec<&String> = supplied_trailers
-        .iter()
-        .chain(commits.iter().flat_map(|commit| commit.trailers.iter()))
-        .filter(|trailer| seen.insert(trailer.as_str()))
-        .collect();
-    if !trailers.is_empty() {
-        text.push_str("\n\n");
-        text.push_str(&trailers.iter().map(|trailer| trailer.as_str()).collect::<Vec<_>>().join("\n"));
-    }
-    text.push('\n');
-    text
-}
-
-/// A landing subject that calls the work unfinished: it starts with the word WIP or says the work is not written.
-pub fn unfinished_subject(subject: &str) -> bool {
-    let lower = subject.trim().to_lowercase();
-    let wip = lower.strip_prefix("wip").is_some_and(|rest| rest.chars().next().is_none_or(|next| !next.is_alphanumeric()));
-    wip || lower.contains("not written") || lower.contains("not yet written")
-}
-
-pub fn refuse_unfinished_subject(repo: &Path, branch: &str) -> Result<(), String> {
-    let subject = git(repo, &["show", "-s", "--format=%s", "HEAD"])?.trim().to_owned();
+pub fn refuse_unfinished_subject(repo: &Path, branch: &str, lane_tip: &str, stated: bool) -> Result<(), String> {
+    let revision = if stated { "HEAD" } else { lane_tip };
+    let subject = git(repo, &["show", "-s", "--format=%s", revision])?.trim().to_owned();
     if unfinished_subject(&subject) {
-        return Err(format!("lane {branch} would land under the subject \"{subject}\", which calls the work unfinished; reword the lane's last commit or pass --message FILE with the landing message"));
+        return Err(format!("lane {branch} would land with the subject \"{subject}\", which calls the work unfinished; reword that commit or pass --message FILE with the landing message"));
     }
     Ok(())
 }
@@ -193,6 +131,11 @@ pub fn squash(repo: &Path, destination: &str, supplied: Option<&str>) -> Result<
     let (name, email, date) = (author.next().unwrap_or(""), author.next().unwrap_or(""), author.next().unwrap_or(""));
     let old_head = git(repo, &["rev-parse", "HEAD"])?.trim().to_owned();
     let text = message(&authored, supplied);
+    if let [only] = lane[..]
+        && git(repo, &["show", "-s", "--format=%B", only])?.trim_end() == text.trim_end()
+    {
+        return Ok(Squash::Unchanged);
+    }
     let mut child = Command::new("git")
         .arg("-C")
         .arg(repo)

@@ -275,12 +275,13 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         let run_checks = || timings.stage_in_steps("queue checks", || (environment.queue_checks)(&root, &base, &lane_head, environment.north, &stop).map_err(|refusal| refused_finish(environment.session, &root, &lane_head, refusal)), || (runner::queue_steps(), runner::queue_windows()));
         let early = (!gates_first).then(|| scope.spawn(run_checks));
         let first_commit_secs = first_commit::seconds(&root, &branch, &base);
+        let stated = matches!(shape, Shape::OneCommit { message: Some(_) });
         let (squash, several_commits) = timings.stage("squash", || Ok::<_, String>(match shape {
             Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
             Shape::SeveralCommits { reason } => (Squash::Kept(format!("--several-commits: {reason}")), Some(reason.to_owned())),
         }))?;
         let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-        lane_squash::refuse_unfinished_subject(&root, &branch)?;
+        lane_squash::refuse_unfinished_subject(&root, &branch, &lane_head, stated)?;
         let queue = queue::directory(environment.state_home, &origin);
         let seen = Seen { visibility: facts.repository().visibility.clone(), held: None };
         let asked_micros = micros();
