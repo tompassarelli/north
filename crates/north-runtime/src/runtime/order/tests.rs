@@ -58,6 +58,10 @@ impl Machine for Probes {
         true
     }
 
+    fn offloads_to_hub(&self, _host: &str) -> bool {
+        true
+    }
+
     fn settles_fleet(&self, _host: &str) -> bool {
         false
     }

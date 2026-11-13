@@ -16,6 +16,7 @@ struct Fleet<'a> {
     replaced: Option<(&'static str, Ran)>,
     launchable: Vec<String>,
     reaches_hub: bool,
+    offloads_hub: bool,
     settles: bool,
     builds: bool,
     landers: Option<probes::Landers>,
@@ -72,6 +73,10 @@ impl Machine for Fleet<'_> {
         self.reaches_hub
     }
 
+    fn offloads_to_hub(&self, _host: &str) -> bool {
+        self.offloads_hub
+    }
+
     fn settles_fleet(&self, _host: &str) -> bool {
         self.settles
     }
@@ -108,7 +113,7 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, settles: false, builds: false, landers: None, depbox_host: None, services: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, offloads_hub: true, settles: false, builds: false, landers: None, depbox_host: None, services: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
     }
 
     fn settling(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
@@ -303,7 +308,7 @@ fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
 
 #[test]
 fn a_host_with_a_provider_binary_but_no_launch_route_is_not_probed_for_it() {
-    let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()], true, false, None);
+    let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()], true, true, false, None);
     assert_eq!(plan.not_applicable, ["opencode", "pi"]);
     assert!(plan.probes.iter().any(|probe| probe.name.contains("claude")));
     assert!(plan.probes.iter().all(|probe| !probe.name.contains("opencode") && !probe.name.contains("pi")));
@@ -354,7 +359,7 @@ fn a_host_without_a_running_lander_skips_the_token_probe() {
     assert!(landers.served.is_empty(), "{landers:?}");
     assert_eq!(landers.unserved, [repo.join(".safe-push").to_string_lossy().into_owned()]);
 
-    let plan = probes::core_loop("nexus", PROMOTED, &[], true, false, Some(&landers));
+    let plan = probes::core_loop("nexus", PROMOTED, &[], true, true, false, Some(&landers));
     assert!(plan.probes.iter().all(|probe| !probe.name.contains("lander mints")), "{:?}", plan.probes.iter().map(|probe| &probe.name).collect::<Vec<_>>());
     assert!(plan.not_applicable.iter().any(|reason| reason.contains("no running lander serves")), "{:?}", plan.not_applicable);
 
@@ -382,6 +387,7 @@ fn a_host_that_launches_no_sessions_is_not_probed_for_a_worker_shell_reaching_th
     let host = Host::promoted();
     let mut fleet = host.fleet(None);
     fleet.reaches_hub = false;
+    fleet.offloads_hub = false;
     assert_eq!(check(&host.layout, "tom@cpx62", PROMOTED, &fleet), Verdict::Passed);
     let probed = fleet.probed.lock().unwrap();
     assert!(probed.iter().all(|name| !name.contains("reaches gex45")), "{probed:?}");
@@ -484,22 +490,31 @@ fn a_runtime_that_fails_verify_north_or_the_scratch_landing_is_not_shipped() {
         });
         assert!(!shipped.borrow().iter().any(|sha| sha == PROMOTED), "{failing} failed yet {PROMOTED} shipped: {:?}", shipped.borrow());
     }
-    let settling = probes::core_loop("whiterabbit", PROMOTED, &[], true, true, None);
+    let settling = probes::core_loop("whiterabbit", PROMOTED, &[], true, true, true, None);
     let names: Vec<&str> = settling.probes.iter().map(|probe| probe.name.as_str()).collect();
     assert!(names.iter().any(|name| name.contains("verify-north")), "{names:?}");
     assert!(names.iter().any(|name| name.contains("scratch landing")), "{names:?}");
-    let elsewhere = probes::core_loop("nexus", PROMOTED, &[], true, false, None);
+    let elsewhere = probes::core_loop("nexus", PROMOTED, &[], true, false, false, None);
     let names: Vec<&str> = elsewhere.probes.iter().map(|probe| probe.name.as_str()).collect();
     assert!(names.iter().all(|name| !name.contains("verify-north") && !name.contains("scratch landing")), "{names:?}");
 }
 
 #[test]
 fn a_launching_host_whose_sessions_reach_no_other_host_is_not_probed_for_a_worker_shell_reaching_the_hub() {
-    let config: toml_edit::DocumentMut = "[hosts.cpx62]\nlaunches = true\nreaches = []\n[hosts.whiterabbit]\nreaches = [\"gex45\", \"cpx62\"]\n[hosts.nexus]\n[hosts.cpx62b]\nlaunches = false\n".parse().unwrap();
+    let config: toml_edit::DocumentMut = "[hosts.cpx62]\nlaunches = true\nreaches = []\n[hosts.whiterabbit]\nsettles_fleet = true\nreaches = [\"gex45\", \"cpx62\"]\n[hosts.nexus]\n[hosts.cpx62b]\nlaunches = false\n".parse().unwrap();
     assert!(!probes::sessions_reach_hub(&config, "cpx62"), "on 2026-11-10 the hub probe failed on a host declared to reach no other host and rolled back the laptop's runtime");
     assert!(probes::sessions_reach_hub(&config, "whiterabbit"));
     assert!(probes::sessions_reach_hub(&config, "nexus"));
     assert!(!probes::sessions_reach_hub(&config, "cpx62b"));
+    assert!(probes::offloads_to_hub(&config, "whiterabbit"));
+    assert!(!probes::offloads_to_hub(&config, "cpx62"), "a host that reaches no other host offloads its worker shell to no hub");
+    assert!(!probes::offloads_to_hub(&config, "nexus"), "nexus names neither launches nor reaches, so it takes no session and reaches no hub");
+    let nexus = probes::core_loop("nexus", PROMOTED, &[], true, false, false, None);
+    assert!(nexus.not_applicable.iter().any(|reason| reason.contains("reaches gex45 through")), "{:?}", nexus.not_applicable);
+    assert!(nexus.probes.iter().all(|probe| !probe.name.contains("reaches gex45 through")), "nexus runs no worker shell hop to the hub");
+    assert!(nexus.probes.iter().any(|probe| probe.name.contains("own ssh reaches no host") && probe.script.contains("ConnectTimeout=15 gex45")), "nexus keeps the no-ssh probe's ssh-to-hub branch");
+    let laptop = probes::core_loop("whiterabbit", PROMOTED, &[], true, true, true, None);
+    assert!(laptop.probes.iter().any(|probe| probe.name.contains("reaches gex45 through")), "the laptop reaches the hub and keeps the hop probe");
 }
 
 #[test]
@@ -574,7 +589,7 @@ fn an_incoming_runtime_that_fails_where_the_outgoing_also_fails_stays_live() {
     let earlier = Host::promoted();
     lifecycle::move_to::<Canarying>(&earlier.layout, &format!("whiterabbit/{PREVIOUS}"), Canary::Kept, "probe `verify-north walks the spine on the promoted runtime` exited 1; log tail: step 4 FAIL | verify-north FAILED at step 4  total 24571 ms on whiterabbit for runtime 11111111").unwrap();
     let fleet = earlier.settling(Some((WALK, stops(2))));
-    let planned = probes::core_loop("whiterabbit", PROMOTED, &fleet.launchable, true, true, None).probes.len();
+    let planned = probes::core_loop("whiterabbit", PROMOTED, &fleet.launchable, true, true, true, None).probes.len();
     assert_eq!(check(&earlier.layout, "whiterabbit", PROMOTED, &fleet), Verdict::RolledBack, "a runtime that stops at an earlier step than the outgoing rolls back");
     assert_eq!(earlier.current(), layout::link(PREVIOUS));
     assert_eq!(fleet.probed.lock().unwrap().len(), planned, "an outgoing walk on record is read, not walked again");
@@ -591,7 +606,7 @@ fn a_probe_worker_follows_the_judged_runtime_while_the_link_still_names_the_live
     for program in ["north", "verify-north"] {
         north_base::foundation::shim::write_executable(&judged.join(program), "#!/bin/sh\necho \"wr.md: target whiterabbit claude:$(basename \"$(readlink \"$NORTH_RUNTIME_LINK\")\")\"\n");
     }
-    let plan = probes::core_loop("whiterabbit", PROMOTED, &["claude".to_owned()], false, true, None);
+    let plan = probes::core_loop("whiterabbit", PROMOTED, &["claude".to_owned()], false, false, true, None);
     let workers: Vec<&Probe> = plan.probes.iter().filter(|probe| probe.name.contains("verify-north") || probe.name.contains("first turn")).collect();
     assert_eq!(workers.len(), 2, "{:?}", plan.probes.iter().map(|probe| &probe.name).collect::<Vec<_>>());
     for probe in workers {
@@ -609,7 +624,7 @@ fn the_verify_north_probe_reads_all_of_the_placement_listing_before_judging_it()
     let north = "#!/bin/sh\nif [ \"$1\" = config ]; then\n  echo 'claude:a available'\n  sleep 1\n  echo 'claude:b available'\n  echo 'wr.md: target whiterabbit claude:a'\nfi\n";
     north_base::foundation::shim::write_executable(&judged.join("north"), north);
     north_base::foundation::shim::write_executable(&judged.join("verify-north"), "#!/bin/sh\nexit 0\n");
-    let plan = probes::core_loop("whiterabbit", PROMOTED, &["claude".to_owned()], false, true, None);
+    let plan = probes::core_loop("whiterabbit", PROMOTED, &["claude".to_owned()], false, false, true, None);
     let walk = plan.probes.iter().find(|probe| probe.name.contains("verify-north")).unwrap();
     let output = Command::new(bash_program()).arg("-c").arg(&walk.script).env("HOME", home.path()).env_remove("XDG_STATE_HOME").env_remove("NORTH_RUNTIME_LINK").output().unwrap();
     assert!(output.status.success(), "grep -q closed the listing's pipe at its first line and the writer died on it, exit {:?}: {}", output.status.code(), String::from_utf8_lossy(&output.stderr));

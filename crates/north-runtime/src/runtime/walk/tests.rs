@@ -100,6 +100,10 @@ impl Machine for FailsTheWalk {
         false
     }
 
+    fn offloads_to_hub(&self, _host: &str) -> bool {
+        false
+    }
+
     fn settles_fleet(&self, _host: &str) -> bool {
         true
     }

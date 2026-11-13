@@ -68,6 +68,10 @@ pub(super) fn sessions_reach_hub(config: &toml_edit::DocumentMut, name: &str) ->
     launches && reaches
 }
 
+pub(super) fn offloads_to_hub(config: &toml_edit::DocumentMut, name: &str) -> bool {
+    takes_sessions(config, name) && north_base::platform::orchestration::reaches(config, name, HUB)
+}
+
 /// Whether placement can start a fleet session on `name`, as its gate reads `[hosts.NAME]`: the host that settles the fleet, or one marked `launches = true` that can push some repository. A host the configuration does not name is taken to.
 pub(super) fn takes_sessions(config: &toml_edit::DocumentMut, name: &str) -> bool {
     let Some(table) = config.get("hosts").and_then(|hosts| hosts.get(name)) else { return true };
@@ -76,14 +80,15 @@ pub(super) fn takes_sessions(config: &toml_edit::DocumentMut, name: &str) -> boo
     set("settles_fleet") || (set("launches") && !pushes_nothing)
 }
 
-pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hub: bool, settles: bool, landers: Option<&Landers>) -> CoreLoop {
+pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hub: bool, offloads_hub: bool, settles: bool, landers: Option<&Landers>) -> CoreLoop {
     let runtime = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"");
     let north = format!("{runtime}/north");
     let reaches_hub = reaches_hub && !is_hub(host);
+    let offloads_hub = offloads_hub && !is_hub(host);
     let mut probes = vec![probe("a sandboxed worker shell's own ssh reaches no host", worker_shell(&north, &no_ssh(reaches_hub)), SHELL_LIMIT)];
     let mut not_applicable = Vec::new();
     let offload_hop = format!("a sandboxed worker shell reaches {HUB} through north capacity offload");
-    match (is_hub(host), reaches_hub) {
+    match (is_hub(host), offloads_hub) {
         (true, _) => {
             probes.push(probe(format!("{HUB} fetches each landing repository with its credential"), FETCH.to_owned(), MINT_LIMIT));
             not_applicable.push(offload_hop);

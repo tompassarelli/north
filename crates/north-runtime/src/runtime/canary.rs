@@ -54,6 +54,7 @@ pub(super) trait Machine: Sync {
     fn rollback_target(&self, sha: &str) -> Option<String>;
     fn launchable_providers(&self) -> Vec<String>;
     fn sessions_reach_hub(&self, host: &str) -> bool;
+    fn offloads_to_hub(&self, host: &str) -> bool;
     fn settles_fleet(&self, host: &str) -> bool;
     fn takes_land_checks(&self, host: &str) -> bool;
     fn lander_repositories(&self) -> Option<Landers>;
@@ -78,7 +79,7 @@ pub(super) enum Verdict {
 
 pub(super) fn compiled(host: &str, sha: &str, machine: &impl Machine) -> CoreLoop {
     let landers = machine.lander_repositories();
-    let mut plan = probes::core_loop(host, sha, &machine.launchable_providers(), machine.sessions_reach_hub(host), machine.settles_fleet(host), landers.as_ref());
+    let mut plan = probes::core_loop(host, sha, &machine.launchable_providers(), machine.sessions_reach_hub(host), machine.offloads_to_hub(host), machine.settles_fleet(host), landers.as_ref());
     if machine.takes_land_checks(host) {
         plan.probes.push(probes::offloaded_land_check(host, sha));
     }
@@ -313,6 +314,11 @@ impl Machine for Live<'_> {
     fn sessions_reach_hub(&self, host: &str) -> bool {
         let name = host.rsplit_once('@').map_or(host, |(_, name)| name);
         crate::platform::orchestration::read().map_or(true, |config| probes::sessions_reach_hub(&config, name))
+    }
+
+    fn offloads_to_hub(&self, host: &str) -> bool {
+        let name = host.rsplit_once('@').map_or(host, |(_, name)| name);
+        crate::platform::orchestration::read().map_or(true, |config| probes::offloads_to_hub(&config, name))
     }
 
     fn settles_fleet(&self, _host: &str) -> bool {
