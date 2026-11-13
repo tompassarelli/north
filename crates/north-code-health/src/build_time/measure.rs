@@ -87,7 +87,7 @@ pub(super) fn measure(builder: &mut Builder, workspace: &Path, leaf: &Path, hub:
     let cold_build = builder.run(workspace, target.path(), Kind::Timed)?.as_secs_f64();
     let report = builder.timings(workspace, target.path());
     let html = std::fs::read_to_string(&report).map_err(|error| format!("{}: {error}", report.display()))?;
-    let critical_path = super::timings::critical_path(&html)?;
+    let critical_path = if html.trim_start().starts_with('{') { super::timings::build_report(&html)? } else { super::timings::critical_path(&html)? };
     builder.run(workspace, target.path(), Kind::TestBinaries)?;
     let (leaf_build, leaf_test) = edited(builder, workspace, target.path(), leaf, samples)?;
     settle(builder, workspace, target.path())?;

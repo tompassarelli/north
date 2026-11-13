@@ -53,3 +53,10 @@ fn units(html: &str) -> Result<Vec<Unit>, String> {
     let mut stream = serde_json::Deserializer::from_str(&html[start..]).into_iter::<Vec<Unit>>();
     stream.next().ok_or("cargo timings: empty UNIT_DATA")?.map_err(|error| format!("cargo timings: {error}"))
 }
+
+pub(super) fn build_report(json: &str) -> Result<String, String> {
+    let report: serde_json::Value = serde_json::from_str(json).map_err(|error| format!("buck2 build report: {error}"))?;
+    let targets = report["results"].as_object().map_or(0, |results| results.len());
+    let failures = report["failures"].as_object().map_or(0, |failures| failures.len());
+    Ok(format!("buck2 build report: {targets} targets, {failures} failures, no per-unit timings"))
+}
