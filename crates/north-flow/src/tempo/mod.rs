@@ -53,6 +53,9 @@ pub struct Reading {
     pub first_commit_to_main_p50_minutes: Option<f64>,
     pub first_commit_to_main_p90_minutes: Option<f64>,
     pub first_commit_samples: usize,
+    pub hand_in_to_main_p50_seconds: Option<f64>,
+    pub hand_in_to_main_p90_seconds: Option<f64>,
+    pub hand_in_samples: usize,
     pub refused_alone: usize,
     pub conflicts: usize,
     pub queued_now: usize,
@@ -98,7 +101,9 @@ pub fn read(repo: &str, queue: &Path, now: f64, window_minutes: u64) -> Reading 
     let landed: Vec<&(f64, Phase, Decided)> = decided.iter().filter(|(_, phase, _)| *phase == Phase::Landed).collect();
     let queued: Vec<f64> = landed.iter().filter_map(|(at, _, ticket)| Some(minutes(Timestamp::parse_python_datetime(&ticket.queued_at)?.unix_seconds_f64(), *at))).collect();
     let first: Vec<f64> = landed.iter().filter_map(|(at, _, ticket)| Some(minutes(ticket.first_commit_secs.filter(|secs| *secs > 0)? as f64, *at))).collect();
+    let hand_in: Vec<f64> = landed.iter().filter_map(|(at, _, ticket)| Some((at - Duration::from_micros(ticket.hand_in.as_ref()?.called_micros).as_secs_f64()).max(0.0))).collect();
     let ((queued_p50, queued_p90), (first_p50, first_p90)) = (percentiles(&queued), percentiles(&first));
+    let (hand_in_p50, hand_in_p90) = percentiles(&hand_in);
     let refused = |wanted: Phase| decided.iter().filter(|(_, phase, _)| *phase == wanted).count();
     let interactions = decided.iter().filter(|(_, phase, ticket)| *phase == Phase::Failed && ticket.verdict.as_deref().is_some_and(|verdict| verdict.starts_with("failed interaction"))).count();
     Reading {
@@ -110,6 +115,9 @@ pub fn read(repo: &str, queue: &Path, now: f64, window_minutes: u64) -> Reading 
         first_commit_to_main_p50_minutes: first_p50,
         first_commit_to_main_p90_minutes: first_p90,
         first_commit_samples: first.len(),
+        hand_in_to_main_p50_seconds: hand_in_p50,
+        hand_in_to_main_p90_seconds: hand_in_p90,
+        hand_in_samples: hand_in.len(),
         refused_alone: refused(Phase::Failed) - interactions,
         conflicts: refused(Phase::Conflict),
         queued_now: tickets(queue).count(),
@@ -120,9 +128,13 @@ fn figure(value: Option<f64>) -> String {
     value.map_or_else(|| "n/a".into(), |minutes| format!("{minutes:.1}"))
 }
 
+fn seconds(value: Option<f64>) -> String {
+    value.map_or_else(|| "n/a".into(), |seconds| format!("{seconds:.0}"))
+}
+
 pub fn line(reading: &Reading) -> String {
     format!(
-        "tempo {}, last {} min: {} lanes landed, queued->main p50 {} p90 {} min, first commit->main p50 {} p90 {} min over {} lanes, {} refused alone, {} conflicts, {} queued now",
+        "tempo {}, last {} min: {} lanes landed, queued->main p50 {} p90 {} min, first commit->main p50 {} p90 {} min over {} lanes, hand-in->main p50 {} p90 {} s over {} lanes, {} refused alone, {} conflicts, {} queued now",
         reading.repo,
         reading.window_minutes,
         reading.landed,
@@ -131,6 +143,9 @@ pub fn line(reading: &Reading) -> String {
         figure(reading.first_commit_to_main_p50_minutes),
         figure(reading.first_commit_to_main_p90_minutes),
         reading.first_commit_samples,
+        seconds(reading.hand_in_to_main_p50_seconds),
+        seconds(reading.hand_in_to_main_p90_seconds),
+        reading.hand_in_samples,
         reading.refused_alone,
         reading.conflicts,
         reading.queued_now,
@@ -181,7 +196,8 @@ fn queue(places: &Places, repo: &str) -> Result<PathBuf, String> {
     if !output.status.success() {
         return Err(format!("{} has no origin remote", checkout.display()));
     }
-    Ok(crate::platform::land_queue::directory(&places.state, String::from_utf8_lossy(&output.stdout).trim()))
+    let queue = crate::platform::land_queue::directory(&places.state, String::from_utf8_lossy(&output.stdout).trim());
+    Ok(crate::platform::records_mirror::read("north ledger tempo").local(&queue))
 }
 
 pub fn run(arguments: &[String]) -> u8 {
