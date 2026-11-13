@@ -6,20 +6,28 @@ count=${2:-20}
 root=$(git rev-parse --show-toplevel)
 records=${REPLAY_RECORDS:-$HOME/.local/state/safe-push/check-timings/outcomes.tsv}
 logs=$(mktemp -d)
-common=$(realpath "$(git -C "$root" rev-parse --git-common-dir)")
-scratch="${common%/*/.git}/worktrees"
-trap 'rm -rf "$logs"' EXIT
+echo "replay: logs in $logs" >&2
 git -C "$root" fetch --quiet origin main
+
+place() {
+  local log=$1 tries=0 status
+  shift
+  while [ "$tries" -lt 12 ]; do
+    tries=$((tries + 1)) status=0
+    north capacity offload run "$@" >>"$log" 2>&1 || status=$?
+    if [ "$status" != 96 ] || grep -q "is closed to offloaded checks" "$log"; then return; fi
+  done
+}
 
 replay_one() {
   local head=$1 parent declared tree selection job
   parent=$(git -C "$root" rev-parse "$head^")
   declared=$(git -C "$root" show "$head:.safe-push" | grep -F 'SAFE_PUSH_LAND_PACKAGES' | head -n 1 | sed 's/^[[:space:]]*check = [^:]* :: //')
   printf '%s\n' "$declared" >"$logs/$head.line"
-  tree=$(mktemp -d "$scratch/replay-${head:0:12}.XXXXXX")
+  tree=$(mktemp -d "${TMPDIR:-/tmp}/replay-${head:0:12}.XXXXXX")
   git -C "$root" worktree add --detach --quiet "$tree" "$head"
   selection=$(cd "$tree" && north land selection --host "$host" --base "$parent" --head "$head" -- "$declared" 2>"$logs/$head.log") || selection=failed
-  git -C "$root" worktree remove --force "$tree"
+  git -C "$root" worktree remove --force "$tree" || true
   if [ "$selection" = failed ]; then return; fi
   job="export SAFE_PUSH_LAND_BASE=$parent SAFE_PUSH_LAND_HEAD=$head"
   while IFS= read -r pair; do
@@ -32,7 +40,7 @@ replay_status=0
 north land crate-tests -- $(printf %q "$declared") || replay_status=\$?
 echo \"replay: exit \$replay_status seconds \$((SECONDS - replay_started))\"
 git checkout --quiet -- . 2>/dev/null || true"
-  north capacity offload run --host "$host" --base "$parent" --head "$head" --timeout 3600 -- "$job" >>"$logs/$head.log" 2>&1 || true
+  place "$logs/$head.log" --host "$host" --base "$parent" --head "$head" --timeout 2100 -- "$job"
 }
 
 mapfile -t heads < <(git -C "$root" log --first-parent --format=%H -n "$count" origin/main)
