@@ -138,6 +138,10 @@ fn a_public_destination_runs_the_deny_list_scan_and_the_private_kind_judge_and_n
     let (kinds, south) = (fixture.root.join("kinds.toml"), fixture.root.join("south"));
     write(&kinds, "[[kind]]\nid = \"fixture-kind\"\ndescription = \"a fixture kind\"\n");
     std::fs::create_dir_all(south.join("main")).unwrap();
+    git(&south.join("main"), &["init", "-q"]);
+    write(&south.join("main/plan.md"), "an operator plan\n");
+    git(&south.join("main"), &["add", "plan.md"]);
+    git(&south.join("main"), &["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "operator"]);
     shim::write_script(&fixture.bin.join("claude"), "if grep -q walnut-lantern; then echo 'fixture-kind | walnut-lantern'; else echo NONE; fi\n");
     let (profiles, cache, north) = (fixture.root.join("profiles"), fixture.root.join("verdicts"), Path::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")));
     let login = fixture.root.join("home/.claude");

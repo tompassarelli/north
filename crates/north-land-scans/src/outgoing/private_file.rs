@@ -123,9 +123,7 @@ pub fn hits(root: &Path, operator: &Path, cache: &Path, range: &str, base: &str)
 }
 
 pub fn outgoing(root: &Path, operator: &Path, cache: &Path, (base, head): (&str, &str)) -> Result<BTreeSet<String>, String> {
-    if git(operator, &["rev-parse", "--git-dir"]).is_err() {
-        return Ok(BTreeSet::new());
-    }
+    git(operator, &["rev-parse", "--git-dir"]).map_err(|cause| format!("the operator repository at {} is configured but unreadable: {cause}", operator.display()))?;
     let range = if base.is_empty() { head.to_owned() } else { format!("{base}..{head}") };
     Ok(hits(root, operator, cache, &range, base)?.into_iter().map(|hit| format!("{PREFIX}{}", hit.path)).collect())
 }

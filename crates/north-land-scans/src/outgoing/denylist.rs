@@ -251,7 +251,12 @@ impl Denylist {
     }
 
     fn private_files(&self, root: &Path, base: &str, head: &str) -> Result<BTreeSet<String>, Fault> {
-        Ok(private_file::outgoing(root, &self.south.join("main"), &private_file::cache_dir(), (base, head))?)
+        let operator = self.south.join("main");
+        if !self.south_named && !operator.try_exists().map_err(|cause| format!("the operator repository at {} cannot be inspected: {cause}", operator.display()))? {
+            eprintln!("safe-push: no operator repository at {}, so the private-file check was skipped.", operator.display());
+            return Ok(BTreeSet::new());
+        }
+        Ok(private_file::outgoing(root, &operator, &private_file::cache_dir(), (base, head))?)
     }
 
     fn value_findings(&self, root: &Path, (base, head, tag): (&str, &str, &str), held: Option<&Held>) -> Result<BTreeSet<String>, Fault> {

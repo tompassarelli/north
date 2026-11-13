@@ -323,7 +323,7 @@ fn a_lane_only_caller_without_its_marker_still_gets_lane_reads() {
 }
 
 #[test]
-fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratch_north_1041() {
+fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratch_north_1041_nor_write_the_private_blob_cache() {
     let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     std::fs::create_dir_all(&outside_tmp).unwrap();
     let root = tempfile::Builder::new().prefix("north-1041-transcripts").tempdir_in(outside_tmp).unwrap();
@@ -341,9 +341,17 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     }
     let scratch = state.join("north/land").canonicalize().unwrap();
     assert!(roots.iter().any(|root| root == &scratch), "a worker may no longer remove its own lock files under {}", scratch.display());
+    let cache = state.join("north/private-blobs");
+    std::fs::create_dir_all(&cache).unwrap();
+    let cache = cache.canonicalize().unwrap();
+    for land_check in [false, true] {
+        let context = Context { home: context.home.clone(), cwd: context.cwd.clone(), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check };
+        let (roots, written) = (removable(&context), super::writable(&context, &removable(&context)));
+        assert!(!roots.iter().chain(&written).any(|path| cache.starts_with(path) || path.starts_with(&cache)), "a worker may write the private-blob cache {}, which the private-file refusal trusts", cache.display());
+    }
+    let written = super::writable(&context, &roots);
     let records = context.home.join(north_base::foundation::offload::SLOT_RECORDS);
     std::fs::create_dir_all(&records).unwrap();
-    let written = super::writable(&context, &roots);
     assert!(!roots.iter().chain(&written).any(|path| records.starts_with(path) || path.starts_with(&records)), "a worker may write or remove a build slot's record under {}, which tells the broker the project a request from that slot is served as", records.display());
 }
 
