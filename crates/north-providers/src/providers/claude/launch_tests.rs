@@ -48,6 +48,42 @@ fn a_session_on_an_agent_login_runs_the_published_agent_claude_and_never_a_copy_
     }
 }
 
+#[test]
+fn a_session_on_an_agent_login_runs_its_shell_prefix_and_tool_server_from_the_named_agent_runtime_north_1041() {
+    use std::os::unix::fs::PermissionsExt;
+    let machine = Machine { name: "cpx62".into(), ssh: "tom@cpx62".into(), agent_ssh: Some("agent@cpx62".into()) };
+    let agent = LaunchRequest { machine: Some(machine), ..request() };
+    let dir = tempfile::tempdir().unwrap();
+    let naming = dir.path().join("agent-runtime-link");
+    std::fs::write(&naming, "/var/lib/agent-runtime/current\n").unwrap();
+    let shims = dir.path().join("shims");
+    std::fs::create_dir_all(&shims).unwrap();
+    std::fs::write(shims.join("stat"), "#!/bin/sh\ncase \"$3\" in %u) echo 0;; %a) echo \"$NAMING_MODE\";; esac\n").unwrap();
+    std::fs::set_permissions(shims.join("stat"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", shims.display(), std::env::var("PATH").unwrap_or_default());
+    let logins = std::cell::RefCell::new(Vec::new());
+    let launch = |mode: &str| {
+        tool_server::launch_programs(&agent, Path::new("/home/tom"), |machine: &Machine, script: &str| {
+            logins.borrow_mut().push(machine.session_login().to_owned());
+            let script = script.replace(agent_runtime::NAMING_FILE, &naming.to_string_lossy());
+            let output = std::process::Command::new("sh").env("PATH", &path).env("NAMING_MODE", mode).args(["-c", &script]).output().unwrap();
+            if output.status.success() { Seen::Text(String::from_utf8_lossy(&output.stdout).into_owned()) } else { Seen::Unreachable }
+        })
+    };
+    let programs = launch("644").expect("an agent session whose host names its runtime in a root-owned file gets programs");
+    assert_eq!(programs.prefix, Path::new("/var/lib/agent-runtime/current/worker-sandbox"));
+    let server = tool_server::tool_server_args(&programs.north, &["finish".to_owned()]);
+    let config: serde_json::Value = serde_json::from_str(&server[1]).unwrap();
+    assert_eq!(config["mcpServers"]["north"]["command"], "/var/lib/agent-runtime/current/north");
+    for loose in ["664", "646"] {
+        assert!(launch(loose).is_err(), "a naming file at mode {loose} chose the agent session's sandbox");
+    }
+    assert!(logins.into_inner().iter().all(|login| login == "agent@cpx62"), "the launch asked the agent host's naming file through another login");
+    let unnamed = tool_server::launch_programs(&agent, Path::new("/home/tom"), |_: &Machine, _: &str| Seen::Absent);
+    assert!(unnamed.is_err(), "an agent session whose host names no runtime launched with programs from another home");
+}
+
+
 fn request() -> LaunchRequest {
     LaunchRequest {
         verification: false,
@@ -234,7 +270,9 @@ const STAND_IN_SSH: &str = r#"while [ $# -gt 0 ]; do case "$1" in -o|-p) shift 2
 shift
 [ "$1" = -- ] && shift
 DENY='cat() { [ ! -e "$NORTH_TEST_LAUNCH_THERE.denied" ] || { echo "cat: $2: Permission denied" >&2; return 1; }; command cat "$@"; }'
+ROOT_OWNED='stat() { case "$*" in *agent-runtime-link*) case "$3" in %u) echo 0;; %a) echo 644;; esac;; *) command stat "$@";; esac; }'
 exec sh -c "$DENY
+$ROOT_OWNED
 $(printf '%s' "$*" | sed "s#'/#'$NORTH_TEST_LAUNCH_THERE/#g")"
 "#;
 
@@ -289,6 +327,8 @@ fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_ma
     let written = json!({"hooks": {"PreToolUse": [{}]}, "theme": "dark", "apiKeyHelper": "cat /home/agent/key", "awsCredentialExport": "cat /home/agent/aws", "forceLoginOrgUUID": "another-org", "env": {"ANTHROPIC_BASE_URL": "https://elsewhere.invalid", "CLAUDE_CODE_OAUTH_TOKEN": "another-account", "CLAUDE_CONFIG_DIR": "/home/agent/elsewhere", "HTTPS_PROXY": "http://proxy.invalid", "NODE_OPTIONS": "--require /home/agent/hook.js"}});
     std::fs::write(profile.join("settings.json"), written.to_string()).unwrap();
     std::fs::write(profile.join("CLAUDE.md"), "agent policy\n").unwrap();
+    std::fs::create_dir_all(there.join("etc/north")).unwrap();
+    std::fs::write(there.join(agent_runtime::NAMING_FILE.trim_start_matches('/')), "/var/lib/agent-runtime/current\n").unwrap();
 
     let child = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_machine_through_its_session_login", "--nocapture", "--test-threads=1"])

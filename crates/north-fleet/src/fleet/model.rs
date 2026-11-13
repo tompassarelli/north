@@ -72,6 +72,14 @@ impl Machine {
         Self::login_home(self.session_login(), operator_home)
     }
 
+    /// `path` as the session login names it: under that login's home in place of the operator's when the login is another user's, so nothing the launch sends there names a directory under the operator's home.
+    pub fn session_path(&self, path: &Path, operator_home: &Path) -> PathBuf {
+        match (self.session_home(operator_home), path.strip_prefix(operator_home)) {
+            (Some(home), Ok(rest)) => home.join(rest),
+            _ => path.to_path_buf(),
+        }
+    }
+
     /// The home of the Unix user a session login names, None when it names none, names one that is no plain user name, or names the operator, and None too when the operator's home is unknown, so a host never counts the operator's login as an agent's.
     pub fn login_home(login: &str, operator_home: &Path) -> Option<PathBuf> {
         let user = login.split_once('@').map(|(user, _)| user).filter(|user| unix_user(user))?;
