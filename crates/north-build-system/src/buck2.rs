@@ -51,8 +51,15 @@ impl Buck2 {
     }
 
     pub(crate) fn enter(&self, root: &Path) {
-        if let Some(current) = self.isolation.as_deref().filter(|_| !root.as_os_str().is_empty()) {
+        if root.as_os_str().is_empty() {
+            return;
+        }
+        if let Some(current) = self.isolation.as_deref() {
             generation::retire(root, current);
+        }
+        let runs = root.join(test_record::RUNS);
+        if let Some(error) = self.governs(root).then(|| fs::create_dir_all(&runs).err()).flatten() {
+            eprintln!("north: cannot make {}, where a Buck2 test run writes its record: {error}", runs.display());
         }
     }
 }
@@ -494,6 +501,9 @@ impl BuildSystem for Buck2 {
             _ => words.extend(targets),
         }
         words.extend(request.uncached.then(|| "--no-remote-cache".to_owned()));
+        if matches!(request.step, Step::Run { .. }) {
+            words = test_record::logged(words);
+        }
         self.invocation(request.root, request.shell, words)
     }
 

@@ -258,7 +258,9 @@ takes, per target, the action digest and `cache_hit` from `TestEnd`, and the per
 The two-phase verdict store and the recorded path sets of [verdict-reuse.md](verdict-reuse.md) stop being the key:
 Buck2 keys on declared inputs, and remote execution enforces them.
 - As built: `north land reuse observe`, which already wraps the landing's test line, reads a `buck2 test` line back
-  from `buck2 log show`, run behind the same shell words as the test
+  from `buck2 log show` of the event log the run names (`--event-log buck-out/north/test-runs/HASH.pb.zst`, named
+  from the run's words), run behind the same shell words as the test: plain `log show` reads the newest command's log,
+  and a check's lint or target listing in the same checkout often starts after the test (cpx62, 2026-11-13)
   (`crates/north-build-system/src/buck2/test_record.rs`,
   `crates/north-land-checks/src/land/slots/unit_reuse/runs.rs`). It prints one `north-reuse` unit per test binary,
   carrying the action digest when the result was a cache hit, so `north land reuse report` counts Buck2's reuse with

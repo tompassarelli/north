@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::Stdio;
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use super::Buck2;
 use crate::{BuildSystem, Cases, Resolution, Selection, Shell, Step, TestRun, Tests};
@@ -14,6 +15,9 @@ use crate::{BuildSystem, Cases, Resolution, Selection, Shell, Step, TestRun, Tes
 const CLIENT: &str = "buck2 ";
 const TEST: &str = "test";
 const SHOW: &str = "log show";
+const EVENT_LOG: &str = "--event-log";
+/// Buck2 writes `--event-log` only into a directory that exists, and plain `log show` reads the newest command's log, which another check in the same checkout may have started after the test.
+pub(crate) const RUNS: &str = "buck-out/north/test-runs";
 const ENDED: &str = "\"TestEnd\"";
 const RESULT: &str = "\"TestResult\"";
 const PASS: u64 = 1;
@@ -23,14 +27,22 @@ const RAN: &str = "PASS";
 const FAILED: &str = "FAIL";
 const SIGNAL: &str = "SIG";
 
-/// The command that prints the record of the run `test` made: `buck2 log show` behind whatever shell `test` ran its `buck2 test` in, under the isolation directory that run used.
+/// The words of a `buck2 test` run followed by the event log it writes, named from those words, so two runs in one checkout write two logs.
+pub(crate) fn logged(mut words: Vec<String>) -> Vec<String> {
+    let name: String = Sha256::digest(words.join(" ").as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect();
+    words.extend([EVENT_LOG.to_owned(), format!("{RUNS}/{name}.pb.zst")]);
+    words
+}
+
+/// The command that prints the record of the run `test` made: `buck2 log show` of the event log that run names, behind whatever shell `test` ran its `buck2 test` in, under the isolation directory that run used.
 pub fn command(test: &str) -> Option<String> {
     let (shell, client) = test.split_once(CLIENT)?;
     let (isolation, verb) = match client.strip_prefix(super::generation::FLAG).and_then(|rest| rest.strip_prefix(' ')) {
         Some(rest) => rest.split_once(' ').map(|(dir, verb)| (format!("{} {dir} ", super::generation::FLAG), verb))?,
         None => (String::new(), client),
     };
-    (verb == TEST || verb.starts_with(&format!("{TEST} "))).then(|| format!("{shell}{CLIENT}{isolation}{SHOW}"))
+    let log = verb.split_once(&format!(" {EVENT_LOG} "))?.1.split(' ').next()?;
+    verb.starts_with(&format!("{TEST} ")).then(|| format!("{shell}{CLIENT}{isolation}{SHOW} {log}"))
 }
 
 fn label(target: &Value) -> Option<String> {

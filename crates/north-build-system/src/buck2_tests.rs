@@ -21,7 +21,7 @@ fn a_buck2_host_runs_its_own_tests_only_behind_the_test_switch_and_moves_a_lint_
 
     assert_eq!((builds.land_line(CLIPPY), tests_too.land_line(CLIPPY)), (CLIPPY.to_owned(), CLIPPY.to_owned()), "a lint line is not rewritten where the checks are listed: only the gate, behind buck2_lint and the base's gate and configuration, moves it");
     assert_eq!(builds.land_line(NEXTEST), NEXTEST, "the test run stays Cargo's until the host sets buck2_tests");
-    assert_eq!(tests_too.land_line(NEXTEST), "./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re //...");
+    assert_eq!(tests_too.land_line(NEXTEST), "./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re //... --event-log buck-out/north/test-runs/8ca4292b6fe1c642.pb.zst");
     assert_eq!((tests_too.land_line(SCAN), Cargo.land_line(CLIPPY)), (SCAN.to_owned(), CLIPPY.to_owned()), "a line that runs no lint or test, and every line on a Cargo host, runs as declared");
     assert!(crate::lints(CLIPPY) && crate::lints(GATE) && !crate::lints(NEXTEST), "the lint line of either side is told from a test line");
     assert!(Buck2::deciding(true, &missing).is_err(), "a line that decides a land check needs the store generation");
@@ -29,7 +29,7 @@ fn a_buck2_host_runs_its_own_tests_only_behind_the_test_switch_and_moves_a_lint_
 
     std::fs::write(&file, "3\n").unwrap();
     let generation = Buck2::deciding(true, &file).unwrap();
-    assert_eq!(generation.land_line(NEXTEST), "./bin/land-shell --dev -- buck2 --isolation-dir north-g3 test --remote-only --unstable-allow-compatible-tests-on-re //...", "every line runs under the generation's own isolation directory");
+    assert_eq!(generation.land_line(NEXTEST), "./bin/land-shell --dev -- buck2 --isolation-dir north-g3 test --remote-only --unstable-allow-compatible-tests-on-re //... --event-log buck-out/north/test-runs/44698662b4e72091.pb.zst", "every line runs under the generation's own isolation directory");
     assert_eq!(Buck2::tool(true, &file).unwrap().land_line(NEXTEST), generation.land_line(NEXTEST));
     assert_eq!(generation.host_cases_daemon(), "north-g3-host-cases", "the host-case build's own daemon is the generation's too");
     for malformed in ["3", "three\n", "3\n4\n", "\n"] {
@@ -143,7 +143,7 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     let passed: std::collections::BTreeSet<String> = ["a".to_owned()].into();
     let side = Buck2 { tests: true, isolation: None };
     let split = |declared: &str, selected: &str| super::crate_tests(&side, tree.path(), "base", declared, ("SAFE_PUSH_LAND_PACKAGES", selected), (&listed, false), &packages).map(|split| ((split.moved.clone(), split.line.clone()), split.left(&passed), split.left(&none)));
-    let on_buck2 = |names: &[&str], targets: &str| (names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>(), format!("./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re {targets}"));
+    let on_buck2 = |names: &[&str], targets: &str| (names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>(), format!("./bin/land-shell --dev -- {}", super::test_record::logged(format!("buck2 test --remote-only --unstable-allow-compatible-tests-on-re {targets}").split(' ').map(str::to_owned).collect()).join(" ")));
     let flags = |flags: &str| Some(flags.to_owned());
 
     assert_eq!(split(NEXTEST, "-p a -p b"), Some((on_buck2(&["a"], "//crates/a:"), flags("-p b"), flags("-p a -p b"))), "the listed crate moves, and stays on the declared line unless Buck2 passed it");
