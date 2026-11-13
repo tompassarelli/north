@@ -36,7 +36,7 @@ fn run(item: &str, minutes: u32) -> SpendRun {
 fn ledger(prior: &[(&str, Vec<PriorReport>)]) -> Ledger {
     let runs: Vec<SpendRun> = [("north#1", 10), ("north#2", 20), ("north#3", 30), ("north#4", 40)].map(|(item, minutes)| run(item, minutes)).into();
     let closed: HashSet<String> = runs.iter().filter_map(|run| run.item.clone()).collect();
-    let report = summarize(&runs, &closed, "2026-10-27T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap());
+    let report = summarize(&runs, &closed, &Default::default(), "2026-10-27T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap());
     Ledger::new(Some(report), prior.iter().map(|(item, reports)| ((*item).to_owned(), reports.clone())).collect())
 }
 

@@ -32,7 +32,7 @@ fn run(item: &str, (tier, model): (&str, &str), category: &str, started: &str, e
 
 fn report(runs: &[SpendRun], since: &str) -> ClosedReport {
     let closed: HashSet<String> = runs.iter().filter_map(|run| run.item.clone()).collect();
-    summarize(runs, &closed, since, &PriceTable::load().unwrap())
+    summarize(runs, &closed, &Default::default(), since, &PriceTable::load().unwrap())
 }
 
 #[derive(Default)]

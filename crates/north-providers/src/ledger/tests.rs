@@ -176,7 +176,7 @@ fn a_closed_cell_costs_the_sum_of_the_runs_it_counts_and_names_the_earliest_of_t
     let runs = replay_tests::spend_runs(&db, &replay_tests::judged(&db));
     let prices = crate::router::pricing::PriceTable::load().unwrap();
     let closed = ["north#9", "north#12", "north#13"].map(str::to_owned).into_iter().collect();
-    let report = super::summarize(&runs, &closed, "2026-11-01T00:00:00Z", &prices);
+    let report = super::summarize(&runs, &closed, &Default::default(), "2026-11-01T00:00:00Z", &prices);
     let cell = report.cells.iter().find(|cell| cell.tier == "opus-medium" && cell.category == "feature").unwrap();
     let counted: Vec<String> = cell.boxes_dearest_first().into_iter().flat_map(|closed| closed.runs.into_iter().map(|run| run.agent)).collect();
     let priced: f64 = runs.iter().filter(|run| counted.contains(&run.agent)).map(|run| prices.run_usd(run.model.as_deref(), &run.tier, run.input, run.cache_read, run.output)).sum();
@@ -210,7 +210,7 @@ fn checker_verified_reads_the_stamp_on_the_box_a_runs_brief_named_and_the_whole_
 }
 
 #[test]
-fn checker_verified_marks_an_arm_box_by_its_runs_box_and_keeps_the_issue_level_reading_beside_it() {
+fn a_box_ticked_on_an_issue_that_stays_open_counts_as_closed() {
     use super::closed::SpendRun;
     let run = |agent: &str, item: &str, box_text: Option<&str>| SpendRun {
         agent: agent.into(),
@@ -231,14 +231,15 @@ fn checker_verified_marks_an_arm_box_by_its_runs_box_and_keeps_the_issue_level_r
         output: 100,
         skills: Vec::new(),
     };
-    let runs = [run("a", "north#1", Some("A run's kept box is judged by its own stamp")), run("b", "north#2", None), run("c", "north#3", Some("Piece 3 of the umbrella"))];
-    let closed: std::collections::HashMap<String, String> = ["north#1", "north#2", "north#3"].map(|item| (item.to_owned(), umbrella())).into();
-    let items = closed.keys().cloned().collect();
-    let report = super::summarize(&runs, &items, "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&closed, None);
-    let read = |item: &str| report.arms.iter().find(|arm| arm.item == item).map(|arm| (arm.verified, arm.issue_verified)).unwrap();
-    assert_eq!(read("north#1"), (true, false), "the staffed, stamped box of an umbrella reads verified");
-    assert_eq!(read("north#2"), (false, false), "a run with no box keeps the issue-level read");
-    assert_eq!(read("north#3"), (false, false), "a self-ticked box is not verified by its sibling's stamp");
+    let stamped = "A run's kept box is judged by its own stamp";
+    let runs = [run("a", "north#1", Some(stamped)), run("b", "north#1", None), run("c", "north#1", Some("Piece 3 of the umbrella")), run("d", "north#1", Some("A box nobody has staffed yet."))];
+    let bodies: std::collections::HashMap<String, String> = [("north#1".to_owned(), umbrella())].into();
+    let report = super::summarize(&runs, &Default::default(), &bodies, "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&bodies, None);
+    assert_eq!(report.closed, 2, "the two ticked boxes count; the run naming no box and the unticked box do not, though the issue stays open");
+    let read = |text: &str| report.arms.iter().find(|arm| arm.box_text.as_deref() == Some(text) && arm.closed).map(|arm| (arm.verified, arm.issue_verified));
+    assert_eq!(read(stamped), Some((true, false)), "the staffed, stamped box of an umbrella reads verified");
+    assert_eq!(read("Piece 3 of the umbrella"), Some((false, false)), "a self-ticked box is not verified by its sibling's stamp");
+    assert_eq!(read("A box nobody has staffed yet."), None);
 }
 
 #[test]
@@ -279,7 +280,7 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     let verified = |path: &std::path::Path| {
         let corroborated = super::corroborated::checked_boxes(path).unwrap();
         let items = closed.keys().cloned().collect();
-        let report = super::summarize(std::slice::from_ref(&run), &items, "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&closed, corroborated.as_ref());
+        let report = super::summarize(std::slice::from_ref(&run), &items, &Default::default(), "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&closed, corroborated.as_ref());
         report.arms[0].verified
     };
     assert!(!verified(&path), "a self-ticked box whose own stamp claims a pass reads unverified while no checker assertion corroborates it");
@@ -395,7 +396,7 @@ const LEAF_COMMAND: &str = "cargo nextest run -p north-providers -E 'test(/leaf/
 fn report_of(runs: Vec<super::closed::SpendRun>, closed: &[(&str, super::Closed)]) -> super::ClosedReport {
     let closed: std::collections::HashMap<String, super::Closed> = closed.iter().map(|(item, issue)| ((*item).to_owned(), issue.clone())).collect();
     let sources = super::closed_source::Inputs { runs, native: Default::default(), closed: Default::default(), corroborated: None, catalog: &crate::threads::catalog::CATALOG };
-    super::closed_source::report_between(&sources, "2026-11-01T00:00:00Z", "2026-11-09T00:00:00Z", move |_, _, _| Ok(closed.clone()), &crate::router::pricing::PriceTable::load().unwrap()).unwrap()
+    super::closed_source::report_between(&sources, "2026-11-01T00:00:00Z", "2026-11-09T00:00:00Z", move |_, _, _| Ok(super::closed_source::Listing { closed: closed.clone(), open: Default::default() }), &crate::router::pricing::PriceTable::load().unwrap()).unwrap()
 }
 
 #[test]

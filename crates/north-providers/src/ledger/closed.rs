@@ -221,9 +221,13 @@ pub fn checker_verified(body: &str) -> bool {
 
 /// Whether the ticked box of `body` that `box_text` names carries the checker's stamp. A box matches by the slug a claim keeps, so one stored shorter than the slug limit names every box it begins.
 pub fn box_verified(body: &str, box_text: &str) -> bool {
-    let Some(wanted) = crate::threads::claims::box_slug(box_text) else { return false };
-    let named: Vec<&str> = ticked(body).filter(|line| crate::threads::claims::box_slug(line.trim_start_matches(['-', '*', ' ']).trim_start_matches("[x]").trim_start_matches("[X]")).is_some_and(|slug| slug.starts_with(&wanted))).collect();
+    let named = ticked_named(body, box_text);
     !named.is_empty() && named.iter().all(|line| crate::platform::box_oracles::own_command_passed(line))
+}
+
+fn ticked_named<'a>(body: &'a str, box_text: &str) -> Vec<&'a str> {
+    let Some(wanted) = crate::threads::claims::box_slug(box_text) else { return Vec::new() };
+    ticked(body).filter(|line| crate::threads::claims::box_slug(line.trim_start_matches(['-', '*', ' ']).trim_start_matches("[x]").trim_start_matches("[X]")).is_some_and(|slug| slug.starts_with(&wanted))).collect()
 }
 
 fn ticked(body: &str) -> impl Iterator<Item = &str> {
@@ -247,20 +251,26 @@ pub fn cell_name(model: Option<&str>, effort: &str) -> Option<String> {
     ["low", "medium", "high", "xhigh", "max"].contains(&effort).then(|| format!("{family}-{effort}"))
 }
 
-pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, prices: &PriceTable) -> ClosedReport {
-    let mut boxes: BTreeMap<&str, Vec<&SpendRun>> = BTreeMap::new();
+pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, bodies: &HashMap<String, String>, since: &str, prices: &PriceTable) -> ClosedReport {
+    let mut groups: BTreeMap<(&str, Option<String>), Vec<&SpendRun>> = BTreeMap::new();
     for run in runs.iter().filter(|run| run.role == WORKER) {
-        if let Some(item) = run.item.as_deref().filter(|item| closed.contains(*item)) {
-            boxes.entry(item).or_default().push(run);
+        if let Some(item) = run.item.as_deref() {
+            groups.entry((item, run.box_text.as_deref().and_then(crate::threads::claims::box_slug))).or_default().push(run);
         }
     }
+    let counts = |item: &str, runs: &[&SpendRun]| {
+        runs.iter().any(|run| run.landed)
+            && (closed.contains(item)
+                || runs.iter().any(|run| run.landed && run.ended.as_str() >= since && run.box_text.as_deref().is_some_and(|text| bodies.get(item).is_some_and(|body| !ticked_named(body, text).is_empty()))))
+    };
+    let (mut boxes, open): (BTreeMap<_, _>, BTreeMap<_, _>) = groups.into_iter().partition(|((item, _), runs)| counts(item, runs));
     let staffed: HashSet<String> = runs.iter().filter(|run| run.role == WORKER && run.started.as_str() >= since).map(|run| tier_label(&run.tier)).collect();
     let mut cells: HashMap<(String, String), Cell> = HashMap::new();
     let mut cell_boxes = Vec::new();
     let mut arms = Vec::new();
     let mut spent_boxes = Vec::new();
     let mut distinct_closed = 0;
-    for (item, runs) in boxes.iter_mut().filter(|(_, runs)| runs.iter().any(|run| run.landed)) {
+    for ((item, _), runs) in boxes.iter_mut() {
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let reworked = runs.iter().any(|run| run.landed && run.reworked);
@@ -291,20 +301,14 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
             cell_boxes.push(CellBox { item: (*item).to_owned(), category: category.to_owned(), cell, usd: spent, closed: true, reworked });
         }
     }
-    let mut open: BTreeMap<&str, Vec<&SpendRun>> = BTreeMap::new();
-    for run in runs.iter().filter(|run| run.role == WORKER) {
-        if let Some(item) = run.item.as_deref().filter(|item| !boxes.get(*item).is_some_and(|runs| runs.iter().any(|run| run.landed))) {
-            open.entry(item).or_default().push(run);
-        }
-    }
-    for (item, runs) in open.iter_mut() {
+    for ((item, _), mut runs) in open {
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         if runs[0].started.as_str() < since {
             continue;
         }
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let spent = runs.iter().map(|run| run.usd(prices)).sum::<f64>();
-        spent_boxes.push(SkillBox::of(item, category, spent, false, runs));
+        spent_boxes.push(SkillBox::of(item, category, spent, false, &runs));
         if let Some(cell) = cells.get_mut(&(tier_label(&runs[0].tier), category.to_owned())) {
             cell.unclosed_usd += spent;
         }

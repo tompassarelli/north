@@ -1,7 +1,7 @@
 use super::{Better, Figure, Measure};
 use crate::ledger::ClosedReport;
 
-const SOURCE: &str = "boxes closed in each window that a worker run closed, counted graded when the graph holds their own Done-when command passed by the checker on a commit that landed on main (north#872's bar: machine-verified boxes at least as many as self-ticked ones); a window the ledger could not read shows no record (ledger closed-box report, graph corroborated rule)";
+const SOURCE: &str = "boxes a worker run landed in each window that are ticked in their issue (open or closed) or whose issue closed, counted graded when the graph holds their own Done-when command passed by the checker on a commit that landed on main (north#872's bar: machine-verified boxes at least as many as self-ticked ones); a window the ledger could not read shows no record (ledger closed-box report, graph corroborated rule)";
 
 fn figure(report: Option<&ClosedReport>) -> Figure {
     let closed = report.map_or_else(Vec::new, |report| report.arms.iter().filter(|arm| arm.closed).collect());

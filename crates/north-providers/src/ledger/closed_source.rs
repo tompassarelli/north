@@ -149,8 +149,24 @@ pub(super) fn within(issues: &[ClosedIssue], since: &str, until: &str) -> HashMa
     issues.iter().filter(|issue| issue.at.as_str() >= since && issue.at.as_str() < until).map(|issue| (issue.item.clone(), issue.closed.clone())).collect()
 }
 
-fn live_closed(repo: &str, since: &str, until: &str) -> NorthResult<HashMap<String, Closed>> {
-    github_closed(repo, since, until).map(|issues| within(&issues, since, until))
+#[derive(Clone, Debug, Default)]
+pub(super) struct Listing {
+    pub(super) closed: HashMap<String, Closed>,
+    pub(super) open: HashMap<String, String>,
+}
+
+pub(super) fn github_open(repo: &str) -> NorthResult<HashMap<String, String>> {
+    let repository = format!("{OWNER}/{repo}");
+    let issues = github::json(&["issue", "list", "-R", &repository, "--state", "open", "--limit", &ISSUE_LIMIT.to_string(), "--json", "number,body"]).map_err(|error| NorthError::Configuration(format!("gh issue list {repository}: {}", error.trim())))?;
+    let listed = issues.as_array().map_or(&[][..], Vec::as_slice);
+    if listed.len() >= ISSUE_LIMIT {
+        return Err(NorthError::Configuration(format!("{repository} holds {ISSUE_LIMIT} or more open issues, more than one listing returns")));
+    }
+    Ok(listed.iter().filter_map(|issue| Some((format!("{repo}#{}", issue["number"].as_i64()?), text(issue, "body")))).collect())
+}
+
+fn live_listing(repo: &str, since: &str, until: &str) -> NorthResult<Listing> {
+    Ok(Listing { closed: within(&github_closed(repo, since, until)?, since, until), open: github_open(repo)? })
 }
 
 pub fn closed_report(window: &str) -> NorthResult<ClosedReport> {
@@ -172,7 +188,7 @@ pub fn adjacent_windows(now: Timestamp, span: i64) -> [(String, String); 2] {
 
 fn closed_report_between(since: &str, until: &str) -> NorthResult<ClosedReport> {
     let corroborated = super::corroborated::checked_boxes(&north_graph::default_path())?;
-    report_over(&threads_database(), since, until, |_| true, corroborated, live_closed)
+    report_over(&threads_database(), since, until, |_| true, corroborated, live_listing)
 }
 
 /// The same runs without the closed-box report, for a caller that needs only what each run cost.
@@ -194,7 +210,7 @@ pub fn inside(window: &str) -> NorthResult<(Vec<WindowRun>, ClosedReport)> {
     let (since, until) = window_bounds(window, Timestamp::now())?;
     let corroborated = super::corroborated::checked_boxes(&north_graph::default_path())?;
     let started = |run: &SpendRun| run.started.as_str() >= since.as_str() && run.started.as_str() < until.as_str();
-    Ok((window_runs(&database, &since, &until)?, report_over(&database, &since, &until, started, corroborated, live_closed)?))
+    Ok((window_runs(&database, &since, &until)?, report_over(&database, &since, &until, started, corroborated, live_listing)?))
 }
 
 /// How often a run took over another run's work (a handover, revive or relaunch in a new conversation) and what the
@@ -244,7 +260,7 @@ pub(super) fn window_bounds(window: &str, now: Timestamp) -> NorthResult<(String
     Ok((Timestamp::from_unix_seconds(now.unix_seconds() - span_seconds(window)?).iso(), now.iso()))
 }
 
-pub(super) fn report_over(database: &Path, since: &str, until: &str, keep: impl Fn(&SpendRun) -> bool, corroborated: Option<HashSet<String>>, github: impl Fn(&str, &str, &str) -> NorthResult<HashMap<String, Closed>> + Sync) -> NorthResult<ClosedReport> {
+pub(super) fn report_over(database: &Path, since: &str, until: &str, keep: impl Fn(&SpendRun) -> bool, corroborated: Option<HashSet<String>>, github: impl Fn(&str, &str, &str) -> NorthResult<Listing> + Sync) -> NorthResult<ClosedReport> {
     let runs: Vec<SpendRun> = spend_runs(database)?.into_iter().filter(|run| run.ended.as_str() < until && keep(run)).collect();
     let native = native_namespaces(database)?;
     let closed = native_closed(database, since, until)?;
@@ -263,7 +279,7 @@ pub(super) struct Inputs<'a> {
 /// ledger does not hold. A landed run naming a repository outside the catalog (an archived or
 /// renamed one) can never match a closed issue, so it is left out of every cell and named in
 /// `skipped` rather than failing the report for the repositories that are known.
-pub(super) fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&str, &str, &str) -> NorthResult<HashMap<String, Closed>> + Sync, prices: &PriceTable) -> NorthResult<ClosedReport> {
+pub(super) fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&str, &str, &str) -> NorthResult<Listing> + Sync, prices: &PriceTable) -> NorthResult<ClosedReport> {
     let mut landed: BTreeMap<&str, usize> = BTreeMap::new();
     for repo in sources.runs.iter().filter(|run| run.landed).filter_map(|run| run.item.as_deref()?.split_once('#').map(|(repo, _)| repo)) {
         *landed.entry(repo).or_default() += 1;
@@ -271,17 +287,20 @@ pub(super) fn report_between(sources: &Inputs, since: &str, until: &str, github:
     let known = |repo: &str| sources.catalog.repos.iter().chain(&sources.catalog.native).any(|known| known == repo);
     let mut closed = sources.closed.clone();
     let repos: Vec<&str> = landed.keys().copied().filter(|repo| known(repo) && !sources.native.contains(*repo)).collect();
-    let read: Vec<NorthResult<HashMap<String, Closed>>> = std::thread::scope(|scope| {
+    let read: Vec<NorthResult<Listing>> = std::thread::scope(|scope| {
         let reads: Vec<_> = repos.iter().map(|repo| scope.spawn(|| github(repo, since, until))).collect();
         reads.into_iter().map(|read| read.join().unwrap_or_else(|_| Err(NorthError::State("a closed-issue read panicked".into())))).collect()
     });
-    for issues in read {
-        closed.extend(issues?);
+    let mut bodies: HashMap<String, String> = HashMap::new();
+    for listing in read {
+        let listing = listing?;
+        bodies.extend(listing.open);
+        closed.extend(listing.closed);
     }
     let items: HashSet<String> = closed.keys().cloned().collect();
-    let bodies: HashMap<String, String> = closed.iter().map(|(item, issue)| (item.clone(), issue.body.clone())).collect();
+    bodies.extend(closed.iter().map(|(item, issue)| (item.clone(), issue.body.clone())));
     let (counted, made) = apart(&sources.runs, &items, &creators(&sources.runs, &closed));
-    let mut report = summarize(&counted, &items, since, prices).split(&made, since, prices).verified(&bodies, sources.corroborated.as_ref()).leaves(&closed);
+    let mut report = summarize(&counted, &items, &bodies, since, prices).split(&made, since, prices).verified(&bodies, sources.corroborated.as_ref()).leaves(&closed);
     report.skipped = landed.into_iter().filter(|(repo, _)| !known(repo)).map(|(repo, runs)| (repo.to_owned(), runs)).collect();
     Ok(report)
 }

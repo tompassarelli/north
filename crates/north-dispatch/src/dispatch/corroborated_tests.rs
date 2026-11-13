@@ -42,7 +42,7 @@ fn a_box_closes_and_an_arm_is_rewarded_only_on_a_mechanical_assertion_corroborat
         let corroborated = crate::ledger::corroborated::checked_boxes(graph).unwrap();
         let items = bodies.keys().cloned().collect();
         let prices = crate::router::pricing::PriceTable::load().unwrap();
-        crate::ledger::closed::summarize(&[run()], &items, "2026-11-01T00:00:00Z", &prices).verified(&bodies, corroborated.as_ref()).arms[0].verified
+        crate::ledger::closed::summarize(&[run()], &items, &Default::default(), "2026-11-01T00:00:00Z", &prices).verified(&bodies, corroborated.as_ref()).arms[0].verified
     };
     assert!(!rewarded(&path), "a worker's quoted claim with no checker, lander or git assertion earns no reward");
     Graph::open(&path).unwrap().tell("checker", Triple::new(Term::string(SHA), Term::keyword("check-passed"), Term::string(COMMAND))).unwrap();
