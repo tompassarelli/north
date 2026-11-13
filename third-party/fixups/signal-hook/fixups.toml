@@ -1,1 +1,4 @@
-buildscript.run = true
+rustc_flags = ["-Lnative=$(location :signal-hook-0.3-build-script-run[out_dir])"]
+
+[buildscript.run]
+rustc_link_lib = true

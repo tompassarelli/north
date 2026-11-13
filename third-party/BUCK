@@ -6661,7 +6661,10 @@ cargo.rust_library(
         "extended-siginfo-raw",
         "iterator",
     ],
-    rustc_flags = ["@$(location :signal-hook-0.3-build-script-run[rustc_flags])"],
+    rustc_flags = [
+        "-Lnative=$(location :signal-hook-0.3-build-script-run[out_dir])",
+        "@$(location :signal-hook-0.3-build-script-run[rustc_flags])",
+    ],
     visibility = [],
     deps = [
         ":libc-0.2",
@@ -6728,6 +6731,7 @@ buildscript_run(
         "extended-siginfo-raw",
         "iterator",
     ],
+    rustc_link_lib = True,
     version = "0.3.18",
 )
 
