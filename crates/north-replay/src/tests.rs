@@ -96,7 +96,7 @@ fn decision(reason: Reason) -> admission::Decision {
 }
 
 fn log_admission(root: &Path, count: usize, slot: bool, logged: impl Fn(usize) -> Reason) {
-    let hash = if slot { "waiting" } else { "free" };
+    let hash = if slot { "0123456789abcdef01234567" } else { "fedcba98765432100123abcd" };
     let held = Snapshot { v: 1, hash: hash.into(), at: NOW - 5000.0, host: "h".into(), snapshot: reading(slot) };
     append(root, Kind::Admission, "snapshots.jsonl", NOW - 5000.0, &held);
     for index in 0..count {
@@ -135,7 +135,7 @@ fn exit(root: &Path, deciders: &Deciders) -> (u8, Replayed) {
 }
 
 #[test]
-fn a_change_that_shifts_counts_or_places_a_launch_on_an_account_at_its_provider_limit_is_refused_and_an_unchanged_one_is_not() {
+fn a_change_that_shifts_counts_or_places_a_launch_on_an_account_at_its_provider_limit_is_refused_and_an_unchanged_one_or_a_cloud_case_it_cannot_replay_is_not() {
     let root = tempfile::tempdir().unwrap();
     log_admission(root.path(), 300, false, |index| if index % 12 == 0 { Reason::DeferQueued } else { Reason::Run });
     let defers_everything = |_: &str, _: &admission::Request| Some((Reason::DeferQueued, false));
@@ -160,6 +160,17 @@ fn a_change_that_shifts_counts_or_places_a_launch_on_an_account_at_its_provider_
     let limit = replayed.invariants.iter().find(|invariant| invariant.name == "provider-limit").unwrap();
     assert_eq!((code, limit.checked, limit.passed), (1, 4, 3));
     assert!(limit.breaches[0].contains("at its provider's five-hour limit"), "{:?}", limit.breaches);
+    let cloud = tempfile::tempdir().unwrap();
+    for index in 0..30 {
+        let at = NOW - 300.0 + index as f64;
+        append(cloud.path(), Kind::Placement, "jsonl", at, &envelope(Kind::Placement, &format!("c{index}"), at, None, placed_case(20.0), placed_on_cloud()));
+    }
+    let (code, replayed) = exit(cloud.path(), &deciders(&quiet_admission, &same_judgement, &unplaced));
+    assert_eq!((code, replayed.counts[1].unreplayable), (0, 30), "cloud cases that cannot be replayed are not a shift");
+    let places_on_account = |_: &placement::Case| Some(Target::Account("claude:c".into()));
+    let (code, replayed) = exit(cloud.path(), &deciders(&quiet_admission, &same_judgement, &places_on_account));
+    assert_eq!(code, 1);
+    assert!(replayed.refusals(&bounds(), false).iter().any(|refusal| refusal.starts_with("placement cloud: logged 30, replayed 0, past the x2 bound")), "{:?}", replayed.refusals(&bounds(), false));
     assert_github_floor_refuses_a_launch_placed_under_1000_calls_and_skips_unread_cases();
     assert_a_strategy_whose_slowest_call_passes_10_ms_is_refused_naming_its_kind_and_a_quick_one_is_not();
     assert_a_placement_change_that_moves_launches_to_another_account_prints_each_move_beside_the_unchanged_count();
@@ -186,6 +197,10 @@ fn placed_case(used_5h: f64) -> placement::Case {
 fn with_github(mut case: placement::Case, remaining: u64) -> placement::Case {
     case.github = Some(Quota { resource: "core".into(), remaining, resets_at: NOW + 600.0 });
     case
+}
+
+fn placed_on_cloud() -> placement::Decision {
+    placement::Decision { target: Target::Cloud { account: "claude:c".into(), host: "gex45".into(), credit: "anthropic".into() }, machine: None, outcome: Outcome::Placed { account: Some("c".into()), note: None, machine: None, need: None }, lines: Vec::new() }
 }
 
 fn placed_on_c() -> placement::Decision {

@@ -43,12 +43,10 @@ fn percentile(sorted: &[f64], share: f64) -> f64 {
 /// the log landed and the replay never does counts as never landing.
 pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &Bounds) -> (Counts, Invariant, Invariant) {
     let batches: HashMap<String, (f64, Option<Quota>)> = decision_log::lines(root, Kind::LandBatch, "jsonl", since - 3600.0, now)
-        .into_iter()
         .filter_map(|(_, line)| serde_json::from_str::<Stamp>(&line).ok())
         .map(|stamp| (stamp.id, (stamp.at, stamp.case.github)))
         .collect();
     let mut judged: Vec<Envelope<JudgeCase, Judgement>> = decision_log::lines(root, Kind::LandJudge, "jsonl", since, now)
-        .into_iter()
         .filter_map(|(_, line)| serde_json::from_str(&line).ok())
         .filter(|logged: &Envelope<JudgeCase, Judgement>| logged.at >= since)
         .collect();

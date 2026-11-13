@@ -68,6 +68,7 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
     }).collect();
     let basis = Basis::new(&cfg, case.at);
     let credit = credit::credit_verdict(&case.credit, case.config.cloud_credit.as_deref().unwrap_or_default(), case.at);
+    let cloud_unrecorded = credit.0 && case.machines.iter().any(|machine| machine.claude_ai.is_none());
     let here = case.here.name.as_str();
     let family = launch_family(&case.launch);
     let coordinator = is_coordinator(&case.launch);
@@ -88,6 +89,9 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
             decision.family = Some(ModelFamily::Opus);
             decision.machine_lines.push("no account has Fable headroom; the coordinator starts on Opus high".to_owned());
         }
+    }
+    if cloud_unrecorded && decision.code_only {
+        return Err("the case predates the claude.ai sign-in record, so the cloud lane it would consult cannot be replayed".to_owned());
     }
     decision.here_on_battery = case.here.battery.map(|percent| gate::battery_refusal(here, percent, &machines));
     decision.here_closed = gate::closed(here, case.here.playtest_hold_until, || case.here.battery, case.at as u64);
@@ -127,7 +131,7 @@ fn recorded(machine: &Machine, facts: Facts, fleet_load: &BTreeMap<String, i64>)
         name: machine.name.clone(),
         live: facts.live,
         accounts: facts.accounts,
-        claude_ai: facts.claude_ai,
+        claude_ai: Some(facts.claude_ai),
         saturation: facts.saturation.map(Into::into),
         saturation_age_s: facts.saturation_age_s,
         stale_age_s: facts.stale_age_s,
@@ -138,7 +142,7 @@ fn recorded(machine: &Machine, facts: Facts, fleet_load: &BTreeMap<String, i64>)
 }
 
 fn facts(machine: &north_strategy_types::placement::Machine) -> Facts {
-    Facts { live: machine.live, accounts: machine.accounts.clone(), claude_ai: machine.claude_ai.clone(), saturation: machine.saturation.map(Into::into), saturation_age_s: machine.saturation_age_s, has_cwd: machine.has_cwd, stale_age_s: machine.stale_age_s }
+    Facts { live: machine.live, accounts: machine.accounts.clone(), claude_ai: machine.claude_ai.clone().unwrap_or_default(), saturation: machine.saturation.map(Into::into), saturation_age_s: machine.saturation_age_s, has_cwd: machine.has_cwd, stale_age_s: machine.stale_age_s }
 }
 
 fn here() -> Here {

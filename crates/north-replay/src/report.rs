@@ -16,6 +16,7 @@ pub struct Counts {
     pub cases: usize,
     pub unreplayable: usize,
     pub logged: BTreeMap<String, usize>,
+    pub paired: BTreeMap<String, usize>,
     pub replayed: BTreeMap<String, usize>,
     pub same: usize,
     pub changes: BTreeMap<String, usize>,
@@ -59,18 +60,21 @@ impl Counts {
         self.cases += 1;
         *self.logged.entry(logged.to_owned()).or_default() += 1;
         match replayed {
-            Some(label) => *self.replayed.entry(label.to_owned()).or_default() += 1,
+            Some(label) => {
+                *self.paired.entry(logged.to_owned()).or_default() += 1;
+                *self.replayed.entry(label.to_owned()).or_default() += 1;
+            }
             None => self.unreplayable += 1,
         }
     }
 
-    /// The outcomes whose replayed count left the bound around the logged count.
+    /// The outcomes whose replayed count left the bound around the logged count of the cases that replayed.
     pub fn shifts(&self, bounds: &Bounds) -> Vec<String> {
-        let labels: std::collections::BTreeSet<&String> = self.logged.keys().chain(self.replayed.keys()).collect();
+        let labels: std::collections::BTreeSet<&String> = self.paired.keys().chain(self.replayed.keys()).collect();
         labels
             .into_iter()
             .filter_map(|label| {
-                let (logged, replayed) = (self.logged.get(label).copied().unwrap_or(0), self.replayed.get(label).copied().unwrap_or(0));
+                let (logged, replayed) = (self.paired.get(label).copied().unwrap_or(0), self.replayed.get(label).copied().unwrap_or(0));
                 let (low, high) = (logged.min(replayed), logged.max(replayed));
                 (high >= bounds.shift_min_cases && high as f64 > bounds.shift_ratio * low.max(1) as f64)
                     .then(|| format!("{} {label}: logged {logged}, replayed {replayed}, past the x{} bound of replay_outcome_shift_ratio", self.kind, bounds.shift_ratio))
@@ -83,6 +87,9 @@ impl Counts {
         self.unreplayable += other.unreplayable;
         for (label, count) in other.logged {
             *self.logged.entry(label).or_default() += count;
+        }
+        for (label, count) in other.paired {
+            *self.paired.entry(label).or_default() += count;
         }
         for (label, count) in other.replayed {
             *self.replayed.entry(label).or_default() += count;

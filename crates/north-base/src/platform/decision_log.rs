@@ -55,20 +55,31 @@ pub fn span_seconds(span: &str) -> Option<f64> {
     span[..span.len() - 1].parse::<f64>().ok().filter(|count| *count > 0.0).map(|count| count * unit)
 }
 
-/// Every line of `kind`'s hour files ending in `suffix` that cover `since` to `now`, compressed or not.
-pub fn lines(root: &Path, kind: Kind, suffix: &str, since: f64, now: f64) -> Vec<(PathBuf, String)> {
-    let mut found = Vec::new();
+pub fn hour_files(root: &Path, kind: Kind, suffix: &str, since: f64, now: f64) -> Vec<PathBuf> {
+    let mut files = Vec::new();
     let mut hour = (since / 3600.0).floor() * 3600.0;
     while hour <= now {
-        let plain = hour_file(root, kind, hour, suffix);
-        let packed = plain.with_extension(format!("{}.zst", plain.extension().and_then(|ext| ext.to_str()).unwrap_or("jsonl")));
-        let text = std::fs::read_to_string(&plain).ok().or_else(|| unpacked(&packed));
-        for line in text.unwrap_or_default().lines().filter(|line| !line.trim().is_empty()) {
-            found.push((plain.clone(), line.to_owned()));
-        }
+        files.push(hour_file(root, kind, hour, suffix));
         hour += 3600.0;
     }
-    found
+    files
+}
+
+pub fn read_hour(plain: &Path) -> String {
+    let packed = plain.with_extension(format!("{}.zst", plain.extension().and_then(|ext| ext.to_str()).unwrap_or("jsonl")));
+    std::fs::read_to_string(plain).ok().or_else(|| unpacked(&packed)).unwrap_or_default()
+}
+
+pub fn hourly_lines(root: &Path, kind: Kind, suffix: &str, since: f64, now: f64) -> impl Iterator<Item = Vec<(PathBuf, String)>> {
+    hour_files(root, kind, suffix, since, now).into_iter().map(|plain| {
+        let text = read_hour(&plain);
+        text.lines().filter(|line| !line.trim().is_empty()).map(|line| (plain.clone(), line.to_owned())).collect::<Vec<_>>()
+    })
+}
+
+/// Every line of `kind`'s hour files ending in `suffix` that cover `since` to `now`, compressed or not.
+pub fn lines(root: &Path, kind: Kind, suffix: &str, since: f64, now: f64) -> impl Iterator<Item = (PathBuf, String)> {
+    hourly_lines(root, kind, suffix, since, now).flatten()
 }
 
 fn unpacked(path: &Path) -> Option<String> {
