@@ -30,7 +30,6 @@ const WRITE_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 const PASSES: usize = 5;
 const UPDATE_LOCK: &str = "runtime-update.lock";
 const PROMOTE_LOCK: &str = "runtime-promote.lock";
-const PROMOTE_QUEUE: &str = "runtime-promote-queue.lock";
 const CHECKOUT: &str = "code/north/main";
 const BUILD_FOR_PEER_LOCK: &str = "runtime-build.lock";
 const BUILD_FOR_PEER_WAIT: Duration = Duration::from_secs(30 * 60);
@@ -83,35 +82,19 @@ fn note_landing(layout: &Layout) {
     }
 }
 
-/// One promotion runs per host under runtime-promote.lock, which its fetches and builds hold while runtime-update.lock covers only each swap: a caller that finds one running dates its landing and waits for it, then follows origin/main at its newest head, which costs one fetch when the holder already promoted it; a caller still waiting after `PINNED_LOCK_WAIT` leaves its landing to the next tick. `after_flip` runs after each swap, so the lander link follows a runtime as soon as it is live rather than after the holder's last pass.
+/// One promotion runs per host under runtime-promote.lock, which its fetches and builds hold while runtime-update.lock covers only each swap: a caller that finds one running dates its landing and exits at once, since the holder follows origin/main to its newest head pass after pass and the next tick takes any head it missed, so later landings never stack behind it (north#1247). `after_flip` runs after each swap, so the lander link follows a runtime as soon as it is live rather than after the holder's last pass.
 pub(super) fn flight(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Flight, Failure> {
     if let Some(_promoting) = named_lock(layout, PROMOTE_LOCK, FlockOperation::NonBlockingLockExclusive)? {
         return unordered(layout, after_flip);
     }
+    println!("north runtime: another promotion is running; it follows origin/main to its newest head and the next tick takes any head it missed");
     if land_offload::settles_fleet_here() {
         note_landing(layout);
-    }
-    let Some(queued) = named_lock(layout, PROMOTE_QUEUE, FlockOperation::NonBlockingLockExclusive)? else {
-        println!("north runtime: another promotion already waits behind the running one; the next tick takes origin/main's newest head");
-        return Ok(Flight::Joined);
-    };
-    let mut follow = north_runtime_follow::Follow::of(layout.current(), std::env::current_exe().ok());
-    let waited = named_lock_waiting_unless(layout, PROMOTE_LOCK, remote::limit(PINNED_LOCK_WAIT), "north runtime promote", &mut || {
-        slot::page_overdue(layout);
-        follow.replaced()
-    });
-    drop(queued);
-    match waited {
-        Ok(_promoting) => unordered(layout, after_flip),
-        Err(held) => {
-            println!("north runtime: {}; the next tick takes origin/main's newest head", held.message);
-            if held.code != DEFERRED && land_offload::settles_fleet_here() {
-                let reason = if cadence::hand_pinned(&layout.state) { format!("the hand order's pin holds the promotion lock: {}", held.message) } else { held.message };
-                cadence::note_outcome(layout, pin::now(), Outcome::Refused { reason });
-            }
-            Ok(Flight::Joined)
+        if cadence::hand_pinned(&layout.state) {
+            cadence::note_outcome(layout, pin::now(), Outcome::Refused { reason: format!("the hand order's pin holds {PROMOTE_LOCK}") });
         }
     }
+    Ok(Flight::Joined)
 }
 
 fn follow_main(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<(), Failure> {
@@ -200,19 +183,11 @@ fn flip(layout: &Layout, target: &str, before: Option<&Path>) -> Result<File, Fa
 }
 
 pub(super) fn named_lock_waiting(layout: &Layout, name: &str, limit: Duration, waiter: &str) -> Result<File, Failure> {
-    named_lock_waiting_unless(layout, name, limit, waiter, &mut || None)
-}
-
-/// A waiter whose runtime is no longer the one `current` names leaves at once: the promotion holding the lock and the runtime now current carry what it would have promoted.
-fn named_lock_waiting_unless(layout: &Layout, name: &str, limit: Duration, waiter: &str, replaced: &mut dyn FnMut() -> Option<String>) -> Result<File, Failure> {
     let started = Instant::now();
     let mut announced = false;
     loop {
         if let Some(held) = named_lock(layout, name, FlockOperation::NonBlockingLockExclusive)? {
             return Ok(held);
-        }
-        if let Some(now) = replaced() {
-            return Err(failed(DEFERRED, format!("{waiter} left its wait for {name}: this runtime is no longer current, {now} is")));
         }
         if !announced {
             println!("{waiter}: waiting up to {}s for {name}, held by another north runtime process", limit.as_secs());

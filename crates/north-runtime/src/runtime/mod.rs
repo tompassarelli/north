@@ -4,6 +4,7 @@ mod cadence;
 mod cargo_build;
 mod canary;
 pub mod checkouts;
+mod deadline;
 mod deploy;
 mod failure;
 mod follow;

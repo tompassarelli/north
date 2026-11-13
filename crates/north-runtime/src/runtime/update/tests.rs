@@ -169,12 +169,20 @@ fn a_host_with_a_dirty_main_checkout_still_promotes_the_shipped_runtime() {
 }
 
 #[test]
-fn a_waiting_promotion_whose_runtime_is_no_longer_current_leaves_instead_of_waiting_out_the_lock() {
+fn a_host_that_never_answers_is_skipped_at_its_deadline_and_a_second_promotion_exits_at_once() {
+    use super::super::deadline::{Reached, each_within};
+    let (_never, silent) = std::sync::mpsc::channel::<()>();
+    let reached = each_within(vec![
+        ("gex45".to_owned(), Duration::from_millis(300), Box::new(move || silent.recv().map_or("gave up", |()| "answered")) as Box<dyn FnOnce() -> &'static str + Send>),
+        ("whiterabbit".to_owned(), Duration::from_secs(600), Box::new(|| "promoted")),
+    ]);
+    assert_eq!(reached, vec![("gex45".to_owned(), Reached::Skipped(Duration::from_millis(300))), ("whiterabbit".to_owned(), Reached::Answered("promoted"))]);
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_path_buf() };
     let _holder = named_lock(&layout, PROMOTE_LOCK, FlockOperation::NonBlockingLockExclusive).unwrap().unwrap();
-    let left = named_lock_waiting_unless(&layout, PROMOTE_LOCK, Duration::from_secs(600), "north runtime promote", &mut || Some("runtimes/newer".to_owned())).unwrap_err();
-    assert_eq!(left.code, DEFERRED);
+    let mut swapped = false;
+    assert_eq!(flight(&layout, &mut || swapped = true).unwrap(), Flight::Joined);
+    assert!(!swapped);
 }
 
 #[test]

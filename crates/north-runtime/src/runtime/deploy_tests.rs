@@ -117,7 +117,7 @@ fn a_runtime_replaced_while_it_waited_its_turn_is_not_shipped() {
     let state = tempfile::tempdir().unwrap();
     let layout = super::Layout { state: state.path().to_owned() };
     let references = std::collections::BTreeSet::new();
-    let skipped = super::shipped(&layout, "no-such-host.invalid", TARGET, state.path(), &references, &|| true);
+    let skipped = super::shipped(&layout, "no-such-host.invalid", TARGET, state.path(), &references, &(std::sync::Arc::new(|| true) as super::Superseded), std::time::Duration::from_secs(60));
     assert!(skipped.is_ok());
 }
 

@@ -1,3 +1,4 @@
+use super::deadline::{self, Reached};
 use super::failure::{Failure, failed};
 use super::host_facts;
 use super::layout::{self, BUILT_FROM, Layout, PROGRAMS, TREE};
@@ -10,7 +11,10 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+type Superseded = Arc<dyn Fn() -> bool + Send + Sync>;
 
 const LOCK_WAIT: Duration = Duration::from_secs(30 * 60);
 const REALISE: Duration = Duration::from_secs(10 * 60);
@@ -25,16 +29,18 @@ pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
         let _building = promotion_waiting(layout, limit(LOCK_WAIT), "north runtime deploy")?;
         built_main(layout, &checkout())?
     };
-    ship_to(layout, &target, &runtime, hosts, &|| false)
+    ship_to(layout, &target, &runtime, hosts, Arc::new(|| false))
 }
 
 pub(super) fn deploy_live(layout: &Layout) -> Result<(), Failure> {
     let target = layout.live_sha().ok_or_else(|| failed(1, "this host has no live runtime to ship"))?;
-    ship_to(layout, &target, &layout.runtime(&target), &[], &|| layout.live_sha().is_some_and(|live| live != target))
+    let here = Layout { state: layout.state.clone() };
+    let shipped = target.clone();
+    ship_to(layout, &target, &layout.runtime(&target), &[], Arc::new(move || here.live_sha().is_some_and(|live| live != shipped)))
 }
 
-/// Each host takes its turn on its own lock, so a host slow to promote delays only its own next copy; a copy whose runtime a newer one has replaced here while it waited is skipped, since the newer one is shipped on its own.
-fn ship_to(layout: &Layout, target: &str, runtime: &Path, hosts: &[String], superseded: &(dyn Fn() -> bool + Sync)) -> Result<(), Failure> {
+/// Each host takes its turn on its own lock, so a host slow to promote delays only its own next copy; a copy whose runtime a newer one has replaced here while it waited is skipped, since the newer one is shipped on its own. A host that has not answered by its deadline (deadline.rs) is named skipped and left to the next tick's settle, which ships every host still behind.
+fn ship_to(layout: &Layout, target: &str, runtime: &Path, hosts: &[String], superseded: Superseded) -> Result<(), Failure> {
     let references = references(runtime)?;
     let hosts = if hosts.is_empty() {
         let plan = land_offload::deployment();
@@ -48,11 +54,20 @@ fn ship_to(layout: &Layout, target: &str, runtime: &Path, hosts: &[String], supe
     if hosts.is_empty() {
         return Err(failed(64, "no host to deploy to: name one or declare [hosts.NAME] with an ssh or deploy_ssh destination"));
     }
-    let failures: Vec<Failure> = std::thread::scope(|scope| {
-        let references = &references;
-        let shipping: Vec<_> = hosts.iter().map(|host| scope.spawn(move || shipped(layout, host, target, runtime, references, superseded))).collect();
-        shipping.into_iter().filter_map(|shipped| shipped.join().unwrap_or_else(|_| Err(failed(1, "shipping panicked"))).err()).collect()
-    });
+    let references = Arc::new(references);
+    let jobs: Vec<deadline::Job<Result<(), Failure>>> = hosts.into_iter().map(|host| {
+        let within = deadline::of(layout, &host);
+        let (here, name, target, runtime, references, superseded) = (Layout { state: layout.state.clone() }, host.clone(), target.to_owned(), runtime.to_owned(), Arc::clone(&references), Arc::clone(&superseded));
+        let job: Box<dyn FnOnce() -> Result<(), Failure> + Send> = Box::new(move || shipped(&here, &name, &target, &runtime, &references, &superseded, within));
+        (host, within, job)
+    }).collect();
+    let failures: Vec<Failure> = deadline::each_within(jobs).into_iter().filter_map(|(host, reached)| match reached {
+        Reached::Answered(shipped) => shipped.err(),
+        Reached::Skipped(within) => {
+            println!("north runtime deploy: {host}: skipped: no answer within its {}s deadline, twice the p90 of its ships; the next tick ships it", within.as_secs());
+            None
+        }
+    }).collect();
     for failure in &failures {
         eprintln!("north runtime deploy: {}", failure.message);
     }
@@ -62,8 +77,8 @@ fn ship_to(layout: &Layout, target: &str, runtime: &Path, hosts: &[String], supe
     }
 }
 
-fn shipped(layout: &Layout, host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>, superseded: &(dyn Fn() -> bool + Sync)) -> Result<(), Failure> {
-    let _turn = named_lock_waiting(layout, &host_lock("deploy", host), limit(LOCK_WAIT), "north runtime deploy")?;
+fn shipped(layout: &Layout, host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>, superseded: &Superseded, within: Duration) -> Result<(), Failure> {
+    let _turn = named_lock_waiting(layout, &host_lock("deploy", host), limit(LOCK_WAIT).min(within), "north runtime deploy")?;
     if superseded() {
         println!("north runtime deploy: {host}: {} was replaced here while it waited its turn; the newer runtime is shipped on its own", layout::short(target));
         return Ok(());
