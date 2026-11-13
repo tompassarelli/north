@@ -51,20 +51,38 @@ fn unix_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
-pub fn serve(listener: &UnixListener, broker: &Arc<Broker>, activity: &Arc<Activity>, log: &Arc<CallLog>, app: &Arc<AppReads>) {
+pub fn serve(listener: &UnixListener, drain_limit: Duration, broker: &Arc<Broker>, activity: &Arc<Activity>, log: &Arc<CallLog>, app: &Arc<AppReads>) -> bool {
     activity.touch();
-    for stream in listener.incoming().flatten() {
-        if activity.draining.load(Ordering::SeqCst) {
-            break;
+    let mut drain_began: Option<Instant> = None;
+    loop {
+        if drain_began.is_some_and(|began| began.elapsed() >= drain_limit) {
+            return activity.open.load(Ordering::SeqCst) == 0;
         }
-        activity.open.fetch_add(1, Ordering::Relaxed);
-        activity.touch();
-        let (broker, activity, log, app) = (Arc::clone(broker), Arc::clone(activity), Arc::clone(log), Arc::clone(app));
-        std::thread::spawn(move || {
-            answer(stream, &broker, &log, &app);
-            activity.touch();
-            activity.open.fetch_sub(1, Ordering::Relaxed);
-        });
+        match listener.accept() {
+            Ok((stream, _)) => {
+                activity.open.fetch_add(1, Ordering::SeqCst);
+                activity.touch();
+                let (broker, activity, log, app) = (Arc::clone(broker), Arc::clone(activity), Arc::clone(log), Arc::clone(app));
+                std::thread::spawn(move || {
+                    answer(stream, &broker, &log, &app);
+                    activity.touch();
+                    activity.open.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if activity.open.load(Ordering::SeqCst) == 0 {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(_) => {}
+        }
+        if drain_began.is_none() && activity.draining.load(Ordering::SeqCst) {
+            drain_began = Some(Instant::now());
+            if listener.set_nonblocking(true).is_err() {
+                return activity.finish_open_calls(drain_limit);
+            }
+        }
     }
 }
 

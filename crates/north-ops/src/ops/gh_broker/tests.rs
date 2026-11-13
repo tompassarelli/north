@@ -260,7 +260,7 @@ fn the_brokers_gh_config_edits_keep_the_login_and_release_only_its_own_line_whil
 }
 
 #[test]
-fn a_draining_broker_answers_the_call_it_holds_then_stops_accepting() {
+fn a_draining_broker_answers_every_call_that_reaches_it_until_none_is_open() {
     let mut broker = Harness::start(Duration::from_secs(20));
     broker.github.held.store(true, Ordering::SeqCst);
     let socket = broker.socket.clone();
@@ -275,9 +275,11 @@ fn a_draining_broker_answers_the_call_it_holds_then_stops_accepting() {
     };
     north_base::platform::wait::until(Duration::from_secs(60), || broker.activity.idle_for().is_none());
     broker.activity.drain(&socket);
-    broker.served.take().unwrap().join().unwrap();
-    assert!(!held.is_finished(), "the held call is still running when the server loop has stopped");
+    assert_eq!(broker.get("/whoami").status, 200, "a call that connects while the drain waits on an open call is answered, not reset");
+    let served = broker.served.take().unwrap();
+    assert!(!served.is_finished(), "the server keeps accepting while a call is open");
     broker.github.held.store(false, Ordering::SeqCst);
+    served.join().unwrap();
     assert!(broker.activity.finish_open_calls(Duration::from_secs(600)));
     assert_eq!(held.join().unwrap().status, 200, "the call in flight when the drain began is answered, not cut");
 }

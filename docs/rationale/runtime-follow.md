@@ -36,8 +36,8 @@ moves even while busy, so it moves within a minute of the flip.
   now ask `Follow`, which replaces `north_binary::superseded`. The broker hands new requests to a successor at once.
   The taker still waits until the runs it serves have ended.
 - **brokers**: an on-demand `gh-broker` or user credential broker exits at its next moment with no call open, as it
-  does after idling, and the next client starts the new runtime's. The resident `gh-broker` finishes its open calls and
-  exits, and its unit, which always restarts, starts it on the link.
+  does after idling, and the next client starts the new runtime's. The resident `gh-broker` keeps answering every call
+  that reaches its socket until a moment with none open and none waiting (at most 60 s), then exits, and its unit, which always restarts, starts it on the link.
 - **timers**: every north timer unit runs `current/tree/bin/north` as a oneshot, so each tick starts on the runtime
   current names.
 - **session hosts** (`north session-host`): re-exec in place, so the session they hold survives the move. Every 2 s
