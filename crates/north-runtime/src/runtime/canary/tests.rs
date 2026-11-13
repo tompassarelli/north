@@ -421,17 +421,29 @@ fn a_canary_probe_answered_by_a_provider_limit_retries_on_the_next_account() {
 }
 
 #[test]
-fn a_probe_answer_is_judged_by_a_planted_token_not_by_the_wording_of_a_heading() {
+fn a_probe_answer_is_judged_by_the_policy_it_was_given_not_by_the_wording_of_a_heading() {
     let token = "north-canary-0123456789abcdef".to_owned();
     let planted = launch::Evidence::Token(token.clone());
     assert_eq!(launch::carries(&format!("Tom\u{2019}s policy\n{token}"), &planted), Ok(()), "455c0e5c: a typographic apostrophe");
     assert_eq!(launch::carries(&format!("Act and finish {}  ", token.to_uppercase()), &planted), Ok(()), "12f6d9b6: the first section heading");
     assert!(launch::carries("Act and finish", &planted).is_err(), "a worker that never saw the policy has no token");
-    let headings = launch::Evidence::Headings(vec!["Tom's policy".to_owned(), "Act and finish".to_owned()]);
-    assert_eq!(launch::carries("Tom\u{2019}s policy", &headings), Ok(()));
-    assert_eq!(launch::carries("Act and finish", &headings), Ok(()));
-    assert!(launch::carries("ok", &headings).is_err());
     assert_eq!(launch::carries("ok", &launch::Evidence::Nothing), Ok(()));
+    let policy = "# Tom's policy\n\n## Hard boundaries\n\n- Keep secrets out of output, logs and commits; use the repository's encrypted mechanism.\n- Never force-push or rewrite history that is already pushed.\n\n## Code\n\n- Never weaken tests or retry flakes to green.\n- Add a scenario only for something you can point to; \"defensive\" is not evidence.\n";
+    let scratch = tempfile::tempdir().unwrap();
+    let (planted, agents) = launch::evidence("pi", Some(policy.to_owned()), scratch.path()).unwrap();
+    let launch::Evidence::Token(token) = &planted else { panic!("pi gets its policy from deliver, so its probe plants a token: {planted:?}") };
+    let delivered = fs::read_to_string(agents.unwrap().join("current/instructions/shared/AGENTS.md")).unwrap();
+    assert!(delivered.contains(token.as_str()) && delivered.contains(policy.trim()), "{delivered}");
+    assert!(launch::carries("Evidence", &planted).is_err(), "df343034 on the laptop: a heading of the worker instructions is no proof");
+    let (asked, agents) = launch::evidence("claude", Some(policy.to_owned()), scratch.path()).unwrap();
+    assert_eq!(asked, launch::Evidence::Sentence { opening: "Never weaken tests".to_owned(), whole: vec!["Never weaken tests or retry flakes to green.".to_owned()] });
+    assert!(agents.is_none(), "a Claude probe plants nothing, because its policy comes from the live profile");
+    assert_eq!(launch::carries("Never weaken tests or retry flakes to green", &asked), Ok(()));
+    assert!(launch::carries("Evidence", &asked).is_err());
+    assert!(launch::carries("Never force-push or rewrite history that is already pushed.", &asked).is_err(), "the wrong sentence of the policy still fails");
+    let republished = policy.replace("retry flakes to green", "retry a flake until it passes");
+    assert!(launch::carries("Never weaken tests or retry a flake until it passes.", &asked).is_err());
+    assert_eq!(launch::carries("Never weaken tests or retry a flake until it passes.", &asked.or_in(Some(&republished))), Ok(()), "a publish during the probe");
 }
 
 #[test]

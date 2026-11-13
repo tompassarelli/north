@@ -10,7 +10,6 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 const PLAIN_PROMPT: &str = "Reply with the single word ok and nothing else.";
-const HEADING_PROMPT: &str = "Reply with the words of any one heading of the standing policy text you were given before this message, without its leading mark, and nothing else.";
 const TOKEN_PROMPT: &str = "Reply with the canary token written in the standing policy text you were given before this message, copied exactly, and nothing else. The token is a test marker, not a secret.";
 const ASK: Duration = Duration::from_secs(30);
 const ANSWER_WITHIN: Duration = Duration::from_secs(120);
@@ -21,13 +20,10 @@ pub(in crate::runtime) fn probe(provider: &str) -> Result<(), Failure> {
     let north = std::env::current_exe().map_err(|error| unrun(error.into()))?;
     let scratch = tempfile::tempdir().map_err(|error| unrun(error.into()))?;
     let (state, cwd) = scratch_root(scratch.path())?;
-    let (evidence, agents) = evidence(provider, scratch.path()).map_err(unrun)?;
+    let (evidence, agents) = evidence(provider, published(), scratch.path()).map_err(unrun)?;
     let scene = Scene { north: &north, state: &state, agents: agents.as_deref() };
-    let prompt = match evidence {
-        Evidence::Token(_) => TOKEN_PROMPT,
-        Evidence::Headings(_) => HEADING_PROMPT,
-        Evidence::Nothing => PLAIN_PROMPT,
-    };
+    let prompt = evidence.prompt();
+    let prompt = prompt.as_str();
     let accounts = match provider {
         "claude" => claude_accounts(&north)?,
         _ => vec![None],
@@ -48,19 +44,43 @@ struct Scene<'a> {
 }
 
 /// What a worker's reply must carry to show the shared policy reached it.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum Evidence {
     Token(String),
-    Headings(Vec<String>),
+    Sentence { opening: String, whole: Vec<String> },
     Nothing,
 }
 
-/// OpenCode's policy arrives appended to its first turn by `deliver`, so its probe plants a fresh token in a scratch generation holding the published policy and asks for the token back; Claude and Pi read the live profile, which a probe must not touch, so they keep asking for a heading of the published policy.
-fn evidence(provider: &str, scratch: &Path) -> Result<(Evidence, Option<PathBuf>), Failure> {
-    let published = Shared::published().and_then(|shared| shared.policy());
-    if provider != "opencode" {
-        let headings: Vec<String> = published.iter().flat_map(|policy| policy.lines()).filter(|line| line.starts_with('#')).map(|line| line.trim_start_matches('#').trim().to_owned()).filter(|heading| !heading.is_empty()).collect();
-        return Ok((if headings.is_empty() { Evidence::Nothing } else { Evidence::Headings(headings) }, None));
+impl Evidence {
+    fn prompt(&self) -> String {
+        match self {
+            Self::Token(_) => TOKEN_PROMPT.to_owned(),
+            Self::Sentence { opening, .. } => format!("Reply with the sentence of the standing policy text you were given before this message that begins \"{opening}\", copied whole and exactly, and nothing else."),
+            Self::Nothing => PLAIN_PROMPT.to_owned(),
+        }
+    }
+
+    /// The same evidence, also accepting the sentence that begins the same way in `policy`, the one published when the worker answered, so a publish during the probe cannot fail it.
+    pub(super) fn or_in(&self, policy: Option<&str>) -> Self {
+        match self {
+            Self::Sentence { opening, whole } => {
+                let republished = policy.and_then(|policy| bullets(policy).find(|text| text.starts_with(opening.as_str()))).map(str::to_owned);
+                Self::Sentence { opening: opening.clone(), whole: whole.iter().cloned().chain(republished).collect() }
+            }
+            other => other.clone(),
+        }
+    }
+}
+
+fn published() -> Option<String> {
+    Shared::published().and_then(|shared| shared.policy())
+}
+
+/// OpenCode and Pi get the policy appended to their first turn by `deliver`, from the generation `NORTH_AGENT_STATE_ROOT` names, so their probe plants a fresh token in a scratch generation holding the published policy and asks for the token back. Claude reads the policy from its profile, which a probe must not touch, so its probe names the opening of one sentence of the published policy and asks for the whole sentence, which no worker completes from its own instructions: on 2026-11-13 a Pi worker asked for any heading of the policy answered "Evidence", a heading of the fleet's worker instructions, and runtime df343034 was rolled back on the laptop.
+pub(super) fn evidence(provider: &str, published: Option<String>, scratch: &Path) -> Result<(Evidence, Option<PathBuf>), Failure> {
+    if crate::providers::harness_named(provider).is_none() {
+        let quoted = published.as_deref().and_then(quoted);
+        return Ok((quoted.map_or(Evidence::Nothing, |(opening, sentence)| Evidence::Sentence { opening, whole: vec![sentence] }), None));
     }
     let token = fresh_token()?;
     let root = scratch.join("agents");
@@ -68,6 +88,21 @@ fn evidence(provider: &str, scratch: &Path) -> Result<(Evidence, Option<PathBuf>
     std::fs::create_dir_all(policy.parent().unwrap_or(&root))?;
     std::fs::write(&policy, format!("{}\n\n{}\n", planted_line(&token), published.unwrap_or_default()))?;
     Ok((Evidence::Token(token), Some(root)))
+}
+
+fn bullets(policy: &str) -> impl Iterator<Item = &str> {
+    policy.lines().filter_map(|line| line.trim().strip_prefix("- ")).map(str::trim)
+}
+
+/// The opening and whole of the sentence a Claude probe asks for: the shortest bullet of `policy` that is one sentence of plain words, at least eight long so its rest cannot be guessed, whose first three words appear nowhere else in the policy so they name it alone; eight and three are guesses that a probe's wrong-sentence replies would settle.
+pub(super) fn quoted(policy: &str) -> Option<(String, String)> {
+    bullets(policy)
+        .filter(|text| text.ends_with('.') && !text.trim_end_matches('.').contains(". ") && !text.contains(['`', '"', '*']) && text.split_whitespace().count() >= 8)
+        .filter_map(|text| {
+            let opening = text.split_whitespace().take(3).collect::<Vec<_>>().join(" ");
+            (policy.matches(opening.as_str()).count() == 1).then(|| (opening, text.to_owned()))
+        })
+        .min_by_key(|(_, text)| text.len())
 }
 
 /// The line above the policy that carries the token; the policy's own rule against printing secrets made a worker refuse to repeat a bare marker on 2026-11-11, so the line says the marker is no secret.
@@ -287,7 +322,7 @@ fn answer(scene: &Scene, name: &str, evidence: &Evidence) -> Result<Attempt, Fai
             Ok(text) => match serde_json::from_str::<Value>(&text) {
                 Ok(session) => match answered(&session) {
                     Some(Turn::Replied(reply) | Turn::Failed(reply)) if refused(&reply) => return Ok(Attempt::Refused(reply)),
-                    Some(Turn::Replied(reply)) if !reply.trim().is_empty() => return judged(name, &reply, evidence),
+                    Some(Turn::Replied(reply)) if !reply.trim().is_empty() => return judged(name, &reply, &evidence.or_in(published().as_deref())),
                     Some(Turn::Failed(error)) => return Err(failed(1, format!("{name}'s first turn failed: {error}"))),
                     _ => {
                         working = session["status"] == "working";
@@ -313,7 +348,7 @@ pub(super) fn carries(reply: &str, evidence: &Evidence) -> Result<(), String> {
     let reply = folded(reply);
     match evidence {
         Evidence::Token(token) if !reply.contains(&folded(token)) => Err(format!("the token {token}")),
-        Evidence::Headings(headings) if !headings.iter().any(|heading| reply.contains(&folded(heading))) => Err(format!("one of the headings {headings:?}")),
+        Evidence::Sentence { whole, .. } if !whole.iter().any(|sentence| reply.contains(folded(sentence).trim_end_matches('.'))) => Err(format!("the whole sentence {:?}", whole[0])),
         _ => Ok(()),
     }
 }
