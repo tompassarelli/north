@@ -179,7 +179,7 @@ fn art(category: &str, facet: &dyn Fn(&str) -> String) -> bool {
 
 /// One rung of the ladder a box climbs when its worker gets nowhere on its own rung
 /// (docs/rationale/nearest-routing.md section 5); only Opus rungs carry an effort.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Rung {
     pub tier: Tier,
     pub effort: Option<Effort>,
@@ -197,6 +197,35 @@ impl Rung {
         Self { tier: Tier::Opus, effort: Some(Effort::Xhigh) },
         Self { tier: Tier::Opus, effort: Some(Effort::Max) },
     ];
+
+    /// Rungs a box may start on; xhigh is reached only by escalation.
+    pub const STARTS: [Self; 4] = [Self::HAIKU, Self::SONNET, Self::OPUS_MEDIUM, Self::OPUS_HIGH];
+    pub const SONNET: Self = Self { tier: Tier::Sonnet, effort: None };
+    const HAIKU: Self = Self { tier: Tier::Haiku, effort: None };
+    const OPUS_MEDIUM: Self = Self { tier: Tier::Opus, effort: Some(Effort::Medium) };
+    const OPUS_HIGH: Self = Self { tier: Tier::Opus, effort: Some(Effort::High) };
+    const OPUS_XHIGH: Self = Self { tier: Tier::Opus, effort: Some(Effort::Xhigh) };
+
+    /// The rung of a ledger tier key such as `claude:sonnet-high`.
+    pub fn of_key(key: &str) -> Option<Self> {
+        Some(match key {
+            "claude:haiku" => Self::HAIKU,
+            "claude:sonnet-high" => Self::SONNET,
+            "claude:opus-medium" => Self::OPUS_MEDIUM,
+            "claude:opus-high" => Self::OPUS_HIGH,
+            "claude:opus-xhigh" => Self::OPUS_XHIGH,
+            _ => return None,
+        })
+    }
+
+    /// The next rung up the ladder a box climbs on worker-caused failure, stopping at xhigh.
+    pub fn up(self) -> Option<Self> {
+        self.above().filter(|rung| rung.effort != Some(Effort::Max))
+    }
+
+    pub fn label(self) -> String {
+        self.effort.map_or_else(|| self.tier.family().to_owned(), |effort| format!("{}-{}", self.tier.family(), effort.name()))
+    }
 
     /// The rung `tier` runs on at `effort`; Opus with no override runs at its medium default.
     pub fn of(tier: Tier, effort: Option<Effort>) -> Self {

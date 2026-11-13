@@ -1,6 +1,7 @@
 //! The k finished boxes most like a new one and the cheapest rung whose worker-caused outcomes over them
 //! clear the success bar.
 use super::cause::Cause;
+use crate::dispatch::tier::Rung;
 use super::shape::Shape;
 use std::collections::BTreeMap;
 
@@ -21,48 +22,6 @@ struct Weights {
     areas: f64,
     files: f64,
     repo: f64,
-}
-
-/// The ladder a box climbs one rung at a time on worker-caused failure.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum Rung {
-    Haiku,
-    Sonnet,
-    OpusMedium,
-    OpusHigh,
-    OpusXhigh,
-}
-
-impl Rung {
-    pub const LADDER: [Self; 5] = [Self::Haiku, Self::Sonnet, Self::OpusMedium, Self::OpusHigh, Self::OpusXhigh];
-    /// Rungs a box may start on; xhigh is reached only by escalation.
-    pub const STARTS: [Self; 4] = [Self::Haiku, Self::Sonnet, Self::OpusMedium, Self::OpusHigh];
-
-    /// The rung of a ledger tier key such as `claude:sonnet-high`.
-    pub fn of_key(key: &str) -> Option<Self> {
-        match key {
-            "claude:haiku" => Some(Self::Haiku),
-            "claude:sonnet-high" => Some(Self::Sonnet),
-            "claude:opus-medium" => Some(Self::OpusMedium),
-            "claude:opus-high" => Some(Self::OpusHigh),
-            "claude:opus-xhigh" => Some(Self::OpusXhigh),
-            _ => None,
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Haiku => "haiku",
-            Self::Sonnet => "sonnet",
-            Self::OpusMedium => "opus-medium",
-            Self::OpusHigh => "opus-high",
-            Self::OpusXhigh => "opus-xhigh",
-        }
-    }
-
-    pub fn up(self) -> Option<Self> {
-        Self::LADDER.get(Self::LADDER.iter().position(|rung| *rung == self)? + 1).copied()
-    }
 }
 
 /// A finished run as the neighbour search reads it.
@@ -199,13 +158,13 @@ pub fn pick(query: &Shape, fits: &BTreeMap<Rung, Fit>, pooled: &BTreeMap<Rung, f
     }
     let passing = judged.iter().find(|(_, fit, _)| *fit >= BAR);
     let (rung, why) = match passing {
-        Some((rung, fit, _)) => (*rung, format!("{} keeps {:.0}% of its nearest boxes", rung.name(), fit * 100.0)),
+        Some((rung, fit, _)) => (*rung, format!("{} keeps {:.0}% of its nearest boxes", rung.label(), fit * 100.0)),
         None => {
             let per_kept = |(_, fit, usd): &&(Rung, f64, Option<f64>)| usd.map_or(f64::INFINITY, |usd| usd / fit.max(0.01));
             let best = judged.iter().min_by(|a, b| per_kept(a).total_cmp(&per_kept(b))).expect("judged is not empty");
             (best.0, format!("no rung keeps {:.0}%; {} costs least per kept box among its nearest", BAR * 100.0, best.0.name()))
         }
     };
-    let capped = query.localized() && rung > Rung::Sonnet;
-    Some(if capped { Pick { rung: Rung::Sonnet, capped, why: format!("{why}; the brief names its files and symbols, so it starts on sonnet") } } else { Pick { rung, capped, why } })
+    let capped = query.localized() && rung > Rung::SONNET;
+    Some(if capped { Pick { rung: Rung::SONNET, capped, why: format!("{why}; the brief names its files and symbols, so it starts on sonnet") } } else { Pick { rung, capped, why } })
 }

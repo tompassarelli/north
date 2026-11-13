@@ -5,7 +5,8 @@
 //! that picked, so the ratio of usage per finished box compares rules, not luck or the pick's own evidence. Boxes whose tier was drawn by the Sonnet and Opus arms are
 //! also scored by the replay method: where the new pick matches the drawn arm, the logged outcome stands.
 use super::cause::{Cause, cause};
-use super::pick::{FLOOR, Finished, Fit, Index, K, Rung, fits, pick};
+use super::pick::{FLOOR, Finished, Fit, Index, K, fits, pick};
+use crate::dispatch::tier::Rung;
 use super::shape::{Reach, Shape};
 use crate::threads::calibration::{Knobs, Raw, escalated, raw_runs, recommend, tier_key};
 use rusqlite::{Connection, OpenFlags};
