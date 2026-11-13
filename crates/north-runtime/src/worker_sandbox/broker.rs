@@ -77,7 +77,8 @@ pub(super) fn confined(north: &Path, arguments: Vec<String>) -> Vec<String> {
 }
 
 pub(super) fn reaches_ledger(arguments: &[String]) -> bool {
-    matches!(arguments, [noun, ..] if noun == "threads") || matches!(arguments, [noun, verb, ..] if noun == "fleet" && verb == "need")
+    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    matches!(words.as_slice(), ["threads", ..] | ["fleet", "need", ..])
 }
 
 pub(super) fn permitted(arguments: &[String]) -> bool {

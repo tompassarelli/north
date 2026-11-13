@@ -43,8 +43,8 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
     let session = std::env::var(SESSION_ENV).ok().filter(|name| !name.is_empty()).ok_or_else(|| NorthError::Usage(format!("{USAGE}; ${SESSION_ENV} is unset")))?;
     let asked = Need::parse(words)?;
     let request: Vec<String> = ["fleet", "need"].iter().chain(words).map(|word| (*word).to_owned()).collect();
-    if client::ledger_host_name().is_some() && let Some(code) = north_runtime::worker_sandbox::reenter_outside(&request) {
-        return if code == 0 { Ok(()) } else { Err(NorthError::Refused(format!("the outside broker's north fleet need exited {code}"))) };
+    if let Some(code) = crate::cli::ledger::outside(&request) {
+        return (code == 0).then_some(()).ok_or_else(|| NorthError::Refused(format!("the outside broker's north fleet need exited {code}")));
     }
     let answer = match client::ask_ledger_host(&asked.forwarded(&session), asked.reason.as_bytes())? {
         Some(answer) => String::from_utf8_lossy(&answer).trim().to_owned(),
