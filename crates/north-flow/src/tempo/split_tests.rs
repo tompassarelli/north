@@ -8,16 +8,21 @@ fn span(id: &str, parent: Option<&str>, name: &str, start: f64, end: f64) -> Sta
 #[test]
 fn a_stage_with_steps_counts_its_steps_and_not_its_whole_once_more() {
     let spans = [
-        span("stage", None, "queue checks", 0.0, 10.0),
+        span("setup", None, "before enqueue", -1.0, 0.0),
+        span("stage", None, "queue checks", 0.0, 440.0),
         span("lease", Some("stage"), "queue checks / lease", 0.0, 4.0),
         span("command", Some("stage"), "queue checks / command", 4.0, 10.0),
-        span("ticket", None, "ticket", 10.0, 10.5),
+        span("rest", Some("stage"), "queue checks / not in a step", 10.0, 440.0),
+        span("ticket", None, "ticket", 440.0, 440.5),
     ];
-    let parts = leaves(&spans, 10.5);
-    assert_eq!(parts.len(), 3);
+    let parts = leaves(&spans, 441.5);
+    assert_eq!(parts.len(), 5);
     assert_eq!(parts.get("queue checks"), None);
+    assert_eq!(parts.get("unspanned"), None);
+    assert_eq!(parts.get("before enqueue"), Some(&1.0));
     assert_eq!(parts.get("queue checks / lease"), Some(&4.0));
     assert_eq!(parts.get("queue checks / command"), Some(&6.0));
+    assert_eq!(parts.get("queue checks / not in a step"), Some(&430.0));
     assert_eq!(parts.get("ticket"), Some(&0.5));
 }
 

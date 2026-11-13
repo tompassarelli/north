@@ -224,7 +224,7 @@ fn marks(root: &Path, base: &str, head: &str, destination: &str) -> Result<Marks
 }
 
 pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment, facts: Option<Facts>) -> Result<Queued, String> {
-    let timings = Timings::start();
+    let timings = Timings::start(environment.called_micros);
     let queued = timed_enqueue(repo, shape, keep_lane, environment, &timings, facts);
     println!("{}", timings.line());
     if let Ok(queued) = &queued {

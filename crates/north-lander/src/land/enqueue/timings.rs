@@ -9,8 +9,12 @@ use crate::land::trace::{Category, PHASE, Span, Spans};
 pub(super) const BEFORE_TICKET: &str = "enqueue";
 const LANE: &str = "lane";
 const TICKET: &str = "ticket";
+const SETUP: &str = "before enqueue";
+const UNSTEPPED: &str = "not in a step";
 
 pub(super) struct Timings {
+    called: f64,
+    begun: f64,
     started: Instant,
     stages: Mutex<Vec<Stage>>,
 }
@@ -24,8 +28,8 @@ struct Stage {
 }
 
 impl Timings {
-    pub(super) fn start() -> Self {
-        Self { started: Instant::now(), stages: Mutex::new(Vec::new()) }
+    pub(super) fn start(called_micros: u128) -> Self {
+        Self { called: called_micros as f64 / 1e6, begun: epoch(), started: Instant::now(), stages: Mutex::new(Vec::new()) }
     }
 
     pub(super) fn stage<T>(&self, name: &'static str, run: impl FnOnce() -> T) -> T {
@@ -49,7 +53,8 @@ impl Timings {
     pub(super) fn record(&self, logs: &Path, head: &str, lane: &str, ticket: &str, host: &str) {
         let trace = format!("{BEFORE_TICKET}:{head}");
         let stamp = |span: Span| span.on(host).with(PHASE, BEFORE_TICKET).with(LANE, lane).with(TICKET, ticket);
-        let spans: Vec<Span> = self.stages.lock().unwrap_or_else(PoisonError::into_inner).iter().flat_map(|stage| stage_spans(&trace, stage, &stamp)).collect();
+        let setup = (self.called > 0.0 && self.begun > self.called).then(|| stamp(Span::new(&trace, SETUP, category(SETUP), self.called, self.begun)));
+        let spans: Vec<Span> = setup.into_iter().chain(self.stages.lock().unwrap_or_else(PoisonError::into_inner).iter().flat_map(|stage| stage_spans(&trace, stage, &stamp))).collect();
         if let Err(error) = Spans::beside(logs).append(&spans) {
             println!("safe-push: could not record the checks before the ticket: {error}");
         }
@@ -57,13 +62,17 @@ impl Timings {
 }
 
 fn stage_spans(trace: &str, stage: &Stage, stamp: &impl Fn(Span) -> Span) -> Vec<Span> {
-    let parent = stamp(Span::new(trace, stage.name, category(stage.name), stage.start, stage.start + stage.took.as_secs_f64()));
-    let mut spans = Vec::with_capacity(stage.steps.len() + 1);
+    let stage_end = stage.start + stage.took.as_secs_f64();
+    let parent = stamp(Span::new(trace, stage.name, category(stage.name), stage.start, stage_end));
+    let mut spans = Vec::with_capacity(stage.steps.len() + 2);
     let mut at = stage.start;
     for (name, took) in &stage.steps {
-        let end = at + took.as_secs_f64();
+        let end = (at + took.as_secs_f64()).min(stage_end);
         spans.push(stamp(Span::new(trace, format!("{} / {name}", stage.name), category(stage.name), at, end)).under(&parent.id));
         at = end;
+    }
+    if !stage.steps.is_empty() && stage_end > at {
+        spans.push(stamp(Span::new(trace, format!("{} / {UNSTEPPED}", stage.name), category(stage.name), at, stage_end)).under(&parent.id));
     }
     spans.insert(0, parent);
     spans
@@ -71,7 +80,7 @@ fn stage_spans(trace: &str, stage: &Stage, stamp: &impl Fn(Span) -> Span) -> Vec
 
 fn category(stage: &str) -> Category {
     match stage {
-        "fetch" => Category::Git,
+        "fetch" | SETUP => Category::Git,
         "secret scan" | "private-kind ask" => Category::Scans,
         "ticket" => Category::Queue,
         _ => Category::Check,
