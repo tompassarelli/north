@@ -87,6 +87,9 @@ north_rust_test(
     crate_root = "tests/opencode_lane.rs",
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
+    skip = [
+        "an_opencode_worker_in_a_public_lane_cannot_read_south_or_sops_keys",
+    ],
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-calibration:north-calibration",

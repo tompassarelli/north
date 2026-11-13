@@ -1509,6 +1509,7 @@ name = "north-land-checks"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-buck",
  "north-build-system",
  "north-coverage",
  "north-diff-gates",

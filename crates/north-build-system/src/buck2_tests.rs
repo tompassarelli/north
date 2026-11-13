@@ -89,19 +89,20 @@ fn a_lint_only_host_runs_the_gate_only_while_the_tree_s_gate_script_and_buck2_co
 fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_selection_to_the_declared_line() {
     let tree = tempfile::tempdir().unwrap();
     let git = |arguments: &[&str]| assert!(Command::new("git").arg("-C").arg(tree.path()).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(arguments).stdout(Stdio::null()).status().unwrap().success());
-    for name in ["crates/a", "crates/b", "crates/c"] {
+    for name in ["crates/a", "crates/b", "crates/c", "crates/x/m"] {
         std::fs::create_dir_all(tree.path().join(name)).unwrap();
     }
-    for (name, text) in [(".buckconfig", "[cells]\n  root = .\n"), ("BUCK", "north\n"), ("crates/a/BUCK", "a\n"), ("crates/b/BUCK", "b\n"), ("crates/c/lib.rs", "c\n")] {
+    for (name, text) in [(".buckconfig", "[cells]\n  root = .\n"), ("BUCK", "north\n"), ("crates/a/BUCK", "a\n"), ("crates/b/BUCK", "b\n"), ("crates/c/lib.rs", "c\n"), ("crates/x/m/BUCK", "m\n")] {
         std::fs::write(tree.path().join(name), text).unwrap();
     }
     for arguments in [&["init", "-q"][..], &["add", "."], &["commit", "-qm", "base"], &["tag", "base"]] {
         git(arguments);
     }
-    let listed = ["a", "c", "north"].map(str::to_owned).into_iter().collect();
+    let listed = ["a", "c", "gone", "m", "north"].map(str::to_owned).into_iter().collect();
+    let packages = [("a", "//crates/a:"), ("b", "//crates/b:"), ("c", "//crates/c:"), ("m", "//crates/x/m:"), ("north", "//:")].map(|(name, package)| (name.to_owned(), package.to_owned())).into();
     let none = std::collections::BTreeSet::new();
     let passed: std::collections::BTreeSet<String> = ["a".to_owned()].into();
-    let split = |declared: &str, selected: &str| super::crate_tests(tree.path(), "base", declared, ("SAFE_PUSH_LAND_PACKAGES", selected), &listed).map(|split| ((split.moved.clone(), split.line.clone()), split.left(&passed), split.left(&none)));
+    let split = |declared: &str, selected: &str| super::crate_tests(tree.path(), "base", declared, ("SAFE_PUSH_LAND_PACKAGES", selected), &listed, &packages).map(|split| ((split.moved.clone(), split.line.clone()), split.left(&passed), split.left(&none)));
     let on_buck2 = |names: &[&str], targets: &str| (names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>(), format!("./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re {targets}"));
     let flags = |flags: &str| Some(flags.to_owned());
 
@@ -109,14 +110,14 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     assert_eq!(split(NEXTEST, "-p a"), Some((on_buck2(&["a"], "//crates/a:"), None, flags("-p a"))), "nothing is left for the declared line once Buck2 passed every selected package");
     assert_eq!(
         split(NEXTEST, "--workspace"),
-        Some((on_buck2(&["a", "north"], "//crates/a: //:"), flags("--workspace --exclude a"), flags("--workspace"))),
-        "a workspace run moves what is listed and has targets, the root package too, in one Buck2 run: not the crate with no BUCK file"
+        Some((on_buck2(&["a", "m", "north"], "//crates/a: //crates/x/m: //:"), flags("--workspace --exclude a"), flags("--workspace"))),
+        "a workspace run moves what is listed and has targets, the root package and one whose manifest sits deeper too, in one Buck2 run: not the crate with no BUCK file nor the one with no package (north#1299)"
     );
     assert_eq!(split(NEXTEST, "-p b -p c"), None, "a selection with nothing to move runs as declared");
     assert_eq!(split(CLIPPY, "-p a"), None, "the key moves the nextest line alone");
-    let moved = super::crate_tests(tree.path(), "base", NEXTEST, ("SAFE_PUSH_LAND_PACKAGES", "--workspace"), &listed).unwrap();
-    let owners = ["root//crates/a:a-unittest", "root//crates/ab:ab-unittest", "root//:north-unittest", "root//crates/b:b-unittest"].map(|label| moved.owner(label));
-    assert_eq!(owners, [Some("a"), None, Some("north"), None], "a target in Buck2's record belongs to the moved crate whose package holds it");
+    let moved = super::crate_tests(tree.path(), "base", NEXTEST, ("SAFE_PUSH_LAND_PACKAGES", "--workspace"), &listed, &packages).unwrap();
+    let owners = ["root//crates/a:a-unittest", "root//crates/ab:ab-unittest", "root//:north-unittest", "root//crates/b:b-unittest", "root//crates/x/m:m-unittest", "root//crates/m:m-unittest"].map(|label| moved.owner(label));
+    assert_eq!(owners, [Some("a"), None, Some("north"), None, Some("m"), None], "a target in Buck2's record belongs to the moved crate whose package holds it");
     std::fs::write(tree.path().join("crates/a/BUCK"), "a test that passes whatever the code does\n").unwrap();
     assert_eq!(split(NEXTEST, "-p a"), None, "a lane that changes a BUCK file is tested by Cargo: it could define its own passing test");
     git(&["checkout", "-q", "--", "crates/a/BUCK"]);

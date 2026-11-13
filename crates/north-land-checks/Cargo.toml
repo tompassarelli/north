@@ -14,6 +14,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-buck = { path = "../north-buck" }
 north-build-system = { path = "../north-build-system" }
 north-coverage = { path = "../north-coverage" }
 north-diff-gates = { path = "../north-diff-gates" }

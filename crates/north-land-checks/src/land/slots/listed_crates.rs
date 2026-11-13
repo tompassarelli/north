@@ -4,8 +4,11 @@
 //! summary counts a failed test. It passes a crate only when its run passed and, in Buck2's own record of the run, the
 //! case runners of that crate's targets count at least one case run in all and none failed. That summary counts a
 //! target as one test however many cases it ran, so it never passes a crate alone (north#1299). Every other crate stays
-//! on the declared line, so Cargo tests it. The checks before a landing alone wrap their line in this, and key the
-//! verdict apart, so the run after a landing tests the landed tree with Cargo itself.
+//! on the declared line, so Cargo tests it. A passed crate's host cases, the cases of the reviewed class in
+//! `build/host-cases.list` that its Buck2 targets skip because no remote worker can run them, then run here in one run of
+//! the declared line narrowed to them, which fails the check when it fails or runs fewer cases than the class names. The
+//! checks before a landing alone wrap their line in this, and key the verdict apart, so the run after a landing tests the
+//! landed tree with Cargo itself.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader};
@@ -15,6 +18,7 @@ use std::process::{Command, Stdio};
 use north_build_system::{Cases, TestRun};
 
 use super::affected::PACKAGES_ENV;
+use super::it_modules::IT_ENV;
 use super::unit_reuse::quote;
 
 const USAGE: &str = "north land crate-tests available | north land crate-tests -- COMMAND";
@@ -24,6 +28,8 @@ const BUILD_FAILED: i32 = 3;
 const TESTS_FAILED: i32 = 32;
 /// The line `buck2 test` ends on: `Tests finished: Pass 1. Fail 0. Timeout 0. ...`, each count possibly coloured.
 const SUMMARY: &str = "Tests finished:";
+/// The line cargo-nextest ends a run on: `Summary [ T s] N tests run: P passed, ...`, `1 test run` for one case.
+const NEXTEST_SUMMARY: &str = "Summary [";
 const FAILED: u8 = 1;
 /// Keys a nextest verdict that Buck2 may have decided part of apart from the one the run after a landing looks up.
 pub const BEFORE_LANDING: (&str, &str) = ("NORTH_LAND_TEST", "buck2-before-landing");
@@ -81,17 +87,38 @@ fn verdict(status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>,
     }
 }
 
-/// Runs `line` with its output passed through, and returns its exit status and the last summary line it printed.
-fn observed(line: &str) -> (Option<i32>, Option<String>) {
-    let Ok(mut child) = Command::new("bash").args(["-euo", "pipefail", "-c", &format!("{{ {line}\n}} 2>&1")]).stdout(Stdio::piped()).spawn() else { return (None, None) };
-    let mut summary = None;
+/// Runs `line` with `environment` set and its output passed through, and returns its exit status and the last line it printed holding `summary`.
+fn observed(line: &str, environment: &[(&str, &str)], summary: &str) -> (Option<i32>, Option<String>) {
+    let mut command = Command::new("bash");
+    command.args(["-euo", "pipefail", "-c", &format!("{{ {line}\n}} 2>&1")]).envs(environment.iter().copied()).stdout(Stdio::piped());
+    let Ok(mut child) = command.spawn() else { return (None, None) };
+    let mut last = None;
     for printed in child.stdout.take().map(BufReader::new).into_iter().flat_map(BufRead::lines).map_while(Result::ok) {
         eprintln!("{printed}");
-        if printed.contains(SUMMARY) {
-            summary = Some(printed);
+        if printed.contains(summary) {
+            last = Some(printed);
         }
     }
-    (child.wait().ok().and_then(|status| status.code()), summary)
+    (child.wait().ok().and_then(|status| status.code()), last)
+}
+
+/// How many cases nextest's closing line says ran.
+fn ran(summary: &str) -> Option<u64> {
+    summary.split_once("] ")?.1.split_once(" test")?.0.trim().parse().ok()
+}
+
+/// Runs the host cases of the crates in `passed` that the class at `root` names on the `declared` line narrowed to them; whether there were none, or the run passed and ran as many cases as the class names.
+fn host_cases(root: &Path, declared: &str, passed: &BTreeSet<String>) -> Result<bool, String> {
+    let package = |binary: &str| binary.split_once("::").map_or(binary, |(package, _)| package).to_owned();
+    let class: Vec<(String, String)> = north_buck::host_class::reviewed(root)?.into_iter().filter(|(binary, _)| passed.contains(&package(binary))).collect();
+    let names: Vec<String> = class.iter().map(|(binary, _)| package(binary)).collect::<BTreeSet<_>>().into_iter().collect();
+    let Some(filter) = north_buck::host_class::filter(root, &names)?.filter(|_| !names.is_empty()) else { return Ok(true) };
+    let tests: BTreeSet<&str> = class.iter().filter_map(|(binary, _)| binary.split_once("::").map(|(_, test)| test)).collect();
+    let narrowed = tests.iter().map(|test| format!("--test {test} ")).chain([format!("-E {filter}")]).collect::<String>();
+    let packages = names.iter().map(|name| format!("-p {name}")).collect::<Vec<_>>().join(" ");
+    eprintln!("north land crate-tests: the declared line runs the {} host case(s) of {}", class.len(), names.join(", "));
+    let (status, summary) = observed(declared, &[(PACKAGES_ENV, &packages), (IT_ENV, &narrowed)], NEXTEST_SUMMARY);
+    Ok(status == Some(0) && summary.as_deref().and_then(ran).is_some_and(|ran| usize::try_from(ran).is_ok_and(|ran| ran >= class.len())))
 }
 
 fn declared_line(declared: &str, packages: Option<&str>) -> u8 {
@@ -109,13 +136,21 @@ fn execute(declared: &str) -> u8 {
     let split = std::env::current_dir().ok().and_then(|root| north_build_system::crate_tests(&root, base.as_deref(), declared, PACKAGES_ENV, selected.as_deref()));
     let Some(split) = split else { return declared_line(declared, None) };
     eprintln!("north land crate-tests: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
-    let (status, summary) = observed(&split.line);
+    let (status, summary) = observed(&split.line, &[], SUMMARY);
     let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| record.runs(Path::new(".")).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of the run: {why}")).ok());
     let owner = |label: &str| split.owner(label).map(str::to_owned);
-    let Verdict::Passed(passed) = verdict(status, summary.as_deref(), record.as_deref(), &owner) else { return FAILED };
+    let Verdict::Passed(mut passed) = verdict(status, summary.as_deref(), record.as_deref(), &owner) else { return FAILED };
     for name in split.moved.iter().filter(|name| !passed.contains(*name)) {
         let cases: u64 = record.iter().flatten().filter(|run| split.owner(&run.target) == Some(name.as_str())).filter_map(TestRun::cases).map(|cases| cases.run).sum();
         eprintln!("north land crate-tests: Buck2 gave no verdict on {name} (exit {}, {cases} case(s) of it in its record), so the declared line tests it", status.map_or_else(|| "on a signal".to_owned(), |code| code.to_string()));
+    }
+    match host_cases(Path::new("."), declared, &passed) {
+        Ok(true) => {}
+        Ok(false) => return FAILED,
+        Err(why) => {
+            eprintln!("north land crate-tests: cannot read the host cases ({why}), so the declared line tests every moved crate");
+            passed.clear();
+        }
     }
     split.left(&passed).map_or(0, |packages| declared_line(declared, Some(&packages)))
 }

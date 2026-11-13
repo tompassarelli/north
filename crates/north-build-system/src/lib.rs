@@ -93,7 +93,7 @@ pub fn crate_tests(root: &Path, base: Option<&str>, declared: &str, variable: &s
     let host = north_base::platform::host::name();
     let policy = north_base::platform::orchestration::read().ok()?;
     let listed: BTreeSet<String> = policy.get("hosts").and_then(|hosts| hosts.get(host.as_str())?.get(TEST_CRATES)?.as_array())?.iter().filter_map(|name| name.as_str().map(str::to_owned)).collect();
-    buck2::crate_tests(root, base?, declared, (variable, selected.filter(|selected| !selected.trim().is_empty()).unwrap_or("--workspace")), &listed)
+    buck2::crate_tests(root, base?, declared, (variable, selected.filter(|selected| !selected.trim().is_empty()).unwrap_or("--workspace")), &listed, &buck2::packages(root).ok()?)
 }
 
 /// Whether `command` is the nextest line of `.safe-push` whose listed crates a host's `buck2_test_crates` moves: the one

@@ -27,3 +27,19 @@ toml_edit.workspace = true
 
 [lints]
 workspace = true
+
+[[package.metadata.north.buck.host-cases]]
+name = "platform::ssh_master::tests::a_control_socket_nobody_listens_on_is_dropped_and_its_unit_started_but_a_live_master_is_left"
+reason = "logs in to the fixture's own sshd, which refuses the remote worker's user"
+
+[[package.metadata.north.buck.host-cases]]
+name = "platform::ssh_master::tests::a_master_slower_than_three_seconds_while_a_direct_connection_answers_is_closed_and_recreated"
+reason = "logs in to the fixture's own sshd, which refuses the remote worker's user"
+
+[[package.metadata.north.buck.host-cases]]
+name = "platform::ssh_retry::tests::a_read_whose_shared_master_was_killed_under_it_is_run_again_on_a_fresh_connection"
+reason = "logs in to the fixture's own sshd, which refuses the remote worker's user"
+
+[[package.metadata.north.buck.host-cases]]
+name = "platform::ssh::survival_tests::a_multiplexed_session_survives_restarting_the_unit_that_made_the_first_connection"
+reason = "logs in to the fixture's own sshd, which refuses the remote worker's user"

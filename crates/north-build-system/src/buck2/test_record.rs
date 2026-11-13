@@ -81,12 +81,14 @@ fn case(line: &str) -> Option<String> {
 
 /// The cases Buck2 executes when it tests crate `name` in the checkout at `root`, read from its record of that run.
 pub(crate) fn executed(root: &Path, name: &str) -> Result<BTreeSet<String>, String> {
-    let request = Tests { root, step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Package(name.to_owned()), resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, coverage: None };
+    let package = super::packages(root)?.remove(name).filter(|package| super::defined(root, package)).ok_or_else(|| format!("{name} has no Buck2 package in this tree"))?;
+    let request = Tests { root, step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Typed(vec![package.clone()]), resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, coverage: None };
     let test = Buck2 { tests: true }.tests(&request);
     let line = test.words.join(" ");
-    test.command().stdin(Stdio::null()).stdout(std::io::stderr()).status().map_err(|error| format!("{line}: {error}"))?;
+    let status = test.command().stdin(Stdio::null()).stdout(std::io::stderr()).status().map_err(|error| format!("{line}: {error}"))?;
+    eprintln!("{line} exited {status}");
     let record = crate::test_record(&line).ok_or_else(|| format!("{line} keeps no record of its run"))?;
-    Ok(record.runs(root)?.iter().filter(|run| super::holds(name, &run.target)).flat_map(TestRun::ran).collect())
+    Ok(record.runs(root)?.iter().filter(|run| super::holds(&package, &run.target)).flat_map(TestRun::ran).collect())
 }
 
 pub fn runs(record: &mut dyn BufRead) -> Result<Vec<TestRun>, String> {

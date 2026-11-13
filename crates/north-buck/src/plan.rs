@@ -73,11 +73,15 @@ fn package_rules(workspace: &Workspace, package: &Package, owners: &Owners, expo
         let own_lib = lib.filter(|_| !is_library(target.kind)).map(|_| package);
         let context = env::Context { package, target, binaries: &binaries, unittest: false };
         let integration = (target.kind == Kind::Test).then(|| format!("{}::{}", package.name, target.name));
-        rules.push(rule(rule_kind(target.kind), name.clone(), integration, &tree, &context, own_lib, dep_kinds(target.kind))?);
+        let mut built = rule(rule_kind(target.kind), name.clone(), integration, &tree, &context, own_lib, dep_kinds(target.kind))?;
+        built.skip = host_class::skipped(package, target, false);
+        rules.push(built);
         if target.test && matches!(target.kind, Kind::Lib | Kind::ProcMacro | Kind::Bin) {
             let context = env::Context { unittest: true, ..context };
             let binary_id = if target.kind == Kind::Bin { format!("{}::bin/{}", package.name, target.name) } else { package.name.clone() };
-            rules.extend(host_class::unittest_rules(&name, binary_id, package, target, &tree, &context, own_lib)?);
+            let mut unittest = rule(RuleKind::Test, format!("{name}-unittest"), Some(binary_id), &tree, &context, own_lib, &[DepKind::Normal, DepKind::Dev])?;
+            unittest.skip = host_class::skipped(package, target, true);
+            rules.push(unittest);
         }
     }
     Ok(rules)

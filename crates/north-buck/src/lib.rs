@@ -1,12 +1,14 @@
 //! `north buck targets`: writes the Buck2 target of every workspace crate, binary, test and example from the
 //! Cargo manifests, so the two build graphs cannot drift while both exist (docs/rationale/compile-reuse.md);
-//! `--check` also holds `third-party/BUCK` to the packages and features Cargo resolves. `north buck compare-cases` prints the
-//! cases Buck2 runs of a crate beside those nextest lists (cases.rs).
+//! `--check` also holds `third-party/BUCK` to the packages and features Cargo resolves. `north buck host-cases --filter`
+//! prints the host cases, which no remote worker can run and every test rule skips, as the nextest filter the declared
+//! Cargo line runs them with. `north buck compare-cases` prints the cases Buck2 runs of a crate beside those nextest lists
+//! (cases.rs).
 //! Reads the resolved manifests and features through the readers its caller passes and the manifests' lint tables; depends on no other north crate.
 mod cases;
 mod env;
 mod gate;
-mod host_class;
+pub mod host_class;
 mod lints;
 mod plan;
 mod rule;
@@ -19,7 +21,7 @@ mod workspace;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: north buck targets [--check] [--root DIR] | north buck compare-cases NAME...";
+const USAGE: &str = "usage: north buck targets [--check] [--root DIR] | north buck host-cases --filter [PACKAGE...] | north buck compare-cases NAME...";
 
 pub use cases::{CaseReader, Sides};
 
@@ -45,6 +47,9 @@ pub fn run(arguments: &[String], cargo: &Cargo, sides: &Sides, state: &Path) -> 
     if let Some((verb, names)) = arguments.split_first() && verb == "compare-cases" && !names.is_empty() {
         return u8::from(!cases::compare(Path::new("."), names, sides, &mut std::io::stdout()));
     }
+    if let Some(("host-cases", rest)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) {
+        return host_cases(rest);
+    }
     let Some(("targets", rest)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) else {
         eprintln!("{USAGE}");
         return 2;
@@ -68,6 +73,25 @@ pub fn run(arguments: &[String], cargo: &Cargo, sides: &Sides, state: &Path) -> 
         Err(why) => {
             eprintln!("north buck targets: {why}");
             if why.contains(INFRASTRUCTURE) { INFRASTRUCTURE_STATUS } else { 1 }
+        }
+    }
+}
+
+fn host_cases(arguments: &[String]) -> u8 {
+    let Some(("--filter", packages)) = arguments.split_first().map(|(flag, rest)| (flag.as_str(), rest)) else {
+        eprintln!("{USAGE}");
+        return 2;
+    };
+    match host_class::filter(Path::new("."), packages) {
+        Ok(filter) => {
+            if let Some(filter) = filter {
+                println!("{filter}");
+            }
+            0
+        }
+        Err(why) => {
+            eprintln!("north buck host-cases: {why}");
+            1
         }
     }
 }
@@ -97,6 +121,7 @@ pub struct Planned {
 
 pub fn generate(dir: &Path, manifests: Manifests) -> Result<Planned, String> {
     let workspace = workspace::parse(&manifests(dir, PLATFORM)?)?;
+    host_class::check(&workspace)?;
     let workspace_lints = lints::workspace_table(&workspace.root)?;
     let mut lint_flags = BTreeMap::new();
     for package in &workspace.packages {

@@ -52,6 +52,12 @@ north_rust_test(
     crate_root = "src/lib.rs",
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
+    skip = [
+        "platform::ssh_master::tests::a_control_socket_nobody_listens_on_is_dropped_and_its_unit_started_but_a_live_master_is_left",
+        "platform::ssh_master::tests::a_master_slower_than_three_seconds_while_a_direct_connection_answers_is_closed_and_recreated",
+        "platform::ssh_retry::tests::a_read_whose_shared_master_was_killed_under_it_is_run_again_on_a_fresh_connection",
+        "platform::ssh::survival_tests::a_multiplexed_session_survives_restarting_the_unit_that_made_the_first_connection",
+    ],
     deps = [
         "//crates/north-foundation:north-foundation",
         "//crates/north-shared-config:north-shared-config",

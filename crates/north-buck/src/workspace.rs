@@ -50,12 +50,15 @@ struct BuckMetadata {
     host_cases: Vec<HostCase>,
 }
 
-/// A libtest case that a worker cannot run, named with the reason; `north_rust_test` runs it in the host class instead.
+/// A libtest case that a worker cannot run, named with the reason; its test rule skips it and the declared Cargo line runs it.
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HostCase {
     pub name: String,
     pub reason: String,
+    /// The integration test that holds the case; none for the library's own unit tests.
+    #[serde(default)]
+    pub test: Option<String>,
 }
 
 #[derive(Deserialize)]

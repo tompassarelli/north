@@ -12,14 +12,6 @@ pub enum RuleKind {
     Test,
 }
 
-/// Which libtest cases a test rule runs: `skip` leaves named cases to another rule, `only` runs just the named cases, and `host` runs them on the invoking host inside the dependency box.
-#[derive(Default)]
-pub struct Cases {
-    pub only: Vec<String>,
-    pub skip: Vec<String>,
-    pub host: bool,
-}
-
 pub struct Rule {
     pub kind: RuleKind,
     pub name: String,
@@ -33,7 +25,8 @@ pub struct Rule {
     pub binary_id: Option<String>,
     pub deps: Vec<String>,
     pub named_deps: BTreeMap<String, String>,
-    pub cases: Cases,
+    /// The host cases this test rule leaves to the declared Cargo line.
+    pub skip: Vec<String>,
 }
 
 pub(crate) fn rule(kind: RuleKind, name: String, binary_id: Option<String>, tree: &Tree, context: &env::Context, own_lib: Option<&Package>, kinds: &[DepKind]) -> Result<Rule, String> {
@@ -62,5 +55,5 @@ pub(crate) fn rule(kind: RuleKind, name: String, binary_id: Option<String>, tree
     }
     let crate_root = tree.path_of(&target.src_path);
     let resources = if kind == RuleKind::Test { context.package.test_resources.clone() } else { Vec::new() };
-    Ok(Rule { kind, name, crate_name, crate_root, tree: tree.clone(), edition: target.edition.clone(), env, run_env, resources, binary_id, deps: deps.into_iter().collect(), named_deps, cases: Cases::default() })
+    Ok(Rule { kind, name, crate_name, crate_root, tree: tree.clone(), edition: target.edition.clone(), env, run_env, resources, binary_id, deps: deps.into_iter().collect(), named_deps, skip: Vec::new() })
 }

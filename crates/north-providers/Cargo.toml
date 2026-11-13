@@ -31,3 +31,8 @@ tempfile.workspace = true
 
 [lints]
 workspace = true
+
+[[package.metadata.north.buck.host-cases]]
+name = "an_opencode_worker_in_a_public_lane_cannot_read_south_or_sops_keys"
+reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"
+test = "opencode_lane"

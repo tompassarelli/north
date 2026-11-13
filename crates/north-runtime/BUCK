@@ -62,6 +62,15 @@ north_rust_test(
     resources = [
         "//:tree",
     ],
+    skip = [
+        "worker_sandbox::buck::tests::a_buck2_slot_of_the_offload_gets_its_daemon_directory_and_build_output_and_no_other_daemon",
+        "worker_sandbox::buck::tests::a_build_output_directory_created_after_the_sandbox_starts_is_executable",
+        "worker_sandbox::buck::tests::a_worker_may_reset_its_buck2_daemon_state_and_nothing_else_in_home",
+        "worker_sandbox::tests::a_lane_test_binary_run_by_path_outside_depbox_is_refused",
+        "worker_sandbox::tests::a_sandboxed_git_fetch_leaves_no_lock_in_a_common_dir_it_cannot_remove_north_706",
+        "worker_sandbox::tests::merge_tree_leaves_main_clean",
+        "worker_sandbox::tests::no_agent_command_reads_the_operators_gh_login_and_no_worker_command_reads_a_key_a_linked_secret_or_the_agent_socket_north_969_north_977_south_118",
+    ],
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-build-system:north-build-system",

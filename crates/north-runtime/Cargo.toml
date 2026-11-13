@@ -34,3 +34,31 @@ north-pacing = { path = "../north-pacing", features = ["test-support"] }
 
 [lints]
 workspace = true
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::buck::tests::a_buck2_slot_of_the_offload_gets_its_daemon_directory_and_build_output_and_no_other_daemon"
+reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::buck::tests::a_build_output_directory_created_after_the_sandbox_starts_is_executable"
+reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::buck::tests::a_worker_may_reset_its_buck2_daemon_state_and_nothing_else_in_home"
+reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::tests::a_lane_test_binary_run_by_path_outside_depbox_is_refused"
+reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::tests::a_sandboxed_git_fetch_leaves_no_lock_in_a_common_dir_it_cannot_remove_north_706"
+reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::tests::merge_tree_leaves_main_clean"
+reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::tests::no_agent_command_reads_the_operators_gh_login_and_no_worker_command_reads_a_key_a_linked_secret_or_the_agent_socket_north_969_north_977_south_118"
+reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"

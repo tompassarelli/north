@@ -51,9 +51,32 @@ fn package(name: &str) -> String {
     }
 }
 
-/// Whether the target `label`, as Buck2's record names it (`root//crates/NAME:TARGET`), is in the package of crate `name`.
-pub(crate) fn holds(name: &str, label: &str) -> bool {
-    label.split_once("//").is_some_and(|(_, target)| package(name).strip_prefix("//").is_some_and(|package| target.starts_with(package)))
+/// Whether the target `label`, as Buck2's record names it (`root//crates/NAME:TARGET`), is in `package` (`//crates/NAME:`).
+pub(crate) fn holds(package: &str, label: &str) -> bool {
+    label.split_once("//").is_some_and(|(_, target)| package.strip_prefix("//").is_some_and(|package| target.starts_with(package)))
+}
+
+#[derive(Deserialize)]
+struct Manifests {
+    packages: Vec<Manifest>,
+    workspace_root: PathBuf,
+}
+
+#[derive(Deserialize)]
+struct Manifest {
+    name: String,
+    manifest_path: PathBuf,
+}
+
+/// The Buck2 package of each crate of the workspace at `root`, named by the directory of its manifest rather than by the crate's name: `//crates/NAME:`, `//:` for the root package, `//crates/north-tui/monitor:` for one nested deeper.
+pub(crate) fn packages(root: &Path) -> Result<BTreeMap<String, String>, String> {
+    let Manifests { packages, workspace_root } = serde_json::from_str(&super::cargo_metadata::no_deps(root)?).map_err(|error| format!("cargo metadata printed no workspace: {error}"))?;
+    Ok(packages.into_iter().filter_map(|manifest| Some((manifest.name, format!("//{}:", manifest.manifest_path.parent()?.strip_prefix(&workspace_root).ok()?.display())))).collect())
+}
+
+/// Whether `package` (`//DIR:`) has a build file in the tree at `root`, and so targets Buck2 can test.
+pub(crate) fn defined(root: &Path, package: &str) -> bool {
+    root.join(package.trim_start_matches("//").trim_end_matches(':')).join("BUCK").is_file()
 }
 
 fn targets(selection: &Selection) -> Vec<String> {
@@ -112,7 +135,7 @@ fn linked_by_the_shell(root: &Path) -> bool {
 
 /// What defines a test target besides the code under test. A lane that changes one could declare a test that passes
 /// whatever the code does, so this side runs a crate's tests only in a tree whose every such file is `base`'s.
-const TARGET_ORIGIN: [&str; 9] = [":(glob)**/BUCK", ":(glob)**/BUCK.v2", ":(glob)**/TARGETS", ":(glob)**/PACKAGE", ":(glob)**/*.bzl", ":(glob)**/*.bxl", ":(glob)**/*.star", "toolchains", "prelude"];
+const TARGET_ORIGIN: [&str; 10] = [":(glob)**/BUCK", ":(glob)**/BUCK.v2", ":(glob)**/TARGETS", ":(glob)**/PACKAGE", ":(glob)**/*.bzl", ":(glob)**/*.bxl", ":(glob)**/*.star", "toolchains", "prelude", "build/host-cases.list"];
 
 /// The package selection of a nextest land line: `--workspace`, or `-p NAME` for each package.
 enum Selected {
@@ -124,6 +147,8 @@ enum Selected {
 pub struct CrateTests {
     /// The crates that move.
     pub moved: Vec<String>,
+    /// The Buck2 package of each crate that moves.
+    packages: BTreeMap<String, String>,
     /// The Buck2 line that runs the tests of every crate that moves, in one invocation.
     pub line: String,
     selected: Selected,
@@ -132,7 +157,7 @@ pub struct CrateTests {
 impl CrateTests {
     /// The crate that moves whose package holds the Buck2 target `label`, as Buck2's record names it (`root//crates/NAME:TARGET`).
     pub fn owner(&self, label: &str) -> Option<&str> {
-        self.moved.iter().map(String::as_str).find(|name| holds(name, label))
+        self.moved.iter().map(String::as_str).find(|name| self.packages.get(*name).is_some_and(|package| holds(package, label)))
     }
 
     /// The declared line's package selection for what stays on Cargo once Buck2 passed `passed`; `None` when nothing is left.
@@ -154,10 +179,11 @@ pub(crate) fn selects_packages(declared: &str, variable: &str) -> bool {
 }
 
 /// The split of `declared` for a run that selected `selected` (`--workspace` or `-p NAME ...`) on a host that lists
-/// `listed`. A crate moves when it is selected, listed and has targets in the tree, the root package too. `None`
-/// leaves the line as declared: another line, nothing to move, or a tree whose Buck2 configuration or target
+/// `listed`, whose crates' Buck2 packages are `packages`. A crate moves when it is selected, listed and its package has
+/// targets in the tree, the root package too; a listed crate without one stays on the declared line with a line saying
+/// so. `None` leaves the line as declared: another line, nothing to move, or a tree whose Buck2 configuration or target
 /// definitions are not `base`'s.
-pub(crate) fn crate_tests(root: &Path, base: &str, declared: &str, (variable, selected): (&str, &str), listed: &BTreeSet<String>) -> Option<CrateTests> {
+pub(crate) fn crate_tests(root: &Path, base: &str, declared: &str, (variable, selected): (&str, &str), listed: &BTreeSet<String>, packages: &BTreeMap<String, String>) -> Option<CrateTests> {
     let side = Buck2 { tests: true };
     if !selects_packages(declared, variable) || !side.governs(root) || !unchanged_since(root, base) || !targets_unchanged_since(root, base) {
         return None;
@@ -168,17 +194,21 @@ pub(crate) fn crate_tests(root: &Path, base: &str, declared: &str, (variable, se
         ["--workspace"] => Selected::Workspace,
         words => Selected::Packages(words.chunks(2).map(|pair| if let ["-p", name] = pair { Some((*name).to_owned()) } else { None }).collect::<Option<Vec<String>>>()?),
     };
-    let targeted = |name: &&String| root.join(package(name).trim_start_matches("//").trim_end_matches(':')).join("BUCK").is_file();
-    let names: Vec<String> = match &selected {
-        Selected::Workspace => listed.iter().filter(targeted).cloned().collect(),
-        Selected::Packages(names) => names.iter().filter(|name| listed.contains(*name)).filter(targeted).cloned().collect(),
+    let chosen: Vec<&String> = match &selected {
+        Selected::Workspace => listed.iter().collect(),
+        Selected::Packages(names) => names.iter().filter(|name| listed.contains(*name)).collect(),
     };
+    let (names, unpackaged): (Vec<String>, Vec<String>) = chosen.into_iter().cloned().partition(|name| packages.get(name).is_some_and(|package| defined(root, package)));
+    for name in &unpackaged {
+        eprintln!("north land crate-tests: {name} is listed but has no Buck2 package in this tree, so the declared line tests it");
+    }
+    let packages: BTreeMap<String, String> = names.iter().filter_map(|name| Some((name.clone(), packages.get(name)?.clone()))).collect();
     if names.is_empty() {
         return None;
     }
-    let run = Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Packages(names.clone()), resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None };
+    let run = Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Typed(packages.values().cloned().collect()), resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None };
     let line = shell.split_whitespace().filter(|word| !word.starts_with(CARGO_SETTING)).map(str::to_owned).chain(side.tests(&run).words).collect::<Vec<_>>().join(" ");
-    Some(CrateTests { moved: names, line, selected })
+    Some(CrateTests { moved: names, packages, line, selected })
 }
 
 /// The build file names the tree's own `.buckconfig` sets under `[buildfile]`, as path patterns; that file is `base`'s wherever this is asked.

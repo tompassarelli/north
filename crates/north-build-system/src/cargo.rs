@@ -12,6 +12,8 @@ const CLIPPY: &str = "cargo clippy";
 const UNCOMPILED: &str = "error: could not compile";
 /// The `filter-match` status cargo-nextest's JSON listing gives a case it would run.
 const MATCHES: &str = "matches";
+/// The test binaries of a crate the declared line runs, as a filter rather than `--lib --bins --tests`, which Cargo refuses for a crate with no library.
+const TARGETS: &str = "kind(lib)|kind(bin)|kind(test)";
 
 /// Whether `command` runs this side's clippy.
 pub(crate) fn lints(command: &str) -> bool {
@@ -82,7 +84,7 @@ struct Suite {
 
 /// The cases nextest lists of crate `name`'s library, binaries and integration tests in the checkout at `root` and would run: those its filter matches, which leaves out the ignored ones.
 pub(crate) fn listed_cases(root: &Path, name: &str) -> Result<BTreeSet<String>, String> {
-    let selection = Selection::Typed(["-p", name, "--lib", "--bins", "--tests"].map(str::to_owned).to_vec());
+    let selection = Selection::Typed(["-p", name, "-E", TARGETS].map(str::to_owned).to_vec());
     let list = Cargo.tests(&Tests { root, step: Step::List, selection, resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, coverage: None });
     let line = list.words.join(" ");
     let listed = list.command().stdin(Stdio::null()).stderr(Stdio::inherit()).output().map_err(|error| format!("{line}: {error}"))?;

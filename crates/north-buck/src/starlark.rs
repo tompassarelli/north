@@ -75,11 +75,7 @@ fn render_rule(out: &mut String, rule: &Rule, features: bool) {
     attribute_dict(out, "env", &rule.env);
     attribute_dict(out, "run_env", &rule.run_env);
     attribute_list(out, "resources", &rule.resources);
-    attribute_list(out, "skip", &rule.cases.skip);
-    attribute_list(out, "only", &rule.cases.only);
-    if rule.cases.host {
-        out.push_str("    host = True,\n");
-    }
+    attribute_list(out, "skip", &rule.skip);
     attribute_list(out, "deps", &rule.deps);
     attribute_dict(out, "named_deps", &rule.named_deps);
     out.push_str("    visibility = [\"PUBLIC\"],\n)\n");

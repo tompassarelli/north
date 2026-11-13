@@ -83,7 +83,11 @@ fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_one_inside
     assert!(host_cases::check(repo, &base, &inline).unwrap_err().contains("host case `t::b`"));
 
     git_in(repo, &["reset", "-q", "--hard", &base]);
-    let alone = commit(repo, &[(manifest, with_case)]);
+    let vendored = commit(repo, &[(manifest, with_case), ("build/host-cases.list", "alpha t::a\n"), ("third-party/BUCK", "edited\n")]);
+    assert!(host_cases::check(repo, &base, &vendored).unwrap_err().contains("the lane also changes third-party/BUCK"));
+
+    git_in(repo, &["reset", "-q", "--hard", &base]);
+    let alone = commit(repo, &[(manifest, with_case), ("build/host-cases.list", "alpha t::a\n"), ("crates/alpha/BUCK", "skip\n")]);
     assert_eq!(host_cases::check(repo, &base, &alone), Ok(true));
     let mut out = Vec::new();
     assert_eq!(host_cases::scan(repo, &format!("{base}..{alone}"), state.path(), &mut out), 0);

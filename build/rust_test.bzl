@@ -36,7 +36,7 @@ def _test_executor():
 
 def _runner_command(ctx: AnalysisContext) -> cmd_args:
     resources = [resource[DefaultInfo].default_outputs for resource in ctx.attrs.resources]
-    selection = [flag for name in ctx.attrs.skip for flag in ["--skip", name]] + [flag for name in ctx.attrs.only for flag in ["--case", name]]
+    selection = [flag for name in ctx.attrs.skip for flag in ["--skip", name]]
     return cmd_args(
         ctx.attrs._runner[RunInfo],
         "--binary-id",
@@ -64,32 +64,17 @@ def _north_test_impl(ctx: AnalysisContext) -> list[Provider]:
         ),
     ]
 
-_CASE_ATTRS = {
-    "binary": attrs.dep(providers = [RunInfo]),
-    "binary_id": attrs.string(),
-    "only": attrs.list(attrs.string(), default = []),
-    "resources": attrs.list(attrs.dep(), default = []),
-    "skip": attrs.list(attrs.string(), default = []),
-    "_runner": attrs.exec_dep(default = "//crates/north-test-cases:north-test-cases", providers = [RunInfo]),
-}
-
 _north_test = rule(
     impl = _north_test_impl,
-    attrs = _CASE_ATTRS | {
+    attrs = {
+        "binary": attrs.dep(providers = [RunInfo]),
+        "binary_id": attrs.string(),
         "env": attrs.dict(key = attrs.string(), value = attrs.arg(), default = {}),
         "labels": attrs.list(attrs.string(), default = []),
+        "resources": attrs.list(attrs.dep(), default = []),
+        "skip": attrs.list(attrs.string(), default = []),
+        "_runner": attrs.exec_dep(default = "//crates/north-test-cases:north-test-cases", providers = [RunInfo]),
     },
-)
-
-def _north_host_run_impl(ctx: AnalysisContext) -> list[Provider]:
-    return [
-        DefaultInfo(default_outputs = ctx.attrs.binary[DefaultInfo].default_outputs),
-        RunInfo(args = _runner_command(ctx)),
-    ]
-
-_north_host_run = rule(
-    impl = _north_host_run_impl,
-    attrs = _CASE_ATTRS,
 )
 
 def _test_path():
@@ -100,7 +85,7 @@ def manifest_dir_flags():
     """`CARGO_MANIFEST_DIR` as the package's path from the repository root, set through rustc rather than `env`, where the prelude would make it an absolute path into one checkout's buck-out."""
     return ["-Zunstable-options", "--env-set=CARGO_MANIFEST_DIR=" + (native.package_name() or ".")]
 
-def north_rust_test(name, binary_id, env = {}, run_env = {}, resources = [], labels = [], rustc_flags = [], skip = [], only = [], host = False, **kwargs):
+def north_rust_test(name, binary_id, env = {}, run_env = {}, resources = [], labels = [], rustc_flags = [], skip = [], **kwargs):
     """The test binary `name`-bin, built as `cargo test` builds it, and the test target `name` that runs its cases."""
     if "CARGO_MANIFEST_DIR" in env:
         fail("north_rust_test sets CARGO_MANIFEST_DIR itself; drop it from env")
@@ -110,19 +95,12 @@ def north_rust_test(name, binary_id, env = {}, run_env = {}, resources = [], lab
         rustc_flags = ["--test"] + manifest_dir_flags() + rustc_flags,
         **kwargs
     )
-    shared = {
-        "binary": ":" + name + "-bin",
-        "binary_id": binary_id,
-        "only": only,
-        "resources": ([":files"] if native.package_name() else []) + ["//:files"] + resources,
-        "skip": skip,
-    }
-    if host:
-        _north_host_run(name = name, **shared)
-    else:
-        _north_test(
-            name = name,
-            env = _test_path() | env | {"CARGO_MANIFEST_DIR": native.package_name() or "."} | run_env,
-            labels = labels,
-            **shared
-        )
+    _north_test(
+        name = name,
+        binary = ":" + name + "-bin",
+        binary_id = binary_id,
+        env = _test_path() | env | {"CARGO_MANIFEST_DIR": native.package_name() or "."} | run_env,
+        labels = labels,
+        resources = ([":files"] if native.package_name() else []) + ["//:files"] + resources,
+        skip = skip,
+    )

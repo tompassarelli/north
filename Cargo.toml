@@ -145,3 +145,103 @@ debug = "line-tables-only"
 
 [profile.release]
 incremental = false
+
+[[package.metadata.north.buck.host-cases]]
+name = "agent_build_sandbox::an_agent_build_path_reads_no_credential_reaches_no_network_and_refuses_a_remote_buck2_run"
+reason = "starts the dependency box or a worker sandbox, which a remote worker cannot: bwrap there fails with Can't mount proc on /proc"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "capacity_agent_compile::a_fleet_sessions_cargo_that_compiles_nothing_or_needs_this_host_runs_here"
+reason = "starts the dependency box or a worker sandbox, which a remote worker cannot: bwrap there fails with Can't mount proc on /proc"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "capacity_agent_compile::a_fleet_sessions_compile_from_any_entry_is_refused_only_when_no_build_host_and_not_this_host_has_room"
+reason = "starts the dependency box or a worker sandbox, which a remote worker cannot: bwrap there fails with Can't mount proc on /proc"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "carry_matrix::carry_matrix_every_entry_runs_the_dev_shell_cargo_sees_the_landing_base_and_exits_127_for_a_missing_program"
+reason = "starts the dependency box or a worker sandbox, which a remote worker cannot: bwrap there fails with Can't mount proc on /proc"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "depbox_broker::dependency_code_in_depbox_cannot_connect_to_the_broker_socket"
+reason = "starts the dependency box or a worker sandbox, which a remote worker cannot: bwrap there fails with Can't mount proc on /proc"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "land_checks::a_check_that_reaches_no_verdict_names_no_failed_step_for_the_sheriff_and_is_not_rerun_on_base"
+reason = "starts the dependency box or a worker sandbox, which a remote worker cannot: bwrap there fails with Can't mount proc on /proc"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "landing_targets::each_checkout_runs_its_own_binary_even_when_its_sources_predate_another_checkouts_build"
+reason = "starts the dependency box or a worker sandbox, which a remote worker cannot: bwrap there fails with Can't mount proc on /proc"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_command_confined_to_its_lane_reads_its_lane_and_not_another_project_the_sops_keys_or_agent_state"
+reason = "runs a command under north --worker-sandbox, whose bwrap namespace a remote worker cannot set up: Can't mkdir parents for /run/user/995"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime_that_run_a_lane_build_north_1020"
+reason = "runs a command under north --worker-sandbox, whose bwrap namespace a remote worker cannot set up: Can't mkdir parents for /run/user/995"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_delete_whose_target_is_computed_at_run_time_cannot_remove_a_protected_directory_north_706"
+reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_lane_created_after_the_session_started_runs_its_scripts_in_a_fresh_domain_that_hides_every_older_lane_north_1033"
+reason = "runs a command under north --worker-sandbox, whose bwrap namespace a remote worker cannot set up: Can't mkdir parents for /run/user/995"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_sandboxed_hand_in_for_another_projects_lane_is_refused_and_leaves_no_index_lock_north_1172"
+reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_sandboxed_worker_fast_forwards_a_main_checkout_through_the_broker"
+reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_harness_state"
+reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_worker_command_cannot_write_a_north_runtime_that_unconfined_sessions_execute"
+reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_worker_command_cannot_write_another_sessions_fleet_record"
+reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_worker_command_cannot_write_a_projects_git_config_and_still_fetches_and_branches_from_origin"
+reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_worker_command_cannot_write_a_projects_git_hooks"
+reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_worker_command_reads_the_lifecycle_ledger_and_cannot_write_it"
+reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_worker_send_to_a_session_on_its_host_or_another_exits_0_with_no_error_and_leaves_the_row_for_the_fleet_tick_north_1219"
+reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
+test = "it"
