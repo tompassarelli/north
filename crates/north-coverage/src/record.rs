@@ -73,6 +73,9 @@ fn record(arguments: &[String]) -> Result<(Map, Vec<reads::Read>), String> {
     let builder = north_build_system::here();
     let suite = Selection::Typed(suite);
     let listing = tests(builder.as_ref(), (&root, &tools, &work), Step::List, &suite, false)?;
+    if !listing.status.success() {
+        return Err(format!("the test listing failed: {}", String::from_utf8_lossy(&listing.stderr).trim()));
+    }
     let listing = builder.listing(&String::from_utf8_lossy(&listing.stdout)).map_err(|error| format!("cannot read the test listing: {error}"))?;
     let ran = tests(builder.as_ref(), (&root, &tools, &work), Step::Run { doctests: false, keep_going: true }, &suite, true)?;
     if !ran.status.success() {

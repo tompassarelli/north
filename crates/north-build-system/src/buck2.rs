@@ -22,6 +22,20 @@ pub struct Buck2 {
 }
 
 impl Buck2 {
+    /// The line of a test listing, or of a coverage run, which this side has no form of yet; `None` for any other step.
+    fn listing_line(&self, request: &Tests) -> Option<Invocation> {
+        if request.coverage.is_some() && (self.tests || request.step == Step::List) {
+            return Some(Invocation::new(request.root, Shell::Inherited, ["sh", "-c", NO_COVERAGE].map(str::to_owned).to_vec()));
+        }
+        if request.step != Step::List {
+            return None;
+        }
+        let query = format!("kind(\"{TEST_RULE}\", {})", targets(&request.selection).join(" + "));
+        let buck2 = self.invocation(request.root, request.shell, self.words(&[])).words;
+        let words = ["bash", "-c", LISTING, "bash", &query].map(str::to_owned).into_iter().chain(buck2).collect();
+        Some(Invocation::new(request.root, Shell::Inherited, words))
+    }
+
     /// The side whose lines decide a land check: it needs the store's generation, since a directory no generation names may
     /// hold what the daemon kept from before the store last changed.
     pub(crate) fn deciding(tests: bool, file: &Path) -> Result<Self, String> {
@@ -78,7 +92,12 @@ const OUT: &str = "buck-out/north";
 const ON_WORKERS: &str = "--unstable-allow-compatible-tests-on-re";
 /// The rule `north_rust_test` declares for each nextest binary (build/rust_test.bzl); the prelude's `rust_test` is not used.
 const TEST_RULE: &str = "^_north_test$";
-const BINARY_ID: &str = "binary_id";
+/// The marker line before each test binary's `--list --format terse` text, naming its Buck2 target.
+const BINARY_MARK: &str = "@@ ";
+/// Prints Buck2's binary id of each test target, then each target's binary, built on the workers, under a marker line with the names its own `--list` gives; $1 is the target query and the rest the `buck2` words with the shell that gives its build the network.
+const LISTING: &str = r#"set -eo pipefail; query=$1; shift; "$@" uquery --json --output-attribute binary_id "$query"; labels=$("$@" uquery "$query"); [ -z "$labels" ] || "$@" build --remote-only --show-output $labels | while read -r label path; do echo "@@ $label"; "$path" --list --format terse; done"#;
+/// What a coverage run says on this side until its instrumented binaries are built through Buck2 (north#1115 box 7d-tools).
+const NO_COVERAGE: &str = r#"echo "north: a coverage run is not on the Buck2 side yet" >&2; exit 1"#;
 const CLIPPY_GATE: &str = "//lint/clippy.bxl:clippy";
 /// The variable the declared nextest line reads its package selection from.
 const DECLARED: &str = "cargo ";
@@ -527,20 +546,17 @@ impl BuildSystem for Buck2 {
     }
 
     fn tests(&self, request: &Tests) -> Invocation {
-        if !self.tests && request.step != Step::List {
+        if let Some(line) = self.listing_line(request) {
+            return line;
+        }
+        if !self.tests {
             return Cargo.tests(request);
         }
         let mut words = match &request.step {
             Step::Compile => self.words(&["build", REMOTE_ONLY, UNMATERIALISED]),
-            Step::List => self.words(&["uquery", "--json", "--output-attribute", BINARY_ID]),
-            Step::Run { .. } => self.words(&["test", REMOTE_ONLY, ON_WORKERS]),
+            _ => self.words(&["test", REMOTE_ONLY, ON_WORKERS]),
         };
-        words.extend(request.coverage.is_some().then(|| "@mode/coverage".to_owned()));
-        let targets = targets(&request.selection);
-        match request.step {
-            Step::List => words.push(format!("kind(\"{TEST_RULE}\", {})", targets.join(" + "))),
-            _ => words.extend(targets),
-        }
+        words.extend(targets(&request.selection));
         words.extend(request.uncached.then(|| "--no-remote-cache".to_owned()));
         if matches!(request.step, Step::Run { .. }) {
             words = test_record::logged(words);
@@ -549,8 +565,14 @@ impl BuildSystem for Buck2 {
     }
 
     fn listing(&self, printed: &str) -> Result<Vec<TestBinary>, String> {
-        let targets: BTreeMap<String, TestTarget> = serde_json::from_str(printed).map_err(|error| format!("buck2 uquery printed no JSON map of test targets: {error}"))?;
-        Ok(targets.into_values().map(|target| TestBinary { package: target.binary_id.split("::").next().unwrap_or_default().to_owned(), id: target.binary_id, ..TestBinary::default() }).collect())
+        let Some((ids, listed)) = printed.split_once(&format!("\n{BINARY_MARK}")) else { return serde_json::from_str::<BTreeMap<String, TestTarget>>(printed).map(|_| Vec::new()).map_err(|error| format!("buck2 uquery printed no JSON map of test targets: {error}")) };
+        let ids: BTreeMap<String, TestTarget> = serde_json::from_str(ids).map_err(|error| format!("buck2 uquery printed no JSON map of test targets: {error}"))?;
+        listed.split(&format!("\n{BINARY_MARK}")).map(|section| {
+            let (label, names) = section.split_once('\n').unwrap_or((section, ""));
+            let id = ids.get(label.trim()).ok_or_else(|| format!("{label} is no test target buck2 uquery named"))?.binary_id.clone();
+            let tests = names.lines().filter_map(|line| line.strip_suffix(": test")).map(str::to_owned).collect();
+            Ok(TestBinary { package: id.split("::").next().unwrap_or_default().to_owned(), id, tests, ..TestBinary::default() })
+        }).collect()
     }
 
     fn check(&self, root: &Path, package: &str, _output: Option<&Path>) -> Invocation {
