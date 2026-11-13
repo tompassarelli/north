@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 use std::io::{self, Read, Write};
 use crate::guard::container_shell;
-use crate::hook_input::{HookInput, INPUT_LIMIT, Verdict};
+use crate::hook_input::{Evidence, HookInput, INPUT_LIMIT, Verdict};
 use crate::fleet::runtime::Binding;
 
 pub type GuardFn = fn(&HookInput) -> Verdict;
@@ -180,22 +180,23 @@ fn permission_decision(behavior: &str, message: Option<String>) -> Value {
 }
 
 pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Value> {
-    judge(input, guards, event, || None, &mut Vec::new())
+    judge(input, guards, event, || None, &mut Vec::new(), &mut Vec::new())
 }
 
 /// [`evaluate`] for the session this hook runs in: when its launch declared a container shell, each verdict that stands down is written to the hooks' records.
-fn evaluate_here(input: &HookInput, guards: &[Guard], event: &str) -> Option<Value> {
+fn evaluate_here(input: &HookInput, guards: &[Guard], event: &str, evidence: &mut Vec<Evidence>) -> Option<Value> {
     let mut stood_down = Vec::new();
-    let output = judge(input, guards, event, container_shell::declared, &mut stood_down);
+    let output = judge(input, guards, event, container_shell::declared, &mut stood_down, evidence);
     container_shell::record(input, &stood_down);
     output
 }
 
 /// The hook output `guards` give `input`. For a file tool call of a session `in_container` that names the container directory its own directory is mounted at, a path under it is first moved to the same place under the session's own directory. For a shell command of a session `in_container`, a [`Host`] guard's refusal or advice and any guard's rewrite do not apply, since the command touches nothing on this host and a rewrite names a tool only this host has; what each would have said goes to `stood_down`.
-fn judge(input: &HookInput, guards: &[Guard], event: &str, in_container: impl FnOnce() -> Option<container_shell::ContainerSession>, stood_down: &mut Vec<String>) -> Option<Value> {
+fn judge(input: &HookInput, guards: &[Guard], event: &str, in_container: impl FnOnce() -> Option<container_shell::ContainerSession>, stood_down: &mut Vec<String>, evidence: &mut Vec<Evidence>) -> Option<Value> {
     let in_container = std::cell::LazyCell::new(in_container);
     let mut judged = Judged::default();
     judged.take(container_shell::moved_file_call(event, input, &in_container), input, event);
+    let mut output = None;
     for guard in guards {
         if !guard.0.is_empty() && crate::guard::activation::authoring_guards_off(guard.0) {
             continue;
@@ -203,11 +204,13 @@ fn judge(input: &HookInput, guards: &[Guard], event: &str, in_container: impl Fn
         let verdict = (guard.1)(judged.rewritten.as_ref().unwrap_or(input));
         if let Some(said) = host_bound(*guard, &verdict).filter(|_| input.is_shell() && in_container.is_some()) {
             stood_down.push(said.to_owned());
-        } else if let Some(output) = judged.take(verdict, input, event) {
-            return Some(output);
+        } else if let Some(ended) = judged.take(verdict, input, event) {
+            output = Some(ended);
+            break;
         }
     }
-    judged.output(event)
+    evidence.append(&mut judged.evidence);
+    output.or_else(|| judged.output(event))
 }
 
 /// What `verdict` says when it holds only for a command on this host: any rewrite, and a [`Host`] guard's refusal or advice.
@@ -226,6 +229,7 @@ struct Judged {
     updated_input: Option<Value>,
     rewritten: Option<HookInput>,
     blocks: Vec<String>,
+    evidence: Vec<Evidence>,
 }
 
 impl Judged {
@@ -233,6 +237,10 @@ impl Judged {
     fn take(&mut self, verdict: Verdict, input: &HookInput, event: &str) -> Option<Value> {
         match verdict {
             Verdict::Allow => None,
+            Verdict::Record(row) => {
+                self.evidence.push(row);
+                None
+            }
             Verdict::Approve => (event == "PermissionRequest").then(|| permission_decision("allow", None)),
             Verdict::Deny(reason) => self.refuse(reason, event),
             Verdict::End(reason) => Some(json!({"continue": false, "stopReason": reason})),
@@ -283,12 +291,17 @@ impl Judged {
 }
 
 /// The refusal north's Bash hook gives `command` run in `cwd`, for a session whose harness binds no hook: the worker sandbox screens each shell command of such a session with it, so a Pi or OpenCode worker meets the deciders a Claude worker's hook applies (north#1041).
-pub fn command_refusal(command: &str, cwd: &std::path::Path) -> Option<String> {
+pub fn command_refusal(command: &str, cwd: &std::path::Path) -> (Option<String>, Vec<Evidence>) {
     let data = json!({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": cwd.display().to_string(), "tool_input": {"command": command}});
-    let input = HookInput::parse(data.to_string().as_bytes())?;
-    let output = evaluate_here(&input, HookKind::PreBash.guards(), HookKind::PreBash.event())?;
-    let decision = &output["hookSpecificOutput"];
-    (decision["permissionDecision"].as_str() == Some("deny")).then(|| decision["permissionDecisionReason"].as_str().unwrap_or("north hook refused this command").to_owned())
+    let Some(input) = HookInput::parse(data.to_string().as_bytes()) else {
+        return (None, Vec::new());
+    };
+    let mut evidence = Vec::new();
+    let refusal = evaluate_here(&input, HookKind::PreBash.guards(), HookKind::PreBash.event(), &mut evidence).and_then(|output| {
+        let decision = &output["hookSpecificOutput"];
+        (decision["permissionDecision"].as_str() == Some("deny")).then(|| decision["permissionDecisionReason"].as_str().unwrap_or("north hook refused this command").to_owned())
+    });
+    (refusal, evidence)
 }
 
 pub(crate) fn process(
@@ -296,19 +309,20 @@ pub(crate) fn process(
     writer: &mut impl Write,
     guards: &[Guard],
     event: &str,
-) -> io::Result<()> {
+) -> io::Result<Vec<Evidence>> {
+    let mut evidence = Vec::new();
     let mut bytes = Vec::new();
     if reader
         .take(INPUT_LIMIT * 4 + 1)
         .read_to_end(&mut bytes)
         .is_err()
     {
-        return Ok(());
+        return Ok(evidence);
     }
     if let Some(input) = HookInput::parse(&bytes) {
         let (guards, event) = if event.is_empty() {
             let Some(kind) = HookKind::from_input(&input) else {
-                return Ok(());
+                return Ok(evidence);
             };
             (kind.guards(), kind.event())
         } else {
@@ -316,14 +330,14 @@ pub(crate) fn process(
         };
         let event = if event == "*" { input.data["hook_event_name"].as_str().unwrap_or("") } else { event };
         let guards = spare_guards(guards, event, crate::fleet::runtime::binding(), || first_prompt(&input));
-        if let Some(output) = evaluate_here(&input, &guards, event) {
+        if let Some(output) = evaluate_here(&input, &guards, event, &mut evidence) {
             writer.write_all(output.to_string().as_bytes())?;
             writer.write_all(b"\n")?;
         }
     } else if bytes.len() as u64 <= INPUT_LIMIT && (event == "PreToolUse" || event.is_empty()) {
         crate::guard::launch_critical::record_invalid_input(&bytes);
     }
-    Ok(())
+    Ok(evidence)
 }
 
 /// The guards `event` runs in a session standing at `binding` (crate::fleet::runtime::binding): none at the start of a spare no launch has taken, whose context would be the spare's, and at a taken spare's `first` prompt the session-start guards before the prompt's own, so the context its start owes is produced for the session it was bound to.
@@ -342,24 +356,24 @@ fn first_prompt(input: &HookInput) -> bool {
     std::fs::create_dir_all(&marks).is_ok() && std::fs::OpenOptions::new().write(true).create_new(true).open(marks.join(conversation)).is_ok()
 }
 
-pub fn run(arguments: &[String]) -> Result<(), String> {
+pub fn run(arguments: &[String]) -> Result<Vec<Evidence>, String> {
     let kind = match arguments {
         [] => None,
         [verb] if verb == "dispatch" => None,
         [verb] if verb == "spawn-gate" => {
             println!("{}", crate::guard::spawn_capacity::gate_summary(&crate::guard::spawn_capacity::Live));
-            return Ok(());
+            return Ok(Vec::new());
         }
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),
         _ => return Err("Usage: north hook [stats [--since 7d]|dispatch|pre-bash|safety|pre-edit|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]".into()),
     };
-    let _ = process(
+    Ok(process(
         io::stdin().lock(),
         &mut io::stdout().lock(),
         kind.map_or(&[], HookKind::guards),
         kind.map_or("", HookKind::event),
-    );
-    Ok(())
+    )
+    .unwrap_or_default())
 }
 
 #[cfg(test)]

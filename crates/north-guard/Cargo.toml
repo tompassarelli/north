@@ -15,7 +15,6 @@ north-base = { path = "../north-base" }
 north-capacity = { path = "../north-capacity" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-pace = { path = "../north-pace" }
-north-providers = { path = "../north-providers" }
 north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 north-github-mirror = { path = "../north-github-mirror" }

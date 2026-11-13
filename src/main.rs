@@ -13,7 +13,7 @@ use north_core::{
 use north_health::health;
 use north_providers::{ledger, providers};
 use north_code_health::code_health;
-use north_guard::{guard, hook, nix_explain};
+use north_guard::{guard, hook, hook_input::Evidence, nix_explain};
 use north_lanes::lanes;
 use north_lander::land;
 use north_land_watch::watch;
@@ -48,7 +48,7 @@ fn main() -> std::process::ExitCode {
         if let Some(point) = std::env::args_os().next().and_then(|argv0| entry_points::named(&argv0)) {
             return enter(point, &arguments);
         }
-        if let Some(code) = worker_sandbox::tool_server::enter(&arguments, hook::command_refusal) {
+        if let Some(code) = worker_sandbox::tool_server::enter(&arguments, command_refusal) {
             return code;
         }
         arguments
@@ -64,7 +64,21 @@ fn enter(point: EntryPoint, arguments: &[String]) -> std::process::ExitCode {
     }
     match point {
         EntryPoint::SafePush => std::process::ExitCode::from(cli::remote_land::safe_push(arguments)),
-        EntryPoint::WorkerSandbox => worker_sandbox::run(arguments, hook::command_refusal),
+        EntryPoint::WorkerSandbox => worker_sandbox::run(arguments, command_refusal),
+    }
+}
+
+fn command_refusal(command: &str, cwd: &std::path::Path) -> Option<String> {
+    let (refusal, evidence) = hook::command_refusal(command, cwd);
+    evidence.iter().for_each(record_evidence);
+    refusal
+}
+
+fn record_evidence(evidence: &Evidence) {
+    match evidence {
+        Evidence::NativeSolo { session, reason, command } => {
+            let _ = ledger::Ledger::open_default().and_then(|ledger| ledger.record_native_solo(session, reason, command));
+        }
     }
 }
 

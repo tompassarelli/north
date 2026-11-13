@@ -1,62 +1,81 @@
 use super::git_invocation::words;
 use super::argument_words::is_plain_argument;
-use crate::hook_input::{HookInput, Verdict};
+use crate::hook_input::{Evidence, HookInput, Verdict};
 use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredocs};
 
 pub(super) const DENIAL: &str = "Native evidence runs go through `bun wisp accept`, which takes its own quiet native lease. For a run that can't use one, prefix NORTH_NATIVE_SOLO='<reason>'; the reason is recorded in the run ledger.";
 pub(super) const QUIET_DENIAL: &str = "The quiet native lease is for timing checks only; `bun wisp accept` takes it per batch. Prefix NORTH_NATIVE_SOLO='<reason>' for a recorded exception.";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    decide_with(input, |reason, text| {
-        let session = std::env::var("NORTH_FLEET_SESSION")
-            .ok()
-            .or_else(|| input.data["session_id"].as_str().map(str::to_owned))
-            .unwrap_or_else(|| "unknown".into());
-        crate::ledger::Ledger::open_default()?.record_native_solo(&session, reason, text)
-    })
+    decide(input)
 }
 
-pub(super) fn decide_with(
-    input: &HookInput,
-    mut record: impl FnMut(&str, &str) -> crate::error::NorthResult<()>,
-) -> Verdict {
+pub(super) fn decide(input: &HookInput) -> Verdict {
     let Some(text) = input.command() else {
         return Verdict::Allow;
     };
     let Ok(tokens) = operator_tokens(&strip_heredocs(text)) else {
         return Verdict::Allow;
     };
+    let (denials, exceptions) = scan(tokens);
+    if !denials.is_empty() {
+        return Verdict::Deny(denials.join("\n"));
+    }
+    match exceptions.into_iter().next() {
+        Some(reason) => Verdict::Record(Evidence::NativeSolo { session: session(input), reason, command: text.to_owned() }),
+        None => Verdict::Allow,
+    }
+}
+
+#[derive(Default)]
+struct Scan {
+    denials: Vec<&'static str>,
+    exceptions: Vec<String>,
+}
+
+impl Scan {
+    fn segment(&mut self, words: &[String]) {
+        let index = command(words, &["env", "exec", "command", "nohup"]);
+        let Some(reason) = refusal(&words[index..]) else {
+            return;
+        };
+        match solo_reason(&words[..index]) {
+            Some(reason) => self.exceptions.push(reason),
+            None if self.denials.contains(&reason) => {}
+            None => self.denials.push(reason),
+        }
+    }
+}
+
+fn scan(tokens: Vec<ShellToken>) -> (Vec<&'static str>, Vec<String>) {
+    let mut scan = Scan::default();
     let mut segment = Vec::new();
-    let mut exceptions = Vec::new();
-    let mut denials: Vec<&str> = Vec::new();
     for token in tokens.into_iter().chain([ShellToken::Operator(";".into())]) {
         match token {
             ShellToken::Word(word) => segment.push(word),
             ShellToken::Operator(_) => {
-                let index = command(&segment, &["env", "exec", "command", "nohup"]);
-                if let Some(reason) = refusal(&segment[index..]) {
-                    let solo = segment[..index]
-                        .iter()
-                        .filter_map(|word| word.strip_prefix("NORTH_NATIVE_SOLO="))
-                        .next_back()
-                        .filter(|reason| !reason.trim().is_empty());
-                    match solo {
-                        Some(reason) => exceptions.push(reason.to_owned()),
-                        None if denials.contains(&reason) => {}
-                        None => denials.push(reason),
-                    }
-                }
+                scan.segment(&segment);
                 segment.clear();
             }
         }
     }
-    if !denials.is_empty() {
-        return Verdict::Deny(denials.join("\n"));
-    }
-    if let Some(reason) = exceptions.first() {
-        let _ = record(reason, text);
-    }
-    Verdict::Allow
+    (scan.denials, scan.exceptions)
+}
+
+fn solo_reason(prefix: &[String]) -> Option<String> {
+    prefix
+        .iter()
+        .filter_map(|word| word.strip_prefix("NORTH_NATIVE_SOLO="))
+        .next_back()
+        .filter(|reason| !reason.trim().is_empty())
+        .map(str::to_owned)
+}
+
+fn session(input: &HookInput) -> String {
+    std::env::var("NORTH_FLEET_SESSION")
+        .ok()
+        .or_else(|| input.data["session_id"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| "unknown".into())
 }
 
 fn refusal(args: &[String]) -> Option<&'static str> {

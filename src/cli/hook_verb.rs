@@ -37,7 +37,7 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             }
             guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home, read_streak, status_verb, file_tool_refusal: north_runtime::worker_sandbox::unwritable_by_file_tool });
             let started = std::time::Instant::now();
-            match foundation::hook_deadline::within(started + GUARD_DEADLINE, move || hook::run(&arguments)) {
+            match foundation::hook_deadline::within(started + GUARD_DEADLINE, move || hook::run(&arguments).map(|evidence| evidence.iter().for_each(crate::record_evidence))) {
                 Some(outcome) => reported(outcome),
                 None => {
                     foundation::hook_deadline::record_error(&foundation::hook_deadline::errors_file(), "north-hook", "deadline");

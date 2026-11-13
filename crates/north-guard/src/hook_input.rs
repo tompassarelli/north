@@ -83,6 +83,13 @@ pub enum Verdict {
     Advise(String),
     Approve,
     End(String),
+    /// A row for the run ledger; the guard lets the command through, and the hook's caller writes the row.
+    Record(Evidence),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Evidence {
+    NativeSolo { session: String, reason: String, command: String },
 }
 
 /// The JSON document in `bytes`, with each unpaired UTF-16 surrogate escape read as U+FFFD, since a JavaScript harness writes a lone surrogate as `\udXXX` and serde_json refuses it.

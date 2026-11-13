@@ -239,7 +239,7 @@ fn a_session_launched_with_a_container_shell_starts_a_server_and_searches_a_tree
     let judged = |session: &str, command: &str| {
         let call = json!({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": app, "tool_input": {"command": command}});
         let mut stood_down = Vec::new();
-        let output = judge(&HookInput::parse(call.to_string().as_bytes()).unwrap(), &guards, "PreToolUse", || container_shell::declared_in(fleet.path(), session), &mut stood_down);
+        let output = judge(&HookInput::parse(call.to_string().as_bytes()).unwrap(), &guards, "PreToolUse", || container_shell::declared_in(fleet.path(), session), &mut stood_down, &mut Vec::new());
         (output, stood_down)
     };
     for command in ["nohup setsid pypi-server run -p 8080 /srv/packages > /tmp/pypi.log 2>&1 &", "find john -iname '*7z*'"] {
@@ -272,7 +272,7 @@ fn a_file_tool_path_under_a_container_sessions_container_directory_reaches_the_s
     })];
     let judged = |session: &str, path: &str| {
         let call = json!({"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": own, "tool_input": {"file_path": path, "content": "x"}});
-        judge(&HookInput::parse(call.to_string().as_bytes()).unwrap(), &guards, "PreToolUse", || container_shell::declared_in(fleet.path(), session), &mut Vec::new()).unwrap_or_default()["hookSpecificOutput"].clone()
+        judge(&HookInput::parse(call.to_string().as_bytes()).unwrap(), &guards, "PreToolUse", || container_shell::declared_in(fleet.path(), session), &mut Vec::new(), &mut Vec::new()).unwrap_or_default()["hookSpecificOutput"].clone()
     };
     let moved = judged("task", "/app/src/run.py");
     assert_eq!((moved["permissionDecision"].as_str(), moved["updatedInput"]["file_path"].as_str(), moved["updatedInput"]["content"].as_str()), (Some("allow"), Some(own.join("src/run.py").to_str().unwrap()), Some("x")), "{moved}");

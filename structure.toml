@@ -216,7 +216,7 @@ may_use = ["north-providers"]
 [[crate_dag.crate]]
 name = "north-guard"
 paths = ["crates/north-guard/src/**"]
-may_use = ["north-dispatch", "north-providers", "north-github-mirror", "north-graph-ground", "north-code-health"]
+may_use = ["north-dispatch", "north-github-mirror", "north-graph-ground", "north-code-health"]
 
 [[crate_dag.crate]]
 name = "north-check-environment"

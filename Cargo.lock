@@ -1467,7 +1467,6 @@ dependencies = [
  "north-github-mirror",
  "north-graph-ground",
  "north-pace",
- "north-providers",
  "north-strategy-types",
  "north-threads",
  "regex",
