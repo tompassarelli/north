@@ -419,3 +419,24 @@ formal-verification skills, TLA+, stateright and Kani, and the measured results,
   box text, and a gate whose box is ticked is not open after a sweep", over a gate instance plus an issue body; that
   needs a second kind of instance in the scope, which the search does not have. `Hold::refuses` and `ticked_box` are
   covered by `crates/north-core/src/gate_box_tests.rs`.
+- **Runtime-canary fixes `c5a2ad898a`, `88749de031`, `81773ae725`, `0b1d7c7ec6` and `3d917aab8e` (north#1022), no promise
+  of the model covers them.** All five change how a canary probe's reply, or a rollback's answer, is classed; none
+  changes a move the table allows. `c5a2ad898a` and `3d917aab8e` make the launch probe pass only a reply carrying the
+  planted token (a harness provider, which reads a scratch generation) or the whole sentence of the published policy
+  the probe names (Claude), not a heading word the worker picked. `88749de031` makes a worker still working at its deadline no verdict, and `81773ae725` and the first
+  half of `0b1d7c7ec6` make a worker that withholds the planted token as a secret, a leak marker, a tripwire or a
+  fingerprint no verdict. The second half of `0b1d7c7ec6` makes `roll_back`'s "nothing to roll back" answer the
+  deferred kind, which `crates/north-runtime/src/runtime/canary.rs:159` reports as `unjudged` rather than `stuck`.
+  The verdict is chosen in `crates/north-runtime/src/runtime/canary/launch.rs` (`judged`, `at_deadline`,
+  `declined_as_secret`) and `canary.rs`, outside the table. The search's events are only a move, a settle, a death, a
+  dwell running out and a deadline sweep (`crates/north-machine-model/src/world.rs`, `Event`); no event carries a probe
+  outcome, so a reverted fix reorders no move and the check cannot fail on it. The promise each needs is "a probe
+  judged from its reply passes only a reply carrying the planted token or the policy's sentence, and a busy probe, a
+  withheld marker and a rollback with nothing to roll back end `unjudged`, never `rolled-back` or `stuck`", over one
+  instance plus an outcome per move, a second axis the search does not have. Each fix has its test in
+  `crates/north-runtime/src/runtime/canary/tests.rs`: `a_probe_answer_is_judged_by_the_policy_it_was_given_not_by_the_wording_of_a_heading`
+  (`3d917aab8e` and `c5a2ad898a`, which renamed it), `a_probe_still_working_at_its_deadline_is_no_verdict`
+  (`88749de031`),
+  `a_worker_declining_the_planted_token_as_a_secret_is_no_verdict_on_the_runtime` (`0b1d7c7ec6`, with the three
+  refusals of `81773ae725` as fixtures) and `a_host_with_no_previous_runtime_holds_a_failing_promotion_instead_of_failing_its_rollback`
+  (`0b1d7c7ec6`).
