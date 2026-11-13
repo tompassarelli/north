@@ -5,6 +5,7 @@ use super::super::storage;
 use super::gate::{self, Decision, Machine};
 use super::credit;
 use super::hosts::{self, Facts};
+use super::line_wait;
 use super::room::{Basis, Rank};
 use super::{local, strings};
 use crate::capacity::saturation::Saturation;
@@ -53,6 +54,7 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
         here: here(),
         github: crate::platform::github_quota::seen(at),
         grants: grant_sources(ask.roster, at),
+        line_waits: if line_wait::counts(ask.launch.role.as_deref()) { hosts::surveyed_lines(&cfg, &local(), unprobed) } else { Vec::new() },
     })
 }
 
@@ -102,7 +104,26 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
     decision.here_saturated = case.here.saturation.map(Saturation::from).and_then(|reading| reading.refusal(here));
     decision.here_cpu_held = case.here.spawn_cpu.as_ref().and_then(|cpu| crate::pacing::spawn_gate::launch_verdict(cpu, &case.brief));
     decision.hold_here();
+    decision.hold_for_line(case);
     Ok(decision)
+}
+
+impl Decision {
+    /// Holds a worker's launch while every build host's line is over the bar; only a cloud placement escapes it, and `--local` keeps the box off the cloud.
+    /// A launch the coordinator granted urgent priority passes the hold and the pass is recorded in the decision's lines.
+    pub fn hold_for_line(&mut self, case: &Case) {
+        let on_cloud = matches!(self.target, gate::Target::Cloud(_)) && case.launch.overrides.local.is_none();
+        if !line_wait::counts(case.launch.role.as_deref()) || on_cloud {
+            return;
+        }
+        let Some(why) = line_wait::over_the_bar(&case.line_waits, line_wait::bar_s()) else { return };
+        if case.launch.overrides.urgent {
+            self.machine_lines.push(format!("urgent priority passes the hold: {why}"));
+            return;
+        }
+        self.machine_lines.push(why.clone());
+        self.line_held = Some(why);
+    }
 }
 
 /// The model family a launch asks placement to meter: the family its recorded model names, else the

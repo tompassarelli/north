@@ -244,6 +244,7 @@ fn coordinator_case(fable: [f64; 2], shared: [f64; 2]) -> record::Case {
         here: record::Here::default(),
         github: None,
         grants: Vec::new(),
+        line_waits: Vec::new(),
     }
 }
 
@@ -290,4 +291,60 @@ fn an_account_with_no_five_hour_sample_prints_its_five_hour_window_as_unread() {
     assert_eq!(line, "claude:b available: 5h unread, week 30% (70% headroom)");
     let read = gate::verdict("claude:b", &control((10.0, "2026-10-19T03:00:00Z"), 30.0), None).line;
     assert_eq!(read, "claude:b available: 5h 10%, week 30% (70% headroom)");
+}
+
+fn waits(seconds: &[(&str, Option<u64>)]) -> Vec<record::LineWait> {
+    seconds.iter().map(|(host, seconds)| record::LineWait { host: (*host).into(), seconds: *seconds }).collect()
+}
+
+fn launch_with(waits: Vec<record::LineWait>, role: &str, overrides: record::Overrides) -> gate::Decision {
+    let mut case = coordinator_case([10.0, 10.0], [10.0, 10.0]);
+    case.launch = record::Launch { name: "box".into(), role: Some(role.into()), overrides, model: None, ..case.launch };
+    case.line_waits = waits;
+    super::placement::case::decide(&case).unwrap()
+}
+
+/// Opened by north#1036: on 2026-11-13 morning launches were admitted while every build host's landing line was past its deadline.
+#[test]
+fn launch_held_over_the_wait_bar_though_every_build_host_line_was_past_its_deadline() {
+    let slow = waits(&[("cpx62", Some(212)), ("gex45", Some(95))]);
+    let held = launch_with(slow.clone(), "worker", record::Overrides::default());
+    let why = held.line_held.expect("every line is over 60 s");
+    assert!(why.contains("over 60 s") && why.contains("95 s on gex45"), "{why}");
+
+    let pinned = record::Overrides { pin: Some("urgent fix".into()), local: Some("needs the laptop".into()), ..Default::default() };
+    assert!(launch_with(slow.clone(), "worker", pinned).line_held.is_some());
+
+    let urgent = launch_with(slow, "worker", record::Overrides { urgent: true, ..Default::default() });
+    assert_eq!(urgent.line_held, None);
+    assert!(urgent.machine_lines.iter().any(|line| line.starts_with("urgent priority passes the hold: every build host's expected wait") && line.contains("95 s on gex45")), "{:?}", urgent.machine_lines);
+
+    assert_eq!(launch_with(waits(&[("cpx62", Some(212)), ("gex45", Some(60))]), "worker", record::Overrides::default()).line_held, None);
+    assert_eq!(launch_with(waits(&[("cpx62", Some(212)), ("gex45", None)]), "worker", record::Overrides::default()).line_held, None);
+    assert_eq!(launch_with(waits(&[("cpx62", Some(212))]), "lead", record::Overrides::default()).line_held, None);
+    assert_eq!(launch_with(Vec::new(), "worker", record::Overrides::default()).line_held, None);
+
+    let lane = || Target::Cloud(gate::CloudLane { account: "a".into(), host: "gex45".into(), credit: "credit".into() });
+    let held_on_cloud = |local: Option<&str>| {
+        let mut case = coordinator_case([10.0, 10.0], [10.0, 10.0]);
+        case.launch = record::Launch { role: Some("worker".into()), overrides: record::Overrides { local: local.map(Into::into), ..Default::default() }, model: None, ..case.launch };
+        case.line_waits = waits(&[("cpx62", Some(212))]);
+        let mut decision = super::placement::case::decide(&case).unwrap();
+        decision.line_held = None;
+        decision.target = lane();
+        decision.hold_for_line(&case);
+        decision.line_held.is_some()
+    };
+    assert!(!held_on_cloud(None));
+    assert!(held_on_cloud(Some("needs the laptop")));
+
+    the_lines_waited_on_are_those_of_every_build_host_a_landing_goes_to_though_it_reaches_none_or_is_one_itself();
+}
+
+fn the_lines_waited_on_are_those_of_every_build_host_a_landing_goes_to_though_it_reaches_none_or_is_one_itself() {
+    let cfg: DocumentMut = "[hosts.gex45]\nssh = \"tom@gex45\"\noffload_builds = true\n[hosts.cpx62]\nssh = \"tom@cpx62\"\noffload_builds = true\nreaches = []\n[hosts.nexus]\nssh = \"tom@nexus\"\n[hosts.whiterabbit]\nssh = \"tom@whiterabbit\"\nsettles_fleet = true\nreaches = [\"gex45\", \"cpx62\", \"nexus\"]\n".parse().unwrap();
+    let names = |here: &str| super::placement::build_hosts(&cfg, here, gate::machines(&cfg)).into_iter().map(|machine| machine.name).collect::<Vec<_>>();
+    assert_eq!(names("gex45"), ["gex45", "cpx62"]);
+    assert_eq!(names("cpx62"), ["gex45", "cpx62"]);
+    assert_eq!(names("whiterabbit"), ["gex45", "cpx62"]);
 }

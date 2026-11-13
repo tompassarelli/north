@@ -254,7 +254,7 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
             println!("queued {}", request.name);
             return Ok(());
         }
-        Err(super::placement::Refusal::Spend(why)) => return Err(NorthError::Saturated(why)),
+        Err(super::placement::Refusal::Spend(why) | super::placement::Refusal::Line(why)) => return Err(NorthError::Saturated(why)),
         Err(super::placement::Refusal::Saturated(why)) => return Err(NorthError::Saturated(why)),
         Err(refusal) => return Err(refusal.into()),
     };

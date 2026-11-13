@@ -98,7 +98,7 @@ struct Staffing {
 
 impl Staffing {
     fn new(survey: &Survey) -> Self {
-        let pools = Pools::new(&survey.hosts, &survey.accounts);
+        let pools = Pools::new(&survey.hosts, &survey.accounts).held_by_line(survey.line_held.clone());
         let outcome = Outcome { free: pools.total(), ..Outcome::default() };
         Self { outcome, pools, claims: hotspots::Claims::default(), deferred: false, led: BTreeSet::new() }
     }

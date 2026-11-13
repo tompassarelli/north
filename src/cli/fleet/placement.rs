@@ -11,6 +11,7 @@ use crate::dispatch::{cloud_autoland, cloud_branch};
 use crate::pacing::placement::{case, recent};
 use crate::pacing::placement::gate::{self, CloudLane, Decision, Target};
 use crate::platform::attribution::{self, Cause, Harness};
+pub(super) use super::refusal::Refusal;
 use crate::platform::decision_log;
 use crate::spend::Starter;
 use crate::usage::decide::world::ModelFamily;
@@ -22,6 +23,7 @@ pub(super) struct Overrides {
     pub local: Option<String>,
     pub pin: Option<String>,
     pub tier: Option<String>,
+    pub urgent: bool,
 }
 
 impl Overrides {
@@ -108,41 +110,6 @@ pub(super) fn home_path_refusal(name: &str, written: &str, cwd: &Path, machine: 
     })
 }
 
-/// Why placement does not start a launch: a saturated host may take it once its admission queue,
-/// disk or load eases, and a spend refusal once a window resets (docs/rationale/spend-rule.md),
-/// while anything else needs a different launch.
-#[derive(Debug, PartialEq)]
-pub(super) enum Refusal {
-    Saturated(String),
-    Spend(String),
-    Final(String),
-}
-
-impl Refusal {
-    /// Whether the launch queue holds a launch this refusal stops: a spend refusal until a window resets, and a saturated host
-    /// for a harness launch, which has no wait of its own.
-    pub(super) fn queues(&self, provider: &str) -> bool {
-        matches!(self, Self::Spend(_)) || (provider != "claude" && matches!(self, Self::Saturated(_)))
-    }
-}
-
-impl std::fmt::Display for Refusal {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Saturated(why) | Self::Spend(why) | Self::Final(why) => formatter.write_str(why),
-        }
-    }
-}
-
-impl From<Refusal> for NorthError {
-    fn from(refusal: Refusal) -> Self {
-        match refusal {
-            Refusal::Spend(why) => Self::Saturated(why),
-            Refusal::Saturated(_) | Refusal::Final(_) => Self::Refused(refusal.to_string()),
-        }
-    }
-}
-
 /// Placement gates every Claude launch except `--test` sessions, before anything starts, on the brief and the `needs` the item it names carries; a
 /// harness launch (DeepSeek on opencode) is gated on its host's saturation alone. `report`
 /// prints its verdict lines; `written` is the prompt as the caller wrote it, before the launch added its own lines. A refusal
@@ -170,8 +137,12 @@ fn place(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String]
                 return Ok(Err(Refusal::Saturated(why)));
             }
         }
+        if let Some(refusal) = Refusal::line_hold(request.role() == Role::Worker, request.urgent) {
+            return Ok(Err(refusal));
+        }
         return Ok(harness_host(&host, crate::pacing::placement::saturation_reading(&host).ok().as_ref()));
     }
+    let overrides = &Overrides { urgent: request.urgent, ..overrides.clone() };
     let text = crate::pacing::placement::needs::with_needs(&gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref()), needs);
     let model = request.model.as_deref();
     let launch = Launch {
@@ -250,8 +221,10 @@ fn with_room(
     for other in accounts.iter().filter(|other| **other != chosen) {
         match admits(other) {
             Ok(()) => {
-                if let Ok(settled) = place_on(other)? {
-                    return Ok(Ok(Placed { account: Some((*other).to_owned()), ..settled }));
+                match place_on(other)? {
+                    Ok(settled) => return Ok(Ok(Placed { account: Some((*other).to_owned()), ..settled })),
+                    Err(line @ Refusal::Line(_)) => return Ok(Err(line)),
+                    Err(_) => {}
                 }
             }
             Err(why) => refusals.push(why),
@@ -295,7 +268,7 @@ fn recorded_launch(launch: &Launch, overrides: &Overrides) -> record::Launch {
         fresh: launch.cwd.is_some(),
         cwd: launch.cwd.map(path),
         named_machine: launch.machine.map(str::to_owned),
-        overrides: record::Overrides { local: overrides.local.clone(), pin: overrides.pin.clone(), tier: overrides.tier.clone() },
+        overrides: record::Overrides { local: overrides.local.clone(), pin: overrides.pin.clone(), tier: overrides.tier.clone(), urgent: overrides.urgent },
         provider: "claude".to_owned(),
         verification: false,
         model: launch.model.map(str::to_owned),
@@ -307,20 +280,16 @@ fn recorded_decision(decision: &Decision, settled: &Result<Placed, Refusal>) -> 
     let target = case::recorded_target(&decision.target);
     let outcome = match settled {
         Ok(placed) => record::Outcome::Placed { account: placed.account.clone(), note: placed.note.clone(), machine: placed.machine.as_ref().map(|machine| machine.name.clone()), need: placed.need.clone() },
-        Err(refusal) => {
-            let kind = match refusal {
-                Refusal::Saturated(_) => record::Refusal::Saturated,
-                Refusal::Spend(_) => record::Refusal::Spend,
-                Refusal::Final(_) => record::Refusal::Final,
-            };
-            record::Outcome::Refused { kind, why: refusal.to_string() }
-        }
+        Err(refusal) => record::Outcome::Refused { kind: refusal.kind(), why: refusal.to_string() },
     };
     let lines = std::iter::once(gate::summary(decision)).chain(decision.verdicts.iter().map(|verdict| verdict.line.clone())).chain(decision.machine_lines.iter().cloned()).collect();
     record::Decision { target, machine: decision.machine.as_ref().map(|machine| machine.name.clone()), outcome, lines }
 }
 
 pub(super) fn settle(decision: &Decision, launch: &Launch, text: &str, overrides: &Overrides) -> Result<Placed, Refusal> {
+    if let Some(why) = &decision.line_held {
+        return Err(Refusal::Line(why.clone()));
+    }
     if !launch.account.is_empty() {
         return admit(decision, launch, text, overrides);
     }

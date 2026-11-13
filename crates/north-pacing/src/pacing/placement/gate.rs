@@ -114,6 +114,8 @@ pub struct Decision {
     pub moved: Option<String>,
     /// Why the launching host cannot take what crowded machines turned away: on battery or under a playtest lease.
     pub here_closed: Option<String>,
+    /// Why every build host's landing line is over the wait bar, which holds a worker's launch whatever `--pin` or `--local` says.
+    pub line_held: Option<String>,
 }
 
 impl Decision {
@@ -635,6 +637,7 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
         here_on_battery: None,
         crowded,
         here_closed: None,
+        line_held: None,
         machine: open.first().cloned(),
         open,
         moved: None,

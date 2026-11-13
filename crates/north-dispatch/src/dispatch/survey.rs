@@ -69,6 +69,8 @@ pub struct Survey {
     pub strands: Vec<Strand>,
     /// The saturation refusal of each host a strand lives on, or why it is unread.
     pub saturated: BTreeMap<String, String>,
+    /// Why every build host's landing line is over the launch wait bar, which holds every box this run.
+    pub line_held: Option<String>,
     /// The report each session was last revived for, by `ended_ms`.
     pub revived: BTreeMap<String, u64>,
     /// The box waits and ranks in the fact graph, absent when the graph could not be read.
@@ -398,6 +400,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
     let hosts = names.iter().map(|name| host(&cfg, name, &here, fleet.elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();
     let accounts = accounts(&cfg, roster, &here, at, &mut notes);
+    let line_held = crate::pacing::placement::line_held(&cfg, &here);
     if accounts.is_empty() {
         notes.push("usage-gate.json names no Claude account, so no slot is free".into());
     }
@@ -425,7 +428,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     });
     let deepseek = super::deepseek::Seen::read(&cfg, &here, laptop.as_deref(), &reads.fleet_lists, &laptop_reports, &fleet.records, &reads.issues, at, &mut notes);
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues: reads.issues, open: reads.open, holds: fleet.holds, box_holds: fleet.box_holds, predicted: fleet.predicted, box_tries: fleet.box_tries, mainline, live: fleet.live, listed: fleet.listed, sessions: fleet.sessions, laptop, notes, frozen, history, ledger: reads.ledger, grounds: reads.grounds, strands, saturated, revived, backlog, deepseek, learned, at })
+    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues: reads.issues, open: reads.open, holds: fleet.holds, box_holds: fleet.box_holds, predicted: fleet.predicted, box_tries: fleet.box_tries, mainline, live: fleet.live, listed: fleet.listed, sessions: fleet.sessions, laptop, notes, frozen, history, ledger: reads.ledger, grounds: reads.grounds, strands, saturated, line_held, revived, backlog, deepseek, learned, at })
 }
 
 mod fleet;

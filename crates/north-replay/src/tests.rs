@@ -192,6 +192,7 @@ fn placed_case(used_5h: f64) -> placement::Case {
         here: placement::Here::default(),
         github: None,
         grants: Vec::new(),
+        line_waits: Vec::new(),
     }
 }
 

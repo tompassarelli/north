@@ -27,6 +27,7 @@ fn decision(target: Target) -> Decision {
         here_on_battery: None,
         crowded: Vec::new(),
         here_closed: None,
+        line_held: None,
         open: Vec::new(),
         moved: None,
     }
@@ -122,6 +123,9 @@ fn a_launch_naming_no_account_moves_to_one_the_spend_rule_admits_and_defers_with
     let refusal = with_room("c", &["a", "c"], admits, |account| Ok(Ok(placed_on(account))), Ok(placed_on("c"))).unwrap().unwrap_err();
     assert!(matches!(&refusal, Refusal::Spend(why) if why.starts_with("claude:c is at its provider's week limit; claude:a")), "{refusal:?}");
     assert_eq!(NorthError::from(refusal).exit_code(), 75);
+
+    let line = with_room("c", &["b"], admits, |_| Ok(Err(Refusal::Line("every build host's expected wait for a landing slot is over 60 s".into()))), Ok(placed_on("c"))).unwrap().unwrap_err();
+    assert!(matches!(&line, Refusal::Line(why) if why.contains("over 60 s")), "{line:?}");
 }
 
 #[test]

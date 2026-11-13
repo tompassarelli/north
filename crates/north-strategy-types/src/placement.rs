@@ -22,6 +22,16 @@ pub struct Case {
     /// The API grants signed in here that have credit left, as the router ranks them beside plan accounts.
     #[serde(default)]
     pub grants: Vec<GrantSource>,
+    /// Each build host's expected wait for a landing slot when the launch read it; empty when the hold is switched off.
+    #[serde(default)]
+    pub line_waits: Vec<LineWait>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct LineWait {
+    pub host: String,
+    /// Seconds, None when the host did not answer.
+    pub seconds: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -57,6 +67,9 @@ pub struct Overrides {
     pub local: Option<String>,
     pub pin: Option<String>,
     pub tier: Option<String>,
+    /// A launch the coordinator granted urgent priority, which passes the landing-line hold.
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    pub urgent: bool,
 }
 
 /// The parts of South's orchestration.toml placement reads, and the sha256 of the whole file.
@@ -220,4 +233,5 @@ pub enum Refusal {
     Saturated,
     Spend,
     Final,
+    Line,
 }

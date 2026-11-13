@@ -7,12 +7,27 @@ pub mod case;
 mod credit;
 pub mod gate;
 mod hosts;
-pub use hosts::{Pass, pass};
+pub use hosts::{Pass, build_hosts, pass, read_lines, surveyed_lines};
 mod inputs;
 mod keeper;
+pub mod line_wait;
 /// `north placement-survey keep`, refreshing every build host's survey answer while launches place work.
 pub fn keep_surveys(arguments: &[String]) -> u8 {
-    keeper::run(arguments, hosts::refresh_every_host)
+    keeper::run(arguments, || {
+        std::thread::scope(|scope| {
+            scope.spawn(hosts::refresh_every_host);
+            hosts::refresh_every_line();
+        });
+    })
+}
+/// Why every build host's landing line is over the bar from `here`, read from the survey keeper's recordings.
+pub fn line_held(cfg: &toml_edit::DocumentMut, here: &str) -> Option<String> {
+    line_wait::over_the_bar(&surveyed_lines(cfg, here, gate::machines(cfg)), line_wait::bar_s())
+}
+/// `line_held` for the launching host, for a launch that does not run through the placement gate.
+pub fn line_held_now() -> Option<String> {
+    let cfg: toml_edit::DocumentMut = std::fs::read_to_string(crate::platform::orchestration::path()).ok()?.parse().ok()?;
+    line_held(&cfg, &local())
 }
 /// `north ssh-spare hold DESTINATION`, holding spare shells open to a build host so a survey question costs one round trip.
 pub fn hold_spares(arguments: &[String]) -> u8 {

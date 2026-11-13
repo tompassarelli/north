@@ -192,7 +192,11 @@ impl Seen {
     pub fn place(&self, ready: &Ready, candidates: &[Candidate], pools: &mut Pools) -> Result<Launch, String> {
         cap::admit(self.running + pools.deepseek_placed(), self.settings.slot_cap)?;
         let serves = |host: &str| candidates.iter().any(|candidate| candidate.host == host && candidate.refusal.is_none());
-        let host = self.settings.hosts.iter().find(|host| serves(host) && pools.host(host) > 0).ok_or_else(|| format!("no DeepSeek host ({}) serves this box with a free slot", self.settings.hosts.join(", ")))?;
+        let none = || match pools.line_held() {
+            Some(why) => format!("no DeepSeek host takes this box: {why}"),
+            None => format!("no DeepSeek host ({}) serves this box with a free slot", self.settings.hosts.join(", ")),
+        };
+        let host = self.settings.hosts.iter().find(|host| serves(host) && pools.host(host) > 0).ok_or_else(none)?;
         pools.take(host);
         pools.take_deepseek();
         let route = super::tier::Route { effort: None, effort_arm: false, signal: None, cell: None, cell_role: None, ..ready.route.clone() };

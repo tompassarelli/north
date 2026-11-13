@@ -10,7 +10,7 @@ pub(super) fn print(survey: &Survey, dry_run: bool) {
     for account in &survey.accounts {
         println!("{}", account.line(&survey.spend));
     }
-    let pools = Pools::new(&survey.hosts, &survey.accounts);
+    let pools = Pools::new(&survey.hosts, &survey.accounts).held_by_line(survey.line_held.clone());
     for host in &survey.hosts {
         for account in survey.accounts.iter().filter(|account| account.hosts.contains(&host.name)) {
             println!("slots {} {}: {}", host.name, account.name, pools.pair(&host.name, &account.name));

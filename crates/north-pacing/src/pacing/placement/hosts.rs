@@ -1,15 +1,16 @@
 use super::super::storage::load;
 use super::super::{process, storage};
-use super::local;
+use super::{line_wait, local};
 use crate::capacity::saturation::{self, Saturation};
 use serde_json::{Value, json};
 use super::gate::Machine;
+use toml_edit::DocumentMut;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 use std::os::unix::process::CommandExt;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
-use north_strategy_types::placement::SpawnCpu;
+use north_strategy_types::placement::{LineWait, SpawnCpu};
 
 pub(in crate::pacing) fn laptop() -> String {
     if let Ok(path) = std::env::var("LAPTOP_STATE") {
@@ -131,6 +132,11 @@ fn ssh_script(destination: &str, script: &str) -> Result<process::Output, String
     let words = ssh_words(destination, &["sh", "-s"]);
     let refs: Vec<&str> = words[1..].iter().map(String::as_str).collect();
     process::run(&words[0], &refs, Some(script), 20.0)
+}
+
+/// The output of `script` run on `machine` over its operator login, whatever its exit status; None when the host did not answer.
+pub(super) fn ask(machine: &Machine, script: &str) -> Option<String> {
+    ssh_script(&machine.ssh, script).ok().map(|output| output.out)
 }
 
 /// `north ssh-spare hold DESTINATION`, keeping spare shells open to a build host over the same ssh command the survey uses.
@@ -366,8 +372,76 @@ fn turn_file(records: &Path, name: &str) -> Option<std::fs::File> {
     std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(records.join(format!("{name}.lock"))).ok()
 }
 
-fn records() -> std::path::PathBuf {
+pub(super) fn records() -> std::path::PathBuf {
     storage::directory().join("survey")
+}
+
+const LINE_FRESH_SECONDS: f64 = 45.0;
+
+/// Every `[hosts.NAME]` machine with `offload_builds = true`, which the survey keeper keeps a landing-line reading of.
+fn every_build_host(cfg: &DocumentMut, machines: Vec<Machine>) -> Vec<Machine> {
+    machines.into_iter().filter(|machine| line_wait::takes_builds(cfg, &machine.name)).collect()
+}
+
+/// The build hosts a landing from `here` can use, `here` among them when it takes builds.
+pub fn build_hosts(cfg: &DocumentMut, here: &str, machines: Vec<Machine>) -> Vec<Machine> {
+    let landing = line_wait::landing_hosts(cfg, here);
+    every_build_host(cfg, machines).into_iter().filter(|machine| landing.contains(&machine.name)).collect()
+}
+
+/// Each build host's expected wait for a landing slot, read in parallel through `ask`; empty when the switch is off.
+pub fn read_lines(cfg: &DocumentMut, here: &str, machines: Vec<Machine>, ask: &(dyn Fn(&Machine) -> Option<u64> + Sync)) -> Vec<LineWait> {
+    if !line_wait::enabled() {
+        return Vec::new();
+    }
+    let hosts = build_hosts(cfg, here, machines);
+    std::thread::scope(|scope| {
+        let reads: Vec<_> = hosts.iter().map(|machine| scope.spawn(move || ask(machine))).collect();
+        hosts.iter().zip(reads).map(|(machine, read)| LineWait { host: machine.name.clone(), seconds: read.join().ok().flatten() }).collect()
+    })
+}
+
+/// The host's expected wait from the reading recorded under `LINE_FRESH_SECONDS` ago, else asked of the host and recorded, a host that
+/// did not answer recorded as unread too; the survey keeper asks with `refresh` so a launch finds a recorded reading. A PLACEMENT_HOSTS
+/// fixture run reads only the fixture's `line_wait_s`.
+fn line_reading(machine: &Machine, refresh: bool) -> Option<u64> {
+    if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
+        return load(Path::new(&path))[machine.name.as_str()]["line_wait_s"].as_u64();
+    }
+    let record = records().join(format!("{}.line.json", machine.name));
+    let now = storage::now();
+    let recorded = load(&record);
+    if !refresh && recorded["at"].as_f64().is_some_and(|at| (0.0..LINE_FRESH_SECONDS).contains(&(now - at))) {
+        return recorded["seconds"].as_u64();
+    }
+    let asked = if machine.name == local() {
+        process::run("sh", &["-c", &format!("cd \"$HOME\" && {}", line_wait::ASK)], None, 20.0).ok().map(|output| output.out)
+    } else {
+        ask(machine, line_wait::ASK)
+    };
+    let seconds = asked.as_deref().and_then(line_wait::parse);
+    let _ = std::fs::create_dir_all(records()).and_then(|()| std::fs::write(&record, json!({"at": now, "seconds": seconds}).to_string()));
+    seconds
+}
+
+/// The readings the survey keeper recorded, each asked of its host only when none is under `LINE_FRESH_SECONDS` old.
+pub fn surveyed_lines(cfg: &DocumentMut, here: &str, machines: Vec<Machine>) -> Vec<LineWait> {
+    read_lines(cfg, here, machines, &|machine| line_reading(machine, false))
+}
+
+/// Asks every build host its wait and records it, side by side: the survey keeper's turn.
+pub(super) fn refresh_every_line() {
+    if !line_wait::enabled() {
+        return;
+    }
+    let Ok(text) = std::fs::read_to_string(crate::platform::orchestration::path()) else { return };
+    let Ok(cfg) = text.parse::<DocumentMut>() else { return };
+    let hosts = every_build_host(&cfg, super::gate::machines(&cfg));
+    std::thread::scope(|scope| {
+        for machine in &hosts {
+            scope.spawn(|| line_reading(machine, true));
+        }
+    });
 }
 
 fn record_path(name: &str) -> std::path::PathBuf {

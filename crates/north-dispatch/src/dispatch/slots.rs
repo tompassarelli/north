@@ -119,6 +119,8 @@ pub struct Pools {
     claude: usize,
     /// The opencode workers this run has started, which count against their own slot cap.
     deepseek: usize,
+    /// Why every build host's landing line is over the wait bar, which leaves no host a free slot.
+    line_held: Option<String>,
 }
 
 impl Pools {
@@ -130,7 +132,12 @@ impl Pools {
             charged: BTreeMap::new(),
             claude: 0,
             deepseek: 0,
+            line_held: None,
         }
+    }
+
+    pub fn held_by_line(self, line_held: Option<String>) -> Self {
+        Self { line_held, ..self }
     }
 
     pub fn claude_placed(&self) -> usize {
@@ -158,13 +165,24 @@ impl Pools {
         if self.serves(host, account) { self.host(host) } else { 0 }
     }
 
+    /// Why no host takes a box this run: every build host's landing line is over the wait bar.
+    pub fn line_held(&self) -> Option<&str> {
+        self.line_held.as_deref()
+    }
+
     /// The host's free session slots this run, no more than the builds its admission queue takes.
     pub fn host(&self, host: &str) -> i64 {
+        if self.line_held.is_some() {
+            return 0;
+        }
         self.hosts.get(host).copied().unwrap_or(0).min(self.builds.get(host).copied().unwrap_or(i64::MAX))
     }
 
     /// Why the host takes no more boxes this run, once `host` reads 0.
     pub fn full(&self, host: &str) -> String {
+        if let Some(why) = &self.line_held {
+            return format!("{host} holds no box: {why}");
+        }
         match self.builds.get(host) {
             Some(0) => format!("{host} admission queue has no room for another build this run"),
             _ => format!("{host} has no free slot"),

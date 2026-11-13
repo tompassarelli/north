@@ -1943,3 +1943,19 @@ unit = "whether an after-landing run's offloaded checks wait behind hand-in chec
 source = "proxy: the hand-in bar is 60 s median and 180 s p90 to origin/main (north#1247); after-landing runs never reuse a verdict because they check a tree nothing checked before the push, and they held build-host slots at a hand-in's rank (north#1036, 2026-11-13)"
 fallback = "an unreadable value reads as true"
 consumers = ["crates/north-land-checks/src/land/slots/runner/arguments.rs"]
+
+[launch_line_wait]
+value = 1
+allowed = { min = 0, max = 1 }
+unit = "1 holds a code-work launch while every build host's expected wait for a landing slot is over launch_line_wait_s, 0 launches whatever the lines hold"
+source = "prior: owner's bar of hand-in to origin/main in 60 s at the median (north#1247, 2026-11-13); the pre-queue check waited 361 s at the median in a build host's slot line (north#1247)"
+fallback = "a launch starts whatever the build hosts' lines hold"
+consumers = ["crates/north-pacing/src/pacing/placement/line_wait.rs"]
+
+[launch_line_wait_s]
+value = 60
+allowed = { min = 1, max = 600 }
+unit = "seconds of expected wait for a landing slot above which a build host's line holds a launch"
+source = "prior: owner's bar of hand-in to origin/main in 60 s at the median (north#1247, 2026-11-13)"
+fallback = "60"
+consumers = ["crates/north-pacing/src/pacing/placement/line_wait.rs"]

@@ -64,3 +64,14 @@ pub(super) fn a_host_whose_pushed_github_token_is_past_its_trust_takes_no_sessio
     assert_eq!(probed.token_age_s, Some(3400));
     assert_eq!(crate::capacity::saturation::parse("65536000\n49152000\n/dev/md1 981000000 400000000 500000000 45% /\n#backlog\n#token\n").unwrap().token_age_s, None, "a host that mints its own token reports none");
 }
+
+pub(super) fn every_build_hosts_line_over_the_wait_bar_holds_each_box_with_its_expected_wait() {
+    let accounts = vec![account("claude:a", &["nexus"]), account("claude:b", &["gex45"])];
+    let issues = (0..2).map(|number| issue("makgora", 100 + number, "- [ ] a", &[])).collect();
+    let held = Some("every build host's expected wait for a landing slot is over 60 s (shortest 95 s on gex45)".to_owned());
+    let line = super::survey::Survey { line_held: held, ..survey(issues, vec![host("gex45", 8, Ok(0)), host("nexus", 6, Ok(0))], accounts) };
+    let outcome = decide(&line, "test");
+    assert!(outcome.launches.is_empty(), "{:?}", outcome.launches);
+    assert!(outcome.skipped.iter().all(|(_, why)| why.contains("95 s on gex45")), "{:?}", outcome.skipped);
+    assert_eq!(outcome.skipped.len(), 2);
+}
