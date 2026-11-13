@@ -2,6 +2,13 @@
 
 Detail behind `SKILL.md`. Read a section only when its question comes up.
 
+## Test clocks
+
+A test takes its clock as an input: pass a fixed `now` or an injected clock, and never read `Instant::now` or `SystemTime::now` in a test.
+Order events on what the code under test writes (a channel, a barrier, a file), never on a sleep, and give a fixture that needs time the time it sets.
+A bounded wait stops only a test that would otherwise hang, and a timed wait reads a lower bound.
+A wall-clock scan refuses a wall-clock call a test adds, and a per-file allowlist of the reads left may only fall.
+
 ## Reference grounding
 
 When a project picks or revisits its test posture, read [domain profiles](testing-domains.md), use landing throughput to find 2-3 high-throughput projects in the domain, newer and AI-heavy first, study their test and landing architecture and accepted trade-offs, and record how we could get there; numbers only select.
