@@ -16,7 +16,6 @@ use north_base::foundation::offload::{AFTER_LANDING_OWNER, OWNER_ENV};
 use north_base::platform::harness::{DEFAULTS, document};
 
 use super::after::follow;
-use super::lander::Lander;
 use super::slots::listed_crates::{AFTER_LANDING, NO_VERDICT, PASSED};
 use crate::landing::check_timings::Timings;
 
@@ -30,11 +29,11 @@ pub fn enabled() -> bool {
 }
 
 /// Starts the Buck2 run of `head` on its own thread; starts nothing when the setting is off.
-pub fn start(lander: &Lander, head: &str) {
+pub fn start(repo: &Path, queue: &Path, offload_owner: &str, head: &str) {
     if !enabled() {
         return;
     }
-    let (repo, logs, owner, head) = (lander.repo.clone(), lander.queue.join("logs"), format!("{}{AFTER_LANDING_OWNER}", lander.offload_owner), head.to_owned());
+    let (repo, logs, owner, head) = (repo.to_owned(), queue.join("logs"), format!("{offload_owner}{AFTER_LANDING_OWNER}"), head.to_owned());
     std::thread::spawn(move || run(&repo, &logs, &owner, &head));
 }
 
@@ -70,7 +69,7 @@ fn run(repo: &Path, logs: &Path, owner: &str, head: &str) {
     if let Err(error) = remember(&Timings::default_root(), head, &host, exit, seconds, &crates) {
         println!("north land: could not record the Buck2 run of {head}: {error}");
     }
-    trip(&Timings::default_root(), head);
+    trip(&Timings::default_root(), head, follow::send);
 }
 
 /// A build host the offload chooses, never this host: the run starts nothing rather than test here.
@@ -96,21 +95,20 @@ fn remember(root: &Path, head: &str, host: &str, exit: i32, seconds: u64, crates
 }
 
 /// Records the cases the Cargo run after the landing of `head` failed, by crate, and trips when Buck2 passed one of their crates.
-pub fn cargo_red(head: &str, log: &Path) {
+pub fn cargo_red(root: &Path, head: &str, log: &Path, send: fn(&str, &str) -> bool) {
     if !enabled() {
         return;
     }
-    let root = Timings::default_root();
     let cases: String = failed_cases(&fs::read_to_string(log).unwrap_or_default()).into_iter().map(|(name, case)| format!("{name}\t{case}\n")).collect();
     let dir = root.join(RECORD);
     if let Err(error) = fs::create_dir_all(&dir).and_then(|()| fs::write(dir.join(format!("{head}.red")), cases)) {
         println!("north land: could not record the Cargo cases that failed after the landing of {head}: {error}");
     }
-    trip(&root, head);
+    trip(root, head, send);
 }
 
 /// The trip: a case of the Cargo run after the landing of `head` failed in a crate Buck2 passed at that head.
-fn trip(root: &Path, head: &str) {
+fn trip(root: &Path, head: &str, send: fn(&str, &str) -> bool) {
     let dir = root.join(RECORD);
     let (Ok(crates), Ok(red)) = (fs::read_to_string(dir.join(format!("{head}.crates"))), fs::read_to_string(dir.join(format!("{head}.red")))) else { return };
     let passed: BTreeSet<&str> = crates.lines().collect();
@@ -124,7 +122,7 @@ fn trip(root: &Path, head: &str) {
     let named: Vec<String> = tripped.iter().map(|(name, case)| format!("{case} in {name}")).collect();
     let message = format!("north land: Buck2 passed a crate at {head} whose case the Cargo run after the landing failed: {}; trip record {}", named.join(", "), record.display());
     println!("{message}");
-    if written.is_err() || !follow::send("proxy", &message) {
+    if written.is_err() || !send("proxy", &message) {
         println!("north land: the Buck2 trip of {head} was not fully recorded or not sent to the proxy");
     }
 }

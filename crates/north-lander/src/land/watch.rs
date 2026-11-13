@@ -294,7 +294,7 @@ impl Watch {
         let cancel = Cancel::default();
         moved(heads(&batch), Run::Running, &format!("its after-landing run of {} started{}", batch.head, host.as_deref().map_or_else(String::new, |host| format!(" on {host}"))));
         let run = post_land::start(lander, landed(lander, &batch), host.clone(), cancel.clone());
-        buck2_after::start(lander, &batch.head);
+        buck2_after::start(&lander.repo, &lander.queue, &lander.offload_owner, &batch.head);
         self.running.push(Running { batch, run, host, cancel });
         true
     }
