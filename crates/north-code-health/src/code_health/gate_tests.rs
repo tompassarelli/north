@@ -83,16 +83,4 @@ fn a_split_that_only_moves_complexity_reports_moved_and_file_size_no_longer_refu
     let metric = result.metrics.iter().find(|metric| metric.module == "m").unwrap();
     assert_eq!((metric.cognitive, metric.was, metric.status.as_str()), (4, 4, "moved"));
     assert_eq!((metric.fan_in, metric.fan_out), (0, 1));
-    churn_is_computed_when_the_state_directory_refuses_the_cache_write();
-}
-
-fn churn_is_computed_when_the_state_directory_refuses_the_cache_write() {
-    let repo = Repo::new();
-    repo.commit(&[("src/a.rs", "pub const A: u8 = 1;\n".to_owned())]);
-    std::fs::create_dir_all(repo.state.join("north/gates")).unwrap();
-    std::fs::write(repo.state.join("code-health"), "a file where the code-health state directory would be").unwrap();
-    let state = State { root: repo.state.clone(), home: repo.state.join("home"), graph: repo.state.join("graph.db") };
-    assert!(super::history::churn_at(&state, &repo.repo, "HEAD").is_ok());
-    let cached = std::fs::read_dir(state.churn_directory(&repo.repo)).map(|entries| entries.count()).unwrap_or_default();
-    assert_eq!(cached, 1, "the churn cache is written under the gates state a confined session may write");
 }

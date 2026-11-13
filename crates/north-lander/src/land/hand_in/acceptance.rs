@@ -4,7 +4,7 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use super::super::enqueue::{Facts, fetch_base, git, judge_static_first};
+use super::super::enqueue::{Facts, fetch_base, git};
 use super::{Lane, Road};
 use crate::land::slots::runner::{self, Accepted, QueueRefusal};
 
@@ -12,9 +12,6 @@ use crate::land::slots::runner::{self, Accepted, QueueRefusal};
 pub(super) fn verdict(road: &impl Road, lane: &Lane, checked: Option<(&str, &str)>, check: Option<&str>, facts: Option<&Facts>) -> (Result<(), (String, String)>, bool) {
     let base = checked.and_then(|_| destination_base(lane, facts));
     if let Some(((check, head), base)) = checked.zip(base.as_deref()).filter(|((check, head), base)| runner::joins_queue_run(&lane.root, base, head, check)) {
-        if let Err(refusal) = judge_static_first(&lane.root, base, head) {
-            return (Err(("failed as a check before queueing".to_owned(), refusal)), false);
-        }
         return match road.check(&lane.root, check, Some(head)) {
             Some(verdict) => (verdict, true),
             None => (in_queue_run(&lane.root, check, head, base), false),
@@ -35,7 +32,7 @@ fn as_land_check(lane: &Lane, check: &str, head: &str, facts: Option<&Facts>) ->
     git(&lane.root, &["show", &format!("{head}:.safe-push")]).ok().filter(|config| config.contains(check.trim()))?;
     let (_, base) = facts?.base().or_else(|_| fetch_base(&lane.root, &lane.destination)).ok()?;
     let commands = runner::queue_commands(&lane.root, &base, head).ok()?;
-    commands.iter().any(|command| command.trim() == check.trim()).then(|| judge_static_first(&lane.root, &base, head).and_then(|()| runner::refuse_queue_checks(&lane.root, &base, head)))
+    commands.iter().any(|command| command.trim() == check.trim()).then(|| runner::refuse_queue_checks(&lane.root, &base, head))
 }
 
 /// The tip of the lane's destination as the finish call's own fetch left it, the base its checks before queueing are keyed on.

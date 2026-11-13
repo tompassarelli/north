@@ -62,11 +62,10 @@ pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home:
     Ok(Err((gates, detail)))
 }
 
-fn judge_lane_gates(diff: &DiffOnly<'_>) -> Result<Option<String>, String> {
-    let (root, base, head) = (diff.root, diff.base, diff.head);
-    match refuse_lane_gates(root, base, head, diff.environment.state_home, diff.ledger.clone(), &crate::dep_gate::PublicRegistries)? {
+pub(super) fn judge_lane_gates(environment: &super::Environment, root: &Path, branch: &str, base: &str, head: &str, lander_ledger: Option<String>) -> Result<Option<String>, String> {
+    match refuse_lane_gates(root, base, head, environment.state_home, lander_ledger, &crate::dep_gate::PublicRegistries)? {
         Ok(()) => Ok(git(root, &["status", "--porcelain"]).is_ok_and(|status| status.is_empty()).then(|| merge_base(root, base, head))),
-        Err((gates, detail)) => diff.judged(&gates, Err(detail)).map(|()| None),
+        Err((gates, detail)) => super::judged(environment, root, branch, head, &gates, Err(detail)).map(|()| None),
     }
 }
 
@@ -126,38 +125,4 @@ pub(super) fn refuse_nothing_to_land(root: &Path, base: &str, destination: &str)
     let paths: Vec<&str> = listing.split('\0').filter_map(|entry| entry.get(3..)).collect();
     let uncommitted = if paths.is_empty() { String::new() } else { format!(", and these paths are uncommitted: {}", paths.join(", ")) };
     Err(format!("nothing to land: HEAD is already on origin/{destination}, so the lane adds no commit{uncommitted}; commit the lane's change and run safe-push again"))
-}
-
-pub(super) struct DiffOnly<'a> {
-    pub environment: &'a super::Environment<'a>,
-    pub timings: &'a super::Timings,
-    pub root: &'a Path,
-    pub branch: &'a str,
-    pub base: &'a str,
-    pub head: &'a str,
-    pub ledger: Option<String>,
-    pub record: bool,
-}
-
-impl DiffOnly<'_> {
-    fn judged(&self, gate: &str, outcome: Result<(), String>) -> Result<(), String> {
-        if self.record {
-            super::judged(self.environment, self.root, self.branch, self.head, gate, outcome)
-        } else {
-            crate::landing_refusals::standing(gate, outcome)
-        }
-    }
-}
-
-pub(super) fn refuse_diff_only(diff: DiffOnly<'_>) -> Result<Option<String>, String> {
-    let (root, base, head, timings) = (diff.root, diff.base, diff.head, diff.timings);
-    timings.stage("generated registry", || crate::land::scans::generated_registry::check(root, base, head))?;
-    if let Err(gate) = timings.stage("static gates", || refuse_static_gates(root, base, head)) {
-        diff.judged(gate, Err(format!("{gate} refused the landing")))?;
-    }
-    let bodies = git(root, &["log", "--format=%B", &format!("{base}..{head}")])?;
-    diff.judged("commit trailers", crate::land::divergence::refuse_malformed(&bodies))?;
-    let gated_from = timings.stage("lane gates", || judge_lane_gates(&diff))?;
-    diff.judged("revert guard", timings.stage("revert guard", || refuse_stale_revert(root, base, head)))?;
-    Ok(gated_from)
 }

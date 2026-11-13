@@ -43,10 +43,6 @@ impl State {
         self.root.join("code-health").join("rust-lines")
     }
 
-    pub(super) fn churn_directory(&self, repo: &Path) -> PathBuf {
-        self.root.join("north/gates/code-health-churn").join(self.repo_name(repo))
-    }
-
     pub(super) fn baseline(&self, repo: &Path) -> Option<serde_json::Value> {
         std::fs::read_to_string(self.directory(repo).join("baseline.json")).ok().and_then(|text| serde_json::from_str(&text).ok())
     }

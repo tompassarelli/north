@@ -90,7 +90,3 @@ fn written(directory: &Path) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(directory) else { return Vec::new() };
     entries.map(|entry| entry.unwrap().path()).flat_map(|path| if path.is_dir() { written(&path) } else { vec![path] }).collect()
 }
-
-fn only_refusal_records(state: &Path) -> bool {
-    written(state).iter().all(|path| matches!(path.file_name().and_then(|name| name.to_str()), Some("enqueue-refusals.jsonl" | "spans.jsonl")))
-}

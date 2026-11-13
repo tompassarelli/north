@@ -1957,11 +1957,3 @@ unit = "whether a build host's slot line answers a job's expected wait, so a lan
 source = "prior: capacity scheduler box A1a (north#1036), 2026-11-13"
 fallback = "false answers every line wait with 0 s, so each job waits in line up to its deadline as before"
 consumers = ["crates/north-capacity-host/src/capacity/line.rs", "crates/north-runtime/src/land_offload/ship/twin.rs"]
-
-[static_gates_first]
-value = "on"
-allowed = { one_of = ["on", "off"] }
-unit = "on judges a hand-in's diff-only gates (generated registry, language, build-cache, dependency, stub-exec, commit trailers, lane gates and the revert guard) and secret scan before its checks before queueing take a build-host slot, and stops those checks the moment the privacy ask refuses the lane; off starts the checks first and judges only the lane gates and the revert guard beside them in main's order, while the language, build-cache, dependency, stub-exec, code-health and commit-trailer gates run after the checks are placed (same verdicts, a refusal arrives later) (north#1247)"
-source = "measured: north hand-ins' enqueue spans on 2026-11-13, n=507: lane gates p50 2.7 s and p90 4.0 s, secret scan under 0.1 s, privacy ask p50 2.3 s, p90 17.6 s and p95 94 s, checks before queueing p50 394 s; a gate refusal came after the checks finished because the enqueue joined them before it returned"
-fallback = "any value but off reads as on"
-consumers = ["crates/north-lander/src/land/enqueue/static_first.rs"]

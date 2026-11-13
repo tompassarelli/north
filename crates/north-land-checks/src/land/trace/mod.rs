@@ -20,7 +20,6 @@ pub const AFTER: &str = "after";
 pub const COVERED_BY: &str = "covered_by";
 pub const VERDICT: &str = "verdict";
 pub const REUSED: &str = "reused";
-pub const REFUSED: &str = "refused";
 const FILE: &str = "spans.jsonl";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

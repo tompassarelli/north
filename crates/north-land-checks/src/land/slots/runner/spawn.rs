@@ -318,23 +318,16 @@ impl Shared {
         let _ = Records::at(Records::default_path()).append(&record);
     }
 
-    pub(super) fn cancelling(&self) -> bool {
-        (self.fail_fast || self.stoppable) && *self.cancel.borrow()
-    }
-
     pub(super) fn cancelled(&self, command: &str, started: u64, status: i32, wall: u64, cpu: Option<f64>) -> i32 {
-        let why = if self.fail_fast { "an earlier land check failed" } else { "a gate refused the lane" };
-        say(&format!("safe-push: land check {command} cancelled: {why}"));
-        if self.fail_fast {
-            self.remember(command, started, status, CheckOutcome::Cancelled, wall, cpu);
-            self.outcome.record(&["event", "land check", "cancelled", &format!("{command}: an earlier land check failed")]);
-        }
+        say(&format!("safe-push: land check {command} cancelled: an earlier land check failed"));
+        self.remember(command, started, status, CheckOutcome::Cancelled, wall, cpu);
+        self.outcome.record(&["event", "land check", "cancelled", &format!("{command}: an earlier land check failed")]);
         0
     }
 
     pub(super) async fn run_check(self: Arc<Self>, command: String, leased: bool) -> i32 {
         let started = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-        if self.cancelling() {
+        if self.fail_fast && *self.cancel.borrow() {
             return self.cancelled(&command, started, CANCELLED_STATUS, 0, None);
         }
         self.outcome.record(&["ran"]);

@@ -17,13 +17,6 @@ pub fn enforcing() -> bool {
     document(DEFAULTS)["landing_refusals"]["value"].as_str() == Some("enforce")
 }
 
-pub fn standing(gate: &str, outcome: Result<(), String>) -> Result<(), String> {
-    match outcome {
-        Err(_) if !enforcing() && !always_refuses(gate) => Ok(()),
-        other => other,
-    }
-}
-
 pub const TEST_ADMISSION: &str = "test admission";
 
 /// Whether `gates`, one gate's label or several joined by `, `, names a gate that refuses whatever `landing_refusals` says: test admission, whose refusals are the repository's test policy (north#1048).
