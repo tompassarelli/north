@@ -1,7 +1,7 @@
 //! `north runtime tree-build`: builds north from the checkout it runs in and prints where the binary is, with Buck2 on a
 //! host whose `buck2_tree_build` is set and a tree whose Buck2 configuration is its base's, else with Cargo.
-//! `bin/head-north` calls it to run a tree's own north when no built runtime covers the tree, so the script names no
-//! build tool.
+//! `bin/head-north` calls it to run a tree's own north when no built runtime covers the tree, so the script names a
+//! build tool only for a machine with no runtime at all, which it builds on with Cargo.
 
 use std::process::Stdio;
 

@@ -9,10 +9,10 @@ cache=${XDG_CACHE_HOME:-$HOME/.cache}/north/head-north
 keep=4 hold=3600 settle=${HEAD_NORTH_SETTLE:-2}
 build() {
   printf 'head-north: building north from the tree: %s (git status: %s)\n' "${reason%%$'\n'*}" "$(git -C "$root" status --porcelain | head -3 | tr '\n' ' ')" >&2
+  [ -x "$live" ] || { local out; out=$("$root/bin/land-shell" --dev -- cargo test -q --no-run --locked --offline -p north --test it 2>&1) || { printf '%s\n' "$out" >&2; [[ $out != *'error: could not compile'* ]] || { printf 'head-north: north does not compile from this tree, so the check fails\n' >&2; exit 1; }; printf 'head-north: building north from the tree failed, so no older north runs in its place\n' >&2; exit 75; }; readlink -f "${CARGO_TARGET_DIR:-target}/debug/north"; return; }
   local built status=0; built=$("$live" runtime tree-build) || status=$?
   case $status in 0) printf '%s\n' "${built##*$'\n'}"; return ;; 1 | 75) exit "$status" ;; esac
-  printf 'head-north: the live runtime %s could not build north from the tree (exit %s), so no older north runs in its place\n' "$live" "$status" >&2
-  exit 75
+  printf 'head-north: the live runtime %s could not build north from the tree (exit %s), so no older north runs in its place\n' "$live" "$status" >&2; exit 75
 }
 prune() {
   local cutoff=$(($(date +%s) - hold))

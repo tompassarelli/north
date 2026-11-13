@@ -563,7 +563,8 @@ fn head_north_command(fixture: &Fixture, command: &str) -> Command {
 }
 
 #[test]
-fn head_north_refuses_a_tree_that_does_not_compile_and_reaches_no_verdict_only_when_the_build_itself_fails() {
+fn head_north_refuses_a_tree_that_does_not_compile_reaches_no_verdict_only_when_the_build_itself_fails_and_builds_with_cargo_where_no_runtime_is() {
+    head_north_on_a_machine_with_no_runtime_builds_the_tree_with_cargo_and_keeps_what_it_built();
     let fixture = Fixture::new(&[("land.check-local", "true")]);
     live_runtime(&fixture);
     fs::create_dir_all(fixture.repo.join("bin")).unwrap();
@@ -577,6 +578,19 @@ fn head_north_refuses_a_tree_that_does_not_compile_and_reaches_no_verdict_only_w
     assert!(text(&broken).contains("north does not compile from this tree"), "{}", text(&broken));
     let unfetched = build("error: failed to download `serde v1.0.0`");
     assert_eq!(unfetched.status.code(), Some(75), "a build that failed for want of the host's crates refused the lane: {}", text(&unfetched));
+}
+
+fn head_north_on_a_machine_with_no_runtime_builds_the_tree_with_cargo_and_keeps_what_it_built() {
+    let fixture = Fixture::new(&[("land.check-local", "true")]);
+    fs::create_dir_all(fixture.repo.join("bin")).unwrap();
+    shim::copy_executable(crate::support::manifest_dir().join("bin/head-north"), fixture.repo.join("bin/head-north"));
+    script(&fixture.repo.join("bin/land-shell"), "mkdir -p target/debug\nprintf '#!/usr/bin/env bash\\necho \"tree north $*\"\\n' >target/debug/north\nchmod +x target/debug/north\n");
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "head-north"]);
+    let built = head_north_command(&fixture, "./bin/head-north --build").env_remove("CARGO_TARGET_DIR").output().unwrap();
+    assert!(built.status.success(), "a machine with no runtime could not build a tree's north: {}", text(&built));
+    let kept = fixture.path(&format!("cache/north/head-north/{}/north", git(&fixture.repo, &["rev-parse", "HEAD^{tree}"])));
+    assert!(fs::read_to_string(&kept).is_ok_and(|north| north.contains("tree north")), "{} does not hold the north the tree built: {}", kept.display(), text(&built));
 }
 
 #[test]
