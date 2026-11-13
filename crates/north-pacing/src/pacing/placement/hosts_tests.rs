@@ -44,7 +44,7 @@ fn five_launches_started_together_share_one_answer_from_a_host_that_answers_one_
             *asked.lock().unwrap() += 1;
             let reading = Saturation { memory_total_mib: 64.0, memory_available_mib: 32.0, disk_free_gib: 500.0, disk_total_gib: 900.0, backlog: None, token_age_s: None, disk_bound_gib: None };
             let facts = Facts { live: Some(0), saturation: Some(reading), saturation_age_s: Some(0.0), has_cwd: Some(true), ..Facts::default() };
-            record(&dir, name, &Facts { has_cwd: None, ..facts.clone() });
+            record(&dir, name, &Facts { has_cwd: None, ..facts.clone() }, storage::now());
             facts
         })
     };
@@ -115,4 +115,15 @@ fn a_probe_as_the_agent_login_runs_the_root_named_agent_runtime_never_one_in_its
     let section = |label: &str| found.iter().find(|(name, _)| name == label).map(|(_, body)| body.as_str());
     assert_eq!(section("live").and_then(live_count), Some(2), "the agent login's probe did not run the root-named agent runtime: {ran:?}");
     assert_eq!(held_profiles(section("accounts").map(claude_labels).unwrap_or_default(), section("profiles")), vec!["e".to_owned()], "{ran:?}");
+}
+
+#[test]
+fn a_host_probed_every_few_minutes_still_lists_its_accounts_again_once_the_last_listing_is_ten_minutes_old() {
+    let records = tempfile::tempdir().unwrap();
+    let now = storage::now();
+    let listed = Facts { live: Some(1), accounts: vec!["e".into()], ..Facts::default() };
+    record(records.path(), "cpx62", &listed, now - ACCOUNTS_CACHE_SECONDS - 60.0);
+    assert_eq!(recorded_accounts(records.path(), "cpx62", now), None, "a probe that reused an old listing kept it fresh forever, so a host switched to new accounts was never listed again");
+    record(records.path(), "cpx62", &listed, now - 60.0);
+    assert_eq!(recorded_accounts(records.path(), "cpx62", now).map(|(accounts, ..)| accounts), Some(vec!["e".to_owned()]));
 }

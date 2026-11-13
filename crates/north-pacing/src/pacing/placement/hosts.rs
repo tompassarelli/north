@@ -454,12 +454,8 @@ pub(super) fn refresh_every_line() {
     });
 }
 
-fn record_path(name: &str) -> std::path::PathBuf {
-    records().join(format!("{name}.json"))
-}
-
-fn record(records: &Path, name: &str, facts: &Facts) {
-    let _ = std::fs::create_dir_all(records).and_then(|()| std::fs::write(records.join(format!("{name}.json")), json!({"at": storage::now(), "facts": facts}).to_string()));
+fn record(records: &Path, name: &str, facts: &Facts, accounts_at: f64) {
+    let _ = std::fs::create_dir_all(records).and_then(|()| std::fs::write(records.join(format!("{name}.json")), json!({"at": storage::now(), "accounts_at": accounts_at, "facts": facts}).to_string()));
 }
 
 /// The host's last answered facts marked stale with their age, saying nothing of a launch directory it was not asked about;
@@ -521,7 +517,8 @@ fn fetch(name: &str, login: Login<'_>, cwd: Option<&str>, asked: Asked) -> Facts
     let mut facts = Facts { saturation: fresh.then(|| serde_json::from_value(cached["reading"].clone()).ok()).flatten(), ..Facts::default() };
     facts.saturation_age_s = facts.saturation.and(cached["at"].as_f64()).map(|at| now - at);
     let want_saturation = !fresh && !here;
-    let known = recorded_accounts(name, now);
+    let known = recorded_accounts(&records(), name, now);
+    let accounts_at = known.as_ref().map_or(now, |(_, _, listed_at)| *listed_at);
     let reply = ssh_script(destination, &script(login.agent, !here, want_saturation, known.is_none(), cwd));
     if let Some(failure) = probe_failure(destination, &reply).filter(|_| !here && announce_once(destination)) {
         eprintln!("north: {failure}");
@@ -531,7 +528,7 @@ fn fetch(name: &str, login: Login<'_>, cwd: Option<&str>, asked: Asked) -> Facts
         let section = |label: &str| sections.iter().find(|(name, _)| name == label).map(|(_, body)| body.as_str());
         facts.live = section("live").and_then(live_count);
         let held = |listing: Option<&str>| held_profiles(listing.map(claude_labels).unwrap_or_default(), section("profiles"));
-        let (accounts, claude_ai) = known.unwrap_or_else(|| (held(section("accounts")), held(section("claude_ai"))));
+        let (accounts, claude_ai) = known.map(|(accounts, claude_ai, _)| (accounts, claude_ai)).unwrap_or_else(|| (held(section("accounts")), held(section("claude_ai"))));
         facts.accounts = accounts;
         facts.claude_ai = claude_ai;
         facts.has_cwd = cwd.map(|_| section("cwd").is_some());
@@ -552,7 +549,7 @@ fn fetch(name: &str, login: Login<'_>, cwd: Option<&str>, asked: Asked) -> Facts
         let _ = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&cache, json!({"at": now, "reading": reading}).to_string()));
     }
     if answer.is_some() || here {
-        record(&records(), name, &Facts { has_cwd: None, stale_age_s: None, ..facts.clone() });
+        record(&records(), name, &Facts { has_cwd: None, stale_age_s: None, ..facts.clone() }, accounts_at);
     }
     facts
 }
@@ -565,12 +562,12 @@ fn directory_there(here: bool, destination: &str, directory: &str) -> Option<boo
     answer.map(|r| sections(&r.out).iter().any(|(label, _)| label == "cwd"))
 }
 
-/// The signed-in accounts the last answer recorded when it is under `ACCOUNTS_CACHE_SECONDS` old; they change when a person signs in, not per launch.
-fn recorded_accounts(name: &str, now: f64) -> Option<(Vec<String>, Vec<String>)> {
-    let recorded = load(&record_path(name));
-    recorded["at"].as_f64().filter(|at| (0.0..ACCOUNTS_CACHE_SECONDS).contains(&(now - at)))?;
+/// The signed-in accounts on record and when the host last listed them, while that listing is under `ACCOUNTS_CACHE_SECONDS` old, whatever later probes reused it; they change when a person signs in, not per launch.
+fn recorded_accounts(records: &Path, name: &str, now: f64) -> Option<(Vec<String>, Vec<String>, f64)> {
+    let recorded = load(&records.join(format!("{name}.json")));
+    let listed_at = recorded["accounts_at"].as_f64().filter(|at| (0.0..ACCOUNTS_CACHE_SECONDS).contains(&(now - at)))?;
     let facts = serde_json::from_value::<Facts>(recorded["facts"].clone()).ok()?;
-    (!facts.accounts.is_empty()).then_some((facts.accounts, facts.claude_ai))
+    (!facts.accounts.is_empty()).then_some((facts.accounts, facts.claude_ai, listed_at))
 }
 
 fn script(agent: bool, live: bool, saturation: bool, accounts: bool, cwd: Option<&str>) -> String {
