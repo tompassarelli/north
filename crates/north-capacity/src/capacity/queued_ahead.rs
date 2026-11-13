@@ -44,6 +44,7 @@ fn alone(facts: &Facts, ticket: &AheadTicket, class: Class, cpus: f64) -> Facts 
         requester_lease: None,
         need: None,
         holds_offload_slot: false,
+        canary: false,
         ..facts.clone()
     }
 }

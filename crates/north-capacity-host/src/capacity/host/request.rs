@@ -26,6 +26,7 @@ pub struct Request {
     pub alone: bool,
     pub latency: bool,
     pub landing: bool,
+    pub canary: bool,
     pub priority: Option<&'static str>,
     pub forecast: Option<Value>,
     pub memory_from_model: bool,

@@ -6,7 +6,7 @@ use super::native_hold::LeaseFact;
 pub(super) use super::fixtures::facts;
 
 pub(super) fn running(class: &str) -> LeaseFact {
-    LeaseFact { id: format!("{class}-lease"), class: class.to_owned(), owner: "lane".to_owned(), quiet: false, pair: None, created_at: 0.0, memory_mib: 0.0, cpus: 0.0, landing: false, quiet_seconds: None, usage: None, new_clients: 0, running_clients: 0, clients_seen: 0, started_owners: Default::default() }
+    LeaseFact { id: format!("{class}-lease"), class: class.to_owned(), owner: "lane".to_owned(), quiet: false, pair: None, created_at: 0.0, memory_mib: 0.0, cpus: 0.0, landing: false, canary: false, quiet_seconds: None, usage: None, new_clients: 0, running_clients: 0, clients_seen: 0, started_owners: Default::default() }
 }
 
 fn tickets(classes: &[Class]) -> Vec<AheadTicket> {
@@ -115,7 +115,7 @@ fn a_land_check_on_a_twenty_core_host_starts_ahead_of_a_queued_heavy_build_besid
 }
 
 #[test]
-fn a_third_lease_on_an_eight_core_host_queues_when_two_already_charge_the_cores_it_would_pass() {
+fn a_third_lease_on_an_eight_core_host_queues_when_two_already_charge_the_cores_it_would_pass_but_a_canary_check_takes_its_reserve() {
     let ccx33 = |class, landing: bool, count: usize| {
         let lease = LeaseFact { cpus: 3.0, landing, created_at: -1.0e9, ..running("heavy") };
         Facts {
@@ -139,4 +139,9 @@ fn a_third_lease_on_an_eight_core_host_queues_when_two_already_charge_the_cores_
     let build_host = |count| Facts { build_host: true, host_cpu_some_avg10_basis_points: Some(5000), ..ccx33(Class::Critical, true, count) };
     assert_eq!(decide(&build_host(2)), Reason::DeferCpuCapacity, "on 2026-11-12 a build host under CPU stall ran seven land checks on 20 threads at load 50 to 70");
     assert_eq!(decide(&build_host(1)), Reason::Run, "the queued check starts once one ends");
+    let canary = Facts { canary: true, requested_cpus: 2.0, ..ccx33(Class::Critical, true, 3) };
+    assert_eq!(decide(&canary), Reason::Run, "on 2026-11-13 a canary's 2-CPU check waited 120 s on gex45 behind land checks charging 29 of its 20 CPUs");
+    let mut beside_canary = canary;
+    beside_canary.leases.push(LeaseFact { canary: true, ..beside_canary.leases[0].clone() });
+    assert_eq!(decide(&beside_canary), Reason::DeferCpuCapacity, "a second canary check waits for the reserve");
 }

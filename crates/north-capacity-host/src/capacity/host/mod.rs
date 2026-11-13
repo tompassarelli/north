@@ -395,6 +395,11 @@ fn lander_lease(owner: &str, offload_owner: Option<&str>, cgroup: Option<&str>) 
     lander_owner(owner) && offload_owner.is_some_and(|owner| !owner.is_empty()) && cgroup.is_some_and(|cgroup| !north_base::platform::session_scope::worker_cgroup(cgroup))
 }
 
+/// Whether a landing run is the runtime canary's check, admitted from its reserve of one: the offload script hands on a reserve caller's unit as its red-fix word, and the run starts from a cgroup that is neither a fleet session's scope nor the worker broker's service, so the word alone never makes one.
+fn canary_lease(red_fix: Option<&str>, cgroup: Option<&str>) -> bool {
+    red_fix.is_some_and(north_base::platform::session_scope::is_reserve_caller) && cgroup.is_some_and(|cgroup| !north_base::platform::session_scope::worker_cgroup(cgroup))
+}
+
 /// The text of the offload script's command file at `path`, read only when it is a regular file of this user in a directory of this user that no other user enters, opened without following a link, so its name alone never makes admission read a file.
 fn offload_script(path: &Path) -> Option<String> {
     use std::io::Read;
@@ -461,7 +466,9 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
         request.latency = true;
     }
     request.landing = landing_run(operation, owner, &request.name, machine::env("SAFE_PUSH_LAND_HEAD").as_deref(), machine::env("SAFE_PUSH_LANDING").as_deref());
-    request.lander = request.landing && lander_lease(owner, machine::env(crate::foundation::offload::OWNER_ENV).as_deref(), std::fs::read_to_string("/proc/self/cgroup").ok().as_deref());
+    let cgroup = std::fs::read_to_string("/proc/self/cgroup").ok();
+    request.canary = request.landing && canary_lease(machine::env(crate::foundation::offload::RED_FIX_ENV).as_deref(), cgroup.as_deref());
+    request.lander = request.landing && !request.canary && lander_lease(owner, machine::env(crate::foundation::offload::OWNER_ENV).as_deref(), cgroup.as_deref());
     let deadline = options.get("--timeout-seconds").and_then(|text| text.parse::<f64>().ok());
     let records = |heavy| deadline.and_then(|deadline| policy::landing_charge(&sizing::landing_runs(command), heavy, deadline));
     let day = request.landing.then(|| policy::host_landing_charge(&sizing::host_landing_runs(), land_check_cpus())).flatten();

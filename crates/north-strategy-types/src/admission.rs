@@ -40,6 +40,8 @@ pub struct Request {
     pub within_exclusive: bool,
     #[serde(default)]
     pub holds_offload_slot: bool,
+    #[serde(default)]
+    pub canary: bool,
 }
 
 /// The host part of the facts: signals, GPU, leases, queue, markers and what enrichment read.
@@ -109,6 +111,8 @@ pub struct Lease {
     pub cpus: f64,
     #[serde(default)]
     pub landing: bool,
+    #[serde(default)]
+    pub canary: bool,
     pub quiet_seconds: Option<f64>,
     pub usage: Option<UsageSample>,
     pub new_clients: u32,

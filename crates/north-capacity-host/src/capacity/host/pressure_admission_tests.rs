@@ -3,7 +3,7 @@ use crate::capacity::fixtures::facts;
 use crate::capacity::native_hold::LeaseFact;
 
 fn heavy(started_seconds_ago: f64) -> LeaseFact {
-    LeaseFact { id: format!("heavy-{started_seconds_ago}"), class: "heavy".to_owned(), owner: "lane".to_owned(), quiet: false, pair: None, created_at: 100_000.0 - started_seconds_ago * 1000.0, memory_mib: 0.0, cpus: 6.0, landing: false, quiet_seconds: None, usage: None, new_clients: 0, running_clients: 0, clients_seen: 0, started_owners: Default::default() }
+    LeaseFact { id: format!("heavy-{started_seconds_ago}"), class: "heavy".to_owned(), owner: "lane".to_owned(), quiet: false, pair: None, created_at: 100_000.0 - started_seconds_ago * 1000.0, memory_mib: 0.0, cpus: 6.0, landing: false, canary: false, quiet_seconds: None, usage: None, new_clients: 0, running_clients: 0, clients_seen: 0, started_owners: Default::default() }
 }
 
 fn gex45(build_host: bool, cpu_some_percent: u32) -> Facts {

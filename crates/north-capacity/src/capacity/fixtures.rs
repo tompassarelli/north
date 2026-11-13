@@ -64,6 +64,7 @@ pub fn facts(class: Class) -> Facts {
         requester_lease: None,
         land_check_waiting: false,
         holds_offload_slot: false,
+        canary: false,
         build_host: false,
         client_hold: Default::default(),
     }

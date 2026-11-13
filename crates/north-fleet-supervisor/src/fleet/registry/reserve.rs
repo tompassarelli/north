@@ -135,6 +135,8 @@ mod tests {
         assert_eq!(canary.as_deref(), Some("north-runtime-follow.service"));
         assert_eq!(north_base::platform::session_scope::reserve_caller_unit("0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-land@north.service\n"), None);
         assert_eq!(north_base::platform::session_scope::reserve_caller_unit("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-fixture.scope\n"), None);
+        assert_eq!(north_base::platform::session_scope::reserve_caller_unit("0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-runtime-canary-4242.scope\n").as_deref(), Some("north-runtime-canary-4242.scope"));
+        assert_eq!(north_base::platform::session_scope::reserve_caller_unit("0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-runtime-canary-.scope\n"), None);
         assert_eq!(refusal(&reserve, &pooled, Role::Worker, None, canary.as_deref()), None);
         assert!(refusal(&reserve, &pooled, Role::Worker, None, None).is_some());
         assert!(!on_reserve(&reserve, &record("worker", None, canary.as_deref())));

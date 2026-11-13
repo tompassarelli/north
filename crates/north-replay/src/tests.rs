@@ -88,6 +88,7 @@ fn request(slot: bool) -> admission::Request {
         need: None,
         within_exclusive: false,
         holds_offload_slot: slot,
+        canary: false,
     }
 }
 

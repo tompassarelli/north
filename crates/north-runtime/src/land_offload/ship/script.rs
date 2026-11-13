@@ -309,9 +309,11 @@ fi
 @SLOT_ENV@=$slot @SLOT_HOLDER_ENV@=$$; export @SLOT_ENV@ @SLOT_HOLDER_ENV@
 if [ -n "${carried:-}" ]; then eval "export $carried"; fi
 lease_owner=land-offload
+canary=
+case ${red_fix:-} in @RESERVE_CALLER@ | @CANARY_SCOPE@?*.scope) canary=$red_fix ;; esac
 [ -z "${SAFE_PUSH_LAND_HEAD:-}" ] || lease_owner=land-check
 leased() {
-  if command -v north >/dev/null 2>&1; then @SUBJECT_ENV@="$script" @OWNER_ENV@="${owner:-}" north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
+  if command -v north >/dev/null 2>&1; then @SUBJECT_ENV@="$script" @OWNER_ENV@="${owner:-}" @RED_FIX_ENV@="$canary" north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
 checked() {
   if ! confined_here; then leased bash -euo pipefail "$script"; return; fi
@@ -495,6 +497,9 @@ pub(super) fn run_part() -> String {
         .replace("@SUBJECT_DIRECTORY@", north_base::foundation::offload::SUBJECT_DIRECTORY)
         .replace("@SUBJECT_FILE@", north_base::foundation::offload::SUBJECT_FILE)
         .replace("@OWNER_ENV@", north_base::foundation::offload::OWNER_ENV)
+        .replace("@RED_FIX_ENV@", north_base::foundation::offload::RED_FIX_ENV)
+        .replace("@RESERVE_CALLER@", north_base::platform::session_scope::RESERVE_CALLER_UNIT)
+        .replace("@CANARY_SCOPE@", north_base::platform::session_scope::CANARY_SCOPE_PREFIX)
         .replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV)
         .replace("@LEASE@", crate::runtime::layout::LEASE)
         .replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker())

@@ -126,7 +126,7 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hu
 pub(super) fn offloaded_land_check(host: &str, sha: &str) -> Probe {
     let runtime = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"");
     let name = host.rsplit_once('@').map_or(host, |(_, name)| name);
-    let script = OFFLOADED_LAND_CHECK.replace("__NORTH__", &format!("{runtime}/north")).replace("__HOST__", name);
+    let script = OFFLOADED_LAND_CHECK.replace("__NORTH__", &format!("{runtime}/north")).replace("__HOST__", name).replace("__SCOPE__", north_base::platform::session_scope::CANARY_SCOPE_PREFIX);
     judging(sha, vec![probe(OFFLOADED_LAND_CHECK_PROBE, script, LAND_CHECK_LIMIT)]).remove(0)
 }
 
@@ -135,7 +135,10 @@ north=__NORTH__
 for checkout in "$HOME"/code/*/main; do
   if [ -e "$checkout/.git" ]; then cd "$checkout" && break; fi
 done
-"$north" capacity offload run --host __HOST__ --base "" --head HEAD --timeout 120 -- true && exit 0
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+scope=(systemd-run --user --scope --quiet --collect --unit "__SCOPE__$$.scope" --)
+systemd-run --user --scope --quiet --collect -- true 2>/dev/null || scope=()
+"${scope[@]}" "$north" capacity offload run --host __HOST__ --base "" --head HEAD --timeout 120 -- true && exit 0
 code=$?
 echo "the offloaded land check on __HOST__ returned no verdict (exit $code)" >&2
 exit 1

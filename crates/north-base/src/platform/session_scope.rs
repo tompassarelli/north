@@ -104,10 +104,18 @@ pub fn lane_only_command_outside_scope(marker: bool, cgroup: Option<&str>) -> bo
 /// The service unit of the runtime promotion whose canaries start their sessions on the operational reserve; a lander unit is none, since it launches owners' workers.
 pub const RESERVE_CALLER_UNIT: &str = "north-runtime-follow.service";
 
-/// The service unit a process whose `/proc/PID/cgroup` reads `cgroup` runs in when it is one of the reserve's callers, read from its cgroup, which a fleet session cannot leave.
+/// The prefix of the user scope a runtime canary starts its offloaded land check in, on the host it judges or over ssh on a build host; a worker command reaches no user manager to start one.
+pub const CANARY_SCOPE_PREFIX: &str = "north-runtime-canary-";
+
+/// Whether `unit` is a unit only the runtime promotion starts: its follow service, or a canary probe's scope.
+pub fn is_reserve_caller(unit: &str) -> bool {
+    unit == RESERVE_CALLER_UNIT || unit.strip_prefix(CANARY_SCOPE_PREFIX).and_then(|rest| rest.strip_suffix(".scope")).is_some_and(|id| !id.is_empty())
+}
+
+/// The unit a process whose `/proc/PID/cgroup` reads `cgroup` runs in when it is one of the reserve's callers, read from its cgroup, which a fleet session cannot leave.
 pub fn reserve_caller_unit(cgroup: &str) -> Option<String> {
     let leaf = cgroup.lines().last()?.rsplit('/').next()?;
-    (leaf == RESERVE_CALLER_UNIT).then(|| leaf.to_owned())
+    is_reserve_caller(leaf).then(|| leaf.to_owned())
 }
 
 /// The reserve caller unit this process runs in, or none.

@@ -138,6 +138,9 @@ pub struct Facts {
     pub land_check_waiting: bool,
     #[serde(skip)]
     pub holds_offload_slot: bool,
+    /// Whether this is a runtime canary's offloaded land check, which starts from its own reserve beside the land checks.
+    #[serde(default)]
+    pub canary: bool,
     /// Whether other hosts send builds here (`[hosts.NAME] offload_builds`).
     #[serde(skip)]
     pub build_host: bool,
@@ -339,9 +342,12 @@ pub(super) fn batch_fits(facts: &Facts, cpus: f64) -> bool {
     facts.leased_batch_cpus + facts.unleased_heavy_cores + cpus <= batch_cpus(facts)
 }
 
-/// Whether the land checks already running, with this one, charge more CPUs than the host's batch limit: a lease scope is held to its charge by CPUQuota, so a second check beside the first runs only while both fit, and a lone check always runs.
+/// Whether the land checks already running, with this one, charge more CPUs than the host's batch limit: a lease scope is held to its charge by CPUQuota, so a second check beside the first runs only while both fit, and a lone check always runs. A runtime canary's check takes a reserve of one canary check outside that sum, so a host whose land checks overfill it still answers its canary, which gex45 did not on 2026-11-13 under 29 leased batch CPUs of 20.
 fn landing_cpus_full(facts: &Facts) -> bool {
-    let landing = || facts.leases.iter().filter(|lease| lease.landing);
+    if facts.canary {
+        return facts.leases.iter().any(|lease| lease.canary);
+    }
+    let landing = || facts.leases.iter().filter(|lease| lease.landing && !lease.canary);
     landing().next().is_some() && landing().map(|lease| lease.cpus).sum::<f64>() + facts.requested_cpus > batch_cpus(facts)
 }
 

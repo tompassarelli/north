@@ -35,6 +35,10 @@ fn a_land_check_is_charged_and_recorded_as_the_check_it_runs_and_keeps_the_heavy
     for (owner, offload_owner, cgroup) in [("land-check", None, Some(login)), ("land-check", Some(""), Some(login)), ("land-check", Some("north-land"), Some(session)), ("land-check", Some("north-land"), Some(broker)), ("land-check", Some("north-land"), None), ("gate:tom", Some("north-land"), Some(login))] {
         assert!(!super::lander_lease(owner, offload_owner, cgroup), "the owner word {owner} made a run count toward a landing charge ({offload_owner:?}, {cgroup:?})");
     }
+    assert!(super::canary_lease(Some("north-runtime-canary-4242.scope"), Some(login)));
+    for (red_fix, cgroup) in [(Some("north-runtime-canary-4242.scope"), Some(session)), (Some("north-runtime-canary-4242.scope"), Some(broker)), (Some("north-runtime-canary-4242.scope"), None), (Some("north-land"), Some(login)), (None, Some(login))] {
+        assert!(!super::canary_lease(red_fix, cgroup), "a run took the canary's reserve ({red_fix:?}, {cgroup:?})");
+    }
     let row = |at: &str, host: &str, command: &str| format!(r#"{{"at":"{at}","owner":"land-check","host":"{host}","command":["bash","-c","{command}"],"wallSeconds":40,"cpuSeconds":12,"chargedCpus":8,"exitCode":0}}"#);
     let rows = [row("2026-11-12T10:00:00.000Z", "build-1", &check[2]), row("2026-11-12T10:00:00.000Z", "build-1", "true"), row("2026-11-10T10:00:00.000Z", "build-1", &check[2]), row("2026-11-12T10:00:00.000Z", "build-2", &check[2])].join("\n");
     assert_eq!(super::sizing::charged_runs(&rows, &check, "2026-11-11T10:00:00.000Z", "build-1").len(), 1, "only the day's runs of this command on this host set its charge");
