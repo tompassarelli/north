@@ -745,10 +745,10 @@ build scripts and procedural macros.
 - **Host cases (`buck2_host_cases`).** The cases no remote worker can run (`build/host-cases.list`) are skipped by
   the Buck2 targets, and a passed crate's share of them runs on the declared line narrowed to them, which compiles
   that crate's test binaries with Cargo. A host that also sets `buck2_host_cases = true` takes them off Cargo: `buck2
-  --isolation-dir host-cases build --remote-only --no-remote-cache`, in its own daemon so no result the cached test run
-  left in the shared one is reused, builds each class package's `host-cases` target on the workers, whose one
-  output is a plan naming the case runner, the test binary and the environment its test target sets, and leaves those
-  files in the checkout; the case runner then runs each listed case by name on the invoking host, in the declared
+  --isolation-dir host-cases build --remote-only`, in its own daemon and reading the store's action results as
+  every Buck2 line does, builds each class package's `host-cases` target on the workers, whose one output is a plan
+  naming the case runner, the test binary and the environment its test target sets, and leaves those files in the
+  checkout; the case runner then runs each listed case by name on the invoking host, in the declared
   line's shell, as the same user, from the repository root, which is where and as whom Cargo runs it. Only the test
   process runs there; nothing else of the tree does. The step fails when a binary has no plan, a listed case is not
   in its binary, a case fails, or the cases run and passed differ from the class. `north land crate-tests host-cases
