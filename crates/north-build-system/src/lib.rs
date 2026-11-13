@@ -234,6 +234,13 @@ pub struct TestRun {
     pub printed: String,
 }
 
+/// The counts the case runner closes a test binary's output with: `Summary [ T s] N tests run: P passed, F failed, I skipped`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Cases {
+    pub run: u64,
+    pub failed: u64,
+}
+
 /// How to read back the test run a command made, when the build system it names keeps a record of its runs.
 pub struct TestRecord {
     /// Prints the record of the tree's last test run.

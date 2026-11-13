@@ -6,13 +6,15 @@ use std::io::BufRead;
 
 use serde_json::Value;
 
-use crate::TestRun;
+use crate::{Cases, TestRun};
 
 const TEST: &str = "buck2 test";
 const SHOW: &str = "buck2 log show";
 const ENDED: &str = "\"TestEnd\"";
 const RESULT: &str = "\"TestResult\"";
 const PASS: u64 = 1;
+/// The case runner's closing line (crates/north-test-cases/src/report.rs).
+const SUMMARY: &str = "Summary [";
 
 /// The command that prints the record of the run `test` made: `buck2 log show` behind whatever shell `test` ran its `buck2 test` in.
 pub fn command(test: &str) -> Option<String> {
@@ -35,6 +37,23 @@ fn run(result: &Value) -> Result<TestRun, String> {
     #[allow(clippy::cast_precision_loss)]
     let seconds = result["duration_us"].as_u64().unwrap_or(0) as f64 / 1e6;
     Ok(TestRun { target, action: None, reused: false, passed: result["status"] == PASS, seconds, printed: result["details"].as_str().unwrap_or_default().to_owned() })
+}
+
+impl TestRun {
+    /// What the case runner's closing line in [`TestRun::printed`] counts; `None` when it printed none.
+    pub fn cases(&self) -> Option<Cases> {
+        self.printed.lines().rev().find_map(summary)
+    }
+}
+
+fn summary(line: &str) -> Option<Cases> {
+    let (_, counts) = line.trim_start().strip_prefix(SUMMARY)?.split_once(']')?;
+    let (run, counts) = counts.trim().split_once(" tests run: ")?;
+    let (passed, counts) = counts.split_once(" passed, ")?;
+    let (failed, skipped) = counts.split_once(" failed, ")?;
+    skipped.strip_suffix(" skipped")?.parse::<u64>().ok()?;
+    let (run, passed, failed): (u64, u64, u64) = (run.parse().ok()?, passed.parse().ok()?, failed.parse().ok()?);
+    (passed.checked_add(failed) == Some(run)).then_some(Cases { run, failed })
 }
 
 pub fn runs(record: &mut dyn BufRead) -> Result<Vec<TestRun>, String> {

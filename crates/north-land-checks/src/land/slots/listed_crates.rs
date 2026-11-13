@@ -1,16 +1,20 @@
 //! `north land crate-tests -- COMMAND`: runs a land check's nextest line on the host that executes it. A host whose
 //! `[hosts.NAME] buck2_test_crates` lists crates runs the tests of each selected crate it lists through Buck2, one crate
 //! at a time, and the declared line for the rest of the selection (north#1115). Buck2 decides for a crate only when it
-//! says so plainly: it passed at least one test and failed none, its build failed, or its summary counts a failed test.
-//! On anything else the crate stays on the declared line, so Cargo tests it. The checks before a landing alone wrap
+//! says so plainly: its run passed and, in Buck2's own record of the run, the case runner of every target it passed
+//! counts at least one case run in all and none failed; its build failed; or its summary counts a failed test. That
+//! summary counts a target as one test however many cases it ran, so it never passes a crate alone (north#1299). On
+//! anything else the crate stays on the declared line, so Cargo tests it. The checks before a landing alone wrap
 //! their line in this, and key the verdict apart, so the run after a landing tests the landed tree with Cargo itself.
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
+use north_build_system::{Cases, TestRun};
+
 use super::affected::PACKAGES_ENV;
-use super::unit_reuse::quote;
+use super::unit_reuse::{quote, runs};
 
 const USAGE: &str = "north land crate-tests available | north land crate-tests -- COMMAND";
 const BASE_ENV: &str = "SAFE_PUSH_LAND_BASE";
@@ -51,13 +55,19 @@ fn counted(summary: &str, label: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
-/// What Buck2 said of one crate, from its exit status and its summary line.
-fn verdict(status: Option<i32>, summary: Option<&str>) -> Verdict {
+/// The cases `runs` ran in all, when the record holds one run with the case runner's summary for each of the `passed` targets.
+fn summed(passed: Option<u64>, runs: Option<&[TestRun]>) -> Option<Cases> {
+    let runs = runs.filter(|runs| u64::try_from(runs.len()).ok() == passed)?;
+    runs.iter().try_fold(Cases::default(), |sum, run| run.cases().map(|cases| Cases { run: sum.run + cases.run, failed: sum.failed + cases.failed }))
+}
+
+/// What Buck2 said of one crate, from its exit status, its summary line and its own record of the run.
+fn verdict(status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>) -> Verdict {
     let counts = |label| summary.and_then(|summary| counted(summary, label));
-    match (status, counts("Pass"), counts("Fail")) {
-        (Some(0), Some(passed), Some(0)) if passed > 0 => Verdict::Passed,
+    match (status, counts("Fail"), summed(counts("Pass"), runs)) {
+        (Some(0), Some(0), Some(Cases { run, failed: 0 })) if run > 0 => Verdict::Passed,
         (Some(BUILD_FAILED), ..) => Verdict::Failed,
-        (Some(TESTS_FAILED), _, Some(failed)) if failed > 0 => Verdict::Failed,
+        (Some(TESTS_FAILED), Some(failed), _) if failed > 0 => Verdict::Failed,
         _ => Verdict::Silent,
     }
 }
@@ -93,12 +103,13 @@ fn execute(declared: &str) -> u8 {
     for (name, line) in &split.moved {
         eprintln!("north land crate-tests: this host tests {name} with Buck2: {line}");
         let (status, summary) = observed(line);
-        match verdict(status, summary.as_deref()) {
+        let record = north_build_system::test_record(line).filter(|_| status == Some(0)).and_then(|record| runs::read(&record).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of {name}: {why}")).ok());
+        match verdict(status, summary.as_deref(), record.as_deref()) {
             Verdict::Passed => {
                 passed.insert(name.clone());
             }
             Verdict::Failed => return FAILED,
-            Verdict::Silent => eprintln!("north land crate-tests: Buck2 gave no verdict on {name} (exit {}), so the declared line tests it", status.map_or_else(|| "on a signal".to_owned(), |code| code.to_string())),
+            Verdict::Silent => eprintln!("north land crate-tests: Buck2 gave no verdict on {name} (exit {}, {} case(s) in its record), so the declared line tests it", status.map_or_else(|| "on a signal".to_owned(), |code| code.to_string()), record.iter().flatten().filter_map(TestRun::cases).map(|cases| cases.run).sum::<u64>()),
         }
     }
     split.left(&passed).map_or(0, |packages| declared_line(declared, Some(&packages)))
