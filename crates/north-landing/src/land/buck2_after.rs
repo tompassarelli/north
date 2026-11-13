@@ -2,12 +2,16 @@
 //! offload slot on a build host beside the Cargo run after the landing, whose job, verdict and timing it never reads or
 //! changes. Its exit status alone is its verdict: 0 green, 1 red, 75 none. It records one row per head (head, host,
 //! exit, seconds, crates Buck2 passed) and the crates the job marked passed, one per line; nothing decides on either.
+//! When the Cargo run after the same landing is red on a case of a crate Buck2 passed, whichever of the two ends last
+//! writes the trip record (crate and case, one pair a line) and tells the proxy; it turns nothing off.
+use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
+use north_base::foundation::check_log::log_text;
 use north_base::foundation::offload::{AFTER_LANDING_OWNER, OWNER_ENV};
 use north_base::platform::harness::{DEFAULTS, document};
 
@@ -66,6 +70,7 @@ fn run(repo: &Path, logs: &Path, owner: &str, head: &str) {
     if let Err(error) = remember(&Timings::default_root(), head, &host, exit, seconds, &crates) {
         println!("north land: could not record the Buck2 run of {head}: {error}");
     }
+    trip(&Timings::default_root(), head);
 }
 
 /// A build host the offload chooses, never this host: the run starts nothing rather than test here.
@@ -89,3 +94,52 @@ fn remember(root: &Path, head: &str, host: &str, exit: i32, seconds: u64, crates
     let mut rows = OpenOptions::new().create(true).append(true).open(root.join(format!("{RECORD}.tsv")))?;
     writeln!(rows, "{head}\t{host}\t{exit}\t{seconds}\t{}", crates.len())
 }
+
+/// Records the cases the Cargo run after the landing of `head` failed, by crate, and trips when Buck2 passed one of their crates.
+pub fn cargo_red(head: &str, log: &Path) {
+    if !enabled() {
+        return;
+    }
+    let root = Timings::default_root();
+    let cases: String = failed_cases(&fs::read_to_string(log).unwrap_or_default()).into_iter().map(|(name, case)| format!("{name}\t{case}\n")).collect();
+    let dir = root.join(RECORD);
+    if let Err(error) = fs::create_dir_all(&dir).and_then(|()| fs::write(dir.join(format!("{head}.red")), cases)) {
+        println!("north land: could not record the Cargo cases that failed after the landing of {head}: {error}");
+    }
+    trip(&root, head);
+}
+
+/// The trip: a case of the Cargo run after the landing of `head` failed in a crate Buck2 passed at that head.
+fn trip(root: &Path, head: &str) {
+    let dir = root.join(RECORD);
+    let (Ok(crates), Ok(red)) = (fs::read_to_string(dir.join(format!("{head}.crates"))), fs::read_to_string(dir.join(format!("{head}.red")))) else { return };
+    let passed: BTreeSet<&str> = crates.lines().collect();
+    let tripped: Vec<(&str, &str)> = red.lines().filter_map(|line| line.split_once('\t')).filter(|(name, _)| passed.contains(name)).collect();
+    if tripped.is_empty() {
+        return;
+    }
+    let record = dir.join(format!("{head}.trip"));
+    let Ok(mut file) = OpenOptions::new().write(true).create_new(true).open(&record) else { return };
+    let written = tripped.iter().try_for_each(|(name, case)| writeln!(file, "{name}\t{case}"));
+    let named: Vec<String> = tripped.iter().map(|(name, case)| format!("{case} in {name}")).collect();
+    let message = format!("north land: Buck2 passed a crate at {head} whose case the Cargo run after the landing failed: {}; trip record {}", named.join(", "), record.display());
+    println!("{message}");
+    if written.is_err() || !follow::send("proxy", &message) {
+        println!("north land: the Buck2 trip of {head} was not fully recorded or not sent to the proxy");
+    }
+}
+
+/// The failed cases of a nextest log by crate: `FAIL [ TIME] (N/M) BINARY CASE`, where a binary names its crate before `::`.
+fn failed_cases(log: &str) -> BTreeSet<(String, String)> {
+    log.lines().map(log_text).filter_map(|line| {
+        let (took, rest) = line.strip_prefix("FAIL [")?.split_once(']')?;
+        took.trim().ends_with('s').then_some(())?;
+        let mut words = rest.split_whitespace().skip_while(|word| word.starts_with('(') && word.ends_with(')'));
+        let (binary, case) = (words.next()?, words.next()?);
+        Some((binary.split("::").next()?.to_owned(), case.to_owned()))
+    }).collect()
+}
+
+#[cfg(test)]
+#[path = "buck2_after_tests.rs"]
+mod tests;

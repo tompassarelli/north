@@ -241,6 +241,7 @@ fn outcome(landed: Landed, run: Run, verdict: Verdict) -> Outcome {
         return Outcome { verdict, search: None, failing: BTreeSet::new(), superseded: run.superseded(), log: run.log };
     }
     let failing = failing(&run.log, &run.outcome);
+    super::buck2_after::cargo_red(&landed.head, &run.log);
     let (superseded, log) = (run.superseded(), run.log.clone());
     Outcome { verdict, search: Some(Search { landed, run, failing: failing.clone() }), failing, log, superseded }
 }
