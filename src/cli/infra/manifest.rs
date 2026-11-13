@@ -228,6 +228,13 @@ monthly_usd = "unread"
         std::fs::create_dir(root.path().join("agents")).unwrap();
         std::fs::write(root.path().join("agents/frozen-topics.toml"), "[[topic]]\nrepo = \"makgora\"\nname = \"Kobold\"\nterms = [\"kobold\"]\nsince = \"2026-10-26\"\nreason = \"likely being replaced\"\nsinse = \"2026-10-26\"\n").unwrap();
         assert_eq!(crate::cli::operator::check::findings(root.path(), Some(&["frozen-topics"])), ["agents/frozen-topics.toml: topic[0].sinse: unknown key"]);
+        let accounts = |text: &str| {
+            std::fs::write(root.path().join("agents/orchestration.toml"), text).unwrap();
+            crate::cli::operator::check::findings(root.path(), Some(&["orchestration-accounts"]))
+        };
+        let tiers = "[tiers.\"claude:haiku\"]\nmodel = \"m\"\neffort = \"high\"\n";
+        assert!(accounts(tiers).is_empty());
+        assert_eq!(accounts(&tiers.replace("effort", "effor")), ["agents/orchestration.toml: tiers.claude:haiku.effort: required key is missing", "agents/orchestration.toml: tiers.claude:haiku.effor: unknown key"]);
     }
 
     #[test]

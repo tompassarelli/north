@@ -136,6 +136,25 @@ const SCHEMAS: &[Schema] = &[
             Table { path: "kind", keys: &[("id", Text), ("description", Text)], required: &["id", "description"] },
         ],
     },
+    Schema {
+        name: "orchestration-accounts",
+        file: "agents/orchestration.toml",
+        values: None,
+        tables: &[
+            Table { path: "", keys: &[("accounts", Nested), ("tiers", Nested), ("on_request", Nested), ("mode", Any), ("dispatch_providers", Any), ("dispatch_hosts_excluded", Any), ("hosts", Any), ("dispatch", Any), ("placement", Any), ("projects", Any)], required: &[] },
+            Table { path: "accounts", keys: &[("codex", Nested), ("claude", Nested)], required: &[] },
+            Table { path: "accounts.codex", keys: &[("profiles", Any), ("target_left", Number), ("band", Any), ("thursday", Any), ("source", Text)], required: &[] },
+            Table { path: "accounts.claude", keys: &[("labels", Any), ("plans", Any), ("target_left", Number), ("reserve", Any), ("api_hold", Any), ("source", Text), ("profiles", Nested), ("api_keys", Nested), ("api_orgs", Nested)], required: &[] },
+            Table { path: "accounts.claude.profiles", keys: &[("*", Any)], required: &[] },
+            Table { path: "accounts.claude.api_keys", keys: &[("*", Any)], required: &[] },
+            Table { path: "accounts.claude.api_orgs", keys: &[("*", Nested)], required: &[] },
+            Table { path: "accounts.claude.api_orgs.*", keys: &[("id", Text), ("emails", Any)], required: &["id"] },
+            Table { path: "tiers", keys: &[("*", Nested)], required: &[] },
+            Table { path: "tiers.*", keys: &[("model", Text), ("effort", Text), ("agent", Text), ("role", Text), ("start", Number), ("detail", Text)], required: &["model", "effort"] },
+            Table { path: "on_request", keys: &[("*", Nested)], required: &[] },
+            Table { path: "on_request.*", keys: &[("model", Text), ("effort", Text), ("detail", Text)], required: &["model", "effort"] },
+        ],
+    },
 ];
 
 const GROUPS: &[(&str, &[&str])] = &[("policy", &["frozen-topics", "operating-point", "watch", "rules", "private-kinds"])];
@@ -172,14 +191,14 @@ fn walk(schema: &Schema, path: &str, label: &str, node: &dyn TableLike, found: &
         found.push(format!("{}: {}: required key is missing", schema.file, at(key)));
     }
     for (key, item) in node.iter() {
-        let Some((_, ty)) = table.keys.iter().find(|(name, _)| *name == key) else {
+        let Some((name, ty)) = table.keys.iter().find(|(name, _)| *name == key).or_else(|| table.keys.iter().find(|(name, _)| *name == "*")) else {
             found.push(format!("{}: {}: unknown key", schema.file, at(key)));
             continue;
         };
         if !matches(*ty, item) {
             found.push(format!("{}: {}: wrong type of value", schema.file, at(key)));
         } else if matches!(ty, Nested) {
-            let child = if path.is_empty() { key.to_owned() } else { format!("{path}.{key}") };
+            let child = if path.is_empty() { (*name).to_owned() } else { format!("{path}.{name}") };
             for (index, inner) in nodes(item) {
                 walk(schema, &child, &format!("{}{index}", at(key)), inner, found);
             }
