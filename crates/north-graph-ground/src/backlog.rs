@@ -168,6 +168,11 @@ impl Backlog {
         format!("{measured}, {rank}")
     }
 
+    /// The box slugs of `issue` the graph holds behind an unticked box, an open issue or a dated check.
+    pub fn held_boxes<'a>(&'a self, issue: &'a str) -> impl Iterator<Item = &'a str> {
+        self.held.iter().filter(move |held| held.entry.issue == issue).filter_map(move |held| held.entry.node.strip_prefix("box:")?.strip_prefix(issue)?.strip_prefix(':'))
+    }
+
     /// The issues with a ready box, in the order their boxes run.
     pub fn leaders(&self) -> Vec<&str> {
         let mut issues: Vec<&str> = Vec::new();

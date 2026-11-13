@@ -133,7 +133,7 @@ fn stage_issue(round: &Round, issue: &Issue, staffing: &mut Staffing) {
     let none = BTreeMap::new();
     let running = round.world.box_holds.get(&reference).unwrap_or(&none);
     let tried = round.survey.box_tries.get(&reference).unwrap_or(&none);
-    let boxes = open_boxes(issue, running, tried, round.survey.at, &mut staffing.claims);
+    let boxes = open_boxes(issue, running, tried, round.survey.backlog.as_ref(), round.survey.at, &mut staffing.claims);
     for text in issue.takeable(round.survey.at) {
         if let Some(holder) = crate::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
             staffing.outcome.skipped.push((reference.clone(), format!("box `{}` held: {holder}", box_words(text))));
@@ -253,13 +253,13 @@ pub(super) fn candidates(survey: &Survey, scope: &Scope, brief: &str) -> Vec<Can
 }
 
 /// The boxes of `issue` that may be staffed now, each running box's paths already held in `claims`; a bare issue is one box with no text.
-fn open_boxes(issue: &Issue, running: &BTreeMap<String, String>, tried: &BTreeMap<String, String>, at: f64, claims: &mut hotspots::Claims) -> Vec<Option<String>> {
+fn open_boxes(issue: &Issue, running: &BTreeMap<String, String>, tried: &BTreeMap<String, String>, backlog: Option<&Backlog>, at: f64, claims: &mut hotspots::Claims) -> Vec<Option<String>> {
     for text in issue.takeable(at) {
         if let Some(holder) = crate::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
             claims.take(&hotspots::paths(issue, Some(text)), holder);
         }
     }
-    let taken: BTreeSet<String> = running.keys().chain(tried.keys()).cloned().collect();
+    let taken: BTreeSet<String> = running.keys().chain(tried.keys()).cloned().chain(issues::graph_held(backlog, &issue.reference())).collect();
     let mut boxes: Vec<Option<String>> = issue.free_boxes(&taken, at).map(|text| Some(text.to_owned())).collect();
     if issue.takeable(at).next().is_none() {
         boxes.push(None);

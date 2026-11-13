@@ -143,7 +143,7 @@ pub(super) fn pass(survey: &Survey, outcome: &super::Outcome, pools: &mut Pools,
     for issue in survey.issues.iter().filter(|issue| outcome.ready.contains(&issue.reference()) && named.is_none_or(|named| named.contains(&issue.reference()))) {
         let item = issue.reference();
         let none = std::collections::BTreeMap::new();
-        let taken: BTreeSet<String> = survey.box_holds.get(&item).unwrap_or(&none).keys().chain(survey.box_tries.get(&item).unwrap_or(&none).keys()).cloned().collect();
+        let taken: BTreeSet<String> = survey.box_holds.get(&item).unwrap_or(&none).keys().chain(survey.box_tries.get(&item).unwrap_or(&none).keys()).cloned().chain(super::issues::graph_held(survey.backlog.as_ref(), &item)).collect();
         let Ok(routed) = super::tier::route(issue, &survey.history, &survey.ledger).map_err(|why| lines.push(format!("no draft for {item}: {why}"))) else { continue };
         for text in issue.free_boxes(&taken, survey.at).filter(|text| !box_launched(outcome, &item, text)) {
             let check = match qualifies(issue, text, &routed.category) {

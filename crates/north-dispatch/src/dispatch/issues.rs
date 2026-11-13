@@ -508,7 +508,7 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
         return Err(format!("{} workers hold its boxes, which is its cap of {cap}", boxes.len()));
     }
     let tried = world.box_tries.get(&reference);
-    let taken: BTreeSet<String> = held.into_iter().chain(tried).flat_map(|boxes| boxes.keys().cloned()).collect();
+    let taken: BTreeSet<String> = held.into_iter().chain(tried).flat_map(|boxes| boxes.keys().cloned()).chain(graph_held(world.backlog, &reference)).collect();
     if issue.takeable(world.at).next().is_some() && issue.free_boxes(&taken, world.at).next().is_none() {
         return Err(match tried.and_then(|boxes| boxes.values().next()) {
             Some(why) => format!("no box is free: each has a worker or was tried twice in 24 h: {why}"),
@@ -519,6 +519,12 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
         return Err("last worker stopped for a decision".into());
     }
     Ok(())
+}
+
+/// The slugs of the boxes of `reference` the fact graph holds behind another box, an open issue or a dated check, which no launch takes.
+pub fn graph_held(backlog: Option<&Backlog>, reference: &IssueRef) -> Vec<String> {
+    let issue = reference.to_string();
+    backlog.map(|backlog| backlog.held_boxes(&issue).map(str::to_owned).collect()).unwrap_or_default()
 }
 
 /// The sessions a box line names as its owners: `(owner: NAME)`, `(owners: n-cull-it, -landing)`, where a leading

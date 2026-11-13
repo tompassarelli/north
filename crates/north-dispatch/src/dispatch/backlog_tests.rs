@@ -8,7 +8,7 @@ fn entry(issue: &str, node: &str, text: &str) -> Entry {
 }
 
 #[test]
-fn dispatch_staffs_in_the_documents_rank_order_and_skips_an_issue_whose_every_box_waits_naming_the_edge() {
+fn dispatch_staffs_in_the_documents_rank_order_and_skips_each_box_that_waits_naming_the_edge() {
     let (hosts, accounts) = fleet();
     let mut boxes = vec![issue("north", 1, "- [ ] older", &[]), issue("north", 2, "- [ ] newer but ranked first", &[]), issue("north", 3, "- [ ] waits", &[])];
     for (created, issue) in [1.0, 2.0, 3.0].into_iter().zip(&mut boxes) {
@@ -25,4 +25,10 @@ fn dispatch_staffs_in_the_documents_rank_order_and_skips_an_issue_whose_every_bo
     ranked.backlog = None;
     let plain: Vec<String> = decide(&ranked, "test").launches.iter().map(|launch| launch.item.to_string()).collect();
     assert_eq!(plain, ["north#1", "north#2", "north#3"], "with no graph the issues keep their label and age order");
+    let (hosts, accounts) = fleet();
+    let mut split = survey(vec![issue("north", 4, "- [ ] build it\n- [ ] measure it", &[])], hosts, accounts);
+    let waits = Held { entry: entry("north#4", "box:north#4:measure-it", "measure it"), edge: "box:north#4:build-it".into(), edge_text: "build it".into() };
+    split.backlog = Some(Backlog { ready: vec![entry("north#4", "box:north#4:build-it", "build it")], held: vec![waits], ..Backlog::default() });
+    let staffed: Vec<Option<String>> = decide(&split, "test").launches.iter().map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect();
+    assert_eq!(staffed, [Some("build it".to_owned())], "a box the graph holds behind a box of its own issue is not staffed beside the ready one (north#1279's specialist box was)");
 }
