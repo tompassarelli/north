@@ -1,29 +1,20 @@
+use std::error::Error;
+use std::fmt;
 use std::io;
 
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum NorthError {
-    #[error("I/O failed: {0}")]
-    Io(#[from] io::Error),
-    #[error("I/O failed while {at}: {error}")]
-    IoAt { at: String, #[source] error: io::Error },
-    #[error("JSON failed: {0}")]
-    Json(#[from] serde_json::Error),
-    #[error("{0}")]
+    Io(io::Error),
+    IoAt { at: String, error: io::Error },
+    Json(serde_json::Error),
     Usage(String),
-    #[error("North configuration failed: {0}")]
     Configuration(String),
-    #[error("protocol failed: {0}")]
     Protocol(String),
-    #[error("Incomplete North state: {0}")]
     State(String),
-    #[error("{0}")]
     Rejected(String),
-    #[error("gate {id} was already answered: {} by {by}", .answer.split_whitespace().collect::<Vec<_>>().join(" "))]
     GateAnswered { id: i64, answer: String, by: String },
-    #[error("{0}")]
     Refused(String),
-    #[error("{0}")]
     Saturated(String),
 }
 
@@ -51,6 +42,45 @@ impl NorthError {
             Self::State(message) => format!("North couldn’t read the conversation state: {message}"),
             _ => self.to_string(),
         }
+    }
+}
+
+impl fmt::Display for NorthError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Usage(message) | Self::Refused(message) | Self::Rejected(message) | Self::Saturated(message) => formatter.write_str(message),
+            Self::Io(error) => write!(formatter, "I/O failed: {error}"),
+            Self::IoAt { at, error } => write!(formatter, "I/O failed while {at}: {error}"),
+            Self::Json(error) => write!(formatter, "JSON failed: {error}"),
+            Self::Configuration(message) => {
+                write!(formatter, "North configuration failed: {message}")
+            }
+            Self::Protocol(message) => write!(formatter, "protocol failed: {message}"),
+            Self::State(message) => write!(formatter, "Incomplete North state: {message}"),
+            Self::GateAnswered { id, answer, by } => write!(formatter, "gate {id} was already answered: {} by {by}", answer.split_whitespace().collect::<Vec<_>>().join(" ")),
+        }
+    }
+}
+
+impl Error for NorthError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Io(error) | Self::IoAt { error, .. } => Some(error),
+            Self::Json(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<io::Error> for NorthError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+impl From<serde_json::Error> for NorthError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
     }
 }
 
