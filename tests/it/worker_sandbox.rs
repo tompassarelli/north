@@ -268,9 +268,9 @@ fn a_worker_send_to_a_session_on_its_host_or_another_exits_0_with_no_error_and_l
 fn a_worker_command_meets_a_null_device_at_every_runtime_socket_north_does_not_name_south_86() {
     let scratch = tempfile::Builder::new().prefix("s86").tempdir_in("/tmp").unwrap();
     let runtime = scratch.path().canonicalize().unwrap();
-    std::fs::create_dir_all(runtime.join("manager")).unwrap();
-    let _listeners: Vec<std::os::unix::net::UnixListener> = ["daemon.sock", "manager/private", "north-kept.sock", "wayland-1"].iter().map(|name| std::os::unix::net::UnixListener::bind(runtime.join(name)).unwrap()).collect();
-    let command = r#"test -c "$XDG_RUNTIME_DIR/daemon.sock" && test -c "$XDG_RUNTIME_DIR/manager/private" && test -S "$XDG_RUNTIME_DIR/north-kept.sock" && test -S "$XDG_RUNTIME_DIR/wayland-1" && ! umount "$XDG_RUNTIME_DIR/daemon.sock""#;
+    ["manager", "north-links", "north-spares", "north-session-hosts"].iter().for_each(|directory| std::fs::create_dir_all(runtime.join(directory)).unwrap());
+    let _listeners: Vec<std::os::unix::net::UnixListener> = ["daemon.sock", "manager/private", "north-kept.sock", "wayland-1", "north-ssh-0a1b", "north-taker-0a1b", "north-links/tom_gex45", "north-spares/tom_gex45.sock", "north-session-hosts/0a1b.sock"].iter().map(|name| std::os::unix::net::UnixListener::bind(runtime.join(name)).unwrap()).collect();
+    let command = r#"test -c "$XDG_RUNTIME_DIR/daemon.sock" && test -c "$XDG_RUNTIME_DIR/manager/private" && test -S "$XDG_RUNTIME_DIR/north-kept.sock" && test -S "$XDG_RUNTIME_DIR/wayland-1" && test -c "$XDG_RUNTIME_DIR/north-ssh-0a1b" && test -c "$XDG_RUNTIME_DIR/north-taker-0a1b" && test -c "$XDG_RUNTIME_DIR/north-links/tom_gex45" && test -c "$XDG_RUNTIME_DIR/north-spares/tom_gex45.sock" && test -c "$XDG_RUNTIME_DIR/north-session-hosts/0a1b.sock" && ! umount "$XDG_RUNTIME_DIR/daemon.sock""#;
     let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &runtime).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", &runtime).current_dir(&runtime).output().unwrap();
     assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stderr).matches("north worker-sandbox:").count(), 0, "{}", String::from_utf8_lossy(&output.stderr));

@@ -106,11 +106,12 @@ fn unstall(rig: &Rig) {
     fs::remove_file(rig.root.join("stall")).unwrap();
 }
 
-const PREFIX: &str = "-o ControlPath=none -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host";
+const PREFIX: &str = "-o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host";
 
 #[test]
-fn threads_client_spools_unreachable_writes_and_flushes_them_in_order() {
-    let mut rig = rig(&[]);
+fn threads_client_spools_unreachable_writes_and_flushes_them_in_order_riding_the_host_master_while_the_snapshot_pull_keeps_its_own_connection() {
+    let mut rig = rig(&[("XDG_RUNTIME_DIR", "/run/user/7")]);
+    let riding = format!("-o ControlMaster=no -o ControlPath=/run/user/7/north-ssh-%C -o ServerAliveInterval=5 -o ServerAliveCountMax=2 {PREFIX}");
     fs::write(rig.root.join("code"), "255").unwrap();
     assert_eq!(call(&rig, &["job-run", "nightly", "--host", "laptop"], b"").0, 0);
     let (code, err) = call(&rig, &["ingest"], b"{\"type\": \"run\"}\n");
@@ -126,9 +127,9 @@ fn threads_client_spools_unreachable_writes_and_flushes_them_in_order() {
     fs::write(rig.root.join("code"), "0").unwrap();
     assert_eq!(call(&rig, &["list"], b"").0, 0);
     assert_eq!(log(&rig, "ssh.log")[attempts..], [
-        format!("{PREFIX} north threads job-run nightly --host laptop"),
-        format!("{PREFIX} north threads ingest"),
-        format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads list"),
+        format!("{riding} north threads job-run nightly --host laptop"),
+        format!("{riding} north threads ingest"),
+        format!("{riding} env 'THREADS_ALIVE_OWNERS=[]' north threads list"),
         "-o ControlPath=none -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host north threads snapshot-pages".to_owned(),
     ]);
     assert_eq!(log(&rig, "ingest.log"), ["{\"type\": \"run\"}"]);

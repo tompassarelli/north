@@ -132,9 +132,9 @@ impl Client {
     }
 
     pub(super) fn ssh_argv(&self, arguments: &[&str]) -> Vec<OsString> {
-        let mut options = vec!["-o", crate::platform::ssh::OWN_CONNECTION];
+        let mut options = Vec::new();
         if let Some(identity) = self.env.get(LEDGER_IDENTITY_ENV).filter(|identity| !identity.is_empty()) {
-            options.extend(["-F", "/dev/null", "-i", identity.as_str(), "-o", "IdentitiesOnly=yes"]);
+            options.extend(["-o", crate::platform::ssh::OWN_CONNECTION, "-F", "/dev/null", "-i", identity.as_str(), "-o", "IdentitiesOnly=yes"]);
         }
         options.extend_from_slice(arguments);
         crate::platform::ssh::argv(&self.ssh, &self.env, &options)

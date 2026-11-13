@@ -237,7 +237,19 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     let scratch = tempfile::tempdir().unwrap();
     let master = scratch.path().join(format!("{}0a1b", north_base::foundation::offload::MASTER_SOCKET));
     let _listening = UnixListener::bind(&master).unwrap();
-    assert_eq!(super::sockets::hidden(scratch.path(), &scratch.path().join("tmux-0"), &[]), [master], "an offload master is hidden although its name begins as north's own sockets do");
+    let host = scratch.path().join(format!("{}0a1b", north_base::platform::ssh::HOST_MASTER));
+    let _riding = UnixListener::bind(&host).unwrap();
+    let taker = scratch.path().join("north-taker-0a1b");
+    let _taking = UnixListener::bind(&taker).unwrap();
+    std::fs::create_dir_all(scratch.path().join("north-links")).unwrap();
+    std::fs::create_dir_all(scratch.path().join("north-spares")).unwrap();
+    let (link, spare) = (scratch.path().join("north-links/tom_gex45"), scratch.path().join("north-spares/tom_gex45.sock"));
+    let (_linked, _spared) = (UnixListener::bind(&link).unwrap(), UnixListener::bind(&spare).unwrap());
+    let mut hidden = super::sockets::hidden(scratch.path(), &scratch.path().join("tmux-0"), &[]);
+    hidden.sort();
+    let mut masters = vec![master, host, taker, link, spare];
+    masters.sort();
+    assert_eq!(hidden, masters, "an offload, host, taker or fleet-link master or a spare shell's holder is reachable from a worker although its name begins as north's own sockets do");
     let declared = |host: &str| (host == "gex45").then(|| format!("tom@{host}")).ok_or_else(|| format!("{host} is not a host this one reaches"));
     let run = "capacity offload run --host gex45 --base aaa --head bbb --timeout 60 -- true";
     for allowed in [run, "capacity offload run --background --host gex45 --base aaa --head bbb --timeout 60 -- true", "capacity offload free --host gex45", "capacity offload hosts", "capacity offload slots"] {

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 const SOCKET_LIMIT: usize = 107;
 pub const OWN_CONNECTION: &str = "ControlPath=none";
+pub const HOST_MASTER: &str = "north-ssh-";
 
 pub fn argv(program: &[OsString], env: &BTreeMap<String, String>, arguments: &[&str]) -> Vec<OsString> {
     let mut argv = program.to_vec();
@@ -19,10 +20,10 @@ pub fn argv(program: &[OsString], env: &BTreeMap<String, String>, arguments: &[&
         && !chooses_multiplexing(arguments)
         && runtime.starts_with('/')
         && runtime.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_./-".contains(&byte))
-        && runtime.len() + "/north-ssh-".len() + 40 + 20 <= SOCKET_LIMIT
+        && runtime.len() + 1 + HOST_MASTER.len() + 40 + 20 <= SOCKET_LIMIT
     {
         for option in [
-            "ControlMaster=no".to_owned(), format!("ControlPath={runtime}/north-ssh-%C"),
+            "ControlMaster=no".to_owned(), format!("ControlPath={runtime}/{HOST_MASTER}%C"),
             "ServerAliveInterval=5".to_owned(), "ServerAliveCountMax=2".to_owned(),
         ] {
             argv.extend(["-o".into(), option.into()]);

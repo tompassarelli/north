@@ -61,7 +61,7 @@ impl Client {
     }
 
     pub(super) fn pull_argv(&self, dest: &str) -> Vec<OsString> {
-        self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, snapshot::REMOTE_COMMAND])
+        self.ssh_argv(&["-o", crate::platform::ssh::OWN_CONNECTION, "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, snapshot::REMOTE_COMMAND])
     }
 
     pub(super) fn snapshot_verb(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
