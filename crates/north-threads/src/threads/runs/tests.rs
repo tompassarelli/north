@@ -277,13 +277,14 @@ fn a_shipped_capacity_admission_is_one_ledger_row_and_a_repeat_adds_none() {
 
 /// On 2026-11-08 north-719-lead held north#719 while it staffed children on its boxes; the ingest of a child's running run
 /// took the lead's whole-issue claim, so every sibling's box launch was refused as owned by the child's conversation.
+/// On 2026-11-13 a worker briefed `Item: none` read north#1247 with `gh issue view`, and its running run claimed the whole issue.
 #[test]
-fn a_running_worker_leaves_a_claim_its_lead_holds_on_the_issue_and_claims_only_what_nobody_holds() {
+fn a_running_worker_leaves_a_claim_its_lead_holds_and_claims_only_the_unheld_issue_its_brief_names() {
     let ledger = ledger();
     ledger.ingest(&[]);
     Connection::open(&ledger.path).unwrap().execute("INSERT INTO claims(item, owner, since, eta_min) VALUES ('north#719', 'north-719-lead', '2026-11-07T18:52:26Z', 120)", []).unwrap();
     let child = |id: &str, item: &str| json!({"id": id, "role": "worker", "status": "running", "tier": "medium", "started": "2026-11-08T02:24:00Z", "eta_min": 60, "brief": format!("Item: {item}\nCategory: feature\nSpec: exact\nScope: module\nSurface: rust\nVerify: local-test\n")});
-    ledger.ingest(&[child("7bb646ee", "north#719"), child("c2", "north#720")]);
+    ledger.ingest(&[child("7bb646ee", "north#719"), child("c2", "north#720"), json!({"id": "88e8f4a8", "role": "worker", "status": "running", "tier": "medium", "started": "2026-11-13T10:54:28Z", "refs": ["north#1247"], "brief": "Item: none\nCategory: bug-known-cause\nSpec: exact\nScope: module\nSurface: rust\nVerify: local-test\n"})]);
     assert_eq!(
         ledger.rows("SELECT item, owner FROM claims ORDER BY item"),
         [["north#719", "north-719-lead"], ["north#720", "c2"]].map(|row| row.map(|text| Value::Text(text.to_owned())).to_vec())

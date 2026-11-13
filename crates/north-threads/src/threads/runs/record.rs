@@ -69,9 +69,14 @@ impl Run {
         }
     }
 
+    /// The issue its brief or launch names, and nothing it was only seen to read, so a brief that says `Item: none` claims nothing.
+    fn named(&self) -> Option<String> {
+        issue_ref(&self.either(self.f.item.as_deref(), "item"))
+    }
+
     /// The brief's Item, else the first issue the row's commits and issue commands name (encrypted Codex briefs).
     fn item(&self) -> Option<String> {
-        issue_ref(&self.either(self.f.item.as_deref(), "item")).or_else(|| self.landed_item()).or_else(|| self.r.get("refs").and_then(Value::as_array).and_then(|refs| refs.iter().find_map(issue_ref)))
+        self.named().or_else(|| self.landed_item()).or_else(|| self.r.get("refs").and_then(Value::as_array).and_then(|refs| refs.iter().find_map(issue_ref)))
     }
 
     /// The issue the commit this run landed on origin/main names in its subject.
@@ -365,7 +370,7 @@ impl Ingest<'_> {
         };
         let mine = claim.as_deref().is_some_and(|owner| run.id == *owner);
         if run.status == "running" && run.worker() {
-            if let (Some(item), Some(held)) = (item.as_deref(), held.as_deref().filter(|_| claim.is_none())) {
+            if let (Some(item), Some(held)) = (item.as_deref().filter(|item| run.named().as_deref() == Some(*item)), held.as_deref().filter(|_| claim.is_none())) {
                 self.hold(item, held, run, &follows)?;
             }
             return self.created(run, item.as_deref(), &follows);
