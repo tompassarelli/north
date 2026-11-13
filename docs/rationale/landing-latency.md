@@ -310,3 +310,45 @@ The safe-push landing gates, each with what it refuses on:
   the per-call bound (CPU time after north#716) and the growth bound, each judged against main's
   replay on the same host; and the whole replay's 5 s, which stays wall time because it bounds how
   long the gate makes a landing wait. In shadow under `landing_refusals`.
+
+## Build-host CPU per landed change, 2026-11-12 against 2026-11-13 (north#1247)
+
+Source: each build host's capacity lease records, `~/.local/state/north/capacity/lander-runs/DATE.jsonl`,
+read on gex45, cpx62 and cpx62b with `north capacity offload run --host HOST` and summed with jq
+by UTC day and by the lease's command key (the files keep only these two days). `cpuSeconds` is
+the lease scope's CPU time and `queuedSeconds` the wait before admission. Landings are
+`git log origin/main --first-parent --since DAY --until DAY --oneline`. Before is 2026-11-12: 464
+landings, every check compiled and ran the suite before the queue. After is 2026-11-13, split at
+tests-after-landing (`3a6fa62aad`, 12:42 UTC): 317 landings before it (the old path still ran)
+and 126 after it. Every lease counts, including those of refused hand-ins and retried runs, since
+they cost the hosts the same.
+
+CPU minutes on the three hosts together, by stage (hand-in checks and queue = keys `head-north`,
+`bash`, `nix`, `bun`; build and test = `land-shell` and `unknown`; offloaded runs = owner
+`land-offload`):
+
+- 2026-11-12: 1756 CPU min, 3.8 per landed change (checks 347, build and test 1229, offloaded 180;
+  1967 leases).
+- 2026-11-13 before 12:42 UTC: 2894 CPU min, 9.1 per landed change (checks 351, build and test
+  2115, offloaded 428; 2934 leases).
+- 2026-11-13 after 12:42 UTC: 1547 CPU min, 12.3 per landed change (checks 243, build and test
+  1139, offloaded 183; 1436 leases).
+- Wall time times charged cores, a bound on the lease side: 3725, 5146 and 2863 core-minutes.
+
+Not recorded anywhere: CPU on the Buildbarn workers that run Buck2's remote execution (a lease
+sees only the client's scope), and the culprit search's own CPU, which runs as ordinary leases
+under the keys above and cannot be told apart.
+
+Leases queued over a minute, of all leases, and the longest wait (the three hosts together):
+
+- 2026-11-12: 151 of 1967 (7.7 percent), longest 1329 s on cpx62b.
+- 2026-11-13 before 12:42 UTC: 49 of 2934 (1.7 percent), longest 741 s.
+- 2026-11-13 after: 12 of 1436 (0.8 percent), longest 218 s.
+- Peak simultaneous leases on gex45, cpx62, cpx62b: 7, 8, 6 on 11-12; 6, 6, 6 before the cut; 6, 7,
+  6 after it. So each host carried six to eight workers' checks at once, and after the cut 99.2
+  percent of leases waited under a minute against 92.3 percent on 11-12.
+
+What the numbers say: queue waits fell, while CPU per landed change rose from 3.8 to 12.3 minutes.
+The rise is not explained here; a landing after the cut runs both the Cargo control and the
+Buck2 run, and a 12 UTC to 24 UTC window holds more retried runs than the old path's day. Keeping
+the Cargo control only as a sample would be the lever to measure.
