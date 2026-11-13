@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
@@ -29,6 +29,8 @@ mod sources;
 const LANE_RECENT_S: f64 = 24.0 * 3600.0;
 const DISPATCH_RECENT_S: f64 = 2.0 * 3600.0;
 const LANDED_HISTORY: &str = "--since=30 days ago";
+const LANDED_FORMAT: &str = "--format=%x1e%ct%x09%s%x09%(trailers:key=Box,valueonly,unfold,separator=%x1f)";
+const ISSUE_LIST_LIMIT: usize = 300;
 const LOG_TAIL_LINES: usize = 400;
 const QUEUE_LIVE: [&str; 3] = ["queued", "taken", "requeued"];
 const PLAN_REPO: &str = "north";
@@ -117,12 +119,14 @@ impl<'a> Gatherer<'a> {
     }
 
     fn landed(&self) -> Vec<Landed> {
-        self.git(&["log", "origin/main", LANDED_HISTORY, "--format=%ct%x09%s"])
+        self.git(&["log", "origin/main", LANDED_HISTORY, LANDED_FORMAT])
             .unwrap_or_default()
-            .lines()
-            .filter_map(|line| {
-                let (at, subject) = line.split_once('\t')?;
-                Some(Landed { at: at.parse().ok()?, subject: subject.to_owned() })
+            .split('\x1e')
+            .filter_map(|record| {
+                let mut fields = record.trim().splitn(3, '\t');
+                let (at, subject) = (fields.next()?, fields.next()?);
+                let boxes = fields.next().unwrap_or_default().split('\x1f').map(str::trim).filter(|trailer| !trailer.is_empty()).map(str::to_owned).collect();
+                Some(Landed { at: at.parse().ok()?, subject: subject.to_owned(), boxes })
             })
             .collect()
     }
@@ -164,7 +168,7 @@ impl<'a> Gatherer<'a> {
             .collect()
     }
 
-    fn unowned_boxes(&self) -> Vec<IssueBox> {
+    fn unowned_boxes(&self) -> (Vec<IssueBox>, Option<BTreeSet<String>>) {
         let repos = super::issue_stall_repos();
         let listed = self.host.run(&["threads", "unowned"], None, None).unwrap_or_default();
         let unowned: Vec<(String, String)> = listed
@@ -174,23 +178,34 @@ impl<'a> Gatherer<'a> {
             .map(|fields| (fields[0].to_owned(), fields.last().copied().unwrap_or_default().to_owned()))
             .collect();
         let mut found = Vec::new();
+        let mut open = Some(BTreeSet::new());
         for repo in &repos {
             let slug = format!("{}/{repo}", crate::dispatch::OWNER);
-            let Some(Value::Array(issues)) = self.host.json(&["gh", "issue", "list", "-R", &slug, "--state", "open", "--limit", "300", "--json", "number,updatedAt"]) else { continue };
+            let Some(Value::Array(issues)) = self.host.json(&["gh", "issue", "list", "-R", &slug, "--state", "open", "--limit", "300", "--json", "number,updatedAt"]) else {
+                open = None;
+                continue;
+            };
+            if issues.len() >= ISSUE_LIST_LIMIT {
+                open = None;
+            }
             for issue in issues {
                 let reference = format!("{repo}#{}", issue["number"].as_u64().unwrap_or_default());
+                if let Some(open) = open.as_mut() {
+                    open.insert(reference.clone());
+                }
                 let touched = issue["updatedAt"].as_str().and_then(crate::foundation::clock::Timestamp::parse_python_datetime).map(|at| at.unix_seconds_f64());
                 if let (Some((_, title)), Some(touched)) = (unowned.iter().find(|(found, _)| *found == reference), touched) {
                     found.push(IssueBox { reference, title: title.clone(), ready_since: touched });
                 }
             }
         }
-        found
+        (found, open)
     }
 
     pub fn plans(&self, now: f64) -> plan::Facts {
         let names = self.fleet_names().into_iter().chain(self.lane_names(now)).chain(self.queue_names()).chain(self.launch_names(now)).collect();
-        plan::Facts { docs: self.docs(), landed: self.landed(), names, issues: self.unowned_boxes() }
+        let (issues, open_issues) = self.unowned_boxes();
+        plan::Facts { docs: self.docs(), landed: self.landed(), names, issues, open_issues }
     }
 
     fn written(&self, declared: &Declared) -> Option<f64> {

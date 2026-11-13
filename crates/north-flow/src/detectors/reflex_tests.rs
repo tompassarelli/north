@@ -84,7 +84,8 @@ impl Host for FailsFor {
 }
 
 #[test]
-fn a_test_over_the_line_in_three_land_check_runs_gets_one_profiled_box_on_its_owner_and_never_a_second_and_an_unstaffed_plan_box_pages_once() {
+fn a_test_over_the_line_in_three_land_check_runs_gets_one_profiled_box_on_its_owner_and_never_a_second_and_an_unstaffed_plan_box_pages_once_and_a_plan_whose_owning_issue_is_closed_raises_no_stalled_plan_finding() {
+    plan::tests::a_plan_whose_owning_issue_is_closed_raises_no_stalled_plan_finding();
     let root = tempfile::tempdir().unwrap();
     let places = places(root.path());
     let host = Scripted::default();

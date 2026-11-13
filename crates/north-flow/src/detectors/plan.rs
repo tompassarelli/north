@@ -18,6 +18,7 @@ pub struct Doc {
 pub struct Landed {
     pub at: f64,
     pub subject: String,
+    pub boxes: Vec<String>,
 }
 
 pub struct IssueBox {
@@ -32,6 +33,7 @@ pub struct Facts {
     pub landed: Vec<Landed>,
     pub names: Vec<String>,
     pub issues: Vec<IssueBox>,
+    pub open_issues: Option<BTreeSet<String>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -100,14 +102,22 @@ fn boxes(text: &str) -> Vec<PlanBox> {
         .collect()
 }
 
+fn box_text(text: &str) -> String {
+    text.trim().trim_end_matches('.').to_lowercase()
+}
+
 fn landed_at(doc: &Doc, plan_box: &PlanBox, landed: &[Landed]) -> Option<f64> {
     if plan_box.marked_landed {
         return Some(doc.added_at);
     }
     let needle = format!("{} box {}", doc.slug.to_lowercase(), plan_box.id);
+    let title = box_text(&plan_box.title);
     landed
         .iter()
         .filter(|commit| {
+            if commit.boxes.iter().any(|trailer| box_text(trailer) == title) {
+                return true;
+            }
             let subject = commit.subject.to_lowercase();
             subject.match_indices(&needle).any(|(start, _)| !subject[start + needle.len()..].starts_with(|next: char| next.is_ascii_alphanumeric()))
         })
@@ -160,7 +170,12 @@ fn plan_findings(doc: &Doc, facts: &Facts, now: f64, limits: &Limits) -> Vec<Fin
 }
 
 pub fn stalled(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
-    let mut findings: Vec<Finding> = facts.docs.iter().flat_map(|doc| plan_findings(doc, facts, now, limits)).collect();
+    let repos = super::issue_stall_repos();
+    let staffable = |doc: &Doc| match (&facts.open_issues, owner(doc)) {
+        (Some(open), Some(owner)) => open.contains(&owner) || !repos.iter().any(|repo| owner.starts_with(&format!("{repo}#"))),
+        _ => true,
+    };
+    let mut findings: Vec<Finding> = facts.docs.iter().filter(|doc| staffable(doc)).flat_map(|doc| plan_findings(doc, facts, now, limits)).collect();
     findings.sort_by(|a, b| a.key.cmp(&b.key));
     findings
 }
@@ -184,3 +199,7 @@ pub fn unstaffed(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "plan_tests.rs"]
+pub mod tests;
