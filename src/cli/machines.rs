@@ -47,7 +47,7 @@ const MACHINES: &[Machine] = &[
     Machine {
         name: "fleet-session",
         kind: "Session",
-        source: "crates/north-session-host/src/session_lifecycle.rs",
+        source: "crates/north-fleet-store/src/session_lifecycle.rs",
         guard: &["crates/north-fleet-supervisor/src/fleet/registry/launching.rs"],
         code: &[
             "crates/north-session-host/src/session_host.rs",

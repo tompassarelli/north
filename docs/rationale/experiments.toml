@@ -835,3 +835,58 @@ command = "sqlite3 -readonly \"${THREADS_DB:-$HOME/.local/state/threads/$(test -
 review = "2026-11-20"
 owner = "tompassarelli/north#1339"
 lead = "scoreboard-lead"
+
+[[experiment]]
+id = "n1039-ambient-test-inputs-verdict"
+change = "The Rust habits check refuses a test that reads the wall clock or ambient host state (statvfs, available_space, available_parallelism, /proc) outside a named fixture"
+landed = "ec1231f24"
+metric = "none"
+measure = "the sheriff's decision log: false culprits and flaky verdicts, counted by cause, over the 4 weeks after the check began refusing (ec1231f24, 2026-11-08T06:13+07) against the 4 weeks before; keep the check if they fall by at least half, else revert it, and record the verdict in docs/rationale/watch/2026-11-07-t3code.md"
+direction = "down"
+bar = 0.0
+min_n = 0
+before = ["2026-10-11", "2026-11-08"]
+after = ["2026-11-08", "2026-12-06"]
+review = "2026-12-08"
+owner = "tompassarelli/north#1039"
+
+[[experiment]]
+id = "n1039-outbox-keep-or-revert"
+change = "A lifecycle move and the side effect it starts commit in one transaction through the lifecycle outbox, from after-landing runs (4b6bf5de46) to the third machine moved onto it"
+landed = "4b6bf5de46"
+metric = "none"
+measure = "git log on origin/main: commits whose messages fix a side effect lost, duplicated or orphaned across a restart, in the 14 days after the third machine moved onto the outbox against the 14 days before; keep the outbox if the count halves, else revert it, and record the counts in docs/rationale/state-machines.md"
+direction = "down"
+bar = 0.0
+min_n = 0
+before = ["2026-11-12", "2026-11-26"]
+after = ["2026-11-26", "2026-12-10"]
+review = "2026-12-12"
+owner = "tompassarelli/north#1039"
+
+[[check]]
+id = "n1039-settle-fleet-session-stopped"
+box = "Settle fleet-session's refused move to stopped."
+command = "sqlite3 -readonly -cmd '.timeout 10000' \"${XDG_STATE_HOME:-$HOME/.local/state}/north/ledger.db\" \"SELECT count(*) FROM lifecycle_moves WHERE refused = 1 AND machine = 'fleet-session' AND to_state = 'stopped' AND at_ms >= 1794518580000\""
+expect = "0"
+review = "2026-11-14"
+owner = "tompassarelli/north#1039"
+lead = "proxy"
+
+[[check]]
+id = "n1039-settle-threads-spool-queued"
+box = "Settle threads-spool's refused move to queued."
+command = "sqlite3 -readonly -cmd '.timeout 10000' \"$HOME/.local/state/threads/spool-records.db\" \"SELECT count(*) FROM lifecycle_moves WHERE refused = 1 AND machine = 'threads-spool' AND to_state = 'queued' AND at_ms >= 1794518580000\""
+expect = "0"
+review = "2026-11-14"
+owner = "tompassarelli/north#1039"
+lead = "proxy"
+
+[[check]]
+id = "n1039-settle-gate-delivering"
+box = "Settle gate's refused move to delivering."
+command = "sqlite3 -readonly -cmd '.timeout 10000' \"${XDG_STATE_HOME:-$HOME/.local/state}/north/ledger.db\" \"SELECT count(*) FROM lifecycle_moves WHERE refused = 1 AND machine = 'gate' AND to_state = 'delivering' AND at_ms >= 1794518580000\""
+expect = "0"
+review = "2026-11-14"
+owner = "tompassarelli/north#1039"
+lead = "proxy"
