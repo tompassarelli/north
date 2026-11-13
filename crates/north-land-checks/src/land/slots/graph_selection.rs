@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, PoisonError};
 
 use north_build_system::{Resolution, Selection, Shell, Step};
 
@@ -9,10 +10,17 @@ use serde::{Deserialize, Serialize};
 use super::guard_suites::Floor;
 use super::unit_reuse;
 use super::tree_wide_units::Units;
+use crate::land::trace::check_log;
 
 const IT_BINARY: &str = "north::it";
 const IT_PACKAGE: &str = "north";
 const FILTER_LIMIT: usize = 96 * 1024;
+
+static LISTING_WAITS: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
+
+pub fn listing_waits() -> Vec<(f64, f64)> {
+    std::mem::take(&mut *LISTING_WAITS.lock().unwrap_or_else(PoisonError::into_inner))
+}
 
 #[derive(Deserialize)]
 struct Answer {
@@ -94,7 +102,11 @@ pub fn list(root: &Path, away: Option<&Away<'_>>, scope: &Scope) -> Option<Liste
     let request = north_build_system::Tests { root, step: Step::List, selection, resolution: Resolution::PINNED, shell: Shell::LandShell, output: Some(Path::new("target")), uncached: false, coverage: None };
     let invocation = builder.tests(&request);
     let mut command = away.map_or_else(|| invocation.command(), |away| away.command(root, &invocation));
-    let output = command.stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    let started = crate::land::telemetry::epoch();
+    let output = command.stdin(Stdio::null()).output().ok()?;
+    if away.is_some() && let Some(waited) = String::from_utf8_lossy(&output.stderr).lines().find_map(check_log::waited_in_line) {
+        LISTING_WAITS.lock().unwrap_or_else(PoisonError::into_inner).push((started, started + waited));
+    }
     if !output.status.success() {
         return None;
     }

@@ -29,6 +29,10 @@ pub fn is_marker(line: &str) -> bool {
     line.starts_with(RUNNING) || line.starts_with(DOC_TESTS) || line.starts_with(FINISHED) || line.starts_with(TEST_RESULT) || line.starts_with(OFFLOAD_RUNNING) || line.starts_with(WAITED_IN_LINE) || is_reserved(line) || is_released(line)
 }
 
+pub fn waited_in_line(line: &str) -> Option<f64> {
+    line.trim().strip_prefix(WAITED_IN_LINE).and_then(|rest| rest.split_once('s')).and_then(|(seconds, _)| seconds.parse::<f64>().ok())
+}
+
 pub fn is_offload_running(line: &str) -> bool {
     line.trim().starts_with(OFFLOAD_RUNNING)
 }
@@ -81,7 +85,7 @@ pub fn children(line: &Line<'_>, marks: &[Mark]) -> Vec<Span> {
     let mut test: Option<(String, f64)> = None;
     for mark in marks {
         let text = mark.line.trim();
-        if let Some(waited) = text.strip_prefix(WAITED_IN_LINE).and_then(|rest| rest.split_once('s')).and_then(|(seconds, _)| seconds.parse::<f64>().ok()) {
+        if let Some(waited) = waited_in_line(text) {
             if mark.at - waited > line.start {
                 spans.push(child("offload sync", Category::Offload, line.start, mark.at - waited));
             }

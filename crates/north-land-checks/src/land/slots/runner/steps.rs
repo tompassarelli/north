@@ -3,6 +3,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::land::trace::check_log::{self, Mark};
+use crate::land::slots::graph_selection;
 
 static STEPS: Mutex<Vec<(&'static str, Duration)>> = Mutex::new(Vec::new());
 static RECORDING: AtomicBool = AtomicBool::new(false);
@@ -11,8 +12,11 @@ static WINDOWS: Mutex<(f64, Vec<Window>)> = Mutex::new((0.0, Vec::new()));
 /// One check's run inside the checks before queueing: what it ran and when it started and ended, in seconds from the steps' beginning.
 pub type Window = (&'static str, f64, f64);
 
+pub const LINE_WAIT: &str = "line wait";
+
 pub(super) fn begin() {
     STEPS.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    let _ = graph_selection::listing_waits();
     *WINDOWS.lock().unwrap_or_else(PoisonError::into_inner) = (crate::land::telemetry::epoch(), Vec::new());
     RECORDING.store(true, Ordering::Relaxed);
 }
@@ -58,10 +62,26 @@ pub(super) fn split(started_at: f64, ended_at: f64, marks: &[Mark]) -> Vec<(&'st
 }
 
 pub(super) fn ran(command: &str, started_at: f64, ended_at: f64) {
+    let what = if north_build_system::lints(command) { "clippy" } else if command.contains("nextest run") || command.contains("cargo test") || north_build_system::test_record(command).is_some() { "tests" } else { "check" };
+    window(what, started_at, ended_at);
+}
+
+pub(super) fn waited(marks: &[Mark]) {
+    for mark in marks {
+        if let Some(waited) = check_log::waited_in_line(&mark.line) {
+            in_line(mark.at - waited, mark.at);
+        }
+    }
+}
+
+fn in_line(started_at: f64, ended_at: f64) {
+    window(LINE_WAIT, started_at, ended_at);
+}
+
+fn window(what: &'static str, started_at: f64, ended_at: f64) {
     if !RECORDING.load(Ordering::Relaxed) {
         return;
     }
-    let what = if north_build_system::lints(command) { "clippy" } else if command.contains("nextest run") || command.contains("cargo test") || north_build_system::test_record(command).is_some() { "tests" } else { "check" };
     let mut windows = WINDOWS.lock().unwrap_or_else(PoisonError::into_inner);
     let began = windows.0;
     windows.1.push((what, started_at - began, ended_at - began));
@@ -69,7 +89,12 @@ pub(super) fn ran(command: &str, started_at: f64, ended_at: f64) {
 
 /// The windows the checks before queueing ran in since the last `begin`, in the order they ended.
 pub fn windows() -> Vec<Window> {
-    std::mem::take(&mut WINDOWS.lock().unwrap_or_else(PoisonError::into_inner).1)
+    let mut windows = WINDOWS.lock().unwrap_or_else(PoisonError::into_inner);
+    let began = windows.0;
+    let listed = graph_selection::listing_waits().into_iter().map(|(started_at, ended_at)| (LINE_WAIT, started_at - began, ended_at - began));
+    let mut taken = std::mem::take(&mut windows.1);
+    taken.extend(listed);
+    taken
 }
 
 pub(super) fn add_all(steps: Vec<(&'static str, Duration)>) {

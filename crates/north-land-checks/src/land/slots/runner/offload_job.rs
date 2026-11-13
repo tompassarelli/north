@@ -10,6 +10,7 @@ use crate::land::trace::{self, Category, Span};
 use super::execute::first_failure;
 use super::log::new_log;
 use super::spawn::{Attempt, Ran, shell_deadline};
+use super::steps;
 use super::{BATCH_GRACE, KILLED_STATUS, OFFLOAD_GRACE, Shared, TIMED_OUT_STATUS, batch, say, warn};
 
 struct Job<'a> {
@@ -87,6 +88,7 @@ impl Shared {
             Ok(ran) => ran,
             Err(status) => return vec![status; commands.len()],
         };
+        steps::waited(&ran.marks);
         if self.overflows(&commands[0], ran.status) {
             let _ = fs::remove_file(&ran.log);
             return vec![ran.status; commands.len()];
