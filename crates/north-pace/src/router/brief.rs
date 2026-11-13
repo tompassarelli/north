@@ -245,6 +245,35 @@ pub fn review_admits(
     }
 }
 
+/// The heading the launch puts before the full query form; a brief that the prompt hook grounded
+/// carries the same prefix, so `north ledger grounding` counts either.
+pub const GROUNDING_PACK: &str = "Grounding (auto-retrieved";
+
+/// The line experiment G2 stamps on a first prompt whose launch drew the plain arm, which carries no pack.
+pub const PLAIN_ARM_LINE: &str = "Grounding: plain";
+
+/// The categories whose work changes code; the rest end in a document, a review, a plan or a check.
+pub const CODE_CATEGORIES: [&str; 8] = ["mechanical", "tooling", "feature", "bug-known-cause", "debugging-unknown-cause", "netcode-determinism", "performance", "balance-tuning"];
+/// The categories whose work changes no code.
+pub const NON_CODE_CATEGORIES: [&str; 5] = ["docs-policy", "native-check", "research", "planning", "review"];
+
+/// Whether a brief asks for a code change, from its own `Category:` line; a brief with none counts when
+/// it names `Files:` or an `Item:`, since a hand launch may pass a bare task.
+pub fn code_change(text: &str) -> bool {
+    let fields = brief_header(text);
+    let category = fields
+        .get("category")
+        .into_iter()
+        .flat_map(|category| category.split(|c: char| c.is_whitespace() || c == ',' || c == '·'))
+        .find(|word| !word.is_empty())
+        .map(|word| word.trim_matches(['.', '`']).to_lowercase());
+    match category.as_deref() {
+        Some(category) if NON_CODE_CATEGORIES.contains(&category) => false,
+        Some(category) if CODE_CATEGORIES.contains(&category) => true,
+        Some(_) | None => fields.contains_key("files") || fields.contains_key("item"),
+    }
+}
+
 const BUG_CATEGORIES: [&str; 2] = ["bug-known-cause", "debugging-unknown-cause"];
 
 pub fn class_refusal(text: &str) -> Option<String> {

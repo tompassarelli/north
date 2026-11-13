@@ -5,7 +5,7 @@ use crate::ledger::{self, Ledger};
 
 const CHECK_USAGE: &str = "Usage: north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO) | north task check (--observations | --dry-run | --body-file FILE | --repo OWNER/REPO) ...";
 
-const USAGE: &str = "Usage: north ledger (flow|incident|opencode|tempo|worker) ... | north ledger duplicate [--days N] [--json] | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task comment REPO#N --body TEXT | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO) | north task rewrite-cargo [--dry-run] [--repo OWNER/REPO] [--tree DIR]";
+const USAGE: &str = "Usage: north ledger (flow|incident|opencode|tempo|worker) ... | north ledger duplicate [--days N] [--json] | north ledger grounding [--since 24h] [--json] | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task comment REPO#N --body TEXT | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO) | north task rewrite-cargo [--dry-run] [--repo OWNER/REPO] [--tree DIR]";
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let outcome = match arguments {
@@ -50,6 +50,7 @@ fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
     match words.as_slice() {
         ["ledger", "runs"] => ledger::print_runs(store, false).map(|()| ExitCode::SUCCESS),
         ["ledger", "runs", "--json"] => ledger::print_runs(store, true).map(|()| ExitCode::SUCCESS),
+        ["ledger", "grounding", rest @ ..] => grounding(store, rest),
         ["task", "landed", task_ref, revision] => {
             let sha = ledger::landed(store, &std::env::current_dir()?, task_ref, revision)?;
             println!("{task_ref} landed {sha}");
@@ -72,6 +73,41 @@ fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
         ["task", "check", ..] => Err(NorthError::Usage(CHECK_USAGE.into())),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
+}
+
+/// `north ledger grounding [--since 24h] [--json]`: the share of the window's code-change briefs whose
+/// first prompt carried the full grounding pack, against the 90% bar north#1147 names.
+fn grounding(store: &Ledger, rest: &[&str]) -> NorthResult<ExitCode> {
+    let mut since = "24h";
+    let mut json = false;
+    let mut words = rest.iter();
+    while let Some(word) = words.next() {
+        match *word {
+            "--since" => since = *words.next().ok_or_else(|| NorthError::Usage("--since takes hours or days such as 24h".into()))?,
+            "--json" => json = true,
+            other => return Err(NorthError::Usage(format!("north ledger grounding takes [--since 24h] [--json], not {other}"))),
+        }
+    }
+    let share = north_providers::ledger::share(&store.runs()?, &store.first_prompts()?, ledger::window_start_ms(since)?);
+    let bar = 90.0;
+    if json {
+        println!("{}", serde_json::json!({"since": since, "code_change": share.briefs, "carried": share.carried, "percent": share.percent(), "bar": bar, "meets": share.meets(bar)}));
+    } else {
+        println!("{}", grounding_line(since, share));
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The one line `north ledger grounding` prints for `share`.
+fn grounding_line(since: &str, share: north_providers::ledger::Share) -> String {
+    let bar = 90.0;
+    format!(
+        "grounding pack in code-change briefs, last {since}: {:.1}% ({} of {}), bar {bar:.0}%: {}",
+        share.percent(),
+        share.carried,
+        share.briefs,
+        if share.meets(bar) { "met" } else { "not met" }
+    )
 }
 
 fn comment(reference: &str, body: &str) -> NorthResult<ExitCode> {

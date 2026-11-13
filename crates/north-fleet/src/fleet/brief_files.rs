@@ -12,7 +12,7 @@ use super::model::Machine;
 pub const HEADING: &str = "Files the brief names";
 const FILE_CAP: usize = 8 * 1024;
 const TOTAL_CAP: usize = 32 * 1024;
-const BASE: &str = "base=$(git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' || git rev-parse -q --verify 'refs/heads/main^{commit}') && echo \"$base\"";
+pub(super) const BASE: &str = "base=$(git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' || git rev-parse -q --verify 'refs/heads/main^{commit}') && echo \"$base\"";
 
 /// `brief` with the content and blob id of every tracked file it names in `cwd`'s repository, at most
 /// 8 KB a file and 32 KB in all, and a line for each named file left out; `brief` itself when it names

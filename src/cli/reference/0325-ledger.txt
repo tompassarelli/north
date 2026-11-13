@@ -1,0 +1,1 @@
+  ledger grounding [--since 24h] [--json]  Share of the window's code-change briefs whose first prompt carried the full grounding pack, against its 90% bar

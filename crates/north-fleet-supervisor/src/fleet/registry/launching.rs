@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::file_prediction;
-use crate::fleet::{brief_files, claims, proposal};
+use crate::fleet::{brief_files, brief_grounding, claims, proposal};
 use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
@@ -305,16 +305,20 @@ fn first_prompt(request: &LaunchRequest, verification: bool) -> (String, Option<
     if request.role() != Role::Worker || request.resume.is_some() {
         return (request.prompt.clone(), None);
     }
-    let prompt = match grounding::drawn(&request.name, now_ms()) {
+    let brief = request.named_brief().map_or_else(|| request.prompt.clone(), |named| format!("{named}\n{}", request.prompt));
+    let arm = grounding::drawn(&request.name, now_ms());
+    let prompt = match arm {
         Some(arm) if !verification => grounding::stamped(&request.prompt, arm),
         _ => request.prompt.clone(),
     };
     std::thread::scope(|scope| {
         let verdict = scope.spawn(|| launch_verdict(request, verification));
         let predicted = scope.spawn(|| if verification { None } else { file_prediction::section(&prompt, &request.cwd, request.machine.as_ref(), &north_base::platform::north_binary::own_binary()) });
+        let grounded = scope.spawn(|| if verification || !grounding::carries_pack(arm) { None } else { brief_grounding::section(&brief, &request.cwd, request.machine.as_ref(), &north_base::platform::north_binary::own_binary()) });
         let shown = brief_files::shown(&prompt, &request.cwd, request.machine.as_ref());
         let (guess, record) = predicted.join().unwrap_or(None).map_or((None, None), |(section, predicted)| (section, Some(predicted)));
         let shown = guess.map_or(shown.clone(), |section| format!("{shown}\n\n{section}"));
+        let shown = grounded.join().unwrap_or(None).map_or(shown.clone(), |section| format!("{shown}\n\n{section}"));
         (proposal::told(&shown, &verdict.join().unwrap_or(proposal::Verdict::Unasked)), record)
     })
 }

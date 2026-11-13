@@ -15,6 +15,11 @@ pub fn drawn(name: &str, now_ms: u64) -> Option<&'static str> {
     (now_ms < UNTIL_MS).then(|| ARMS[settle::pick(&[1.0, 1.0], &format!("grounding {name}"))])
 }
 
+/// Whether a launch that drew `arm` gets the full grounding pack: every arm but the plain one, and a launch after the period.
+pub fn carries_pack(arm: Option<&str>) -> bool {
+    arm != Some(PLAIN)
+}
+
 /// `prompt` opened by the line naming `arm`.
 pub fn stamped(prompt: &str, arm: &str) -> String {
     format!("{FIELD} {arm}\n{prompt}")

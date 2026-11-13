@@ -391,6 +391,7 @@ Commands:
   hook recommend-acts                           Run the recommendations-act guard on a final reply
   policy-replay case CASE... [--arm NAME=GENERATION]... [--samples N] [--jobs N] [--out ROWS.jsonl] [--judge-model M] [--max-turns N] [--budget-usd N] [--dry-run]  Replay recorded correction cases against policy arms and write one row per sample
   graph retain [--db PATH]                      Remove the history no reader needs, under the graph's retention rule
+  ledger grounding [--since 24h] [--json]  Share of the window's code-change briefs whose first prompt carried the full grounding pack, against its 90% bar
 
 Options:
   -h, --help  Show the operator and agent commands
