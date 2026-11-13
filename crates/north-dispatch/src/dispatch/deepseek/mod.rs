@@ -15,6 +15,7 @@ use std::collections::BTreeSet;
 use toml_edit::{DocumentMut, Item};
 
 pub mod cap;
+pub mod limit;
 pub mod mechanical;
 pub mod review;
 pub mod sampling;
@@ -62,6 +63,10 @@ pub struct Seen {
     pub review: review::Found,
     /// The opencode sessions running on every host now.
     pub running: usize,
+    /// The Go plan's limit, read from the sessions it stopped.
+    pub limit: limit::Limit,
+    /// Spend's provider-limit refusal while that limit holds, which places no opencode box.
+    pub held: Option<crate::spend::Refusal>,
 }
 
 /// One box of one item, as `tried` keys it.
@@ -115,12 +120,13 @@ fn with_retired(cfg: &DocumentMut, here: &str, laptop: Option<&str>, lists: &[(S
         .collect()
 }
 
-/// The provider's sessions that count against its slot cap: those running or resting, less the resting ones whose review job is queued, since that job forgets them.
+/// The provider's sessions that count against its slot cap: those running or resting, less the resting ones whose review job is queued, since that job forgets them, and those its limit stopped, which dispatch forgets.
 pub fn counted(lists: &[(String, Value)], queued: &BTreeSet<String>) -> usize {
+    let parked: BTreeSet<&str> = lists.iter().flat_map(|(_, listing)| listing.as_array().into_iter().flatten()).filter(|session| limit::parked(session)).filter_map(|session| session["name"].as_str()).collect();
     lists
         .iter()
         .flat_map(|(_, listing)| fleets::running_sessions(listing))
-        .filter(|session| session.account.as_deref() == Some(PROVIDER) && (session.working || !queued.contains(&session.name)))
+        .filter(|session| session.account.as_deref() == Some(PROVIDER) && (session.working || !queued.contains(&session.name)) && !parked.contains(session.name.as_str()))
         .map(|session| session.name)
         .collect::<BTreeSet<_>>()
         .len()
@@ -166,7 +172,10 @@ impl Seen {
         let lists = with_retired(cfg, here, laptop, fleet_lists, notes);
         let reports = reports(here, laptop, laptop_reports, &lists, &marked, &read, notes);
         let done = review::done(&lists, &reports, records, issues, &marked);
-        Self { tried: tried(records), review: done, running: counted(fleet_lists, &marked.recent), settings }
+        let limit = limit::Limit::read(fleet_lists, &super::record::directory(), at);
+        let held = limit.refusal(at);
+        notes.extend(held.as_ref().map(|refusal| format!("DeepSeek places no box: {refusal}")));
+        Self { tried: tried(records), review: done, running: counted(fleet_lists, &marked.recent), settings, limit, held }
     }
 
     /// Places `ready` on DeepSeek when it takes the box, else on Claude through `claude`.
@@ -190,6 +199,9 @@ impl Seen {
 
     /// Places `ready` on the first DeepSeek host that serves the box and has a free slot, taking that slot, or says why none takes it.
     pub fn place(&self, ready: &Ready, candidates: &[Candidate], pools: &mut Pools) -> Result<Launch, String> {
+        if let Some(refusal) = &self.held {
+            return Err(refusal.to_string());
+        }
         cap::admit(self.running + pools.deepseek_placed(), self.settings.slot_cap)?;
         let serves = |host: &str| candidates.iter().any(|candidate| candidate.host == host && candidate.refusal.is_none());
         let none = || match pools.line_held() {

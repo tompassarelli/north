@@ -8,7 +8,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::attachments;
 use crate::fleet::install;
 use crate::fleet::prompt::{PromptInputs, render, seed_orders};
-use crate::fleet::model::{Account, Effort, Entry, EntryKind, LaunchRequest, Machine, ProviderName, Quota, Status, Transcript};
+use crate::fleet::model::{Account, Effort, Entry, EntryKind, LaunchRequest, Machine, ProviderName, Quota, QuotaWindow, Status, Transcript, UsageLimit};
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, LiveWindow, Opening, ROLE_ENV, Runtime, SESSION_ENV, WindowInbox, new_uuid};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
@@ -220,6 +220,7 @@ impl Runtime for Deepseek {
             }
             Some(Phase::Start) => {
                 transcript.status = Status::Working;
+                transcript.limit = None;
                 transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
                 push(transcript, EntryKind::User, frame["text"].as_str().unwrap_or_default().to_owned());
             }
@@ -250,8 +251,8 @@ impl Runtime for Deepseek {
         frame["sessionID"].as_str().filter(|session| !session.is_empty())
     }
 
-    fn quota(&self, _frame: &Value) -> Option<Quota> {
-        None
+    fn quota(&self, frame: &Value) -> Option<Quota> {
+        (Phase::of(frame) == Some(Phase::End) && frame["limit"].is_object()).then(|| Quota { windows: vec![QuotaWindow { label: Route::Go.label().to_owned(), used_percent: 100 }] })
     }
 
     fn sent_prompt(&self, frame: &Value) -> Option<String> {
@@ -284,10 +285,13 @@ fn observe_end(frame: &Value, transcript: &mut Transcript) {
     transcript.status = Status::Idle;
     transcript.active_turn = None;
     let exit = frame["exit"].as_str().unwrap_or("completed");
+    let limit = frame["limit"].is_object().then(|| UsageLimit { resets_at_s: frame["limit"]["resets_at_s"].as_u64(), message: frame["error"].as_str().map(str::to_owned) });
     if let Some(error) = frame["error"].as_str().filter(|_| exit == "failed") {
         push(transcript, EntryKind::Error, error.to_owned());
-        attribution::record(&transcript.name, "provider", Cause::Harness(CauseHarness::ProviderError), error);
+        let cause = if limit.is_some() { CauseHarness::Capacity } else { CauseHarness::ProviderError };
+        attribution::record(&transcript.name, "provider", Cause::Harness(cause), error);
     }
+    transcript.limit = limit;
     push(transcript, EntryKind::TurnEnd, exit.to_owned());
 }
 

@@ -30,7 +30,7 @@ fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_
         issue("north", 6, "- [ ] a third column", &[]),
     ];
     let mut planned = survey(boxes, hosts, accounts);
-    planned.deepseek = Seen { settings: settings(), tried: BTreeSet::from([key(&IssueRef::new("north", 4), Some("retry it"))]), review: super::review::Found::default(), running: 0 };
+    planned.deepseek = Seen { settings: settings(), tried: BTreeSet::from([key(&IssueRef::new("north", 4), Some("retry it"))]), review: super::review::Found::default(), running: 0, ..Seen::default() };
 
     let outcome = decide(&planned, "test");
 
@@ -49,6 +49,26 @@ fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_
         "DeepSeek takes every box that may leave Claude and it has not tried; sandbox and locking boxes go to Claude"
     );
     assert_eq!(super::tried(&[Record { at: 0.0, item: "north#5".into(), host: "whiterabbit".into(), account: "opencode:go".into(), name: "north-5-d0101".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: Some("another column".into()), hand: false, effort_arm: None, signal: None, lift: None, effort: None, cell: None, cell_role: None, route: None }]), BTreeSet::from([key(&IssueRef::new("north", 5), Some("another column"))]), "a DeepSeek launch's record makes its box tried");
+
+    let stopped = vec![("whiterabbit".to_owned(), json!([{"name": "north-4-d0101", "provider": "opencode", "status": "idle", "tasks": ["north#4"], "box": "retry it", "waiting": ["usage:go@1970-01-01T05:00:00Z"]}]))];
+    let record = tempfile::tempdir().unwrap();
+    let limit = super::limit::Limit::read(&stopped, record.path(), 0.0);
+    let mut forgot = Vec::new();
+    let lines = limit.release(record.path(), &mut |host, words| {
+        forgot.push(format!("{host}: {}", words.join(" ")));
+        Ok(())
+    }, false);
+    assert_eq!((lines, forgot), (vec!["forget north-4-d0101 on whiterabbit: it stopped on the Go plan's limit, so its box goes to Claude".to_owned()], vec!["whiterabbit: fleet forget north-4-d0101".to_owned()]));
+    let remembered = super::limit::Limit::read(&[], record.path(), 1.0);
+    assert_eq!((remembered.until, super::limit::Limit::read(&[], record.path(), 18_001.0).until), (Some(18_000.0), None), "the limit holds after its session is forgotten and clears once it lifts");
+    planned.deepseek = Seen { held: remembered.refusal(0.0), limit: remembered, ..planned.deepseek };
+    assert_eq!(planned.deepseek.held.as_ref().map(ToString::to_string).as_deref(), Some("provider limit: opencode:go is at its provider's five-hour limit"));
+
+    let limited = decide(&planned, "test");
+
+    let accounts: Vec<(String, &str)> = limited.launches.iter().map(|launch| (launch.item.to_string(), launch.account.as_str())).collect();
+    assert!(!accounts.is_empty() && accounts.iter().all(|(_, account)| *account == "claude:a"), "while the Go limit holds every ready box goes to Claude: {accounts:?}");
+    assert!(accounts.iter().any(|(item, _)| item == "north#4"), "the box the limit stopped goes to Claude: {accounts:?}");
 }
 
 fn verdict(category: &str, kind: Kind, sha: &str) -> Verdict {
@@ -271,9 +291,10 @@ fn a_resting_session_on_a_build_host_that_reported_done_gets_a_review_job_and_on
 }
 
 #[test]
-fn a_resting_session_stops_counting_against_the_provider_cap_once_its_review_job_is_queued() {
+fn a_resting_session_stops_counting_against_the_provider_cap_once_its_review_job_is_queued_and_one_the_go_limit_stopped_counts_not_at_all() {
     let session = |name: &str, status: &str| json!({"name": name, "provider": "opencode", "status": status, "tasks": ["north#7"]});
-    let lists = vec![("cpx62".to_owned(), json!([session("busy", "working"), session("waiting", "idle"), session("queued", "idle"), session("queued-parked", "parked")]))];
+    let limited = json!({"name": "limited", "provider": "opencode", "status": "idle", "tasks": ["north#7"], "waiting": ["usage:go@2026-11-14T03:00:00Z"]});
+    let lists = vec![("cpx62".to_owned(), json!([session("busy", "working"), session("waiting", "idle"), session("queued", "idle"), session("queued-parked", "parked"), limited]))];
     let queued = BTreeSet::from(["queued".to_owned(), "queued-parked".to_owned()]);
 
     assert_eq!(super::counted(&lists, &BTreeSet::new()), 4);

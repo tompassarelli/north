@@ -2,7 +2,8 @@ use std::process::Command;
 
 use serde_json::Value;
 
-use crate::fleet::model::{Effort, EntryKind};
+use crate::fleet::model::{Effort, EntryKind, UsageLimit};
+use crate::foundation::clock::rfc3339_seconds;
 use crate::fleet::runtime::summarize;
 
 use super::config;
@@ -10,6 +11,7 @@ use super::route::Route;
 use super::turns::Host;
 
 const TOOL_CHARS: usize = 400;
+pub const GO_LIMIT: &str = "provider.go-limit";
 
 /// What a turn has shown so far, read from the events its agent prints: the tokens it spent, whether it did any work, and the error it ended on.
 #[derive(Default)]
@@ -17,6 +19,7 @@ pub struct Tally {
     pub tokens: [u64; 4],
     pub progressed: bool,
     pub error: Option<String>,
+    pub limit: Option<UsageLimit>,
 }
 
 impl Tally {
@@ -116,7 +119,12 @@ impl Harness for OpenCode {
                 tally.spend(count(&tokens["input"]), count(&tokens["output"]) + count(&tokens["reasoning"]), count(&tokens["cache"]["read"]), count(&tokens["cache"]["write"]));
             }
             Some("text" | "tool_use") => tally.progressed = true,
-            Some("error") => tally.error = Some(event["error"]["message"].as_str().or_else(|| event["error"]["type"].as_str()).unwrap_or("error").to_owned()),
+            Some("error") => {
+                let error = &event["error"];
+                let message = error["message"].as_str().or_else(|| error["type"].as_str()).unwrap_or("error").to_owned();
+                tally.limit = (error["type"] == GO_LIMIT).then(|| UsageLimit { resets_at_s: resets_at_s(error), message: Some(message.clone()) });
+                tally.error = Some(message);
+            }
             _ => {}
         }
     }
@@ -133,4 +141,11 @@ impl Harness for OpenCode {
     fn skills(&self) -> &'static str {
         "config/opencode/skills"
     }
+}
+
+fn resets_at_s(error: &Value) -> Option<u64> {
+    let body = error["response"]["body"].as_str().and_then(|body| serde_json::from_str::<Value>(body).ok()).unwrap_or_default();
+    let named = body["resetsAt"].as_str().and_then(rfc3339_seconds).map(|seconds| seconds as u64);
+    let now_s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    named.or_else(|| error["retryAfterMs"].as_u64().map(|wait| now_s + wait.div_ceil(1000)))
 }

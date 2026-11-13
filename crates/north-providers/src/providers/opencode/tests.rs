@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use time::Date;
 
-use crate::fleet::model::{Account, Effort, EntryKind, LaunchRequest, Machine, Status, Transcript};
+use crate::fleet::model::{Account, Effort, EntryKind, LaunchRequest, Machine, Status, Transcript, UsageLimit};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::runtime::{Opening, Runtime};
 use crate::fleet::turns::{TurnExit, TurnSignal};
@@ -18,6 +18,9 @@ use super::{Deepseek, config, turns};
 const FAKE: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$(dirname "$0")/args.txt"
 printf '%s\n' "$OPENCODE_CONFIG_CONTENT" > "$(dirname "$0")/config.json"
+case "$*" in
+  *go-limit*) printf '%s\n' '{"type":"error","sessionID":"ses_x","error":{"type":"provider.go-limit","message":"OpenCode Go usage limit reached. Switch to a free model, or turn on Extra Usage on the Go page in OpenCode Console to keep going.","response":{"body":"{\"resetsAt\":\"2026-11-14T03:00:00Z\"}"}}}'; exit 0;;
+esac
 model=""; while [ $# -gt 0 ]; do case "$1" in -m) model="$2";; esac; shift; done
 case "$model" in
   *free) printf '%s\n' '{"type":"error","sessionID":"ses_x","error":{"type":"provider.free-limit","message":"Free usage limit reached"}}'; exit 0;;
@@ -139,14 +142,14 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     let prompt = signals.iter().position(|signal| matches!(signal, TurnSignal::Prompt { .. })).unwrap();
     let ended = signals.iter().position(|signal| matches!(signal, TurnSignal::Ended { .. })).unwrap();
     assert!(signals[prompt + 1..ended].iter().any(|signal| matches!(signal, TurnSignal::Started { .. })), "a launch waits for a signal after the prompt, and a turn over 120 s ended its own session when only the turn's end gave one: {signals:?}");
-    a_free_model_that_is_limited_runs_the_turn_again_on_the_go_plans_flash_model();
+    a_limited_free_model_runs_the_turn_again_on_go_and_a_go_limit_ends_the_turn_as_a_usage_limit();
     a_private_a_public_and_an_unreadable_repo_pick_go_and_only_a_public_one_asking_for_the_free_model_gets_it();
     a_brief_naming_a_private_repo_or_a_secret_is_refused_for_the_free_model_and_not_for_go();
     the_launched_config_lists_only_the_one_chosen_provider_and_model();
     past_the_zero_retention_date_a_private_lane_launch_is_refused_and_a_public_one_is_admitted();
 }
 
-fn a_free_model_that_is_limited_runs_the_turn_again_on_the_go_plans_flash_model() {
+fn a_limited_free_model_runs_the_turn_again_on_go_and_a_go_limit_ends_the_turn_as_a_usage_limit() {
     let home = tempfile::tempdir().unwrap();
     let runtime = seeing(Visibility::Public, day("2026-11-10"));
 
@@ -160,6 +163,15 @@ fn a_free_model_that_is_limited_runs_the_turn_again_on_the_go_plans_flash_model(
     assert_eq!(launched.lines().filter(|line| line.contains("-free")).count(), 1, "{launched}");
     assert!(transcript.entries.iter().any(|entry| entry.kind == EntryKind::Assistant && entry.text == "Done: wrote a.txt"));
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Ended { exit: TurnExit::Completed, .. })));
+
+    let limited = tempfile::tempdir().unwrap();
+    let (transcript, _, frames) = run_briefs(&runtime, Route::Go, None, limited.path(), &["Box: go-limit"]);
+    let end = frames.iter().find(|frame| frame["phase"] == "end").unwrap();
+    assert_eq!((end["exit"].as_str(), end["limit"]["resets_at_s"].as_u64()), (Some("failed"), Some(1_794_625_200)), "{end}");
+    assert!(frames.iter().all(|frame| frame["phase"] != "fallback"), "a Go limit has no paid route to fall to");
+    let message = "OpenCode Go usage limit reached. Switch to a free model, or turn on Extra Usage on the Go page in OpenCode Console to keep going.";
+    assert_eq!(transcript.limit, Some(UsageLimit { resets_at_s: Some(1_794_625_200), message: Some(message.to_owned()) }), "the Go plan's limit reads as a usage limit, which parks the session, not as a generic provider error");
+    assert_eq!(runtime.quota(end).map(|quota| quota.windows.iter().map(|window| window.used_percent).collect::<Vec<_>>()), Some(vec![100]));
 }
 
 fn a_private_a_public_and_an_unreadable_repo_pick_go_and_only_a_public_one_asking_for_the_free_model_gets_it() {

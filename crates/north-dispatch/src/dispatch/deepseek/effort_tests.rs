@@ -10,7 +10,7 @@ fn drawn_efforts(ledger: BTreeMap<String, Evidence>) -> Vec<(String, String)> {
     let hosts = vec![host("whiterabbit", 8, Ok(0))];
     let boxes: Vec<_> = (1..=8).map(|number| issue("north", number, &format!("- [ ] add column {number}"), &[])).collect();
     let mut planned = survey(boxes, hosts, Vec::new());
-    planned.deepseek = Seen { settings: Settings::parse(&"[dispatch]\nhosts = [\"whiterabbit\"]\nslot_cap = 8\n".parse().unwrap()), tried: BTreeSet::new(), review: super::review::Found::default(), running: 0 };
+    planned.deepseek = Seen { settings: Settings::parse(&"[dispatch]\nhosts = [\"whiterabbit\"]\nslot_cap = 8\n".parse().unwrap()), tried: BTreeSet::new(), review: super::review::Found::default(), running: 0, ..Seen::default() };
     planned.ledger = ledger;
     let outcome = decide(&planned, "test");
     outcome

@@ -286,6 +286,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     print_lines(leads::stop_all(&outcome.tree.stops, dry_run, |lead| effects::stop_lead(&survey, lead)));
     print_lines(drafting::pass(&survey, &outcome, &mut pools, None, dry_run));
     print_lines(deepseek::review::queue(&survey.deepseek.review, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run));
+    print_lines(survey.deepseek.limit.release(&record::directory(), &mut |host, words| effects::north_on(&survey, host, words), dry_run));
     let now = placement::now();
     let frozen = freeze::frozen(&outcome, &stopped, &freeze::guards(&survey));
     let told = match &frozen {
