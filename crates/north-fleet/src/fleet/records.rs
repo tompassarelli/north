@@ -12,7 +12,7 @@ use super::model::SessionRecord;
 
 const RECORD: &str = "session.json";
 pub use north_session_host::session_lifecycle::ARCHIVE;
-pub const PLACED: &str = ".placed";
+pub use crate::platform::session_host_files::PLACED;
 /// The note a retired session's archive keeps: why, when, and its last assistant text.
 pub const RETIRED_NOTE: &str = "retired.json";
 /// Marks a session whose claims the exited sweep cleared, so later sweeps skip it until it starts again.

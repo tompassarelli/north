@@ -127,7 +127,7 @@ exit 1"#,
         quote(fingerprint),
         quote(name),
         quote(binding),
-        quote(&place.far_home().join(".local/state/north/held").to_string_lossy()),
+        quote(&place.far_home().join(crate::platform::session_host_files::HELD).to_string_lossy()),
         TAKEN_DETACHED.as_secs()
     );
     let (code, out) = run(place, &script)?;
@@ -223,7 +223,7 @@ done"#,
 
 /// Starts the spare `spare` of `kind` and `fingerprint` from `spec` (see [`spare_spec`]) with `conversation`, and enters it in the pool once its unit runs.
 pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spare: &str, conversation: &str) -> NorthResult<()> {
-    let held = place.far_home().join(".local/state/north/held");
+    let held = place.far_home().join(crate::platform::session_host_files::HELD);
     let unit = unit(spare);
     let dir = remote::held_dir(&place.far_home(), &unit).to_string_lossy().into_owned();
     let pool = pool(&place.far_home());
@@ -239,7 +239,7 @@ pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spar
     let launch = remote::launch_script(spec, &held, &unit, &dir, &nonce, IDLE, &[format!("ExecStopPost=/bin/sh {dir}/retire")]);
     let cwd = quote(&spec.cwd.to_string_lossy());
     let script = format!(
-        "{drop}\numask 077; ident=$(stat -c {IDENTITY} {cwd}) && mkdir -p {q_dir} {q_pool} && chmod 700 {q_pool} && printf %s {} > {q_dir}/retire && printf %s {} > {q_dir}/conversation && {{ {launch}; }} && printf '%s\\n' {}\" $ident \"{cwd} > {q_pool}/.new-{spare} && mv {q_pool}/.new-{spare} {entry_q} && {{ [ \"$(stat -c {IDENTITY} {cwd})\" = \"$ident\" ] || drop {entry_q} {unit_q} {spare} 'its directory was removed while it started'; }}",
+        "{drop}\numask 077; ident=$(stat -c {IDENTITY} {cwd}) && mkdir -p {q_dir} {q_pool} && chmod 700 {q_pool} && printf %s {} > {q_dir}/retire && {{ {launch}; }} && printf %s {} > {q_dir}/conversation && printf '%s\\n' {}\" $ident \"{cwd} > {q_pool}/.new-{spare} && mv {q_pool}/.new-{spare} {entry_q} && {{ [ \"$(stat -c {IDENTITY} {cwd})\" = \"$ident\" ] || drop {entry_q} {unit_q} {spare} 'its directory was removed while it started'; }}",
         quote(&retire),
         quote(conversation),
         quote(&format!("{unit} {dir} {nonce} {conversation} {spare}")),

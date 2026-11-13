@@ -42,6 +42,13 @@ fn temporary_directory() -> PathBuf {
     directory
 }
 
+/// Where in the fleet directory a launching host mirrors the record of each session it places on another machine, one directory per conversation, so that machine reads whose CLI its held units run.
+pub const PLACED: &str = ".placed";
+/// Where under the home each held unit a launching host placed on this machine keeps its directory, named after the unit (remote.rs).
+pub const HELD: &str = ".local/state/north/held";
+/// The file in a held unit's directory naming the conversation of the session its CLI runs, which the launching host writes beside that session's placed record and which is all the outside broker reads to know whose that unit is.
+pub const BOUND_CONVERSATION: &str = "conversation";
+
 pub fn pid_path(dir: &Path) -> PathBuf {
     dir.join("host.pid")
 }

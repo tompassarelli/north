@@ -51,6 +51,12 @@ pub(super) fn a_worker_lane_writes_its_slot_and_finish_records_through_the_broke
     git(&home.join("code/alpha/worktrees/lane"), &["commit", "-q", "--allow-empty", "-m", "two"]);
     git(&main, &["worktree", "add", "-q", "../worktrees/other", "-b", "other"]);
     git(&main, &["worktree", "add", "-q", "../worktrees/third", "-b", "third"]);
+    git(&main, &["worktree", "add", "-q", "../worktrees/placed", "-b", "placed"]);
+    let held = home.join(".local/state/north/held/north-fleet-w-placed-118-0a1b2c3d.service");
+    std::fs::create_dir_all(&held).unwrap();
+    std::fs::write(held.join("conversation"), "c-placed-118").unwrap();
+    std::fs::create_dir_all(root.join("fleet/.placed/c-placed-118")).unwrap();
+    std::fs::write(root.join("fleet/.placed/c-placed-118/session.json"), serde_json::json!({ "name": "w-placed-118", "cwd": home.join("code/alpha/worktrees/placed") }).to_string()).unwrap();
     std::fs::create_dir_all(root.join("fleet/w-neighbour-118")).unwrap();
     std::fs::write(root.join("fleet/w-neighbour-118/host.pid"), std::process::id().to_string()).unwrap();
     std::fs::write(root.join("fleet/w-neighbour-118/session.json"), serde_json::json!({ "name": "w-neighbour-118", "cwd": home.join("code/alpha/worktrees/third") }).to_string()).unwrap();
@@ -140,6 +146,8 @@ fn serve(root: &Path) {
     let elsewhere = root.join("elsewhere");
     let third = root.join("home/code/alpha/worktrees/third");
     let third_tip = git_text(&third, &["rev-parse", "HEAD"]);
+    let placed = root.join("home/code/alpha/worktrees/placed");
+    let placed_tip = git_text(&placed, &["rev-parse", "HEAD"]);
     let other = root.join("home/code/alpha/worktrees/other");
     let (code, told) = ask(&north, &host, OPEN_SCOPE, &words("true", &git_text(&other, &["rev-parse", "HEAD"])), &other);
     if code != 0 || records.read(SESSION).is_none_or(|record| !record.passed || record.head != git_text(&other, &["rev-parse", "HEAD"])) || !told.is_empty() {
@@ -155,6 +163,7 @@ fn serve(root: &Path) {
         (OPEN_SCOPE, words(&marking, &head), "in no lane", &elsewhere),
         (OPEN_SCOPE, words(&marking, &main_tip), "is no lane of", &main),
         (OPEN_SCOPE, words(&marking, &third_tip), "launched in, not one of", &third),
+        (OPEN_SCOPE, words(&marking, &placed_tip), "launched in, not one of", &placed),
     ] {
         let before = records.read(SESSION);
         let (code, told) = ask(&north, &host, cgroup, &request, from);

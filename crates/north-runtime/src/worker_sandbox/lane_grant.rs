@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use north_base::platform::session_scope::{LANE_ONLY_UNIT_PREFIX, REMOVAL_ROOTS};
+use north_base::platform::session_scope::{self, LANE_ONLY_UNIT_PREFIX, REMOVAL_ROOTS, SESSION_UNIT_PREFIX};
 use north_base::platform::{gh_shim, git_credential, session_host_files};
 use regex::Regex;
 use serde_json::Value;
@@ -95,6 +95,41 @@ pub(super) fn recorded(unit: &str, fleet: &Path) -> Result<(PathBuf, Value), Str
         .ok_or_else(|| format!("no fleet session in {} runs in {unit}", fleet.display()))?;
     let record = std::fs::read(directory.join("session.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).ok_or_else(|| format!("{} has no readable session.json", directory.display()))?;
     Ok((directory, record))
+}
+
+/// The directory and record of the fleet session whose own unit the caller's `cgroup` names, or `absent` when it runs in none: a session scope this host's fleet started, or a held service another host placed a session's CLI in here, whose session is the placed record of the conversation that host bound the unit to in the unit's own directory (remote.rs). The caller chooses neither its unit nor what the launcher wrote, and a placed lane-only session is refused, since its held unit carries no lane-only mark to grant it by (north#1054).
+pub(super) fn own_session(cgroup: &str, host: &Host, absent: &str) -> Result<(PathBuf, Value), String> {
+    let leaves = || cgroup.lines().filter_map(|line| line.rsplit('/').next());
+    if let Some(unit) = leaves().find(|leaf| leaf.starts_with(SESSION_UNIT_PREFIX) && leaf.ends_with(".scope")) {
+        return recorded(unit, &host.fleet);
+    }
+    let (unit, conversation) = leaves().filter(|leaf| leaf.ends_with(".service")).find_map(|unit| Some((unit, bound_conversation(&host.home.join(session_host_files::HELD).join(unit))?))).ok_or(absent)?;
+    let directory = host.fleet.join(session_host_files::PLACED).join(&conversation);
+    let record = read_record(&directory).ok_or_else(|| format!("{unit} runs the conversation {conversation}, and no record of it was placed here"))?;
+    if session_scope::session_unit(record["provider"].as_str().unwrap_or_default(), "").starts_with(LANE_ONLY_UNIT_PREFIX) {
+        return Err(format!("{} is a lane-only session placed here by another host, and its held unit carries no lane-only mark to grant it by", record["name"].as_str().unwrap_or(unit)));
+    }
+    Ok((directory, record))
+}
+
+/// The placed sessions whose held unit runs here now, by directory and record: each held directory bound to a conversation whose CLI has not recorded its exit.
+pub(super) fn placed_running(host: &Host) -> Vec<(PathBuf, Value)> {
+    let held = std::fs::read_dir(host.home.join(session_host_files::HELD)).into_iter().flatten().flatten().map(|entry| entry.path());
+    held.filter(|unit| !unit.join("status").exists())
+        .filter_map(|unit| bound_conversation(&unit))
+        .map(|conversation| host.fleet.join(session_host_files::PLACED).join(conversation))
+        .filter_map(|directory| read_record(&directory).map(|record| (directory, record)))
+        .collect()
+}
+
+/// The conversation the launching host bound the held unit whose directory is `held` to.
+fn bound_conversation(held: &Path) -> Option<String> {
+    let conversation = std::fs::read_to_string(held.join(session_host_files::BOUND_CONVERSATION)).ok()?.trim().to_owned();
+    (!conversation.is_empty() && conversation.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')).then_some(conversation)
+}
+
+fn read_record(directory: &Path) -> Option<Value> {
+    serde_json::from_slice(&std::fs::read(directory.join("session.json")).ok()?).ok()
 }
 
 /// The `north` arguments that serve `arguments`, asked from `directory` by `session`, or why they are refused.

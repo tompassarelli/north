@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use north_base::platform::finish_record::{FinishRecords, Finished};
-use north_base::platform::session_scope::SESSION_UNIT_PREFIX;
 
 use super::lane_grant::{self, Host};
 use super::offload_request;
@@ -55,8 +54,7 @@ pub(super) fn asked(arguments: &[String]) -> Option<Result<Check, String>> {
 
 /// The process that runs `check` for a caller whose `/proc/PID/cgroup` reads `cgroup`, asked from `checkout`, on a host whose broker runs with `runtime` and `homes`, or why it is refused: the caller runs in no fleet session's scope, the commit is neither the lane's tip nor a commit made directly on it, or the session has a check running.
 pub(super) fn granted(check: Check, checkout: &Checkout, cgroup: &str, host: &Host, runtime: &Path, homes: &[(String, String)]) -> Result<Granted, String> {
-    let unit = cgroup.lines().filter_map(|line| line.rsplit('/').next()).find(|leaf| leaf.starts_with(SESSION_UNIT_PREFIX) && leaf.ends_with(".scope")).ok_or("a finish check is run for a fleet session, and this caller runs in no session's scope")?;
-    let (directory, record) = lane_grant::recorded(unit, &host.fleet)?;
+    let (directory, record) = lane_grant::own_session(cgroup, host, "a finish check is run for a fleet session, and this caller runs in no session's scope")?;
     let session = record["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned).ok_or_else(|| format!("{} names no session", directory.display()))?;
     admitted(&session, &record, &directory, checkout, cgroup, host)?;
     let environment = offload_request::environment(&host.environment, runtime, homes, Some(checkout))?;
@@ -68,7 +66,7 @@ pub(super) fn granted(check: Check, checkout: &Checkout, cgroup: &str, host: &Ho
     Ok(Granted { _turn: check_request::turn_in(&directory, &session, TURN)?, session, arguments, directory: checkout.top.clone(), environment, command: check.command, head: check.head })
 }
 
-/// Why `checkout` is not a lane the session `name`, whose record is `record` in the fleet directory `directory`, may run a finish check in, if it is not. An ordinary session's lanes are those under `worktrees/` of the project of the directory it launched in, one it made after launch among them (the sandbox gives it the same reach), never the main checkout and never the lane another live fleet session launched in, by its recorded directory or by its name; a lane-only session's is its own lane alone, since the scratch directory that would say which lanes it made since is not a fact the broker holds. The record vouches only for the tree the command ran on (`Granted::record`), so a lane another session could make is no gain to a caller.
+/// Why `checkout` is not a lane the session `name`, whose record is `record` in the fleet directory `directory`, may run a finish check in, if it is not. An ordinary session's lanes are those under `worktrees/` of the project of the directory it launched in, one it made after launch among them (the sandbox gives it the same reach), never the main checkout and never the lane another live fleet session launched in, one placed here by another host among them, by its recorded directory or by its name; a lane-only session's is its own lane alone, since the scratch directory that would say which lanes it made since is not a fact the broker holds. The record vouches only for the tree the command ran on (`Granted::record`), so a lane another session could make is no gain to a caller.
 fn admitted(name: &str, record: &serde_json::Value, directory: &Path, checkout: &Checkout, cgroup: &str, host: &Host) -> Result<(), String> {
     let own = lane_grant::own_lane(name, record)?;
     if north_base::platform::session_scope::lane_only_cgroup(cgroup) {
@@ -80,9 +78,12 @@ fn admitted(name: &str, record: &serde_json::Value, directory: &Path, checkout: 
     if checkout.top.parent() != Some(project.join("worktrees").as_path()) {
         return Err(format!("{} is no lane of {name}'s project {} (PROJECT/worktrees/NAME): a finish check runs in a lane, never in main", checkout.top.display(), project.display()));
     }
-    for other in std::fs::read_dir(&host.fleet).into_iter().flatten().flatten().map(|entry| entry.path()).filter(|other| other != directory) {
+    let local = std::fs::read_dir(&host.fleet).into_iter().flatten().flatten().map(|entry| entry.path()).filter_map(|other| {
         let alive = north_base::platform::session_host_files::pid(&other).is_some_and(|pid| Path::new("/proc").join(pid.to_string()).exists());
-        let Some(other_record) = std::fs::read(other.join("session.json")).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok()).filter(|_| alive) else { continue };
+        let other_record = std::fs::read(other.join("session.json")).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok()).filter(|_| alive)?;
+        Some((other, other_record))
+    });
+    for (_, other_record) in local.chain(lane_grant::placed_running(host)).filter(|(other, _)| other != directory) {
         let named = other_record["name"].as_str().unwrap_or_default();
         let launched = other_record["cwd"].as_str().and_then(|cwd| lane(&host.home, Path::new(cwd)));
         let theirs = launched.into_iter().chain(lane_grant::own_lane(named, &other_record).ok());

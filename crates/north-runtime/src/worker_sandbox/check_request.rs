@@ -4,7 +4,6 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use north_base::platform::session_scope::SESSION_UNIT_PREFIX;
 use rustix::fs::{FlockOperation, flock};
 
 use super::lane_grant::{self, Host};
@@ -59,7 +58,7 @@ fn issue(reference: &str) -> Option<(String, String, u64)> {
 
 /// The checker process for `check`, asked by a caller whose `/proc/PID/cgroup` reads `cgroup`, on a host whose broker runs with `runtime` and `homes`, or why it is refused: the caller runs in no fleet session's scope, the issue is not the one that session was launched for, the host keeps no main checkout of the issue's repository or holds no gh shim, or the session has a check running.
 pub(super) fn granted(check: &Check, cgroup: &str, host: &Host, runtime: &Path, homes: &[(String, String)]) -> Result<Granted, String> {
-    let asking = session(cgroup, &host.fleet)?;
+    let asking = session(cgroup, host)?;
     let reference = format!("{}/{}#{}", check.owner, check.repository, check.number);
     if !lane_grant::same_issue(&reference, &asking.task) {
         return Err(format!("{} was launched for {}, and a session asks for the check of a box of its own task issue only, not of {reference}", asking.name, asking.task));
@@ -76,10 +75,9 @@ pub(super) fn environment(name: &str, own: Vec<(String, String)>, home: &Path) -
     Ok(own.into_iter().filter(|(variable, _)| variable != "PATH" && variable != lane_grant::SESSION_ENV).chain([("PATH".to_owned(), path), (lane_grant::SESSION_ENV.to_owned(), name.to_owned())]).collect())
 }
 
-/// The fleet session whose scope `cgroup` names.
-fn session(cgroup: &str, fleet: &Path) -> Result<Asking, String> {
-    let unit = cgroup.lines().filter_map(|line| line.rsplit('/').next()).find(|leaf| leaf.starts_with(SESSION_UNIT_PREFIX) && leaf.ends_with(".scope")).ok_or("a check is asked from a fleet session's own scope, and this caller runs in none")?;
-    let (directory, record) = lane_grant::recorded(unit, fleet)?;
+/// The fleet session whose own unit `cgroup` names.
+fn session(cgroup: &str, host: &Host) -> Result<Asking, String> {
+    let (directory, record) = lane_grant::own_session(cgroup, host, "a check is asked from a fleet session's own scope, and this caller runs in none")?;
     let field = |key: &str| record[key].as_str().filter(|value| !value.is_empty()).map(str::to_owned);
     let name = field("name").ok_or_else(|| format!("{} names no session", directory.display()))?;
     let task = field("task_ref").ok_or_else(|| format!("{name} was launched with no --task, so it has no issue of its own whose box it could ask a check of"))?;

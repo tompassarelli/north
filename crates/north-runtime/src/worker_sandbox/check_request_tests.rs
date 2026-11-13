@@ -70,7 +70,7 @@ impl Fixture {
 }
 
 #[test]
-fn a_check_asked_from_a_lane_that_holds_another_command_for_the_box_runs_the_issues_command_and_takes_nothing_of_the_lane() {
+fn a_session_placed_on_a_build_host_runs_its_box_check_from_its_own_unit() {
     let fixture = Fixture::new();
     let (code, stdout, stderr) = fixture.ask(CGROUP, &["task", "check", "--done-when", "--box", BOX, ISSUE], &fixture.lane);
     assert_eq!(code, 0, "{stderr}");
@@ -87,6 +87,26 @@ fn a_check_asked_from_a_lane_that_holds_another_command_for_the_box_runs_the_iss
         let (code, stdout, stderr) = fixture.ask(CGROUP, &arguments, &fixture.lane);
         assert_eq!((code, stdout.as_str()), (126, ""), "{arguments:?} started nothing: {stderr}");
         assert!(stderr.contains("refused") && stderr.contains(naming), "{arguments:?} is refused naming {naming}: {stderr}");
+    }
+    for (conversation, name, provider, task, created_ms) in [("c-bound", "w-placed", "claude", ISSUE, 1), ("c-later", "w-placed", "claude", "tompassarelli/north#1048", 2), ("c-lane", "w-lane", "opencode", ISSUE, 3)] {
+        let placed = fixture.host.fleet.join(".placed").join(conversation);
+        std::fs::create_dir_all(&placed).unwrap();
+        std::fs::write(placed.join("session.json"), serde_json::json!({ "name": name, "provider": provider, "cwd": fixture.lane, "task_ref": task, "created_ms": created_ms }).to_string()).unwrap();
+    }
+    let bind = |unit: &str, conversation: &str| {
+        let held = fixture.host.home.join(".local/state/north/held").join(unit);
+        std::fs::create_dir_all(&held).unwrap();
+        std::fs::write(held.join("conversation"), conversation).unwrap();
+        CGROUP.replace("north-session-398cca43.scope", unit)
+    };
+    let held = bind("north-fleet-w-placed-0a1b2c3d.service", "c-bound");
+    let (code, stdout, stderr) = fixture.ask(&held, &["task", "check", "--done-when", "--box", BOX, ISSUE], &fixture.lane);
+    assert_eq!(code, 0, "a session placed here by another host is answered from its held unit by the record its launcher bound that unit to, not a later one of its name: {stderr}");
+    assert!(stdout.contains("|w-placed|"), "{stdout}");
+    for (cgroup, naming) in [(bind("north-fleet-w-lane-0a1b2c3d.service", "c-lane"), "lane-only"), (bind("north-fleet-w-gone-0a1b2c3d.service", "c-unplaced"), "no record of it was placed"), (CGROUP.replace("north-session-398cca43.scope", "north-fleet-w-unbound-0a1b2c3d.service"), "runs in none")] {
+        let (code, stdout, stderr) = fixture.ask(&cgroup, &["task", "check", "--done-when", "--box", BOX, ISSUE], &fixture.lane);
+        assert_eq!((code, stdout.as_str()), (126, ""), "{stderr}");
+        assert!(stderr.contains(naming), "{naming}: {stderr}");
     }
     let outside = CGROUP.replace("north-session-398cca43.scope", "north-worker-outside.service");
     let (code, stdout, stderr) = fixture.ask(&outside, &["task", "check", "--done-when", "--box", BOX, ISSUE], &fixture.lane);

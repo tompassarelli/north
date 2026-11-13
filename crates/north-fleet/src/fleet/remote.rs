@@ -22,6 +22,7 @@ use north_session_host::held::{HOLD, PRUNE, unit};
 
 use crate::error::{NorthError, NorthResult};
 use crate::platform::process::try_run_command_within;
+use crate::platform::session_host_files::{BOUND_CONVERSATION, HELD};
 
 use super::link::{Link, quote};
 use super::model::{Account, Machine, SessionRecord};
@@ -30,7 +31,6 @@ use super::runtime::{HostSpec, Runtime, Seen, binary, new_uuid};
 use super::ssh::SSH_WAIT;
 
 const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
-const HELD: &str = ".local/state/north/held";
 
 /// The session's host spec as it runs: here, or over ssh on the machine its record names.
 pub fn placed(spec: HostSpec, record: &SessionRecord, trace: &Path) -> NorthResult<HostSpec> {
@@ -122,7 +122,7 @@ fn linked(spec: HostSpec, machine: &Machine, home: &Path, held: Held, session: &
 pub(super) fn launch_script(spec: &HostSpec, held: &Path, unit: &str, dir: &str, nonce: &str, detached: Duration, properties: &[String]) -> String {
     let (q_unit, q_dir) = (quote(unit), quote(dir));
     let mut launch = format!(
-        "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce binding limit && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
+        "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce binding limit {BOUND_CONVERSATION} && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
         quote(PRUNE),
         quote(&held.to_string_lossy()),
         quote(nonce),
@@ -145,16 +145,31 @@ pub(super) fn launch_script(spec: &HostSpec, held: &Path, unit: &str, dir: &str,
 }
 
 pub fn leave_record(record: &SessionRecord, placed: &Path) {
-    if let Err(error) = mirror_through(&binary("ssh"), record, placed) {
-        eprintln!("north fleet: {}'s record is not on its machine, so that machine's run ledger cannot place its transcript: {}", record.name, error.user_message());
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from).unwrap_or_default();
+    if let Err(error) = mirror_through(&binary("ssh"), record, placed, &home) {
+        eprintln!("north fleet: {}'s record is not on its machine, so that machine's run ledger cannot place its transcript and its broker grants it no check: {}", record.name, error.user_message());
     }
 }
 
-fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path) -> NorthResult<()> {
+/// Mirrors `record` to the machine it runs on, then binds the held unit its CLI runs in there to its conversation, in that unit's own directory under `home`, so the outside broker there takes a caller in that unit for this session and no other (north#1054).
+fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path, home: &Path) -> NorthResult<()> {
     let (Some(machine), Some(conversation)) = (&record.machine, &record.conversation) else { return Ok(()) };
     let directory = placed.join(conversation);
     let file = record_file(&directory).to_string_lossy().into_owned();
-    let script = format!("mkdir -p {} && cat > {} && mv {} {}", quote(&directory.to_string_lossy()), quote(&format!("{file}.tmp")), quote(&format!("{file}.tmp")), quote(&file));
+    let held = held_dir(home, &record.held_unit.as_deref().map_or_else(|| unit(&record.name), str::to_owned));
+    let bound = held.join(BOUND_CONVERSATION).to_string_lossy().into_owned();
+    let script = format!(
+        "mkdir -p {} && cat > {} && mv {} {} && {{ ! [ -d {} ] || {{ printf %s {} > {} && mv {} {}; }}; }}",
+        quote(&directory.to_string_lossy()),
+        quote(&format!("{file}.tmp")),
+        quote(&format!("{file}.tmp")),
+        quote(&file),
+        quote(&held.to_string_lossy()),
+        quote(conversation),
+        quote(&format!("{bound}.tmp")),
+        quote(&format!("{bound}.tmp")),
+        quote(&bound)
+    );
     let mut child = Command::new(ssh)
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", machine.session_login(), "--", &script])
         .stdin(Stdio::piped())
