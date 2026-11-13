@@ -216,7 +216,7 @@ fn execute(declared: &str) -> u8 {
         }
     }
     eprintln!("{}", check_log::crates_split_line(passed.len(), split.declared_crates(&passed)));
-    split.left(&passed).map_or(0, |packages| declared_line(&split.left_line(line), Some(&packages)))
+    split.left(&passed).map_or(0, |packages| declared_line(&split.left_line(line, &passed), Some(&packages)))
 }
 
 /// `north land crate-tests host-cases [PACKAGE...]`: the host cases of `packages`, every crate of the class when none, run

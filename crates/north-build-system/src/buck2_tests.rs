@@ -164,7 +164,14 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     let moved = super::crate_tests(&side, tree.path(), "base", NEXTEST, ("SAFE_PUSH_LAND_PACKAGES", "--workspace"), (&listed, false), &packages).unwrap();
     let every: std::collections::BTreeSet<String> = ["a", "b", "c", "m", "north"].map(str::to_owned).into();
     assert_eq!((moved.declared_crates(&every), moved.left(&every)), (0, None), "nothing is left for the declared line once Buck2 passed every workspace member, so no --workspace line excluding them all runs");
-    assert!(moved.left_line(NEXTEST).contains(" --no-tests=pass ") && !moved.left_line(NEXTEST).contains("--no-tests=fail"), "the line for what is left passes when it selects no case, as a lane that changes only a binary of the root package selects none there once Buck2 decided the rest");
+    let others: std::collections::BTreeSet<String> = ["a", "b", "c", "m"].map(str::to_owned).into();
+    let picked = |selected: &str| super::crate_tests(&side, tree.path(), "base", NEXTEST, ("SAFE_PUSH_LAND_PACKAGES", selected), (&listed, false), &packages).unwrap();
+    let lenient = |line: String| line.contains(" --no-tests=pass ") && !line.contains("--no-tests=fail");
+    assert_eq!(
+        [lenient(moved.left_line(NEXTEST, &others)), lenient(picked("-p a -p north").left_line(NEXTEST, &passed)), lenient(moved.left_line(NEXTEST, &passed)), lenient(picked("-p a -p b").left_line(NEXTEST, &passed))],
+        [true, true, false, false],
+        "the line for what is left passes with no case only when the root package alone is left, as a lane that changes only one of its binaries selects none there; any other crate left still fails when it selects none, so a lane that deletes its every test cannot pass"
+    );
     let owners = ["root//crates/a:a-unittest", "root//crates/ab:ab-unittest", "root//:north-unittest", "root//crates/b:b-unittest", "root//crates/x/m:m-unittest", "root//crates/m:m-unittest"].map(|label| moved.owner(label));
     assert_eq!(owners, [Some("a"), None, Some("north"), None, Some("m"), None], "a target in Buck2's record belongs to the moved crate whose package holds it");
     std::fs::write(tree.path().join("crates/a/BUCK"), "a test that passes whatever the code does\n").unwrap();
