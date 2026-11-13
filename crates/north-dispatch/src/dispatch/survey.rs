@@ -2,7 +2,6 @@
 //! the spend rule's view of them, each host's resident sessions, fleet roster and open gates,
 //! NorthThreads claims, the dispatch record and the open issues of the staffed repositories.
 use super::issues::{self, Issue, IssueRef, OWNER};
-use super::plan::Cloud;
 use super::record;
 use super::slots::{Account, Host, PlanSize};
 use crate::threads::projects::Projects;
@@ -20,7 +19,6 @@ use crate::fleet::roster::{Roster, Standing};
 use crate::pacing::placement::{self, gate};
 use crate::pacing::placement::case::{grants_left, keyed_here};
 use north_strategy_types::placement::GrantSource;
-use crate::platform::process::run_within;
 use crate::spend::{self, Rules, View};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -55,7 +53,6 @@ pub struct Survey {
     pub live: BTreeSet<String>,
     /// Every session name a reached registry lists, parked or stopped included.
     pub listed: BTreeSet<String>,
-    pub cloud: Cloud,
     /// The host reached through the laptop job queue, when one serves `laptop`.
     pub laptop: Option<String>,
     pub notes: Vec<String>,
@@ -276,23 +273,6 @@ pub fn claim_box_rows(listing: &Value, host: &str, stopped: &BTreeSet<String>) -
         .collect()
 }
 
-fn cloud(cfg: &DocumentMut, here: &str, at: f64) -> Cloud {
-    let (usable, line) = placement::cloud_credit(cfg, at);
-    if !usable {
-        return Cloud::Closed(line);
-    }
-    let host = cfg.get("placement").and_then(|rules| rules.get("cloud_host")).and_then(Item::as_str);
-    if host != Some(here) {
-        return Cloud::Unreachable(host.map_or_else(|| "no [placement] cloud_host".into(), |host| format!("the credit login is on {host}")));
-    }
-    let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
-    match run_within(&north, &["cloud", "list"], PROBE) {
-        Some(output) if output.status.success() => Cloud::Reachable(line),
-        Some(output) => Cloud::Unreachable(format!("north cloud list: {}", String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or("failed"))),
-        None => Cloud::Unreachable("north cloud list timed out".into()),
-    }
-}
-
 /// The laptop's working sessions: those its copied fleet list shows, or dispatch's recent launches
 /// there when they are more, since a fresh launch may not show yet.
 pub fn laptop_running(sessions: &[(Session, String)], laptop: &str, dispatched: i64) -> i64 {
@@ -443,7 +423,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     });
     let deepseek = super::deepseek::Seen::read(&cfg, &here, laptop.as_deref(), &reads.fleet_lists, &laptop_reports, &fleet.records, &reads.issues, at, &mut notes);
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues: reads.issues, open: reads.open, holds: fleet.holds, box_holds: fleet.box_holds, predicted: fleet.predicted, box_tries: fleet.box_tries, mainline, live: fleet.live, listed: fleet.listed, cloud: reads.cloud, laptop, notes, frozen, history, ledger: reads.ledger, grounds: reads.grounds, strands, saturated, revived, backlog, deepseek, learned, at })
+    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues: reads.issues, open: reads.open, holds: fleet.holds, box_holds: fleet.box_holds, predicted: fleet.predicted, box_tries: fleet.box_tries, mainline, live: fleet.live, listed: fleet.listed, laptop, notes, frozen, history, ledger: reads.ledger, grounds: reads.grounds, strands, saturated, revived, backlog, deepseek, learned, at })
 }
 
 mod fleet;

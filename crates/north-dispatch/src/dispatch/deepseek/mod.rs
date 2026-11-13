@@ -197,6 +197,6 @@ impl Seen {
         pools.take_deepseek();
         let route = super::tier::Route { effort: None, effort_arm: false, signal: None, cell: None, cell_role: None, ..ready.route.clone() };
         let local = Some(format!("north fleet dispatch: DeepSeek takes this box on {host}, the host that holds the opencode key (north#1020)"));
-        Ok(Launch { item: ready.item.clone(), host: host.clone(), account: ACCOUNT.into(), brief: format!("{}\n\n{}", ready.brief, review::worker_order()), route, cloud: false, local })
+        Ok(Launch { item: ready.item.clone(), host: host.clone(), account: ACCOUNT.into(), brief: format!("{}\n\n{}", ready.brief, review::worker_order()), route, local })
     }
 }

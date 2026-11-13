@@ -1,6 +1,5 @@
 //! north#1054: dispatch places a box whose text names a file under this host's home where that file is readable, or skips it for the round.
 use super::decide;
-use super::plan::Cloud;
 use super::slots::Account;
 use super::tests::{host, issue, sized, survey, MAX_5X};
 
@@ -14,7 +13,7 @@ fn a_box_naming_a_file_under_this_hosts_home_is_skipped_on_a_remote_host_and_the
     let accounts = vec![account("claude:a", &["nexus"]), account("claude:b", &["gex45"])];
     let named = issue("north", 722, "- [ ] read /home/tom/code/north/worktrees/n722-gate-debt/notes.md and fix the gate", &["priority:next"]);
     let neutral = issue("north", 723, "- [ ] the gate counts debt", &[]);
-    let round = |hosts| decide(&survey(vec![named.clone(), neutral.clone()], Cloud::Closed("no credit".into()), hosts, accounts.clone()), "test");
+    let round = |hosts| decide(&survey(vec![named.clone(), neutral.clone()], hosts, accounts.clone()), "test");
 
     let remote = round(vec![host("gex45", 1, Ok(0))]);
     let launched: Vec<String> = remote.launches.iter().map(|launch| format!("{} on {}", launch.item, launch.host)).collect();
@@ -32,7 +31,7 @@ fn a_box_naming_a_file_under_this_hosts_home_is_skipped_on_a_remote_host_and_the
 fn a_box_naming_a_primary_checkout_places_on_a_remote_fleet_host() {
     let accounts = vec![account("claude:a", &["cpx62"])];
     let named = issue("north", 1020, "- [ ] read /home/tom/code/north/main/docs/rationale/dispatch-spread.md and fix it", &[]);
-    let round = decide(&survey(vec![named], Cloud::Closed("no credit".into()), vec![host("cpx62", 1, Ok(0))], accounts), "test");
+    let round = decide(&survey(vec![named], vec![host("cpx62", 1, Ok(0))], accounts), "test");
     let launched: Vec<String> = round.launches.iter().map(|launch| format!("{} on {}", launch.item, launch.host)).collect();
     assert_eq!(launched, ["north#1020 on cpx62"], "{:?}", round.skipped);
 }
@@ -42,7 +41,7 @@ fn a_box_naming_a_primary_checkout_places_on_a_remote_fleet_host() {
 fn a_box_naming_a_state_file_by_environment_variable_is_skipped_on_a_remote_host() {
     let accounts = vec![account("claude:a", &["gex45"])];
     let named = issue("north", 1041, "- [ ] a reviewer reads `$XDG_STATE_HOME/north/gates/peer-invocation.jsonl` and fixes any false refusal", &[]);
-    let round = decide(&survey(vec![named], Cloud::Closed("no credit".into()), vec![host("gex45", 1, Ok(0))], accounts), "test");
+    let round = decide(&survey(vec![named], vec![host("gex45", 1, Ok(0))], accounts), "test");
     assert!(round.launches.is_empty(), "{:?}", round.launches);
     assert!(round.skipped.iter().any(|(_, why)| why.contains("/.local/state/north/gates/peer-invocation.jsonl")), "{:?}", round.skipped);
 }

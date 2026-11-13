@@ -152,9 +152,8 @@ impl Started {
 /// The line one launch prints; a box whose issue GitHub shows closed or fully ticked since
 /// the mirror copied it is skipped, and so is every box once the proxy has paused dispatch, even in a run that began before the pause.
 fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Option<String>) -> Started {
-    let verb = if launch.cloud { "cloud-launch" } else { "launch" };
     let named = facets::declared_in(&launch.brief, "Box").map_or_else(String::new, |text| format!(" box `{}`", box_words(text)));
-    let line = format!("{verb} {}{named} on {} {} as {}", launch.item, launch.host, launch.account, deepseek::rung(launch));
+    let line = format!("launch {}{named} on {} {} as {}", launch.item, launch.host, launch.account, deepseek::rung(launch));
     if let Some(reason) = standing().filter(|_| !dry_run) {
         return Started::Skipped(format!("skip {}: dispatch was paused while this run was working: {reason}", launch.item));
     }

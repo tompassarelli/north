@@ -1,6 +1,5 @@
 use super::fleets;
 use super::issues::{Issue, IssueRef};
-use super::plan::Cloud;
 use super::record::{self, Record};
 use super::survey::{Survey, claim_rows};
 use super::tests::{fleet, issue, survey};
@@ -262,7 +261,6 @@ fn check_decide(holds: BTreeMap<IssueRef, String>, surveyed: &mut Survey, rng: &
     let (hosts, accounts) = fleet();
     surveyed.open = boxes.iter().map(Issue::reference).collect();
     surveyed.issues = boxes;
-    surveyed.cloud = Cloud::Closed(String::new());
     surveyed.hosts = hosts;
     surveyed.accounts = accounts;
     let before = rng.chance(50);
@@ -290,7 +288,7 @@ fn check_decide(holds: BTreeMap<IssueRef, String>, surveyed: &mut Survey, rng: &
 fn sequence(seed: u64) -> Broken {
     let mut broken = Broken::default();
     let (hosts, accounts) = fleet();
-    let mut surveyed = survey(Vec::new(), Cloud::Closed(String::new()), hosts, accounts);
+    let mut surveyed = survey(Vec::new(), hosts, accounts);
     let mut rng = Rng(seed);
     let mut world = World { at: START, ..World::default() };
     let mut events = Vec::with_capacity(EVENTS);

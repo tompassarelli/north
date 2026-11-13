@@ -3,7 +3,6 @@ use super::sampling::{self, FULL_REVIEWS, Kind, Verdict};
 use super::{Seen, Settings, key};
 use crate::dispatch::decide;
 use crate::dispatch::issues::IssueRef;
-use crate::dispatch::plan::Cloud;
 use crate::dispatch::record::Record;
 use crate::dispatch::tests::{MAX_5X, host, issue, sized, survey};
 use crate::dispatch::slots::Room;
@@ -30,7 +29,7 @@ fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_
         issue("north", 5, "- [ ] another column", &[]),
         issue("north", 6, "- [ ] a third column", &[]),
     ];
-    let mut planned = survey(boxes, Cloud::Closed("no credit".into()), hosts, accounts);
+    let mut planned = survey(boxes, hosts, accounts);
     planned.deepseek = Seen { settings: settings(), tried: BTreeSet::from([key(&IssueRef::new("north", 4), Some("retry it"))]), review: super::review::Found::default(), running: 0 };
 
     let outcome = decide(&planned, "test");

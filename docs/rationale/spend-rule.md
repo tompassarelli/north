@@ -43,6 +43,12 @@ refusal names which: `api hold`, `provider limit` or `operational reserve`.
 The money refusal and its ceiling also stay (`router::money_refusal`): an account whose overflow would bill
 money past a plan window is refused. That is cost policy, not pacing.
 
+Dispatch (north#1137, 2026-11-13) applies the same `money_ceiling` to each account's own windows before it places a
+box (`spend::under_ceiling`), stops starting Claude boxes once `dispatch_claude_sessions` sessions work, and places
+no box on the cloud lane: the cloud sessions' promotional credit ended on 2026-11-05, so a cloud placement could
+draw paid usage nobody has approved. A code-only box runs on a host instead; `north fleet launch` by hand keeps its
+own placement gate.
+
 Nothing else refuses: no pooled reserve, no per-account floor, no burn projection, no pace line, no week
 spread over the hours to reset, no hold, grant, reservation, per-account worker count, drain switch,
 stale-sample hold or missing-reading refusal, and no requirement that a named account match placement's
@@ -196,7 +202,7 @@ Other readers:
   **reworded** in their own repositories.
 
 These are **not** usage gates and are **kept**: each host's saturation reading, the CPU
-spawn gate, battery and playtest leases, the landing governor, and the cloud lane's session count. They bound
+spawn gate, battery and playtest leases, and the landing governor. They bound
 machines and landing contention. They do not bound account spend.
 
 ## Why this shape

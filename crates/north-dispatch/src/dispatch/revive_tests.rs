@@ -13,7 +13,7 @@ fn strand(name: &str, stop: Stop, machine: Option<&str>, resumed: bool) -> Stran
 #[test]
 fn one_stop_wakes_once_a_local_capacity_stop_is_the_resume_passs_and_a_session_it_already_woke_is_not_revived() {
     let (hosts, accounts) = fleet();
-    let mut surveyed = survey(Vec::new(), super::plan::Cloud::Unreachable("none".into()), hosts, accounts);
+    let mut surveyed = survey(Vec::new(), hosts, accounts);
     surveyed.strands = vec![
         strand("local-capacity", Stop::Capacity, None, false),
         strand("remote-capacity", Stop::Capacity, Some("gex45"), false),

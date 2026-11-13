@@ -20,7 +20,7 @@ fn a_parked_fleet_session_holds_its_item_and_box_as_its_threads_claim_does_so_di
     let slug = crate::threads::claims::box_slug("a fleet session's build goes to the build host").expect("a box slug");
     assert!(boxes.get(&super::IssueRef::new("north", 1036)).is_some_and(|held| held.contains_key(&slug)), "{boxes:?}");
     let (hosts, accounts) = super::tests::fleet();
-    let mut surveyed = super::tests::survey(vec![super::tests::issue("north", 1041, "- [ ] a\n- [ ] b", &[])], super::plan::Cloud::Unreachable(String::new()), hosts, accounts);
+    let mut surveyed = super::tests::survey(vec![super::tests::issue("north", 1041, "- [ ] a\n- [ ] b", &[])], hosts, accounts);
     surveyed.holds = holds;
     assert!(super::decide(&surveyed, "test").launches.is_empty(), "dispatch staffs no second worker beside a parked session");
 }

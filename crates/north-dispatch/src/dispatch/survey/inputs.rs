@@ -12,7 +12,6 @@ pub(super) struct Reads {
     pub ledger: BTreeMap<String, Evidence>,
     pub remote_arms: Vec<ArmBox>,
     pub grounds: Ledger,
-    pub cloud: Cloud,
     pub strands: strands::Read,
     pub jobs: Value,
 }
@@ -31,7 +30,6 @@ pub(super) fn read(cfg: &DocumentMut, projects: &Projects, here: &str, at: f64, 
         });
         let remote_arms = spawn(scope, |notes| remote_arm_boxes(cfg, here, notes));
         let grounds = spawn(scope, Ledger::read);
-        let cloud = spawn(scope, |_| cloud(cfg, here, at));
         let strands = spawn(scope, |notes| strands::read(cfg, here, at, notes));
         let jobs = spawn(scope, |notes| remote_json(None, &["threads", "queue", "--json"]).unwrap_or_else(|why| {
             notes.push(format!("threads queue unread, so a laptop launch waiting there over {:.0} min reads as forgotten: {why}", record::LAPTOP_SHOW_S / 60.0));
@@ -44,10 +42,9 @@ pub(super) fn read(cfg: &DocumentMut, projects: &Projects, here: &str, at: f64, 
         let (report, ledger) = joined(evidence, notes);
         let remote_arms = joined(remote_arms, notes);
         let grounds = joined(grounds, notes);
-        let cloud = joined(cloud, notes);
         let strands = joined(strands, notes);
         let jobs = joined(jobs, notes);
-        Reads { fleet_lists, gates, issues, open, claim_lists, report, ledger, remote_arms, grounds, cloud, strands, jobs }
+        Reads { fleet_lists, gates, issues, open, claim_lists, report, ledger, remote_arms, grounds, strands, jobs }
     })
 }
 

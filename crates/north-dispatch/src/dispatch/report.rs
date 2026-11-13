@@ -1,5 +1,4 @@
 use super::cells;
-use super::plan;
 use super::slots::Pools;
 use super::survey::Survey;
 
@@ -17,12 +16,6 @@ pub(super) fn print(survey: &Survey, dry_run: bool) {
             println!("slots {} {}: {}", host.name, account.name, pools.pair(&host.name, &account.name));
         }
     }
-    let cloud = match &survey.cloud {
-        plan::Cloud::Reachable(line) => format!("reachable here ({line})"),
-        plan::Cloud::Unreachable(why) => format!("unreachable from {}: {why}", survey.here),
-        plan::Cloud::Closed(line) => format!("closed ({line})"),
-    };
-    println!("cloud lane: {cloud}");
     for line in super::scope::Scope::parse(&survey.cfg).lines() {
         println!("{line}");
     }

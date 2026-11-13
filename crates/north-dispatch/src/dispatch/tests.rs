@@ -1,5 +1,4 @@
 use super::issues::Issue;
-use super::plan::Cloud;
 use super::slots::{Account, Host, PlanSize, Room};
 use super::survey::Survey;
 use super::decide;
@@ -80,7 +79,7 @@ pub(super) fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Iss
     Issue { repo: repo.into(), number, title: format!("box {number}"), body: format!("{body}\nCategory: feature"), labels: labels.iter().map(|label| (*label).to_owned()).collect(), ..Issue::default() }
 }
 
-pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, accounts: Vec<Account>) -> Survey {
+pub(super) fn survey(issues: Vec<Issue>, hosts: Vec<Host>, accounts: Vec<Account>) -> Survey {
     let open = issues.iter().map(Issue::reference).collect();
     Survey {
         here: "nexus".into(),
@@ -100,7 +99,6 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         mainline: super::retired::Mainline::default(),
         live: BTreeSet::new(),
         listed: BTreeSet::new(),
-        cloud,
         laptop: Some("whiterabbit".into()),
         notes: Vec::new(),
         frozen: Vec::new(),
@@ -150,7 +148,7 @@ fn a_claude_routed_box_launches_under_the_cap_and_never_on_the_cloud_lane() {
     let queued = "gex45 skipped: 14.0 GiB free on the root disk, under 15";
     hosts[0] = hosts[0].clone().saturated(Some(queued.into()));
     let boxes = vec![issue("makgora", 50, "- [ ] a", &[]), issue("makgora", 51, "- [ ] b", &["needs:native-pair"])];
-    let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
+    let outcome = decide(&survey(boxes, hosts, accounts), "test");
     let launched: Vec<(String, &str)> = outcome.launches.iter().map(|launch| (launch.item.to_string(), launch.host.as_str())).collect();
     assert_eq!(launched, [("makgora#50".to_owned(), "nexus")]);
     let (item, why) = outcome.skipped.last().unwrap();
@@ -159,16 +157,16 @@ fn a_claude_routed_box_launches_under_the_cap_and_never_on_the_cloud_lane() {
 
     let (hosts, accounts) = fleet();
     let boxes = vec![issue("makgora", 60, "- [ ] a", &[]), issue("makgora", 61, "- [ ] b", &[])];
-    let mut open = survey(boxes.clone(), Cloud::Reachable("credit".into()), hosts, accounts);
+    let mut open = survey(boxes.clone(), hosts, accounts);
     open.rules.claude_sessions = 1;
     let capped = decide(&open, "test");
     assert_eq!(capped.launches.len(), 1, "{:?}", capped.skipped);
-    assert!(!capped.launches[0].cloud, "a claude box never goes to the cloud lane");
+    assert_ne!(capped.launches[0].host, super::cloud::HOST, "a claude box never goes to the cloud lane");
     assert!(capped.skipped.iter().any(|(_, why)| why.contains("dispatch_claude_sessions cap of 1")), "{:?}", capped.skipped);
 
     let (hosts, _) = fleet();
     let full = vec![account("claude:a", &["nexus"], 5.0)];
-    let refused = decide(&survey(boxes, Cloud::Reachable("credit".into()), hosts, full), "test");
+    let refused = decide(&survey(boxes, hosts, full), "test");
     assert!(refused.launches.is_empty(), "{:?}", refused.launches);
     assert!(refused.skipped.iter().any(|(_, why)| why.contains("money ceiling")), "{:?}", refused.skipped);
 }
@@ -199,7 +197,7 @@ fn a_project_with_paused_true_gets_no_launch_and_each_of_its_issues_prints_as_pa
     let cfg: toml_edit::DocumentMut = config.parse().unwrap();
     let (hosts, accounts) = fleet();
     let boxes = vec![issue("makgora", 798, "- [ ] a", &[]), issue("wisp", 230, "- [ ] a", &[]), issue("north", 1, "- [ ] a", &[])];
-    let mut paused = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    let mut paused = survey(boxes, hosts, accounts);
     paused.projects = crate::threads::projects::Projects::read(&cfg).unwrap();
     assert_eq!(paused.projects.set_aside(), ["galileo", "makgora", "wisp"]);
     let outcome = decide(&paused, "test");
@@ -214,7 +212,7 @@ fn the_main_red_workflows_boxless_issue_is_not_named_for_a_box() {
     let (hosts, accounts) = fleet();
     let main_red = ["bug", "priority:now", "evidence:code", crate::platform::issue_scope::MAIN_RED];
     let boxes = vec![issue("makgora", 912, "Run 1 failed", &main_red), issue("makgora", 913, "Nobody boxed this", &["bug"])];
-    let survey = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    let survey = survey(boxes, hosts, accounts);
     let outcome = decide(&survey, "test");
     let named: Vec<String> = super::boxless(&survey, &outcome).iter().map(|issue| issue.reference().to_string()).collect();
     assert_eq!(named, ["makgora#913"]);
@@ -230,7 +228,7 @@ fn a_dispatcher_with_no_api_key_places_on_the_host_that_holds_one() {
     let grants = super::survey::grants(&policy, &crate::fleet::roster::Roster::default(), "nexus", vec![source]);
     assert_eq!(grants.iter().map(|grant| (grant.name.as_str(), grant.hosts.clone())).collect::<Vec<_>>(), [("claude:api:proton", vec!["gex45".to_owned()])], "nexus dispatch dropped every grant because its own roster holds no api key (north#723)");
 
-    let mut surveyed = survey(vec![issue("makgora", 7, "- [ ] a", &[])], Cloud::Closed("no credit".into()), hosts, plans.iter().cloned().chain(grants).collect());
+    let mut surveyed = survey(vec![issue("makgora", 7, "- [ ] a", &[])], hosts, plans.iter().cloned().chain(grants).collect());
     surveyed.spend = view(&plans);
     let outcome = decide(&surveyed, "test");
     assert_eq!(outcome.launches.iter().map(|launch| (launch.host.as_str(), launch.account.as_str())).collect::<Vec<_>>(), [("gex45", "claude:api:proton")], "{:?}", outcome.skipped);
@@ -239,7 +237,7 @@ fn a_dispatcher_with_no_api_key_places_on_the_host_that_holds_one() {
 #[test]
 fn a_run_that_began_before_the_proxy_paused_dispatch_launches_and_revives_nothing_after_it() {
     let (hosts, accounts) = fleet();
-    let survey = survey(vec![issue("north", 757, "- [ ] a", &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    let survey = survey(vec![issue("north", 757, "- [ ] a", &[])], hosts, accounts);
     let launch = &decide(&survey, "test").launches[0];
     let started = super::start(&survey, launch, false, || Some("claim rule not live".to_owned()));
     assert_eq!(started.line(), "skip north#757: dispatch was paused while this run was working: claim rule not live");
@@ -258,7 +256,7 @@ fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_on
     let hosts = vec![host("gex45", 24, Ok(0))];
     let body = "Workers: 3\n- [ ] the loss is classified\n- [ ] the run row names its box\n- [ ] the staffing replays\n- [ ] the docs say so";
     let surveyed = |body: &str, held: &[&str]| {
-        let mut survey = survey(vec![issue("makgora", 782, body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
+        let mut survey = survey(vec![issue("makgora", 782, body, &[])], hosts.clone(), accounts.clone());
         survey.box_holds.insert(super::issues::IssueRef::new("makgora", 782), held.iter().map(|slug| ((*slug).to_owned(), "a worker".to_owned())).collect());
         survey
     };
@@ -281,7 +279,7 @@ fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_on
     assert!(name.len() > 40, "a box-named session keeps its whole slug however long it is: {name}");
     assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] a", &[])), [Some("a".to_owned())], "one box line written twice is still one box, so it is launched once");
     let only = issue("makgora", 782, "- [ ] a", &[]);
-    let twice_read = survey(vec![only.clone(), only], Cloud::Unreachable("the credit login is on nexus".into()), vec![host("gex45", 2, Ok(0))], accounts.clone());
+    let twice_read = survey(vec![only.clone(), only], vec![host("gex45", 2, Ok(0))], accounts.clone());
     let once = decide(&twice_read, "test");
     assert_eq!(once.launches.len(), 1, "one ready box and two free slots launches once: {:?}", once.skipped);
     let names: BTreeSet<String> = once.launches.iter().map(|launch| super::effects::session_name(launch, 0.0)).collect();
@@ -296,7 +294,7 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_a_windowed
     let first = "the claims replay in `crates/north-fleet/src/fleet/claims.rs` passes";
     let body = format!("- [ ] {first}\n- [ ] holds in crates/north-dispatch/src/dispatch/hotspots.rs\n- [ ] harness/skills/workers/SKILL.md says so\n- [ ] the ready list in `crates/north-dispatch/src/dispatch` names each box\n- [ ] Over 3 h no launch is refused (not before 2099-01-01T00:00Z)");
     let surveyed = |tried: &[&str]| {
-        let mut survey = survey(vec![issue("north", 835, &body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
+        let mut survey = survey(vec![issue("north", 835, &body, &[])], hosts.clone(), accounts.clone());
         survey.box_tries.insert(super::issues::IssueRef::new("north", 835), tried.iter().filter_map(|text| Some((crate::threads::claims::box_slug(text)?, "tried twice".to_owned()))).collect());
         decide(&survey, "test")
     };
@@ -308,7 +306,7 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_a_windowed
     let tried = surveyed(&[first]);
     assert_eq!(boxes(&tried).len(), 2, "a box tried twice waits for the proxy alone, and its issue's other boxes still launch: {:?}", tried.skipped);
     let predicting = |body: &str| {
-        let mut survey = survey(vec![issue("north", 835, body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
+        let mut survey = survey(vec![issue("north", 835, body, &[])], hosts.clone(), accounts.clone());
         survey.predicted.insert("fleet session north-900-x on nexus".into(), vec!["crates/north-fleet/src/fleet/claims.rs".into()]);
         decide(&survey, "test")
     };
@@ -332,7 +330,7 @@ fn a_live_reading_box_is_not_staffed_and_a_box_gets_one_launch() {
         issue("north", 902, &format!("- [ ] {scoreboard}\n- [ ] {dashboard}\n- [ ] {reuse}\n- [ ] {plain}"), &[]),
         issue("north", 1028, &format!("- [ ] {journal}"), &[]),
     ];
-    let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
+    let outcome = decide(&survey(boxes, hosts, accounts), "test");
     let launched: Vec<String> = outcome.launches.iter().map(|launch| launch.item.to_string()).collect();
     assert_eq!(launched, ["north#902"], "the live-only issue launches nothing, not even a bare brief");
     let boxes: Vec<String> = outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect();
@@ -344,9 +342,9 @@ fn a_live_reading_box_is_not_staffed_and_a_box_gets_one_launch() {
 #[test]
 fn a_box_placed_on_the_laptop_is_queued_through_the_north_binary_not_a_threads_program_on_path() {
     let (hosts, accounts) = fleet();
-    let survey = survey(Vec::new(), Cloud::Unreachable(String::new()), hosts, accounts);
+    let survey = survey(Vec::new(), hosts, accounts);
     let route = super::tier::Route { tier: super::tier::Tier::Sonnet, category: "feature".into(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: None, why: String::new() };
-    let launch = super::plan::Launch { item: super::issues::IssueRef { repo: "north".into(), number: 742 }, host: "whiterabbit".into(), account: "claude:a".into(), brief: "brief".into(), route, cloud: false, local: None };
+    let launch = super::plan::Launch { item: super::issues::IssueRef { repo: "north".into(), number: 742 }, host: "whiterabbit".into(), account: "claude:a".into(), brief: "brief".into(), route, local: None };
 
     let (program, words) = super::effects::command(&launch, "north-742-d1756", &survey, "/home/tom", "/runtime/bin/north").unwrap();
 
@@ -361,7 +359,7 @@ fn a_claim_on_an_unmatched_slug_is_stale_and_leaves_the_other_boxes_takeable() {
     let (_, accounts) = fleet();
     let hosts = vec![host("gex45", 24, Ok(0))];
     let surveyed = |held: &str| {
-        let mut survey = survey(vec![issue("north", 879, "- [ ] the tax is counted\n- [x] the tax is named\n- [ ] the docs say so", &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
+        let mut survey = survey(vec![issue("north", 879, "- [ ] the tax is counted\n- [x] the tax is named\n- [ ] the docs say so", &[])], hosts.clone(), accounts.clone());
         survey.box_holds.insert(super::issues::IssueRef::new("north", 879), [(held.to_owned(), "fleet session n882-tax on nexus".to_owned())].into());
         decide(&survey, "test")
     };
@@ -385,7 +383,7 @@ fn a_box_whose_check_names_a_retired_verb_is_held() {
     let verb = "the week's loss prints when `north ops climb run --dry-run` runs";
     let path = "arms are read in crates/north-climb/src/arms.rs";
     let body = format!("- [ ] {live}\n- [ ] {verb}\n- [ ] {path}");
-    let mut survey = survey(vec![issue("north", 872, &body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    let mut survey = survey(vec![issue("north", 872, &body, &[])], hosts, accounts);
     let history = "-  ops climb run --dry-run [--since 7d]  Print the loss\n";
     survey.mainline = super::retired::Mainline { verbs: Some(north_cli_reference::Verbs::parse(reference)), removed: Some(north_cli_reference::Verbs::removed_in(history)), gone: BTreeMap::from([("north".to_owned(), BTreeSet::from(["crates/north-climb/src/arms.rs".to_owned()]))]) };
     let outcome = decide(&survey, "test");
@@ -405,7 +403,7 @@ fn a_box_whose_check_names_a_verb_main_never_had_is_placed_and_one_a_landed_comm
     let adds = "the verb prints a table when `north concerns list` runs";
     let removed = "the numbers print when `north scoreboard --record` runs";
     let body = format!("- [ ] {adds}\n- [ ] {removed}");
-    let mut survey = survey(vec![issue("north", 709, &body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    let mut survey = survey(vec![issue("north", 709, &body, &[])], hosts, accounts);
     survey.mainline = super::retired::Mainline { verbs: Some(north_cli_reference::Verbs::parse(reference)), removed: Some(north_cli_reference::Verbs::removed_in(history)), gone: BTreeMap::new() };
     let outcome = decide(&survey, "test");
     let boxes: Vec<String> = outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect();
@@ -430,7 +428,7 @@ fn a_dispatch_round_places_only_on_the_listed_providers_draws_only_the_band_ther
         issue("north", 7, "Scope: module\n- [ ] a seventh column", &[]),
         issue("north", 8, "Spec: exact\n- [ ] an eighth column", &[]),
     ];
-    let mut planned = survey(boxes, Cloud::Closed("no credit".into()), hosts, accounts);
+    let mut planned = survey(boxes, hosts, accounts);
     let deepseek: toml_edit::DocumentMut = "[dispatch]\nhosts = [\"whiterabbit\", \"nexus\"]\nslot_cap = 4\nclaude_only = ['\\bsandbox']\n".parse().unwrap();
     planned.deepseek = Seen { settings: Settings::parse(&deepseek), ..Seen::default() };
 
@@ -462,7 +460,7 @@ fn a_dispatch_round_places_only_on_the_listed_providers_draws_only_the_band_ther
 fn a_box_held_by_an_open_gate_with_no_default_is_skipped_with_a_line_naming_the_gate_and_every_launch_names_its_box() {
     let (_, accounts) = fleet();
     let hosts = vec![host("gex45", 24, Ok(0))];
-    let mut survey = survey(vec![issue("north", 1187, "- [ ] the first box is built\n- [ ] the second box is built", &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    let mut survey = survey(vec![issue("north", 1187, "- [ ] the first box is built\n- [ ] the second box is built", &[])], hosts, accounts);
     let listing = serde_json::json!([{"id": 7, "session": "north-1187-x", "question": "Which?", "closed_ms": null, "default_at_ms": null, "issue": "north#1187", "box": "second box", "host": "gex45"}]);
     let rows = super::survey::gate_rows(&listing, "gex45");
     super::survey::gate_holds(rows.into_iter(), &survey.issues, 0.0, &mut survey.box_holds);
@@ -490,7 +488,7 @@ fn dispatch_staffs_open_leaf_issues_under_their_parent() {
         with_children(Issue { parent: Some(ParentRef::new("tompassarelli", "north", 1)), ..issue("north", 4, "- [ ] a box of an issue that has a sub-issue with no checkbox", &[]) }, 2, 1),
         with_children(Issue { parent: Some(ParentRef::new("tompassarelli", "north", 1)), ..issue("north", 5, "- [ ] a box of an issue whose sub-issues all hold boxes", &[]) }, 1, 0),
     ];
-    let outcome = decide(&survey(issues, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
+    let outcome = decide(&survey(issues, hosts, accounts), "test");
     let launched: Vec<String> = outcome.launches.iter().map(|launch| launch.item.to_string()).collect();
     assert_eq!(launched, ["north#3", "north#5"], "the open leaf and the box of an issue whose sub-issues all hold boxes are staffed: {:?}", outcome.skipped);
 }

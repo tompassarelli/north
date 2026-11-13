@@ -9,16 +9,6 @@ use crate::spend::{Refusal, Starter, View};
 use std::cmp::Ordering;
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Cloud {
-    /// The credit is usable and this host reaches the cloud lane.
-    Reachable(String),
-    /// The credit is usable but this host cannot start cloud sessions, so boxes fall back to hosts.
-    Unreachable(String),
-    /// No usable credit: code-only boxes run on hosts like any other.
-    Closed(String),
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub struct Ready {
     pub item: IssueRef,
     pub brief: String,
@@ -33,9 +23,7 @@ pub struct Launch {
     pub account: String,
     pub brief: String,
     pub route: Route,
-    /// Started in the cloud lane from this host rather than through `north fleet launch`.
-    pub cloud: bool,
-    /// Why the box runs here instead of the cloud lane, recorded as `--local`.
+    /// Why the box runs on its host rather than where placement would put it, recorded as `--local`.
     pub local: Option<String>,
 }
 
@@ -89,7 +77,7 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
     pools.take(host);
     pools.take_claude();
     pools.charge(&account.name, capacity.charge(account));
-    Launch { item: ready.item.clone(), host: host.into(), account: account.name.clone(), brief: ready.brief.clone(), route: ready.route.clone(), cloud: false, local: None }
+    Launch { item: ready.item.clone(), host: host.into(), account: account.name.clone(), brief: ready.brief.clone(), route: ready.route.clone(), local: None }
 }
 
 /// Admits reviving a session bound to `host` and `account` by the slot and spend rules a launch

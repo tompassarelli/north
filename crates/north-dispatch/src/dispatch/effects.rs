@@ -1,7 +1,6 @@
-//! What a dispatch run does to the world: start each placed box in the cloud lane or through
-//! `north fleet launch` (on the laptop through its job queue), record the attempt, send Tom's one
-//! ntfy line, and send the triage lead, else the proxy, its daily list of issues that need a box.
-use super::{brief, cloud};
+//! What a dispatch run does to the world: start each placed box through `north fleet launch` (on the laptop through
+//! its job queue), record the attempt, send Tom's one ntfy line, and send the triage lead, else the proxy, its daily
+//! list of issues that need a box.
 use super::issues::Issue;
 use super::plan::Launch;
 use super::revive::Revive;
@@ -13,7 +12,6 @@ use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::process::run_within;
 use serde_json::json;
 use std::collections::BTreeSet;
-use std::path::Path;
 use std::time::Duration;
 use toml_edit::{DocumentMut, Item};
 
@@ -72,16 +70,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
     let at = placement::now();
     let name = session_name(launch, at);
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
-    let result = if launch.cloud {
-        let started = brief::standing_orders().and_then(|orders| {
-            let text = brief::cloud(&launch.brief, &launch.item.repo, &cloud::branch(&name), &orders);
-            let model = launch.route.invocation(&survey.cfg)?;
-            cloud::launch(&launch.item.repo, &name, &text, &model, Path::new(cloud::SOURCES), Path::new(&home), &mut cloud::run).inspect(|launched| cloud::record_run(launched, &text, at))
-        });
-        started.map(|launched| format!("{name} {} {}", launched.session, launched.branch))
-    } else {
-        fleet_launch(launch, &name, survey, &home)
-    };
+    let result = fleet_launch(launch, &name, survey, &home);
     let cell = super::deepseek::cell(launch, &survey.cfg);
     let entry = Record {
         at,
@@ -89,7 +78,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         host: launch.host.clone(),
         account: launch.account.clone(),
         name,
-        cloud: launch.cloud,
+        cloud: false,
         launched: result.is_ok(),
         detail: result.clone().unwrap_or_else(|why| why),
         tier: super::deepseek::tier(launch),

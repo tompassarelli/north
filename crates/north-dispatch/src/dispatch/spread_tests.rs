@@ -1,6 +1,5 @@
 //! The dispatch-spread checks (north#259) the saturated-host tests run.
 use super::decide;
-use super::plan::Cloud;
 use super::slots::{Account, Host};
 use super::tests::{host, issue, survey};
 use crate::capacity::saturation::{Backlog, Saturation};
@@ -16,7 +15,7 @@ fn reading(disk_free_gib: f64, disk_total_gib: f64, queued: u32) -> Saturation {
 
 fn placed(hosts: Vec<Host>, accounts: Vec<Account>, boxes: u64) -> (Vec<(String, String)>, Vec<String>) {
     let issues = (0..boxes).map(|number| issue("makgora", 100 + number, "- [ ] a", &[])).collect();
-    let outcome = decide(&survey(issues, Cloud::Closed("no credit".into()), hosts, accounts), "test");
+    let outcome = decide(&survey(issues, hosts, accounts), "test");
     let launched = outcome.launches.iter().map(|launch| (launch.host.clone(), launch.account.clone())).collect();
     (launched, outcome.skipped.into_iter().map(|(item, why)| format!("skip {item}: {why}")).collect())
 }

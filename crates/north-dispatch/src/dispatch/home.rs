@@ -62,7 +62,6 @@ mod tests {
             account: "claude:e".into(),
             brief: String::new(),
             route: Route { tier: Tier::Sonnet, category: "feature".into(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: None, why: String::new() },
-            cloud: false,
             local: None,
         };
         let outcome = Outcome { launches: vec![planned], ready: vec![item], free: 16, ..Outcome::default() };

@@ -61,7 +61,7 @@ fn a_dispatched_brief_for_one_box_carries_no_need_recorded_for_another_box() {
     let body = "- [ ] On the laptop, by hand: the window opens. Needs: laptop. Done when: `niri msg windows` exits 0\n- [ ] Make the parser refuse an empty line. Done when: `cargo nextest run -p north-dispatch -E 'test(/an_empty_line_is_refused/)'` exits 0";
     let tracked = issue("north", 1022, body, &[]);
     let learned = record(tempfile::tempdir().unwrap().path(), &tracked, Some("On the laptop, by hand"), "n1022-laptop", "laptop", "the window needs the laptop", at).unwrap();
-    let survey = super::survey::Survey { learned, at, ..super::tests::survey(vec![tracked.clone()], super::plan::Cloud::Closed(String::new()), Vec::new(), Vec::new()) };
+    let survey = super::survey::Survey { learned, at, ..super::tests::survey(vec![tracked.clone()], Vec::new(), Vec::new()) };
     let needs_line = |box_text: &str| super::screen::written(&survey, &tracked, "dispatch", Some(box_text)).unwrap().1.lines().find(|line| line.starts_with("Needs:")).map(str::to_owned);
     assert_eq!(needs_line("On the laptop, by hand").as_deref(), Some("Needs: laptop"));
     assert_eq!(needs_line("Make the parser refuse an empty line"), None);
