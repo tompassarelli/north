@@ -417,7 +417,7 @@ fn a_red_fix_then_a_lander_placed_hand_in_takes_the_first_freed_slot_ahead_of_ea
         Queued { label: "after", name: "code-p-main", carried: "SAFE_PUSH_LANDING='after'", red_fix: "", owner: "land-check", urgent: "", hold: false, class: super::SlotClass::LandCheck },
     ]);
     let foreground: Vec<&str> = order.iter().map(String::as_str).filter(|event| *event != "start-sweep").collect();
-    assert_eq!(foreground, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-land", "end-land", "start-after", "end-after", "start-worker", "end-worker", "start-forged-land", "end-forged-land", "start-forged", "end-forged", "end-sweep"], "the red fix took the slot first, the lander's hand-in land check next and its after-landing job queued after it at the same rank after that, which leaves the lander's first-in-line rank to its pre-push checks, then the worker builds in arrival order with the hand-in word that carries no lander owner among them, and the sweep outlasted them all");
+    assert_eq!(foreground, ["start-holder", "start-red-fix", "end-red-fix", "end-holder", "start-land", "end-land", "start-after", "end-after", "start-worker", "end-worker", "start-forged-land", "end-forged-land", "start-forged", "end-forged", "end-sweep"], "the red fix took the reserved slot beside the holder at once, the lander's hand-in land check next and its after-landing job queued after it at the same rank after that, which leaves the lander's first-in-line rank to its pre-push checks, then the worker builds in arrival order with the hand-in word that carries no lander owner among them, and the sweep outlasted them all");
     let at = |event: &str| order.iter().position(|seen| seen == event);
     assert!(at("start-sweep") < at("end-holder"), "the sweep ran in its own slot beside the holder, outside the one-job cap: {order:?}");
     let urgent = order_through_one_slot(&[
@@ -426,6 +426,39 @@ fn a_red_fix_then_a_lander_placed_hand_in_takes_the_first_freed_slot_ahead_of_ea
         Queued { label: "urgent", name: "code-p-main", carried: "", red_fix: "", owner: "", urgent: "1", hold: false, class: super::SlotClass::LandCheck },
     ]);
     assert_eq!(urgent, ["start-holder", "end-holder", "start-urgent", "end-urgent", "start-normal", "end-normal"], "the urgent session's job, queued behind a normal one, took the freed slot first: {urgent:?}");
+}
+
+#[test]
+fn a_red_main_fix_takes_the_reserved_slot_within_a_minute_while_worker_builds_hold_every_other_slot() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let script = remote_script("code-p-main", super::SlotClass::LandCheck);
+    let root = home.path().join(".cache/land-offload");
+    fs::create_dir_all(&root).unwrap();
+    let held: Vec<fs::File> = (0..super::SLOTS - 1).map(|index| if index == 0 { "code-p-main".to_owned() } else { format!("code-p-main-{index}") }).map(|name| fs::File::create(root.join(format!("{name}.lock"))).unwrap()).collect();
+    for lock in &held {
+        rustix::fs::flock(lock, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
+    }
+    let seen = home.path().join("fix-seen");
+    let command = format!("printf '%s' \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, seen.display());
+    let output = Command::new("sh")
+        .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LANDING='1'", "", "", "1"])
+        .env("HOME", home.path())
+        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+        .env("PATH", &path)
+        .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
+        .env_remove("NORTH_OFFLOAD_MAX_JOBS")
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .env_remove(north_base::foundation::offload::SLOT_ENV)
+        .stdin(fs::File::open(&bundle).unwrap())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(super::WAITED), "on 2026-11-13 a red-main fix waited 600 s for a slot behind worker builds");
+    assert_eq!(fs::read_to_string(&seen).unwrap(), root.join("code-p-main-5").display().to_string());
+    drop(held);
 }
 
 #[test]
