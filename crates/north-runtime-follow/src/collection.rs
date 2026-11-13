@@ -10,7 +10,7 @@ use std::time::Duration;
 
 const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 
-/// A runtime holding the root of a store path an agent link names stays, so the store never collects the program an agent session runs.
+/// One runtime holding the root of each store path an agent link names stays, so the store never collects the program an agent session runs; every runtime built since that agent roots it too, so keeping all of them kept every runtime (north#1054).
 pub fn collect(layout: &Layout, target: &str, previous: Option<&Path>, proc_root: &Path, agent_targets: &[PathBuf]) -> std::io::Result<()> {
     reap_unfinished_copies(&layout.runtimes(), ABANDONED_COPY)?;
     let mut listed = Vec::new();
@@ -30,7 +30,12 @@ pub fn collect(layout: &Layout, target: &str, previous: Option<&Path>, proc_root
     keep.extend(rollback.as_deref().and_then(|target| layout::linked_sha(Path::new(target.trim()))));
     let running = layout::running(proc_root, &layout.runtimes());
     keep.extend(running.iter().map(String::as_str));
-    keep.extend(names.iter().map(String::as_str).filter(|name| roots_any(&layout.runtime(name), agent_targets)));
+    for target in agent_targets {
+        let roots = |name: &&str| roots_any(&layout.runtime(name), std::slice::from_ref(target));
+        if !keep.iter().any(roots) {
+            keep.extend(names.iter().map(String::as_str).filter(|name| layout::is_sha(name)).find(roots));
+        }
+    }
     let current = fs::canonicalize(layout.current()).ok();
     for name in layout::doomed(&names, &keep) {
         let doomed = layout.runtime(name);

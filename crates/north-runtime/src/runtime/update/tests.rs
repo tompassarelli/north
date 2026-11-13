@@ -58,18 +58,21 @@ fn collecting_old_runtimes_keeps_the_runtime_a_lander_rollback_would_go_back_to(
 }
 
 #[test]
-fn collecting_old_runtimes_keeps_the_runtime_a_live_session_was_launched_on_and_the_one_rooting_what_the_agent_link_names() {
+fn collecting_old_runtimes_keeps_the_runtime_a_live_session_was_launched_on_and_one_rooting_what_the_agent_link_names_and_drops_the_unused_rest() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_path_buf() };
     let shas: Vec<String> = (0..8).map(|digit| digit.to_string().repeat(40)).collect();
     let agent = state.path().join("published-agent-runtime");
     for sha in &shas {
         fs::create_dir_all(layout.runtime(sha)).unwrap();
-        if sha == &shas[1] {
+        if shas[1..4].contains(sha) {
             std::os::unix::fs::symlink(&agent, layout.runtime(sha).join("agent-runtime")).unwrap();
         }
         ticks_past(state.path(), &layout.runtime(sha));
     }
+    let staging = layout.runtimes().join(format!("{}.staging", "9".repeat(40)));
+    fs::create_dir_all(&staging).unwrap();
+    std::os::unix::fs::symlink(&agent, staging.join("agent-runtime")).unwrap();
     std::os::unix::fs::symlink(layout::link(&shas[7]), layout.current()).unwrap();
     let proc = tempfile::tempdir().unwrap();
     fs::create_dir_all(proc.path().join("42")).unwrap();
@@ -77,8 +80,8 @@ fn collecting_old_runtimes_keeps_the_runtime_a_live_session_was_launched_on_and_
     fs::write(proc.path().join("42/cmdline"), format!("claude\0--mcp-config\0{{\"command\":\"{}\"}}\0", north.display())).unwrap();
     collect::collect_beside(&layout, &shas[7], None, proc.path(), &[agent]).unwrap();
     assert!(layout.runtime(&shas[0]).is_dir());
-    assert!(layout.runtime(&shas[1]).is_dir(), "the runtime rooting the store path the agent link names was collected");
-    assert!(!layout.runtime(&shas[2]).exists());
+    assert!(layout.runtime(&shas[3]).is_dir(), "the newest runtime rooting the store path the agent link names was collected");
+    assert!(!layout.runtime(&shas[1]).exists() && !layout.runtime(&shas[2]).exists(), "every older runtime rooting the same store path was kept too, so no runtime was ever collected");
 }
 
 #[test]
