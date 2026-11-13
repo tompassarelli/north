@@ -67,7 +67,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("gh-session", |arguments| crate::platform::gh_session::run(arguments, crate::guard::gh_screen::screen)),
     ("ssh-session", crate::platform::ssh_session::run),
     ("ssh-master", crate::platform::ssh_master::run),
-    ("placement-survey", crate::pacing::placement::keep_surveys),
+    ("placement-survey", |arguments| crate::pacing::placement::keep_surveys(arguments, crate::dispatch::refresh_fleet_listings)),
     ("ssh-spare", crate::pacing::placement::hold_spares),
     ("spare-fill", super::fleet::fill_spares),
     ("spare-retire", super::fleet::retire_spares),

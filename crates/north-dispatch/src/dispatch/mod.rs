@@ -65,7 +65,7 @@ mod spin;
 mod stops;
 mod strands;
 mod survey;
-pub use survey::{record_closed_reports, spend_now};
+pub use survey::{record_closed_reports, refresh_fleet_listings, spend_now};
 mod tier;
 pub mod shares;
 pub mod tuned;

@@ -228,6 +228,12 @@ pub fn spend_now(roster: &Roster) -> Result<View, String> {
     Ok(spend_view(&cfg, roster, &here, &rules, &sessions, at))
 }
 
+/// Refreshes every host's fleet listing the spend view reads, which the survey keeper does while launches place work.
+pub fn refresh_fleet_listings() {
+    let Ok(cfg) = placement::config() else { return };
+    fleets::refresh_shared(&cfg, &crate::platform::host::name(), &["fleet", "list", "--json"], "fleet", PROBE);
+}
+
 /// NorthThreads claim listings from this host's ledger, every ssh host's, and the laptop's copy, since a host whose
 /// ledger is local records its workers' claims there.
 fn claim_listings(cfg: &DocumentMut, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<(String, Value)> {

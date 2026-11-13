@@ -33,7 +33,7 @@ pub(super) fn wanted() {
 }
 
 /// `north placement-survey keep`: keeps every build host's survey answer fresh until launches stop placing work; a keeper already running leaves this one nothing to do.
-pub fn run(arguments: &[String], refresh_every_host: fn()) -> u8 {
+pub fn run(arguments: &[String], refresh_every_host: impl Fn()) -> u8 {
     if arguments != ["keep"] {
         eprintln!("{USAGE}");
         return 2;

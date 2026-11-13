@@ -278,7 +278,7 @@ pub fn everywhere_shared(cfg: &DocumentMut, here: &str, command: &[&str], kind: 
 
 const SHARED_SECONDS: f64 = 30.0;
 
-fn shared_read(records: &Path, key: &str, read: impl FnOnce() -> Result<Value, String>) -> Result<Value, String> {
+pub(super) fn shared_read(records: &Path, key: &str, read: impl FnOnce() -> Result<Value, String>) -> Result<Value, String> {
     let path = records.join(format!("{key}.json"));
     let fresh = || crate::pacing::placement::now() - SHARED_SECONDS;
     if let Some(listing) = shared_listing(&path, fresh()) {
@@ -289,10 +289,28 @@ fn shared_read(records: &Path, key: &str, read: impl FnOnce() -> Result<Value, S
         return Ok(listing);
     }
     let listing = read()?;
+    record_shared(&path, &listing);
+    Ok(listing)
+}
+
+pub(super) fn record_shared(path: &Path, listing: &Value) {
     let taken = crate::pacing::placement::now();
     let written = path.with_extension(format!("{}.part", std::process::id()));
-    let _ = std::fs::write(&written, serde_json::json!({"at": taken, "listing": listing}).to_string()).and_then(|()| std::fs::rename(&written, &path));
-    Ok(listing)
+    let _ = std::fs::write(&written, serde_json::json!({"at": taken, "listing": listing}).to_string()).and_then(|()| std::fs::rename(&written, path));
+}
+
+/// Asks every ssh host its `command` listing now and records it for [`everywhere_shared`], outside the host's turn so no launch
+/// waits on it; the survey keeper runs it every few seconds while launches place work, which keeps each answer under `SHARED_SECONDS` old.
+pub fn refresh_shared(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, limit: Duration) {
+    let records = record::directory().join("shared");
+    if std::fs::create_dir_all(&records).is_err() {
+        return;
+    }
+    reached_via(cfg, here, command, &mut Vec::new(), &|host, ssh| {
+        let listing = remote_json_within(Some(ssh), command, limit)?;
+        record_shared(&records.join(format!("{kind}-{host}.json")), &listing);
+        Ok(listing)
+    });
 }
 
 fn shared_listing(path: &Path, since: f64) -> Option<Value> {

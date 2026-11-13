@@ -586,3 +586,12 @@ fn a_box_under_the_parked_heading_gets_no_launch_while_the_boxes_outside_it_stil
     let skipped: Vec<(String, &str)> = only_parked.skipped.iter().map(|(item, why)| (item.to_string(), why.as_str())).collect();
     assert_eq!(skipped, [("north#1276".to_owned(), "every open box waits, the first until it is moved out from under the issue's `## Parked` heading")]);
 }
+
+#[test]
+fn a_launch_reads_the_listing_the_keeper_recorded_without_asking_the_host() {
+    let records = tempfile::tempdir().unwrap();
+    let listing = serde_json::json!([{"name": "north-1054-a"}]);
+    super::fleets::record_shared(&records.path().join("fleet-cpx62.json"), &listing);
+    let read = super::fleets::shared_read(records.path(), "fleet-cpx62", || Err("the host was asked".to_owned()));
+    assert_eq!(read, Ok(listing));
+}

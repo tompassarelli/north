@@ -18,11 +18,12 @@ mod inputs;
 mod keeper;
 pub mod launch;
 pub mod line_wait;
-/// `north placement-survey keep`, refreshing every build host's survey answer while launches place work.
-pub fn keep_surveys(arguments: &[String]) -> u8 {
+/// `north placement-survey keep`, refreshing every build host's survey answer and, through `refresh_fleet_listings`, its fleet listing while launches place work.
+pub fn keep_surveys(arguments: &[String], refresh_fleet_listings: fn()) -> u8 {
     keeper::run(arguments, || {
         std::thread::scope(|scope| {
             scope.spawn(hosts::refresh_every_host);
+            scope.spawn(refresh_fleet_listings);
             hosts::refresh_every_line();
         });
     })
