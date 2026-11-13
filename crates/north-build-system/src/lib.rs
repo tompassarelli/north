@@ -8,7 +8,7 @@ mod buck2;
 mod cargo;
 mod cargo_metadata;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -23,6 +23,7 @@ const LINT_SWITCH: &str = "buck2_lint";
 const TEST_CRATES: &str = "buck2_test_crates";
 const TREE_BUILD_SWITCH: &str = "buck2_tree_build";
 const CASELESS_CRATES: &str = "buck2_caseless_crates";
+const HOST_CASES_SWITCH: &str = "buck2_host_cases";
 
 pub trait BuildSystem {
     /// Whether `root` is a workspace this build system builds.
@@ -60,15 +61,20 @@ pub trait BuildSystem {
     fn mutants(&self, request: &Mutants) -> Result<Invocation, String>;
 }
 
-/// The build system this host runs: Buck2 when `[hosts.NAME] build_system` in the orchestration policy says `buck2`, with its test run once `buck2_tests` is set too, and Cargo when the key is unset or the policy unreadable.
+/// The build system this host runs: Buck2 when `[hosts.NAME] build_system` in the orchestration policy says `buck2`, with its test run once `buck2_tests` is set too, and Cargo when the key is unset, the policy unreadable, or the host holds no readable store generation, which it says.
 pub fn here() -> Box<dyn BuildSystem> {
     let host = north_base::platform::host::name();
     let Ok(policy) = north_base::platform::orchestration::read() else { return Box::new(Cargo) };
     let tests = policy.get("hosts").and_then(|hosts| hosts.get(host.as_str())?.get(TEST_SWITCH)?.as_bool()) == Some(true);
     match north_base::platform::orchestration::builds_with_buck2(&policy, &host) {
-        true => Box::new(Buck2 { tests }),
+        true => deciding(tests).map_or_else(|| Box::new(Cargo) as Box<dyn BuildSystem>, |side| Box::new(side)),
         false => Box::new(Cargo),
     }
+}
+
+/// The Buck2 side whose lines decide a land check, under the store generation's isolation directory; `None`, with the reason printed, on a host that holds no readable generation, whose lines then run on Cargo.
+fn deciding(tests: bool) -> Option<Buck2> {
+    Buck2::deciding(tests, Path::new(buck2::generation::FILE)).map_err(|why| eprintln!("north: {why}, so this line runs on Cargo")).ok()
 }
 
 /// The side that builds the tree at `root` on this host: this host's when the tree is its kind of project, else Cargo, so a Buck2 host still builds a repository that has no Buck2 targets.
@@ -79,20 +85,20 @@ pub fn for_tree(root: &Path) -> Box<dyn BuildSystem> {
 
 /// The Buck2 clippy gate this host runs in place of `declared`, a lint line of `.safe-push`, when `[hosts.NAME] buck2_lint`
 /// is true. The key moves the lint line alone: the host still builds and tests with Cargo. `None`, the line as declared,
-/// for a host without the key, a tree with no Buck2 targets, a run that names no `base`, and a tree whose gate script or
-/// Buck2 configuration is not `base`'s.
+/// for a host without the key or a readable store generation, a tree with no Buck2 targets, a run that names no `base`,
+/// and a tree whose gate script or Buck2 configuration is not `base`'s.
 pub fn lint_gate(root: &Path, base: Option<&str>, declared: &str) -> Option<String> {
-    if switched(LINT_SWITCH) { buck2::gate(root, base?, declared) } else { None }
+    if switched(LINT_SWITCH) { buck2::gate(&deciding(false)?, root, base?, declared) } else { None }
 }
 
 /// The sides that build the tree's own binary for a check that runs it from the tree, in the order `north runtime
-/// tree-build` tries them: Buck2 first when `[hosts.NAME] buck2_tree_build` is true, the run names a `base`, and the
-/// tree has Buck2 targets whose configuration and definitions are `base`'s, then Cargo. The key moves this build alone: the host's `build_system` and
-/// every other line stay as they are.
+/// tree-build` tries them: Buck2 first when `[hosts.NAME] buck2_tree_build` is true, the host holds a readable store
+/// generation, the run names a `base`, and the tree has Buck2 targets whose configuration and definitions are `base`'s,
+/// then Cargo. The key moves this build alone: the host's `build_system` and every other line stay as they are.
 pub fn tree_builders(root: &Path, base: Option<&str>) -> Vec<Box<dyn BuildSystem>> {
     let mut sides: Vec<Box<dyn BuildSystem>> = Vec::new();
-    if switched(TREE_BUILD_SWITCH) {
-        match base.and_then(|base| buck2::tree_builder(root, base)) {
+    if let Some(side) = switched(TREE_BUILD_SWITCH).then(|| deciding(false)).flatten() {
+        match base.and_then(|base| buck2::tree_builder(side, root, base)) {
             Some(side) => sides.push(Box::new(side)),
             None => eprintln!("north runtime tree-build: this host builds a tree's north with Buck2 only for a run that names its base and a tree with Buck2 targets whose Buck2 configuration and target definitions are the base's, so Cargo builds this one"),
         }
@@ -113,15 +119,33 @@ fn switched(key: &str) -> bool {
 /// too and is marked in [`CrateTests::caseless`]. `variable` is the environment variable the line reads its selection
 /// from and `selected` its value, the workspace when unset. `None`, the line as declared, for a host without either key
 /// and wherever [`lint_gate`] would leave a lint line as declared.
+/// When the host also sets `buck2_host_cases = true`, a passed crate's host cases run from the binaries Buck2 builds
+/// ([`CrateTests::host_runs`]) rather than on the declared line.
 pub fn crate_tests(root: &Path, base: Option<&str>, declared: &str, variable: &str, selected: Option<&str>) -> Option<CrateTests> {
     let host = north_base::platform::host::name();
     let policy = north_base::platform::orchestration::read().ok()?;
     let named = |key: &str| -> BTreeSet<String> { policy.get("hosts").and_then(|hosts| hosts.get(host.as_str())?.get(key)?.as_array()).into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect() };
     let caseless = named(CASELESS_CRATES);
     let listed: BTreeSet<String> = named(TEST_CRATES).union(&caseless).cloned().collect();
-    let mut split = buck2::crate_tests(root, base?, declared, (variable, selected.filter(|selected| !selected.trim().is_empty()).unwrap_or("--workspace")), &listed, &buck2::packages(root).ok()?)?;
+    if listed.is_empty() {
+        return None;
+    }
+    let mut split = buck2::crate_tests(&deciding(true)?, root, base?, declared, (variable, selected.filter(|selected| !selected.trim().is_empty()).unwrap_or("--workspace")), (&listed, switched(HOST_CASES_SWITCH)), &buck2::packages(root).ok()?)?;
     split.caseless = split.moved.iter().filter(|name| caseless.contains(*name)).cloned().collect();
     Some(split)
+}
+
+/// The case runner's line for each test binary of `cases` (binary id to its host cases) in the tree at `root`, as a
+/// host with `buck2_host_cases` runs them ([`CrateTests::host_runs`]), whatever this host's policy says: each package's
+/// `target` built on the workers under the store generation's own host-case directory, its cases run here through the
+/// tree's `bin/land-shell --dev`. A host that holds no readable store generation runs none.
+pub fn host_case_runs(root: &Path, target: &str, cases: &BTreeMap<String, Vec<String>>) -> Result<BTreeMap<String, Vec<String>>, String> {
+    let side = Buck2::deciding(true, Path::new(buck2::generation::FILE))?;
+    if !side.governs(root) {
+        return Err(format!("{} has no Buck2 targets", root.display()));
+    }
+    side.enter(root);
+    buck2::host_runs(root, &Invocation::new(root, Shell::LandShell, Vec::new()).words, &side.host_cases_daemon(), target, &buck2::packages(root)?, cases)
 }
 
 /// Whether `command` is a nextest line of `.safe-push` whose listed crates a host's `buck2_test_crates` moves: one that
@@ -203,7 +227,7 @@ pub struct Build<'a> {
     pub jobs: Option<usize>,
     pub resolution: Resolution,
     pub shell: Shell,
-    /// Where build output goes, else the tool's default for the tree.
+    /// Where Cargo's build output goes, else its default for the tree; Buck2 copies its own into the tree's `buck-out/north`.
     pub output: Option<&'a Path>,
     /// Bypasses every compile cache, so the run measures the compiler itself.
     pub uncached: bool,

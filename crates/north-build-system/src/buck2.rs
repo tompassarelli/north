@@ -2,20 +2,59 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use serde::Deserialize;
 
 use super::cargo::Cargo;
 use super::{Build, BuildSystem, Invocation, Lint, Mutants, Profile, Resolution, Selection, Shell, Step, TestBinary, Tests};
 
+pub(crate) mod generation;
 pub(crate) mod test_record;
 
 /// Buck2 over the generated BUCK targets (north#1115): the root package is `//:north`, a workspace crate `//crates/NAME:NAME`
 /// with its tests beside it. A host chooses it with `build_system = "buck2"`. Until the host also sets `buck2_tests`, this side
 /// lists the test targets itself and leaves compiling and running them to Cargo, since box 5's verdicts are not yet equal.
+/// Every line runs under the isolation directory of the shared store's generation, where the host has one.
 pub struct Buck2 {
     pub tests: bool,
+    pub(crate) isolation: Option<String>,
+}
+
+impl Buck2 {
+    /// The side whose lines decide a land check: it needs the store's generation, since a directory no generation names may
+    /// hold what the daemon kept from before the store last changed.
+    pub(crate) fn deciding(tests: bool, file: &Path) -> Result<Self, String> {
+        let generation = generation::read(file)?.ok_or_else(|| format!("{} holds no store generation", file.display()))?;
+        Ok(Self { tests, isolation: Some(generation::isolation(generation)) })
+    }
+
+    /// The side of a tool that decides nothing: the store generation's directory where the host has one, else Buck2's own.
+    pub(crate) fn tool(tests: bool, file: &Path) -> Result<Self, String> {
+        Ok(Self { tests, isolation: generation::read(file)?.map(generation::isolation) })
+    }
+
+    fn words(&self, verb: &[&str]) -> Vec<String> {
+        let isolation = self.isolation.iter().flat_map(|dir| [generation::FLAG, dir.as_str()]);
+        std::iter::once("buck2").chain(isolation).chain(verb.iter().copied()).map(str::to_owned).collect()
+    }
+
+    /// The isolation directory of the host-case build, the generation's own when there is one.
+    pub(crate) fn host_cases_daemon(&self) -> String {
+        self.isolation.as_deref().map_or_else(|| HOST_CASES_DAEMON.to_owned(), |current| generation::beside(current, HOST_CASES_DAEMON))
+    }
+
+    /// The invocation of `words` in the tree at `root`, once every other generation's state is gone from it.
+    fn invocation(&self, root: &Path, shell: Shell, words: Vec<String>) -> Invocation {
+        self.enter(root);
+        Invocation::new(root, shell, words)
+    }
+
+    pub(crate) fn enter(&self, root: &Path) {
+        if let Some(current) = self.isolation.as_deref().filter(|_| !root.as_os_str().is_empty()) {
+            generation::retire(root, current);
+        }
+    }
 }
 
 const OUT: &str = "buck-out/north";
@@ -32,17 +71,19 @@ const CARGO_SETTING: &str = "CARGO_";
 const UNMATERIALISED: &str = "--materializations=none";
 /// Refuses an action that cannot run on the workers, whatever executor the tree's own platform names. `bin/land-shell` gives a Buck2 client the network only with it, so nothing a tree defines runs beside that network.
 const REMOTE_ONLY: &str = "--remote-only";
+const NO_REMOTE_CACHE: &str = "--no-remote-cache";
+/// The isolation dir of the host-case build, beside the generation's own: its own daemon and `buck-out`, since one daemon
+/// reuses an action's result across commands, so in the daemon of the cached test run before it a build without the cache could still hand on a cached binary.
+const HOST_CASES_DAEMON: &str = "host-cases";
 /// Buck2's exit status for a build the tree's own targets or code failed; an engine or daemon failure exits with another.
 const USER_ERROR: i32 = 3;
+/// The line of a build whose earlier copies stay: it prints why and exits 1, which no side reads as the tree failing to build.
+const UNCLEARED: &str = r#"printf 'north: %s, so Buck2 gives no verdict on this build\n' "$1" >&2; exit 1"#;
 /// What decides the gate's verdict and where the client sends its actions, besides the code it lints: the gate script, the tree's own buckconfig files, and the flake whose dev shell writes the toolchain buckconfig the tree includes.
 const GATE_ORIGIN: [&str; 6] = ["lint", ".buckconfig", ".buckconfig.local", ".buckconfig.d", "flake.nix", "flake.lock"];
 /// The toolchain buckconfig the tree's `.buckconfig` includes, which may hold any section: the flake's shell hook links it into the checkout from the store, untracked.
 const TOOLCHAIN_LINK: &str = ".buckconfig.flake";
 const NIX_STORE: &str = "/nix/store";
-
-fn words(verb: &[&str]) -> Vec<String> {
-    std::iter::once("buck2").chain(verb.iter().copied()).map(str::to_owned).collect()
-}
 
 fn package(name: &str) -> String {
     match name {
@@ -88,12 +129,12 @@ fn targets(selection: &Selection) -> Vec<String> {
     }
 }
 
-fn output_dir(root: &Path, profile: Profile, output: Option<&Path>) -> PathBuf {
+fn output_dir(root: &Path, profile: Profile) -> PathBuf {
     let profile = match profile {
         Profile::Dev => "dev",
         Profile::Release => "release",
     };
-    output.map_or_else(|| root.join(OUT), |output| root.join(output)).join(profile)
+    root.join(OUT).join(profile)
 }
 
 /// The clippy gate in place of `declared`, a lint line of `.safe-push`, for a host that moves its lint line alone
@@ -101,18 +142,23 @@ fn output_dir(root: &Path, profile: Profile, output: Option<&Path>) -> PathBuf {
 /// `base`'s byte for byte, and the toolchain buckconfig it includes the shell hook's own link: a tree's `.buckconfig`
 /// outranks the host's own and no flag overrides it for the remote execution client (cpx62, 2026-11-12), so a lane
 /// that rewrites one would name its own gate or its own endpoint. `None` leaves the line as declared.
-pub(crate) fn gate(root: &Path, base: &str, declared: &str) -> Option<String> {
-    let side = Buck2 { tests: false };
+pub(crate) fn gate(side: &Buck2, root: &Path, base: &str, declared: &str) -> Option<String> {
     if !side.governs(root) || !super::cargo::lints(declared) || !unchanged_since(root, base) || declared.matches(DECLARED).count() != 1 {
         return None;
     }
+    side.enter(root);
     let shell = declared.split_once(DECLARED)?.0;
     Some(behind(shell, side.lint(&Lint { root: Path::new(""), selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::Inherited })))
 }
 
 /// `issued` run behind `shell`, the part of a declared line before its Cargo command, without the line's Cargo settings.
 fn behind(shell: &str, issued: Invocation) -> String {
-    shell.split_whitespace().filter(|word| !word.starts_with(CARGO_SETTING)).map(str::to_owned).chain(issued.words).collect::<Vec<_>>().join(" ")
+    lead(shell).into_iter().chain(issued.words).collect::<Vec<_>>().join(" ")
+}
+
+/// The words of `shell`, the part of a declared line before its Cargo command, without the line's Cargo settings.
+fn lead(shell: &str) -> Vec<String> {
+    shell.split_whitespace().filter(|word| !word.starts_with(CARGO_SETTING)).map(str::to_owned).collect()
 }
 
 /// Whether the tree's gate script and its Buck2 configuration are those of `base`, with no untracked file among them.
@@ -142,8 +188,7 @@ fn linked_by_the_shell(root: &Path) -> bool {
 /// The side that builds the tree's own binary on a host whose `buck2_tree_build` is set: Buck2 when the tree at `root`
 /// has Buck2 targets and its Buck2 configuration and target definitions are `base`'s, since a lane that rewrites one
 /// would build the north its check runs with its own rules or its own endpoint. `None` leaves the build to Cargo.
-pub(crate) fn tree_builder(root: &Path, base: &str) -> Option<Buck2> {
-    let side = Buck2 { tests: false };
+pub(crate) fn tree_builder(side: Buck2, root: &Path, base: &str) -> Option<Buck2> {
     (side.governs(root) && unchanged_since(root, base) && targets_unchanged_since(root, base)).then_some(side)
 }
 
@@ -168,12 +213,29 @@ pub struct CrateTests {
     selected: Selected,
     /// The crates that move which the host's `buck2_caseless_crates` names as having no case, so Buck2 passes one whose targets passed with no case run.
     pub caseless: BTreeSet<String>,
+    /// The shell the declared line runs in, its words without the line's Cargo settings.
+    shell: Vec<String>,
+    /// The isolation directory the host-case build runs in.
+    daemon: String,
+    /// Whether this host runs a passed crate's host cases from the binaries Buck2 builds (`[hosts.NAME] buck2_host_cases`).
+    builds_host_cases: bool,
 }
 
 impl CrateTests {
     /// The crate that moves whose package holds the Buck2 target `label`, as Buck2's record names it (`root//crates/NAME:TARGET`).
     pub fn owner(&self, label: &str) -> Option<&str> {
         self.moved.iter().map(String::as_str).find(|name| self.packages.get(*name).is_some_and(|package| holds(package, label)))
+    }
+
+    /// Whether this host runs a passed crate's host cases from the binaries Buck2 builds rather than on the declared line.
+    pub fn builds_host_cases(&self) -> bool {
+        self.builds_host_cases
+    }
+
+    /// The case runner's line for each test binary of `cases` (binary id to its host cases), from the `target` of each one's
+    /// crate's package, run in the declared line's shell.
+    pub fn host_runs(&self, root: &Path, target: &str, cases: &BTreeMap<String, Vec<String>>) -> Result<BTreeMap<String, Vec<String>>, String> {
+        host_runs(root, &self.shell, &self.daemon, target, &self.packages, cases)
     }
 
     /// The declared line's package selection for what stays on Cargo once Buck2 passed `passed`; `None` when nothing is left.
@@ -217,8 +279,7 @@ pub(crate) fn named_selection(declared: &str, variable: &str) -> Option<(String,
 /// targets in the tree, the root package too; a listed crate without one stays on the declared line with a line saying
 /// so. `None` leaves the line as declared: another line, nothing to move, or a tree whose Buck2 configuration or target
 /// definitions are not `base`'s.
-pub(crate) fn crate_tests(root: &Path, base: &str, declared: &str, (variable, selected): (&str, &str), listed: &BTreeSet<String>, packages: &BTreeMap<String, String>) -> Option<CrateTests> {
-    let side = Buck2 { tests: true };
+pub(crate) fn crate_tests(side: &Buck2, root: &Path, base: &str, declared: &str, (variable, selected): (&str, &str), (listed, builds_host_cases): (&BTreeSet<String>, bool), packages: &BTreeMap<String, String>) -> Option<CrateTests> {
     if !selects_packages(declared, variable) || !side.governs(root) || !unchanged_since(root, base) || !targets_unchanged_since(root, base) {
         return None;
     }
@@ -240,9 +301,77 @@ pub(crate) fn crate_tests(root: &Path, base: &str, declared: &str, (variable, se
     if names.is_empty() {
         return None;
     }
+    side.enter(root);
     let run = Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Typed(packages.values().cloned().collect()), resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None };
     let line = behind(shell, side.tests(&run));
-    Some(CrateTests { moved: names, packages, line, selected, caseless: BTreeSet::new() })
+    Some(CrateTests { moved: names, packages, line, selected, caseless: BTreeSet::new(), shell: lead(shell), daemon: side.host_cases_daemon(), builds_host_cases })
+}
+
+/// How the host-case build uses the store's action results: not at all, since any client on the store's network may write one
+/// and these binaries run on the invoking host, outside any worker's sandbox.
+fn host_case_cache() -> &'static str {
+    NO_REMOTE_CACHE
+}
+
+/// What `north_host_cases` (build/rust_test.bzl) writes for one test target: its case runner, its binary and the
+/// environment its target sets less the workers' PATH, each path absolute in the checkout as the shell that built it
+/// sees it, which is where the case runs.
+#[derive(Deserialize)]
+struct HostPlan {
+    binary_id: String,
+    runner: Words,
+    binary: Words,
+    env: BTreeMap<String, Words>,
+}
+
+/// A command line as Buck2 writes one into JSON: one word, or a list of them.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Words {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl Words {
+    fn words(self) -> Vec<String> {
+        match self {
+            Self::One(word) => vec![word],
+            Self::Many(words) => words,
+        }
+    }
+}
+
+/// The case runner's line for each test binary of `cases` (binary id to its host cases) that the `target` of its crate's
+/// package in `packages` plans, once Buck2 built on the workers, in its own daemon and reading no cached result, what
+/// those targets name and left it in the checkout at `root`. Each line runs in `lead`, the shell the declared line runs in, from `root`: only the
+/// named cases of the binary, each in its own process on this host, with the environment its test target sets. A binary
+/// no plan names has no line.
+pub(crate) fn host_runs(root: &Path, lead: &[String], daemon: &str, target: &str, packages: &BTreeMap<String, String>, cases: &BTreeMap<String, Vec<String>>) -> Result<BTreeMap<String, Vec<String>>, String> {
+    let wanted: BTreeSet<&String> = cases.keys().filter_map(|binary| packages.get(binary.split_once("::").map_or(binary.as_str(), |(name, _)| name))).collect();
+    if wanted.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let build: Vec<String> = lead.iter().cloned().chain(["buck2", generation::FLAG, daemon, "build", REMOTE_ONLY, host_case_cache(), "--show-json-output"].map(str::to_owned)).chain(wanted.iter().map(|package| format!("{package}{target}"))).collect();
+    let started = Instant::now();
+    let built = Command::new(&build[0]).args(&build[1..]).current_dir(root).stdin(Stdio::null()).stderr(Stdio::inherit()).output().map_err(|error| format!("{}: {error}", build.join(" ")))?;
+    if !built.status.success() {
+        return Err(format!("{} exited {}", build.join(" "), built.status));
+    }
+    eprintln!("north land crate-tests: Buck2 built the host-case binaries of {} package(s) on the workers, uncached, in {:.1} s", wanted.len(), started.elapsed().as_secs_f64());
+    let plans: BTreeMap<String, PathBuf> = serde_json::from_slice(&built.stdout).map_err(|error| format!("buck2 build printed no JSON map of its outputs: {error}"))?;
+    let mut runs = BTreeMap::new();
+    for path in plans.values().map(|path| root.join(path)) {
+        let text = fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        let planned: Vec<HostPlan> = serde_json::from_str(&text).map_err(|error| format!("{}: {error}", path.display()))?;
+        for plan in planned {
+            let Some(named) = cases.get(&plan.binary_id) else { continue };
+            let env = plan.env.into_iter().map(|(name, value)| format!("{name}={}", value.words().join(" ")));
+            let selected = named.iter().flat_map(|case| ["--case".to_owned(), case.clone()]);
+            let runner = plan.runner.words().into_iter().chain(["--binary-id".to_owned(), plan.binary_id.clone()]).chain(selected).chain(["--".to_owned()]).chain(plan.binary.words());
+            runs.insert(plan.binary_id, lead.iter().cloned().chain(["env".to_owned()]).chain(env).chain(runner).collect());
+        }
+    }
+    Ok(runs)
 }
 
 /// The build file names the tree's own `.buckconfig` sets under `[buildfile]`, as path patterns; that file is `base`'s wherever this is asked.
@@ -280,24 +409,30 @@ impl BuildSystem for Buck2 {
     }
 
     fn dependency_graph(&self, root: &Path, shell: Shell, _resolution: super::Resolution) -> Invocation {
-        Invocation::new(root, shell, words(&["cquery", "deps(//...)", "--json", "--output-attribute", "name", "--output-attribute", "srcs"]))
+        self.invocation(root, shell, self.words(&["cquery", "deps(//...)", "--json", "--output-attribute", "name", "--output-attribute", "srcs"]))
     }
 
+    /// The `--out` copies are no generation's, so the run starts with none and a failed one leaves none to be read; they go under
+    /// the tree's `buck-out/north`, never `request.output`, which names a Cargo target directory a caller keeps. A copy that
+    /// cannot be cleared could be read as this run's, so the line then only prints why and fails as the machine, not the tree.
     fn build(&self, request: &Build) -> Invocation {
-        let mut words = words(&["build", REMOTE_ONLY]);
+        let out = output_dir(request.root, request.profile);
+        if let Err(why) = generation::clear(&out) {
+            return Invocation::new(request.root, Shell::Inherited, ["sh", "-c", UNCLEARED, "sh", &why].map(str::to_owned).to_vec());
+        }
+        let mut words = self.words(&["build", REMOTE_ONLY]);
         words.extend((request.profile == Profile::Release).then(|| "@mode/release".to_owned()));
         words.push(request.binary.map_or_else(|| "//:".to_owned(), |binary| format!("//:{binary}")));
         words.extend(request.jobs.into_iter().flat_map(|jobs| ["--num-threads".to_owned(), jobs.to_string()]));
-        let out = output_dir(request.root, request.profile, request.output);
         // Buck2's `--out` format: a target's one output is copied onto the path itself, so the path names the file, never its directory.
         words.extend(["--out".to_owned(), request.binary.map_or_else(|| format!("{}/", out.display()), |binary| out.join(binary).display().to_string())]);
         words.extend(request.uncached.then(|| "--no-remote-cache".to_owned()));
         words.extend(request.timings.then(|| ["--build-report".to_owned(), self.timings(request).display().to_string()]).into_iter().flatten());
-        Invocation::new(request.root, request.shell, words)
+        self.invocation(request.root, request.shell, words)
     }
 
     fn built(&self, request: &Build, name: &str) -> PathBuf {
-        output_dir(request.root, request.profile, request.output).join(name)
+        output_dir(request.root, request.profile).join(name)
     }
 
     fn tree_binary(&self, root: &Path, binary: &str) -> (Invocation, PathBuf) {
@@ -326,7 +461,7 @@ impl BuildSystem for Buck2 {
     }
 
     fn timings(&self, request: &Build) -> PathBuf {
-        output_dir(request.root, request.profile, request.output).join("build-report.json")
+        output_dir(request.root, request.profile).join("build-report.json")
     }
 
     fn tests(&self, request: &Tests) -> Invocation {
@@ -334,9 +469,9 @@ impl BuildSystem for Buck2 {
             return Cargo.tests(request);
         }
         let mut words = match &request.step {
-            Step::Compile => words(&["build", REMOTE_ONLY, UNMATERIALISED]),
-            Step::List => words(&["uquery", "--json", "--output-attribute", BINARY_ID]),
-            Step::Run { .. } => words(&["test", REMOTE_ONLY, ON_WORKERS]),
+            Step::Compile => self.words(&["build", REMOTE_ONLY, UNMATERIALISED]),
+            Step::List => self.words(&["uquery", "--json", "--output-attribute", BINARY_ID]),
+            Step::Run { .. } => self.words(&["test", REMOTE_ONLY, ON_WORKERS]),
         };
         words.extend(request.coverage.is_some().then(|| "@mode/coverage".to_owned()));
         let targets = targets(&request.selection);
@@ -345,7 +480,7 @@ impl BuildSystem for Buck2 {
             _ => words.extend(targets),
         }
         words.extend(request.uncached.then(|| "--no-remote-cache".to_owned()));
-        Invocation::new(request.root, request.shell, words)
+        self.invocation(request.root, request.shell, words)
     }
 
     fn listing(&self, printed: &str) -> Result<Vec<TestBinary>, String> {
@@ -354,17 +489,18 @@ impl BuildSystem for Buck2 {
     }
 
     fn check(&self, root: &Path, package: &str, _output: Option<&Path>) -> Invocation {
-        Invocation::new(root, Shell::Inherited, words(&["build", REMOTE_ONLY, UNMATERIALISED, &format!("{}{package}[check]", self::package(package))]))
+        self.invocation(root, Shell::Inherited, self.words(&["build", REMOTE_ONLY, UNMATERIALISED, &format!("{}{package}[check]", self::package(package))]))
     }
 
     fn lint(&self, request: &Lint) -> Invocation {
-        let mut words = words(&["bxl", REMOTE_ONLY, UNMATERIALISED, CLIPPY_GATE, "--", "--targets"]);
+        let mut words = self.words(&["bxl", REMOTE_ONLY, UNMATERIALISED, CLIPPY_GATE, "--", "--targets"]);
         words.extend(targets(&request.selection));
-        Invocation::new(request.root, request.shell, words)
+        self.invocation(request.root, request.shell, words)
     }
 
     fn land_line(&self, declared: &str) -> String {
         let (Some((shell, cargo)), 1) = (declared.split_once(DECLARED), declared.matches(DECLARED).count()) else { return declared.to_owned() };
+        self.enter(Path::new("."));
         if !self.tests || !(cargo.starts_with("nextest run ") || cargo.starts_with("test ")) || cargo.contains("--no-run") {
             return declared.to_owned();
         }

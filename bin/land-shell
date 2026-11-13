@@ -6,7 +6,8 @@ dev=0
 shift
 mode=run
 before=" $* " before=${before%% -- *}
-if [ "$(basename -- "${1:-}")" = buck2 ] && [[ "$before " == *' --remote-only '* ]]; then case "${2:-}" in build | test | bxl | targets | uquery | cquery | aquery) ;; run) printf 'land-shell: buck2 run --remote-only would run tree-defined code beside the network\n' >&2; exit 2 ;; *) printf 'land-shell: buck2 --remote-only is refused unless its first argument is build, test, bxl or a query verb\n' >&2; exit 2 ;; esac; fi
+verb=${2:-}; [ "$verb" != --isolation-dir ] || verb=${4:-}
+if [ "$(basename -- "${1:-}")" = buck2 ] && [[ "$before " == *' --remote-only '* ]]; then case "$verb" in build | test | bxl | targets | uquery | cquery | aquery) ;; run) printf 'land-shell: buck2 run --remote-only would run tree-defined code beside the network\n' >&2; exit 2 ;; *) printf 'land-shell: buck2 --remote-only is refused unless its first argument is build, test, bxl or a query verb\n' >&2; exit 2 ;; esac; fi
 [ "$(basename -- "${1:-}")" != buck2 ] || [[ "$before " != *' --remote-only '* ]] || mode=fetch
 if [ "${GITHUB_ACTIONS:-}" = true ]; then exec "$@"; fi
 hermetic=(env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL -u EMAIL GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)

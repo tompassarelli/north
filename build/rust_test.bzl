@@ -22,6 +22,11 @@ north_tree = rule(
     },
 )
 
+NorthHostCasesInfo = provider(
+    doc = "What the invoking host needs to run a test binary's host cases itself: the case runner, the binary and the environment its test target sets, less the workers' PATH, since a Cargo run keeps the invoking host's.",
+    fields = ["binary", "binary_id", "env", "runner"],
+)
+
 def _test_executor():
     if not read_root_config("buck2_re_client", "engine_address"):
         return None
@@ -61,6 +66,12 @@ def _north_test_impl(ctx: AnalysisContext) -> list[Provider]:
             use_project_relative_paths = True,
             supports_test_execution_caching = True,
             default_executor = _test_executor(),
+        ),
+        NorthHostCasesInfo(
+            binary = ctx.attrs.binary[RunInfo],
+            binary_id = ctx.attrs.binary_id,
+            env = {name: value for name, value in ctx.attrs.env.items() if name != "PATH"},
+            runner = ctx.attrs._runner[RunInfo],
         ),
     ]
 
@@ -104,3 +115,21 @@ def north_rust_test(name, binary_id, env = {}, run_env = {}, resources = [], lab
         resources = ([":files"] if native.package_name() else []) + ["//:files"] + resources,
         skip = skip,
     )
+
+def _north_host_cases_impl(ctx: AnalysisContext) -> list[Provider]:
+    runs = [test[NorthHostCasesInfo] for test in ctx.attrs.targets]
+    plan = ctx.actions.write_json(
+        "host-cases.json",
+        [{"binary": cmd_args(run.binary), "binary_id": run.binary_id, "env": run.env, "runner": cmd_args(run.runner)} for run in runs],
+        absolute = True,
+    )
+    needed = [cmd_args(run.binary, run.runner, run.env.values()) for run in runs]
+    return [DefaultInfo(default_output = plan, other_outputs = needed)]
+
+north_host_cases = rule(
+    impl = _north_host_cases_impl,
+    doc = "A package's host cases as the invoking host runs them: one JSON plan naming, for each test target that holds some, its case runner, its binary and its environment, with those files left in this checkout by the build.",
+    attrs = {
+        "targets": attrs.list(attrs.dep(providers = [NorthHostCasesInfo]), default = []),
+    },
+)

@@ -13,24 +13,60 @@ const GATE: &str = "./bin/land-shell --dev -- buck2 bxl --remote-only --material
 const SCAN: &str = "CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-buck/src/,crates/north-build-system/src/,src/cli/ --no-build buck targets --check";
 
 #[test]
-fn a_buck2_host_runs_its_own_tests_only_behind_the_test_switch_and_moves_a_lint_line_only_through_the_guarded_gate() {
-    let (builds, tests_too) = (Buck2 { tests: false }, Buck2 { tests: true });
+fn a_buck2_host_runs_its_own_tests_only_behind_the_test_switch_and_moves_a_lint_line_only_through_the_guarded_gate_under_the_store_generation() {
+    let etc = tempfile::tempdir().unwrap();
+    let (missing, file) = (etc.path().join("missing"), etc.path().join("store-generation"));
+    let (builds, tests_too) = (Buck2::tool(false, &missing).unwrap(), Buck2::tool(true, &missing).unwrap());
+
 
     assert_eq!((builds.land_line(CLIPPY), tests_too.land_line(CLIPPY)), (CLIPPY.to_owned(), CLIPPY.to_owned()), "a lint line is not rewritten where the checks are listed: only the gate, behind buck2_lint and the base's gate and configuration, moves it");
     assert_eq!(builds.land_line(NEXTEST), NEXTEST, "the test run stays Cargo's until the host sets buck2_tests");
     assert_eq!(tests_too.land_line(NEXTEST), "./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re //...");
     assert_eq!((tests_too.land_line(SCAN), Cargo.land_line(CLIPPY)), (SCAN.to_owned(), CLIPPY.to_owned()), "a line that runs no lint or test, and every line on a Cargo host, runs as declared");
     assert!(crate::lints(CLIPPY) && crate::lints(GATE) && !crate::lints(NEXTEST), "the lint line of either side is told from a test line");
+    assert!(Buck2::deciding(true, &missing).is_err(), "a line that decides a land check needs the store generation");
+    assert_eq!(tests_too.host_cases_daemon(), "host-cases");
+
+    std::fs::write(&file, "3\n").unwrap();
+    let generation = Buck2::deciding(true, &file).unwrap();
+    assert_eq!(generation.land_line(NEXTEST), "./bin/land-shell --dev -- buck2 --isolation-dir north-g3 test --remote-only --unstable-allow-compatible-tests-on-re //...", "every line runs under the generation's own isolation directory");
+    assert_eq!(Buck2::tool(true, &file).unwrap().land_line(NEXTEST), generation.land_line(NEXTEST));
+    assert_eq!(generation.host_cases_daemon(), "north-g3-host-cases", "the host-case build's own daemon is the generation's too");
+    for malformed in ["3", "three\n", "3\n4\n", "\n"] {
+        std::fs::write(&file, malformed).unwrap();
+        assert!(Buck2::deciding(true, &file).is_err() && Buck2::tool(true, &file).is_err(), "{malformed:?} is refused, not read as no generation");
+    }
+
+    let tree = tempfile::tempdir().unwrap();
+    let held = ["north-g2", "north-g2-host-cases", "north-g3", "north-g3-host-cases", "north", "host-cases"];
+    for dir in held {
+        std::fs::create_dir_all(tree.path().join("buck-out").join(dir)).unwrap();
+    }
+    super::generation::retire(tree.path(), "north-g3");
+    let kept = held.map(|dir| tree.path().join("buck-out").join(dir).is_dir());
+    assert_eq!(kept, [false, false, true, true, true, true], "a generation's first line removes every directory of another generation, the one beside its own too, and nothing else");
 }
+
 
 #[test]
 fn a_buck2_host_builds_a_tree_s_north_with_buck2_and_calls_the_tree_broken_only_on_buck2_s_user_error() {
-    let side = Buck2 { tests: false };
+    let side = Buck2 { tests: false, isolation: None };
     let (invocation, binary) = side.tree_binary(Path::new("/tree"), "north");
 
     assert_eq!(invocation.words, ["buck2", "build", "--remote-only", "//:north", "--out", "/tree/buck-out/north/dev/north", "--no-remote-cache"]);
     assert_eq!(binary, Path::new("/tree/buck-out/north/dev/north"));
     assert!(side.broken(Some(3), "") && !side.broken(Some(2), "") && !side.broken(None, ""), "only exit 3, Buck2's user error, blames the tree; an engine or daemon failure gives no verdict");
+
+    let tree = tempfile::tempdir().unwrap();
+    let out = tree.path().join("buck-out/north/dev");
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(out.join("north"), "an earlier run's copy").unwrap();
+    std::fs::set_permissions(&out, std::os::unix::fs::PermissionsExt::from_mode(0o555)).unwrap();
+    let (stuck, _) = side.tree_binary(tree.path(), "north");
+    let ran = stuck.command().stdin(Stdio::null()).output().unwrap();
+    let (status, told) = (ran.status, String::from_utf8_lossy(&ran.stderr));
+    std::fs::set_permissions(&out, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    assert!(out.join("north").is_file() && !status.success() && !side.broken(status.code(), "") && told.contains("cannot clear") && !stuck.words.contains(&"buck2".to_owned()), "a copy the build cannot clear gives no Buck2 verdict, so the next side builds the tree: {status} {told}");
 }
 
 #[test]
@@ -45,7 +81,8 @@ fn a_lint_only_host_runs_the_gate_only_while_the_tree_s_gate_script_and_buck2_co
     for arguments in [&["init", "-q"][..], &["add", "."], &["commit", "-qm", "base"], &["tag", "base"]] {
         git(arguments);
     }
-    let gate = |declared: &str| super::gate(tree.path(), "base", declared);
+    let side = Buck2 { tests: false, isolation: None };
+    let gate = |declared: &str| super::gate(&side, tree.path(), "base", declared);
 
     write("code.rs", "two\n");
     assert_eq!(
@@ -54,7 +91,7 @@ fn a_lint_only_host_runs_the_gate_only_while_the_tree_s_gate_script_and_buck2_co
         "a lane that changes code alone is linted by the gate"
     );
     assert_eq!((gate(NEXTEST), gate(SCAN)), (None, None), "the key moves the lint line alone");
-    assert_eq!(super::gate(tree.path(), "no-such-base", CLIPPY), None, "a base this checkout lacks leaves the line as declared");
+    assert_eq!(super::gate(&side, tree.path(), "no-such-base", CLIPPY), None, "a base this checkout lacks leaves the line as declared");
     write("lint/clippy.bxl", "a lane's own gate\n");
     assert_eq!(gate(CLIPPY), None, "a lane that rewrites the gate script is linted by Cargo, not by its own gate");
     write("lint/clippy.bxl", "gate\n");
@@ -104,7 +141,8 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     let packages = [("a", "//crates/a:"), ("b", "//crates/b:"), ("c", "//crates/c:"), ("m", "//crates/x/m:"), ("north", "//:")].map(|(name, package)| (name.to_owned(), package.to_owned())).into();
     let none = std::collections::BTreeSet::new();
     let passed: std::collections::BTreeSet<String> = ["a".to_owned()].into();
-    let split = |declared: &str, selected: &str| super::crate_tests(tree.path(), "base", declared, ("SAFE_PUSH_LAND_PACKAGES", selected), &listed, &packages).map(|split| ((split.moved.clone(), split.line.clone()), split.left(&passed), split.left(&none)));
+    let side = Buck2 { tests: true, isolation: None };
+    let split = |declared: &str, selected: &str| super::crate_tests(&side, tree.path(), "base", declared, ("SAFE_PUSH_LAND_PACKAGES", selected), (&listed, false), &packages).map(|split| ((split.moved.clone(), split.line.clone()), split.left(&passed), split.left(&none)));
     let on_buck2 = |names: &[&str], targets: &str| (names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>(), format!("./bin/land-shell --dev -- buck2 test --remote-only --unstable-allow-compatible-tests-on-re {targets}"));
     let flags = |flags: &str| Some(flags.to_owned());
 
@@ -123,12 +161,12 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     assert!(super::selects_packages(guards, "SAFE_PUSH_LAND_PACKAGES") && !super::selects_packages(CLIPPY, "SAFE_PUSH_LAND_PACKAGES"), "the runner hands such a line to the split");
     assert_eq!((super::named_selection(NEXTEST, "SAFE_PUSH_LAND_PACKAGES"), super::named_selection(&format!("{guards} -p c"), "SAFE_PUSH_LAND_PACKAGES")), (None, None), "a line that reads the variable, or names its packages apart, keeps its own form");
     assert_eq!(split(CLIPPY, "-p a"), None, "the key moves the nextest line alone");
-    let moved = super::crate_tests(tree.path(), "base", NEXTEST, ("SAFE_PUSH_LAND_PACKAGES", "--workspace"), &listed, &packages).unwrap();
+    let moved = super::crate_tests(&side, tree.path(), "base", NEXTEST, ("SAFE_PUSH_LAND_PACKAGES", "--workspace"), (&listed, false), &packages).unwrap();
     let owners = ["root//crates/a:a-unittest", "root//crates/ab:ab-unittest", "root//:north-unittest", "root//crates/b:b-unittest", "root//crates/x/m:m-unittest", "root//crates/m:m-unittest"].map(|label| moved.owner(label));
     assert_eq!(owners, [Some("a"), None, Some("north"), None, Some("m"), None], "a target in Buck2's record belongs to the moved crate whose package holds it");
     std::fs::write(tree.path().join("crates/a/BUCK"), "a test that passes whatever the code does\n").unwrap();
     assert_eq!(split(NEXTEST, "-p a"), None, "a lane that changes a BUCK file is tested by Cargo: it could define its own passing test");
-    let builds_with_buck2 = || super::tree_builder(tree.path(), "base").is_some();
+    let builds_with_buck2 = || super::tree_builder(Buck2 { tests: false, isolation: None }, tree.path(), "base").is_some();
     assert!(!builds_with_buck2(), "and its own north is built by Cargo, since it could define the north its check runs");
     git(&["checkout", "-q", "--", "crates/a/BUCK"]);
     std::fs::write(tree.path().join("crates/b/rules.bzl"), "a rule\n").unwrap();

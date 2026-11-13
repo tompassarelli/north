@@ -1,6 +1,6 @@
 &[
 Command { name: "checks", usage: "north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]", run: slots::runner::run },
-Command { name: "crate-tests", usage: "north land crate-tests available | north land crate-tests -- COMMAND", run: slots::listed_crates::run },
+Command { name: "crate-tests", usage: "north land crate-tests available | north land crate-tests host-cases [PACKAGE...] | north land crate-tests -- COMMAND", run: slots::listed_crates::run },
 Command { name: "enqueue", usage: "north land enqueue [--repo DIR] [--message FILE]", run: enqueue::run },
 Command { name: "follow", usage: "", run: after::follow::run },
 Command { name: "lint", usage: "north land lint available | north land lint -- COMMAND", run: slots::lint_gate::run },

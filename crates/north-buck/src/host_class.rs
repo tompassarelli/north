@@ -97,3 +97,6 @@ pub fn filter(root: &Path, base: Option<&str>, packages: &[String]) -> Result<Op
     let terms: Vec<String> = reviewed(root, base)?.into_iter().filter(|(binary, _)| chosen(binary)).map(|(binary, case)| format!("(binary_id(={binary})&test(={case}))")).collect();
     Ok((!terms.is_empty()).then(|| terms.join("|")))
 }
+
+/// The target `north buck targets` writes in each package whose tests hold host cases, whose one output plans how the invoking host runs them (build/rust_test.bzl).
+pub const TARGET: &str = "host-cases";

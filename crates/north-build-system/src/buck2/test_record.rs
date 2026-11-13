@@ -11,8 +11,9 @@ use serde_json::Value;
 use super::Buck2;
 use crate::{BuildSystem, Cases, Resolution, Selection, Shell, Step, TestRun, Tests};
 
-const TEST: &str = "buck2 test";
-const SHOW: &str = "buck2 log show";
+const CLIENT: &str = "buck2 ";
+const TEST: &str = "test";
+const SHOW: &str = "log show";
 const ENDED: &str = "\"TestEnd\"";
 const RESULT: &str = "\"TestResult\"";
 const PASS: u64 = 1;
@@ -22,9 +23,14 @@ const RAN: &str = "PASS";
 const FAILED: &str = "FAIL";
 const SIGNAL: &str = "SIG";
 
-/// The command that prints the record of the run `test` made: `buck2 log show` behind whatever shell `test` ran its `buck2 test` in.
+/// The command that prints the record of the run `test` made: `buck2 log show` behind whatever shell `test` ran its `buck2 test` in, under the isolation directory that run used.
 pub fn command(test: &str) -> Option<String> {
-    test.split_once(TEST).map(|(shell, _)| format!("{shell}{SHOW}"))
+    let (shell, client) = test.split_once(CLIENT)?;
+    let (isolation, verb) = match client.strip_prefix(super::generation::FLAG).and_then(|rest| rest.strip_prefix(' ')) {
+        Some(rest) => rest.split_once(' ').map(|(dir, verb)| (format!("{} {dir} ", super::generation::FLAG), verb))?,
+        None => (String::new(), client),
+    };
+    (verb == TEST || verb.starts_with(&format!("{TEST} "))).then(|| format!("{shell}{CLIENT}{isolation}{SHOW}"))
 }
 
 fn label(target: &Value) -> Option<String> {
@@ -83,7 +89,7 @@ fn case(line: &str) -> Option<String> {
 pub(crate) fn executed(root: &Path, name: &str) -> Result<BTreeSet<String>, String> {
     let package = super::packages(root)?.remove(name).filter(|package| super::defined(root, package)).ok_or_else(|| format!("{name} has no Buck2 package in this tree"))?;
     let request = Tests { root, step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Typed(vec![package.clone()]), resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, coverage: None };
-    let test = Buck2 { tests: true }.tests(&request);
+    let test = Buck2::tool(true, Path::new(super::generation::FILE))?.tests(&request);
     let line = test.words.join(" ");
     let status = test.command().stdin(Stdio::null()).stdout(std::io::stderr()).status().map_err(|error| format!("{line}: {error}"))?;
     eprintln!("{line} exited {status}");

@@ -67,7 +67,7 @@ impl Category {
         let has = |word: &str| command.contains(word);
         if has("clippy") || has("code-health") || has("check-owners") || has("fmt --check") {
             Category::Lint
-        } else if has("cargo test") || has("nextest") || has("buck2 test") || has(".test.sh") || has("bun test") || has("land tests") {
+        } else if has("cargo test") || has("nextest") || north_build_system::test_record(command).is_some() || has(".test.sh") || has("bun test") || has("land tests") {
             Category::Test
         } else if has("cargo check") || has("cargo build") || command.trim_end().ends_with(" --build") {
             Category::Compile

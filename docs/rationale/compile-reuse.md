@@ -477,10 +477,18 @@ The store was on cpx62, with Buildbarn workers on gex45 (8 slots), cpx62 and cpx
    - Cost: 0.5 to 0.9 GiB resident for each lane that has built `//...`. gex45 had 16 north worktrees touched in the
      last two hours, so 8 to 15 GiB of its 62 GiB.
    - Saved: each lane's 1.7 to 10.4 GiB target and the copy that seeded it.
-2. **Every checkout builds under the default isolation dir `v2`.** A second isolation dir shares nothing with `v2`
-   (see Measured on Buck2) and rebuilds everything once for its name: 47 to 74 s cold and about 2,400 more
-   entries in the 64 GiB store. The build seam passes no `--isolation-dir`, so `north build-time` measures with
-   `--no-remote-cache` under `v2`, not in a scratch dir (box 7a's inventory planned a scratch dir).
+2. **Every checkout builds under the isolation dir of the shared store's generation, else the default `v2`.** A second
+   isolation dir shares nothing with `v2` (see Measured on Buck2) and rebuilds everything once for its name: 47 to 74 s
+   cold and about 2,400 more entries in the 64 GiB store. Buck2's local state must not outlive a change of the store's
+   generation, which the system configuration writes on a client host to `/etc/buildbarn/store-generation` and north
+   only reads. Where it holds N, every Buck2 line north forms runs under `north-gN`, so its daemon and `buck-out` are
+   that generation's alone, and a tree's first line under N ends the daemon of every other `north-gM` and removes its
+   output directory, printing each. A line that decides a land check (the lint gate, the listed crates' tests and a
+   build a host key chooses) needs the file: missing, unreadable or malformed sends it to Cargo with the reason. A tool
+   that decides nothing (`north buck compare-cases`) runs under `v2` without the file and refuses a malformed one. The
+   `--out` copies are no generation's, so a build removes its out dir before it runs and every reader reads it only
+   after the build exits 0. `north build-time` measures with `--no-remote-cache` in the same dir, not in a scratch dir
+   (box 7a's inventory planned a scratch dir).
    - The one exception is rust-project's `.rust-analyzer` dir (box 10), which keeps an editor's builds from waiting
      on the lane's build. The path is in no key, so its proc-macro and build-script outputs (394 of 2,425 actions)
      are built once per input across the fleet under that name, not once per checkout.
@@ -726,6 +734,17 @@ build scripts and procedural macros.
   A unit test it gains runs in its existing `-unittest` target; an integration test file it gains has no target until
   the generated `BUCK` names it, and `north buck targets --check`, the land check on `crates/`, refuses the lane
   until then, while a lane that changes the `BUCK` file is tested by Cargo in full.
+- **Host cases (`buck2_host_cases`).** The cases no remote worker can run (`build/host-cases.list`) are skipped by
+  the Buck2 targets, and a passed crate's share of them runs on the declared line narrowed to them, which compiles
+  that crate's test binaries with Cargo. A host that also sets `buck2_host_cases = true` takes them off Cargo: `buck2
+  --isolation-dir host-cases build --remote-only --no-remote-cache`, in its own daemon so no result the cached test run
+  left in the shared one is reused, builds each class package's `host-cases` target on the workers, whose one
+  output is a plan naming the case runner, the test binary and the environment its test target sets, and leaves those
+  files in the checkout; the case runner then runs each listed case by name on the invoking host, in the declared
+  line's shell, as the same user, from the repository root, which is where and as whom Cargo runs it. Only the test
+  process runs there; nothing else of the tree does. The step fails when a binary has no plan, a listed case is not
+  in its binary, a case fails, or the cases run and passed differ from the class. `north land crate-tests host-cases
+  [PACKAGE...]` runs the step alone.
 
 A check build passes `--materializations=none` (`-M none`): the lint gate, the type check and the compile before a
 test run leave their outputs in the store, since nothing after them reads one (Lanes: 4.3 s against 71 s and
@@ -753,7 +772,7 @@ With `buck2_tests` unset the nextest lines still compile with Cargo, so the warm
 
 What each of the four does on the Buck2 side, and what it cannot yet do that the Cargo side does:
 
-- Build: `buck2 build [@mode/release] //:BIN --out DIR/BIN`. It writes no per-unit timings line: `--build-report`
+- Build: `buck2 build [@mode/release] //:BIN --out buck-out/north/PROFILE/BIN`, under a directory no Cargo run uses. It writes no per-unit timings line: `--build-report`
   records each target's outcome and outputs, not how long each compile unit took, so the runtime build's timings
   reader has nothing to read. The fails-first flake runs (`[flake] build`) still compile with Cargo.
 - Lint: the clippy gate over `//...`. It takes no changed-crate selection: it lints every first-party target, and an

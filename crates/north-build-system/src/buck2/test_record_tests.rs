@@ -18,5 +18,7 @@ fn a_buck2_test_record_names_each_test_binary_s_action_and_only_a_cache_hit_is_r
     );
     assert!(read[2].printed.contains("PASS [   1.123s] north-git-locks tests::worktrees_of_one_clone_fetching_a_moving_origin_at_once_all_succeed_north_1190"), "{}", read[2].printed);
     assert_eq!(command("./bin/land-shell --dev -- buck2 test //...").as_deref(), Some("./bin/land-shell --dev -- buck2 log show"));
+    assert_eq!(command("./bin/land-shell --dev -- buck2 --isolation-dir north-g3 test //...").as_deref(), Some("./bin/land-shell --dev -- buck2 --isolation-dir north-g3 log show"), "the record is read from the daemon of the generation the run used");
+    assert_eq!(command("./bin/land-shell --dev -- buck2 --isolation-dir north-g3 build //..."), None);
     assert_eq!(command("cargo nextest run --workspace"), None);
 }
