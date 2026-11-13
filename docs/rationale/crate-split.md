@@ -329,6 +329,51 @@ on the lander: root `it` 38.6 s, `north-core` 21.8 s, `north-landing` 9.7 s, `no
   `north-core` edit.
 - Lander walls: `land check: BINARY passed after N s` lines in `~/.local/state/safe-push/land-check-*.log`.
 
+### Remeasured 2026-11-13 at f4c9c9a4a
+
+Twenty-three of the 25 tests above are gone: the root `it` cull (2e5bb8059, north#635), the north-threads cull
+(34a87b9c6) and the lane-gc rewrite (6909cadd2) removed them. The other two already carry their levers: the
+dispatch order test formats its trail only on a broken rule and runs its seeds on every core, and the estimate
+replay keeps its newest-runs index incrementally. So the list was measured again on gex45 inside one heavy lease
+(6 CPUs, `RUST_TEST_THREADS=6`), as the CPU-seconds the lease's cgroup `cpu.stat` gained. GNU time cannot see
+them here, because the cargo shim runs the build and the tests in their own capacity scope.
+
+- Suite: 82 test targets, 1836 tests, 253 CPU-s at most (156 fewer than the 409.2 above). A `cargo test -p`
+  may rebuild under that package's feature set, so the per-target figures are upper bounds: north-lander `it`
+  58.1, root `it` 27.6, north-offload unit tests 25.6, north-dispatch 21.7, north-lander unit tests 15.8.
+- Each of the 60 tests with the longest wall in those runs then ran alone (`--exact NAME --test-threads=1`).
+  Its figure is its cgroup CPU-seconds less those of a run of the same target that filters out every test
+  (0.20 to 0.30 CPU-s of cargo and harness start). The 25 below sum to 69.1 CPU-s and the top 20 to 65.4.
+  Most of the wall in the offload ship tests is waiting: the costliest of them spends 21.0 s of wall and 3.8 CPU-s.
+
+| # | Test (target) | CPU-s |
+| ---: | --- | ---: |
+| 1 | `dispatch::order_tests::holds_and_claims_obey_the_rules_over_every_generated_order_of_events` (north-dispatch unit tests) | 10.7 |
+| 2 | `carry_matrix::carry_matrix_every_entry_runs_the_dev_shell_cargo_sees_the_landing_base_and_exits_127_for_a_missing_program` (north it) | 5.7, failed in this sandbox |
+| 3 | `land::enqueue::tests::a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_keeps_it_as_it_is_a_test_over_the_budget_is_refused_a_revert_of_newer_main_queues_with_its_would_be_refusal_logged_and_a_conflict_with_main_is_refused_before_it_queues` (north-lander unit tests) | 5.4 |
+| 4 | `dispatch::tier_tests::every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_category_is_refused_and_effort_and_context_arms_draw_their_seeded_shares` (north-dispatch unit tests) | 4.7 |
+| 5 | `land::wall_time_tests::no_land_check_or_test_reads_wall_time_or_host_load` (north-land-checks unit tests) | 4.5 |
+| 6 | `foundation::shim::tests::scripts_written_and_run_by_concurrent_forking_threads_never_hit_a_busy_text_file` (north-foundation unit tests) | 4.0 |
+| 7 | `land_offload::ship::tests::a_red_fix_then_a_lander_placed_hand_in_takes_the_first_freed_slot_ahead_of_earlier_worker_builds_while_a_background_sweep_holds_none_of_their_slots` (north-offload unit tests) | 3.8 |
+| 8 | `lander_fix::the_lander_fix_queued_at_12_57_pm_behind_twenty_lanes_and_seven_urgent_ones_is_the_first_commit_of_the_one_push_of_the_whole_queue` (north-lander it) | 3.7 |
+| 9 | `land::enqueue::tests::a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queues_the_same_head_until_the_withdrawer_clears_it_or_the_head_changes` (north-lander unit tests) | 3.5 |
+| 10 | `hand_in::a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_before_the_verdict_and_each_hand_in_fact_is_fetched_once` (north-lander it) | 3.2 |
+| 11 | `hand_in::a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_a_stopped_rebase_or_a_lane_it_may_not_remove_in_keeps_no_untracked_file_and_a_real_conflict_stays_a_refusal_naming_the_file` (north-lander it) | 2.8 |
+| 12 | `land_first::a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts_exactly_the_culprits` (north-lander it) | 2.5 |
+| 13 | `land_offload::ship::tests::a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_a_slot_or_waits_while_one_whose_connection_dropped_waits_for_its_client_to_reattach` (north-offload unit tests) | 2.1 |
+| 14 | `land_offload::ship::tests::many_checks_queued_at_once_on_an_idle_host_all_start` (north-offload unit tests) | 1.9 |
+| 15 | `land_first::a_candidate_is_pushed_while_an_alone_check_is_in_flight` (north-lander it) | 1.5 |
+| 16 | `land_offload::ship::tests::a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_waiting_out_the_queue_and_ends_it_with_its_check_and_a_held_slot_takes_only_jobs_with_its_token_while_its_caller_lives` (north-offload unit tests) | 1.3 |
+| 17 | `land_offload::ship::tests::a_lane_check_waits_while_the_hosts_admission_refuses_and_a_lander_job_queued_after_it_takes_a_free_slot_first` (north-offload unit tests) | 1.2 |
+| 18 | `capacity_exclusive_native::exclusive_lease_and_native_timing_session_started_in_the_same_instant_never_run_together` (north it) | 1.0 |
+| 19 | `land_offload::ship::tests::a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_the_sccache_base` (north-offload unit tests) | 1.0 |
+| 20 | `land_offload::ship::tests::repositories_with_jobs_queued_for_one_slot_take_it_in_turn_instead_of_one_draining_first` (north-offload unit tests) | 0.9 |
+| 21 | `threads::client::tests::a_busy_ledger_host_spools_the_batch_keeps_it_queued_and_stays_reachable_for_other_commands` (north-threads unit tests) | 0.8 |
+| 22 | `lanes::reap_tests::a_sweep_reaps_only_spent_lanes_and_keeps_every_other_shape` (north-lanes unit tests) | 0.8 |
+| 23 | `capacity::host::estimate_replay_tests::the_recorded_week_of_runs_is_covered_by_its_estimates_without_over_reserving` (north-capacity-host unit tests) | 0.8 |
+| 24 | `land_offload::ship::tests::offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order` (north-offload unit tests) | 0.7 |
+| 25 | `land_offload::ship::tests::a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slot_and_refuses_a_live_daemon_or_an_output_it_cannot_remove` (north-offload unit tests) | 0.6 |
+
 ## Next cuts
 
 Planned 2026-11-05 at ec20479a5 (north#259 box 4). That base already has box 1 (no module outside `ops` names
