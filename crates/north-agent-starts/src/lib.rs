@@ -1,4 +1,4 @@
-//! Local agent starts: the one door from the operator's fleet to a session as the agent user on this host. A worker writes a start request into its own spool location; the starter, a system unit running as the operator outside every session scope, reads each request as fixed fields, never a command, and hands the validated request on standard input to a fixed entry it opens as the agent through machined's host shell, which polkit admits for that unit alone; the entry reads the same fixed fields and records the request. It depends on no other north crate, so the host configuration builds it alone into the store, and the unit runs nothing the operator can write.
+//! Local agent starts: the one door from the operator's fleet to a session as the agent user on this host. The fleet tick writes a start request, once it has judged the asking session by its fleet record, its role and task, into a directory no worker's sandbox writes; the starter, a system unit running as the operator outside every session scope, reads each request as fixed fields, never a command, and hands the validated request on standard input to a fixed entry it opens as the agent through machined's host shell, which polkit admits for that unit alone; the entry reads the same fixed fields and records the request. It depends on no other north crate, so the host configuration builds it alone into the store, and the unit runs nothing the operator can write.
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
@@ -8,11 +8,10 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-/// The extension of a start request in a session's spool location.
+/// The extension of a start request in the request directory.
 pub const REQUEST: &str = "start";
 /// The line the entry prints once it reads its terminal, before which the starter writes nothing.
 pub const READY: &str = "north-agent-starts: ready";
-const SESSIONS: &str = "sessions";
 const REJECTED: &str = "rejected";
 const RECORDS: &str = ".local/state/north/agent-starts";
 const LIMIT: u64 = 4096;
@@ -42,7 +41,7 @@ impl StartRequest {
         Ok(request)
     }
 
-    /// The request as the one line the entry reads, written from the parsed fields rather than the spooled bytes.
+    /// The request as the one line the entry reads, written from the parsed fields rather than the bytes read.
     pub fn line(&self) -> String {
         let mut line = serde_json::to_string(self).unwrap_or_default();
         line.push('\n');
@@ -65,63 +64,51 @@ fn beneath(field: &str, path: &Path, home: &Path) -> Result<(), String> {
     if plain && path.starts_with(home) && path != home { Ok(()) } else { Err(format!("{field} {text:?} is not a plain path beneath {}", home.display())) }
 }
 
-/// The fleet spool the starter reads: each session's own location beneath `sessions`, which only that session's worker writes.
-pub struct Spool {
+/// The directory of start requests the starter reads: beside the fleet spool and outside every session's spool location, so no worker's sandbox writes it, and only the fleet tick fills it, judging each asking session by its fleet record, its role and task.
+pub struct Requests {
     dir: PathBuf,
 }
 
-impl Spool {
+impl Requests {
     pub fn at(dir: &Path) -> Self {
         Self { dir: dir.to_path_buf() }
     }
 
-    /// Every start request waiting in a session's location, oldest name first.
+    /// Every start request waiting directly in the directory, oldest name first.
     pub fn waiting(&self) -> io::Result<Vec<PathBuf>> {
-        let mut found = Vec::new();
-        for session in entries(&self.dir.join(SESSIONS))? {
-            if fs::symlink_metadata(&session).is_ok_and(|meta| meta.is_dir()) {
-                found.extend(entries(&session)?.into_iter().filter(|path| path.extension().is_some_and(|extension| extension == REQUEST)));
-            }
-        }
+        let mut found: Vec<PathBuf> = match fs::read_dir(&self.dir) {
+            Ok(entries) => entries.flatten().map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == REQUEST)).collect(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(error),
+        };
         found.sort();
         Ok(found)
     }
 
-    /// The bytes of the request at `path` when it is a regular file, else none, the entry then set aside under `rejected`.
+    /// The bytes of the request at `path` when it opens as a regular file, else none, the request then set aside under `rejected`.
     pub fn read(&self, path: &Path) -> io::Result<Option<Vec<u8>>> {
-        if !fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file()) {
+        let opened = fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file()).then(|| fs::OpenOptions::new().read(true).custom_flags((rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32).open(path).ok()).flatten();
+        let Some(file) = opened else {
             self.set_aside(path)?;
             return Ok(None);
-        }
-        let file = fs::OpenOptions::new().read(true).custom_flags((rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32).open(path)?;
+        };
         let mut bytes = Vec::new();
         file.take(LIMIT).read_to_end(&mut bytes)?;
         Ok(Some(bytes))
     }
 
     pub fn set_aside(&self, path: &Path) -> io::Result<()> {
-        let (Some(name), Some(session)) = (path.file_name(), path.parent().and_then(Path::file_name)) else { return Ok(()) };
+        let Some(name) = path.file_name() else { return Ok(()) };
         let aside = self.dir.join(REJECTED);
         fs::create_dir_all(&aside)?;
-        let mut target = session.to_os_string();
-        target.push("-");
-        target.push(name);
-        match fs::rename(path, aside.join(target)) {
+        match fs::rename(path, aside.join(name)) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
             _ => Ok(()),
         }
     }
 }
 
-fn entries(dir: &Path) -> io::Result<Vec<PathBuf>> {
-    match fs::read_dir(dir) {
-        Ok(entries) => Ok(entries.flatten().map(|entry| entry.path()).collect()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(error) => Err(error),
-    }
-}
-
-/// How the starter opens the entry as the agent: `machinectl` and `entry` are fixed store paths and `agent` and `home` the agent user's, all from the unit, none from the spool.
+/// How the starter opens the entry as the agent: `machinectl` and `entry` are fixed store paths and `agent` and `home` the agent user's, all from the unit, none from a request.
 pub struct Starter {
     pub machinectl: PathBuf,
     pub agent: String,
@@ -139,10 +126,10 @@ impl Starter {
     }
 
     /// Starts every waiting request once, each line it reports written to `log`.
-    pub fn serve_once(&self, spool: &Spool, log: &mut dyn Write) -> io::Result<()> {
-        for path in spool.waiting()? {
-            let Some(bytes) = spool.read(&path)? else {
-                writeln!(log, "set aside {}: not a regular file", path.display())?;
+    pub fn serve_once(&self, requests: &Requests, log: &mut dyn Write) -> io::Result<()> {
+        for path in requests.waiting()? {
+            let Some(bytes) = requests.read(&path)? else {
+                writeln!(log, "set aside {}: not a regular file it can open", path.display())?;
                 continue;
             };
             match StartRequest::parse(&bytes, &self.home) {
@@ -151,7 +138,7 @@ impl Starter {
                     writeln!(log, "{} {}: {}", request.name, path.display(), self.start(&request))?;
                 }
                 Err(why) => {
-                    spool.set_aside(&path)?;
+                    requests.set_aside(&path)?;
                     writeln!(log, "refused {}: {why}", path.display())?;
                 }
             }

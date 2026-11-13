@@ -6,5 +6,5 @@ may_use = []
 [[module]]
 name = "agent_starts"
 paths = ["crates/north-agent-starts/src/**"]
-responsibility = "Local agent starts: a spooled start request read as fixed fields, the starter that hands it to the agent's fixed entry through machined, and the entry that records it."
+responsibility = "Local agent starts: a start request the fleet tick admitted, read as fixed fields, the starter that hands it to the agent's fixed entry through machined, and the entry that records it."
 may_use = []
