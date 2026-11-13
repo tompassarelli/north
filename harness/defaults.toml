@@ -528,7 +528,7 @@ allowed = { min = 0, max = 4194304 }
 unit = "MiB of NVIDIA BAR1 aperture one private desktop's labwc compositor and Xwayland hold"
 source = "measured: 2026-10-27 on the GPU host, one throwaway desktop with glxinfo's Xwayland moved BAR1 Used 158, 159, 158 MiB as it started and stopped (north#254)"
 fallback = "none; admission adds this per declared desktop"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/gpu.rs"]
 
 [bar1_client_mib]
 value = 113
@@ -536,7 +536,7 @@ allowed = { min = 0, max = 4194304 }
 unit = "MiB of NVIDIA BAR1 aperture one Warcraft client holds with its BlizzardBrowser GPU processes, and one gpu-class run"
 source = "measured: 2026-10-27 on the GPU host at a 256 MiB aperture, the costliest of three pairs: a capture-classic pair's 2 clients with their BlizzardBrowser and CEF GPU processes moved BAR1 Used 5 to 230 MiB, against 48 and 108 MiB freed by two visual pairs; gpu runs are unmeasured and charged as one client (north#254)"
 fallback = "none; admission adds this per declared client and per gpu run"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/gpu.rs"]
 
 [bar1_margin_mib]
 value = 16
@@ -545,7 +545,7 @@ unit = "MiB of NVIDIA BAR1 aperture admission keeps free beyond a request's meas
 source = "prior: covers sampling noise and a second start admitted before the first one's compositor maps its buffers"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted starts can be checked against BAR1 Used afterwards" }
 fallback = "bar1_margin_mib in [hosts.NAME] of agents/orchestration.toml replaces it"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/gpu.rs"]
 
 [gpu_slots]
 value = 2
@@ -554,7 +554,7 @@ unit = "gpu-class leases (Wisp renders, window strips, headless Chrome) a host r
 source = "prior: set for the laptop's Radeon 890M, which Tom's desktop shares; no figure recorded; a GPU host measures its own count into [hosts.NAME] gpu_slots"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes on the laptop whose gpu leases can be checked against its GPU busy share and Tom's frame times" }
 fallback = "gpu_slots in [hosts.NAME] of agents/orchestration.toml replaces it, set from that host's own measurement"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/gpu.rs"]
 
 [vram_gpu_run_mib]
 value = 2900
@@ -562,7 +562,7 @@ allowed = { min = 0, max = 4194304 }
 unit = "MiB of NVIDIA VRAM one gpu-class Wisp window run holds"
 source = "measured: 2026-11-01 on the GPU host (RTX PRO 4000, 24 GiB), nvidia-smi --query-compute-apps showed three Wisp native-window plays at 2586, 2586 and 2842 MiB, rounded up"
 fallback = "none; admission charges it per gpu run starting and per gpu lease younger than gpu_vram_ramp_seconds"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/gpu.rs"]
 
 [vram_gpu_headroom_mib]
 value = 4096
@@ -571,7 +571,7 @@ unit = "MiB of NVIDIA VRAM a gpu run must leave free after its own charge, so Wa
 source = "prior: three Warcraft clients at vram_client_mib each, rounded up to 4 GiB (2026-11-01)"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted gpu runs can be checked against FB Used and client starts afterwards" }
 fallback = "none; hosts without an NVIDIA VRAM reading admit gpu runs on gpu_slots alone"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/gpu.rs"]
 
 [gpu_vram_ramp_seconds]
 value = 60
@@ -580,7 +580,7 @@ unit = "seconds a gpu lease still counts as vram_gpu_run_mib against free VRAM a
 source = "prior: a window strip's private desktop and map load take most of its first minute before the window allocates"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose gpu leases can be checked against the time their window first held VRAM" }
 fallback = "none"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/gpu.rs"]
 
 [vram_client_mib]
 value = 1310
@@ -588,7 +588,7 @@ allowed = { min = 0, max = 4194304 }
 unit = "MiB of NVIDIA VRAM one Warcraft client holds with its BlizzardBrowser and error-reporter processes"
 source = "measured: 2026-10-27 on the GPU host with 6 clients, nvidia-smi --query-compute-apps showed Warcraft III.exe at 544 to 864 MiB, BlizzardBrowser.exe at 363 to 405 MiB and the error reporter at 41 MiB; FB Used was 7837 MiB, 1306 MiB per client (north#259)"
 fallback = "none; the measured client cap counts free VRAM in these steps"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/gpu.rs"]
 
 [vram_margin_mib]
 value = 1024
@@ -597,7 +597,7 @@ unit = "MiB of NVIDIA VRAM the measured client cap keeps free for compositors an
 source = "prior: about one private desktop's compositor and a sampling margin beside 24 GiB of VRAM"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted client starts can be checked against FB Used afterwards" }
 fallback = "none"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/gpu.rs"]
 
 [game_reserve_headroom_mib]
 value = 24576
@@ -606,7 +606,7 @@ unit = "MiB of measured available memory batch admission leaves the game and des
 source = "prior: on the 94 GiB laptop the game slice reserves 6 GiB (MemoryLow) and Warcraft III under Proton, the compositor, browser and terminals hold about 12 GiB more; 24 GiB keeps that with a margin above the attended 19 GiB floor (Tom asked for batch beside his game, 2026-10-28)"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes admitted during game reserve whose game frame time or memory pressure can be checked afterwards" }
 fallback = "none; a batch request that leaves less defers with DEFER_GAME_MEMORY"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/gaming.rs"]
 
 [dispatch_heavy_memory_mib]
 value = 8192
@@ -614,7 +614,7 @@ allowed = { min = 0, max = 4194304 }
 unit = "MiB a dispatched box verified by a local or native test run asks of its host's memory"
 source = "standard: machine-capacity requests 8192 MiB for its heavy class (cargo test, bun test, wisp render); makgora suites measured 5957 MiB on 2026-10-27 (north#259)"
 fallback = "a host whose total memory cannot admit this class takes no test-verified box"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/memory.rs"]
 
 [dispatch_agent_memory_mib]
 value = 768
@@ -622,7 +622,7 @@ allowed = { min = 0, max = 4194304 }
 unit = "MiB a dispatched box that runs no test suite asks of its host's memory"
 source = "standard: machine-capacity requests 768 MiB for its agent class"
 fallback = "a host whose total memory cannot admit this class takes no box"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/memory.rs"]
 
 [land_offload_cpus]
 value = 8
@@ -630,7 +630,7 @@ allowed = { min = 1, max = 1024 }
 unit = "cores a land check is charged and its scope may use (CPUQuota and the build and test thread counts), and the free cores (the admission limit less the CPUs committed to batch runs) a host needs to take an offloaded land check"
 source = "measured: the capacity records of the 16-thread build host on 2026-11-12 (623 land-check and offloaded land-check runs): the whole-suite check used 870 to 1425 CPU-seconds (1425 cold-cache, 1178 warm; p90 cores 7 to 9 in a 12-CPU scope), every other check at most 761, against the 300 s deadline floor; at 4 CPUs the whole suite needs at least 356 s and would be killed, at 6 238 s (79% of the floor), at 8 178 s (59%) and the heaviest other check 95 s, so the charge and the scope's limit are 8; a check scoped to some packages is still charged 2 CPUs per package from 4 up to this (north#1247). Before: 4 from 300 land-check commands that day, which left out the offloaded whole-suite runs; before that, the newest 856 land-check heavy runs on the laptop (2026-11-05 to 2026-11-06) averaged 2.3 cores, 75% of runs meaned 4.0 or less, p90 of run means 5.7"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
-consumers = ["crates/north-capacity/src/capacity/admission.rs", "crates/north-capacity-host/src/capacity/host/mod.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/mod.rs", "crates/north-capacity-host/src/capacity/host/mod.rs"]
 
 [land_check_cpu_weight]
 value = 1000
@@ -694,7 +694,7 @@ allowed = { min = 0, max = 65536 }
 unit = "GiB free on the filesystem of a host's offload slot (~/.cache/land-offload) it needs to take an offloaded land check"
 source = "measured: the GPU host's root disk hit 100% three times on 2026-10-27 (north#259); Tom set the floor at 20 GB"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/mod.rs"]
 
 [offload_evict_free_gib]
 value = 94
@@ -726,7 +726,7 @@ allowed = { min = 0, max = 65536 }
 unit = "GiB free on the root filesystem below which admission defers a heavy build (cargo build/test/clippy, nix build)"
 source = "measured: the GPU host's root disk hit 100% four times on 2026-10-27/28 with about 17 sessions building at once while admission counted only CPU and memory (north#259)"
 fallback = "an unreadable disk admits, as before"
-consumers = ["crates/north-capacity/src/capacity/admission.rs", "crates/north-capacity/src/capacity/saturation.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/disk.rs", "crates/north-capacity/src/capacity/saturation.rs"]
 
 [build_disk_reserve_gib]
 value = 5
@@ -734,7 +734,7 @@ allowed = { min = 0, max = 65536 }
 unit = "GiB of root disk admission sets aside for each heavy build already running and for the one asking, before comparing what is left with build_disk_free_gib"
 source = "measured: one north lane's target/ held 4.9 GiB when the GPU host's root disk filled at 6:12 PM on 2026-10-29 and stranded six lanes, after heavy builds admitted above the floor wrote their targets at once (north#336)"
 fallback = "none: a heavy build that would leave less than the floor after the reserves waits as DEFER_DISK_FREE"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/disk.rs"]
 
 [run_queue_psi_attended]
 value = 40
@@ -767,7 +767,7 @@ unit = "seconds a quiet native lease's clients must stay idle before it stops de
 source = "prior: five minutes outlasts a screenshot read or a between-capture pause yet is far under the 17-minute hold that queued 19 jobs on the GPU host, 2026-10-26 (north#237)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against quiet native leases' measured idle seconds; worker runs are the nearest existing count until quiet leases are counted" }
 fallback = "a lease whose scope is not measured keeps deferring until it ends or passes its declared run length"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/native_hold.rs"]
 
 [backfill_seconds]
 value = 300
@@ -943,7 +943,7 @@ unit = "seconds an admitted native lease holds its declared Warcraft client slot
 source = "prior: covers a pair's 10-minute wait for both clients after its admission plus its desktops' start; on the GPU host on 2026-10-29 pair 0's client lost its slot to a start admitted 30 s after the pair (north#358)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against native pair admissions' seconds from admission to both clients running; worker runs are the nearest existing count until native admissions are counted" }
 fallback = "none; a lease older than this holds only the clients that run in it"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/mod.rs"]
 
 [slice_weight_app_attended]
 value = 1000
@@ -1001,7 +1001,7 @@ consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 value = 10
 allowed = { min = 0, max = 100, at_most = "admit_psi_attended_high" }
 unit = "percent of protected-slice CPU pressure (PSI some avg10) below which the laptop tick thaws the batch slice it froze at the attended high mark"
-source = "prior: the protected-slice gate (INTERACTIVE_PRESSURE_BASIS_POINTS in crates/north-capacity/src/capacity/admission.rs) already defers batch work from 10% while Tom is at the desktop, and the attended low mark takes the same figure"
+source = "prior: the protected-slice gate (INTERACTIVE_PRESSURE_BASIS_POINTS in crates/north-capacity/src/capacity/admission/batch.rs) already defers batch work from 10% while Tom is at the desktop, and the attended low mark takes the same figure"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
 consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
@@ -1038,7 +1038,7 @@ allowed = { min = 0.05, max = 100 }
 unit = "running heavy and moderate leases per host core (floored, at least one) past which another of those classes waits as DEFER_BATCH_JOBS; the batch slice is idle-weighted, so declared CPUs no longer ration it"
 source = "measured: 6:14 to 7:05 AM +07 on 2026-11-04 the laptop (24 threads) queued 8 to 11 heavy tickets for up to 20 minutes while admission summed declared CPUs to its 20-core attended limit and real CPU PSI ranged 19 to 36%; 0.5 per core admits 12 jobs on it, enough to drain that queue, while memory headroom still bounds the resident sets"
 fallback = "none: memory headroom and the pressure high mark gate the job under the cap"
-consumers = ["crates/north-capacity/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission/batch.rs"]
 
 [admit_settle_seconds]
 value = 30

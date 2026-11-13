@@ -1,8 +1,15 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::defaults::default_mib;
+
 const FRESH_USAGE_MILLISECONDS: f64 = 3000.0;
 const BATCH_CLASSES: [&str; 4] = ["moderate", "heavy", "exclusive", "gpu"];
+
+/// The seconds a quiet native lease may sit idle before it stops fencing batch work.
+pub fn quiet_idle_bound() -> f64 {
+    default_mib("quiet_idle_seconds")
+}
 
 /// A live run lease as the host stores it, with the usage sample its wrapper last wrote.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -197,7 +204,7 @@ pub fn run(idle_bound: f64) -> u8 {
 pub fn standing_json(leases: &[Value], queue: &[Value], now: f64) -> Vec<Value> {
     let leases: Vec<LeaseFact> = leases.iter().filter_map(|lease| serde_json::from_value(lease.clone()).ok()).collect();
     let queue: Vec<QueueEntry> = queue.iter().filter_map(|entry| serde_json::from_value(entry.clone()).ok()).collect();
-    standing(&leases, &queue, now, super::admission::quiet_idle_bound())
+    standing(&leases, &queue, now, quiet_idle_bound())
 }
 
 fn standing(leases: &[LeaseFact], queue: &[QueueEntry], now: f64, idle_bound: f64) -> Vec<Value> {
