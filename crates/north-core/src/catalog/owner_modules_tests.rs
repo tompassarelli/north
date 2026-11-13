@@ -22,6 +22,21 @@ fn git(root: &Path, arguments: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("git output").trim().to_owned()
 }
 
+fn south_checkout(scratch: &Path) -> std::path::PathBuf {
+    let origin = scratch.join("south-origin.git");
+    let publisher = scratch.join("south-publisher");
+    let south = scratch.join("south");
+    git(scratch, &["init", "-q", "--bare", "-b", "main", origin.to_str().expect("utf-8 path")]);
+    git(scratch, &["clone", "-q", origin.to_str().expect("utf-8 path"), publisher.to_str().expect("utf-8 path")]);
+    std::fs::create_dir_all(publisher.join("agents")).expect("agents dir");
+    std::fs::write(publisher.join("agents/AGENTS.md"), "rules").expect("rules");
+    git(&publisher, &["add", "."]);
+    git(&publisher, &["commit", "-q", "-m", "rules"]);
+    git(&publisher, &["push", "-q", "origin", "HEAD:main"]);
+    git(scratch, &["clone", "-q", origin.to_str().expect("utf-8 path"), south.to_str().expect("utf-8 path")]);
+    south
+}
+
 fn checked_init(structure: &str) -> NorthResult<()> {
     let scratch = tempfile::tempdir().expect("scratch");
     let north = scratch.path().join("north");
@@ -34,8 +49,8 @@ fn checked_init(structure: &str) -> NorthResult<()> {
     let mut catalog = initial_catalog("[[registered]]\nid = \"skill.a\"\npath = \"harness/skills/a/SKILL.md\"\n")?;
     let mut keys: Vec<_> = catalog.as_object().expect("object").keys().cloned().collect();
     keys.sort();
-    assert_eq!(keys, ["$schema", "activation", "registrations", "role", "rootOrder", "schema"]);
-    let roots = OwnerCheckRoots { north: north.clone(), south: scratch.path().join("south"), nixos: None };
+    assert_eq!(keys, ["$schema", "activation", "baselines", "providerSupport", "registrations", "role", "rootOrder", "schema"]);
+    let roots = OwnerCheckRoots { north: north.clone(), south: south_checkout(scratch.path()), nixos: None };
     let head = git_text(&north, &["rev-parse", "HEAD"])?;
     check_owner_files(&mut catalog, &roots, &canonical(&north)?, &head)
 }

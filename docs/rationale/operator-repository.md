@@ -192,6 +192,16 @@ Written onto north#1281 under its "Operator repository, built" box. Each is at m
 
 Boxes 1 to 9 give `north config operator init` and a working first hour; 10 to 14 hold it and the private data in place; 15 to 17 can follow the weekend.
 
+## A fresh operator's first sync (operator 9)
+
+`agents sync` on an operator repository made by init has no origin and no machine-configuration checkout. Three things follow, and each is decided here rather than left to the code.
+
+- No origin: the operator repository's own committed `main` is its revision. The snapshot of its `agents/` files is taken from that revision, and the sync refuses nothing for want of a fetch.
+- No checkout: an absent north or machine-configuration checkout is named and skipped. A newcomer's north is the runtime that is promoted, and a machine configuration is optional for `agents sync`.
+- No baseline: the operating point init writes is a starter with no replay cases and no measured conformance. The policy gate passes it with a line saying there is no baseline yet, instead of refusing, because the gate's regression check compares against a measured point and none exists. Once an operator writes replay cases, the check applies again unchanged, and the first policy replay sets the point.
+
+The alternative was to require a model-backed sweep before a first sync. It would need replay cases shipped in init and a paid-or-subscription model run before a newcomer's first publish, which the first hour does not allow.
+
 ## Not required
 
 - Moving any file out of the private repository. The template needs none.

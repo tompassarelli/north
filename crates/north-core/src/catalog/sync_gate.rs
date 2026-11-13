@@ -43,15 +43,15 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
     )?;
     let nixos_config = repo_root("nixos-config")?;
     let current = current_main("south", &south, now, &mut say)
-        .and_then(|()| current_main("north", &north, now, &mut say))
-        .and_then(|()| current_main("nixos-config", &nixos_config, now, &mut say));
+        .and_then(|()| current_optional("north", &north, now, &mut say))
+        .and_then(|()| current_optional("nixos-config", &nixos_config, now, &mut say));
     if let Err(line) = current {
         eprintln!("{line}");
         eprintln!("{NOT_PUBLISHED}");
         return Ok(1);
     }
     for project in SIBLING_PROJECTS {
-        if let Err(line) = repo_root(project).map_err(|error| error.to_string()).and_then(|directory| current_main(project, &directory, now, &mut say)) {
+        if let Err(line) = repo_root(project).map_err(|error| error.to_string()).and_then(|directory| current_optional(project, &directory, now, &mut say)) {
             say(format!("agents sync: {line}; its goals are read from the checkout as it stands"));
         }
     }
@@ -133,6 +133,19 @@ fn policy_gate(nixos_config: &Path, operator: &Path) -> bool {
     crate::agent_config_check::policy_gate_session(nixos_config, operator)
 }
 
+fn current_optional(
+    name: &str,
+    directory: &Path,
+    now: u64,
+    say: &mut impl FnMut(String),
+) -> Result<(), String> {
+    if !directory.is_dir() {
+        say(format!("agents sync: {name} has no checkout at {}; skipped", directory.display()));
+        return Ok(());
+    }
+    current_main(name, directory, now, say)
+}
+
 pub(super) fn current_main(
     name: &str,
     directory: &Path,
@@ -155,6 +168,10 @@ pub(super) fn current_main(
     match north_git_locks::clear(directory) {
         Ok(sweep) => sweep.removed.iter().for_each(|lock| say(format!("agents sync: {name} cleared the stale git lock {}", lock.display()))),
         Err(error) => say(format!("agents sync: {name} could not clear stale git locks: {error}")),
+    }
+    if git(&["config", "--get", "remote.origin.url"]).is_none() {
+        say(format!("agents sync: {name} has no origin; its local main is the revision"));
+        return Ok(());
     }
     let unborn = git(&["rev-parse", "-q", "--verify", "HEAD"]).is_none();
     let fetched = git(&["fetch", "-q", "origin", "main"]).is_some();

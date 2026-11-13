@@ -117,8 +117,13 @@ pub fn refresh(home: &Path, repo: &Path, now: u64) -> Result<Stamp, String> {
     lock.lock().map_err(|error| format!("{}: {error}", root.join(LOCK).display()))?;
     let left = String::from_utf8_lossy(&ran(&["rev-parse", "--git-path", &format!("{FETCHED}.lock")])?).trim().to_owned();
     let _ = fs::remove_file(repo.join(left));
-    fetch(repo)?;
-    let revision = String::from_utf8_lossy(&ran(&["rev-parse", "--verify", &format!("{FETCHED}^{{commit}}")])?).trim().to_owned();
+    let revision = if ran(&["config", "--get", "remote.origin.url"]).is_ok() {
+        fetch(repo)?;
+        ran(&["rev-parse", "--verify", &format!("{FETCHED}^{{commit}}")])?
+    } else {
+        ran(&["rev-parse", "--verify", "HEAD^{commit}"])?
+    };
+    let revision = String::from_utf8_lossy(&revision).trim().to_owned();
     let snapshot = root.join(&revision);
     if !snapshot.is_dir() {
         let listing = ran(&["ls-tree", "-z", &revision, &format!("{TREE}/")])?;

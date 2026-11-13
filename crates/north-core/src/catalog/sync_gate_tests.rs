@@ -177,3 +177,16 @@ fn a_main_with_no_commits_is_fast_forwarded_to_origin_and_given_its_upstream() {
     let upstream = Command::new("git").arg("-C").arg(&unborn).args(["rev-parse", "--abbrev-ref", "main@{upstream}"]).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&upstream.stdout).trim(), "origin/main");
 }
+
+#[test]
+fn a_main_with_no_origin_is_its_own_revision_and_is_not_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let local = dir.path().join("local");
+    fs::create_dir(&local).unwrap();
+    git(&local, &["init", "-q", "-b", "main"]);
+    commit(&local, "synthetic");
+    let mut said = Vec::new();
+    let outcome = current_main("operator", &local, 0, &mut |line| said.push(line));
+    assert_eq!(outcome, Ok(()));
+    assert_eq!(said, vec!["agents sync: operator has no origin; its local main is the revision".to_owned()]);
+}
