@@ -158,18 +158,27 @@ fn spooled(rig: &Rig) -> Vec<String> {
     names
 }
 
+/// On 2026-11-13 a 5,360-row spooled batch outlasted the ssh bound on every flush and went back to the queue each time, holding every claim and release behind it.
 #[test]
-fn a_spooled_batch_whose_flush_times_out_stays_spooled_and_is_sent_again_once_the_host_answers() {
+fn a_spooled_batch_whose_flush_times_out_is_split_set_aside_after_three_timeouts_and_never_holds_a_claim_behind_it() {
     let mut rig = rig(&[]);
-    let kept = rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
+    rig.client.ingest_chunk_rows = 2;
+    let kept = rig.client.write_spool(b"{\"n\": 1}\n{\"n\": 2}\n{\"n\": 3}\n", "test").unwrap();
+    let stem = kept.file_stem().unwrap().to_string_lossy().into_owned();
     stall(&mut rig);
     let (_, err) = call(&rig, &["claim", "north#63"], b"");
     assert!(!err.contains("refused"), "{err}");
-    assert_eq!(spooled(&rig), [kept.file_name().unwrap().to_string_lossy().into_owned()], "a timed-out flush is neither .failed nor dropped");
+    assert_eq!(spooled(&rig), [format!("{stem}-0000.jsonl"), format!("{stem}-0001.jsonl")], "a timed-out flush is neither .failed nor dropped");
+    call(&rig, &["claim", "north#63"], b"");
+    let (_, err) = call(&rig, &["claim", "north#63"], b"");
+    assert!(err.contains("timed out; it is set aside"), "{err}");
+    rig.client.spool_argv(&["release".to_owned(), "north#7".to_owned()], "test").unwrap();
     unstall(&rig);
+    let before = log(&rig, "ssh.log").len();
     assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
-    assert!(spooled(&rig).is_empty());
-    assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 1}"]);
+    assert_eq!(log(&rig, "ssh.log")[before..before + 2], [format!("{PREFIX} north threads release 'north#7'"), format!("{PREFIX} north threads ingest")], "the release waited behind the ingest batch");
+    assert_eq!(spooled(&rig), [format!("{stem}-0000.jsonl")]);
+    assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 3}"]);
 }
 
 /// At 3:40 PM on 2026-11-06 every fleet launch's 2 s `holder` read sent the spooled usage batches first, each holding the ledger host 4 to 5 s, so the read timed out and the claim check was skipped.

@@ -9,7 +9,7 @@ use north_base::lifecycle::{Lifecycle, Lost, Moved, Refusal, State, Store};
 use north_publish::publish;
 
 use super::process::{Input, detach, python_json};
-use super::{Client, Flush, SPOOL_FLUSH};
+use super::{Client, Flush, SPOOL_FLUSH, rows_in_chunks};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
@@ -21,6 +21,10 @@ mod withheld;
 
 const NOT_EXECUTABLE_STATUS: i32 = 126;
 const COMMAND_NOT_FOUND_STATUS: i32 = 127;
+const TIMED_OUT: &str = "ledger host timed out";
+const JOINED_TIMED_OUT: &str = "the joined usage batch timed out, so each goes on its own";
+/// How many sends of one spooled batch may time out before the flush sets it aside, so a batch the ledger host never answers in time stops holding every batch behind it.
+const SET_ASIDE_AFTER: usize = 3;
 
 /// Where a write spooled on a mirrored client stands on its way to the ledger host.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -156,6 +160,7 @@ impl Spool {
             let record = if record.state == Phase::Sending { self.store.settle::<SpooledWrite>(&record.instance, at)? } else { Some(record) };
             names.extend(record.filter(|record| record.state == Phase::Queued).map(|record| record.instance));
         }
+        names.retain(|name| self.holds(name));
         names.sort();
         Ok(names)
     }
@@ -185,6 +190,44 @@ impl Spool {
 
     pub(super) fn refuse(&mut self, name: &str, cause: &str, at: Timestamp) -> NorthResult<()> {
         self.go(name, Phase::Refused, cause, at)
+    }
+
+    /// Queues `parts` in place of `name`, which the flush holds, and records `name` as gone from the spool; a part an earlier split recorded before it died keeps its record, written again only while still queued. Returns the parts this split queued.
+    fn split(&mut self, directory: &Path, name: &str, parts: &[(String, &[u8])], at: Timestamp) -> NorthResult<Vec<String>> {
+        let mut queued = Vec::new();
+        for (part, data) in parts {
+            match self.store.current::<SpooledWrite>(part)? {
+                Some(record) if record.state != Phase::Queued => continue,
+                Some(_) => {}
+                None => {
+                    self.queue(part, &format!("split from {name}, which held too many rows for one send"), at)?;
+                    queued.push(part.clone());
+                }
+            }
+            publish(&directory.join(part), data, 0o666)?;
+        }
+        self.go(name, Phase::Sent, &format!("split into {} parts, which the spool sends in its place", parts.len()), at)?;
+        Ok(queued)
+    }
+
+    /// How many of the latest sends of `name` timed out in a row; a timeout of a joined usage send is passed over and any other cause breaks the run.
+    fn timeouts_in_a_row(&self, name: &str) -> NorthResult<usize> {
+        Ok(self.store.history(SpooledWrite::NAME, name)?.iter().rev().filter(|logged| logged.to == Phase::Queued.name() && logged.cause != JOINED_TIMED_OUT).take_while(|logged| logged.cause == TIMED_OUT).count())
+    }
+
+    /// Removes the file of every write recorded sent, which a flush that died between the record and the removal left behind.
+    fn sweep_sent(&self) -> NorthResult<()> {
+        for record in self.store.instances::<SpooledWrite>()?.into_iter().filter(|record| record.state == Phase::Sent) {
+            if self.holds(&record.instance) {
+                fs::remove_file(self.directory.join(&record.instance))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `name` is a regular file directly in the spool directory: a sandboxed worker may write the records, so a record naming a path outside the spool, a dot-file or a link is never sent or removed by a flush that runs unconfined.
+    fn holds(&self, name: &str) -> bool {
+        !name.is_empty() && !name.starts_with('.') && !name.contains('/') && fs::symlink_metadata(self.directory.join(name)).is_ok_and(|metadata| metadata.file_type().is_file())
     }
 
     fn go(&mut self, name: &str, to: Phase, cause: &str, at: Timestamp) -> NorthResult<()> {
@@ -283,11 +326,13 @@ impl Client {
         self.send_queued(dest, err, None, Usage::Send)
     }
 
-    /// Sends the queued writes in order, holding every usage-only batch back to go last as one ingest, so a queued claim never waits behind usage rows.
+    /// Sends the queued writes in order, claims and releases ahead of every other write, which reads none of the rows an ingest carries, and every usage-only batch held back to go last as one ingest, so a queued claim never waits behind rows.
     fn send_queued(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>, usage: Usage) -> NorthResult<Flush> {
         let mut spool = self.spool_records()?;
         let started = Instant::now();
+        spool.sweep_sent()?;
         let mut names = spool.queued((self.clock)())?;
+        names.sort_by_cached_key(|name| !self.claim_or_release(name));
         let mut usage_names = Vec::new();
         let mut next = 0;
         while let Some(name) = names.get(next).cloned() {
@@ -301,9 +346,21 @@ impl Client {
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => return Err(error.into()),
             };
-            if name.ends_with(".jsonl") && usage_batch::only_usage(&fs::read(&path)?) {
-                usage_names.push(name);
-                continue;
+            if name.ends_with(".jsonl") {
+                let data = fs::read(&path)?;
+                if usage_batch::only_usage(&data) {
+                    usage_names.push(name);
+                    continue;
+                }
+                let chunks = rows_in_chunks(&data, self.ingest_chunk_rows);
+                if chunks.len() > 1 {
+                    if !spool.take(&name, (self.clock)())? {
+                        return Ok(Flush::Busy);
+                    }
+                    let parts = self.split_spooled(&mut spool, &name, &chunks)?;
+                    names.splice(next..next, parts);
+                    continue;
+                }
             }
             if !spool.take(&name, (self.clock)())? {
                 return Ok(Flush::Busy);
@@ -333,6 +390,9 @@ impl Client {
                 Err(error) => return Err(error.into()),
             }
         }
+        if batches.is_empty() {
+            return Ok(Flush::Clear);
+        }
         let taken: Vec<String> = batches.iter().map(|(name, _)| name.clone()).collect();
         for (count, name) in taken.iter().enumerate() {
             if !spool.take(name, (self.clock)())? {
@@ -345,14 +405,16 @@ impl Client {
         let rows: Vec<&[u8]> = batches.iter().map(|(_, data)| data.as_slice()).collect();
         let sent = self.ingest_rows(dest, &usage_batch::batch(&rows), err);
         let refused = sent.as_ref().is_ok_and(|sent| !matches!(sent.code, 0 | TRANSPORT_FAILED_STATUS | TIMED_OUT_STATUS | ingest_lock::RETRY | NOT_EXECUTABLE_STATUS | COMMAND_NOT_FOUND_STATUS));
-        if batches.len() < 2 || !refused {
+        let timed_out = sent.as_ref().is_ok_and(|sent| sent.code == TIMED_OUT_STATUS);
+        if batches.len() < 2 || !(refused || timed_out) {
             return Ok(match self.settle(spool, &taken, sent, err)? {
                 ControlFlow::Break(flush) => flush,
                 ControlFlow::Continue(_) => Flush::Clear,
             });
         }
         for name in &taken {
-            spool.release(name, "the ledger host refused the joined usage batch, so each goes on its own", (self.clock)())?;
+            let why = if timed_out { JOINED_TIMED_OUT } else { "the ledger host refused the joined usage batch, so each goes on its own" };
+            spool.release(name, why, (self.clock)())?;
         }
         for (name, data) in &batches {
             if !spool.take(name, (self.clock)())? {
@@ -364,6 +426,34 @@ impl Client {
             }
         }
         Ok(Flush::Clear)
+    }
+
+    /// Spools the `chunks` of the batch `name` as batches of their own and removes it: one ssh bound covers one send, and a 5,360-row batch spooled on 2026-11-13 outlasted it on every flush, went back to the queue each time and held every write behind it.
+    fn split_spooled(&self, spool: &mut Spool, name: &str, chunks: &[&[u8]]) -> NorthResult<Vec<String>> {
+        let stem = name.trim_end_matches(".jsonl");
+        let parts: Vec<(String, &[u8])> = chunks.iter().enumerate().map(|(index, chunk)| (format!("{stem}-{index:04}.jsonl"), *chunk)).collect();
+        let queued = spool.split(&self.spool, name, &parts, (self.clock)())?;
+        if let Err(error) = fs::remove_file(self.spool.join(name)) && error.kind() != io::ErrorKind::NotFound {
+            return Err(error.into());
+        }
+        Ok(queued)
+    }
+
+    /// Whether `name` is an ingest batch of at most one chunk of rows, the most one send carries.
+    fn one_chunk(&self, name: &str) -> NorthResult<bool> {
+        if !name.ends_with(".jsonl") {
+            return Ok(false);
+        }
+        match fs::read(self.spool.join(name)) {
+            Ok(data) => Ok(rows_in_chunks(&data, self.ingest_chunk_rows).len() == 1),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Whether the spooled write `name` is a claim or a release, which the flush sends ahead of the rest.
+    fn claim_or_release(&self, name: &str) -> bool {
+        name.ends_with(".argv") && fs::read(self.spool.join(name)).ok().and_then(|text| serde_json::from_slice::<Vec<String>>(&text).ok()).is_some_and(|args| matches!(args.first().map(String::as_str), Some("claim" | "release")))
     }
 
     fn ingest_rows(&self, dest: &str, rows: &[u8], err: &mut dyn Write) -> NorthResult<Sent> {
@@ -386,13 +476,19 @@ impl Client {
         let refused_for_good = sent.verb.is_some() && code == NOT_EXECUTABLE_STATUS && sent.stderr.contains("remote-serve: refused");
         let requeue = match code {
             TRANSPORT_FAILED_STATUS => Some((Flush::Down, "ledger host unreachable".to_owned())),
-            TIMED_OUT_STATUS => Some((Flush::Busy, "ledger host timed out".to_owned())),
+            TIMED_OUT_STATUS => Some((Flush::Busy, TIMED_OUT.to_owned())),
             ingest_lock::RETRY => Some((Flush::Busy, "ledger host busy".to_owned())),
             NOT_EXECUTABLE_STATUS | COMMAND_NOT_FOUND_STATUS if !refused_for_good => Some((Flush::Busy, format!("the ledger host could not run the ingest (exit {code})"))),
             _ => None,
         };
         if let Some((flush, cause)) = requeue {
             for name in names {
+                if code == TIMED_OUT_STATUS && self.one_chunk(name)? && spool.timeouts_in_a_row(name)? + 1 >= SET_ASIDE_AFTER {
+                    let path = self.spool.join(name);
+                    spool.refuse(name, &format!("set aside after {SET_ASIDE_AFTER} sends in a row timed out with the outcome unknown; {} is kept and can be sent again", path.display()), (self.clock)())?;
+                    writeln!(err, "NorthThreads: {SET_ASIDE_AFTER} sends in a row of {} timed out; it is set aside, kept and not sent again", path.display())?;
+                    continue;
+                }
                 spool.release(name, &cause, (self.clock)())?;
             }
             return Ok(ControlFlow::Break(flush));
