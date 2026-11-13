@@ -13,7 +13,8 @@ place() {
 }
 confined_here() {
   [ -z "${confined:-}" ] || return 0
-  [ -r /etc/north/operator ] || return 1
+  [ -e /etc/north/operator ] || return 1
+  [ -r /etc/north/operator ] || return 0
   [ "$(cat /etc/north/operator)" != "$(id -un)" ]
 }
 confine() {
