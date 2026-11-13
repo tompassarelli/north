@@ -12,6 +12,190 @@ will try to break it, so every assumption is stated where it is used and collect
 Revised the same day after an adversarial review (changes requested, 17 findings plus one on ceremony); each
 finding and what changed for it is in [Review disposition](#review-disposition-2026-11-04).
 
+## Admission by measured wait, 2026-11-13
+
+Plan of 2026-11-13 (laptop time). Work in flight is limited by the build hosts' measured wait, not by the
+coordinator's messages. It names, from the boxes above and in [placement.md](placement.md), the smallest
+slices that make admission to a host's check line and to a launch follow that line's measured wait, and that
+cut the admissions one landed change takes. It edits no code.
+
+### What the records of 2026-11-13 show
+
+- `north ledger tempo --repo north --window 180` at 9:11 AM: 78 lanes landed, queued to main at p50 and p90 of
+  0.2 min. The lander is not the limit.
+- The laptop's land-check outcomes (`check-timings/outcomes.tsv` under safe-push's state) hold the pre-queue
+  runs a finish call starts. The span of one run, from its first check's start to its last check's end, had a
+  median of 87 s at 6 AM, 506 s at midnight, 602 s at 1 AM and 2 AM, and 361 s at 8 AM. The cargo checks'
+  median wall was 601 s at 1 AM.
+- Exit 96 (`SLOTS_BUSY`) is a job that waited out `LOCK_WAIT_SECONDS` (600) in a build host's slot line and
+  left unrun. Rows and runs per hour: 110 rows in 17 runs at midnight, 236 in 39 at 1 AM, 90 in 24 at 2 AM,
+  36 in 11 at 8 AM. Those rows alone waited 66,167 s, 141,923 s, 54,166 s and 21,676 s.
+  `crates/north-land-checks/src/land/slots/runner/queue_checks.rs` answers exit 96 with `continue` and counts no
+  attempt. The job takes a new ticket stamped now, so it re-enters at the back of the line with no bound.
+  Sibling checks that the first refusal cancelled add 576 rows at 1 AM.
+- `north land profile --repo north --last 60`: the "after push" verification is the after-landing run. Its
+  spans start after the landing pushed main (`crates/north-land-checks/src/land/trace/profile.rs`). Over 30
+  landings it summed 11,062 s, of which 36% was queue wait, 16% host wait, 12% lint, 7% test run and 2% compile.
+  One profiled run of 627 s spent 461 s in host wait. The hand-in-to-main path is the finish call's pre-queue
+  run plus queue to push (4 s at p50).
+- Three build hosts with `SLOTS` (6) each give 18 slots. Each pre-queue run puts 3 to 5 tickets in a line:
+  one batch for the head-north scans (`runner/batch.rs`) and one per cargo check.
+
+### Existing pieces and what each lacks
+
+- Host lease admission (`crates/north-capacity/src/capacity/admission.rs`, `queued_ahead.rs`) decides on
+  pressure and memory. It does not hold the slot line, where the 600 s waits happen.
+- The slot line (`crates/north-runtime/src/land_offload/ship/script.rs`) orders tickets by rank: red fix,
+  lander, landing, other, background. It answers only by timing out. It records no wait: the
+  `offload: waited` line goes to the caller's log and nowhere else.
+- Placement's `choose --any` ranks hosts by backlog per slot (`land_offload/room.rs`, the slot probe). That is
+  a count, not a time.
+- `north fleet dispatch` caps a host at the builds its admission queue takes (`dispatch/slots.rs`). A lead's
+  `north fleet launch` passes the placement gate (`pacing/placement/gate.rs`). Neither reads a check line.
+- W2-2 (`north capacity predict`) is the box that contains outcome 1: its `wait` column is this reading. As
+  written it lacks three things. It covers host leases, not the slot line. It waits on W2-1's replay
+  simulator. Nothing refuses on it. W2-6 (concurrency from the remote host's admission, not `SLOTS`) and
+  placement.md boxes 5 (the reading) and 9 (a launch held for room queues) are the other boxes this touches.
+  This plan adds no scheduler. It gives W2-2's wait one closed-form reading over the slot line. Box 9's
+  "room" becomes that wait for code work.
+
+### Outcome 1: admission by measured wait
+
+**The reading.** It is one pure function in `north-capacity`, beside `queued_ahead.rs`, named
+capacity::line_wait. It takes a host's line and returns, for a job of rank r arriving now, its expected start.
+The line is the host's slots, the jobs running with their start times, the tickets queued in turn order, and
+the hold times of that host's last 50 slot jobs. The function simulates the slots. A running job ends at the
+median hold of recorded jobs that ran longer than it has so far. Each queued job of rank r or better then
+holds a slot for the median hold. The job starts when it reaches a free slot. The inputs are records the host
+writes itself. A new line per slot job (queued, started, ended, rank, exit) goes in the land-offload root.
+Started means the command runs, after its host lease admitted it, so host wait counts as wait. The queue
+directory holds the tickets. No caller's word enters the reading.
+
+**Who calls it.** The slot line asks it before it takes a ticket, through a new verb beside the
+`north capacity offload closed` call the script already makes. Placement's slot probe prints it per rank, and
+`choose --any` takes the host with the least expected wait. Dispatch and the launch gate read the same probe.
+All three answer from one function and one record.
+
+**A refused caller.** Over the rank's deadline, the line refuses at once with exit 96 and
+`expected wait N s`. The caller takes the host with the next-least expected wait. When every host is over,
+the caller holds and asks again, keeping its first placement time, so a re-placed job never goes to the back.
+A launch over the bar waits in the launch queue with that number as its reason.
+
+**What a worker's command cannot game.** The deadline per rank is host configuration. A caller may shorten
+it, never lengthen it. The rank comes from the session scope and the lander's environment, as the red-fix and
+urgent marks do today. A worker's offload request through the broker carries nothing of the client's but its
+words. The reading counts every ticket in the directory, whoever wrote it.
+
+**Measure and stop rule.** Two numbers. First, the median and slowest-tenth wait from first placement to start,
+read from the line record across every host with re-placements joined. Second, the exit-96 rows per hour
+whose wait reached the old limit; this must be 0. Stop and revert the slice if either holds over a day after
+landing: a refusal was given while that host had a free slot, or the slowest-tenth wait got worse than the
+morning's.
+
+### Outcome 2: one admission per landed change
+
+Today one landed change takes three kinds of admission.
+
+1. **The finish call's acceptance command.** It runs through `passes` in the worker's lane
+   (`crates/north-lander/src/land/hand_in.rs`), or in the broker for a sandboxed session
+   (`crates/north-runtime/src/worker_sandbox/finish_request.rs`). Its cargo goes to a build host through the
+   build offload, in a per-lane checkout. It proves that the worker's named command passes on the would-be
+   head's tree. The broker records the verdict where the worker cannot write. north#1230 already folds it into
+   the pre-queue run, but only when the command equals a `.safe-push` check.
+2. **The pre-queue run.** These are safe-push's checks before queueing, in warm offload slots. They prove the
+   lane's tree passes the repository's checks. The lander reuses their verdicts.
+3. **The after-landing run.** It runs on main over a range of landings, with `after-runs` 3 in flight. It
+   proves the merged tree passes, which no lane checked, because lanes are checked on their own base. It also
+   runs the `after-only` checks that need what a slot lacks.
+
+The plan for the run after landing, from the day after Buck2's verdicts become the only test path (Cargo stays
+24 hours after that as an independent net, a ruling of 2026-11-13):
+
+- The changed portable integration tests become cached Buck2 targets in the pre-queue run. So does the
+  test-admission replay, whose base build is a cache hit from the base's own landing. Each guarantee is the
+  same and now holds before the landing.
+- The run after the landing is one admission per range. It is a Buck2 test of the targets the range changed,
+  on main; the lanes' actions are cache hits, so only targets whose inputs the merge changed rebuild. Its
+  guarantee is that the merged tree passes, which this run keeps.
+- The machine-bound tests, the owners check across checkouts and the graph guards stay after the landing. They
+  read what no lane tree holds. They run on the lander host and take no build-host slot.
+- Cargo's independent net goes to Actions `cargo.yml:test`, which already runs every workspace test on a clean
+  runner after the landing. The build hosts then run no Cargo pass after the landing.
+
+### Slices, ordered by seconds removed from hand-in to main
+
+Seconds are wall seconds from the laptop's records. Offloaded checks record no CPU time, and the hosts' lease
+records were not read today. Build-host CPU seconds per landed change are therefore each slice's first
+measurement.
+
+**A1. The line answers at once (outcome 1, first slice).**
+- Files: capacity::line_wait (new, `crates/north-capacity/src/capacity/`); the offload verb in
+  `crates/north-runtime/src/land_offload/mod.rs`; `ship/script.rs` (ask before the ticket, write the line
+  record); `room.rs` (print the wait); `runner/queue_checks.rs` and `slots/select.rs` (place on the next host,
+  keep the first placement time); `crates/north-landing/src/land/post_land/execute.rs` (the same answer for
+  the after-landing run).
+- Proof: a fixture line of 18 slots and 40 tickets gives a refusal at once with its wait, and a free slot
+  never gives one. Replaying the morning's line records, the expected start's error is printed at p50 and p90.
+  The live measure is exit-96 rows after a full wait at 0 per hour.
+- Size: 2 lanes, about 90 minutes.
+- Trust boundary: the build host's slot line, which every landing passes. Reviewer: the lander reviewer.
+- If wrong: a wrongly optimistic reading admits jobs that wait, as today. A wrongly pessimistic one refuses on
+  every host, and the pre-queue run holds. The hold names the wait, so it is seen at once, and reverting
+  restores the 600 s limit.
+- Removes: the re-queue at the back, and up to 600 s per dropped job, on the path for every run that met a
+  full line (39 of 44 runs at 1 AM, 11 of 54 at 8 AM).
+
+**A2. Launches follow the same reading (outcome 1).**
+- Files: `crates/north-pacing/src/pacing/placement/gate.rs`, `crates/north-dispatch/src/dispatch/slots.rs`.
+- The rule: hold a code-work launch while every build host's expected wait for a landing-rank job is over
+  `launch_wait_seconds` (60, so a held fleet keeps the landing slowest tenth under 180 s with a 40 s check).
+  `--pin` and `--local` choose a host and do not pass the hold. `--priority urgent` passes it and is
+  recorded.
+- Proof: a fixture board over the bar holds a dispatch run's launches and a lead's launch, each with its wait,
+  and one below the bar places them. The live measure is the A1 wait measure staying under the bar with no
+  host rule sent by message.
+- Size: 1 lane, about 45 minutes.
+- Trust boundary: launch placement. Reviewer: the pacing reviewer.
+- If wrong: launches stall while hosts are free. The held count and reason print in `north fleet dispatch
+  --dry-run`.
+- Removes: the waits themselves, which A1 only makes visible. This is the slice that keeps the 461 s of host
+  wait from coming back as lanes rise.
+
+**B1. One admission per hand-in (outcome 2, first slice).**
+- What it does: generalize north#1230. A finish call adds a portable acceptance command (the `portable` rule
+  in `slots/select.rs`) as one more check of the same pre-queue run, on the would-be head's tree in the same
+  slot. The broker runs that combined run, as it already runs safe-push's checks before queueing. It writes the
+  finish record from that check's keyed verdict, under the tree check `finish_request.rs` already makes. A
+  machine-bound acceptance command runs as today.
+- Files: `hand_in.rs` (`as_land_check`), `runner/queue_checks.rs` (an extra check), `finish_request.rs`.
+- Proof: a finish call whose command is no `.safe-push` check makes one pre-queue run, its line record shows
+  one set of tickets, and its finish record equals the command's exit. A command that fails refuses the call
+  with nothing queued.
+- Size: 1 to 2 lanes, about 60 to 90 minutes.
+- Trust boundary: the finish record (south#118). Reviewer: the sandbox reviewer.
+- If wrong: a record vouches for a tree its command did not run on. The keyed verdict and tree check are the
+  guard. A failing lane counted Done is the cost.
+- Removes: one whole serial run per finish call, and its cold per-lane build, from the hand-in path.
+
+**B2. The run after the landing as one Buck2 admission (outcome 2, after the Cargo day).**
+- What it does: as described above.
+- Files: `.safe-push` (`after` and `check` lines), `crates/north-landing/src/land/post_land/execute.rs`.
+- Proof: one range's run makes one slot admission. Its Buck2 test reports cache hits for every target no merge
+  changed. Against the 24 hours of Cargo nets before it, no red main it reported was missed.
+- Size: 1 lane, about 45 minutes.
+- Trust boundary: red-main detection. Reviewer: the lander reviewer.
+- If wrong: a merged-tree failure reaches main unseen until Actions reports it, at most one Actions run later.
+- Status: waits for the coordinator's ruling on the run after a landing. A cause lane first asks why no
+  after-landing check reused a verdict (0 of 272 in the last 30 landings).
+- Removes: nothing from hand-in to main. It is the build-host seconds of the third admission (the profile's
+  265 s median per landing, shared across a range).
+
+**Which slice gets the median under 60 s.** Hand-in to main is the pre-queue run plus 4 to 7 s. With A1 and A2
+holding waits near zero, and Buck2's cached check measured at 39 and 40 s on two of three replayed commits,
+the median is about 45 to 50 s. B1 keeps it there: the finish call makes one run, not an acceptance run and
+then a check run. Without Buck2 the uncached lint, compile and test seconds alone exceed 60 s. B2 does not
+move this median. It moves the after-landing verification the profile reports.
+
 ## Measured baseline, 7 days to 6:40 AM 2026-11-04
 
 Window: released runs with `at` from 2026-10-28T00:00Z to 2026-11-03T23:40Z. Sources, all read-only:
