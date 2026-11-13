@@ -1,13 +1,164 @@
-# Installing north
+# Install north and land your first change
 
-North builds from source and runs as a promoted runtime on each host. The steps below take one host from a clone to a running fleet; the operator's private policy repository is the one input north does not ship, and [operator-repository.md](operator-repository.md) says what it holds. The words follow [terms.md](terms.md).
+This page takes a new account with Nix and a Claude Code login to one change landed on a scratch
+repository. Every command is here, in order; the operator repository that a long-lived fleet reads is
+not needed, and neither is a second machine. The whole path is meant to take at most 30 minutes.
 
-1. **Lay out the code.** Each repository is a container `~/code/<project>/` with `main/`, `worktrees/<slug>/` and `pins/<object-id>/` ([harness/code/AGENTS.md](../harness/code/AGENTS.md)). North's commands expect `~/code/north/main` and the operator repository at `~/code/south/main`; a machine-configuration repository, outside this one, puts the harness on each machine.
-2. **Put `north` on `PATH`.** [bin/north](../bin/north) launches the installed runtime, and the tools in [bin/](../bin/) are toolchain shims and a few helpers. The runtime installer links `safe-push` and the other commands to the north binary under `~/.local/share/north/bin` ([harness/policy-owners.toml](../harness/policy-owners.toml), [crates/north-core/src/agent_policy_contract/wiring.rs](../crates/north-core/src/agent_policy_contract/wiring.rs)).
-3. **Promote a runtime.** `north runtime update` builds origin/main, installs the binary and the commit's own tree under `~/.local/state/north/runtimes/<sha>/`, points `~/.local/state/north/current` at it, then runs `north runtime health`, rolling back if it fails, then `north config agents sync`, whose failure alarms the coordinator once per cause and retries every tick but never rolls the runtime back. A build in progress always finishes and promotes before the next one starts on the newest main. Scheduled jobs run harness code from `current/tree/bin`, so the code they run and the binary they call share a commit.
-4. **Keep hosts current.** Each host promotes landings itself: a timer runs `north runtime update`, and `north runtime deploy` carries a build to the other declared hosts. The "Runtime promotion" entry in [features/08-machines-capacity-and-scheduled-jobs/](features/08-machines-capacity-and-scheduled-jobs/) gives the order, the fallbacks and the schedule.
-5. **Publish policy.** `north config agents sync` fast-forwards the operator repository and north main checkouts, runs the policy gate in [crates/north-core/src/agent_config_check/](../crates/north-core/src/agent_config_check/) (`north check harness policy-gate session`), builds a new activation generation under `~/.local/state/north/agents/` from the operator repository's `catalog-config.json`, and links each allowed skill into `~/.claude/skills` and `~/.codex/skills`. It reads north's skills, scripts and hooks from the tree of the runtime `current` names, never from the checkout, so only promotion moves them.
-6. **Wire the providers.** The generation's instructions and `provider-hooks` reach Claude Code and Codex through links the machine configuration makes; `north check harness` checks that wiring and `north check harness --local` checks the live links. A hook script deleted from the hooks directory of the north tree must be named in `harness/retired-hooks.txt`, which `north config agents check-owners` enforces at landing; the generation then carries a no-op stub under that name until each host stops registering it.
-7. **Register guards by id.** The operator repository registers a north-owned guard by its id; sync, `check-owners` and the policy checks resolve it through the `[[registered]]` entry for that id in north's [structure/](../structure/) tree (the lander writes `structure.toml` from it), so moving the guard file edits that `path` and nothing in the operator repository.
+The change is made the way north makes every change: a model writes it in a fleet session, the
+session hands it in, and a lander checks the commit and lands it on main. The scratch repository is
+thrown away after the run, so nothing outside this page is changed.
 
-To try only the `north` app, follow the [README](../README.md#try-it); it needs neither the operator repository nor the machine configuration. `verify-north` then walks a brief, a worker, a landed commit and a ledger row on a scratch repository and is the check that the install works. Once it passes, [briefing.md](briefing.md) and [landing.md](landing.md) show how work moves.
+## Before you start
+
+You need:
+
+- Linux or macOS with Nix and flakes enabled.
+- Claude Code installed and signed in. Run `claude` once, finish its sign-in, and quit; the login is
+  the `~/.claude` directory and the `~/.claude.json` file that north will read.
+- `git`, and about 10 GB of free disk for the Nix store and the Rust build.
+
+Check the three tools:
+
+```sh
+nix --version
+claude --version
+git --version
+```
+
+If `nix` is missing, install it from [nixos.org/download](https://nixos.org/download/) and enable
+flakes in `~/.config/nix/nix.conf` with `experimental-features = nix-command flakes`.
+
+## 1. Clone north where north expects it
+
+North keeps each repository in a container with `main/` and `worktrees/`. Put north's checkout at
+`~/code/north/main` so the commands below and the pages after this one agree on the place:
+
+```sh
+mkdir -p ~/code/north
+git clone https://github.com/tompassarelli/north ~/code/north/main
+cd ~/code/north/main
+```
+
+## 2. Build north and the check
+
+The flake pins the Rust toolchain and every other build input. The first build downloads the
+toolchain; later builds reuse the Nix store and take a fraction of the time.
+
+```sh
+nix develop -c cargo build --locked --bin north --bin verify-north
+```
+
+You now have `target/debug/north`, the fleet binary, and `target/debug/verify-north`, the end-to-end
+check that walks the first change.
+
+## 3. Give north the Claude Code login
+
+North runs every provider in an account profile of its own under
+`~/.local/state/north/profiles/`, so a fleet session never writes the login you use by hand. Make one
+profile named `main` and point it at the Claude Code login:
+
+```sh
+profile="$HOME/.local/state/north/profiles/claude-main"
+mkdir -p "$profile"
+ln -sfn "$HOME/.claude/.credentials.json" "$profile/.credentials.json"
+cp "$HOME/.claude.json" "$profile/.claude.json"
+printf '{}\n' > "$profile/settings.json"
+```
+
+`claude-main` is the account name used below. The credentials file is linked, so Claude Code renews
+the same login; `~/.claude.json` is copied, so this profile gets its own conversation state.
+
+## 4. Land the change
+
+```sh
+time target/debug/verify-north --north "$PWD/target/debug/north" --claude-account main
+```
+
+`verify-north` does the rest:
+
+1. It creates a scratch repository with a bare origin under `$TMPDIR` and a lane on a `worker` branch.
+2. It starts `north land serve` for that origin and the worker sandbox that keeps the worker's tools
+   on that scratch world.
+3. It launches one Claude haiku worker with a one-file brief. The worker writes `worker.txt` and
+   calls the `hand-in` tool, which queues the lane and waits for the landing.
+4. The lander checks the commit and pushes it to the scratch origin's `main`; `north ledger worker`
+   then records the run, and the walk cleans every process and directory it made.
+
+A passing run prints a `step 0 ok` line for the binary it uses, one `step N ok` line for each of the
+four spine steps, and ends:
+
+```
+step 4 ok     ... ms  `north ledger worker` records the run done and landed at that commit
+verify-north passed  total ... ms
+```
+
+Exit 0 is the proof that the worker's change landed on `main`.
+
+## What just happened
+
+The **model** is the Claude request inside the worker. The **harness** is north and the Claude Code
+CLI that serves it. The **agent** is the worker session north launched with the brief. The **fleet**
+is the whole run: the account, the worker, the lander and the ledger that records the landing. The
+four words and the rule that a model is never called an agent are in [terms.md](terms.md).
+
+The lane, the brief and the hand-in tool are the same path every later change takes; they are
+described in [briefing.md](briefing.md) and [landing.md](landing.md).
+
+## Install north on a host
+
+The check above uses the two binaries from the checkout. A host that runs a fleet promotes a runtime
+instead, so every north command and every scheduled job share one commit.
+
+1. **Lay out the code.** Each repository is a container `~/code/<project>/` with `main/`,
+   `worktrees/<slug>/` and `pins/<object-id>/` ([harness/code/AGENTS.md](../harness/code/AGENTS.md)).
+   North's commands expect `~/code/north/main` and, for an operator, the policy repository at
+   `~/code/south/main`; [operator-repository.md](operator-repository.md) says what that holds.
+2. **Put `north` on `PATH`.** [bin/north](../bin/north) launches the installed runtime, and the tools
+   in [bin/](../bin/) are toolchain shims and a few helpers. The runtime installer links `safe-push`
+   and the other commands to the north binary under `~/.local/share/north/bin`
+   ([harness/policy-owners.toml](../harness/policy-owners.toml),
+   [crates/north-core/src/agent_policy_contract/wiring.rs](../crates/north-core/src/agent_policy_contract/wiring.rs)).
+3. **Promote a runtime.** `north runtime update` builds `origin/main`, installs the binary and the
+   commit's own tree under `~/.local/state/north/runtimes/<sha>/`, points
+   `~/.local/state/north/current` at it, runs `north runtime health`, and then runs
+   `north config agents sync`; a sync failure alarms the coordinator once per cause and retries every
+   tick but never rolls the runtime back. A build in progress always finishes and promotes before the
+   next one starts on the newest main. Scheduled jobs run harness code from `current/tree/bin`, so the
+   code they run and the binary they call share a commit.
+
+   ```sh
+   target/debug/north runtime update
+   ```
+
+4. **Keep hosts current.** Each host promotes landings itself: a timer runs `north runtime update`,
+   and `north runtime deploy` carries a build to the other declared hosts. The "Runtime promotion"
+   entry in [features/08-machines-capacity-and-scheduled-jobs/](features/08-machines-capacity-and-scheduled-jobs/)
+   gives the order, the fallbacks and the schedule.
+5. **Publish policy.** `north config agents sync` fast-forwards the operator repository and north main
+   checkouts, runs the policy gate in
+   [crates/north-core/src/agent_config_check/](../crates/north-core/src/agent_config_check/)
+   (`north check harness policy-gate session`), builds a new activation generation under
+   `~/.local/state/north/agents/` from the operator repository's `catalog-config.json`, and links each
+   allowed skill into `~/.claude/skills` and `~/.codex/skills`. It reads north's skills, scripts and
+   hooks from the tree of the runtime `current` names, never from the checkout, so only promotion
+   moves them.
+6. **Wire the providers.** The generation's instructions and `provider-hooks` reach Claude Code and
+   Codex through links the machine configuration makes; `north check harness` checks that wiring and
+   `north check harness --local` checks the live links. A hook script deleted from the hooks directory
+   of the north tree must be named in `harness/retired-hooks.txt`, which
+   `north config agents check-owners` enforces at landing; the generation then carries a no-op stub
+   under that name until each host stops registering it.
+7. **Register guards by id.** The operator repository registers a north-owned guard by its id; sync,
+   `check-owners` and the policy checks resolve it through the `[[registered]]` entry for that id in
+   north's [structure/](../structure/) tree (the lander writes `structure.toml` from it), so moving the
+   guard file edits that `path` and nothing in the operator repository.
+
+To try only the `north` app, follow the [README](../README.md#try-it); it needs neither the operator
+repository nor the machine configuration. Once the check above passes, [briefing.md](briefing.md) and
+[landing.md](landing.md) show how work moves.
+
+## If the check fails
+
+`verify-north` names the step that failed and keeps its evidence under
+`~/.local/state/north/verify-north/failed/<stamp>/`. Run it again with the same command after fixing
+the cause; it creates a fresh scratch world each time and never reuses a lane or a ledger.

@@ -36,7 +36,7 @@ target/debug/north
 Then follow the numbered path, one page per step:
 
 1. What north is: this page and [docs/terms.md](docs/terms.md).
-2. Install it on your machines: [docs/onboarding.md](docs/onboarding.md); `verify-north` walks a brief, a worker, a landed commit and a ledger row on a scratch repository and is the check that it works.
+2. Install north and land your first change: [docs/onboarding.md](docs/onboarding.md); `verify-north` walks a brief, a worker, a landed commit and a ledger row on a scratch repository and is the check that it works.
 3. Brief a worker: [docs/briefing.md](docs/briefing.md).
 4. Land a change: [docs/landing.md](docs/landing.md).
 5. Know where policy lives: [docs/operator-repository.md](docs/operator-repository.md).
@@ -70,7 +70,7 @@ Read in three rings and stop at the first one that answers:
 
 ## Concept documents
 
-- [docs/onboarding.md](docs/onboarding.md): installing north on a host.
+- [docs/onboarding.md](docs/onboarding.md): installing north and landing one change on a scratch repository.
 - [docs/briefing.md](docs/briefing.md): staffing a worker and messaging fleet sessions.
 - [docs/landing.md](docs/landing.md): how a change reaches main.
 - [docs/operator-repository.md](docs/operator-repository.md): where policy lives.
