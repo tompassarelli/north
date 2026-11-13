@@ -433,3 +433,85 @@ The lanes:
    scoreboard is read for the reused share and queue p90. Closes the shadow box and the turned-on box.
 7. **Later.** Clippy per crate keyed on dep-info, and test selection by path set. Scans are left out (see
    Unit).
+
+## Path-set reuse review: after-landing runs (2026-11-13)
+
+This path-set reuse review reads the shadow rows of north#842's unit path-set reuse. It is written for a second reviewer to
+judge whether reuse is switched on for the run after a landing. `observes()` in
+`crates/north-land-checks/src/land/slots/runner/spawn.rs` is `!after`, so an `--after` run neither looks up
+nor records. The shadow tick's background run of each landed main (probe `main-SHA`, `main_run.rs`) checks
+the same tree an after run checks, with the same store behind it, so its rows stand in for after runs. A
+`unit_reuse` switch has no entry in `harness/gates.toml`. Reuse stays shadow-only until code changes it, and
+this review is the record that change needs.
+
+**Rows and window.** `~/.local/state/north/land-reuse/DAY.tsv` on the lander host holds rows from
+2026-11-08 11:14 AM (+07) to 2026-11-13 9:28 AM. The first batch (125 harvests and 1,151 units at
+bde3db9c68, 11:14 AM) is the author's run from before 13cf1918ed landed, against a store seeded on the
+same tree. No lookup matched anything until 04e7901616 (2026-11-11 5:26 AM) took the observer's process
+environment out of the weak key. The window below starts there: 781 first-parent commits on main.
+
+- `north land reuse report --since 14d`: 1,639 probes, 1,571,766 units, 34,343 would reuse (2.2%), 5,948.5
+  of 892,781.4 test-seconds (0.7%), 1,814 disagreements.
+- Split by probe kind from 04e7901616 on (`S=1794349588`):
+  `cat ~/.local/state/north/land-reuse/*.tsv | awk -F'\t' -v S=$S '$1>=S && $2=="unit"{k=($3~/^main-/)?"main":"lane"; n[k]++; s[k]+=$7; if($6=="fail")f[k]++; if($5!="-"){r[k]++; rs[k]+=$7}} END{for(k in n) print k,n[k],f[k],r[k],s[k],rs[k]}'`.
+  A check is one harvest, grouped by probe and epoch.
+
+**1. Would-be reuse.**
+
+- Pre-queue (lane-head probes): 662 probes and 950 checks. 169 checks would reuse at least one unit. 0
+  checks would reuse every unit. 7,555 of 638,876 units (1.18%), 526 of 272,534 test-seconds (0.19%), 0.79
+  test-seconds per probe.
+- After-landing (landed-main probes): 172 mains and 670 checks. 278 checks would reuse at least one unit.
+  31 checks would reuse every unit, each the same 4-unit line of old-state database tests (6.57
+  test-seconds across all 31). 25,637 of 282,277 units (9.08%), 4,669 of 200,743 test-seconds (2.33%),
+  27.15 of 1,167 test-seconds per landed main. No `--after` run was observed, because `observes()` keeps it
+  out.
+
+**2. Disagreements.** The report counts 1,814. None came after the shadow went live, and none has a reused
+pass against a real failure.
+
+- One was a verdict disagreement: `north::it capacity_agent_compile::a_fleet_sessions_cargo_with_no_real_cargo_on_path_is_refused_not_run_in_the_dev_shell`
+  at bde3db9c68, in the author's run from before landing. Path set 6d32b2a3414f would have carried a pass,
+  and the real run failed. The real run was right. The test never removes `SAFE_PUSH_LAND_HEAD`,
+  `build_offload::is_agent_build` branches on it, and the key leaves `SAFE_PUSH_*` out, so a pass recorded
+  outside a landing carried into a landing (cause recorded in 04e7901616). That gap is still open for any
+  pass recorded outside a landing. The lander records only under landings, which keeps it shut today.
+- 1,813 were set differences (every answer matched the reused set, but the real run read a different set).
+  All are on landed-main probes, in 69 of the 172 mains (40%), and both sides passed in every one. Each
+  shows an input outside the key that changed what the test read:
+  - 1,780 (98.2%) read `absent ~/.local/state/north/runtimes/SHA/{git,betterleaks,flock,unzip,curl,claude}`,
+    and 3 more read `absent crates/north-lander/runtimes/SHA`. The check's `PATH` holds the north runtime
+    directory, named by main's sha, and `fingerprint::IGNORED` drops `PATH` because "a program a test runs is
+    read as a path". After a landing, the old runtime's path is still absent, so the old set matches, while
+    the test now looks in the new runtime's directory. Both verdicts were right only because neither
+    directory held the program. A runtime that ships a shim under one of those names would change the
+    program the test runs while its reused pass still matched.
+  - 17 wrote `target/decision-log/land.sheriff/DATE/HH.jsonl`: the test names a file after the wall-clock
+    hour.
+  - 6 read `absent ~/.local/state/threads/threads.db-wal`: a read of live host state that the recorder
+    should have refused as ambient.
+  - 5 read `content /sys/devices/system/cpu/online` and 1 read `content /proc/sys/vm/overcommit_memory`:
+    host inputs that differ by host or by sandbox cpuset.
+  - 1 read `exec target/debug/deps/north_monitor-HASH`: a test binary whose build hash changed while its
+    answers matched.
+
+**3. Switching it on for after runs.**
+
+- Slot time saved: at most 27.15 test-seconds per landing (2.33% of an after run's test time). Nextest runs
+  those tests in parallel inside checks that still build and run, so the wall-clock gain per slot is that
+  figure divided by the check's test threads, a few seconds. Only the 31 old-state-database checks would be
+  skipped whole.
+- Risk: every set difference above is on the tree shape an after run checks. The runtime-sha `PATH` gap
+  applies to every landing, since each landing makes a new runtime directory. By this note's own bar
+  ("Shadow, then on": 100 landings with 0 disagreements), the after path fails: 69 of 172 mains had a
+  disagreement. A wrong reuse in an after run passes a broken main, which is the costliest miss the lander
+  has.
+- Pre-queue reuse gains less (0.79 test-seconds per probe) and does not meet the bar either.
+
+**Recommendation: keep after-landing runs out (`observes()` stays `!after`).** Reconsider once three changes
+have landed. First, the key labels the runtime directory in `PATH` (or the recorder records runtime-directory
+probes under a label), the same way it already labels tree and target roots. Second, the recorder marks
+reads under `~/.local/state` and hourly-named writes as unreusable. Third, the shadow then shows 100 landed
+mains with 0 disagreements. Even then the saving is capped at about 2% of an after run's test time. The
+larger lever for after runs is test selection by path set or narrowing tests/it binaries ("Expected reuse,
+and the lever if it falls short"), not reusing units.
