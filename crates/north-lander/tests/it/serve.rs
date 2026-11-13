@@ -130,11 +130,15 @@ impl World {
     }
 
     pub(super) fn lander(&self, repository: &Repository, hold: Option<&Path>) -> Child {
+        self.serve_command(repository, hold).spawn().unwrap()
+    }
+
+    pub(super) fn serve_command(&self, repository: &Repository, hold: Option<&Path>) -> Command {
         let mut command = self.land(&["serve", "--once", "--repo", repository.checkout.to_str().unwrap(), "--checker", self.path().join("bin/checker").to_str().unwrap(), "--app-token", self.path().join("bin/token").to_str().unwrap()]);
         if let Some(hold) = hold {
             command.env("HOLD", hold);
         }
-        command.spawn().unwrap()
+        command
     }
 
     pub(super) fn land(&self, arguments: &[&str]) -> Command {

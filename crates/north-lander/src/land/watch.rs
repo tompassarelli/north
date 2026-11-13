@@ -16,7 +16,7 @@ use super::after_landing_lifecycle::{self as lifecycle, AfterLandingRun, Run};
 use super::checks::Verdict;
 use super::lander::Lander;
 
-use super::post_land::{self, Cancel, Found, Hosts, Outcome};
+use super::post_land::{self, Cancel, Found, Hosts, Outcome, Unanswered};
 use super::alone_flight::{self, Flight};
 use super::buck2_after;
 use super::jobs::Jobs;
@@ -157,6 +157,14 @@ fn state(head: &str) -> Option<Run> {
     lifecycle::host().ok().and_then(|store| lifecycle::current::<AfterLandingRun>(&store, head)).map(|record| record.state)
 }
 
+fn unsettled(batch: &Batch, detail: &str) {
+    moved(heads(batch), Run::Unsettled, detail);
+    let misses = lifecycle::host().map_or(0, |store| heads(batch).map(|head| lifecycle::misses(&store, head)).max().unwrap_or(0));
+    if misses == UNSETTLED {
+        after::send("proxy", &format!("north land: the after-landing run of {} reached no verdict {UNSETTLED} times in a row ({detail}); main is unverified until one does, and it keeps running every {} s", batch.head, RETRY.as_secs()));
+    }
+}
+
 impl Watch {
     pub fn resume(lander: &Lander) -> Self {
         let mut watch = Self::default();
@@ -290,7 +298,16 @@ impl Watch {
         }
         let waits: Vec<Span> = batch.heads.iter().filter(|followed| started - followed.at >= 1.0).map(|followed| Span::new(&followed.head, "waiting for the after-landing run in flight", Category::Queue, followed.at, started).with(PHASE, AFTER)).collect();
         record(lander, &waits);
-        let host = self.hosts.claim(&lander.repo, &batch.head);
+        let host = match self.hosts.claim(&lander.repo, &batch.head) {
+            Ok(host) => host,
+            Err(Unanswered) => {
+                println!("north land: no build host answered the after-landing run of {}, so it reports exit 75 and checks again in {} s; no check runs on this host", batch.head, RETRY.as_secs());
+                batch.retry_at = epoch() + RETRY.as_secs_f64();
+                unsettled(&batch, "no build host answered");
+                self.pending.retry(batch);
+                return false;
+            }
+        };
         let cancel = Cancel::default();
         moved(heads(&batch), Run::Running, &format!("its after-landing run of {} started{}", batch.head, host.as_deref().map_or_else(String::new, |host| format!(" on {host}"))));
         let run = post_land::start(lander, landed(lander, &batch), host.clone(), cancel.clone());
@@ -344,11 +361,7 @@ impl Watch {
         if let Verdict::Transient(detail) = &outcome.verdict {
             println!("north land: the after-landing run of {} reached no verdict ({detail}); it runs again in {} s", batch.head, RETRY.as_secs());
             batch.retry_at = ended + RETRY.as_secs_f64();
-            moved(heads(&batch), Run::Unsettled, detail);
-            let misses = lifecycle::host().map_or(0, |store| heads(&batch).map(|head| lifecycle::misses(&store, head)).max().unwrap_or(0));
-            if misses == UNSETTLED {
-                after::send("proxy", &format!("north land: the after-landing run of {} reached no verdict {UNSETTLED} times in a row ({detail}); main is unverified until one does, and it keeps running every {} s", batch.head, RETRY.as_secs()));
-            }
+            unsettled(&batch, detail);
             release(&mut self.hosts, &host);
             for followed in &mut batch.heads {
                 followed.at = ended;

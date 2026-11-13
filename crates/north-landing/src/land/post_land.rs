@@ -108,31 +108,41 @@ pub struct Run {
     pub adoptable: bool,
 }
 
+pub struct Unanswered;
+
 #[derive(Default)]
 pub struct Hosts(Vec<String>);
 
 impl Hosts {
-    /// The host the after-landing run of `head` checks on, counted as taken until released; None runs it here, as for a repository outside home, which no build host keeps: on 2026-11-10 the runtime canary's scratch landing under /tmp offered its check to cpx62, cpx62b and gex45, each refused it with exit 75 and `land serve --once` retried it for ever.
-    pub fn claim(&mut self, repo: &Path, head: &str) -> Option<String> {
+    /// The build host the after-landing run of `head` checks on, other than this host and counted as taken until released; None runs it here, as for a repository outside home, which no build host keeps: on 2026-11-10 the runtime canary's scratch landing under /tmp offered its check to cpx62, cpx62b and gex45, each refused it with exit 75 and `land serve --once` retried it for ever. Unanswered when no other build host answers, so the run waits rather than compile on this host (2026-11-11); under a test fixture (NORTH_TEST_ROOT set) it runs here instead.
+    pub fn claim(&mut self, repo: &Path, head: &str) -> Result<Option<String>, Unanswered> {
         if std::env::var_os("HOME").is_some_and(|home| !repo.starts_with(home)) {
             println!("north land: the after-landing run of {head} runs its checks here, since no build host keeps {} outside home", repo.display());
-            return None;
+            return Ok(None);
         }
         let taken = &mut self.0;
+        let settling = north_base::platform::host::name();
         let mut command = Command::new(follow::program());
-        command.args(["capacity", "offload", "choose", "--any"]);
+        command.args(["capacity", "offload", "choose", "--any"]).args(["--avoid", settling.as_str()]);
         for host in taken.iter() {
             command.args(["--taken", host]);
         }
         let chosen = command.current_dir(repo).stdin(Stdio::null()).stderr(Stdio::null()).output();
         let host = chosen.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|host| !host.is_empty());
-        match &host {
-            Some(host) if taken.is_empty() => println!("north land: the after-landing run of {head} runs its checks on {host}"),
-            Some(host) => println!("north land: the after-landing run of {head} runs its checks on {host}, beside the runs in flight on {}", taken.join(", ")),
-            None => println!("north land: no build host answered, so the after-landing run of {head} runs its checks here"),
+        let Some(host) = host else {
+            if north_base::platform::land_queue::test_root().is_some() {
+                println!("north land: no build host answered the after-landing run of {head}, so the test fixture runs its checks here");
+                return Ok(None);
+            }
+            return Err(Unanswered);
+        };
+        if taken.is_empty() {
+            println!("north land: the after-landing run of {head} runs its checks on {host}");
+        } else {
+            println!("north land: the after-landing run of {head} runs its checks on {host}, beside the runs in flight on {}", taken.join(", "));
         }
-        taken.extend(host.clone());
-        host
+        taken.push(host.clone());
+        Ok(Some(host))
     }
 
     pub fn hold(&mut self, host: &str) {

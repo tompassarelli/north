@@ -1,6 +1,8 @@
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use std::sync::{Arc, Mutex};
 
 use north_lander::land::queue;
 
@@ -109,6 +111,12 @@ fn a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts
 }
 
 const HELD_AFTER_RUNNER: &str = r#"#!/bin/sh
+printf '%s|%s\n' "$SAFE_PUSH_LAND_RUNNER" "$*" >> "$0.argv"
+if [ "$1 $2 $3" = "capacity offload choose" ]; then
+  [ -e "$HOME/refuse" ] && exit 75
+  echo gex45
+  exit 0
+fi
 [ "$1" = land ] || exit 0
 : > "$HOME/after-started"
 while [ ! -e "$HOME/release" ]; do sleep 0.05; done
@@ -119,11 +127,12 @@ fn wait_for(what: &str, ready: impl FnMut() -> bool) {
 }
 
 #[test]
-fn a_batch_queued_while_the_previous_batch_is_checked_after_landing_is_pushed_before_that_check_ends() {
+fn the_after_landing_run_offloads_to_a_build_host() {
     let world = World::new();
     let north = world.repository("north");
     north_base::foundation::shim::write_executable(&world.path().join("bin/north"), HELD_AFTER_RUNNER);
     let calls_file = checker(&world);
+    let recorded = world.path().join("bin/north.argv");
     north.lane("first");
     let mut lander = world.lander(&north, None);
     let landed = |file: &str| git(&north.origin, &["ls-tree", "--name-only", "main"]).lines().any(|name| name == file);
@@ -132,9 +141,29 @@ fn a_batch_queued_while_the_previous_batch_is_checked_after_landing_is_pushed_be
     wait_for("the second batch to be pushed while the first batch's after-landing run is held", || landed("second.txt"));
     assert!(lander.try_wait().unwrap().is_none(), "the lander ended before the held run did");
     assert_eq!(calls(&calls_file), 0, "the second batch waited for a check of a merged tree before its push");
+    let offloaded = fs::read_to_string(&recorded).unwrap_or_default();
+    assert!(offloaded.lines().any(|line| line.starts_with("gex45|") && line.contains("land checks --after")), "the after-landing check did not run as an offload to gex45: {offloaded}");
     fs::write(world.path().join("release"), "").unwrap();
     let output = lander.wait_with_output().unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", report(&output));
+
+    let checks_before = fs::read_to_string(&recorded).unwrap_or_default().lines().filter(|line| line.contains("land checks")).count();
+    north.lane("third");
+    fs::write(world.path().join("refuse"), "").unwrap();
+    let mut lander = world.serve_command(&north, None).env_remove("NORTH_TEST_ROOT").spawn().unwrap();
+    let said = Arc::new(Mutex::new(String::new()));
+    let sink = Arc::clone(&said);
+    let stdout = lander.stdout.take().unwrap();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            sink.lock().unwrap().push_str(&format!("{line}\n"));
+        }
+    });
+    wait_for("the third batch's after-landing run to be refused", || said.lock().unwrap().contains("exit 75"));
+    let _ = lander.kill();
+    let _ = lander.wait();
+    let refused = fs::read_to_string(&recorded).unwrap_or_default();
+    assert_eq!(refused.lines().filter(|line| line.contains("land checks")).count(), checks_before, "a refused after-landing run still ran its check: {refused}");
 }
 
 fn vouch(north: &Repository, branch: &str, base: &str) {
