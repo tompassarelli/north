@@ -162,6 +162,9 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     assert_eq!((super::named_selection(NEXTEST, "SAFE_PUSH_LAND_PACKAGES"), super::named_selection(&format!("{guards} -p c"), "SAFE_PUSH_LAND_PACKAGES")), (None, None), "a line that reads the variable, or names its packages apart, keeps its own form");
     assert_eq!(split(CLIPPY, "-p a"), None, "the key moves the nextest line alone");
     let moved = super::crate_tests(&side, tree.path(), "base", NEXTEST, ("SAFE_PUSH_LAND_PACKAGES", "--workspace"), (&listed, false), &packages).unwrap();
+    let every: std::collections::BTreeSet<String> = ["a", "b", "c", "m", "north"].map(str::to_owned).into();
+    assert_eq!((moved.declared_crates(&every), moved.left(&every)), (0, None), "nothing is left for the declared line once Buck2 passed every workspace member, so no --workspace line excluding them all runs");
+    assert!(moved.left_line(NEXTEST).contains(" --no-tests=pass ") && !moved.left_line(NEXTEST).contains("--no-tests=fail"), "the line for what is left passes when it selects no case, as a lane that changes only a binary of the root package selects none there once Buck2 decided the rest");
     let owners = ["root//crates/a:a-unittest", "root//crates/ab:ab-unittest", "root//:north-unittest", "root//crates/b:b-unittest", "root//crates/x/m:m-unittest", "root//crates/m:m-unittest"].map(|label| moved.owner(label));
     assert_eq!(owners, [Some("a"), None, Some("north"), None, Some("m"), None], "a target in Buck2's record belongs to the moved crate whose package holds it");
     std::fs::write(tree.path().join("crates/a/BUCK"), "a test that passes whatever the code does\n").unwrap();

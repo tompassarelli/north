@@ -250,12 +250,16 @@ impl CrateTests {
     /// The declared line's package selection for what stays on Cargo once Buck2 passed `passed`; `None` when nothing is left.
     pub fn left(&self, passed: &BTreeSet<String>) -> Option<String> {
         match &self.selected {
-            Selected::Workspace => Some(passed.iter().fold("--workspace".to_owned(), |flags, name| format!("{flags} --exclude {name}"))),
+            Selected::Workspace => (self.declared_crates(passed) > 0).then(|| passed.iter().fold("--workspace".to_owned(), |flags, name| format!("{flags} --exclude {name}"))),
             Selected::Packages(names) => {
                 let left: Vec<String> = names.iter().filter(|name| !passed.contains(*name)).map(|name| format!("-p {name}")).collect();
                 (!left.is_empty()).then(|| left.join(" "))
             }
         }
+    }
+
+    pub fn left_line(&self, declared: &str) -> String {
+        declared.replace("--no-tests=fail", "--no-tests=pass")
     }
 }
 
