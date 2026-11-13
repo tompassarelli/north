@@ -51,7 +51,7 @@ box says so.
 | 3. Guard rule boilerplate | 1,661 lines | Medium | 46 `north-guard` rule files of at most 60 lines each (662 test lines and 996 lines across 25 distinct rules); one decision shape and shared search-option table, bar 213 lines (`21,700` to `21,487`) |
 | 4. Test-guarantee audit | 12,000 lines of a 49,745-line pool | Medium | Each deleted test names the journey test that already pins its guarantee; the test-admission rule stays intact |
 | 5. `north-convo` | 7,665 lines | High | `north convo`, `north incident-mine`, `north tool-mine` and the `incident-retro` timer read transcripts |
-| 6. `north-tui` | 3,156 lines | High | `north fleet` is Tom's screen; nothing else draws it |
+| 6. `north-tui` (withdrawn 2026-11-13: the owner keeps the fleet screen) | 3,156 lines | High | `north fleet` is the owner's screen; nothing else draws it |
 | 7. `north-frontier` | 2,800 lines | High | `north test frontier run\|grade\|report` is the frontier scoreboard |
 | 8. `north-lander-doctor` | 2,385 lines | Medium | `north land drill`, `north land doctor` and `north land gate-stats` diagnose the lander |
 | 9. `north-tune` | 1,856 lines | High | `north tune` is the daily learning tick and the writer `harness/loops.toml` names |
@@ -111,7 +111,7 @@ Paste these onto north#970; the issue's own text is edited by whoever holds the 
 - [ ] Cut 3, guard rule boilerplate: one decision shape for the 54 `north-guard` rule modules and one shared search-option table, removing 213 lines (`21,700` to `21,487`). Done when: `test $(git -C /home/tom/code/north/main ls-files "crates/north-guard/*.rs" | xargs -d "\n" cat | wc -l) -le 21487` exits 0 and every guard test passes.
 - [ ] Cut 4, test-guarantee audit: delete 12,000 lines of tests whose guarantee an existing journey test already pins, naming that test per deletion. Done when: the cut's commits remove at least 12,000 test lines and `north land scan test-admission` and `north land scan test-integrity` are green.
 - [ ] Cut 5, `north-convo`: retire transcript search, incident mining and their timer callers, 7,665 lines. Needs Tom's decision.
-- [ ] Cut 6, `north-tui`: retire the fleet screen, 3,156 lines. Needs Tom's decision.
+- Cut 6, `north-tui`: withdrawn on 2026-11-13; the owner decided to keep the fleet screen.
 - [ ] Cut 7, `north-frontier`: retire the frontier scoreboard, 2,800 lines. Needs Tom's decision.
 - [ ] Cut 8, `north-lander-doctor`: retire the lander drill and doctor, 2,385 lines. Needs Tom's decision.
 - [ ] Cut 9, `north-tune`: retire the daily learning tick, 1,856 lines. Needs Tom's decision.
