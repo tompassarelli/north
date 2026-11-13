@@ -11,8 +11,8 @@ use super::pages::{Hash, MAX_PAGES, MAGIC, be32, hash_of, invalid, page_size, re
 use super::sidecar::suffixed;
 
 pub const REMOTE_COMMAND: &str = "north threads snapshot-pages";
-/// How long the ledger host serves one built image of a changed ledger to callers that accept a recent one, so the peers' pulls, which come about six minutes apart each, share one build of the 800 MB ledger.
-const REUSE_SECONDS: u64 = 600;
+/// How long the ledger host serves one built image of a changed ledger to callers that accept a recent one: as long as a peer waits between its own pulls, so the peers share one build of the 1.1 GB ledger instead of each finding the image older than 600 s and rebuilding it, about 20 CPU s on nexus a time (north#1054).
+const REUSE_SECONDS: u64 = super::SNAPSHOT_SECONDS;
 const STAMP_MARGIN: Duration = Duration::from_millis(50);
 
 /// Streams the pages of the ledger image that differ from the caller's manifest; `withhold_native`

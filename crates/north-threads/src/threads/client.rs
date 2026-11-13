@@ -326,12 +326,14 @@ impl Client {
         let ledger = self.ledger();
         let started = (self.clock)();
         let log = ledger.with_file_name("ingest.log");
-        let record = |acquired: Option<Timestamp>, exit: i32| {
-            let _ = ingest_log::append(&log, &ingest_log::Ingest { started, acquired, ended: (self.clock)(), exit, rows: ingest_log::rows(data) });
+        let record = |acquired: Option<Timestamp>, exit: i32, holder: Option<String>| {
+            let _ = ingest_log::append(&log, &ingest_log::Ingest { started, acquired, ended: (self.clock)(), exit, rows: ingest_log::rows(data), holder });
         };
-        let Some(_lock) = ingest_lock::acquire(&ledger.with_file_name("ingest.lock"), self.ingest_wait)? else {
-            writeln!(err, "NorthThreads: another ingest holds the ledger; retry")?;
-            record(None, ingest_lock::RETRY);
+        let lock = ledger.with_file_name("ingest.lock");
+        let Some(_lock) = ingest_lock::acquire(&lock, self.ingest_wait)? else {
+            let holder = ingest_lock::holder(&lock).map(|holder| holder.to_string());
+            writeln!(err, "NorthThreads: another ingest holds the ledger{}; retry", holder.as_deref().map_or_else(String::new, |holder| format!(": {holder}")))?;
+            record(None, ingest_lock::RETRY, holder);
             return Ok(ingest_lock::RETRY);
         };
         let acquired = (self.clock)();
@@ -342,7 +344,7 @@ impl Client {
         let code = match outcome {
             Ok(code) if code == 0 || !expired => code,
             Err(error) if !expired => {
-                record(Some(acquired), 1);
+                record(Some(acquired), 1, None);
                 return Err(error);
             }
             _ => {
@@ -350,7 +352,7 @@ impl Client {
                 ingest_lock::RETRY
             }
         };
-        record(Some(acquired), code);
+        record(Some(acquired), code, None);
         Ok(code)
     }
 

@@ -472,7 +472,7 @@ fn two_ingests_started_together_run_one_after_the_other_and_each_batch_is_record
 }
 
 #[test]
-fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_code_and_its_retry_records_each_row_once() {
+fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_code_and_its_retry_records_each_row_once_and_one_refused_names_the_lock_holder() {
     let (directory, mut client) = ledger_host(LOCK_PATIENCE);
     client.ingest_hold = Duration::from_secs(1);
     let writer = rusqlite::Connection::open(directory.path().join("threads.db")).unwrap();
@@ -490,6 +490,17 @@ fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_cod
         assert_eq!(client.main(&["ingest".to_owned()], &mut &[batch("one"), batch("two")].concat()[..], &mut Vec::new()).unwrap(), 0);
     }
     assert_eq!(recorded(directory.path()), ["one", "two"]);
+    let lock = directory.path().join("ingest.lock");
+    let mut wrapper = std::process::Command::new("flock").arg("-o").arg(&lock).args(["sleep", "30"]).spawn().unwrap();
+    assert!(crate::platform::wait::until(Duration::from_secs(10), || ingest_lock::holder(&lock).is_some_and(|holder| holder.held >= Duration::from_secs(1))), "the wrapper never held the lock");
+    client.ingest_wait = Duration::from_millis(100);
+    let mut err = Vec::new();
+    assert_eq!(client.main(&["ingest".to_owned()], &mut &batch("three")[..], &mut err).unwrap(), ingest_lock::RETRY);
+    wrapper.kill().unwrap();
+    wrapper.wait().unwrap();
+    let said = String::from_utf8(err).unwrap();
+    assert!(said.contains(&format!("pid {} `flock", wrapper.id())) && said.contains("sleep 30`, holding it for "), "the refusal did not name the lock holder: {said}");
+    assert!(logged(directory.path()).last().unwrap()["holder"].as_str().is_some_and(|holder| holder.contains("sleep 30")), "the ingest log did not name the lock holder");
 }
 
 #[test]

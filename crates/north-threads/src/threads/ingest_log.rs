@@ -13,6 +13,7 @@ pub struct Ingest {
     pub ended: Timestamp,
     pub exit: i32,
     pub rows: BTreeMap<String, usize>,
+    pub holder: Option<String>,
 }
 
 /// How many rows of each type a batch carries, a row without a type counted as a run, as the ingest records it.
@@ -39,6 +40,7 @@ pub fn append(path: &Path, ingest: &Ingest) -> io::Result<()> {
         "total_ms": millis(ingest.started, ingest.ended),
         "exit": ingest.exit,
         "rows": ingest.rows,
+        "holder": ingest.holder,
     });
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     file.write_all(format!("{line}\n").as_bytes())
