@@ -11,7 +11,7 @@ use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::RunSink;
 use crate::fleet::waits::Run;
 use crate::fleet::model::LaunchRequest;
-use crate::fleet::session_host::{FrameWatch, Rest};
+use crate::fleet::session_host::Rest;
 use crate::fleet::turns::{RunRecord, TurnExit};
 
 use super::*;

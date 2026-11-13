@@ -6,8 +6,6 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::fleet::session_host::SentLog;
-
 use north_base::lifecycle::State as _;
 use north_base::platform::attribution::{self, Cause, Harness};
 
@@ -136,9 +134,7 @@ impl SentPrompts {
     fn journal(&self) -> MutexGuard<'_, Unaccepted> {
         self.journal.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
-}
 
-impl SentLog for SentPrompts {
     fn sent(&self, line: &str) {
         let Ok(frame) = serde_json::from_str::<Value>(line) else { return };
         if let Some(id) = self.runtime.sent_prompt(&frame) {

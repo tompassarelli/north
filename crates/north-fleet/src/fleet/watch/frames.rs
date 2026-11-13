@@ -1,7 +1,7 @@
 //! How a watch reads its provider's frames: the questions it relays, the prompts and answers it journals,
 //! and the rest, compaction or exit it asks its session host for.
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -28,8 +28,8 @@ impl TurnWatch {
     }
 }
 
-impl FrameWatch for TurnWatch {
-    fn line(&mut self, line: &[u8]) {
+impl TurnWatch {
+    pub fn line(&mut self, line: &[u8]) {
         let Ok(frame) = serde_json::from_slice::<Value>(line) else { return };
         if let Some(question) = self.runtime.question(&frame) {
             self.relay(question);
@@ -56,27 +56,50 @@ impl FrameWatch for TurnWatch {
         }
     }
 
-    fn sent_log(&self) -> Arc<dyn SentLog> {
-        self.unaccepted.clone()
+    /// Logs a frame this host queued, through a call kept outside this watch's lock.
+    fn sent_log(&self) -> SentLog {
+        let prompts = self.unaccepted.clone();
+        SentLog::new(move |line| prompts.sent(line))
     }
 
-    fn in_flight(&self) -> bool {
+    /// Hands this watch to a session host: every question the host asks reaches in through one lock, and a frame it
+    /// sends is logged without taking that lock.
+    pub fn watching(self) -> FrameWatch {
+        let sent = self.sent_log();
+        let watch = Arc::new(Mutex::new(self));
+        let line = Arc::clone(&watch);
+        let in_flight = Arc::clone(&watch);
+        let soonest_rest = Arc::clone(&watch);
+        let rest = Arc::clone(&watch);
+        let close = Arc::clone(&watch);
+        let hand_over = Arc::clone(&watch);
+        let take_over = Arc::clone(&watch);
+        FrameWatch::new(move |bytes| held(&line).line(bytes), sent)
+            .in_flight_when(move || held(&in_flight).in_flight())
+            .soonest_rest_when(move || held(&soonest_rest).soonest_rest())
+            .rest_by(move |idle, park_after| held(&rest).rest(idle, park_after))
+            .close_by(move || held(&close).close())
+            .hand_over_by(move || held(&hand_over).hand_over())
+            .take_over_by(move |state| held(&take_over).take_over(state))
+    }
+
+    pub fn in_flight(&self) -> bool {
         self.turns.in_flight()
     }
 
-    fn soonest_rest(&self) -> Option<Duration> {
+    pub fn soonest_rest(&self) -> Option<Duration> {
         Some(self.idle.registered_park_after)
     }
 
-    fn hand_over(&mut self) -> Value {
+    pub fn hand_over(&mut self) -> Value {
         handover::hand_over(self)
     }
 
-    fn take_over(&mut self, state: Value) {
+    pub fn take_over(&mut self, state: Value) {
         handover::take_over(self, state);
     }
 
-    fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest {
+    pub fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest {
         let finished = !self.finished.is_empty() && self.finished.values().all(|finished| *finished);
         let registered = self.registered_wait();
         let session = idle::Session { idle, in_flight: self.turns.in_flight(), turn_open: self.turns.turn_open(), context: self.turns.context(), rolled_over: self.rolled_over, finished, registered };
@@ -103,7 +126,7 @@ impl FrameWatch for TurnWatch {
         }
     }
 
-    fn close(&mut self) {
+    pub fn close(&mut self) {
         self.closing = true;
         for turn in self.turns.abandon(now_ms()) {
             self.record(turn);
@@ -123,3 +146,8 @@ impl FrameWatch for TurnWatch {
     }
 }
 
+
+/// The watch's lock, taken for one call from the host and released before it asks anything else.
+fn held(watch: &Mutex<TurnWatch>) -> MutexGuard<'_, TurnWatch> {
+    watch.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}

@@ -9,7 +9,7 @@ use crate::fleet::fakes::Paper;
 use crate::fleet::gates::GateRequest;
 use crate::fleet::model::Delivery;
 use crate::fleet::receipts::Courier;
-use crate::fleet::session_host::{FrameWatch, Rest};
+use crate::fleet::session_host::Rest;
 use crate::fleet::registry::TurnWatch;
 use super::Claude;
 

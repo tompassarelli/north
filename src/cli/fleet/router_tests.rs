@@ -120,7 +120,7 @@ async fn notifications_after_the_turn_do_not_keep_a_codex_host_awake() {
     let mut config = silent_codex_turn(root.path(), 0);
     config.runtime = vec!["sh".into(), "-c".into(), script];
     let watch = TurnWatch::new(Arc::new(Codex), Arc::new(Recorded::default()), Arc::new(Recorded::default()), Arc::new(Held::default()), root.path().to_path_buf(), root.path().to_path_buf());
-    let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
+    let mut host = SessionHost::spawn_watched(&config, Watcher::new(watch.watching())).unwrap();
     host.rest_when_idle(Some(Duration::from_secs(1)));
     let parked = tokio::time::timeout(Duration::from_secs(10), host.wait()).await;
     assert_eq!(parked.ok().map(Result::unwrap), Some(143), "an idle host must park despite steady non-turn output");
@@ -151,7 +151,7 @@ async fn a_host_told_to_end_leaves_a_finished_worker_stopped_and_an_unfinished_o
         let (config, _) = claude_turn(root.path(), 100_000, reply);
         let sink = Arc::new(Recorded::default());
         let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), root.path().join("worker"));
-        let host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
+        let host = SessionHost::spawn_watched(&config, Watcher::new(watch.watching())).unwrap();
         host.end_with_host_signal();
         assert!(north_core::platform::wait::until_async(Duration::from_secs(30), || !sink.0.lock().unwrap().is_empty()).await, "the turn never recorded its run");
         rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::Term).unwrap();

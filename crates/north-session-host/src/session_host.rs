@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
@@ -14,9 +14,12 @@ use tokio::time::Instant;
 
 use crate::error::{NorthError, NorthResult};
 
+mod frame_watch;
 mod handover;
 mod pipes;
 mod provider;
+
+pub use frame_watch::{FrameWatch, SentLog};
 
 use pipes::{append, copy_lines, copy_rotating, feed_stdin};
 use provider::{Provider, signal};
@@ -193,78 +196,62 @@ pub enum Rest {
     End,
 }
 
-pub trait SentLog: Send + Sync {
-    fn sent(&self, line: &str);
-}
-
-pub trait FrameWatch: Send {
-    fn line(&mut self, line: &[u8]);
-    fn sent_log(&self) -> Arc<dyn SentLog>;
-    fn in_flight(&self) -> bool;
-    fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest;
-    fn soonest_rest(&self) -> Option<Duration> {
-        None
-    }
-    fn close(&mut self);
-    /// What the host's next image needs to keep watching, read while no line is being watched.
-    fn hand_over(&mut self) -> serde_json::Value {
-        serde_json::Value::Null
-    }
-    /// Restores what the host's previous image handed over.
-    fn take_over(&mut self, _state: serde_json::Value) {}
-}
-
-#[derive(Clone, Default)]
+/// A host's handle on its frame watch: every question it asks takes the watch's lock, and a frame it sends is logged
+/// through the call the watch handed out, which never takes that lock.
+#[derive(Clone)]
 pub struct Watcher {
-    watch: Option<Arc<Mutex<Box<dyn FrameWatch>>>>,
-    sent: Option<Arc<dyn SentLog>>,
+    watch: Arc<Mutex<FrameWatch>>,
+    sent: SentLog,
+}
+
+impl Default for Watcher {
+    fn default() -> Self {
+        Self::new(FrameWatch::default())
+    }
 }
 
 impl Watcher {
-    pub fn new(watch: Box<dyn FrameWatch>) -> Self {
-        Self { sent: Some(watch.sent_log()), watch: Some(Arc::new(Mutex::new(watch))) }
+    pub fn new(watch: FrameWatch) -> Self {
+        Self { sent: watch.sent_log(), watch: Arc::new(Mutex::new(watch)) }
     }
 
-    fn with<T>(&self, idle: T, act: impl FnOnce(&mut Box<dyn FrameWatch>) -> T) -> T {
-        match &self.watch {
-            Some(watch) => act(&mut watch.lock().unwrap_or_else(|poisoned| poisoned.into_inner())),
-            None => idle,
-        }
+    fn lock(&self) -> MutexGuard<'_, FrameWatch> {
+        self.watch.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn lines(&self, bytes: &[u8]) {
-        self.with((), |watch| bytes.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()).for_each(|line| watch.line(line)));
-    }
-
-    fn sent(&self, line: &str) {
-        if let Some(log) = &self.sent {
-            log.sent(line);
+        let mut watch = self.lock();
+        for line in bytes.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()) {
+            watch.line(line);
         }
     }
 
+    fn sent(&self, line: &str) {
+        self.sent.sent(line);
+    }
+
     fn output_keeps_awake(&self) -> bool {
-        self.with(true, |watch| watch.in_flight())
+        self.lock().in_flight()
     }
 
     fn soonest_rest(&self) -> Option<Duration> {
-        self.with(None, |watch| watch.soonest_rest())
+        self.lock().soonest_rest()
     }
 
     fn rest(&self, idle: Duration, park_after: Option<Duration>) -> Rest {
-        let parked = if park_after.is_some_and(|limit| idle >= limit) { Rest::End } else { Rest::Wait };
-        self.with(parked, |watch| watch.rest(idle, park_after))
+        self.lock().rest(idle, park_after)
     }
 
     fn close(&self) {
-        self.with((), |watch| watch.close());
+        self.lock().close();
     }
 
     fn hand_over(&self) -> serde_json::Value {
-        self.with(serde_json::Value::Null, |watch| watch.hand_over())
+        self.lock().hand_over()
     }
 
     fn take_over(&self, state: serde_json::Value) {
-        self.with((), |watch| watch.take_over(state));
+        self.lock().take_over(state);
     }
 }
 
@@ -392,7 +379,7 @@ impl SessionHost {
     }
 }
 
-pub async fn run(arguments: &[String], watch_for: impl FnOnce(&HostConfig) -> Option<Box<dyn FrameWatch>>) -> NorthResult<u8> {
+pub async fn run(arguments: &[String], watch_for: impl FnOnce(&HostConfig) -> Option<FrameWatch>) -> NorthResult<u8> {
     let config = HostConfig::parse(arguments)?;
     let socket = config.socket_path()?;
     fs::create_dir_all(&config.state_dir)?;

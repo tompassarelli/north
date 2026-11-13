@@ -100,10 +100,10 @@ fn far_machine(host: &str) -> bool {
     config().is_ok_and(|cfg| pacing_placement::gate::spool_pulled(&cfg, host))
 }
 
-pub fn host_watch(config: &HostConfig) -> Option<Box<dyn FrameWatch>> {
+pub fn host_watch(config: &HostConfig) -> Option<FrameWatch> {
     let provider = ProviderName::new(config.provider.as_deref()?);
     match open_fleet().and_then(|fleet| fleet.watch(&provider, &config.state_dir)) {
-        Ok(watch) => Some(Box::new(watch)),
+        Ok(watch) => Some(watch.watching()),
         Err(error) => {
             eprintln!("north session-host: turn watch unavailable: {}", error.user_message());
             None

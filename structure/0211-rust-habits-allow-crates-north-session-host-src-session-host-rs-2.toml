@@ -1,6 +1,0 @@
-[[rust_habits.allow]]
-rule = "single-impl-trait"
-path = "crates/north-session-host/src/session_host.rs"
-item = "SentLog"
-reason = "Keeps the process host free of the turn watcher's parsing; candidate to make concrete."
-
