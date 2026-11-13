@@ -8408,7 +8408,10 @@ cargo.rust_library(
         "CARGO_PKG_VERSION_PRE": "",
         "OUT_DIR": "$(location :zmij-1-build-script-run[out_dir])",
     },
-    rustc_flags = ["@$(location :zmij-1-build-script-run[rustc_flags])"],
+    rustc_flags = [
+        "-Zcodegen-backend=llvm",
+        "@$(location :zmij-1-build-script-run[rustc_flags])",
+    ],
     visibility = [],
 )
 
