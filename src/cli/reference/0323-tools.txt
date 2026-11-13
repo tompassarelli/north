@@ -1,7 +1,7 @@
   finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...  Run the check, and only when it passes commit the named paths, queue the lane and return the ticket
   finish --judge-message SESSION                Judge a commit message read from standard input for the session
   proxy [--interactive]                         Open the fleet screen on the proxy session, attaching, reviving or launching it; --interactive resumes its conversation in claude
-  proxy move [--to ACCOUNT] [--auto] [--dry-run]  Move the proxy session to an account with headroom
+  proxy move [--to ACCOUNT] [--effort LEVEL] [--auto]  Move the proxy session to an account with headroom
   spend [--json]                                Print the week points left across accounts, the worker sessions working and the waste of the last 24 hours
   depbox fetch|run -- COMMAND [ARG...]         Run a command in the dependency sandbox: fetch with the network shared, run with no network
   code-health layers [--repo DIR] BASE HEAD     Exit 1 for each reference a changed Rust file adds that breaks a structure.toml module or crate DAG rule

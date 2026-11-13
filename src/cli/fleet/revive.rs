@@ -34,7 +34,7 @@ pub(super) fn restart(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>,
 }
 
 /// Restart, on `account` when it names another one, carrying the conversation there.
-fn restart_onto(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort: Option<Effort>, overrides: Overrides, account: Option<&str>) -> NorthResult<SessionRecord> {
+pub(super) fn restart_onto(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort: Option<Effort>, overrides: Overrides, account: Option<&str>) -> NorthResult<SessionRecord> {
     let cut_short = if fleet.session(name).is_ok() { fleet.left_mid_turn(name)? } else { false };
     let record = placed_onto(fleet, name, system_prompt, effort, overrides, account)??;
     if cut_short {

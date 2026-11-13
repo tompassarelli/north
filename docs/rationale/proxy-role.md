@@ -156,13 +156,7 @@ records and transcribes inside Claude Code's own UI, and no desktop-wide dictati
 type into the focused window. A hold-to-talk local Whisper module was chosen instead, filed
 as box F1v on north#112. Box F1 waits on Tom's answer and on that box.
 
-Until F1 lands, Tom also types into his own interactive Claude window, and on 2026-11-06 that window
-and the fleet session `proxy` both ordered the same workers. One proxy directs at a time
-(`src/cli/fleet/one_proxy.rs`): while Tom's window has written in the last 30 minutes, a fleet
-session in the proxy role on another conversation is refused `north fleet send`, `ask` and `launch`,
-whatever `--from` it declares; it keeps its reports and its name, so nothing it has not read is lost,
-and only a take-over launch of the proxy still runs, to hand the name on. With several windows open
-the most recently written one counts. The window wins because it is the one Tom is reading.
+The rule that refused a second proxy while Tom's own Claude window had written in the last 30 minutes (`src/cli/fleet/one_proxy.rs`, 2026-11-06) is removed with the window search it needed (north#1048, 2026-11-13).
 
 Rejected, two ways to keep the interactive Claude Code window as the proxy:
 
@@ -628,6 +622,6 @@ The feature record `0021-launch-claims.md` was cut to a short entry; this is its
 
 ## Feature record "Window move", as written until 2026-11-13
 
-The feature record `0027-window-move.md` was cut to a short entry; this is its earlier text, kept for the reasons and dates it holds.
+The feature record `0027-proxy-move.md` was cut to a short entry; this is its earlier text, kept for the reasons and dates it holds.
 
 - Window move: `north proxy move [--to ACCOUNT] [--auto] [--dry-run]` moves the window holding the conversation the fleet record names for the coordinator, whatever other interactive `claude` windows are open, when its account's outlook is under 45 minutes (or out), or when `--to` names an account with week headroom, to the account with the most week headroom whose own outlook is not under 45 minutes; it refuses when that conversation has no live window on a terminal and names the windows it saw (north#636, north#1238). The caller only starts the user unit `north-window-move` and prints its result, so a sandboxed shell, the coordinator's own included, can run it: the unit reads the windows, runs the terminal test and prints the plan, which `--dry-run` stops at. Otherwise it starts the unit `north-window-move-swap`, which runs the steps at once, beside the running old window, saying on the old window what it does: carry the session's transcript, subagent files, file history and session environment into the target profile; open a ghostty window running `claude-ACCOUNT --resume SESSION` with the old window's flags and wait until it runs under the target profile's `CLAUDE_CONFIG_DIR`; change the fleet record's account and bind the coordinator's name to the new window; deliver its undelivered messages with a fleet tick; and only then, once the old window's turn ends or after 30 seconds at most, stop the old daemon-hosted session, hang up the old window's shell and put the new window in the old one's workspace and column with focus restored. A failure before that last step closes only the new window and binds the name back to the old one, which keeps running as it was. A turn the old window takes after the carry stays in the old account's transcript, and the new window does not see it (north#1238: a move that waited for the old turn first showed nothing for minutes, because delivered messages kept waking the old window). The fleet tick runs `--auto`, which reads the coordinator's account from the fleet record and starts the swap unit at most once in 20 minutes.

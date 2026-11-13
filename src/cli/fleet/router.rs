@@ -6,7 +6,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::platform::attribution::{self, Cause, Harness};
 use super::claims::{self, SWEEP_VERB, ThreadsCli, release_exited_claims};
 use crate::fleet::hops;
-use crate::fleet::model::{Delivery, ProviderName, Role, SessionRecord};
+use crate::fleet::model::{Delivery, ProviderName, SessionRecord};
 use crate::fleet::route::Route;
 use crate::fleet::registry::{self, Controlled, Fleet};
 use crate::fleet::store::ControlVerb;
@@ -23,7 +23,7 @@ use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
 use super::placement::Overrides;
-use super::{admission, desktop, gated, one_proxy, ranked, spend_queue, tier};
+use super::{admission, desktop, gated, ranked, spend_queue, tier};
 use super::run_ingest::IngestRuns;
 use super::usage_ingest::IngestUsage;
 use super::accounts;
@@ -231,9 +231,6 @@ fn second_rung_refused(fleet: &Fleet, name: &str, parent: Option<&str>, why: &st
 
 fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, queued: Option<&str>) -> NorthResult<()> {
     let LaunchParts { mut request, mut overrides, wait, take_over, priority, words } = parts;
-    if !(take_over && request.role() == Role::Proxy) {
-        one_proxy::admit(fleet, caller.as_deref(), &format!("launch {}", request.name))?;
-    }
     lineage::reader(fleet, &mut request, caller.as_deref())?;
     super::claude_only::admit(&request)?;
     let mut issues = super::claim_box::IssueReads::github();

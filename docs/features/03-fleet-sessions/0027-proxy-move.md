@@ -1,0 +1,1 @@
+- Proxy move (north#636, north#1048): `north proxy move [--to ACCOUNT] [--effort LEVEL] [--auto]` revives the coordinator onto another account when its account's outlook runs short, or onto the one named with `--to`, carrying the conversation and keeping its model; a failed resume puts the account back. It searches no window and runs from a sandboxed shell.

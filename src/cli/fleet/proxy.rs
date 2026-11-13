@@ -12,9 +12,9 @@ use super::interactive;
 use super::placement::Overrides;
 use super::revive;
 use super::router;
-use super::window_move;
+use super::proxy_move;
 
-const USAGE: &str = "usage: north proxy [--interactive] | north proxy move [--to ACCOUNT] [--auto] [--dry-run]";
+const USAGE: &str = "usage: north proxy [--interactive] | north proxy move [--to ACCOUNT] [--effort LEVEL] [--auto]";
 const OPENING: &str = "[north: north proxy started this session as Tom's proxy]";
 const ROLE_FILE: &str = "harness/claude/agents/proxy.md";
 /// Why a launch names its model outside the tier routing: the proxy takes its model and effort from the role file, and
@@ -24,7 +24,7 @@ const TIER_REASON: &str = "north#1048: the proxy runs the model and effort harne
 pub(in crate::cli) fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     let result = match words.as_slice() {
-        ["move", rest @ ..] => window_move::run(rest),
+        ["move", rest @ ..] => proxy_move::run(rest),
         [] => router::open_fleet().and_then(attach),
         ["--interactive"] => router::open_fleet().and_then(|fleet| interactive::run(&fleet, PROXY, false)),
         _ => Err(NorthError::Usage(USAGE.into())),

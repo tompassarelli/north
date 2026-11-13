@@ -20,7 +20,7 @@ use super::dispatch_tick;
 use super::ledger::Ledger;
 use super::rebooted;
 use super::waits::Probes;
-use super::window_move;
+use super::proxy_move;
 
 const USAGE: &str = "Usage: north fleet tick";
 const BESIDE: Duration = Duration::from_secs(20);
@@ -85,8 +85,8 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     };
     let moving = {
         let fleet = fleet.clone();
-        detach("window_move", move || {
-            let ((), cpu) = metered(|| window_move::auto(&fleet));
+        detach("proxy_move", move || {
+            let ((), cpu) = metered(|| proxy_move::auto(&fleet));
             (Instant::now(), cpu)
         })
     };
@@ -107,10 +107,10 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     };
     let moved = match moving.by(deadline) {
         Ok((ended, cpu)) => {
-            ticked.steps.push(Step { name: "window_move", began: Duration::ZERO, took: ended - began, cpu: Some(cpu) });
+            ticked.steps.push(Step { name: "proxy_move", began: Duration::ZERO, took: ended - began, cpu: Some(cpu) });
             Vec::new()
         }
-        Err(late) => late_beside(&mut ticked, "window_move", &late.why(BESIDE), began),
+        Err(late) => late_beside(&mut ticked, "proxy_move", &late.why(BESIDE), began),
     };
     let queueing = Instant::now();
     let (queued, queueing_cpu) = drain_queue(fleet, began)?;

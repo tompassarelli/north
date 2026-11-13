@@ -8,9 +8,6 @@ use crate::error::{NorthError, NorthResult};
 
 pub(in crate::cli::fleet) struct Placed {
     pub id: u64,
-    pub pid: u32,
-    pub workspace: u64,
-    pub column: u64,
 }
 
 fn niri(arguments: &[&str]) -> NorthResult<String> {
@@ -32,22 +29,11 @@ fn windows() -> NorthResult<Vec<Value>> {
 fn placed(window: &Value) -> Option<Placed> {
     Some(Placed {
         id: window["id"].as_u64()?,
-        pid: u32::try_from(window["pid"].as_u64()?).ok()?,
-        workspace: window["workspace_id"].as_u64()?,
-        column: window["layout"]["pos_in_scrolling_layout"][0].as_u64().unwrap_or(1),
     })
-}
-
-pub(in crate::cli::fleet) fn window_of_terminal(terminal: u32) -> NorthResult<Placed> {
-    windows()?.iter().filter_map(placed).find(|window| window.pid == terminal).ok_or_else(|| NorthError::State(format!("no desktop window belongs to terminal process {terminal}")))
 }
 
 pub(in crate::cli::fleet) fn ids() -> NorthResult<Vec<u64>> {
     Ok(windows()?.iter().filter_map(|window| window["id"].as_u64()).collect())
-}
-
-pub(in crate::cli::fleet) fn focused() -> NorthResult<Option<u64>> {
-    Ok(windows()?.iter().find(|window| window["is_focused"] == true).and_then(|window| window["id"].as_u64()))
 }
 
 pub(in crate::cli::fleet) fn open(command: &[String]) -> NorthResult<Placed> {
@@ -63,34 +49,6 @@ pub(in crate::cli::fleet) fn open(command: &[String]) -> NorthResult<Placed> {
         std::thread::sleep(Duration::from_millis(250));
     }
     Err(NorthError::State("the new terminal window did not open within 20 seconds".into()))
-}
-
-pub(in crate::cli::fleet) fn focus(id: u64) -> NorthResult<()> {
-    niri(&["action", "focus-window", "--id", &id.to_string()]).map(drop)
-}
-
-pub(in crate::cli::fleet) fn settle(new: &Placed, old: &Placed, restore: Option<u64>) -> NorthResult<()> {
-    let id = new.id.to_string();
-    if new.workspace != old.workspace {
-        let index = serde_json::from_str::<Vec<Value>>(&niri(&["-j", "workspaces"])?)?.iter().find(|space| space["id"].as_u64() == Some(old.workspace)).and_then(|space| space["idx"].as_u64());
-        if let Some(index) = index {
-            niri(&["action", "move-window-to-workspace", "--window-id", &id, &index.to_string()])?;
-        }
-    }
-    focus(new.id)?;
-    niri(&["action", "move-column-to-index", &old.column.to_string()])?;
-    match restore.filter(|focused| *focused != old.id) {
-        Some(other) => focus(other),
-        None => Ok(()),
-    }
-}
-
-pub(in crate::cli::fleet) fn terminate(pid: u32) {
-    let _ = Command::new("kill").arg(pid.to_string()).status();
-}
-
-pub(in crate::cli::fleet) fn hang_up(pid: u32) {
-    let _ = Command::new("kill").args(["-HUP", &pid.to_string()]).status();
 }
 
 /// The live compositor's socket: `NIRI_SOCKET` when it names one, else the one niri keeps in the user's runtime directory, which a fleet session started outside the graphical session can still reach.

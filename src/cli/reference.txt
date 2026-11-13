@@ -162,7 +162,7 @@ Commands:
   cloud land EVENTS.jsonl [--repo DIR]          Apply a handback in a fresh lane and land it
   cloud reap                                    Land every finished handback launched in the last 7 days
   fleet dispatch [--dry-run] [--draft REPO#N...]      Launch ready boxes of every unpaused project in orchestration.toml (its dispatch_repos, else repos) on every free worker slot; --draft computes a draft of each named issue's qualifying ready box on slots the round leaves free, launching nothing else
-  proxy [--interactive] | proxy move [--to ACCOUNT] [--auto] [--dry-run]  Open the coordinator, or move its terminal window to the account with the most week headroom (the fleet tick runs --auto)
+  proxy [--interactive] | proxy move [--to ACCOUNT] [--effort LEVEL] [--auto]  Open the coordinator, or move its terminal window to the account with the most week headroom (the fleet tick runs --auto)
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
   ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the proxy on DECAYED
   ops check [--dry-run | --synthetic]           Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
@@ -383,7 +383,7 @@ Commands:
   finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...  Run the check, and only when it passes commit the named paths, queue the lane and return the ticket
   finish --judge-message SESSION                Judge a commit message read from standard input for the session
   proxy [--interactive]                         Open the fleet screen on the proxy session, attaching, reviving or launching it; --interactive resumes its conversation in claude
-  proxy move [--to ACCOUNT] [--auto] [--dry-run]  Move the proxy session to an account with headroom
+  proxy move [--to ACCOUNT] [--effort LEVEL] [--auto]  Move the proxy session to an account with headroom
   spend [--json]                                Print the week points left across accounts, the worker sessions working and the waste of the last 24 hours
   depbox fetch|run -- COMMAND [ARG...]         Run a command in the dependency sandbox: fetch with the network shared, run with no network
   code-health layers [--repo DIR] BASE HEAD     Exit 1 for each reference a changed Rust file adds that breaks a structure.toml module or crate DAG rule
