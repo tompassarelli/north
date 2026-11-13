@@ -24,6 +24,8 @@ jobs:
         uses: ./.github/actions/cargo-test-environment
         with:
           dev-shell: true
+      - name: Allow unprivileged user namespaces for the worker sandbox tests
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Test
         shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
         env:
