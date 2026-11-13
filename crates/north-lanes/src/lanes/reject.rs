@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use north_base::platform::land_queue;
 
-use super::gc::{ArchivedLane, archive, lane_issues, origin_repo};
+use super::gc::{ArchivedLane, archive, broken, lane_issues, origin_repo, retire_broken};
 use super::lane_rejection;
 use super::live_process;
 use super::orphan;
@@ -43,6 +43,14 @@ pub(super) fn reject_branch(container: &Path, branch: &str, verdict: &str, archi
     let verdict = verdict_text(verdict)?;
     let main = container.join("main");
     let found = find_branch(&main, branch)?;
+    let retired = archived(container, &main, &found, None, &verdict, |spec| match broken(spec, archive_root) {
+        None => Ok(None),
+        Some(_) if !names_place(&verdict) => Err("its objects are missing, so it cannot be bundled; name in the verdict where the work is kept (a path)".to_owned()),
+        Some(found) => retire_broken(spec, archive_root, &found, now_ms).map(Some),
+    })??;
+    if let Some(index) = retired {
+        return Ok(format!("retired: branch {branch} has missing objects, so nothing was bundled; the work is kept as named in the verdict ({verdict}), recorded in {}", index.display()));
+    }
     let file = bundle(container, &main, &found, None, &verdict, archive_root, now_ms)?;
     Ok(format!("archived: branch {branch} to {} (rejected: {verdict})", file.display()))
 }
@@ -56,13 +64,21 @@ fn verdict_text(verdict: &str) -> Result<String, String> {
 }
 
 fn bundle(container: &Path, main: &Path, found: &Found, worktree: Option<&Path>, verdict: &str, archive_root: &Path, now_ms: i64) -> Result<PathBuf, String> {
+    archived(container, main, found, worktree, verdict, |spec| archive(spec, archive_root, now_ms))?
+}
+
+fn archived<T>(container: &Path, main: &Path, found: &Found, worktree: Option<&Path>, verdict: &str, run: impl FnOnce(&ArchivedLane) -> T) -> Result<T, String> {
     let base = BASES.iter().find(|base| git_out(main, &["rev-parse", "--verify", "-q", base]).is_some()).ok_or("main has no origin/main or main to bundle against")?;
     let project = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
     let own = origin_repo(main).unwrap_or_else(|| project.clone());
     let issues = lane_issues(main, &own, base, &found.branch, &found.tip).unwrap_or_default();
     let why = format!("rejected: {verdict}");
     let spec = ArchivedLane { main, base, project: &project, worktree, branch: &found.branch, tip: &found.tip, issues: &issues, why: &why };
-    archive(&spec, archive_root, now_ms)
+    Ok(run(&spec))
+}
+
+fn names_place(verdict: &str) -> bool {
+    verdict.split_whitespace().any(|word| word.contains('/'))
 }
 
 fn place(lane: &Path) -> Result<(PathBuf, PathBuf), String> {

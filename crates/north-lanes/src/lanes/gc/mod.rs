@@ -45,7 +45,7 @@ use liveness::{Hosts, Trees};
 use state::{StaleReport, write_atomically};
 
 pub use audit::run as repo;
-pub(super) use archive::{Lane as ArchivedLane, archive};
+pub(super) use archive::{Lane as ArchivedLane, archive, broken, retire_broken};
 pub(super) use evidence::{lane_issues, origin_repo};
 pub(super) use targets::{BuildTarget, drop_build_target, gib};
 

@@ -56,4 +56,18 @@ fn a_rejected_lane_holding_unlanded_work_is_bundled_with_its_verdict_and_removed
     let bundle = Path::new(branch_index.lines().last().unwrap().rsplit('\t').next().unwrap());
     assert!(bundle.is_file(), "{}", bundle.display());
     assert!(bundle.file_name().unwrap().to_string_lossy().starts_with("codex-x-1-"), "{}", bundle.display());
+
+    git_in(&container.main(), &["checkout", "-q", "-b", "codex/lost-1"]);
+    fs::write(container.main().join("lost.txt"), "work whose blob is gone\n").unwrap();
+    git_in(&container.main(), &["add", "lost.txt"]);
+    git_in(&container.main(), &["commit", "-qm", "lost"]);
+    let blob = git_in(&container.main(), &["rev-parse", "HEAD:lost.txt"]);
+    git_in(&container.main(), &["checkout", "-q", "main"]);
+    fs::remove_file(container.main().join(".git/objects").join(&blob[..2]).join(&blob[2..])).unwrap();
+    let refused = reject_branch(&container.path(), "codex/lost-1", "superseded", &archive, 0).unwrap_err();
+    assert!(refused.contains("where the work is kept"), "{refused}");
+    assert!(!git_in(&container.main(), &["branch", "--list", "codex/lost-1"]).is_empty());
+    let retired = reject_branch(&container.path(), "codex/lost-1", "kept in /archive/lost.tar", &archive, 0).unwrap();
+    assert!(retired.starts_with("retired: branch codex/lost-1"), "{retired}");
+    assert!(git_in(&container.main(), &["branch", "--list", "codex/lost-1"]).is_empty());
 }

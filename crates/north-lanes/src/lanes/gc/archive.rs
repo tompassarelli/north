@@ -116,14 +116,59 @@ fn record(lane: &Lane, head: &str, place: &str, root: &Path, now_ms: i64) -> Res
     if std::fs::read_to_string(&index).is_ok_and(|rows| rows.lines().any(|row| row.contains(&tail) && row.ends_with(&*file.to_string_lossy()))) {
         return Ok(file);
     }
-    let at = Timestamp::from_unix_millis(now_ms).iso_millis();
-    let issues = if lane.issues.is_empty() { "-".to_owned() } else { lane.issues.join(" ") };
-    let line = format!("{at}\t{place}\t{}\t{head}\t{issues}\t{}\t{}\n", if lane.branch.is_empty() { "(detached)" } else { lane.branch }, lane.why, file.display());
-    OpenOptions::new().create(true).append(true).open(&index).and_then(|mut index| index.write_all(line.as_bytes())).map_err(|error| error.to_string())?;
+    append_row(lane, &directory, place, head, lane.why, &file.to_string_lossy(), now_ms)?;
     Ok(file)
 }
 
+fn append_row(lane: &Lane, directory: &Path, place: &str, head: &str, why: &str, file: &str, now_ms: i64) -> Result<(), String> {
+    let at = Timestamp::from_unix_millis(now_ms).iso_millis();
+    let issues = if lane.issues.is_empty() { "-".to_owned() } else { lane.issues.join(" ") };
+    let line = format!("{at}\t{place}\t{}\t{head}\t{issues}\t{why}\t{file}\n", if lane.branch.is_empty() { "(detached)" } else { lane.branch });
+    std::fs::create_dir_all(directory).map_err(|error| format!("{}: {error}", directory.display()))?;
+    OpenOptions::new().create(true).append(true).open(directory.join("index.tsv")).and_then(|mut index| index.write_all(line.as_bytes())).map_err(|error| error.to_string())
+}
+
+const BROKEN: &str = "broken ref: ";
+
+pub(in crate::lanes) struct Broken {
+    pub(in crate::lanes) detail: String,
+    pub(in crate::lanes) recorded: bool,
+}
+
+pub(in crate::lanes) fn broken(lane: &Lane, root: &Path) -> Option<Broken> {
+    if lane.tip.is_empty() {
+        return None;
+    }
+    let rows = std::fs::read_to_string(root.join(lane.project).join("index.tsv")).unwrap_or_default();
+    let noted = rows.lines().map(|row| row.split('\t').collect::<Vec<_>>()).find(|fields| fields.get(2) == Some(&lane.branch) && fields.get(3) == Some(&lane.tip) && fields.get(5).is_some_and(|why| why.starts_with(BROKEN)));
+    if let Some(fields) = noted {
+        return Some(Broken { detail: fields[5].trim_start_matches(BROKEN).to_owned(), recorded: true });
+    }
+    let listing = git(lane.main, &["rev-list", "--objects", "--missing=print", lane.tip, &format!("^{}", lane.base)]);
+    let missing = listing.out.lines().filter(|line| line.starts_with('?')).count();
+    (listing.ok && missing > 0).then(|| Broken { detail: format!("{missing} objects missing between {} and {}", lane.base, &lane.tip[..lane.tip.len().min(12)]), recorded: false })
+}
+
+pub(in crate::lanes) fn note_broken(lane: &Lane, root: &Path, found: &Broken, now_ms: i64) -> Result<(), String> {
+    let place = lane.worktree.map_or_else(|| "(branch)".to_owned(), |path| path.display().to_string());
+    append_row(lane, &root.join(lane.project), &place, lane.tip, &format!("{BROKEN}{}", found.detail), "-", now_ms)
+}
+
+pub(in crate::lanes) fn retire_broken(lane: &Lane, root: &Path, found: &Broken, now_ms: i64) -> Result<PathBuf, String> {
+    let why = format!("{}; {BROKEN}{}", lane.why, found.detail);
+    append_row(lane, &root.join(lane.project), "(branch)", lane.tip, &why, "-", now_ms)?;
+    if !git(lane.main, &["update-ref", "-d", &format!("refs/heads/{}", lane.branch), lane.tip]).ok {
+        return Err(format!("recorded in the index, but the branch {} moved", lane.branch));
+    }
+    lane_issue::forget(lane.main, lane.branch);
+    lane_rejection::forget(lane.main, lane.branch);
+    Ok(root.join(lane.project).join("index.tsv"))
+}
+
 pub(in crate::lanes) fn archive(lane: &Lane, root: &Path, now_ms: i64) -> Result<PathBuf, String> {
+    if let Some(found) = broken(lane, root) {
+        return Err(format!("{BROKEN}{}", found.detail));
+    }
     let head = match lane.worktree {
         Some(worktree) => snapshot(lane, worktree)?,
         None => lane.tip.to_owned(),
