@@ -34,6 +34,7 @@ const ROOT_LABEL: &str = "roadmap";
 pub(super) trait World {
     fn repo(&mut self, named: Option<&str>) -> Option<String>;
     fn claimed(&mut self) -> Vec<String>;
+    fn refresh_claims(&mut self);
     fn open(&mut self, repo: &str) -> Vec<(u64, String)>;
     fn worker_brief(&mut self) -> Option<String>;
     fn children_filed(&mut self) -> usize;
@@ -68,6 +69,10 @@ impl World for Live {
             .filter(|claim| claim.owner == actor)
             .map(|claim| claim.item)
             .collect()
+    }
+
+    fn refresh_claims(&mut self) {
+        crate::threads::client::refresh_mirrored_snapshot();
     }
 
     fn open(&mut self, repo: &str) -> Vec<(u64, String)> {
@@ -341,8 +346,13 @@ fn child_refusals(write: &GhWrite, body: &str, parent: &(String, String), repo: 
     }
     reasons.extend(shape(write, body).into_iter().filter(|reason| reason != NO_BOX));
     if world.worker_brief().is_some() {
-        let held: Vec<String> = world.claimed().iter().map(|item| claim_key(item)).collect();
-        if !held.contains(&key(&parent.0, &parent.1)) {
+        let parent_key = key(&parent.0, &parent.1);
+        let mut held = world.claimed().iter().map(|item| claim_key(item)).collect::<Vec<String>>();
+        if !held.contains(&parent_key) {
+            world.refresh_claims();
+            held = world.claimed().iter().map(|item| claim_key(item)).collect();
+        }
+        if !held.contains(&parent_key) {
             reasons.push(format!("No. A worker files a child only of the issue it holds, and you do not hold {}#{}. An issue with no parent is the owner's to authorize.", parent.0, parent.1));
         }
         let limit = north_base::platform::harness::default_number(CHILD_LIMIT) as usize;

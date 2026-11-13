@@ -89,6 +89,8 @@ impl World for Repo {
         Vec::new()
     }
 
+    fn refresh_claims(&mut self) {}
+
     fn open(&mut self, _: &str) -> Vec<(u64, String)> {
         Vec::new()
     }
@@ -114,6 +116,8 @@ impl World for Worker {
     fn claimed(&mut self) -> Vec<String> {
         vec!["north#1137".to_owned()]
     }
+
+    fn refresh_claims(&mut self) {}
 
     fn open(&mut self, _: &str) -> Vec<(u64, String)> {
         Vec::new()
@@ -179,4 +183,40 @@ fn a_worker_files_a_child_of_its_own_issue_and_is_refused_an_issue_with_no_paren
     assert!(matches!(decide_with(&create("Parent: north#1137\n"), &mut Worker { filed: limit }), Verdict::Deny(reason) if reason.contains("at most")));
     let unrunnable = creating("gh issue create -R tompassarelli/north --label enhancement --title 'Read the leaf row' --body 'Category: feature\nParent: north#1137\nDone when: it works\n'");
     assert!(matches!(decide_with(&unrunnable, &mut Worker { filed: 0 }), Verdict::Deny(reason) if reason.contains("runnable")));
+    let mut lagging = Lagging { refreshed: 0 };
+    assert_eq!(decide_with(&create("Parent: north#1137\n"), &mut lagging), Verdict::Allow, "a hold the mirrored snapshot lacks at first is read again after one refresh");
+    assert_eq!(lagging.refreshed, 1);
+    let mut lagging = Lagging { refreshed: 0 };
+    assert!(matches!(decide_with(&create("Parent: north#900\n"), &mut lagging), Verdict::Deny(reason) if reason.contains("do not hold")));
+    assert_eq!(lagging.refreshed, 1);
+}
+
+struct Lagging {
+    refreshed: usize,
+}
+
+impl World for Lagging {
+    fn repo(&mut self, named: Option<&str>) -> Option<String> {
+        named.map(str::to_owned)
+    }
+
+    fn claimed(&mut self) -> Vec<String> {
+        if self.refreshed == 0 { Vec::new() } else { vec!["north#1137".to_owned()] }
+    }
+
+    fn refresh_claims(&mut self) {
+        self.refreshed += 1;
+    }
+
+    fn open(&mut self, _: &str) -> Vec<(u64, String)> {
+        Vec::new()
+    }
+
+    fn worker_brief(&mut self) -> Option<String> {
+        Some("Item: tompassarelli/north#1137\nDone when: `cargo nextest run -p north-guard` exits 0".to_owned())
+    }
+
+    fn children_filed(&mut self) -> usize {
+        0
+    }
 }
