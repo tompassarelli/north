@@ -1,5 +1,5 @@
 use super::layout::{self, Layout};
-use super::pin::{self, Ahead, Event, Reason};
+use super::pin::{self, Ahead, Event, Outcome, Reason};
 use super::probe;
 use crate::platform::process;
 use north_base::build_inputs::live_fix;
@@ -145,16 +145,69 @@ fn clock(slot: i64) -> String {
     format!("{:02}:{:02} UTC", seconds / 3600, seconds % 3600 / 60)
 }
 
-pub(super) fn status(state: &Path, now: i64) -> String {
-    lines(Schedule::declared(), &pin::events_here_or_mirrored(state, "north runtime status"), now)
+const HAND_PIN: &str = "channel/stable";
+
+pub(super) fn hand_pinned(state: &Path) -> bool {
+    state.join(HAND_PIN).is_file()
 }
 
-fn lines(schedule: Schedule, events: &[Event], now: i64) -> String {
+pub(super) fn note_outcome(layout: &Layout, now: i64, outcome: Outcome) {
+    record(layout, Schedule::declared(), now, outcome, None);
+}
+
+pub(super) fn note_failure(layout: &Layout, now: i64, sha: &str, probe: &str) {
+    record(layout, Schedule::declared(), now, Outcome::Failed { probe: probe.to_owned() }, Some(sha));
+}
+
+const WORDS_MAX: usize = 200;
+
+fn one_line(text: String) -> String {
+    text.lines().next().unwrap_or_default().chars().take(WORDS_MAX).collect()
+}
+
+fn record(layout: &Layout, schedule: Schedule, now: i64, outcome: Outcome, failed_sha: Option<&str>) {
+    let outcome = match outcome {
+        Outcome::Refused { reason } => Outcome::Refused { reason: one_line(reason) },
+        Outcome::Failed { probe } => Outcome::Failed { probe: one_line(probe) },
+        promoted => promoted,
+    };
+    let events = pin::read(&layout.state);
+    let due = || pin::owed(&events).into_iter().find(|&(_, reason, _)| reason == Reason::Slot).map(|(_, _, at)| at);
+    let slot = match outcome {
+        Outcome::Promoted => due(),
+        Outcome::Refused { .. } => due().or_else(|| pin::waiting_since(&events).filter(|&landed| landed <= schedule.slot(now)).map(|_| schedule.slot(now))),
+        Outcome::Failed { .. } => events.iter().rev().find_map(|event| match event {
+            Event::Due { reason: Reason::Slot, at, sha } => Some(Some(*at).filter(|_| failed_sha == Some(sha.as_str()))),
+            Event::Due { .. } => Some(None),
+            _ => None,
+        }).flatten(),
+    };
+    let Some(slot) = slot else { return };
+    if last_slot(&events).is_some_and(|(held, _, last)| held == slot && *last == outcome) {
+        return;
+    }
+    pin::note(layout, &Event::Slotted { slot, outcome, at: now });
+}
+
+fn last_slot(events: &[Event]) -> Option<(i64, i64, &Outcome)> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Slotted { slot, outcome, at } => Some((*slot, *at, outcome)),
+        _ => None,
+    })
+}
+
+pub(super) fn status(state: &Path, now: i64) -> String {
+    lines(Schedule::declared(), &pin::events_here_or_mirrored(state, "north runtime status"), now, hand_pinned(state))
+}
+
+fn lines(schedule: Schedule, events: &[Event], now: i64, hand_pin: bool) -> String {
     let recent = |at: i64| at > now - DAY;
     let promotions = events.iter().filter(|event| matches!(event, Event::Promoted { at, .. } if recent(*at))).count();
     let fast = events.iter().filter(|event| matches!(event, Event::Due { reason: Reason::FastPath, at, .. } if recent(*at))).count();
     let next = schedule.next_free(events, now);
-    format!("promotions in 24 h: {promotions}\nfast paths in 24 h: {fast}\nnext slot: {} (unix {next})\n", pin::iso(next))
+    let last = last_slot(events).map_or_else(|| "last slot: none recorded\n".to_owned(), |(slot, at, outcome)| format!("last slot: {} (unix {slot}), {outcome} at {} (unix {at})\n", pin::iso(slot), pin::iso(at)));
+    let held = if hand_pin { format!("no slot promotes until the hand-order pin ({HAND_PIN}, kept by north-stable-hold.service) is released\n") } else { String::new() };
+    format!("promotions in 24 h: {promotions}\nfast paths in 24 h: {fast}\n{last}{held}next slot: {} (unix {next})\n", pin::iso(next))
 }
 
 #[cfg(test)]

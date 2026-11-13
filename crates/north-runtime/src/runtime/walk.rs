@@ -3,6 +3,7 @@ use super::failure::{Failure, failed};
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Canarying, Canary};
 use super::live::Swap;
+use super::cadence;
 use super::pin::{Event, note, now};
 use super::probe::Shell;
 use crate::platform::host;
@@ -21,6 +22,10 @@ pub(super) fn judged(layout: &Layout, host: &str, sha: &str, verdict: &Verdict, 
         _ => return,
     };
     note(layout, &event);
+    if *verdict == Verdict::RolledBack {
+        let probe = lifecycle::record_of::<Canarying>(layout, &format!("{host}/{sha}")).ok().flatten().map_or_else(|| "no probe recorded".to_owned(), |record| record.cause);
+        cadence::note_failure(layout, at, sha, &probe);
+    }
 }
 
 fn live_since(swaps: &[Swap], sha: &str) -> Option<i64> {

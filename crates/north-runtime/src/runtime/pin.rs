@@ -38,12 +38,31 @@ pub enum Event {
     ArtifactReady { sha: String, tree: String, seconds: i64, at: i64 },
     Canaried { sha: String, host: String, at: i64, seconds: i64 },
     Shipped { sha: String, host: String, at: i64, seconds: i64 },
+    Slotted { slot: i64, outcome: Outcome, at: i64 },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "result", rename_all = "kebab-case")]
+pub enum Outcome {
+    Promoted,
+    Refused { reason: String },
+    Failed { probe: String },
+}
+
+impl std::fmt::Display for Outcome {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Promoted => write!(out, "promoted"),
+            Self::Refused { reason } => write!(out, "refused: {reason}"),
+            Self::Failed { probe } => write!(out, "failed: {probe}"),
+        }
+    }
 }
 
 impl Event {
     pub fn at(&self) -> i64 {
         match self {
-            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::Ordered { at, .. } | Self::ArtifactReady { at, .. } | Self::Canaried { at, .. } | Self::Shipped { at, .. } => *at,
+            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::Ordered { at, .. } | Self::ArtifactReady { at, .. } | Self::Canaried { at, .. } | Self::Shipped { at, .. } | Self::Slotted { at, .. } => *at,
         }
     }
 }

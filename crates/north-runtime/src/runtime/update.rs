@@ -1,3 +1,4 @@
+use super::cadence;
 use super::canary;
 use super::bounded;
 use super::host_facts;
@@ -6,7 +7,7 @@ use super::layout::{self, Layout, TREE};
 use super::lifecycle::{self, Promoting, Promotion};
 use super::live;
 use super::peers;
-use super::pin;
+use super::pin::{self, Outcome};
 use super::pull;
 use super::probe::Shell;
 use super::remote;
@@ -104,6 +105,10 @@ pub(super) fn flight(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Fl
         Ok(_promoting) => unordered(layout, after_flip),
         Err(held) => {
             println!("north runtime: {}; the next tick takes origin/main's newest head", held.message);
+            if held.code != DEFERRED && land_offload::settles_fleet_here() {
+                let reason = if cadence::hand_pinned(&layout.state) { format!("the hand order's pin holds the promotion lock: {}", held.message) } else { held.message };
+                cadence::note_outcome(layout, pin::now(), Outcome::Refused { reason });
+            }
             Ok(Flight::Joined)
         }
     }
@@ -235,6 +240,7 @@ fn pass(layout: &Layout) -> Result<Pass, Failure> {
     let target = if settles { slot::target(layout, &checkout, &main) } else { main };
     let advanced = advance_to(layout, &checkout, &target);
     if settles && matches!(advanced, Ok(Pass::Promoted)) {
+        cadence::note_outcome(layout, pin::now(), Outcome::Promoted);
         pin::promoted(layout, &target);
     }
     advanced

@@ -1,6 +1,6 @@
 use super::super::layout::Layout;
-use super::super::pin::{self, Event, Reason};
-use super::{Heads, Schedule, lines, scheduled};
+use super::super::pin::{self, Event, Outcome, Reason};
+use super::{Heads, Schedule, lines, record, scheduled};
 use std::cell::RefCell;
 
 const PINNED: &str = "1111111111111111111111111111111111111111";
@@ -58,8 +58,22 @@ fn a_landing_between_slots_waits_for_the_slot_and_a_live_fix_promotes_at_once() 
     assert_eq!(pass(MIDNIGHT + 12 * HOUR + 21, FIX, AFTER, None), AFTER, "a due promotion not yet live is still promoted on the next pass");
 
     let events = pin::read(&layout.state);
-    let shown = lines(SLOTS, &events, MIDNIGHT + 12 * HOUR + 30);
-    assert_eq!(shown, format!("promotions in 24 h: 2\nfast paths in 24 h: 1\nnext slot: 1970-04-11T16:00:00Z (unix {})\n", MIDNIGHT + 16 * HOUR));
+    let shown = lines(SLOTS, &events, MIDNIGHT + 12 * HOUR + 30, false);
+    assert_eq!(shown, format!("promotions in 24 h: 2\nfast paths in 24 h: 1\nlast slot: none recorded\nnext slot: 1970-04-11T16:00:00Z (unix {})\n", MIDNIGHT + 16 * HOUR));
     assert_eq!(pin::bars(&events, MIDNIGHT, MIDNIGHT + 12 * HOUR + 30).due_to_live_seconds, [40.0, 60.0, 30.0], "the bar reads due to live, and a landing waiting for its slot is not late");
     assert_eq!(pin::bars(&events, MIDNIGHT, MIDNIGHT + 12 * HOUR).runtime_age_hours, Some(6.0), "the runtime is as old as the wait of the oldest landing no promotion has made live");
+
+    promoted(AFTER, MIDNIGHT + 12 * HOUR + 60);
+    landed(LATE, MIDNIGHT + 13 * HOUR);
+    let refused = Outcome::Refused { reason: "the hand order's pin holds the promotion lock".to_owned() };
+    record(&layout, SLOTS, MIDNIGHT + 16 * HOUR + 600, refused.clone(), None);
+    record(&layout, SLOTS, MIDNIGHT + 16 * HOUR + 1200, refused, None);
+    let events = pin::read(&layout.state);
+    assert_eq!(events.iter().filter(|event| matches!(event, Event::Slotted { .. })).count(), 1, "the same refusal of a slot is journaled once");
+    let shown = lines(SLOTS, &events, MIDNIGHT + 16 * HOUR + 1300, true);
+    let slot_at = pin::iso(MIDNIGHT + 16 * HOUR);
+    let at = pin::iso(MIDNIGHT + 16 * HOUR + 600);
+    assert!(shown.contains(&format!("last slot: {slot_at} (unix {}), refused: the hand order's pin holds the promotion lock at {at}", MIDNIGHT + 16 * HOUR)), "{shown}");
+    assert!(shown.contains("no slot promotes until the hand-order pin (channel/stable, kept by north-stable-hold.service) is released"), "{shown}");
+    assert!(!lines(SLOTS, &events, MIDNIGHT + 16 * HOUR + 1300, false).contains("no slot promotes"), "an unpinned host says nothing of a pin");
 }
