@@ -11,7 +11,7 @@ use super::remote::{SYNCED, Trust, script, words};
 use north_capacity_host::capacity::admission::offload_room;
 use north_capacity_host::capacity::handover::{Frame, Offer};
 use crate::land_offload::room::{self, Room};
-use crate::land_offload::{build_hosts, check_hosts, ship::quote};
+use crate::land_offload::{build_hosts, check_hosts, runs_no_checks_here, ship::quote};
 
 const WAIT_SECONDS: u64 = 3;
 const UNREACHABLE_BACKOFF: Duration = Duration::from_secs(10);
@@ -330,6 +330,7 @@ pub fn run(arguments: &[String]) -> u8 {
         log(&format!("running {}", binary.display()));
     }
     let here = north_base::platform::host::name();
+    let closed = runs_no_checks_here();
     let starting: HashMap<String, Arc<AtomicUsize>> = std::iter::once(here.clone()).chain(hosts.iter().map(|(name, _)| name.clone())).map(|name| (name, Arc::new(AtomicUsize::new(0)))).collect();
     let serving = Arc::new(AtomicUsize::new(0));
     let mut remote_rooms = RemoteRooms::read_from(hosts.clone());
@@ -351,6 +352,7 @@ pub fn run(arguments: &[String]) -> u8 {
             let count = |name: &str| starting.get(name).map_or(0, |count| count.load(Ordering::SeqCst));
             let mut targets = Vec::new();
             match discharging {
+                _ if closed => {}
                 Some(percent) => {
                     let why = format!("this host's battery discharges at {percent}%, so it runs no pulled build");
                     if printed.get(&here) != Some(&why) {
@@ -414,6 +416,9 @@ pub fn run(arguments: &[String]) -> u8 {
 
 /// Why this host takes no build a fleet session started here that no build host had room for: the rule it applies before running a pulled run, so a session's build and a pulled one share the interactive and game reserves.
 pub fn own_build_refusal() -> Option<String> {
+    if runs_no_checks_here() {
+        return Some("this host runs no checks or offloaded builds".to_owned());
+    }
     if game_reserved() {
         return Some("this host holds its game reserve".to_owned());
     }

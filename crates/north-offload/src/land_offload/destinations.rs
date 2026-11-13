@@ -97,6 +97,10 @@ pub(super) fn opts_out_of_builds(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("offload_builds")).and_then(Item::as_bool) == Some(false)
 }
 
+pub(super) fn runs_no_checks(cfg: &DocumentMut, host: &str) -> bool {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("runs_no_checks")).and_then(Item::as_bool) == Some(true)
+}
+
 pub(super) fn takes_land_checks(cfg: &DocumentMut, standing: super::room::Standing, host: &str) -> bool {
     !opts_out_of_builds(cfg, host) && (standing != super::room::Standing::Fallback || offloads_builds(cfg, host))
 }

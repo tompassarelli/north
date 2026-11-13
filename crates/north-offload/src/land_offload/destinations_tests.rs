@@ -74,3 +74,18 @@ fn a_host_that_declares_an_agent_login_runs_offloaded_checks_as_the_operator_unt
     assert_eq!(login("on").as_deref(), Some("agent@on"));
     assert_eq!(login("bare"), None, "a host set to run checks as its agent but naming no agent login must not run them as the operator");
 }
+
+#[test]
+fn a_laptop_closed_by_runs_no_checks_sends_every_check_to_a_remote_or_queues_it_there_never_here_north_1036() {
+    use crate::land_offload::room::{Room, Standing, check_host};
+    let cfg: DocumentMut = "[hosts.laptop]\nruns_no_checks = true\noffload_builds = true\n\n[hosts.cpx62]\noffload_builds = true\n".parse().unwrap();
+    assert!(runs_no_checks(&cfg, "laptop"));
+    assert!(!runs_no_checks(&cfg, "cpx62"), "the switch defaults off");
+    let closed = runs_no_checks(&cfg, "laptop");
+    let standing = crate::land_offload::standing(closed, false, Some(&cfg), "laptop");
+    assert_eq!(standing, Standing::Reserved, "offload_builds = true would make the laptop a Peer that runs a check itself once the remotes' queues pass a round");
+    let here = || -> Option<Room> { panic!("a closed laptop reads and runs nothing itself") };
+    assert!(check_host(standing, "laptop", here, vec![("cpx62".to_owned(), None)], &[], 6.0).is_err(), "an unreadable remote leaves the check unplaced, never on the laptop");
+    assert!(check_host(standing, "laptop", here, Vec::new(), &[], 6.0).is_err());
+    assert!(check_host(Standing::Fallback, "laptop", || None, Vec::new(), &[], 6.0).is_ok(), "unset, the laptop is the fallback that runs it");
+}

@@ -144,6 +144,11 @@ pub(crate) fn warms_slots_here() -> bool {
     config().map_or(true, |cfg| destinations::warms_slots(&cfg, &north_base::platform::host::name()))
 }
 
+/// Whether `[hosts.HERE] runs_no_checks` closes this host to land checks and offloaded builds, which then run on a build host or queue on one.
+pub fn runs_no_checks_here() -> bool {
+    config().is_ok_and(|cfg| destinations::runs_no_checks(&cfg, &north_base::platform::host::name()))
+}
+
 /// Whether the configuration names `host` as one that takes offloaded builds, whichever host asks.
 pub fn offloads_builds_in(host: &str) -> bool {
     config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, host))
@@ -300,11 +305,12 @@ fn on_battery() -> bool {
 
 fn choose(any: bool, placement: &Placement) -> u8 {
     let in_reserve = in_game_reserve();
-    if !any && !in_reserve {
+    let closed = runs_no_checks_here();
+    if !any && !in_reserve && !closed {
         eprintln!("north capacity offload: this host is not in game-reserve, so the land check runs here");
         return 1;
     }
-    if !any && checks_confined_here() {
+    if !any && !closed && checks_confined_here() {
         eprintln!("north capacity offload: this host keeps its game CPUs to game-reserve.slice and confines agent slices to the rest, so the land check runs here");
         return 1;
     }
@@ -371,7 +377,7 @@ fn survey(in_reserve: bool, placement: &Placement) -> Survey {
     if !lacks.is_empty() {
         eprintln!("north capacity offload: {here} lacks {}, which this land check reads, so it runs the check only when no host that holds it answers", lacks.join(" and "));
     }
-    let reserved = in_reserve || checks_confined_here() || !placement.admits(&here) || !lacks.is_empty();
+    let reserved = in_reserve || runs_no_checks_here() || checks_confined_here() || !placement.admits(&here) || !lacks.is_empty();
     let reached = |name: &str| config().is_ok_and(|cfg| north_base::platform::orchestration::reaches(&cfg, &here, name));
     let standing = standing(reserved, on_battery(), config().ok().as_ref(), &here);
     let takes = |name: &str| config().is_ok_and(|cfg| destinations::takes_land_checks(&cfg, standing, name));
