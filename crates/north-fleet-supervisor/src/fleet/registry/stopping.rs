@@ -9,7 +9,7 @@ use super::super::builds;
 use super::super::claims;
 use super::super::forget::{self, Forgotten};
 use super::super::host::Host;
-use super::super::model::{Phase, Role, Status};
+use super::super::model::{Role, Status};
 use super::super::records::{ARCHIVE, read_record};
 use super::super::runtime::{PROXY, now_ms};
 use super::super::unaccepted::Unaccepted;
@@ -158,8 +158,11 @@ impl Fleet {
         let archive = self.root.join(ARCHIVE);
         fs::create_dir_all(&archive)?;
         let archived = archive.join(format!("{name}-{}", now_ms()));
+        let record = read_record(&self.root.join(name))?;
+        let mut phases = self.phases()?;
+        let seen = phases.current(record.launch())?;
         fs::rename(self.root.join(name), &archived)?;
-        self.phases()?.moved(read_record(&archived)?.launch(), Phase::Retired, cause)?;
+        phases.retired_from(record.launch(), seen, cause)?;
         Ok(archived)
     }
 }
@@ -276,6 +279,7 @@ mod tests {
         fs::write(stopped.join("session.json"), serde_json::json!({"name": "n870-stopped", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "n870-stopped", "parent": "n870-lead", "host_dir": stopped, "stream_offset": 0}).to_string()).unwrap();
         let spool = fleet.root.join("spool/sessions/n870-lead");
         fs::create_dir_all(&spool).unwrap();
+        let writable = fs::metadata(&fleet.root).unwrap().permissions();
         fs::set_permissions(&fleet.root, fs::Permissions::from_mode(0o555)).unwrap();
         assert!(!fleet.writes_records(), "the fleet root stayed writable, as it does to root, so no sandbox was simulated");
         let lead = Fleet { spools_as: Some("n870-lead".into()), ..fleet.clone() };
@@ -288,7 +292,7 @@ mod tests {
         lead.hold_task("n870-lead", "north#872").unwrap();
         lead.spool_verb(RowKind::Launch, "n870-lead", &words("--name n870-new --task north#870 brief")).unwrap();
         lead.spool_verb(RowKind::Revive, "n870-lead", &words("n870-stopped --effort high")).unwrap();
-        fs::set_permissions(&fleet.root, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&fleet.root, writable).unwrap();
         assert!(matches!(forgotten.controlled, Controlled::Spooled(_)));
         assert!(fleet.record("n870-child").is_ok(), "the sandbox forgot the session itself");
         assert!(!fleet.record("n870-lead").unwrap().tasks().any(|task| task == "north#872"), "the sandbox wrote the lead's own record");
@@ -364,12 +368,10 @@ mod tests {
         tick.deliver_row(&revive).unwrap();
         assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: revive n870-stopped --effort high"));
 
-        use std::os::unix::fs::PermissionsExt;
         let bin = fleet.root.join(".bin");
         fs::create_dir_all(&bin).unwrap();
         for (program, body) in [("systemd-run", "case \" $* \" in *' --user --scope '*) echo $$ > \"$0.scoped\";; esac\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n"), ("north", "echo host > \"$0.trace\"\nwhile [ ! -e \"$0.tick-ended\" ]; do sleep 0.05; done\necho brief >> \"$0.trace\"\n")] {
-            fs::write(bin.join(program), format!("#!/bin/sh\n{body}")).unwrap();
-            fs::set_permissions(bin.join(program), fs::Permissions::from_mode(0o755)).unwrap();
+            north_base::foundation::shim::write_script(&bin.join(program), body);
         }
         let trace = || fs::read_to_string(bin.join("north.trace")).unwrap_or_default();
         Fleet { starts: scoped, ..fleet.clone() }.deliver_row(&asking(&launch, "outlives-tick", "--name n870-new --task north#870 brief")).unwrap();

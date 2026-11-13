@@ -216,6 +216,16 @@ impl Phases {
         }
     }
 
+    pub fn retired_from(&mut self, record: Launch<'_>, seen: Option<Phase>, cause: &str) -> NorthResult<()> {
+        if seen == Some(Phase::Retired) {
+            return Ok(());
+        }
+        match self.store.transition_from::<Session>(&record.instance(), seen, Phase::Retired, cause, Timestamp::now())? {
+            Ok(_) | Err(Lost::AlreadyMoved { .. }) => Ok(()),
+            Err(Lost::Refused(refusal)) => admitted(record, Err(refusal)).map(drop),
+        }
+    }
+
     pub fn current(&self, record: Launch<'_>) -> NorthResult<Option<Phase>> {
         Ok(self.store.current::<Session>(&record.instance())?.map(|current| current.state))
     }
