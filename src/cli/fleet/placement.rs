@@ -82,6 +82,8 @@ pub(super) struct Launch<'a> {
     pub family: ModelFamily,
     /// The launcher is the operator, never a confined caller: see `Fleet::operator_caller`.
     pub operator: bool,
+    /// The repository the launch carries in its task reference or working container, never one its brief names.
+    pub repository: &'a str,
 }
 
 /// Whether this launch comes from the operator, never a confined caller: outside every worker sandbox, not a queue replay, whose original caller is unproven, and judged by the launcher's own cgroup (`Fleet::operator_caller`).
@@ -152,6 +154,7 @@ fn place(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String]
     }
     let overrides = &Overrides { urgent: request.urgent, ..overrides.clone() };
     let text = crate::pacing::placement::needs::with_needs(&gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref()), needs);
+    let repository = gate::launch_repository(Some(&request.cwd), request.task().as_deref());
     let model = request.model.as_deref();
     let launch = Launch {
         name: &request.name,
@@ -164,6 +167,7 @@ fn place(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String]
         model,
         family: family_of(model),
         operator,
+        repository: &repository,
     };
     if let Some(why) = lead_refusal(fleet.host(), &launch, |host| trusted(host, fleet.host())) {
         return Ok(Err(Refusal::Final(why)));
@@ -283,6 +287,7 @@ fn recorded_launch(launch: &Launch, overrides: &Overrides) -> record::Launch {
         model: launch.model.map(str::to_owned),
         role: Some(launch.role.label().to_owned()),
         operator: launch.operator,
+        repository: launch.repository.to_owned(),
     }
 }
 

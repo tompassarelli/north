@@ -20,7 +20,12 @@ pub const LANDER: &str = "lander";
 const LANDER_LAND: [&str; 7] = ["doctor", "gate-stats", "missed", "profile", "promote", "replay", "serve"];
 
 pub fn words(text: &str, key: &str) -> Vec<String> {
-    field(text, key)
+    listed(field(text, key))
+}
+
+/// The need words of one field value, synonyms read as their need.
+pub fn listed(value: &str) -> Vec<String> {
+    value
         .to_lowercase()
         .split(|c: char| c.is_whitespace() || c == ',' || c == '|' || c == '/')
         .filter(|s| !s.is_empty())

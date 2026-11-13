@@ -70,6 +70,7 @@ fn placed_onto(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort
             model,
             family: model.and_then(crate::usage::meter::family).unwrap_or(crate::usage::decide::world::ModelFamily::Opus),
             operator: false,
+            repository: "",
         };
         placement = match placement::check(&launch, &placement::brief_text(brief.as_deref(), "")?, &overrides, &placement::machine_load(fleet)?, &fleet.roster(), true)? {
             Ok(placed) => placed.note,

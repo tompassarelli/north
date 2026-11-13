@@ -377,32 +377,37 @@ fn the_lines_waited_on_are_those_of_every_build_host_a_landing_goes_to_though_it
 }
 
 #[test]
-fn a_replayed_launch_on_a_host_with_an_agent_login_places_it_through_that_login() {
-    let host = record::Host { name: "far".into(), ssh: Some("tom@far".into()), agent_ssh: Some("agent@far".into()), launches: true, ..Default::default() };
-    let case = record::Case {
-        launch: record::Launch { name: "worker".into(), fresh: true, provider: "claude".into(), named_machine: Some("far".into()), ..Default::default() },
-        config: record::Config { hosts: vec![host], ..Default::default() },
-        ..coordinator_case([10.0, 10.0], [10.0, 10.0])
-    };
-    let decision = super::placement::case::decide(&case).unwrap();
-    assert_eq!(decision.machine.as_ref().map(Machine::session_login), Some("agent@far"), "the placed machine lost the host's agent login, so the launch dials the operator");
-}
-
-#[test]
 fn a_launch_needing_what_a_host_serves_its_operator_dials_the_operator_and_code_only_work_dials_its_agent_login() {
     let host = record::Host { name: "far".into(), ssh: Some("tom@far".into()), agent_ssh: Some("agent@far".into()), serves: vec!["native:wisp".into(), "private:makgora".into()], launches: true, ..Default::default() };
-    let placed = |brief: &str, operator: bool| {
+    let placed = |brief: &str, repository: &str, operator: bool| {
         let case = record::Case {
-            launch: record::Launch { name: "worker".into(), fresh: true, provider: "claude".into(), named_machine: Some("far".into()), operator, ..Default::default() },
+            launch: record::Launch { name: "worker".into(), fresh: true, provider: "claude".into(), named_machine: Some("far".into()), operator, repository: repository.into(), ..Default::default() },
             config: record::Config { hosts: vec![host.clone()], ..Default::default() },
             brief: brief.into(),
             ..coordinator_case([10.0, 10.0], [10.0, 10.0])
         };
         super::placement::case::decide(&case).unwrap().machine.map(|machine| machine.session_login().to_owned())
     };
-    assert_eq!(placed("Item: wisp#4 window check\nSurface: rust\nNeeds: native\n", true).as_deref(), Some("tom@far"), "a native box went to the agent login");
-    assert_eq!(placed("Item: makgora#4 tidy\nSurface: rust\n", true).as_deref(), Some("tom@far"), "a box on a repository whose private inputs the host serves went to the agent login");
-    assert_eq!(placed("Item: north#12 tidy placement\nSurface: rust\n", true).as_deref(), Some("agent@far"));
-    assert_eq!(placed("Item: north#5 window check\nSurface: rust\nNeeds: native\n", true).as_deref(), Some("agent@far"), "a need the host does not serve took the operator login");
-    assert_eq!(placed("Item: wisp#4 window check\nSurface: rust\nNeeds: native\n", false).as_deref(), Some("agent@far"), "a confined caller's native box took the operator login");
+    assert_eq!(placed("Item: wisp#4 window check\nSurface: rust\nNeeds: native\n", "wisp", true).as_deref(), Some("tom@far"), "a native box went to the agent login");
+    assert_eq!(placed("Item: makgora#4 tidy\nSurface: rust\n", "makgora", true).as_deref(), Some("tom@far"), "a box on a repository whose private inputs the host serves went to the agent login");
+    assert_eq!(placed("Item: north#12 tidy placement\nSurface: rust\n", "north", true).as_deref(), Some("agent@far"));
+    assert_eq!(placed("Item: north#5 window check\nSurface: rust\nNeeds: native\n", "north", true).as_deref(), Some("agent@far"), "a need the host does not serve took the operator login");
+    assert_eq!(placed("Item: wisp#4 window check\nSurface: rust\nNeeds: native\n", "wisp", false).as_deref(), Some("agent@far"), "a confined caller's native box took the operator login");
+    assert_eq!(placed("Repository: wisp\nItem: north#5 window check\nSurface: rust\nNeeds: native\n", "north", true).as_deref(), Some("agent@far"), "a Repository: line in the brief moved a dispatched session onto the operator login");
+}
+
+#[test]
+fn a_dispatched_brief_claiming_a_need_its_repository_config_lacks_stays_on_the_agent_login() {
+    let host = record::Host { name: "far".into(), ssh: Some("tom@far".into()), agent_ssh: Some("agent@far".into()), serves: vec!["native".into()], launches: true, ..Default::default() };
+    let placed = |surfaces: &[(&str, &str)]| {
+        let case = record::Case {
+            launch: record::Launch { name: "worker".into(), fresh: true, provider: "claude".into(), named_machine: Some("far".into()), operator: true, repository: "north".into(), ..Default::default() },
+            config: record::Config { hosts: vec![host.clone()], surfaces: surfaces.iter().map(|(repo, surface)| ((*repo).to_owned(), (*surface).to_owned())).collect(), ..Default::default() },
+            brief: "Item: north#5 window check\nSurface: native\nNeeds: native\n".into(),
+            ..coordinator_case([10.0, 10.0], [10.0, 10.0])
+        };
+        super::placement::case::decide(&case).unwrap().machine.map(|machine| machine.session_login().to_owned())
+    };
+    assert_eq!(placed(&[]).as_deref(), Some("agent@far"), "a brief's own Needs: and Surface: words moved a dispatched session onto the operator login");
+    assert_eq!(placed(&[("north", "native")]).as_deref(), Some("tom@far"), "a repository whose configured surface the host serves left its operator's work on the agent login");
 }

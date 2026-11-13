@@ -4,8 +4,8 @@
 //! only at its provider's limit; whether a worker may start at all is the spend rule's call
 //! (`crate::spend`).
 use super::super::storage::{self, load, rows};
-pub use super::repository::{anchored, repository};
-use super::needs::{holds_checkout, is_local_need, words};
+pub use super::repository::{anchored, launch_repository, repository};
+use super::needs::{holds_checkout, is_local_need, listed, words};
 use super::reach::Reach;
 use super::room::{Basis, Rank};
 use super::{facets, strings};
@@ -92,11 +92,11 @@ impl Machine {
         super::hosts::Login { destination: self.session_login(), agent: self.agent_ssh.is_some() }
     }
 
-    /// The machine as a launch of `text` reaches it: over the operator login when an unconfined `operator` caller launches work needing what this host itself serves its operator, a local need it covers or the private inputs it holds for the brief's repository, and over its agent login otherwise, so neither a brief's words nor a confined caller ever reach the operator login.
-    pub fn for_launch(self, text: &str, operator: bool) -> Self {
-        let repo = repository(text);
-        let served = local_needs(text).iter().any(|need| covers(&self.serves, need, &repo)) || covers(&self.serves, "private", &repo);
-        if operator && served { Self { agent_ssh: None, ..self } } else { self }
+    /// The machine as a launch reaches it: over the operator login when an unconfined `operator` caller launches work on its own repository, which this host serves its operator, by a serves entry for that repository or a local need of the repository's configured surface it covers, and over its agent login otherwise, so neither a brief's own words nor a confined caller ever reach the operator login.
+    pub fn for_launch(self, cfg: &DocumentMut, repo: &str, operator: bool) -> Self {
+        let scoped = self.serves.iter().any(|served| served.split_once(':').is_some_and(|(_, there)| !repo.is_empty() && there == repo));
+        let surfaced = repository_surface(repo, cfg).is_some_and(|surface| listed(&surface).iter().any(|need| is_local_need(need) && covers(&self.serves, need, repo)));
+        if operator && (scoped || surfaced) { Self { agent_ssh: None, ..self } } else { self }
     }
 }
 
@@ -619,12 +619,16 @@ pub fn surfaced<'a>(text: &'a str, cfg: &DocumentMut) -> std::borrow::Cow<'a, st
     if !words(text, "Surface").is_empty() {
         return text.into();
     }
-    let repo = repository(text);
-    let configured = cfg.get("placement").and_then(|rules| rules.get("surfaces")).and_then(|surfaces| surfaces.get(&repo)).and_then(Item::as_str).map(str::to_owned);
-    match configured.or_else(|| REPO_SURFACES.iter().find(|(name, _)| *name == repo).map(|(_, surface)| (*surface).to_owned())) {
+    match repository_surface(&repository(text), cfg) {
         Some(surface) => format!("Surface: {surface}\n{text}").into(),
         None => text.into(),
     }
+}
+
+/// The `Surface:` `repo`'s work has by the orchestration config: `[placement] surfaces.REPO`, else the built-in one.
+fn repository_surface(repo: &str, cfg: &DocumentMut) -> Option<String> {
+    let configured = cfg.get("placement").and_then(|rules| rules.get("surfaces")).and_then(|surfaces| surfaces.get(repo)).and_then(Item::as_str).map(str::to_owned);
+    configured.or_else(|| REPO_SURFACES.iter().find(|(name, _)| *name == repo).map(|(_, surface)| (*surface).to_owned()))
 }
 
 pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bool, String), machines: &[Machine], here: &str, here_gaming: bool) -> Decision {
