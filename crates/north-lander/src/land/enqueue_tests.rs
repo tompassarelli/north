@@ -287,6 +287,7 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
     for gate in ["cargo clippy --all-targets", "code-health layers", "check experiments", "check citations", "land scan test-admission kills", "code-health habits", "cargo nextest run"] {
         assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
     }
+    assert!(queued.iter().all(|command| !command.contains("--shadow")), "a shadow line gates nothing and runs after landing, so none is run before queueing: {queued:#?}");
     let (store, entry) = ("~/.local/share/makgora-build-inputs/store", "14fbf7845b5d9c9705d0f0b4b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0");
     fs::create_dir_all(repo.join("build-inputs")).unwrap();
     fs::write(repo.join("build-inputs/impact-assets"), format!("{entry}\n")).unwrap();

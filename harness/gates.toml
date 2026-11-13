@@ -24,7 +24,7 @@ mode = "shadow"
 [gate.turn-scope]
 mode = "shadow"
 
-# A lane that adds a Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint (north#865). The 2026-11-09 review read all 77 reports of the 41 h since it landed and a sample of 20 held none false, so it enforced. Tom's decision on 2026-11-10 made the habit advisory again (north#970): findings print in safe-push before queueing and are filed on the After-landing gate debt issue, and the check can neither refuse a lane nor fail a post-landing run.
+# A lane that adds a Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint (north#865). The 2026-11-09 review read all 77 reports of the 41 h since it landed and a sample of 20 held none false, so it enforced. Tom's decision on 2026-11-10 made the habit advisory again (north#970): findings are filed on the After-landing gate debt issue by the after-landing advisory in `.safe-push`, and the check can neither refuse a lane nor fail a post-landing run. The shadow copy of the scan that ran before queueing was dropped on 2026-11-13 (north#1036): nothing read its output, and it held a build-host slot job on every hand-in's path.
 [gate.code-comment]
 mode = "shadow"
 
