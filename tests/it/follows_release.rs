@@ -164,9 +164,9 @@ impl Desk {
     }
 
     fn listed(&self, number: u32) -> usize {
-        let (_, text) = self.north(&["threads", "queue", "follow-list"], None, "");
+        let (status, text) = self.north(&["threads", "queue", "follow-list"], None, "");
         let item = format!("north#{number}");
-        serde_json::from_str::<Vec<serde_json::Value>>(&text).unwrap_or_default().iter().filter(|entry| entry["item"] == item.as_str()).count()
+        serde_json::from_str::<Vec<serde_json::Value>>(&text).unwrap_or_else(|error| panic!("follow-list exited {status} without a JSON list ({error}): {text}")).iter().filter(|entry| entry["item"] == item.as_str()).count()
     }
 
     fn never_fell_back_to_the_installed_runtime(&self) {
