@@ -7,6 +7,20 @@ and safe to change (2026-11-06). The design stands or falls on one property: rep
 decision function may read only its input record, so the record has to hold every input today's code
 reads, and replay has to show when it does not.
 
+## What shipped and what is design
+
+Shipped (north#643): the `north-strategy-types` crate holding each kind's case and verdict; the decision log
+for placement, admission and the lander's pick, batch, judge, wave and sheriff steps; `north ops strategy
+replay` with its counts, shift bound, invariants and budget; the `strategy-purity` and `strategy-replay`
+landing scans; and the goal checks each kind moves. Placement and admission decide in their own modules
+(`case::decide` in north-pacing, `admission::decide` in north-capacity) over the logged case, and replay runs
+those linked functions.
+
+Design only, tracked by the open boxes of north#643: the `north-strategy` crate, the `strategy-replay`
+binary cached by crate hash, and `--against live` shadow agreement. Where the sections below name those,
+they describe the design to build. No log line carries a `strategy:` version and no command takes
+`--against live` yet: the logged version is `live:<runtime sha>`.
+
 ## Why
 
 North's decision logic changes constantly. Of the 973 commits on main from 10:00 PM on 2026-10-30 to
