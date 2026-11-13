@@ -1,0 +1,1 @@
+  docs verbs-index [--check] [--root DIR]        Regenerate src/cli/verbs.rs from the one-file-per-verb tree under src/cli/verbs/, or with --check fail when it is stale

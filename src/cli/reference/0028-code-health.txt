@@ -1,1 +1,1 @@
-  code-health habits [--repo DIR]               Run the Rust habit checks
+  code-health habits [--repo DIR] [--base REV [--head REV] [--shadow]] [--new-since REV] [--grown-since REV]  Run the Rust habit checks; --new-since reports only the findings new since REV and --grown-since adds the allowances grown since REV; --base reports each added // line that names no determinism, engine, Lua or external-format constraint, and --shadow prints the findings and exits 0

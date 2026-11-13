@@ -1,0 +1,1 @@
+  docs structure-index [--check] [--root DIR]    Regenerate structure.toml from the one-file-per-table tree under structure/, or with --check fail when it is stale

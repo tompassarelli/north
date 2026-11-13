@@ -32,7 +32,7 @@ Commands:
   code-health check [--repo DIR] [--config FILE] [--rev REV] [--json]  Measure one dirty file against structure.toml
   code-health signal [--repo DIR] [--config FILE] [--rev REV] [--json]  Print the recurring-review signal
   code-health review-done [--repo DIR] [--config FILE] [--rev REV] [--json]  Record a structure review
-  code-health habits [--repo DIR]               Run the Rust habit checks
+  code-health habits [--repo DIR] [--base REV [--head REV] [--shadow]] [--new-since REV] [--grown-since REV]  Run the Rust habit checks; --new-since reports only the findings new since REV and --grown-since adds the allowances grown since REV; --base reports each added // line that names no determinism, engine, Lua or external-format constraint, and --shadow prints the findings and exits 0
   code-health build-time --repo DIR [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE] [--rev REF] [--file]  Time cold and one-line-edit cargo build and test --no-run, append to the build-time ledger, exit 1 over the structure.toml threshold; --rev measures a fresh detached checkout of REF, --file keeps one rolling split issue per repo
   guard language                                PreToolUse language guard
   graph ground query [--query TEXT | TEXT] [--tier A|B] [--hook]  Retrieve existing infrastructure and history for a query
@@ -335,6 +335,8 @@ Commands:
   fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Account writers; the account view is `north accounts`
   help                                          Show the operator and agent commands
   docs reference-index [--check] [--root DIR]    Regenerate src/cli/reference.txt from the one-file-per-command tree under src/cli/reference/, or with --check fail when it is stale
+  docs verbs-index [--check] [--root DIR]        Regenerate src/cli/verbs.rs from the one-file-per-verb tree under src/cli/verbs/, or with --check fail when it is stale
+  docs structure-index [--check] [--root DIR]    Regenerate structure.toml from the one-file-per-table tree under structure/, or with --check fail when it is stale
   runtime lag --processes|--json                List each long-lived north process on this host with the runtime it runs and behind for each whose runtime is not the one its link names, or (--json) as an array the seconds each process on every declared host runs behind the newest landing that changed a runtime input
   lane sync CHECKOUT...                            Fetch and fast-forward each project main checkout to origin/main, outside a worker sandbox
   buck targets [--check] [--root DIR]              Write every workspace crate's Buck2 targets from the Cargo manifests; --check exits 1 on drift

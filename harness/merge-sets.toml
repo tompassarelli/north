@@ -68,6 +68,11 @@ sources = ["docs/rationale/"]
 generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/rationale_index/"]
 
 [[set]]
+path = "docs/rationale/kinds.toml"
+kind = "lines"
+entry = "first-word"
+
+[[set]]
 path = "tests/it/main.rs"
 kind = "lines"
 
