@@ -160,6 +160,7 @@ pub fn tick(places: &Places, host: &dyn super::flow::Host, now: f64, file: bool)
             Err(error) => lines.push(format!("detectors: filing failed: {error}")),
         }
         lines.extend(page::deliver(places, host, &pages));
+        lines.extend(mechanism_discovery::write(&places.state, &gatherer.discovery_evidence(now)).err().map(|error| format!("detectors: mechanism-discovery record not written: {error}")));
     } else {
         lines.extend(findings.iter().map(|finding| format!("detectors: {} {}: {}", finding.detector.name(), finding.key, finding.title)));
         lines.extend(pages.iter().map(|finding| format!("detectors: {} {}: paged, not filed: {}", finding.detector.name(), finding.key, finding.title)));

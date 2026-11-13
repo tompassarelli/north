@@ -61,7 +61,7 @@ fn finding(key: &str, title: &str) -> Finding {
 }
 
 #[test]
-fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_second_one() {
+fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_second_one_and_each_turn_is_recorded_once() {
     let root = tempfile::tempdir().unwrap();
     let places = places(root.path());
     let github = GitHub::default();
@@ -112,6 +112,20 @@ fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_seco
     assert!(!repeated[0].filed && repeated[0].note.contains("commented"), "a day's turn while the last one is open files no box: {}", repeated[0].note);
     assert_eq!(turns.edits.borrow().len(), 1, "the open turn box is not filed twice");
     assert_eq!(turns.comments.borrow().len(), 1);
+
+    let evidence = |dates: &[&str]| mechanism_discovery::Evidence {
+        turns: dates.iter().map(|date| mechanism_discovery::Turn { date: (*date).to_owned(), landed: format!("{date}T09:00:00+00:00") }).collect(),
+        mechanisms: ["- [x] Keep discovery-a (abc): kept", "- [ ] Revert abc (x): origin experiment discovery-b", "", "- [ ] Tom decides discovery-d"].iter().map(|verdict| mechanism_discovery::Mechanism { verdict: (*verdict).to_owned() }).collect(),
+    };
+    mechanism_discovery::write(root.path(), &evidence(&["2026-11-12", "2026-11-13"])).unwrap();
+    let mut names: Vec<String> = std::fs::read_dir(root.path().join("north/mechanism-discovery/turns")).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    assert_eq!(names, ["2026-11-12.txt", "2026-11-13.txt"]);
+    assert_eq!(std::fs::read_to_string(root.path().join("north/mechanism-discovery/score.txt")).unwrap(), "turns 2 in 28 d, newest 2026-11-13; mechanisms registered 4, kept on held-out cases 1, dropped 1, awaiting review 2\n");
+    let bare = tempfile::tempdir().unwrap();
+    mechanism_discovery::write(bare.path(), &evidence(&[])).unwrap();
+    assert!(!bare.path().join("north/mechanism-discovery/turns").exists(), "no turns leaves the record unwritten, so north loops check reads it stale");
+    assert!(std::fs::read_to_string(bare.path().join("north/mechanism-discovery/score.txt")).unwrap().starts_with("turns 0 in 28 d, newest none;"));
 }
 
 fn tick_box(github: &GitHub, evidence: &str) {

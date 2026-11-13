@@ -638,3 +638,15 @@ cadence_hours = 1
 store = "graph"
 writer = "fleet"
 defaults = ["fleet_stale_hours"]
+
+[[loop]]
+name = "mechanism-discovery"
+decision = "which first-try loss class the daily mechanism-discovery turn works and whether the mechanism it registers is kept on held-out cases or dropped"
+sites = ["crates/north-flow/src/detectors/mechanism_discovery.rs", "harness/mechanism-discovery/turn-brief.md"]
+signal = "turns landed in docs/rationale/discovery-turns.toml in the last 28 days and the registered discovery- mechanisms kept on held-out cases, dropped or awaiting review (the score line)"
+updated_by = "north ledger flow detect, run every 5 minutes by agents-flow-stall.timer, writes one record file per landed turn; the daily turn box appends the turn"
+cadence_hours = 24
+record = "north/mechanism-discovery/turns"
+score = "north/mechanism-discovery/score.txt"
+host = "lander"
+defaults = ["detector_mechanism_discovery_owner"]

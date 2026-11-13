@@ -1,11 +1,12 @@
 //! What the mechanism-discovery detector reads: the last 7 days' first tries lost to the harness by class, from
 //! `north dash losses`, and the loss keys the turn log holds in its last 28 days, read from origin/main.
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use toml_edit::{DocumentMut, Item};
 
 use super::{Gatherer, default_text};
-use crate::detectors::mechanism_discovery::Facts;
+use crate::detectors::mechanism_discovery::{Evidence, Facts, Mechanism, Turn};
 use crate::foundation::clock::Timestamp;
 
 const LOSSES_WINDOW: &str = "7d";
@@ -13,6 +14,8 @@ const LOSSES_LIMIT: Duration = Duration::from_secs(60);
 const CLASSES_PREFIX: &str = "classes: ";
 const LOSS_KEY_PREFIX: &str = "first-try-lost:";
 const TURN_LOG: &str = "docs/rationale/discovery-turns.toml";
+const EXPERIMENTS: &str = "docs/rationale/experiments.toml";
+const MECHANISM_PREFIX: &str = "discovery-";
 const HELD_DAYS: f64 = 28.0;
 const DAY_S: f64 = 86_400.0;
 
@@ -63,4 +66,58 @@ impl Gatherer<'_> {
         let shown = self.host.run(&["git", "-C", &path, "show", &format!("origin/main:{TURN_LOG}")], None, None).unwrap_or_default();
         held(&shown, &Timestamp::from_unix_seconds_f64(now - HELD_DAYS * DAY_S).iso_date())
     }
+
+    pub fn discovery_evidence(&self, now: f64) -> Evidence {
+        let checkout = self.checkout();
+        let path = checkout.to_string_lossy();
+        let since = Timestamp::from_unix_seconds_f64(now - HELD_DAYS * DAY_S).iso_date();
+        let show = |file: &str| self.host.run(&["git", "-C", &path, "show", &format!("origin/main:{file}")], None, None).unwrap_or_default();
+        let turns = turn_dates(&show(TURN_LOG), &since)
+            .into_iter()
+            .map(|date| {
+                let log = self.host.run(&["git", "-C", &path, "log", "origin/main", "--format=%cI", &format!("-Sdate = {date}"), "--", TURN_LOG], None, None).unwrap_or_default();
+                Turn { landed: log.lines().last().unwrap_or_default().to_owned(), date }
+            })
+            .collect();
+        let mut bodies: BTreeMap<String, String> = BTreeMap::new();
+        let mechanisms = registered(&show(EXPERIMENTS))
+            .into_iter()
+            .map(|(id, owner)| {
+                let body = bodies.entry(owner.clone()).or_insert_with(|| self.issue_body(&owner));
+                Mechanism { verdict: body.lines().filter(|line| line.contains(&id)).collect::<Vec<_>>().join("\n") }
+            })
+            .collect();
+        Evidence { turns, mechanisms }
+    }
+
+    fn issue_body(&self, owner: &str) -> String {
+        let Some((slug, number)) = owner.split_once('#') else {
+            return String::new();
+        };
+        let issue = self.host.json(&["gh", "issue", "view", number, "-R", slug, "--json", "body"]);
+        issue.and_then(|issue| issue["body"].as_str().map(str::to_owned)).unwrap_or_default()
+    }
+}
+
+fn turn_dates(turn_log: &str, since: &str) -> Vec<String> {
+    let Ok(document) = turn_log.parse::<DocumentMut>() else {
+        return Vec::new();
+    };
+    let dates = document.get("turn").and_then(Item::as_array_of_tables).into_iter().flat_map(|turns| turns.iter());
+    dates.filter_map(|turn| Some(turn.get("date")?.as_datetime()?.to_string())).filter(|date| date.as_str() >= since).collect()
+}
+
+fn registered(experiments: &str) -> Vec<(String, String)> {
+    let Ok(document) = experiments.parse::<DocumentMut>() else {
+        return Vec::new();
+    };
+    ["experiment", "check"]
+        .into_iter()
+        .filter_map(|kind| document.get(kind)?.as_array_of_tables())
+        .flat_map(|entries| entries.iter())
+        .filter_map(|entry| {
+            let id = entry.get("id")?.as_str()?;
+            id.starts_with(MECHANISM_PREFIX).then(|| (id.to_owned(), entry.get("owner").and_then(Item::as_str).unwrap_or_default().to_owned()))
+        })
+        .collect()
 }
