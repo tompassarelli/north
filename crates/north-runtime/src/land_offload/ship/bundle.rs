@@ -64,15 +64,21 @@ pub(super) fn carried(land: &Land, value: impl Fn(&str) -> Option<String>) -> St
     words.collect::<Vec<_>>().join(" ")
 }
 
-/// The words of a land check that can outgrow one argument, and the run's secret, written as the shell assignments the host reads from the head of its stdin: the ssh command line and the host's own `sh -c` take a word of 128 KB at most, and the shim that scopes the call carries it twice (north#951).
-pub(super) fn spilled(command: &str, carried: &str, pins: &str, secret: &str, confined: bool, bundled: u64) -> Vec<u8> {
-    format!("command={}\ncarried={}\npins={}\nproof={}\nconfined={}\nbundled={bundled}\n", quote(command), quote(carried), quote(pins), quote(secret), if confined { "1" } else { "" }).into_bytes()
+/// The words of a land check that can outgrow one argument, the run's secret, the hold's words and the bundle's length, written as the shell assignments the host reads from the head of its stdin: the ssh command line and the host's own `sh -c` take a word of 128 KB at most, and the shim that scopes the call carries it twice (north#951).
+pub(super) fn spilled(command: &str, carried: &str, pins: &str, secret: &str, confined: bool, hold: &[(&str, String)], bundled: u64) -> Vec<u8> {
+    let fields = [("command", command), ("carried", carried), ("pins", pins), ("proof", secret), ("confined", if confined { "1" } else { "" })].into_iter().chain(hold.iter().map(|(name, value)| (*name, value.as_str())));
+    let assigned: String = fields.map(|(name, value)| format!("{name}={}\n", quote(value))).collect();
+    format!("{assigned}bundled={bundled}\n").into_bytes()
 }
 
-/// Writes `header`, then `bundle`, to the job's standard input through a pipe, so the header's secret is in no file a process on either host could read back, and hands the pipe back to be held open while the caller lives, so the host ends the job once its caller is gone.
-pub(super) fn feed(header: Vec<u8>, mut bundle: File, mut stdin: std::process::ChildStdin) -> std::thread::JoinHandle<std::process::ChildStdin> {
+/// Writes `header`, then `bundle`, to the job's standard input through a pipe, so the header's secret is in no file a process on either host could read back, and hands the pipe back to be held open while the caller lives, so the host ends the job once its caller is gone; with `forward`, it holds the pipe open only until this process's own standard input ends, then closes it, which ends a hold.
+pub(super) fn feed(header: Vec<u8>, mut bundle: File, mut stdin: std::process::ChildStdin, forward: bool) -> std::thread::JoinHandle<Option<std::process::ChildStdin>> {
     std::thread::spawn(move || {
-        let _ = stdin.write_all(&header).and_then(|()| std::io::copy(&mut bundle, &mut stdin).map(drop));
-        stdin
+        let fed = stdin.write_all(&header).and_then(|()| std::io::copy(&mut bundle, &mut stdin).map(drop)).and_then(|()| stdin.flush());
+        if fed.is_ok() && forward {
+            let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
+            return None;
+        }
+        Some(stdin)
     })
 }

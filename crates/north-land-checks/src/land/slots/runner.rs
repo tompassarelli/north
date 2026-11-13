@@ -41,7 +41,7 @@ mod timeout_row;
 mod verdict;
 pub use queue_checks::{Accepted, Judged, QueueRefusal, joins_queue_run, judge_queue_checks, judge_with_acceptance, queue_commands, refuse_queue_checks};
 pub use steps::taken as queue_steps;
-pub use steps::{LINE_WAIT, Window, windows as queue_windows};
+pub use steps::{LINE_WAIT, SANDBOX_START, Window, windows as queue_windows};
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};

@@ -1,11 +1,12 @@
 use super::script::{VERIFY, run_part};
 use super::{CommitId, Land, WRONG_TREE, bundle, carried, job_ref};
 use std::fs;
+use std::io::{BufRead, Write};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 fn carried_from(caller: &[(&str, &str)]) -> String {
-    let land = Land { ssh: "", checkout: Path::new("."), base: Some(CommitId("b".to_owned())), head: CommitId("h".to_owned()), timeout_seconds: 10, command: "", class: super::SlotClass::LandCheck, confined: false };
+    let land = Land { ssh: "", checkout: Path::new("."), base: Some(CommitId("b".to_owned())), head: CommitId("h".to_owned()), timeout_seconds: 10, command: "", class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
     carried(&land, |name| caller.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned()))
 }
 
@@ -191,7 +192,7 @@ fn two_concurrent_jobs_at_the_same_head_bundle_under_distinct_refs() {
         let jobs: Vec<_> = references
             .iter()
             .map(|reference| {
-                let land = Land { ssh: "", checkout: dir.path(), base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck, confined: false };
+                let land = Land { ssh: "", checkout: dir.path(), base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
                 let checkout = dir.path();
                 scope.spawn(move || {
                     let file = bundle(&land, reference, None).unwrap();
@@ -598,7 +599,7 @@ fn every_slot_of_a_checkout_serves_sccache_on_its_own_stable_port_in_range() {
 }
 
 #[test]
-fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_waiting_out_the_queue_and_ends_it_with_its_check() {
+fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_waiting_out_the_queue_and_ends_it_with_its_check_and_a_held_slot_takes_only_jobs_with_its_token_while_its_caller_lives() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let repo = home.path().join("code/p/main");
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "second"]);
@@ -655,6 +656,55 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     let (passed, err) = job(&format!("printf %s \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, taker.display()), "", "taker");
     assert!(passed, "the next job did not run: {err}");
     assert_eq!(fs::read_to_string(&taker).unwrap(), slot("code-p-main"), "the next job takes the slot the ended nested job left");
+    let slot_env = north_base::foundation::offload::SLOT_ENV;
+    let on_host = |limit: &str, header: &[u8], lander_slot: &str| {
+        super::on_host("", &script, &["code/p/main", "", &head, limit, "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", lander_slot, &header.len().to_string()], &[])
+            .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+            .env("PATH", &path)
+            .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+            .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .env_remove(slot_env)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let bundled = fs::metadata(&bundle).unwrap().len();
+    let token = "ab".repeat(32);
+    let take = super::hold::header(&super::Hold::Take { host: String::new() }, Some(&token));
+    let header = bundle::spilled(super::HOLD_COMMAND, "SAFE_PUSH_LANDING='1'", "", "secret", false, &take, bundled);
+    let mut hold = on_host("99999", &header, "1");
+    let mut stdin = hold.stdin.take().unwrap();
+    stdin.write_all(&header).and_then(|()| std::io::copy(&mut fs::File::open(&bundle).unwrap(), &mut stdin).map(drop)).unwrap();
+    let mut said = std::io::BufReader::new(hold.stdout.take().unwrap()).lines();
+    let held = said.find_map(|line| line.ok()?.strip_prefix(super::hold::HOLDING).map(|rest| rest.split(' ').next().unwrap_or("").to_owned()));
+    assert_eq!(held.as_deref(), Some("code-p-main"), "a hold takes a free slot and never the lander's reserved one, whatever its lander_slot says");
+    let join = |token: &str, command: &str| {
+        let fields = super::hold::header(&super::Hold::Join { slot: "code-p-main".to_owned(), token: token.to_owned() }, None);
+        let header = bundle::spilled(command, "", "", "secret", false, &fields, bundled);
+        let mut joined = on_host("30", &header, "");
+        let fed = bundle::feed(header, fs::File::open(&bundle).unwrap(), joined.stdin.take().unwrap(), false);
+        let output = joined.wait_with_output().unwrap();
+        fed.join().unwrap();
+        output
+    };
+    let (joined_ran, nested_ran, nested_code) = (home.path().join("joined-ran"), home.path().join("nested-in-hold-ran"), home.path().join("nested-in-hold-code"));
+    let joined = join(&token, &format!("printf %s \"${slot_env}\" >{}; code=0; {} || code=$?; echo $code >{}", joined_ran.display(), nested(&head, &nested_ran, ""), nested_code.display()));
+    assert!(joined.status.success(), "a job with the hold's token did not run beside it: {}", String::from_utf8_lossy(&joined.stderr));
+    assert_eq!(fs::read_to_string(&joined_ran).unwrap(), slot("code-p-main"), "a job with the hold's token runs in the held slot past the host's one-job cap");
+    assert_eq!(fs::read_to_string(&nested_code).unwrap().trim(), WRONG_TREE.to_string(), "a job started inside a held slot without the hold's token is refused");
+    assert!(!nested_ran.exists());
+    let stranger = join(&"cd".repeat(32), ":");
+    assert_eq!(stranger.status.code(), Some(i32::from(WRONG_TREE)), "{}", String::from_utf8_lossy(&stranger.stderr));
+    assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "the joins took no ticket");
+    drop(stdin);
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(10), || hold.try_wait().unwrap().is_some()), "a hold whose caller closed its input kept its slot");
+    assert!(!home.path().join(".cache/land-offload/code-p-main.hold").exists(), "an ended hold left its token's hash behind");
+    let calls = fs::read_to_string(home.path().join("line-calls")).unwrap();
+    assert!(calls.lines().any(|line| line.starts_with("started --deadline 4200 ")), "a hold's deadline is cut to the hold ceiling in its line record: {calls}");
 }
 
 #[test]
@@ -893,7 +943,7 @@ fn a_200_kb_land_check_command_reaches_the_host_intact() {
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
     let command = format!("printf 'x' >{0}\n# {1}\nprintf 'y' >>{0}", seen.display(), "z".repeat(200 * 1024));
-    let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "", "secret", false, fs::metadata(&bundle_path).unwrap().len());
+    let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "", "secret", false, &[], fs::metadata(&bundle_path).unwrap().len());
     let script = remote_script("code-p-main", super::SlotClass::LandCheck);
     let spilled = header.len().to_string();
     let mut child = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", "", &spilled], &[])
@@ -906,7 +956,7 @@ fn a_200_kb_land_check_command_reaches_the_host_intact() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let fed = bundle::feed(header, fs::File::open(&bundle_path).unwrap(), child.stdin.take().unwrap());
+    let fed = bundle::feed(header, fs::File::open(&bundle_path).unwrap(), child.stdin.take().unwrap(), false);
     let output = child.wait_with_output().unwrap();
     fed.join().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -956,7 +1006,7 @@ fn slot_run(slot: &Path, (base, head): (&str, &str), command: &str) -> Output {
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let home = tempfile::tempdir().unwrap();
-    let land = Land { ssh: "", checkout: slot, base: Some(CommitId(base.to_owned())), head: CommitId(head.to_owned()), timeout_seconds: 10, command, class: super::SlotClass::LandCheck, confined: false };
+    let land = Land { ssh: "", checkout: slot, base: Some(CommitId(base.to_owned())), head: CommitId(head.to_owned()), timeout_seconds: 10, command, class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
     let generated = super::generated::paths(&land);
     let script = format!("set -eu\nslot={} head={} command={} limit=10 generated={}\n{}{}", shell(slot), super::quote(head), super::quote(command), super::quote(&generated), VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string()), run_part());
     Command::new("sh")
@@ -1269,7 +1319,7 @@ fn a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_
     let release = home.path().join("release");
     let start = |label: &str, through: Option<&Path>| {
         let pid = home.path().join(format!("{label}.pid"));
-        let header = bundle::spilled(&format!("echo $$ >{}; while [ ! -e {} ]; do sleep 0.1; done; exit 3", pid.display(), release.display()), "", "", "secret", false, bundled);
+        let header = bundle::spilled(&format!("echo $$ >{}; while [ ! -e {} ]; do sleep 0.1; done; exit 3", pid.display(), release.display()), "", "", "secret", false, &[], bundled);
         let spilled = header.len().to_string();
         let header_path = home.path().join(format!("{label}.header"));
         fs::write(&header_path, header).unwrap();

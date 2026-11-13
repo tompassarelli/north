@@ -10,6 +10,8 @@ pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
 pub const URGENT_ENV: &str = "NORTH_OFFLOAD_URGENT";
 pub const SLOT_ENV: &str = "NORTH_OFFLOAD_SLOT";
+/// The slot a hand-in's checks before queueing hold on a build host, as `HOST SLOT TOKEN`: a run of those checks with it joins that slot without a ticket of its own when the host keeps the token's hash for it, and only under a landing's carried context.
+pub const HOLD_ENV: &str = "NORTH_OFFLOAD_HOLD";
 /// Set only on the checks before queueing, whose caller answers a refusal as a reason to place the lane again: it opts the run in to the duplicate-job probe, and names the build hosts the run already failed on, space-separated, which the probe leaves out because a failed attempt may still hold its marker. A run without it is never refused as a twin, since only that caller knows the refusal.
 pub const TWIN_AWAY_ENV: &str = "NORTH_OFFLOAD_TWIN_AWAY";
 /// The script file an offload run hands its leased shell, which admission charges and records as the check it runs rather than as its wrapper.

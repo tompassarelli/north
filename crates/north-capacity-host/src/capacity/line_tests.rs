@@ -13,7 +13,7 @@ fn name(rank: u8, queued_at: u64, pid: u32, checkout: &str) -> String {
 }
 
 fn stamp(root: &Path, kind: &'static str, ticket: &str, at: u64) {
-    let event = Event { kind, ticket: ticket.to_owned(), rank: 2, check: CHECK.to_owned(), class: "land", exit: (kind == "ended").then_some(0) };
+    let event = Event { kind, ticket: ticket.to_owned(), rank: 2, check: CHECK.to_owned(), class: "land", exit: (kind == "ended").then_some(0), deadline: None };
     assert_eq!(record(root, &event, at), 0);
 }
 

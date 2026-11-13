@@ -13,6 +13,7 @@ static WINDOWS: Mutex<(f64, Vec<Window>)> = Mutex::new((0.0, Vec::new()));
 pub type Window = (&'static str, f64, f64);
 
 pub const LINE_WAIT: &str = "line wait";
+pub const SANDBOX_START: &str = "sandbox start";
 
 pub(super) fn begin() {
     STEPS.lock().unwrap_or_else(PoisonError::into_inner).clear();
@@ -46,7 +47,7 @@ pub(super) async fn awaited<T>(name: &'static str, work: impl Future<Output = T>
     value
 }
 
-/// Splits a check's own process into its slot and tree proof, the capacity lease, the sandbox's start, the command and the release, by the times its lease lines and its first and last output lines reached the log; an offload run's timed line and its lease's RELEASED line name the parts of its proof and of its start, timed on the build host, and a check whose output names no lease counts whole as the command.
+/// Splits a check's own process into its slot and tree proof, the capacity lease, the sandbox's start, the command and the release, by the times its lease lines and its first and last output lines reached the log, and records the sandbox's start, between the lease and the command, as the check's own window; an offload run's timed line and its lease's RELEASED line name the parts of its proof and of its start, timed on the build host, and a check whose output names no lease counts whole as the command.
 pub(super) fn split(started_at: f64, ended_at: f64, marks: &[Mark]) -> Vec<(&'static str, Duration)> {
     let at = |wanted: fn(&str) -> bool| marks.iter().find(|mark| wanted(&mark.line)).map(|mark| mark.at);
     let (Some(reserved), Some(released)) = (at(check_log::is_reserved), at(check_log::is_released)) else {
@@ -68,6 +69,7 @@ pub(super) fn split(started_at: f64, ended_at: f64, marks: &[Mark]) -> Vec<(&'st
     if let Some(start) = marks.iter().find_map(|mark| check_log::lease_start(&mark.line)) {
         let starting: f64 = start.steps.iter().map(|(_, took)| took).sum();
         let ran = start.subject_seconds.unwrap_or_default();
+        window(SANDBOX_START, reserved, reserved + starting);
         steps.extend(start.steps.into_iter().map(|(name, took)| (name, seconds(took))));
         steps.extend([("command", seconds(ran)), ("release", seconds(ended_at - reserved - starting - ran))]);
         return steps;
@@ -75,7 +77,8 @@ pub(super) fn split(started_at: f64, ended_at: f64, marks: &[Mark]) -> Vec<(&'st
     let output: Vec<&Mark> = marks.iter().filter(|mark| !check_log::is_marker(&mark.line) && mark.at >= reserved && mark.at <= released).collect();
     let first = output.first().map_or(reserved, |mark| mark.at);
     let last = output.last().map_or(first, |mark| mark.at);
-    steps.extend([("sandbox start", seconds(first - reserved)), ("command", seconds(last - first)), ("release", seconds(ended_at - last))]);
+    window(SANDBOX_START, reserved, first);
+    steps.extend([("command", seconds(last - first)), ("release", seconds(ended_at - last))]);
     steps
 }
 

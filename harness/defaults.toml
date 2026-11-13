@@ -1965,3 +1965,11 @@ unit = "whether a build host's slot line answers a job's expected wait, so a lan
 source = "prior: capacity scheduler box A1a (north#1036), 2026-11-13"
 fallback = "false answers every line wait with 0 s, so each job waits in line up to its deadline as before"
 consumers = ["crates/north-capacity-host/src/capacity/line.rs", "crates/north-runtime/src/land_offload/ship/twin.rs"]
+
+[prequeue_one_slot]
+value = true
+allowed = {}
+unit = "whether a hand-in's checks before queueing take one build-host slot as a hold and run their steps inside it, each step joining the hold by its token with no ticket of its own, so the checks wait in a slot line once"
+source = "prior: capacity scheduler box one slot per hand-in (north#1036), 2026-11-13"
+fallback = "false sends every step with a ticket of its own, so a hand-in's checks wait in a slot line once per step as before"
+consumers = ["crates/north-runtime/src/land_offload/ship/hold.rs"]

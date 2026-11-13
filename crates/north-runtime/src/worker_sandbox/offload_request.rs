@@ -8,7 +8,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-use north_base::foundation::offload::{GIT_ENV, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV, RUN_SECONDS_CEILING, SSH_ENV, SUBJECT_ENV};
+use north_base::foundation::offload::{GIT_ENV, HOLD_ENV, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV, RUN_SECONDS_CEILING, SSH_ENV, SUBJECT_ENV};
 use north_base::platform::git_credential;
 use north_base::platform::session_scope::REMOVAL_ROOTS;
 
@@ -17,7 +17,7 @@ use super::request_checkout::{Checkout, PLACES};
 use super::{CONFINED, HOSTS_HIDDEN, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDDEN};
 
 const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
-const WITHHELD: [&str; 14] = [MARK, LANE_ONLY, SOCKETS_HIDDEN, CONFINED, HOSTS_HIDDEN, REMOVAL_ROOTS, SESSION_SCOPE, SUBJECT_ENV, OWNER_ENV, RED_FIX_ENV, LANDER_SLOT_ENV, SSH_ENV, GIT_ENV, "PATH"];
+const WITHHELD: [&str; 15] = [MARK, LANE_ONLY, SOCKETS_HIDDEN, CONFINED, HOSTS_HIDDEN, REMOVAL_ROOTS, SESSION_SCOPE, SUBJECT_ENV, OWNER_ENV, RED_FIX_ENV, LANDER_SLOT_ENV, HOLD_ENV, SSH_ENV, GIT_ENV, "PATH"];
 
 /// The process the broker starts for one offload request.
 pub(super) struct Offload {

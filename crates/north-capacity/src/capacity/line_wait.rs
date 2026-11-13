@@ -20,6 +20,7 @@ pub struct LineJob {
     pub queued_at: u64,
     pub started_at: Option<u64>,
     pub ended_at: Option<u64>,
+    pub deadline: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,6 +68,9 @@ impl<'a> Runs<'a> {
 
     fn expected(&self, job: &LineJob) -> u64 {
         let same_check = self.median(|ended| ended.check == job.check && ended.class == job.class);
+        if let Some(deadline) = job.deadline {
+            return same_check.map_or(deadline, |seconds| seconds.min(deadline));
+        }
         let same_rank = || self.median(|ended| ended.rank == job.rank && ended.class == job.class);
         same_check.or_else(same_rank).or_else(|| self.median(|_| true)).unwrap_or(0)
     }

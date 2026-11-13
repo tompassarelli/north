@@ -113,6 +113,7 @@ pub(super) struct Land<'a> {
     pub(super) command: &'a str,
     pub(super) class: SlotClass,
     pub(super) confined: bool,
+    pub(super) hold: Hold,
 }
 
 fn fail(why: &str) -> u8 {
@@ -139,6 +140,8 @@ pub(crate) use script::{fill_part, slot_ports};
 use script::remote_script;
 mod bundle;
 mod held;
+mod hold;
+pub use hold::{HOLD_CEILING_SECONDS, HOLD_COMMAND, Hold};
 mod generated;
 pub(super) mod slot_record;
 #[cfg(test)]
@@ -176,6 +179,9 @@ pub(super) fn run(land: &Land) -> u8 {
 
 /// The run's exit code, where a run no slot proved to hold exactly the shipped commit's tree for its whole length reached no verdict, and so did a run whose command reported when the record of the tree it was computed on cannot be written.
 fn reached(land: &Land, shipped: &Shipped) -> u8 {
+    if matches!(land.hold, Hold::Take { .. }) {
+        return shipped.exited.unwrap_or(NO_VERDICT);
+    }
     match verdict(shipped.exited, shipped.ran) {
         Ok(WRONG_TREE) => unreached(&format!("no slot held exactly the tree of {} for the whole run, so it reached no verdict", land.head.as_str())),
         Ok(code) if shipped.ran.is_some() => proof::record(land.head.as_str(), shipped.tree.as_deref()).map_or_else(|why| unreached(&why), |()| code),
@@ -219,14 +225,15 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let beside = beside::pin(land.command, relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
-    if let Some(host) = twin::held_elsewhere(land, &beside.command) {
+    if !matches!(land.hold, Hold::Join { .. }) && let Some(host) = twin::held_elsewhere(land, &beside.command) {
         eprintln!("north capacity offload: the same head and command already wait or run on {host}, so this run is refused; a second copy of one job only fills build-host lines");
         return Err(ALREADY_PLACED);
     }
     let carried = carried(land, |name| std::env::var(name).ok());
     let secret = proof::secret().map_err(|why| unreached(&why))?;
+    let token = hold::token(&land.hold).map_err(|why| unreached(&why))?;
     let bundled = bundle.metadata().map_err(|error| unreached(&format!("bundle file: {error}")))?.len();
-    let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret, land.confined, bundled);
+    let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret, land.confined, &hold::header(&land.hold, token.as_deref()), bundled);
     let spilled = header.len().to_string();
     let generated = generated::paths(land);
     let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled, &generated, urgent];
@@ -238,16 +245,21 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
         .stdout(Stdio::piped())
         .spawn();
     let mut child = spawned.map_err(|error| unreached(&format!("ssh: {error}")))?;
-    let fed = child.stdin.take().map(|stdin| bundle::feed(header, bundle, stdin));
+    let holding = land.hold.taken_on();
+    let fed = child.stdin.take().map(|stdin| bundle::feed(header, bundle, stdin, holding.is_some()));
     let started = std::cell::Cell::new(false);
-    let relayed = child.stdout.take().map_or_else(Relayed::default, |stdout| {
-        relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker, &secret, || {
+    let relayed = child.stdout.take().map_or_else(Relayed::default, |stdout| match (holding, token.as_deref()) {
+        (Some(host), Some(token)) => {
+            hold::announce(std::io::BufReader::new(stdout), host, token, || waiting.end());
+            Relayed::default()
+        }
+        _ => relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker, &secret, || {
             waiting.end();
             started.set(true);
-        })
+        }),
     });
     let exited = child.wait().map_err(|error| unreached(&format!("ssh: {error}")))?;
-    if let Some(fed) = fed {
+    if let Some(fed) = fed.filter(|_| holding.is_none()) {
         let _ = fed.join();
     }
     let first = (exited.code().and_then(|code| u8::try_from(code).ok()), relayed.ran);

@@ -12,7 +12,7 @@ pub mod room;
 pub mod ship;
 pub(crate) mod slot_lock;
 
-const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--needs PATH]... [--prefer HOST] [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, each --avoid leaves HOST out, and each --needs names a host input the land check reads, a path such as ~/.local/state/north/graph.db that a host must hold to take it, and --prefer prints HOST itself when it answers and holds every input; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | slots (prints the free then total land checks the reachable build hosts take at once, each host's free cores over the cores one check uses) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | closed (prints this host's name and exits 75 when `[hosts.NAME] offload_builds = false` closes it to offloaded checks, which the offload's script asks on each wait step so a job in its line leaves it) | trim-target TARGET KEEP_MIB (trims a slot's cargo target that no build holds to KEEP_MIB, least recently used build output first) | slot record NAME (records NAME as a build slot of the checkout it is run from, which the offload's script asks when its own domain cannot write the record) | line wait|record|report (this host's slot line, see `north capacity offload line`) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail) | verdict sync [--host NAME]...";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--needs PATH]... [--prefer HOST] [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, each --avoid leaves HOST out, and each --needs names a host input the land check reads, a path such as ~/.local/state/north/graph.db that a host must hold to take it, and --prefer prints HOST itself when it answers and holds every input; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | slots (prints the free then total land checks the reachable build hosts take at once, each host's free cores over the cores one check uses) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | hold --host NAME --base BASE --head HEAD --timeout SECONDS (takes one land-check slot on NAME for a hand-in's checks before queueing, prints `NAME SLOT TOKEN` once it holds the slot, and holds it until its stdin ends or its deadline, at most 4200 s; a landing run whose NORTH_OFFLOAD_HOLD is that line runs in that slot with no ticket of its own) | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | closed (prints this host's name and exits 75 when `[hosts.NAME] offload_builds = false` closes it to offloaded checks, which the offload's script asks on each wait step so a job in its line leaves it) | trim-target TARGET KEEP_MIB (trims a slot's cargo target that no build holds to KEEP_MIB, least recently used build output first) | slot record NAME (records NAME as a build slot of the checkout it is run from, which the offload's script asks when its own domain cannot write the record) | line wait|record|report (this host's slot line, see `north capacity offload line`) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail) | verdict sync [--host NAME]...";
 
 /// Set by the outside broker in the process it starts for a worker command's offload request: its `choose` only reads each host's room and claims no host for a waiting land check, since none is behind it and a claim stops every other worker's builds there until it lapses (south#118).
 pub(crate) use north_base::foundation::offload::WORKER_REQUEST_ENV;
@@ -36,8 +36,8 @@ pub fn run(arguments: &[String]) -> u8 {
         ["warm"] => warm::run(),
         ["closed"] => closed(),
         ["trim-target", rest @ ..] => trim::run(rest),
-        ["run", "--background", rest @ ..] => run_job(rest, ship::SlotClass::Background),
-        ["run", rest @ ..] => run_job(rest, ship::SlotClass::LandCheck),
+        ["hold", rest @ ..] => hold_job(rest),
+        ["run", rest @ ..] => run_job(rest),
         _ => usage(),
     }
 }
@@ -72,24 +72,40 @@ fn hosts() -> u8 {
     0
 }
 
-fn run_job(words: &[&str], class: ship::SlotClass) -> u8 {
+fn run_job(words: &[&str]) -> u8 {
+    let (class, words) = match words {
+        ["--background", rest @ ..] => (ship::SlotClass::Background, rest),
+        _ => (ship::SlotClass::LandCheck, words),
+    };
     match words {
         ["--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => {
             let Ok(timeout_seconds) = seconds.parse() else { return usage() };
-            let resolved = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|checkout| commits_in(&checkout, base, head).map(|commits| (checkout, commits)));
-            match resolved {
-                Ok((checkout, (base, head))) => offload(host, ship::Land { ssh: "", checkout: &checkout, base, head, timeout_seconds, command, class, confined: false }),
-                Err(why) => {
-                    eprintln!("north capacity offload: {why}");
-                    2
-                }
-            }
+            in_checkout(base, head, |checkout, base, head| offload(host, ship::Land { ssh: "", checkout, base, head, timeout_seconds, command, class, confined: false, hold: ship::Hold::None }))
         }
         ["--host", _, "--base", _, "--head", _, "--timeout", _, "--", _, _, ..] => {
             eprintln!("north capacity offload run: COMMAND after -- is one shell string, so quote it: -- 'cargo nextest run -p north'");
             2
         }
         _ => usage(),
+    }
+}
+
+fn hold_job(words: &[&str]) -> u8 {
+    let ["--host", host, "--base", base, "--head", head, "--timeout", seconds] = words else { return usage() };
+    let Ok(seconds) = seconds.parse::<u64>() else { return usage() };
+    let hold = ship::Hold::Take { host: (*host).to_owned() };
+    in_checkout(base, head, |checkout, base, head| offload(host, ship::Land { ssh: "", checkout, base, head, timeout_seconds: seconds.min(ship::HOLD_CEILING_SECONDS), command: ship::HOLD_COMMAND, class: ship::SlotClass::LandCheck, confined: false, hold }))
+}
+
+/// What `then` returns for the current directory and the commits `base` and `head` name in it, or exit 2 naming why they name none.
+fn in_checkout(base: &str, head: &str, then: impl FnOnce(&Path, Option<CommitId>, CommitId) -> u8) -> u8 {
+    let resolved = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|checkout| commits_in(&checkout, base, head).map(|commits| (checkout, commits)));
+    match resolved {
+        Ok((checkout, (base, head))) => then(&checkout, base, head),
+        Err(why) => {
+            eprintln!("north capacity offload: {why}");
+            2
+        }
     }
 }
 
@@ -445,6 +461,6 @@ fn free(host: &str) -> u8 {
 fn offload(host: &str, land: ship::Land) -> u8 {
     let Some(ssh) = destination(host) else { return ship::TRANSPORT_FAILED };
     let confined = config().is_ok_and(|cfg| destinations::runs_as_agent(&cfg, host, &ssh));
-    ship::run(&ship::Land { ssh: &ssh, confined, ..land })
+    ship::run(&ship::Land { ssh: &ssh, confined, hold: land.hold.or_joined(host, land.class, |name| std::env::var(name).ok()), ..land })
 }
 

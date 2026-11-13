@@ -3,7 +3,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::land::telemetry::epoch;
-use crate::land::slots::runner::{LINE_WAIT, Window};
+use crate::land::slots::runner::{LINE_WAIT, SANDBOX_START, Window};
 use crate::land::trace::{Category, PHASE, Span, Spans};
 
 pub(super) const BEFORE_TICKET: &str = "enqueue";
@@ -64,10 +64,11 @@ impl Timings {
 
 fn stage_spans(trace: &str, stage: &Stage, stamp: &impl Fn(Span) -> Span) -> Vec<Span> {
     let stage_end = stage.start + stage.took.as_secs_f64();
-    let waits = line_waits(trace, stage, stamp);
+    let waits = windows(trace, stage, LINE_WAIT, Category::HostWait, stamp);
     let parent = Span::new(trace, stage.name, category(stage.name), stage.start, stage_end);
     let parent = stamp(if waits.is_empty() { parent } else { parent.with(LINE_WAITS, waits.len().to_string()) });
-    let mut spans: Vec<Span> = waits.into_iter().map(|wait| wait.under(&parent.id)).collect();
+    let starts = windows(trace, stage, SANDBOX_START, Category::Offload, stamp);
+    let mut spans: Vec<Span> = waits.into_iter().chain(starts).map(|window| window.under(&parent.id)).collect();
     let mut at = stage.start;
     for (name, took) in &stage.steps {
         let end = (at + took.as_secs_f64()).min(stage_end);
@@ -81,8 +82,8 @@ fn stage_spans(trace: &str, stage: &Stage, stamp: &impl Fn(Span) -> Span) -> Vec
     spans
 }
 
-fn line_waits(trace: &str, stage: &Stage, stamp: &impl Fn(Span) -> Span) -> Vec<Span> {
-    stage.windows.iter().filter(|(what, _, _)| *what == LINE_WAIT).map(|(_, from, to)| stamp(Span::new(trace, format!("{} / {LINE_WAIT}", stage.name), Category::HostWait, stage.start + from, stage.start + to))).collect()
+fn windows(trace: &str, stage: &Stage, kind: &str, category: Category, stamp: &impl Fn(Span) -> Span) -> Vec<Span> {
+    stage.windows.iter().filter(|(what, _, _)| *what == kind).map(|(_, from, to)| stamp(Span::new(trace, format!("{} / {kind}", stage.name), category, stage.start + from, stage.start + to))).collect()
 }
 
 fn category(stage: &str) -> Category {

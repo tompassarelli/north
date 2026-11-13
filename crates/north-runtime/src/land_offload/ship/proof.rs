@@ -7,7 +7,12 @@ use north_base::foundation::offload::{TREES_ENV, UNPROVED};
 
 /// A secret for one shipping of a run, which the client sends the host at the head of the job's standard input and never in an argument, the environment or a file; the host opens the line naming the tree it proved the run on with it, so no line of the check's own output passes for that proof.
 pub(super) fn secret() -> Result<String, String> {
-    let mut bytes = [0_u8; 16];
+    random_hex(16)
+}
+
+/// `count` bytes from the kernel's random source, in hex.
+pub(super) fn random_hex(count: usize) -> Result<String, String> {
+    let mut bytes = vec![0_u8; count];
     File::open("/dev/urandom").and_then(|mut random| random.read_exact(&mut bytes)).map_err(|error| format!("/dev/urandom: {error}"))?;
     Ok(bytes.iter().fold(String::new(), |mut hex, byte| {
         let _ = write!(hex, "{byte:02x}");

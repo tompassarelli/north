@@ -4,7 +4,7 @@ use std::fs;
 use std::process::Command;
 
 fn land<'a>(checkout: &'a std::path::Path, base: &CommitId, head: &CommitId) -> Land<'a> {
-    Land { ssh: "", checkout, base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: SlotClass::LandCheck, confined: false }
+    Land { ssh: "", checkout, base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: SlotClass::LandCheck, confined: false, hold: super::Hold::None }
 }
 
 #[test]

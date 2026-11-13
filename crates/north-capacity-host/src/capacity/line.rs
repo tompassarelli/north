@@ -9,7 +9,7 @@ use north_base::foundation::offload;
 
 use super::line_wait::{Line, LineClass, LineJob, deadline, expected_start, refuses_at_once};
 
-pub const USAGE: &str = "usage: north capacity offload line wait --rank N [--name CHECKOUT] [--ticket T] [--slots N] [--within SECONDS] (prints `expected wait N s` and exits 0, or exits 96 when a landing or ordinary check would wait past its rank's deadline, or past SECONDS when that is sooner; CHECKOUT counts that checkout's slots and jobs, else the host's, and the asking job's own ticket T is not ahead of it) | line record queued|started|ended --ticket T --rank N [--check NAME] [--class land|background] [--exit CODE] (appends one line to this host's slot line record) | line report [--window MIN] (prints the placement-to-start wait p50 and p90 of the jobs that started in the last MIN minutes, 60 by default)";
+pub const USAGE: &str = "usage: north capacity offload line wait --rank N [--name CHECKOUT] [--ticket T] [--slots N] [--within SECONDS] (prints `expected wait N s` and exits 0, or exits 96 when a landing or ordinary check would wait past its rank's deadline, or past SECONDS when that is sooner; CHECKOUT counts that checkout's slots and jobs, else the host's, and the asking job's own ticket T is not ahead of it) | line record queued|started|ended --ticket T --rank N [--check NAME] [--class land|background] [--exit CODE] [--deadline SECONDS] (appends one line to this host's slot line record) | line report [--window MIN] (prints the placement-to-start wait p50 and p90 of the jobs that started in the last MIN minutes, 60 by default)";
 
 const RECORD: &str = "line.record";
 const PREVIOUS_RECORD: &str = "previous-line.record";
@@ -160,12 +160,14 @@ struct Entry {
     queued_at: Option<u64>,
     started_at: Option<u64>,
     ended_at: Option<u64>,
+    deadline: Option<u64>,
 }
 
 fn entries(text: &str) -> BTreeMap<String, Entry> {
     let mut entries: BTreeMap<String, Entry> = BTreeMap::new();
     for fields in text.lines().map(|line| line.split('\t').collect::<Vec<_>>()) {
-        let [event, at, rank, class, _exit, ticket, check] = fields.as_slice() else { continue };
+        let deadline = fields.get(7).and_then(|seconds| seconds.parse::<u64>().ok());
+        let [event, at, rank, class, _exit, ticket, check] = fields.get(..7).filter(|_| fields.len() <= 8).unwrap_or_default() else { continue };
         let (Ok(at), Ok(rank)) = (at.parse::<u64>(), rank.parse::<u8>()) else { continue };
         let entry = entries.entry((*ticket).to_owned()).or_default();
         entry.rank = rank;
@@ -173,7 +175,10 @@ fn entries(text: &str) -> BTreeMap<String, Entry> {
         entry.class = Some(if *class == "background" { LineClass::Background } else { LineClass::LandCheck });
         match *event {
             "queued" => entry.queued_at = Some(at),
-            "started" => entry.started_at = Some(at),
+            "started" => {
+                entry.started_at = Some(at);
+                entry.deadline = deadline;
+            }
             "ended" => entry.ended_at = Some(at),
             _ => {}
         }
@@ -190,7 +195,7 @@ fn queued(tickets: &[String], entries: &mut BTreeMap<String, Entry>, ours: &impl
         }
         let entry = entries.remove(name).unwrap_or_default();
         let job_class = entry.class.unwrap_or(if ticket.rank >= 4 { LineClass::Background } else { LineClass::LandCheck });
-        jobs.push(LineJob { rank: ticket.rank, check: entry.check, class: job_class, queued_at: ticket.queued_at, started_at: None, ended_at: None });
+        jobs.push(LineJob { rank: ticket.rank, check: entry.check, class: job_class, queued_at: ticket.queued_at, started_at: None, ended_at: None, deadline: None });
     }
     jobs
 }
@@ -206,7 +211,7 @@ fn line_of(slots: u32, tickets: &[String], text: &str, class: LineClass, checkou
             None => ours(&name) && now.saturating_sub(started_at) <= offload::RUN_SECONDS_CEILING,
         };
         let queued_at = ticket(&name).map(|ticket| ticket.queued_at).or(entry.queued_at)?;
-        current.then_some(LineJob { rank: entry.rank, check: entry.check, class: entry.class?, queued_at, started_at: Some(started_at), ended_at: entry.ended_at })
+        current.then_some(LineJob { rank: entry.rank, check: entry.check, class: entry.class?, queued_at, started_at: Some(started_at), ended_at: entry.ended_at, deadline: entry.deadline })
     });
     jobs.extend(recorded);
     jobs.retain(|job| job.class == class);
@@ -220,6 +225,7 @@ struct Event<'a> {
     check: String,
     class: &'static str,
     exit: Option<i32>,
+    deadline: Option<u64>,
 }
 
 impl<'a> Event<'a> {
@@ -231,7 +237,7 @@ impl<'a> Event<'a> {
             Some(_) => return None,
         };
         let check = options.0.get("--check").map_or("-".to_owned(), |check| check.replace(['\t', '\n', '\r'], " "));
-        Some(Self { kind, ticket, rank: options.number("--rank")?, check, class, exit: options.number_or("--exit")? })
+        Some(Self { kind, ticket, rank: options.number("--rank")?, check, class, exit: options.number_or("--exit")?, deadline: options.number_or("--deadline")? })
     }
 }
 
@@ -241,7 +247,8 @@ fn record(root: &Path, event: &Event<'_>, now: u64) -> u8 {
         let _ = fs::rename(&path, root.join(PREVIOUS_RECORD));
     }
     let exit = event.exit.map_or("-".to_owned(), |code| code.to_string());
-    let line = format!("{}\t{now}\t{}\t{}\t{exit}\t{}\t{}\n", event.kind, event.rank, event.class, event.ticket, event.check);
+    let deadline = event.deadline.map_or(String::new(), |seconds| format!("\t{seconds}"));
+    let line = format!("{}\t{now}\t{}\t{}\t{exit}\t{}\t{}{deadline}\n", event.kind, event.rank, event.class, event.ticket, event.check);
     let written = fs::create_dir_all(root).and_then(|()| fs::OpenOptions::new().create(true).append(true).open(&path)).and_then(|mut file| file.write_all(line.as_bytes()));
     match written {
         Ok(()) => 0,

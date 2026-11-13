@@ -113,6 +113,8 @@ bundle=$(mktemp "$root/$name.bundle.XXXXXX")
 trap 'rm -f "$bundle" "${script:-}"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 trap 'exit 143' HUP INT TERM
 [ "$spilled" -eq 0 ] || eval "$(head -c "$spilled")"
+holding=${holding:-} join=${join:-} token=${token:-}
+[ -z "$holding" ] || [ "$limit" -le @HOLD_CEILING@ ] || limit=@HOLD_CEILING@
 @TETHER@timed_step receive
 fill
 timed_step fill
@@ -156,8 +158,21 @@ else
 fi
 "#;
 
+/// Whether a job runs in a slot it did not take: a join, whose token's hash the slot's hold keeps and whose deadline the hold outlasts, or a job its own slot's check started on this host, which a slot held for a hand-in's checks refuses, since only the hold's token places a job there.
 const NESTED: &str = r#"caller_slot=${@SLOT_ENV@:-} holder=${@SLOT_HOLDER_ENV@:-} nested=
-[ -n "@BACKGROUND@" ] || [ "${caller_slot%/*}" != "$root" ] || [ -z "$holder" ] || ! kill -0 "$holder" 2>/dev/null || nested=1
+if [ -n "$join" ]; then
+  case $join in "$name" | "$name"-[1-9]) ;; *) echo "offload: refusing to run: $join is no slot of $name" >&2; exit @WRONG_TREE@ ;; esac
+  kept=
+  [ ! -r "$root/$join.hold" ] || read -r kept <"$root/$join.hold" || kept=
+  set -- $kept
+  case ${3:-} in '' | *[!0-9]*) set -- ;; esac
+  [ "${1:-}" = kind=hold ] && [ "${2:-}" = "$(printf '%s' "$token" | sha256sum | cut -d ' ' -f1)" ] && kill -0 "${3:-}" 2>/dev/null || { echo "offload: refusing to run: $join keeps no hold that this job's token opens" >&2; exit @WRONG_TREE@; }
+  caller_slot= holder=
+  if [ $((${4:-0} - $(date +%s))) -ge "$limit" ]; then caller_slot=$root/$join holder=$3 nested=1; else echo "offload: the hold on $join ends before this job's $limit s would, so the job takes a slot of its own" >&2; fi
+else
+  [ -n "@BACKGROUND@" ] || [ "${caller_slot%/*}" != "$root" ] || [ -z "$holder" ] || ! kill -0 "$holder" 2>/dev/null || nested=1
+  case $(cat "$caller_slot.holder" 2>/dev/null || true) in kind=hold\ *) [ -z "$nested" ] || { echo "offload: refusing to run: ${caller_slot##*/} is held for a hand-in's checks, and a job started inside it takes a place there only with the hold's token" >&2; exit @WRONG_TREE@; } ;; esac
+fi
 if [ -n "$nested" ] && case ${caller_slot##*/} in "$name" | "$name"-[1-9]) true ;; *) false ;; esac && [ "$(git -C "$caller_slot" rev-parse HEAD 2>/dev/null)" = "$head" ]; then
   s=${caller_slot##*/} slot=$caller_slot
   exec 5>>"$slot.nested"
@@ -184,6 +199,7 @@ const TAKE: &str = r#"nearest=$(
 reserved=$name
 [ @SLOTS@ -le 1 ] || reserved=$name-$((@SLOTS@ - 1))
 nearest=$(printf '%s\n' $nearest | { grep -vx "$reserved" || true; }; echo "$reserved")
+[ -z "$holding" ] || nearest=$(printf '%s\n' $nearest | { grep -vx "$reserved" || true; })
 queue=$root/queue
 mkdir -p "$queue"
 rank=3
@@ -251,7 +267,7 @@ while :; do
     closed=$("$north_bin" capacity offload closed 2>/dev/null) || rc=$?
     [ "$rc" -ne 75 ] || { echo "offload: $closed is closed to offloaded checks, so this job leaves its line; place it on another host" >&2; exit @SLOTS_BUSY@; }
   fi
-  if [ "$lander_slot" = 1 ]; then
+  if [ "$lander_slot" = 1 ] && [ -z "$holding" ]; then
     if owned "$reserved"; then s=$reserved; break; fi
   fi
   why="behind earlier jobs in line"
@@ -277,14 +293,14 @@ exec 4>>"$root/$s.busy"
 flock -s 4
 [ -n "$kind" ] || [ -n "@BACKGROUND@" ] || [ -n "$nested" ] || { echo "$s" >"$admitted.slot"; date +%s >"$admitted"; }
 date +%s%N >"$served/$name"
-[ -n "$nested" ] || line_note started
+[ -n "$nested" ] || line_note started ${holding:+--deadline "$limit"}
 rm -f "$ticket"
 exec 8>&-
 slot=$root/$s
 # sccache keys hold absolute paths, so every slot names its own directory as the base its keys are relative to, and serves it on its own port.
 case $s in @SLOT_PORTS@ esac
 SCCACHE_BASEDIRS=$slot; export SCCACHE_BASEDIRS SCCACHE_SERVER_PORT
-printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
+printf '%s%s since %s\n' "${holding:+kind=hold }" "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
 printf '%s\n' "$owner" >"$root/$s.owner"
 placed=$HOME/@SLOT_RECORDS@
 record_slot() {
@@ -302,7 +318,7 @@ cleanup() {
   code=$?
   [ -n "$nested" ] || line_note ended --exit "$code"
   [ -z "${exited:-}" ] || [ -e "$exited" ] || echo 143 >"$exited" 2>/dev/null || true
-  rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder"
+  rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder" "$root/$s.hold"
   rm -f "$placed/$s" 2>/dev/null || true
   rm -f "${script:-}"
   rmdir "${script_directory:-}" 2>/dev/null || true
@@ -368,6 +384,17 @@ echo "@PROVED_TREE@$proved_tree of $head" >&2
 
 /// The job's step times, once its slot holds the proved tree: what receiving the bundle, filling the checkout, taking a slot, placing it and proving its tree each took, on one line the lander books as the parts of the job's slot and tree proof.
 const TIMED_LINE: &str = "timed_step proof\necho \"@TIMED@$timed_steps\" >&2\n";
+
+/// A hold's life once it has its slot on the shipped head: it keeps its token's hash, its process and its deadline in `$s.hold`, readable by this login alone, says it holds the slot, and keeps it until its deadline, or until its caller closes its standard input, when the tether ends it.
+const HOLD: &str = r#"if [ -n "$holding" ]; then
+  ends=$(($(date +%s) + limit))
+  (umask 077 && printf 'kind=hold %s %s %s\n' "$(printf '%s' "$token" | sha256sum | cut -d ' ' -f1)" "$$" "$ends" >"$root/$s.hold.part" && mv "$root/$s.hold.part" "$root/$s.hold")
+  echo "@HOLDING@$s as $$"
+  while [ "$(date +%s)" -lt "$ends" ]; do sleep 1; done
+  echo "offload: the hold on $s ends: it reached its deadline of $limit s" >&2
+  exit 0
+fi
+"#;
 
 const BESIDE: &str = r#"beside=$root/$s.beside
 for pin in $pins; do
@@ -601,7 +628,11 @@ pub(crate) fn jobs_part() -> String {
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@TETHER@", &TETHER.replace("@TETHER_SECONDS@", &(super::reattach::PAUSE.as_secs() + TETHER_MARGIN_SECONDS).to_string()).replace("@DROPPED_SECONDS@", &(super::reattach::WINDOW.as_secs() + DROPPED_MARGIN_SECONDS).to_string())).replace("@FILL@", &fill_part()).replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@TETHER@", &TETHER.replace("@TETHER_SECONDS@", &(super::reattach::PAUSE.as_secs() + TETHER_MARGIN_SECONDS).to_string()).replace("@DROPPED_SECONDS@", &(super::reattach::WINDOW.as_secs() + DROPPED_MARGIN_SECONDS).to_string())).replace("@HOLD_CEILING@", &super::HOLD_CEILING_SECONDS.to_string()).replace("@FILL@", &fill_part()).replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+}
+
+pub(super) fn hold_part() -> String {
+    HOLD.replace("@HOLDING@", super::hold::HOLDING)
 }
 
 pub(super) fn beside_part() -> String {
@@ -639,7 +670,7 @@ pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
         SlotClass::Background => (1, "1"),
     };
     let ports: String = slot_ports(name).iter().map(|(slot, port)| format!("{}) SCCACHE_SERVER_PORT={port} ;; ", quote(slot))).collect();
-    format!("{}{VERIFY}{TIMED_LINE}{}{}", slot_part(), beside_part(), run_part())
+    format!("{}{VERIFY}{TIMED_LINE}{}{}{}", slot_part(), hold_part(), beside_part(), run_part())
         .replace("@JOBS@", &jobs_part())
         .replace("@ADMIT@", ADMIT)
         .replace("@LINE@", LINE)

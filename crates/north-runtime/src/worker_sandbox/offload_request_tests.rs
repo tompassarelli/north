@@ -7,7 +7,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use north_base::foundation::offload::{LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
+use north_base::foundation::offload::{HOLD_ENV, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 
 use super::super::broker::{self, Request};
 use super::super::broker_served::Served;
@@ -23,7 +23,7 @@ const WORDS: &str = "NORTH_118_OFFLOAD_WORDS";
 const TEST: &str = "worker_sandbox::tests::the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_carries_no_injected_code";
 const BUILD_HOST: &str = "n118-build";
 const HERE: &str = "n118-here";
-const CLAIMS: [&str; 3] = [OWNER_ENV, RED_FIX_ENV, LANDER_SLOT_ENV];
+const CLAIMS: [&str; 4] = [OWNER_ENV, RED_FIX_ENV, LANDER_SLOT_ENV, HOLD_ENV];
 const LAND_CHECK_CEILING: &str = "2100";
 const GIT_PLACES: [&str; 3] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE"];
 const FOREIGN: &str = "names another repository";
@@ -97,7 +97,7 @@ fn serve(root: &Path) {
     write_script(&north, &format!("{ROLE}=north {SCRATCH}={} {WORDS}=\"$*\" exec {} --exact {TEST} --nocapture\n", root.display(), std::env::current_exe().unwrap().display()));
     let host = Host::own();
     let worker_path = format!("{}:{}", root.join("fakes").display(), std::env::var("PATH").unwrap());
-    let worker: Vec<(String, String)> = [("PATH", worker_path.as_str()), (OWNER_ENV, "land"), (RED_FIX_ENV, "1"), (LANDER_SLOT_ENV, "1")].map(|(name, value)| (name.to_owned(), value.to_owned())).into();
+    let worker: Vec<(String, String)> = [("PATH", worker_path.as_str()), (OWNER_ENV, "land"), (RED_FIX_ENV, "1"), (LANDER_SLOT_ENV, "1"), (HOLD_ENV, "n118-build code-p-main-1 abc")].map(|(name, value)| (name.to_owned(), value.to_owned())).into();
     let ask = |words: &str, directory: &Path| ask(&north, &host, words, directory, &worker);
     let text = |file: &str| std::fs::read_to_string(root.join(file)).unwrap_or_default();
     let free = format!("capacity offload free --host {BUILD_HOST}");
