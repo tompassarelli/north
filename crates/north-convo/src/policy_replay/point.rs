@@ -5,7 +5,7 @@ use regex::Regex;
 use serde_json::Value;
 use toml_edit::{DocumentMut, Item};
 
-use super::pyfmt::{float_repr, json_string, list_repr};
+use super::pyfmt::{float_repr, list_repr};
 use super::rows::{Scenarios, VariantRow};
 use super::stats::{Verdict, compare, covered, flips};
 use crate::error::NorthError;
@@ -33,7 +33,7 @@ impl Scalar {
 
     fn toml(&self) -> String {
         match self {
-            Scalar::Str(text) => json_string(text),
+            Scalar::Str(text) => north_base::json_text::ascii_string(text),
             Scalar::Int(number) => number.to_string(),
             Scalar::Float(number) => float_repr(*number),
             Scalar::Bool(flag) => flag.to_string(),
@@ -86,7 +86,7 @@ pub fn write_candidate(path: &Path, row: &VariantRow, evidence: &Path, provision
     }
     lines.push(String::new());
     lines.push("[scenarios]".into());
-    lines.extend(row.scenarios.iter().map(|(scenario, [passed, n])| format!("{} = [{passed}, {n}]", json_string(scenario))));
+    lines.extend(row.scenarios.iter().map(|(scenario, [passed, n])| format!("{} = [{passed}, {n}]", north_base::json_text::ascii_string(scenario))));
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(NorthError::Io)?;
     }

@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
-use super::ordered_json::{Json, quote};
+use super::ordered_json::Json;
 
 pub(super) const PROVIDERS: [&str; 2] = ["claude", "codex"];
 pub(super) const EVENT_ORDER: [&str; 7] = [
@@ -119,12 +119,12 @@ pub(super) fn render_codex(policy: &Value) -> String {
         for (matcher, commands) in groups {
             out.push_str(&format!("\n[[hooks.{event}]]\n"));
             if !matcher.is_empty() {
-                out.push_str(&format!("matcher = {}\n", quote(&matcher)));
+                out.push_str(&format!("matcher = {}\n", north_base::json_text::ascii_string(&matcher)));
             }
             for command in commands {
                 out.push_str(&format!(
                     "\n[[hooks.{event}.hooks]]\ntype = \"command\"\ncommand = {}\ntimeout = {HOOK_TIMEOUT}\n",
-                    quote(&command)
+                    north_base::json_text::ascii_string(&command)
                 ));
             }
         }

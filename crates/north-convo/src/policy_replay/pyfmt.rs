@@ -67,10 +67,6 @@ pub(super) fn float_repr(value: f64) -> String {
     format!("{sign}{integer}.{}", if fraction.is_empty() { "0" } else { fraction })
 }
 
-pub(super) fn json_string(text: &str) -> String {
-    north_base::json_text::ascii_string(text)
-}
-
 pub(super) fn str_repr(text: &str) -> String {
     let quote = if text.contains('\'') && !text.contains('"') { '"' } else { '\'' };
     let mut out = String::from(quote);

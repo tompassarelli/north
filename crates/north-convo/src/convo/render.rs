@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use super::json::quote;
 use super::query::{Hit, Info};
 use super::rank::{Group, snippet};
 use super::text::{char_count, char_prefix, short_project, splitlines, strip};
@@ -108,7 +107,7 @@ pub(super) struct Row<'a> {
 }
 
 fn nullable(value: Option<&str>) -> String {
-    value.map_or_else(|| "null".to_owned(), |text| quote(text, false))
+    value.map_or_else(|| "null".to_owned(), |text| serde_json::to_string(text).expect("a string encodes"))
 }
 
 /// One result as the JSON object convo has always printed, keys in this order.
@@ -117,24 +116,24 @@ pub(super) fn row_json(row: &Row) -> String {
     let info = row.info;
     let project = info.and_then(|info| info.project.as_deref()).filter(|project| !project.is_empty()).or(hit.project.as_deref());
     let mut fields = vec![
-        ("session", quote(&hit.session, false)),
+        ("session", serde_json::to_string(&hit.session).expect("a string encodes")),
         ("agent", nullable(hit.agent.as_deref())),
         ("title", nullable(info.and_then(|info| info.title.as_deref()))),
-        ("project", quote(&short_project(project), false)),
-        ("provider", info.map_or_else(|| "null".to_owned(), |info| quote(&info.provider, false))),
+        ("project", serde_json::to_string(&short_project(project)).expect("a string encodes")),
+        ("provider", info.map_or_else(|| "null".to_owned(), |info| serde_json::to_string(&info.provider).expect("a string encodes"))),
         ("id", hit.id.to_string()),
         ("ts", nullable(hit.ts.as_deref())),
-        ("role", quote(&hit.role, false)),
+        ("role", serde_json::to_string(&hit.role).expect("a string encodes")),
         ("tool", nullable(hit.tool.as_deref())),
-        ("snippet", quote(&snippet(&hit.text, row.terms, 200), false)),
-        ("path", quote(&hit.path, false)),
+        ("snippet", serde_json::to_string(&snippet(&hit.text, row.terms, 200)).expect("a string encodes")),
+        ("path", serde_json::to_string(&hit.path).expect("a string encodes")),
         ("line", hit.line.to_string()),
     ];
     if let Some(hits) = row.hits {
         fields.push(("hits", hits.to_string()));
     }
     if row.full {
-        fields.push(("text", quote(&hit.text, false)));
+        fields.push(("text", serde_json::to_string(&hit.text).expect("a string encodes")));
     }
     if let Some(partial) = row.partial {
         fields.push(("partial", partial.to_string()));

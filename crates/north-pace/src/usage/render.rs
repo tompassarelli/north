@@ -12,7 +12,7 @@ fn value_json(value: &Value) -> String {
         Value::Null => "null".into(),
         Value::Integer(number) => number.to_string(),
         Value::Real(number) => real(*number),
-        Value::Text(text) => string(text),
+        Value::Text(text) => north_base::json_text::ascii_string(text),
         Value::Blob(_) => "null".into(),
     }
 }
@@ -32,8 +32,4 @@ fn real(number: f64) -> String {
         }
         None => text,
     }
-}
-
-fn string(text: &str) -> String {
-    north_base::json_text::ascii_string(text)
 }

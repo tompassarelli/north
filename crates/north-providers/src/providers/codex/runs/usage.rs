@@ -5,10 +5,6 @@ use serde_json::{Map, Value, json};
 use crate::providers::claude::runs::int;
 use crate::providers::claude::runs::telemetry::{Prices, Request, Tokens, hook_fire, idle_gap_misses};
 
-fn quoted(text: &str, out: &mut String) {
-    out.push_str(&north_base::json_text::ascii_string(text));
-}
-
 fn spaced(value: &Value, out: &mut String) {
     match value {
         Value::Array(items) => {
@@ -33,7 +29,7 @@ fn spaced(value: &Value, out: &mut String) {
             }
             out.push('}');
         }
-        Value::String(text) => quoted(text, out),
+        Value::String(text) => out.push_str(&north_base::json_text::ascii_string(text)),
         other => out.push_str(&other.to_string()),
     }
 }

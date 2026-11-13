@@ -3,7 +3,7 @@ use std::fmt;
 use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::Number;
 
-use super::pyfmt::{float_repr, json_string};
+use super::pyfmt::float_repr;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Json {
@@ -91,11 +91,11 @@ impl Json {
             Json::Bool(flag) => flag.to_string(),
             Json::Number(number) if number.is_f64() => float_repr(number.as_f64().unwrap_or(0.0)),
             Json::Number(number) => number.to_string(),
-            Json::String(text) => json_string(text),
+            Json::String(text) => north_base::json_text::ascii_string(text),
             Json::Array(items) => format!("[{}]", items.iter().map(Json::dumps).collect::<Vec<_>>().join(", ")),
             Json::Object(entries) => format!(
                 "{{{}}}",
-                entries.iter().map(|(key, value)| format!("{}: {}", json_string(key), value.dumps())).collect::<Vec<_>>().join(", ")
+                entries.iter().map(|(key, value)| format!("{}: {}", north_base::json_text::ascii_string(key), value.dumps())).collect::<Vec<_>>().join(", ")
             ),
         }
     }

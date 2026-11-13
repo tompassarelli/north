@@ -117,20 +117,17 @@ impl<'de> Deserialize<'de> for Json {
     }
 }
 
-pub(super) fn quote(text: &str, ascii: bool) -> String {
-    if ascii { north_base::json_text::ascii_string(text) } else { serde_json::to_string(text).expect("a string encodes") }
-}
-
 pub(super) fn dumps(value: &Json, ascii: bool) -> String {
+    let encode = |text: &str| if ascii { north_base::json_text::ascii_string(text) } else { serde_json::to_string(text).expect("a string encodes") };
     match value {
         Json::Null => "null".to_owned(),
         Json::Bool(flag) => flag.to_string(),
         Json::Number(number) => number.to_string(),
-        Json::Text(text) => quote(text, ascii),
+        Json::Text(text) => encode(text),
         Json::List(items) => format!("[{}]", items.iter().map(|item| dumps(item, ascii)).collect::<Vec<_>>().join(", ")),
         Json::Object(pairs) => format!(
             "{{{}}}",
-            pairs.iter().map(|(key, item)| format!("{}: {}", quote(key, ascii), dumps(item, ascii))).collect::<Vec<_>>().join(", ")
+            pairs.iter().map(|(key, item)| format!("{}: {}", encode(key), dumps(item, ascii))).collect::<Vec<_>>().join(", ")
         ),
     }
 }

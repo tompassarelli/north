@@ -128,26 +128,22 @@ fn status(rows: &[Outcome]) -> Vec<(Option<String>, String)> {
     earliest.into_iter().cloned().collect()
 }
 
-fn text(value: &str) -> String {
-    north_base::json_text::ascii_string(value)
-}
-
 fn optional(value: &Option<String>) -> String {
-    value.as_deref().map_or_else(|| "null".to_owned(), text)
+    value.as_deref().map_or_else(|| "null".to_owned(), north_base::json_text::ascii_string)
 }
 
 pub(crate) fn events_json(rows: &[Outcome]) -> String {
     let items: Vec<String> = rows
         .iter()
         .filter(|row| row.kind == "capacity")
-        .map(|row| format!("{{\"at\": {}, \"model\": {}, \"effort\": {}, \"outcome\": {}, \"rollout\": {}}}", text(&row.at), optional(&row.model), optional(&row.effort), text(row.kind), text(&row.rollout)))
+        .map(|row| format!("{{\"at\": {}, \"model\": {}, \"effort\": {}, \"outcome\": {}, \"rollout\": {}}}", north_base::json_text::ascii_string(&row.at), optional(&row.model), optional(&row.effort), north_base::json_text::ascii_string(row.kind), north_base::json_text::ascii_string(&row.rollout)))
         .collect();
     format!("[{}]", items.join(", "))
 }
 
 pub(crate) fn status_json(rows: &[Outcome]) -> String {
     match status(rows).first() {
-        Some((model, since)) => format!("{{\"codex\": {{\"since\": {}, \"model\": {}}}}}", text(since), optional(model)),
+        Some((model, since)) => format!("{{\"codex\": {{\"since\": {}, \"model\": {}}}}}", north_base::json_text::ascii_string(since), optional(model)),
         None => "{}".to_owned(),
     }
 }
