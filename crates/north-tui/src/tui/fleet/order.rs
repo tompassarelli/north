@@ -6,8 +6,10 @@ use super::desk::SessionSummary;
 
 pub fn arrange(mut sessions: Vec<SessionSummary>) -> Vec<SessionSummary> {
     sessions.sort_by(|left, right| left.record.created_ms.cmp(&right.record.created_ms).then_with(|| left.record.name.cmp(&right.record.name)));
-    let (resting, active): (Vec<_>, Vec<_>) = sessions.into_iter().partition(|session| matches!(session.status, Status::Exited | Status::Parked));
-    let mut arranged = tree(active);
+    let (answering, rest): (Vec<_>, Vec<_>) = sessions.into_iter().partition(|session| session.phase.needs_answer());
+    let (resting, active): (Vec<_>, Vec<_>) = rest.into_iter().partition(|session| matches!(session.status, Status::Exited | Status::Parked));
+    let mut arranged = tree(answering);
+    arranged.extend(tree(active));
     arranged.extend(tree(resting));
     arranged
 }

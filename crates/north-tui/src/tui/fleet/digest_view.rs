@@ -90,7 +90,7 @@ fn gate_lines(gate: &Gate, selected: bool, now_ms: u64) -> Vec<Line<'static>> {
 fn session_lines(digest: &DigestPane, session: &SessionSummary, width: usize, now_ms: u64) -> Vec<Line<'static>> {
     let name = &session.record.name;
     let facts = digest.facts.get(name).cloned().unwrap_or_default();
-    let status = format!("{} {}", session.status.label(), super::view::age(now_ms, session.since_ms));
+    let status = format!("{} {}", session.phase.label(), super::view::age(now_ms, session.since_ms));
     let up = format!(" · up {} · started {}", span(now_ms.saturating_sub(session.record.created_ms)), clock(session.record.created_ms));
     let indent = "  ".repeat(session.depth);
     let task = one_line(facts.task.as_deref().unwrap_or("no task yet"), width.saturating_sub(indent.len() + name.chars().count() + status.len() + up.len() + 6));

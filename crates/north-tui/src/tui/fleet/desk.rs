@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -7,7 +7,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::board::Board;
 use crate::fleet::books::{Digest, Revision};
 use crate::fleet::gates::{Decision, due};
-use crate::fleet::model::{Account, Delivery, Effort, LaunchRequest, SessionRecord, Status, Transcript};
+use crate::fleet::model::{Account, Delivery, Effort, EntryKind, LaunchRequest, SessionPhase, SessionRecord, Status, Transcript};
 use crate::foundation::clock::Timestamp;
 use crate::fleet::registry::{Choices, Fleet, Follower};
 use crate::fleet::sender::Sender;
@@ -24,6 +24,7 @@ const BOARD_INTERVAL: Duration = Duration::from_secs(30);
 pub struct SessionSummary {
     pub record: SessionRecord,
     pub status: Status,
+    pub phase: SessionPhase,
     pub last_activity_ms: Option<u64>,
     pub since_ms: u64,
     pub depth: usize,
@@ -169,13 +170,17 @@ impl SessionDesk for FleetDesk {
     }
 
     fn sessions(&self) -> Vec<SessionSummary> {
+        let gated: BTreeSet<&str> = self.digest.open_gates().map(|gate| gate.request.session.as_str()).collect();
         self.records
             .iter()
             .map(|record| {
                 let transcript = self.followers.get(&record.name).map(Follower::transcript);
+                let status = transcript.map_or(Status::Starting, |transcript| transcript.status);
+                let reply = transcript.and_then(|transcript| transcript.entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant)).map(|entry| entry.text.as_str());
                 SessionSummary {
                     record: record.clone(),
-                    status: transcript.map_or(Status::Starting, |transcript| transcript.status),
+                    status,
+                    phase: SessionPhase::of(status, gated.contains(record.name.as_str()), reply),
                     last_activity_ms: transcript.and_then(|transcript| transcript.last_activity_ms),
                     since_ms: self.states.since(&record.name).unwrap_or(record.created_ms),
                     depth: 0,

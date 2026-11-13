@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -5,7 +6,8 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::error::NorthResult;
-use crate::fleet::model::{SessionRecord, Status};
+use crate::fleet::gates::{self, Gate};
+use crate::fleet::model::{SessionPhase, SessionRecord, Status};
 use crate::fleet::turns::TurnSignal;
 use crate::fleet::transcript::{WINDOW_SIZE, read_window};
 use crate::fleet::unaccepted::Unaccepted;
@@ -28,6 +30,20 @@ impl Fleet {
             return settled(record, Status::Starting);
         }
         self.status_from_index(record).unwrap_or_else(|_| settled(record, Status::Starting))
+    }
+
+    pub fn gated_sessions(&self) -> BTreeSet<String> {
+        let gates = self.ledger.gates(u64::MAX).unwrap_or_else(|error| {
+            eprintln!("north fleet: the gate ledger is unreadable, so no session shows waiting: {}", error.user_message());
+            Vec::new()
+        });
+        gates::decisions(gates).into_iter().filter(Gate::is_open).map(|gate| gate.request.session).collect()
+    }
+
+    pub fn phase(&self, record: &SessionRecord, gated: &BTreeSet<String>) -> SessionPhase {
+        let status = self.status(record);
+        let reply = (status == Status::Idle).then(|| self.last_report(record)).flatten();
+        SessionPhase::of(status, gated.contains(&record.name), reply.as_ref().map(|(report, _)| report.as_str()))
     }
 
     fn status_from_index(&self, record: &SessionRecord) -> NorthResult<Status> {

@@ -11,7 +11,7 @@ use ratatui::backend::TestBackend;
 use crate::error::NorthResult;
 use crate::fleet::books::Digest;
 use crate::fleet::gates::{Decision, Gate, GateRequest};
-use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
+use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, SessionPhase, Status, Transcript};
 
 use super::desk::{SessionActions, SessionDesk, SessionSummary};
 use super::digest::SessionFacts;
@@ -161,6 +161,7 @@ fn summary(name: &str, status: Status, last_activity_ms: u64) -> SessionSummary 
         }))
         .unwrap(),
         status,
+        phase: SessionPhase::Live(status),
         last_activity_ms: Some(last_activity_ms),
         since_ms: 0,
         depth: 0,

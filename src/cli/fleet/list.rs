@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 use crate::fleet::launch_queue::QueuedLaunch;
-use crate::fleet::model::{Effort, Phase, SessionRecord, Status};
+use crate::fleet::model::{Effort, Phase, SessionPhase, SessionRecord, Status};
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::SessionRow;
@@ -33,8 +33,9 @@ fn stranded(fleet: &Fleet) -> NorthResult<()> {
 
 fn list_lines(fleet: &Fleet) -> NorthResult<()> {
     let records = fleet.sessions()?;
+    let gated = fleet.gated_sessions();
     for record in &records {
-        println!("{}", list_line(record, fleet.status(record)));
+        println!("{}", list_line(record, fleet.phase(record, &gated)));
     }
     for (position, queued) in queued(fleet).iter().enumerate() {
         println!("{}", queued_line(queued, position + 1));
@@ -47,12 +48,12 @@ fn list_lines(fleet: &Fleet) -> NorthResult<()> {
     Ok(())
 }
 
-fn list_line(record: &SessionRecord, status: Status) -> String {
+fn list_line(record: &SessionRecord, phase: SessionPhase) -> String {
     let cwd = match &record.machine {
         Some(machine) => format!("{}:{}", machine.name, record.cwd.display()),
         None => record.cwd.display().to_string(),
     };
-    columns(&record.name, record.provider.label(), &record.account, status.label(), &cwd, record.parent.as_deref(), record.placement.as_deref())
+    columns(&record.name, record.provider.label(), &record.account, phase.label(), &cwd, record.parent.as_deref(), record.placement.as_deref())
 }
 
 /// The fleet table's sessions that run on another host, as this host's last tick cached it: this host's own rows give way to its live records, and the table never makes the list wait on the ledger host.

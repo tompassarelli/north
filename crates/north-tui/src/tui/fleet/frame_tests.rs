@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::fleet::model::{ProviderName, SessionRecord, Status, Account};
+use crate::fleet::model::{ProviderName, Report, SessionPhase, SessionRecord, Status, Account};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
@@ -25,7 +25,7 @@ fn family(name: &str, parent: Option<&str>, created_ms: u64, status: Status, sin
         "parent": parent,
     }))
     .unwrap();
-    SessionSummary { record, status, last_activity_ms: Some(created_ms), since_ms, depth: 0 }
+    SessionSummary { record, status, phase: SessionPhase::Live(status), last_activity_ms: Some(created_ms), since_ms, depth: 0 }
 }
 
 fn names(screen: &Screen) -> Vec<&str> {
@@ -69,6 +69,12 @@ fn main_view_has_no_sessions_pane_and_no_glance_banner() {
     }
     screen.sync(start([Idle, Idle, Idle, Idle, Idle, Idle], [1; 6]));
     assert_eq!(names(&screen), ["proxy", "gone", "kid-a", "grand", "kid-b", "solo"], "a session leaving the exited state may move");
+    let mut asking = start([Idle; 6], [1; 6]);
+    asking[1].phase = SessionPhase::Reported(Report::Blocked);
+    asking[3].phase = SessionPhase::Waiting;
+    asking[4].phase = SessionPhase::Reported(Report::Done);
+    screen.sync(asking);
+    assert_eq!(names(&screen), ["grand", "kid-b", "proxy", "gone", "kid-a", "solo"], "a session waiting or reporting other than Done goes first");
     let mut terminal = Terminal::new(TestBackend::new(200, 50)).unwrap();
     let mut painter = TranscriptPainter::default();
     terminal.draw(|frame| draw(frame, &mut screen, None, &mut painter, 0)).unwrap();

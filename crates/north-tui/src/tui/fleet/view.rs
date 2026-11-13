@@ -75,7 +75,7 @@ fn draw_transcript(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Optio
     let record = &session.record;
     let mut title = vec![
         Span::styled(format!(" {} ", record.name), Style::default().add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{} ", session.status.label()), status_style(session.status)),
+        Span::styled(format!("{} ", session.phase.label()), status_style(session.status)),
         Span::styled(format!("· {} ", record.cwd.display()), MUTED),
     ];
     if let Some(model) = &record.model {

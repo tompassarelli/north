@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub use super::effort::Effort;
 pub use super::prompt::PromptMode;
-pub use north_fleet_store::status::{Delivery, Status};
+pub use north_fleet_store::status::{Delivery, Report, SessionPhase, Status};
 use super::turns::{Turn, Turns};
 pub use north_fleet_store::session::{LastSender, Machine, Predicted, ProviderName, Role, SessionRecord};
 pub use north_fleet_store::session_lifecycle::{Launch, Phase, Phases};
