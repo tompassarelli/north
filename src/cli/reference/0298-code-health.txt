@@ -1,1 +1,2 @@
   code-health split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...  Move modules into a crate
+  code-health split check [--target-dir DIR] --crate CRATE  Type-check a crate with this host's build system

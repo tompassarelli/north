@@ -37,7 +37,7 @@ pub fn until_clean(plan: &Plan) -> Result<Widened, String> {
     Err(format!("type-checking {} still fails after {ROUNDS} widening rounds", plan.to))
 }
 
-fn rendered(diagnostics: &[Value]) -> String {
+pub(super) fn rendered(diagnostics: &[Value]) -> String {
     diagnostics.iter().filter(|message| message["level"] == "error").filter_map(|message| message["rendered"].as_str()).take(8).collect::<Vec<_>>().join("\n")
 }
 

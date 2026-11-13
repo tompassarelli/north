@@ -70,7 +70,7 @@ fn record(arguments: &[String]) -> Result<(Map, Vec<reads::Read>), String> {
         std::fs::create_dir_all(&directory).map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
     }
     let commit = git(&root, &["rev-parse", "HEAD"])?;
-    let builder = north_build_system::here();
+    let builder = north_build_system::cargo_side();
     let suite = Selection::Typed(suite);
     let listing = tests(builder.as_ref(), (&root, &tools, &work), Step::List, &suite, false)?;
     if !listing.status.success() {

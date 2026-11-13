@@ -49,9 +49,13 @@ fn succeeded(invocation: Invocation) -> Result<Vec<u8>, String> {
 }
 
 pub fn check(plan: &Plan) -> Result<(bool, Vec<Value>), String> {
-    let output = run(&north_build_system::here().check(&plan.root, &plan.to, plan.target_dir.as_deref()))?;
+    let builder = north_build_system::here();
+    let output = run(&builder.check(&plan.root, &plan.to, plan.target_dir.as_deref()))?;
     let messages = String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).collect::<Vec<_>>();
-    let success = messages.iter().any(|message| message["reason"] == "build-finished" && message["success"] == true);
+    let success = match messages.iter().find(|message| message["reason"] == "build-finished") {
+        Some(finished) => finished["success"] == true,
+        None => output.status.success() && builder.finished(&format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))),
+    };
     if !success && !messages.iter().any(|message| message["reason"] == "compiler-message") {
         return Err(format!("type-checking {}: {}", plan.to, tail(&output.stderr)));
     }

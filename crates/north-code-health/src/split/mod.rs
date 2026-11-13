@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::platform::process;
 
 const USAGE: &str = "usage: north code-health split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...";
+const CHECK_USAGE: &str = "usage: north code-health split check [--target-dir DIR] --crate CRATE";
 
 pub struct Plan {
     pub root: PathBuf,
@@ -60,20 +61,46 @@ impl Module {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    let plan = match arguments.split_first() {
-        Some((verb, rest)) if verb == "move-module" => parse(rest),
-        _ => Err(USAGE.to_string()),
+    let result = match arguments.split_first() {
+        Some((verb, rest)) if verb == "move-module" => parse(rest).and_then(|plan| move_modules(&plan)).map(|outcome| print!("{}", report(&outcome))),
+        Some((verb, rest)) if verb == "check" => parse_check(rest).and_then(|plan| check_crate(&plan)),
+        _ => Err(format!("{USAGE}\n{CHECK_USAGE}")),
     };
-    match plan.and_then(|plan| move_modules(&plan)) {
-        Ok(outcome) => {
-            print!("{}", report(&outcome));
-            0
-        }
+    match result {
+        Ok(()) => 0,
         Err(error) => {
-            eprintln!("north code-health split move-module: {error}");
+            eprintln!("north code-health split: {error}");
             1
         }
     }
+}
+
+fn check_crate(plan: &Plan) -> Result<(), String> {
+    let (success, diagnostics) = build::check(plan)?;
+    match success {
+        true => {
+            println!("{} type-checks", plan.to);
+            Ok(())
+        }
+        false => Err(format!("type-checking {} fails:\n{}", plan.to, widen::rendered(&diagnostics))),
+    }
+}
+
+fn parse_check(arguments: &[String]) -> Result<Plan, String> {
+    let mut plan = Plan { root: toplevel()?, from: String::new(), to: String::new(), modules: Vec::new(), dry_run: false, allow_test_items: Vec::new(), target_dir: None };
+    let mut words = arguments.iter();
+    while let Some(word) = words.next() {
+        let mut value = || words.next().cloned().ok_or_else(|| format!("{word} needs a value\n{CHECK_USAGE}"));
+        match word.as_str() {
+            "--crate" => plan.to = value()?,
+            "--target-dir" => plan.target_dir = Some(PathBuf::from(value()?)),
+            _ => return Err(CHECK_USAGE.into()),
+        }
+    }
+    if plan.to.is_empty() {
+        return Err(CHECK_USAGE.into());
+    }
+    Ok(plan)
 }
 
 fn parse(arguments: &[String]) -> Result<Plan, String> {

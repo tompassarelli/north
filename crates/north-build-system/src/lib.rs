@@ -76,6 +76,10 @@ pub fn here() -> Box<dyn BuildSystem> {
     }
 }
 
+pub fn cargo_side() -> Box<dyn BuildSystem> {
+    Box::new(Cargo)
+}
+
 /// The Buck2 side whose lines decide a land check, under the store generation's isolation directory; `None`, with the reason printed, on a host that holds no readable generation, whose lines then run on Cargo.
 fn deciding(tests: bool) -> Option<Buck2> {
     Buck2::deciding(tests, Path::new(buck2::generation::FILE)).map_err(|why| eprintln!("north: {why}, so this line runs on Cargo")).ok()
