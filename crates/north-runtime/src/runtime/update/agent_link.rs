@@ -97,7 +97,10 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), Failure> {
     for entry in fs::read_dir(from)? {
         let entry = entry?;
         let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            std::os::unix::fs::symlink(fs::read_link(entry.path())?, &target)?;
+        } else if kind.is_dir() {
             copy_tree(&entry.path(), &target)?;
         } else {
             fs::copy(entry.path(), target)?;
