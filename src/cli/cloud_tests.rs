@@ -1,3 +1,4 @@
+use super::api::{curl_args, curl_config};
 use super::*;
 
 #[test]

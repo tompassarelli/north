@@ -1,30 +1,27 @@
-use std::fs::File;
-use std::io::{BufWriter, Write};
+//! `north cloud`: the command surface over the sessions API and the cloud landing. It parses the
+//! arguments, keeps the launch, collect, land and reap paths their own, and executes the API
+//! commands here, leaving the transport to `api` and a turn's lifecycle to `turn`.
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::Duration;
 
-use serde_json::{Value, json};
+mod api;
+mod turn;
 
-use crate::foundation::clock::Timestamp;
+pub(super) use api::{Api, events, field, request, save};
+pub(super) use turn::turn_ended;
+
+use api::{credentials, pages, row};
+use turn::{Finish, NUDGES, POLL, Waker, finish, record_finished, send, sweep};
 
 pub(super) const USAGE: &str = "usage: north cloud list | launch REPO SLUG BRIEF [--item REPO#N] | events SESSION_ID OUT.jsonl | sweep OUT_DIR | reap | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS] | collect EVENTS.jsonl OUT.mbox | land EVENTS.jsonl [--repo DIR]
-launch refreshes /tmp/cloud/src/REPO, trusts it, starts BRIEF with its landing steps through claude --cloud and prints the session, claude/land-SLUG and the checkout; --item records the launch so north fleet dispatch holds that issue for six hours.
-sweep archives only cloud-run sessions (environment_kind anthropic_cloud) waiting on a human, never Remote Control bridges.
-send posts FILE as a user message to the session and prints the HTTP status and the message's uuid.
-wait returns once the session is idle and its latest turn ended, after the message UUID when --after is given, then writes its events (default timeout 3600 s; exit 1 on timeout); a turn that ends with no Done:/Not done:/Split:/Blocked: line and no patch handback gets a continue message posted and is waited on again, at most twice, before wait reports the worker stalled and exits 1; when those events hold a patch handback it then lands it as land does.
-reap lands, as wait does, the finished handback of every session north cloud launch started in the last 7 days and has not landed yet, from ~/code/REPO/main, and records each so it is queued only once; a session still running, or idle with its turn unended, is left alone, and one that finished with no handback is reread only once it changes (a user timer runs it every 2 minutes; exit 1 when a landing stopped or a session could not be read).
-collect decodes the latest multi-part patch handback in a saved events transcript to an mbox, reading no session and needing no login; a missing part, a failed decode or output not starting with From is refused.
-land collects the handback, applies it with git am --3way in a fresh worktrees/cloud-SESSION lane off origin/main, folds it into one commit without the session trailers, runs north land checks on the lane and enqueues it with safe-push --to main, printing Done: queued; a patch that does not apply or a failed check stops with the reason and the lane path and queues nothing, and a handback already queued is a no-op.
-Run on the host whose ~/.claude login owns the cloud sessions (south:agents/skills/claude-accounts/).";
-
-const BASE: &str = "https://api.anthropic.com";
-const POLL: Duration = Duration::from_secs(30);
-const NUDGES: usize = 2;
-const REPORTS: [&str; 4] = ["Done:", "Not done:", "Split:", "Blocked:"];
-const CONTINUE: &str = "Your turn ended while a background run was still going, with no Done:/Not done:/Split: report and no patch handback. Run that work in the foreground now, finish the box, then hand back the patch with a Done:/Not done:/Split: report.";
-
-pub(super) type Api<'a> = dyn FnMut(&str, &str, Option<&str>) -> Result<(u16, String), String> + 'a;
+ launch refreshes /tmp/cloud/src/REPO, trusts it, starts BRIEF with its landing steps through claude --cloud and prints the session, claude/land-SLUG and the checkout; --item records the launch so north fleet dispatch holds that issue for six hours.
+ sweep archives only cloud-run sessions (environment_kind anthropic_cloud) waiting on a human, never Remote Control bridges.
+ send posts FILE as a user message to the session and prints the HTTP status and the message's uuid.
+ wait returns once the session is idle and its latest turn ended, after the message UUID when --after is given, then writes its events (default timeout 3600 s; exit 1 on timeout); a turn that ends with no Done:/Not done:/Split:/Blocked: line and no patch handback gets a continue message posted and is waited on again, at most twice, before wait reports the worker stalled and exits 1; when those events hold a patch handback it then lands it as land does.
+ reap lands, as wait does, the finished handback of every session north cloud launch started in the last 7 days and has not landed yet, from ~/code/REPO/main, and records each so it is queued only once; a session still running, or idle with its turn unended, is left alone, and one that finished with no handback is reread only once it changes (a user timer runs it every 2 minutes; exit 1 when a landing stopped or a session could not be read).
+ collect decodes the latest multi-part patch handback in a saved events transcript to an mbox, reading no session and needing no login; a missing part, a failed decode or output not starting with From is refused.
+ land collects the handback, applies it with git am --3way in a fresh worktrees/cloud-SESSION lane off origin/main, folds it into one commit without the session trailers, runs north land checks on the lane and enqueues it with safe-push --to main, printing Done: queued; a patch that does not apply or a failed check stops with the reason and the lane path and queues nothing, and a handback already queued is a no-op.
+ Run on the host whose ~/.claude login owns the cloud sessions (south:agents/skills/claude-accounts/).";
 
 #[derive(Debug, Eq, PartialEq)]
 pub(super) enum Cloud {
@@ -43,8 +40,15 @@ pub(super) fn parse(arguments: &[String]) -> Option<Cloud> {
     let words = arguments.iter().map(String::as_str).collect::<Vec<_>>();
     Some(match words.as_slice() {
         ["list"] => Cloud::List,
-        ["launch", repo, slug, brief] => Cloud::Launch((*repo).to_owned(), (*slug).to_owned(), brief.into(), None),
-        ["launch", repo, slug, brief, "--item", item] => Cloud::Launch((*repo).to_owned(), (*slug).to_owned(), brief.into(), Some((*item).to_owned())),
+        ["launch", repo, slug, brief] => {
+            Cloud::Launch((*repo).to_owned(), (*slug).to_owned(), brief.into(), None)
+        }
+        ["launch", repo, slug, brief, "--item", item] => Cloud::Launch(
+            (*repo).to_owned(),
+            (*slug).to_owned(),
+            brief.into(),
+            Some((*item).to_owned()),
+        ),
         ["events", id, out] => Cloud::Events((*id).to_owned(), out.into()),
         ["collect", events, out] => Cloud::Collect(events.into(), out.into()),
         ["land", events] => Cloud::Land(events.into(), ".".into()),
@@ -69,390 +73,6 @@ fn wait_command(id: &str, out: &str, options: &[&str]) -> Option<Cloud> {
     Some(Cloud::Wait(id.to_owned(), out.into(), timeout, after))
 }
 
-pub(super) struct Curl {
-    pub(super) base: String,
-    pub(super) token: String,
-    pub(super) org: String,
-}
-
-pub(super) fn curl_config(token: &str, org: &str) -> String {
-    let quote = |text: String| {
-        format!(
-            "header = \"{}\"\n",
-            text.replace('\\', "\\\\").replace('"', "\\\"")
-        )
-    };
-    [
-        format!("Authorization: Bearer {token}"),
-        "anthropic-version: 2023-06-01".to_owned(),
-        "anthropic-beta: ccr-byoc-2025-07-29".to_owned(),
-        format!("x-organization-uuid: {org}"),
-        "content-type: application/json".to_owned(),
-    ]
-    .into_iter()
-    .map(quote)
-    .collect()
-}
-
-pub(super) fn curl_args(method: &str, url: &str, body: Option<&Path>) -> Vec<String> {
-    let mut args = [
-        "--silent",
-        "--show-error",
-        "--max-time",
-        "60",
-        "--config",
-        "-",
-        "--request",
-        method,
-        "--write-out",
-        "\n%{http_code}",
-    ]
-    .map(str::to_owned)
-    .to_vec();
-    if let Some(body) = body {
-        args.extend(["--data-binary".to_owned(), format!("@{}", body.display())]);
-    }
-    args.push(url.to_owned());
-    args
-}
-
-impl Curl {
-    pub(super) fn call(
-        &self,
-        method: &str,
-        path: &str,
-        body: Option<&str>,
-    ) -> Result<(u16, String), String> {
-        let file = body
-            .map(|body| {
-                let mut file = tempfile::NamedTempFile::new()?;
-                file.write_all(body.as_bytes())?;
-                Ok::<_, std::io::Error>(file)
-            })
-            .transpose()
-            .map_err(|error| format!("curl body: {error}"))?;
-        let mut child = Command::new("curl")
-            .args(curl_args(
-                method,
-                &format!("{}{path}", self.base),
-                file.as_ref().map(|file| file.path()),
-            ))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| format!("curl: {error}"))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(curl_config(&self.token, &self.org).as_bytes())
-                .map_err(|error| format!("curl: {error}"))?;
-        }
-        let output = child
-            .wait_with_output()
-            .map_err(|error| format!("curl: {error}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "{method} {path}: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
-        let text = String::from_utf8_lossy(&output.stdout);
-        let (body, status) = text
-            .rsplit_once('\n')
-            .ok_or_else(|| format!("{method} {path}: no HTTP status"))?;
-        let status = status
-            .trim()
-            .parse()
-            .map_err(|_| format!("{method} {path}: bad HTTP status {status}"))?;
-        Ok((status, body.to_owned()))
-    }
-}
-
-pub(super) fn request(api: &mut Api, method: &str, path: &str, body: Option<&str>) -> Result<Value, String> {
-    let (status, text) = api(method, path, body)?;
-    if !(200..300).contains(&status) {
-        return Err(format!("{method} {path}: HTTP {status}: {text}"));
-    }
-    serde_json::from_str(&text).map_err(|error| format!("{method} {path}: {error}"))
-}
-
-fn pages(api: &mut Api, path: &str) -> Result<Vec<Value>, String> {
-    let mut items = Vec::new();
-    let mut after = String::new();
-    loop {
-        let page = request(api, "GET", &format!("{path}{after}"), None)?;
-        items.extend(
-            page.get("data")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-        );
-        match page.get("last_id").and_then(Value::as_str) {
-            Some(last) if page.get("has_more") == Some(&Value::Bool(true)) => {
-                after = format!("&after_id={last}")
-            }
-            _ => return Ok(items),
-        }
-    }
-}
-
-pub(super) fn field<'a>(value: &'a Value, key: &str) -> &'a str {
-    value.get(key).and_then(Value::as_str).unwrap_or("")
-}
-
-pub(super) fn row(session: &Value) -> String {
-    [
-        "id",
-        "session_status",
-        "environment_kind",
-        "updated_at",
-        "title",
-    ]
-    .map(|key| field(session, key).replace(['\t', '\n'], " "))
-    .join("\t")
-}
-
-pub(super) fn events(api: &mut Api, id: &str) -> Result<Vec<Value>, String> {
-    pages(
-        api,
-        &format!("/v1/sessions/{id}/events?beta=true&limit=1000"),
-    )
-}
-
-pub(super) fn save(events: &[Value], out: &Path) -> Result<(), String> {
-    let error = |error: std::io::Error| format!("{}: {error}", out.display());
-    let mut file = BufWriter::new(File::create(out).map_err(error)?);
-    for event in events {
-        writeln!(file, "{event}").map_err(error)?;
-    }
-    file.flush().map_err(error)
-}
-
-pub(super) fn sweep(api: &mut Api, dir: &Path, out: &mut dyn Write) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|error| format!("{}: {error}", dir.display()))?;
-    let mut found = false;
-    for session in pages(api, "/v1/sessions?beta=true&limit=100")? {
-        if field(&session, "session_status") != "requires_action"
-            || field(&session, "environment_kind") != "anthropic_cloud"
-        {
-            continue;
-        }
-        found = true;
-        let id = field(&session, "id");
-        let transcript = dir.join(format!("{id}.jsonl"));
-        save(&events(api, id)?, &transcript)?;
-        request(
-            api,
-            "POST",
-            &format!("/v1/sessions/{id}/archive?beta=true"),
-            Some("{}"),
-        )?;
-        let _ = writeln!(
-            out,
-            "stopped {id} ({}): it was waiting on a human; transcript {}",
-            field(&session, "title"),
-            transcript.display()
-        );
-    }
-    if !found {
-        let _ = writeln!(out, "no cloud session is waiting on a human");
-    }
-    Ok(())
-}
-
-pub(super) fn send_body(id: &str, uuid: &str, text: &str) -> Value {
-    json!({"events": [{
-        "uuid": uuid,
-        "session_id": id,
-        "type": "user",
-        "parent_tool_use_id": null,
-        "message": {"role": "user", "content": text},
-    }]})
-}
-
-pub(super) fn send(api: &mut Api, id: &str, uuid: &str, text: &str) -> Result<u16, String> {
-    let body = send_body(id, uuid, text).to_string();
-    api(
-        "POST",
-        &format!("/v1/sessions/{id}/events?beta=true"),
-        Some(&body),
-    )
-    .map(|(status, _)| status)
-}
-
-pub(super) fn turn_ended(events: &[Value], after: Option<&str>) -> bool {
-    let start = match after {
-        Some(uuid) => match events.iter().position(|event| field(event, "uuid") == uuid) {
-            Some(index) => index + 1,
-            None => return false,
-        },
-        None => 0,
-    };
-    let last = events[start..]
-        .iter()
-        .rev()
-        .find(|event| matches!(field(event, "type"), "assistant" | "user" | "result"));
-    match last.map(|event| field(event, "type")) {
-        Some("result") => true,
-        Some("assistant") => last
-            .and_then(|event| event.get("message"))
-            .is_some_and(|message| field(message, "stop_reason") == "end_turn"),
-        _ => false,
-    }
-}
-
-fn finished(api: &mut Api, id: &str, after: Option<&str>) -> Result<Option<Vec<Value>>, String> {
-    let session = request(api, "GET", &format!("/v1/sessions/{id}?beta=true"), None)?;
-    if field(&session, "session_status") != "idle" {
-        return Ok(None);
-    }
-    let events = events(api, id)?;
-    Ok(turn_ended(&events, after).then_some(events))
-}
-
-pub(super) fn wait(
-    api: &mut Api,
-    id: &str,
-    out: &Path,
-    after: Option<&str>,
-    polls: u64,
-    sleep: &mut dyn FnMut(),
-) -> Result<Option<Vec<Value>>, String> {
-    for poll in 0..=polls {
-        if poll > 0 {
-            sleep();
-        }
-        match finished(api, id, after) {
-            Ok(Some(events)) => return save(&events, out).map(|()| Some(events)),
-            Ok(None) => {}
-            Err(error) => eprintln!("north cloud wait: {error}"),
-        }
-    }
-    Ok(None)
-}
-
-fn since<'a>(events: &'a [Value], after: Option<&str>) -> &'a [Value] {
-    let start = after
-        .and_then(|uuid| events.iter().position(|event| field(event, "uuid") == uuid))
-        .map_or(0, |index| index + 1);
-    &events[start..]
-}
-
-fn reply_text(event: &Value) -> String {
-    match event.pointer("/message/content") {
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(blocks)) => blocks
-            .iter()
-            .filter(|block| field(block, "type") == "text")
-            .map(|block| field(block, "text"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => String::new(),
-    }
-}
-
-fn reports(text: &str) -> bool {
-    text.lines().any(|line| {
-        let line = line.trim_start_matches(|c: char| c.is_whitespace() || c == '*' || c == '_' || c == '#');
-        REPORTS.iter().any(|report| line.starts_with(report))
-    })
-}
-
-pub(super) fn stalled(events: &[Value], after: Option<&str>) -> bool {
-    let turn = since(events, after);
-    let last_reply = turn
-        .iter()
-        .rev()
-        .filter(|event| field(event, "type") == "assistant")
-        .map(reply_text)
-        .find(|text| !text.trim().is_empty())
-        .unwrap_or_default();
-    !reports(&last_reply) && !super::cloud_handback::has_handback(turn)
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub(super) enum Finish {
-    Ended(usize),
-    Stalled(usize),
-    TimedOut,
-}
-
-pub(super) struct Waker<'a> {
-    pub(super) polls: u64,
-    pub(super) sleep: &'a mut dyn FnMut(),
-    pub(super) uuid: &'a mut dyn FnMut() -> Result<String, String>,
-    pub(super) report: &'a mut dyn Write,
-}
-
-pub(super) fn finish(
-    api: &mut Api,
-    id: &str,
-    out: &Path,
-    after: Option<&str>,
-    waker: Waker,
-) -> Result<Finish, String> {
-    let mut after = after.map(str::to_owned);
-    let mut nudges = 0;
-    loop {
-        let Some(events) = wait(api, id, out, after.as_deref(), waker.polls, waker.sleep)? else {
-            return Ok(Finish::TimedOut);
-        };
-        let stall = stalled(&events, after.as_deref());
-        if !stall || nudges == NUDGES {
-            return Ok(if stall { Finish::Stalled(events.len()) } else { Finish::Ended(events.len()) });
-        }
-        let uuid = (waker.uuid)()?;
-        let status = send(api, id, &uuid, CONTINUE)?;
-        if !(200..300).contains(&status) {
-            return Err(format!("posting the continue message to {id}: HTTP {status}"));
-        }
-        let _ = writeln!(
-            waker.report,
-            "{id} ended its turn with no report or handback; posted continue message {uuid}"
-        );
-        after = Some(uuid);
-        nudges += 1;
-    }
-}
-
-/// The finished row of a session `north cloud launch` started: from its launch to now, with its last reply as the report.
-pub(super) fn finished_row(id: &str, events: &[Value], launches: &[crate::dispatch::CloudLaunch], now: Timestamp) -> Option<Value> {
-    let launch = launches.iter().rev().find(|launch| launch.session == id)?;
-    let report = events.iter().rev().filter(|event| field(event, "type") == "assistant").map(reply_text).find(|text| !text.trim().is_empty()).unwrap_or_default();
-    Some(crate::providers::claude::runs::cloud::finished(id, Timestamp::from_unix_seconds_f64(launch.at), now, &report))
-}
-
-fn record_finished(id: &str, saved: &Path) {
-    let events: Vec<Value> = std::fs::read_to_string(saved).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
-    let Some(row) = finished_row(id, &events, &crate::dispatch::cloud_launches(), Timestamp::now()) else { return };
-    if let Err(error) = crate::threads::client::ingest(format!("{row}\n").as_bytes()) {
-        eprintln!("north cloud wait: the run row for {id} went unrecorded: {error}");
-    }
-}
-
-fn credentials() -> Result<Curl, String> {
-    let login = crate::dispatch::cloud_login()?;
-    let read = |path: PathBuf, pointer: &str| {
-        let text = std::fs::read_to_string(&path)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        let value = serde_json::from_str::<Value>(&text)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        value
-            .pointer(pointer)
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| format!("{}: no {pointer}", path.display()))
-    };
-    Ok(Curl {
-        base: BASE.to_owned(),
-        token: read(
-            login.credentials,
-            "/claudeAiOauth/accessToken",
-        )?,
-        org: read(login.home.join(".claude.json"), "/oauthAccount/organizationUuid")?,
-    })
-}
-
 pub(super) fn execute(command: Cloud, api: &mut Api, out: &mut dyn Write) -> Result<u8, String> {
     match command {
         Cloud::List => {
@@ -466,10 +86,18 @@ pub(super) fn execute(command: Cloud, api: &mut Api, out: &mut dyn Write) -> Res
             let _ = writeln!(out, "{} events in {}", events.len(), path.display());
         }
         Cloud::Sweep(dir) => sweep(api, &dir, out)?,
-        Cloud::Launch(..) => return Err("launch starts a session through claude --cloud, not the sessions API".into()),
-        Cloud::Collect(..) => return Err("collect reads a saved transcript, not the sessions API".into()),
+        Cloud::Launch(..) => {
+            return Err(
+                "launch starts a session through claude --cloud, not the sessions API".into(),
+            );
+        }
+        Cloud::Collect(..) => {
+            return Err("collect reads a saved transcript, not the sessions API".into());
+        }
         Cloud::Land(..) => return Err("land reads a saved transcript, not the sessions API".into()),
-        Cloud::Reap => return Err("reap lands through local checkouts as well as the sessions API".into()),
+        Cloud::Reap => {
+            return Err("reap lands through local checkouts as well as the sessions API".into());
+        }
         Cloud::Send(id, file) => {
             let text = std::fs::read_to_string(&file)
                 .map_err(|error| format!("{}: {error}", file.display()))?;
@@ -482,12 +110,18 @@ pub(super) fn execute(command: Cloud, api: &mut Api, out: &mut dyn Write) -> Res
             let waker = Waker {
                 polls: timeout / POLL.as_secs(),
                 sleep: &mut || std::thread::sleep(POLL),
-                uuid: &mut || crate::fleet::runtime::new_uuid().map_err(|error| error.user_message()),
+                uuid: &mut || {
+                    crate::fleet::runtime::new_uuid().map_err(|error| error.user_message())
+                },
                 report: &mut *out,
             };
             match finish(api, &id, &path, after.as_deref(), waker)? {
                 Finish::Ended(count) => {
-                    let _ = writeln!(out, "{id} finished its turn; {count} events in {}", path.display());
+                    let _ = writeln!(
+                        out,
+                        "{id} finished its turn; {count} events in {}",
+                        path.display()
+                    );
                 }
                 Finish::Stalled(count) => {
                     let _ = writeln!(
@@ -537,7 +171,12 @@ pub fn run(arguments: &[String]) -> u8 {
         return super::cloud_land::run(events, repo, false, None);
     }
     if command == Cloud::Reap {
-        return match credentials().and_then(|curl| super::cloud_reap::run(&mut |method, path, body| curl.call(method, path, body), &mut std::io::stdout())) {
+        return match credentials().and_then(|curl| {
+            super::cloud_reap::run(
+                &mut |method, path, body| curl.call(method, path, body),
+                &mut std::io::stdout(),
+            )
+        }) {
             Ok(code) => code,
             Err(error) => {
                 eprintln!("north cloud reap: {error}");
@@ -559,7 +198,14 @@ pub fn run(arguments: &[String]) -> u8 {
     match (result, landing) {
         (Ok(0), Some((id, path))) => {
             record_finished(&id, &path);
-            super::cloud_land::run(&path, Path::new("."), true, crate::dispatch::cloud_launches().iter().rfind(|launch| launch.session == id))
+            super::cloud_land::run(
+                &path,
+                Path::new("."),
+                true,
+                crate::dispatch::cloud_launches()
+                    .iter()
+                    .rfind(|launch| launch.session == id),
+            )
         }
         (Ok(code), _) => code,
         (Err(error), _) => {
