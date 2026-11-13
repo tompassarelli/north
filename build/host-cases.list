@@ -1,6 +1,6 @@
 # The host cases: libtest cases no remote worker can run, `BINARY_ID CASE` a line. Each is also named with its reason in
 # its package's manifest (`[[package.metadata.north.buck.host-cases]]`); `north buck targets` refuses a manifest host case
-# missing here and a line no manifest names, so the class grows only by a diff to this file.
+# missing here, and a line may land before the manifest entry that names it, so the class grows only by a diff to this file.
 north-base platform::ssh::survival_tests::a_multiplexed_session_survives_restarting_the_unit_that_made_the_first_connection
 north-base platform::ssh_master::tests::a_control_socket_nobody_listens_on_is_dropped_and_its_unit_started_but_a_live_master_is_left
 north-base platform::ssh_master::tests::a_master_slower_than_three_seconds_while_a_direct_connection_answers_is_closed_and_recreated
@@ -28,11 +28,3 @@ north::it worker_sandbox::a_command_confined_to_its_lane_runs_the_toolchain_shim
 north::it worker_sandbox::a_delete_whose_target_is_computed_at_run_time_cannot_remove_a_protected_directory_north_706
 north::it worker_sandbox::a_lane_created_after_the_session_started_runs_its_scripts_in_a_fresh_domain_that_hides_every_older_lane_north_1033
 north::it worker_sandbox::a_sandboxed_hand_in_for_another_projects_lane_is_refused_and_leaves_no_index_lock_north_1172
-north::it worker_sandbox::a_sandboxed_worker_fast_forwards_a_main_checkout_through_the_broker
-north::it worker_sandbox::a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_harness_state
-north::it worker_sandbox::a_worker_command_cannot_write_a_north_runtime_that_unconfined_sessions_execute
-north::it worker_sandbox::a_worker_command_cannot_write_a_projects_git_config_and_still_fetches_and_branches_from_origin
-north::it worker_sandbox::a_worker_command_cannot_write_a_projects_git_hooks
-north::it worker_sandbox::a_worker_command_cannot_write_another_sessions_fleet_record
-north::it worker_sandbox::a_worker_command_reads_the_lifecycle_ledger_and_cannot_write_it
-north::it worker_sandbox::a_worker_send_to_a_session_on_its_host_or_another_exits_0_with_no_error_and_leaves_the_row_for_the_fleet_tick_north_1219
