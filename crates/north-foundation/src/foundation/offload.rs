@@ -24,6 +24,8 @@ pub const MASTER_SOCKET: &str = "north-offload-";
 pub const SLOT_HOLDER_ENV: &str = "NORTH_OFFLOAD_SLOT_HOLDER";
 /// The line an offload run prints for people once it proved its slot holds exactly the shipped commit's tree, followed by that tree and `of COMMIT`; nothing decides on it, since a check's own output can print it too.
 pub const PROVED_TREE: &str = "offload: proved tree ";
+/// The line an offload run prints once its slot holds the proved tree, followed by what each of its steps took since the one before, as `NAME=MILLISECONDS` words: receiving the bundle, filling the checkout, taking a slot (its line wait included), placing the slot on the commit and proving its tree; the lander books them as the parts of the job's slot and tree proof.
+pub const TIMED: &str = "offload: timed";
 /// The file an after-landing run's offload clients append one line to for each shipped run whose command reported: the tree the build host proved the run was computed on, else `UNPROVED`, then the commit; the run's log never names it, so the sheriff reads this.
 pub const TREES_ENV: &str = "NORTH_OFFLOAD_TREES";
 pub const UNPROVED: &str = "unproved";

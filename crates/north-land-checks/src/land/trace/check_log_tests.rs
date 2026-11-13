@@ -40,4 +40,13 @@ fn an_offloaded_test_line_splits_into_wait_sync_compile_and_test_spans_and_a_lea
     assert!((spans[0].start - 0.1).abs() < 1e-9 && (spans[0].end - 16.0).abs() < 1e-9);
     let stream = [&b"a\xffb\n"[..], b"offload: waited 12.5s in line for code-north-main-2\n", b"\xfe\n", &[b'x'; 1 << 20], b"\noffload: waited 99s in line for code-north-main-3\n"].concat();
     assert_eq!(waited_in_stream(&stream[..]), Some(12.5), "a stream with bytes that are not UTF-8 and a line of 1 MiB is read to its end for its first wait");
+    let timed = "offload: timed receive=500 fill=1250 slot=15000 place=250 proof=125 later=9000";
+    assert_eq!(slot_steps(timed), Some(vec![("slot and tree proof: receive", 0.5), ("slot and tree proof: fill", 1.25), ("slot and tree proof: slot line", 15.0), ("slot and tree proof: place", 0.25), ("slot and tree proof: proof", 0.125)]));
+    let line = Line { trace: "c1", id: "line", category: Category::Scans, start: 0.0, end: 100.0, host: "cpx62" };
+    let released = r#"{"decision":"RELEASED","lease":"l","start":[["scope",0.5],["derivation",0.25],["nix eval",40.0],["sandbox broker",1.0],["nix develop",1.5]],"subjectSeconds":20.0}"#;
+    let marks = [mark(20.0, timed), mark(21.0, r#"{"decision":"RESERVED","reason":"RUN","queuedSeconds":0}"#), mark(90.0, released)];
+    let shape: Vec<(String, Category, f64, f64)> = children(&line, &marks).iter().map(|span| (span.name.clone(), span.category, span.start, span.end)).collect();
+    let expected = [("sandbox start: scope", 21.0, 21.5), ("sandbox start: derivation", 21.5, 21.75), ("sandbox start: nix eval", 21.75, 61.75), ("sandbox start: other", 61.75, 62.75), ("sandbox start: nix develop", 62.75, 64.25)];
+    assert_eq!(shape, expected.map(|(name, start, end)| (name.to_owned(), Category::Offload, start, end)));
+    assert_eq!(lease_start(released).and_then(|start| start.subject_seconds), Some(20.0));
 }

@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::decision::decision;
 use super::estimate::task_signature;
-use super::json::{Obj, field, num, round2, text};
+use super::json::{Obj, field, num, round, round2, text};
 use super::machine::{env, lease_slice, now_ms, read_signals, read_text, scope_cgroup};
 use super::measure::{Usage, measure_scope};
 use super::model::{Observation, Subject, censored, command_key, current_cache_state, update};
@@ -419,12 +419,16 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
     let witness = subject_start::witness(root, &lease);
     subject_start::arm(&witness);
     let subject = request.subject.as_deref().unwrap_or(command);
+    let launched = now_ms() / 1000.0;
+    let mut start = subject_start::Start::default();
     let exit_code = match scope_command(root, request, admitted, timeout_seconds, command).spawn() {
         Ok(child) => {
             let measurement = measure_scope(root, &lease, scope_cgroup(request.admitted_class(), &unit));
             let usual = Usual::of(request.forecast.as_ref(), timeout_seconds);
             let overrun = Overrun::watch(env(crate::fleet::runtime::SESSION_ENV), subject, usual);
-            let exit = Exit::judge(supervise(child, &unit, terminations, overrun).await, &witness);
+            let code = supervise(child, &unit, terminations, overrun).await;
+            start = subject_start::start(&witness, launched, now_ms() / 1000.0);
+            let exit = Exit::judge(code, &witness);
             let exit_code = exit.code();
             let usage = measurement.finish();
             let entry = usage_entry(owner, request, subject, admitted, exit_code, &usage, children_cpu_seconds() - child_cpu_before);
@@ -450,9 +454,18 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
     if scope_live(&lease) {
         eprintln!("machine-capacity: lease cleanup failed: scope still live; retained lease {lease}");
     } else {
-        print_to(&change_lease(root, &lease, owner, None, true), true);
+        print_to(&started(change_lease(root, &lease, owner, None, true), &start), true);
     }
     exit_code
+}
+
+/// The released lease with what its start spent before the subject ran, step by step, and the subject's own run, for a reader that times a check's sandbox start from its output.
+fn started(released: Obj, start: &subject_start::Start) -> Obj {
+    if start.steps.is_empty() {
+        return released;
+    }
+    let steps: Vec<Value> = start.steps.iter().map(|(name, seconds)| serde_json::json!([name, round(*seconds, 3)])).collect();
+    released.put("start", steps).put_some("subjectSeconds", start.subject_seconds.map(|seconds| round(seconds, 3)))
 }
 
 fn refusal(admitted: &Obj) -> Option<String> {

@@ -71,7 +71,7 @@ fn cargo_in_a_lease_runs_as_many_jobs_as_the_lease_holds_cpus_not_its_scopes_cei
     assert_eq!(threads.as_deref(), Some(std::ffi::OsStr::new("4")), "cargo-nextest reads NEXTEST_TEST_THREADS, not RUST_TEST_THREADS, and ran one test per host thread in a 4-CPU land check on 2026-11-12");
 }
 
-fn launched(root: &std::path::Path, launcher: &str) -> (crate::capacity::subject_start::Exit, Option<serde_json::Value>) {
+fn launched(root: &std::path::Path, launcher: &str) -> (crate::capacity::subject_start::Exit, Option<serde_json::Value>, crate::capacity::subject_start::Start) {
     let lease = "00000000-0000-4000-8000-000000000004";
     let request = Request { name: "heavy".to_owned(), landing: true, ..Request::default() };
     let admitted = Obj::new().put("lease", lease).put("scope", serde_json::json!({ "cpus": 2, "memoryMiB": 1024 }));
@@ -83,19 +83,22 @@ fn launched(root: &std::path::Path, launcher: &str) -> (crate::capacity::subject
     let program = root.join("systemd-run");
     north_base::foundation::shim::write_script(&program, &format!("{launcher}\n"));
     crate::capacity::subject_start::arm(&witness);
+    let began = super::machine::now_ms() / 1000.0;
     let status = std::process::Command::new(&program).env(crate::capacity::subject_start::ENV, &witness).stderr(std::process::Stdio::null()).status().unwrap();
+    let start = crate::capacity::subject_start::start(&witness, began, super::machine::now_ms() / 1000.0);
     let exit = crate::capacity::subject_start::Exit::judge(status.code().unwrap(), &witness);
-    (exit, super::run::command_exit(&request, "land-check", &command, &admitted, exit).map(|line| line.value()))
+    (exit, super::run::command_exit(&request, "land-check", &command, &admitted, exit).map(|line| line.value()), start)
 }
 
 #[test]
 fn a_lease_whose_scope_never_started_its_subject_exits_no_verdict_not_the_launchers_failure() {
     let root = tempfile::tempdir().unwrap();
-    let (exit, line) = launched(root.path(), "echo 'Failed to start transient scope unit: Remote peer disconnected' >&2; exit 1");
+    let (exit, line, _) = launched(root.path(), "echo 'Failed to start transient scope unit: Remote peer disconnected' >&2; exit 1");
     assert_eq!(exit.code(), north_base::foundation::exit::NO_VERDICT_STATUS);
     let line = line.expect("a decision line");
     assert_eq!((line["decision"].as_str(), line["launcherExitCode"].as_i64()), (Some("SUBJECT_NOT_STARTED"), Some(1)));
-    let (exit, line) = launched(root.path(), "touch \"$NORTH_SUBJECT_STARTED\"; exit 1");
+    let (exit, line, start) = launched(root.path(), "printf 'gc root nan\\nnix develop 1\\n' >\"$NORTH_SUBJECT_STARTED.steps\"; touch -d @1 \"$NORTH_SUBJECT_STARTED\"; exit 1");
+    assert!(start.steps.iter().all(|(_, seconds)| seconds.is_finite() && *seconds >= 0.0), "a witness dated before the launch and a stamp that is not a number leave the lease its release: {start:?}");
     assert_eq!(exit.code(), 1, "a subject that started and failed keeps its own exit");
     assert_eq!(line.expect("a decision line")["decision"].as_str(), Some("COMMAND_EXITED"));
 }

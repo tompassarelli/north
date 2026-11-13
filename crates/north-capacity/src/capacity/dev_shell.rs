@@ -98,6 +98,7 @@ fn derivation(nix: &Path, flake: &Path) -> Result<String, String> {
     if let Some(known) = entry.as_deref().and_then(|entry| std::fs::read_to_string(entry).ok()).filter(|known| !known.is_empty() && Path::new(known).exists()) {
         return Ok(known);
     }
+    super::subject_start::step("nix eval");
     let derivation = evaluate(nix, flake)?;
     if let Some(entry) = entry {
         remember(&entry, &derivation);
@@ -396,6 +397,7 @@ pub fn command(arguments: &[String], gated: &dyn Fn(&[String]) -> bool) -> u8 {
     let own_shell = std::env::current_dir().ok().and_then(|directory| shell_of(&directory)) == shell_of(&invocation.directory);
     if let Some(words) = placed(&north, &invocation, own_shell, gated) {
         trace("place through the capacity gate");
+        super::subject_start::step("capacity gate");
         return replace_with("north capacity dev-shell", std::process::Command::new(&words[0]).args(&words[1..]), &words[0]);
     }
     let what = invocation.command.first().map_or_else(|| "nothing".to_owned(), Clone::clone);
@@ -410,6 +412,7 @@ pub fn command(arguments: &[String], gated: &dyn Fn(&[String]) -> bool) -> u8 {
         eprintln!("north capacity dev-shell: nix: command not found");
         return NOT_FOUND;
     };
+    super::subject_start::step("derivation");
     let identity = match derivation(&nix, &flake) {
         Ok(identity) => identity,
         Err(reason) => return bare(reason),
@@ -418,6 +421,7 @@ pub fn command(arguments: &[String], gated: &dyn Fn(&[String]) -> bool) -> u8 {
         trace(&format!("direct {identity}"));
         return run_directly("north capacity dev-shell", &invocation.command);
     }
+    super::subject_start::step("gc root");
     let profile = match ensure_root(&nix, &flake, &identity, &roots(), leased()) {
         Ok(profile) => profile,
         Err(code) => return code,
@@ -425,11 +429,13 @@ pub fn command(arguments: &[String], gated: &dyn Fn(&[String]) -> bool) -> u8 {
     if invocation.prepare_only {
         return 0;
     }
+    super::subject_start::step("target seed");
     if let Err(reason) = seed_target(&flake) {
         eprintln!("north capacity dev-shell: {reason}");
         return SEED_FAILED;
     }
     trace(&format!("enter {identity}"));
+    super::subject_start::step("nix develop");
     let mut words = vec!["develop".to_owned(), profile.to_string_lossy().into_owned(), "--offline".to_owned(), "-c".to_owned(), "env".to_owned(), format!("{MARK}={identity}"), north, "capacity".to_owned(), "exec".to_owned(), "--".to_owned()];
     words.extend(invocation.command);
     replace_with("north capacity dev-shell", std::process::Command::new(&nix).arg0("nix").args(&words), "nix")

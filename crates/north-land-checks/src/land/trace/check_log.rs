@@ -1,5 +1,7 @@
 use std::io::{BufRead, BufReader, Read};
 
+use north_base::foundation::offload::TIMED;
+
 use super::{Category, Span};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,10 +28,14 @@ const WAITED_IN_LINE: &str = "offload: waited ";
 const LINE_KEPT: usize = 4 * 1024;
 const RESERVED: &str = "\"decision\":\"RESERVED\"";
 const RELEASED: &str = "\"decision\":\"RELEASED\"";
+const SANDBOX_STEPS: [(&str, &str); 7] = [("scope", "sandbox start: scope"), ("capacity gate", "sandbox start: capacity gate"), ("derivation", "sandbox start: derivation"), ("nix eval", "sandbox start: nix eval"), ("gc root", "sandbox start: gc root"), ("target seed", "sandbox start: target seed"), ("nix develop", "sandbox start: nix develop")];
+const SLOT_STEPS: [(&str, &str); 5] = [("receive", "slot and tree proof: receive"), ("fill", "slot and tree proof: fill"), ("slot", "slot and tree proof: slot line"), ("place", "slot and tree proof: place"), ("proof", "slot and tree proof: proof")];
+pub const SANDBOX_OTHER: &str = "sandbox start: other";
+pub const SLOT_SHIP: &str = "slot and tree proof: ship";
 
 pub fn is_marker(line: &str) -> bool {
     let line = line.trim();
-    line.starts_with(RUNNING) || line.starts_with(DOC_TESTS) || line.starts_with(FINISHED) || line.starts_with(TEST_RESULT) || line.starts_with(OFFLOAD_RUNNING) || line.starts_with(WAITED_IN_LINE) || is_reserved(line) || is_released(line)
+    line.starts_with(RUNNING) || line.starts_with(DOC_TESTS) || line.starts_with(FINISHED) || line.starts_with(TEST_RESULT) || line.starts_with(OFFLOAD_RUNNING) || line.starts_with(WAITED_IN_LINE) || line.starts_with(TIMED) || is_reserved(line) || is_released(line)
 }
 
 pub fn waited_in_line(line: &str) -> Option<f64> {
@@ -70,6 +76,32 @@ pub fn is_released(line: &str) -> bool {
     line.contains(RELEASED)
 }
 
+/// What a released lease's start spent before its subject ran, step by step under its trace name, and how long the subject then ran, as the lease's RELEASED line names them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LeaseStart {
+    pub steps: Vec<(&'static str, f64)>,
+    pub subject_seconds: Option<f64>,
+}
+
+pub fn lease_start(line: &str) -> Option<LeaseStart> {
+    if !is_released(line) {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    let steps = value.get("start")?.as_array()?.iter().filter_map(|step| Some((named(&SANDBOX_STEPS, step.get(0)?.as_str()?).unwrap_or(SANDBOX_OTHER), step.get(1)?.as_f64()?))).collect();
+    Some(LeaseStart { steps, subject_seconds: value.get("subjectSeconds").and_then(serde_json::Value::as_f64) })
+}
+
+/// The steps an offload run's timed line names under their trace names, each with its seconds; a step this lander does not know stays in the job's ship time.
+pub fn slot_steps(line: &str) -> Option<Vec<(&'static str, f64)>> {
+    let rest = line.trim().strip_prefix(TIMED)?;
+    Some(rest.split_whitespace().filter_map(|word| word.split_once('=')).filter_map(|(name, millis)| Some((named(&SLOT_STEPS, name)?, millis.parse::<f64>().ok()? / 1000.0))).collect())
+}
+
+fn named(table: &[(&'static str, &'static str)], name: &str) -> Option<&'static str> {
+    table.iter().find(|(step, _)| *step == name).map(|(_, traced)| *traced)
+}
+
 pub fn cargo_seconds(text: &str) -> Option<f64> {
     let tail = text.rsplit_once(" in ")?.1.trim();
     let mut seconds = 0.0;
@@ -108,6 +140,7 @@ pub fn children(line: &Line<'_>, marks: &[Mark]) -> Vec<Span> {
     let child = |name: &str, category: Category, start: f64, end: f64| Span::new(line.trace, name, category, clamp(start), clamp(end)).under(line.id).on(line.host);
     let mut spans = Vec::new();
     let mut test: Option<(String, f64)> = None;
+    let mut reserved_at = None;
     for mark in marks {
         let text = mark.line.trim();
         if let Some(waited) = waited_in_line(text) {
@@ -116,8 +149,15 @@ pub fn children(line: &Line<'_>, marks: &[Mark]) -> Vec<Span> {
             }
             spans.push(child("offload slot wait", Category::HostWait, mark.at - waited, mark.at));
         } else if is_reserved(text) {
+            reserved_at = Some(mark.at);
             if let Some(queued) = queued_seconds(text).filter(|queued| *queued > 0.0) {
                 spans.push(child("capacity lease wait", Category::HostWait, mark.at - queued, mark.at));
+            }
+        } else if let Some(start) = lease_start(text) {
+            let mut at = reserved_at.unwrap_or(line.start);
+            for (name, seconds) in start.steps {
+                spans.push(child(name, Category::Offload, at, at + seconds));
+                at += seconds;
             }
         } else if text.starts_with(OFFLOAD_RUNNING) {
             let waited: f64 = spans.iter().filter(|span| span.category == Category::HostWait).map(Span::seconds).sum();

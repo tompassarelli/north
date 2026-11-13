@@ -105,13 +105,17 @@ pub(crate) fn fill_part() -> String {
 pub(super) const REMOTE: &str = r#"set -eu
 @FILL@repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-} spilled=${15:-0} generated=${16:-} urgent=${17:-}
 root=@ROOT@
+stamped_at=$(date +%s%N) timed_steps=
+timed_step() { stamped_now=$(date +%s%N); timed_steps="$timed_steps $1=$(((stamped_now - stamped_at) / 1000000))"; stamped_at=$stamped_now; }
 mkdir -p "$root"
 if [ -n "$runtime" ] && { [ ! -x "$HOME/.local/state/north/runtimes/$runtime/north" ] || [ ! -f "$HOME/.local/state/north/runtimes/$runtime/@TREE_MARKER@" ]; }; then echo "offload: the lander runtime $runtime is not on this host yet" >&2; exit @RUNTIME_MISSING@; fi
 bundle=$(mktemp "$root/$name.bundle.XXXXXX")
 trap 'rm -f "$bundle" "${script:-}"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 trap 'exit 143' HUP INT TERM
 [ "$spilled" -eq 0 ] || eval "$(head -c "$spilled")"
-@TETHER@fill
+@TETHER@timed_step receive
+fill
+timed_step fill
 "#;
 
 /// Seconds past the client's pause before a reattach a running job whose caller closed its standard input waits for that client while the ssh connection it came in on still lives, which a killed caller leaves up since every job rides one shared connection, and so does a live caller whose own ssh client for the job died.
@@ -160,6 +164,7 @@ if [ -n "$nested" ] && case ${caller_slot##*/} in "$name" | "$name"-[1-9]) true 
   flock -s 5
   kill -0 "$holder" 2>/dev/null || { echo "offload: refusing to run: the check that held $s ended before this nested job took its place there" >&2; exit @WRONG_TREE@; }
   echo "offload: running in $s, the slot this job's caller holds on this host" >&2
+  timed_step slot
 else
 "#;
 
@@ -267,6 +272,7 @@ if [ -n "$polled" ]; then
   waited=$(( ($(date +%s%N) - started) / 1000000 ))
   echo "@WAITED@$((waited / 1000)).$((waited % 1000 / 100))s in line for $s" >&2
 fi
+timed_step slot
 exec 4>>"$root/$s.busy"
 flock -s 4
 [ -n "$kind" ] || [ -n "@BACKGROUND@" ] || [ -n "$nested" ] || { echo "$s" >"$admitted.slot"; date +%s >"$admitted"; }
@@ -321,6 +327,7 @@ if [ -d "$slot/target" ] && ! target_fits; then
   fi
 fi
 place
+timed_step place
 "#;
 
 pub(super) const VERIFY: &str = r#"landed=$(git -C "$slot" rev-parse HEAD)
@@ -346,6 +353,9 @@ echo "offload: running $head in $slot"
 proved_tree=$(git -C "$slot" rev-parse "HEAD^{tree}")
 echo "@PROVED_TREE@$proved_tree of $head" >&2
 "#;
+
+/// The job's step times, once its slot holds the proved tree: what receiving the bundle, filling the checkout, taking a slot, placing it and proving its tree each took, on one line the lander books as the parts of the job's slot and tree proof.
+const TIMED_LINE: &str = "timed_step proof\necho \"@TIMED@$timed_steps\" >&2\n";
 
 const BESIDE: &str = r#"beside=$root/$s.beside
 for pin in $pins; do
@@ -617,7 +627,7 @@ pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
         SlotClass::Background => (1, "1"),
     };
     let ports: String = slot_ports(name).iter().map(|(slot, port)| format!("{}) SCCACHE_SERVER_PORT={port} ;; ", quote(slot))).collect();
-    format!("{}{VERIFY}{}{}", slot_part(), beside_part(), run_part())
+    format!("{}{VERIFY}{TIMED_LINE}{}{}", slot_part(), beside_part(), run_part())
         .replace("@JOBS@", &jobs_part())
         .replace("@ADMIT@", ADMIT)
         .replace("@LINE@", LINE)
@@ -637,5 +647,6 @@ pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
         .replace("@WAITED@", WAITED)
         .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
         .replace("@PROVED_TREE@", north_base::foundation::offload::PROVED_TREE)
+        .replace("@TIMED@", north_base::foundation::offload::TIMED)
         .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
 }
