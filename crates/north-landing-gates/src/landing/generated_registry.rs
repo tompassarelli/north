@@ -1,7 +1,3 @@
-use std::path::Path;
-
-use super::merge_set::{self, Kind};
-
 pub const UNTRACKED: &[(&str, &str)] = &[("docs/features.md", "docs/features/")];
 
 pub struct Registry {
@@ -9,19 +5,13 @@ pub struct Registry {
     pub sources: Vec<String>,
 }
 
-pub fn registries(config: &Path) -> Result<Vec<Registry>, String> {
-    let mut registries: Vec<Registry> = UNTRACKED.iter().map(|(path, source)| Registry { path: (*path).to_owned(), sources: vec![(*source).to_owned()] }).collect();
-    for rule in merge_set::read_rules(config)? {
-        if let Kind::Regenerate { sources, .. } = rule.kind {
-            registries.push(Registry { path: rule.path, sources });
-        }
-    }
-    Ok(registries)
+pub fn registries() -> Vec<Registry> {
+    UNTRACKED.iter().map(|(path, source)| Registry { path: (*path).to_owned(), sources: vec![(*source).to_owned()] }).collect()
 }
 
-/// A generated registry is written at land time from its per-unit sources. A lane that commits
-/// the generated file by hand, or regenerates it itself, is refused so the file never enters a
-/// worker's diff and the lander's refresh owns the only copy.
+/// A registry the repository does not track is written by `north docs`, so a lane that commits it
+/// is refused. A tracked generated file (a `regenerate` rule of the merge-set config) is never
+/// refused: the lander rewrites it from its sources, whatever the lane committed.
 pub fn refusal(registries: &[Registry], changed: &[String]) -> Result<(), String> {
     for Registry { path, sources } in registries {
         if !changed.contains(path) {

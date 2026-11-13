@@ -15,8 +15,6 @@ fn git_in(directory: &Path, arguments: &[&str]) {
     assert!(status.success(), "git {arguments:?}");
 }
 
-const CONFIG: &str = "[[set]]\npath = \"docs/features.md\"\nkind = \"regenerate\"\ncommand = \"north docs features-index\"\nsources = [\"docs/features/\"]\ngenerator = [\"crates/north-ops/src/ops/docs.rs\"]\n";
-
 fn commit(directory: &Path, message: &str) -> String {
     git_in(directory, &["add", "-A"]);
     git_in(directory, &["commit", "-qm", message]);
@@ -27,9 +25,7 @@ fn repo() -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     let directory = root.path();
     git_in(directory, &["init", "-q", "-b", "main"]);
-    std::fs::create_dir_all(directory.join("harness")).unwrap();
     std::fs::create_dir_all(directory.join("docs/features/01-landing")).unwrap();
-    std::fs::write(directory.join("harness/merge-sets.toml"), CONFIG).unwrap();
     std::fs::write(directory.join("docs/features/01-landing/0001-enqueue.md"), "- Enqueue is cheap.\n").unwrap();
     std::fs::write(directory.join("docs/features.md"), "- Enqueue is cheap.\n").unwrap();
     root

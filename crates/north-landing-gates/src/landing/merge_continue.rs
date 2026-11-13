@@ -161,7 +161,7 @@ pub fn refresh(worktree: &Path, config: &Path, picked_onto: &str) -> Result<Vec<
     let mut refreshed = Vec::new();
     for rule in &rules {
         let Kind::Regenerate { command, sources, generator } = &rule.kind else { continue };
-        let stale = !changed.contains(&rule.path.as_str()) && changed.iter().any(|path| sources.iter().any(|source| path.starts_with(source.as_str())));
+        let stale = changed.iter().any(|path| *path == rule.path || sources.iter().any(|source| path.starts_with(source.as_str())));
         if !stale {
             continue;
         }
