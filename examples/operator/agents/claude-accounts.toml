@@ -1,0 +1,4 @@
+[[account]]
+email = "operator@example.invalid"
+letter = "a"
+plan = "max"

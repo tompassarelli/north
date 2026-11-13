@@ -1,0 +1,8 @@
+date = "2026-01-01"
+model = "claude-sonnet-5-5"
+variant = "starter"
+policy_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+startup_tokens = 0
+conformance = 0
+n = 0
+evidence = "none yet: a starter value that the first policy replay overwrites"

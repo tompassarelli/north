@@ -1,0 +1,185 @@
+{
+  "$schema": "north:agent-catalog/catalog-config.schema.json",
+  "activation": {},
+  "registrations": [
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.agent-policy",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.game-design-prototyping",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.clean-room",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.github",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.machine-capacity",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.makgora",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.nix-development",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.performance-design",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.private-desktop-development",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.repo-safety",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.todo",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.warcraft-modding",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.workers",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.astro",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.debugging",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.effect-development",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.external-code",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.planning",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.program-craftsmanship",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.rust-development",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.threejs",
+        "repo": "north"
+      }
+    },
+    {
+      "category": "uncategorized",
+      "kind": "skill",
+      "owner": {
+        "module": "skill.verification",
+        "repo": "north"
+      }
+    }
+  ],
+  "role": "operator",
+  "rootOrder": [],
+  "schema": "north.agent-catalog-config/v1"
+}

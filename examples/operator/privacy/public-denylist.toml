@@ -1,0 +1,12 @@
+# Private deny-list for public repos (betterleaks config). Add one [[rules]] entry per private value; values are never printed.
+[extend]
+useDefault = false
+
+[allowlist]
+description = "binary media"
+paths = ['''(?i)\.(jpe?g|png|gif|webp|ico|mp4|webm|woff2?|ttf|otf|pdf)$''']
+
+[[rules]]
+id = "example-private-value"
+description = "an example entry; replace the pattern with a value that must never reach a public repository"
+regex = '''(?:^|[^A-Za-z0-9])(replace-with-a-private-value)(?:[^A-Za-z0-9]|$)'''
