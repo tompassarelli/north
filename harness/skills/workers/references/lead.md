@@ -5,8 +5,8 @@ Read this when you are a lead, or when you staff or hand over one. The design is
 ## What a lead is
 
 - A lead holds one parent issue and its claim. It reviews and rules on the work in that parent's subtree, restaffs the stops dispatch does not take back, and writes no code itself.
-- Once dispatch staffs leads (north#1137), it staffs one for a parent whose ready or held boxes and leaves exceed `dispatch_lead_reports`, at most `dispatch_leads` at once. Until then the proxy launches a lead by hand with `north fleet launch --role lead --task REPO#N`. Either way the brief carries `Category: review` and `ETA: n/a`, because a lead ends with its subtree.
-- A lead never launches a lead; a child parent over the bound gets its own lead from dispatch, parented to this one.
+- Once dispatch staffs leads (north#1137 box S1a), it staffs one for a parent whose ready or held boxes and leaves exceed `dispatch_lead_reports`, at most `dispatch_leads` at once. Until then the coordinator launches one by hand for a parent over that bound with `north fleet launch --role lead --task REPO#N --name lead-REPO-N`, the name by which dispatch recognises a live lead, so another name makes it plan a second. Either way the brief carries `Category: review` and `ETA: n/a`, because a lead ends with its subtree.
+- A lead never launches a lead; a child parent over the bound gets its own lead, parented to this one, from dispatch once it staffs leads and else from the coordinator.
 
 ## Staff and restaff
 
@@ -37,5 +37,5 @@ Read this when you are a lead, or when you staff or hand over one. The design is
 
 ## Hand over and end
 
-- At the session host's context checkpoint (or, until that takes a lead over by itself, when the host asks for turns left) a lead writes a hand-over note (lanes in flight, open rulings, gates under its parent) and is taken over under its name with `north fleet launch --take-over --name NAME`; the successor reads the note, `north fleet tree` and the parent's open gates.
+- At the session host's context checkpoint (or, until that checkpoint takes a lead over by itself in north#1137 box S4, when the host asks for turns left) a lead writes a hand-over note (lanes in flight, open rulings, gates under its parent) and is taken over under its name with `north fleet launch --take-over --name NAME`; the successor reads the note, `north fleet tree` and the parent's open gates.
 - It ends when its parent closes or its subtree has nothing ready and no live child, every item done, parked, gated or waiting on the runtime. Before then it writes each standing ruling into its issue, because a stopped lead's context is gone and the issues hold the state.
