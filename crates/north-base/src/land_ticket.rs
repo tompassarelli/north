@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::error::NorthResult;
 use crate::foundation::clock::Timestamp;
-use crate::lifecycle::{Lifecycle, Refusal, State, Store};
+use crate::lifecycle::{Lifecycle, Lost, Refusal, State, Store};
 
 /// The longest a healthy land check holds a ticket: the land-check ceiling with room for a slow candidate build.
 const CHECK_DWELL: Duration = Duration::from_secs(2 * 3600);
@@ -165,6 +165,13 @@ fn failure(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
 }
 
+fn refused(path: &Path, refusal: Refusal<Phase>) -> io::Error {
+    match refusal {
+        Refusal::Illegal { from, to } => failure(format!("{} was {}, so it cannot become {}", path.display(), from.map_or("new", State::name), to.name())),
+        Refusal::Held { owner, .. } => failure(format!("{}: {owner} is checking it, so it moves once that check ends", path.display())),
+    }
+}
+
 fn name(path: &Path) -> io::Result<&OsStr> {
     path.file_name().ok_or_else(|| failure(format!("{} names no ticket", path.display())))
 }
@@ -196,8 +203,17 @@ impl Records {
     pub fn moved(&mut self, path: &Path, to: Phase, cause: &str) -> io::Result<()> {
         match self.store.transition::<LandTicket>(&instance(&self.queue, name(path)?), to, cause, Timestamp::now()).map_err(failure)? {
             Ok(_) => Ok(()),
-            Err(Refusal::Illegal { from, to }) => Err(failure(format!("{} was {}, so it cannot become {}", path.display(), from.map_or("new", State::name), to.name()))),
-            Err(Refusal::Held { owner, .. }) => Err(failure(format!("{}: {owner} is checking it, so it moves once that check ends", path.display()))),
+            Err(refusal) => Err(refused(path, refusal)),
+        }
+    }
+
+    /// [`Self::moved`] for a ticket whose record must still be `from` (`None` for no record): when another writer moved
+    /// it first nothing moves, and `Err` names the phase that writer left.
+    pub fn moved_from(&mut self, path: &Path, from: Option<Phase>, to: Phase, cause: &str) -> io::Result<Result<(), Option<Phase>>> {
+        match self.store.transition_from::<LandTicket>(&instance(&self.queue, name(path)?), from, to, cause, Timestamp::now()).map_err(failure)? {
+            Ok(_) => Ok(Ok(())),
+            Err(Lost::AlreadyMoved { now }) => Ok(Err(now)),
+            Err(Lost::Refused(refusal)) => Err(refused(path, refusal)),
         }
     }
 

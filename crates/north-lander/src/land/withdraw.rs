@@ -49,14 +49,24 @@ pub(super) fn find(queue: &Path, wanted: &str) -> Result<(PathBuf, Ticket), Stri
 fn withdraw(queue: &Path, options: &Options) -> Result<String, String> {
     let (path, ticket) = find(queue, &options.ticket)?;
     let verdict = format!("withdrawn by {}: {}", options.noticed_by, options.reason.trim());
-    let checking = land_ticket::recorded(queue).and_then(|store| land_ticket::phase(&store, queue, &path)) == Some(Phase::Checking);
-    let moved = if checking {
-        let asked = queue.join(queue::WITHDRAWN).join(path.file_name().unwrap_or_default());
-        queue::write(&asked, &Ticket { verdict: Some(verdict.clone()), ..ticket.clone() }).map(|()| asked)
-    } else {
-        queue::settle(&path, ticket.clone(), verdict.clone(), Phase::Withdrawn)
+    let seen = land_ticket::recorded(queue).and_then(|store| land_ticket::phase(&store, queue, &path));
+    let settled = match seen {
+        Some(Phase::Checking) => None,
+        _ => match queue::withdraw_seen(&path, ticket.clone(), verdict.clone(), seen).map_err(|error| format!("{}: {error}", path.display()))? {
+            Ok(moved) => Some(moved),
+            Err(Some(Phase::Checking)) => None,
+            Err(now) => return Err(format!("{}: its record is {now:?}, so it cannot be withdrawn", path.display())),
+        },
     };
-    let moved = moved.map_err(|error| format!("{}: {error}", path.display()))?;
+    let checking = settled.is_none();
+    let moved = match settled {
+        Some(moved) => moved,
+        None => {
+            let asked = queue.join(queue::WITHDRAWN).join(path.file_name().unwrap_or_default());
+            queue::write(&asked, &Ticket { verdict: Some(verdict.clone()), ..ticket.clone() }).map_err(|error| format!("{}: {error}", path.display()))?;
+            asked
+        }
+    };
     let done = if checking { "the lander withdraws it when its check ends unless the check lands it" } else { "withdrew it" };
     let mut lines = vec![format!("north land: {} ({}): {done}, recorded in {}", ticket.branch, ticket.head, moved.display())];
     if let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) {

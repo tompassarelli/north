@@ -320,6 +320,20 @@ pub fn settle(path: &Path, mut ticket: Ticket, verdict: String, phase: Phase) ->
     place(queue_of(path)?, path, &ticket, phase)
 }
 
+/// [`settle`] to withdrawn for a ticket whose record was `seen` when it was read: a lander that started checking it since
+/// makes no move, and `Err` names the phase that lander left, so the caller asks for the withdrawal instead.
+pub fn withdraw_seen(path: &Path, mut ticket: Ticket, verdict: String, seen: Option<Phase>) -> io::Result<Result<PathBuf, Option<Phase>>> {
+    let queue = queue_of(path)?;
+    if queue.file_name() == Some(std::ffi::OsStr::new(OUTBOX)) {
+        return settle(path, ticket, verdict, Phase::Withdrawn).map(Ok);
+    }
+    if let Err(now) = Records::of(path)?.moved_from(path, seen, Phase::Withdrawn, &verdict)? {
+        return Ok(Err(now));
+    }
+    ticket.verdict = Some(verdict);
+    place(queue, path, &ticket, Phase::Withdrawn).map(Ok)
+}
+
 /// Moves a failed, conflicted or quarantined ticket at `decided` back into `queue` for another check.
 pub fn requeue(queue: &Path, decided: &Path, cause: &str) -> io::Result<PathBuf> {
     let mut ticket = read(decided)?;
