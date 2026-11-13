@@ -33,19 +33,21 @@ fn a_buck2_host_runs_its_own_tests_only_behind_the_test_switch_and_moves_a_lint_
     assert_eq!(generation.host_cases_daemon(), "north-g3-host-cases", "the host-case build's own daemon is the generation's too");
     let lint = generation.lint(&crate::Lint { root: Path::new(""), selection: crate::Selection::Workspace, resolution: crate::Resolution::PINNED, shell: crate::Shell::Inherited });
     assert!(lint.words.windows(2).any(|pair| pair == ["--isolation-dir", "north-g3-lint"]), "the lint line runs in its own directory beside the test line's, so two daemons never share one state dir (north#1115)");
+    let tree_build = generation.beside(super::TREE_DAEMON).tree_binary(Path::new("/tree"), "north").0;
+    assert!(tree_build.words.windows(2).any(|pair| pair == ["--isolation-dir", "north-g3-tree"]), "the tree build runs in its own directory beside the test line's, since a land check's test line runs beside it in the same tree (north#1115)");
     for malformed in ["3", "three\n", "3\n4\n", "\n"] {
         std::fs::write(&file, malformed).unwrap();
         assert!(Buck2::deciding(true, &file).is_err() && Buck2::tool(true, &file).is_err(), "{malformed:?} is refused, not read as no generation");
     }
 
     let tree = tempfile::tempdir().unwrap();
-    let held = ["north-g2", "north-g2-host-cases", "north-g3", "north-g3-host-cases", "north", "host-cases"];
+    let held = ["north-g2", "north-g2-host-cases", "north-g2-lint", "north-g2-tree", "north-g3", "north-g3-host-cases", "north-g3-lint", "north-g3-tree", "north", "host-cases"];
     for dir in held {
         std::fs::create_dir_all(tree.path().join("buck-out").join(dir)).unwrap();
     }
     super::generation::retire(tree.path(), "north-g3");
     let kept = held.map(|dir| tree.path().join("buck-out").join(dir).is_dir());
-    assert_eq!(kept, [false, false, true, true, true, true], "a generation's first line removes every directory of another generation, the one beside its own too, and nothing else");
+    assert_eq!(kept, [false, false, false, false, true, true, true, true, true, true], "a generation's first line removes every directory of another generation, the lint and tree builds' beside it too, and nothing else");
 }
 
 

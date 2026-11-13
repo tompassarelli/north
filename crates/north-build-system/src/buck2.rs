@@ -43,6 +43,11 @@ impl Buck2 {
         std::iter::once("buck2").chain(isolation).chain(verb.iter().copied()).map(str::to_owned).collect()
     }
 
+    /// This side's lines under the isolation directory `name` beside the generation's own (north#1115).
+    fn beside(&self, name: &str) -> Self {
+        Self { tests: self.tests, isolation: self.isolation.as_deref().map(|current| generation::beside(current, name)) }
+    }
+
     /// The isolation directory of the host-case build, the generation's own when there is one.
     pub(crate) fn host_cases_daemon(&self) -> String {
         self.isolation.as_deref().map_or_else(|| HOST_CASES_DAEMON.to_owned(), |current| generation::beside(current, HOST_CASES_DAEMON))
@@ -86,6 +91,8 @@ const REMOTE_ONLY: &str = "--remote-only";
 const HOST_CASES_DAEMON: &str = "host-cases";
 /// The isolation dir of the lint line beside the generation's own: a land check starts it beside the test line, and two daemons on one state dir fail (north#1115).
 const LINT_DAEMON: &str = "lint";
+/// The isolation dir of the tree build beside the generation's own: a land check's test line runs beside it in the same tree, and two daemons on one state dir fail (north#1115).
+const TREE_DAEMON: &str = "tree";
 /// Buck2's exit status for a build the tree's own targets or code failed; an engine or daemon failure exits with another.
 const USER_ERROR: i32 = 3;
 /// The line of a build whose earlier copies stay: it prints why and exits 1, which no side reads as the tree failing to build.
@@ -227,9 +234,10 @@ fn linked_by_the_shell(root: &Path) -> bool {
 
 /// The side that builds the tree's own binary on a host whose `buck2_tree_build` is set: Buck2 when the tree at `root`
 /// has Buck2 targets and its Buck2 configuration and target definitions are `base`'s, since a lane that rewrites one
-/// would build the north its check runs with its own rules or its own endpoint. `None` leaves the build to Cargo.
+/// would build the north its check runs with its own rules or its own endpoint, in the tree build's own isolation
+/// directory (north#1115). `None` leaves the build to Cargo.
 pub(crate) fn tree_builder(side: Buck2, root: &Path, base: &str) -> Option<Buck2> {
-    (side.governs(root) && unchanged_since(root, base) && targets_unchanged_since(root, base)).then_some(side)
+    (side.governs(root) && unchanged_since(root, base) && targets_unchanged_since(root, base)).then(|| side.beside(TREE_DAEMON))
 }
 
 /// What defines a test target besides the code under test. A lane that changes one could declare a test that passes
