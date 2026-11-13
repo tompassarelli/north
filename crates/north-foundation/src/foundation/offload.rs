@@ -8,6 +8,7 @@ pub const SLOT_RECORDS: &str = ".local/state/north/offload-slots";
 pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
+pub const URGENT_ENV: &str = "NORTH_OFFLOAD_URGENT";
 pub const SLOT_ENV: &str = "NORTH_OFFLOAD_SLOT";
 /// The script file an offload run hands its leased shell, which admission charges and records as the check it runs rather than as its wrapper.
 pub const SUBJECT_ENV: &str = "NORTH_OFFLOAD_SUBJECT";

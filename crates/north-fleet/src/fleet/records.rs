@@ -131,3 +131,12 @@ pub fn launched_urgent_in(root: &Path, unit: &str) -> bool {
     let urgent = |entry: &fs::DirEntry| fs::read_to_string(record_file(&entry.path())).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).is_some_and(|record| record["urgent"] == Value::Bool(true));
     fs::read_dir(root).into_iter().flatten().flatten().any(|entry| named(&entry) && urgent(&entry))
 }
+
+pub fn held_urgent(root: &Path, home: &Path, unit: &str) -> Option<bool> {
+    let conversation = fs::read_to_string(home.join(crate::platform::session_host_files::HELD).join(unit).join(crate::platform::session_host_files::BOUND_CONVERSATION)).ok()?.trim().to_owned();
+    if conversation.is_empty() || !conversation.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
+        return None;
+    }
+    let record = fs::read_to_string(record_file(&root.join(crate::platform::session_host_files::PLACED).join(conversation))).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    Some(record.is_some_and(|record| record["urgent"] == Value::Bool(true)))
+}

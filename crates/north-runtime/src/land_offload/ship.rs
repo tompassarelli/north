@@ -215,6 +215,7 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
         _ => north_base::platform::session_scope::reserve_caller().unwrap_or_default(),
     };
     let lander_slot = std::env::var(LANDER_SLOT_ENV).unwrap_or_default();
+    let urgent = if crate::capacity::host::urgency::caller_urgent() { "1" } else { "" };
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let beside = beside::pin(land.command, relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
@@ -223,7 +224,7 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
     let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret, land.confined);
     let spilled = header.len().to_string();
     let generated = generated::paths(land);
-    let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled, &generated];
+    let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled, &generated, urgent];
     let mut waiting = crate::capacity::deadline::SlotWait::begin(&crate::capacity::local_machine::runtime_root());
     let master = master::options(land.ssh);
     let options: Vec<&str> = ["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"].into_iter().chain(master.iter().map(String::as_str)).collect();
@@ -323,5 +324,5 @@ pub(super) fn reap(ssh: &str, owner: &str) -> u8 {
 #[cfg(test)]
 mod base_tests;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 

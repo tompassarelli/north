@@ -1,4 +1,4 @@
-//! The queue side of the pull hand-over: a queued agent heavy run publishes a door (a socket beside its ticket), and `north capacity host hand-over`, which a peer runs over its own ssh connection, claims the first door (an urgent run's, else the oldest) by renaming it and relays that connection to the run. This host reaches no peer; the peer reaches it.
+//! The queue side of the pull hand-over: a queued agent heavy run publishes a door (a socket beside its ticket), and `north capacity host hand-over`, which a peer runs over its own ssh connection, claims the oldest door by renaming it and relays that connection to the run. This host reaches no peer; the peer reaches it.
 
 use std::cell::Cell;
 use std::fs::File;
@@ -113,13 +113,13 @@ impl Drop for Listening {
     }
 }
 
-/// The queued runs a peer may take: agent heavy runs that opened a door, urgent ones first, then oldest first.
+/// The queued runs a peer may take: agent heavy runs that opened a door, oldest first.
 pub(super) fn pullable(queue: &[Value]) -> Vec<&str> {
     let mut tickets: Vec<&Value> = queue
         .iter()
         .filter(|ticket| ticket.get("pullable").and_then(Value::as_bool) == Some(true) && text(ticket, "requestedClass") == Some("heavy"))
         .collect();
-    tickets.sort_by_key(|ticket| (ticket.get("urgent").and_then(Value::as_bool) != Some(true), text(ticket, "name")));
+    tickets.sort_by_key(|ticket| text(ticket, "name"));
     tickets.into_iter().filter_map(|ticket| text(ticket, "name")).collect()
 }
 
@@ -174,7 +174,7 @@ fn relay(stream: UnixStream) -> u8 {
     status
 }
 
-/// `hand-over [--wait-seconds N]`: releases the first queued agent heavy run (urgent, else oldest) to the caller and relays its connection on stdin and stdout; exits 3 when no run is queued within the wait.
+/// `hand-over [--wait-seconds N]`: releases the oldest queued agent heavy run to the caller and relays its connection on stdin and stdout; exits 3 when no run is queued within the wait.
 pub(super) fn run(root: &Path, argv: &[String]) -> u8 {
     let options = Options::parse(argv, 1, &["--wait-seconds"], &[]);
     if options.separator != argv.len() {

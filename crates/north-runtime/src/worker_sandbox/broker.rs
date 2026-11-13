@@ -23,7 +23,7 @@ use super::offload_request;
 pub(super) use super::offload_request::offload_refusal;
 use super::session_join;
 use super::request_checkout;
-use super::request_env::{environment, landing, landing_choices, own_homes, own_path, request_homes};
+use super::request_env::{environment, landing, landing_choices, own_homes, own_path, request_homes, urgency};
 use super::{Context, FLAG, MAKER, removable};
 
 const DIRECTORY: &str = "north-outside";
@@ -349,13 +349,14 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         return run_granted(north, &request, [stdout, stderr], stream, cgroup, host);
     }
     if let Some(offload) = offload {
+        let offload = offload_request::Offload { environment: urgency(offload.environment, cgroup, host), ..offload };
         let started = offload.start(|arguments| brokered(north, arguments, cgroup), [stdin, stdout, stderr]);
         return wait(started.map_err(|error| format!("{}: {error}", north.display()))?, stream);
     }
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
     let homes = request_homes(&request.arguments, cgroup, &request.environment, own_homes());
     let chosen = landing_choices(&request.arguments, &host.home, &host.environment, north);
-    let mut variables = landing(environment(request.environment, cgroup, &runtime(), &homes), chosen);
+    let mut variables = urgency(landing(environment(request.environment, cgroup, &runtime(), &homes), chosen), cgroup, host);
     if let Some(path) = own_path(&request.arguments, &host.environment) {
         variables.retain(|(name, _)| name != "PATH");
         variables.push(path);
@@ -389,7 +390,7 @@ fn run_finish_check(north: &Path, asked: Result<finish_request::Check, String>, 
     };
     let [_, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     eprintln!("north worker-sandbox broker: running the finish check of {}", granted.session);
-    let code = relayed(north, &granted.arguments, &granted.directory, granted.environment.clone(), [stdout, stderr], stream)?;
+    let code = relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment.clone(), cgroup, host), [stdout, stderr], stream)?;
     match granted.record(code, &host.environment, &host.home) {
         Ok(()) => eprintln!("north worker-sandbox broker: recorded the finish verdict of {} (exit {code})", granted.session),
         Err(why) => eprintln!("north worker-sandbox broker: {why}"),
@@ -432,7 +433,7 @@ fn run_granted(north: &Path, request: &Request, [stdout, stderr]: [OwnedFd; 2], 
         }
     };
     eprintln!("north worker-sandbox broker: granted {} to {} ({})", arguments.iter().take(3).cloned().collect::<Vec<_>>().join(" "), session.name, session.task);
-    relayed(north, &arguments, &session.lane, variables, [stdout, stderr], stream)
+    relayed(north, &arguments, &session.lane, urgency(variables, cgroup, host), [stdout, stderr], stream)
 }
 
 /// Runs the Done-when check `asked` names for a caller outside every lane-only scope whose `/proc/PID/cgroup` reads `cgroup` (check_request.rs), relaying the checker's output to the client; a refusal is told to the client and logged.
@@ -443,7 +444,7 @@ fn run_check(north: &Path, asked: Result<check_request::Check, String>, streams:
     };
     let [_, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     eprintln!("north worker-sandbox broker: checking {} for {}", granted.arguments.last().map(String::as_str).unwrap_or_default(), granted.session);
-    relayed(north, &granted.arguments, &granted.directory, granted.environment, [stdout, stderr], stream)
+    relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment, Some(cgroup), host), [stdout, stderr], stream)
 }
 
 /// Starts `north ARGUMENTS` in `directory` with `variables` and no input, relaying its output to the client's `stdout` and `stderr` with every token withheld; its exit code.

@@ -88,7 +88,7 @@ pub(crate) fn fill_part() -> String {
 }
 
 pub(super) const REMOTE: &str = r#"set -eu
-@FILL@repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-} spilled=${15:-0} generated=${16:-}
+@FILL@repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-} spilled=${15:-0} generated=${16:-} urgent=${17:-}
 root=@ROOT@
 mkdir -p "$root"
 if [ -n "$runtime" ] && { [ ! -x "$HOME/.local/state/north/runtimes/$runtime/north" ] || [ ! -f "$HOME/.local/state/north/runtimes/$runtime/@TREE_MARKER@" ]; }; then echo "offload: the lander runtime $runtime is not on this host yet" >&2; exit @RUNTIME_MISSING@; fi
@@ -131,6 +131,7 @@ queue=$root/queue
 mkdir -p "$queue"
 rank=3
 case " $carried " in *" SAFE_PUSH_LANDING='1' "*) rank=2 ;; esac
+[ -z "$urgent" ] || rank=1
 [ "$lander_slot" != 1 ] || rank=1
 [ -z "$red_fix" ] || rank=0
 [ -z "@BACKGROUND@" ] || rank=4

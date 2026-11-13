@@ -342,17 +342,18 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
     assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "every job left the queue");
 }
 
-struct Queued {
-    label: &'static str,
-    name: &'static str,
-    carried: &'static str,
-    red_fix: &'static str,
-    hold: bool,
-    class: super::SlotClass,
+pub(crate) struct Queued {
+    pub(crate) label: &'static str,
+    pub(crate) name: &'static str,
+    pub(crate) carried: &'static str,
+    pub(crate) red_fix: &'static str,
+    pub(crate) urgent: &'static str,
+    pub(crate) hold: bool,
+    pub(crate) class: super::SlotClass,
 }
 
 /// Starts each job against one host slot once the one before it is in line, or for one with `hold` once it has started in its slot, so they queue in the order given; a job with `hold` stays in the slot until every job queued behind it is in line (a background hold until all others have ended), and the order they started and ended in is returned.
-fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
+pub(crate) fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
@@ -367,7 +368,7 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
             let gate = if job.hold { format!("while [ ! -e {}/release-{} ]; do sleep 0.02; done", home.path().display(), job.label) } else { ":".to_owned() };
             let command = format!("echo start-{label} >>{log}; {gate}; echo end-{label} >>{log}", label = job.label, log = log.display());
             let child = Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", &name, &command, "refs/land-offload/job", job.carried, "", "", job.red_fix])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", &name, &command, "refs/land-offload/job", job.carried, "", "", job.red_fix, "", "", "", "", "", job.urgent])
                 .env("HOME", home.path())
                 .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
                 .env("PATH", &path)
@@ -403,11 +404,11 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
 fn a_red_fix_then_any_land_check_takes_the_first_freed_slot_ahead_of_earlier_worker_builds_while_a_background_sweep_holds_none_of_their_slots() {
     let landing = "SAFE_PUSH_LANDING='1'";
     let order = order_through_one_slot(&[
-        Queued { label: "sweep", name: "code-p-main", carried: "", red_fix: "", hold: true, class: super::SlotClass::Background },
-        Queued { label: "holder", name: "code-p-main", carried: "", red_fix: "", hold: true, class: super::SlotClass::LandCheck },
-        Queued { label: "worker", name: "code-p-main", carried: "", red_fix: "", hold: false, class: super::SlotClass::LandCheck },
-        Queued { label: "land", name: "code-p-main", carried: landing, red_fix: "", hold: false, class: super::SlotClass::LandCheck },
-        Queued { label: "red-fix", name: "code-p-main", carried: landing, red_fix: "1", hold: false, class: super::SlotClass::LandCheck },
+        Queued { label: "sweep", name: "code-p-main", carried: "", red_fix: "", urgent: "", hold: true, class: super::SlotClass::Background },
+        Queued { label: "holder", name: "code-p-main", carried: "", red_fix: "", urgent: "", hold: true, class: super::SlotClass::LandCheck },
+        Queued { label: "worker", name: "code-p-main", carried: "", red_fix: "", urgent: "", hold: false, class: super::SlotClass::LandCheck },
+        Queued { label: "land", name: "code-p-main", carried: landing, red_fix: "", urgent: "", hold: false, class: super::SlotClass::LandCheck },
+        Queued { label: "red-fix", name: "code-p-main", carried: landing, red_fix: "1", urgent: "", hold: false, class: super::SlotClass::LandCheck },
     ]);
     let foreground: Vec<&str> = order.iter().map(String::as_str).filter(|event| *event != "start-sweep").collect();
     assert_eq!(foreground, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-land", "end-land", "start-worker", "end-worker", "end-sweep"], "each queued after the worker build and still took the slot first, the red fix ahead of the land check, and the sweep outlasted them all");
@@ -417,7 +418,7 @@ fn a_red_fix_then_any_land_check_takes_the_first_freed_slot_ahead_of_earlier_wor
 
 #[test]
 fn repositories_with_jobs_queued_for_one_slot_take_it_in_turn_instead_of_one_draining_first() {
-    let job = |label, name, hold| Queued { label, name, carried: "", red_fix: "", hold, class: super::SlotClass::LandCheck };
+    let job = |label, name, hold| Queued { label, name, carried: "", red_fix: "", urgent: "", hold, class: super::SlotClass::LandCheck };
     let order = order_through_one_slot(&[job("p-holder", "code-p-main", true), job("p-2", "code-p-main", false), job("p-3", "code-p-main", false), job("q-1", "code-q-main", false), job("q-2", "code-q-main", false)]);
     assert_eq!(order, ["start-p-holder", "end-p-holder", "start-q-1", "end-q-1", "start-p-2", "end-p-2", "start-q-2", "end-q-2", "start-p-3", "end-p-3"], "q queued behind both of p's jobs and still ran before p's second");
 }

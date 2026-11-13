@@ -25,10 +25,6 @@ fn queue(root: &std::path::Path, class: &str, pullable: bool) -> String {
     enqueue_later(root, Obj::new().put("class", class).put("requestedClass", class).put("requestedCpus", 6).put_some("pullable", pullable.then_some(true)))
 }
 
-fn urgent_queue(root: &std::path::Path) -> String {
-    enqueue_later(root, Obj::new().put("class", "heavy").put("requestedClass", "heavy").put("requestedCpus", 6).put("pullable", true).put("urgent", true))
-}
-
 fn door(root: &std::path::Path, ticket: &str) -> UnixListener {
     let path = socket_path(root, ticket);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -45,7 +41,7 @@ fn queued(root: &std::path::Path) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn capacity_the_hand_over_verb_releases_the_oldest_queued_agent_heavy_run_and_an_urgent_job_queued_after_a_normal_one_is_taken_first() {
+async fn capacity_the_hand_over_verb_releases_the_oldest_queued_agent_heavy_run() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     assert!(release(root).is_none(), "nothing is queued");
@@ -63,9 +59,6 @@ async fn capacity_the_hand_over_verb_releases_the_oldest_queued_agent_heavy_run_
     assert!(!connected(&newer_door) && !connected(&moderate_door) && !connected(&local_door), "only the oldest run is released");
     drop((stream, accepted, oldest_door));
     assert!(!socket_path(root, &oldest).exists(), "a run that leaves the queue closes its door");
-    let urgent = urgent_queue(root);
-    let _urgent_door = door(root, &urgent);
-    assert_eq!(release(root).map(|(name, _)| name), Some(urgent), "an urgent job queued after normal ones is taken first");
     assert_eq!(release(root).map(|(name, _)| name), Some(newer.clone()), "the next run in line is released next");
 }
 

@@ -10,8 +10,8 @@ use super::{HOSTS_HIDDEN, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDDEN};
 
 const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
 const HOMES: [(&str, &str); 4] = [("XDG_STATE_HOME", ".local/state"), ("XDG_CACHE_HOME", ".cache"), ("XDG_DATA_HOME", ".local/share"), ("XDG_CONFIG_HOME", ".config")];
-const INJECTED_NAMES: [&str; 28] = [
-    "GCONV_PATH", "LOCPATH", "NLSPATH", "HOSTALIASES", "RESOLV_HOST_CONF", "GLIBC_TUNABLES", "BASH_ENV", "ENV", "NODE_OPTIONS", "SSH_ASKPASS", "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_PAGER", "GIT_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR", offload::SSH_ENV, offload::GIT_ENV, offload::SUBJECT_ENV, offload::OWNER_ENV, offload::RED_FIX_ENV, offload::LANDER_SLOT_ENV,
+const INJECTED_NAMES: [&str; 29] = [
+    "GCONV_PATH", "LOCPATH", "NLSPATH", "HOSTALIASES", "RESOLV_HOST_CONF", "GLIBC_TUNABLES", "BASH_ENV", "ENV", "NODE_OPTIONS", "SSH_ASKPASS", "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_PAGER", "GIT_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR", offload::SSH_ENV, offload::GIT_ENV, offload::SUBJECT_ENV, offload::OWNER_ENV, offload::RED_FIX_ENV, offload::LANDER_SLOT_ENV, "NORTH_FLEET_DIR",
 ];
 const INJECTED_PREFIXES: [&str; 6] = ["LD_", "MALLOC_", "PYTHON", "PERL5", "RUBY", "GIT_CONFIG"];
 const TRUSTED_FILES: [&str; 5] = [verdict_cache::DIR_ENV, "AGENTS_ORCHESTRATION", "AGENTS_OPERATOR_DIR", "SAFE_PUSH_SOUTH", "SAFE_PUSH_DENYLIST"];
@@ -87,3 +87,13 @@ pub(super) fn landing(variables: Vec<(String, String)>, chosen: Option<Vec<(Stri
         None => variables,
     }
 }
+
+pub(super) fn urgency(variables: Vec<(String, String)>, cgroup: Option<&str>, host: &lane_grant::Host) -> Vec<(String, String)> {
+    let places = crate::capacity::host::urgency::Places::beside(host.fleet.clone(), host.home.clone(), host.cgroups.clone());
+    let urgent = cgroup.is_some_and(|cgroup| places.cgroup(cgroup));
+    variables.into_iter().filter(|(name, _)| name != offload::URGENT_ENV).chain(urgent.then(|| (offload::URGENT_ENV.to_owned(), "1".to_owned()))).collect()
+}
+
+#[cfg(test)]
+#[path = "urgency_tests.rs"]
+mod urgency_tests;
