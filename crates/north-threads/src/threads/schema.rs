@@ -7,8 +7,21 @@ use crate::threads::hold;
 use crate::threads::verb::{Failure, immediate};
 
 const SCHEMA: &str = include_str!("ledger.sql");
+const STAMP: i32 = stamp(SCHEMA.as_bytes());
 const RETRIES: u32 = 6000;
 const RETRY_PAUSE: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// The ledger's user_version for this schema text: a ledger that carries it already holds every table, so a
+/// verb reads past it without the write lock an ingest can keep for its whole hold.
+const fn stamp(text: &[u8]) -> i32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    let mut at = 0;
+    while at < text.len() {
+        hash = (hash ^ text[at] as u32).wrapping_mul(0x0100_0193);
+        at += 1;
+    }
+    (hash >> 1) as i32
+}
 
 /// Creates the ledger at `path` with every NorthThreads table it lacks, in WAL mode. Switching a new file to WAL
 /// answers busy at once, without the busy handler, when another process is creating it too, so a busy answer is
@@ -34,11 +47,16 @@ fn attempt(path: &Path) -> Result<(), Failure> {
     let mut db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(failed)?;
     crate::threads::hold::wait_when_busy(&mut db).map_err(failed)?;
     let mode: String = db.query_row("PRAGMA journal_mode", [], |row| row.get(0)).map_err(failed)?;
+    let stamped: i32 = db.query_row("PRAGMA user_version", [], |row| row.get(0)).map_err(failed)?;
+    if mode == "wal" && stamped == STAMP {
+        return Ok(());
+    }
     if mode != "wal" {
         db.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(())).map_err(failed)?;
     }
     let tx = immediate(&mut db)?;
     tx.execute_batch(SCHEMA)?;
+    tx.pragma_update(None, "user_version", STAMP)?;
     tx.commit()?;
     Ok(())
 }
@@ -48,7 +66,7 @@ mod tests {
     use super::ensure;
 
     #[test]
-    fn processes_creating_the_same_new_ledger_at_once_all_succeed() {
+    fn processes_creating_the_same_new_ledger_at_once_all_succeed_and_a_held_write_lock_stalls_none_after() {
         let scratch = tempfile::tempdir().unwrap();
         let path = scratch.path().join("state/threads.db");
         let outcomes: Vec<bool> = std::thread::scope(|scope| {
@@ -56,6 +74,10 @@ mod tests {
             creators.into_iter().map(|creator| creator.join().unwrap()).collect()
         });
         assert_eq!(outcomes, [true; 8]);
+        let writer = rusqlite::Connection::open(&path).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let _hold = crate::threads::hold::Hold::start(std::time::Duration::ZERO);
+        assert!(ensure(&path).is_ok(), "a ledger that holds the schema answers a verb while an ingest keeps the write lock");
     }
 
 }
