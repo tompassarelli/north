@@ -47,6 +47,7 @@ pub mod private_text;
 pub mod rolling_issue;
 pub mod process;
 pub mod push_ledger;
+pub mod verification_budget;
 pub mod shared_target;
 pub mod sqlite;
 pub mod usage_table;

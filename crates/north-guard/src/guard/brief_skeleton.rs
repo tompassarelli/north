@@ -1,4 +1,9 @@
+use std::process::Command;
 use std::time::{Duration, Instant};
+
+use north_base::platform::push_ledger;
+use north_base::platform::records_mirror::state_home;
+use north_base::platform::verification_budget;
 
 use crate::router::brief::CATEGORIES;
 
@@ -7,7 +12,7 @@ const GRAPH_BUDGET: Duration = Duration::from_millis(1500);
 const INFRA: [&str; 1] = ["tooling"];
 const BUG: [&str; 2] = ["bug-known-cause", "debugging-unknown-cause"];
 
-pub fn skeleton(category: &str, neighborhood: &[String]) -> Option<String> {
+pub fn skeleton(category: &str, neighborhood: &[String], over_budget: bool) -> Option<String> {
     CATEGORIES.contains(&category).then(|| {
         let mut lines = vec![
             "Item: <repo#number and title>".to_owned(),
@@ -40,10 +45,22 @@ pub fn skeleton(category: &str, neighborhood: &[String]) -> Option<String> {
             lines.push("Fact graph at spawn (a worker's Done claim is a claim until the checker observed its commit):".into());
             lines.extend(neighborhood.iter().cloned());
         }
+        if over_budget {
+            lines.push(String::new());
+            lines.push("Test bar: verification is over its time budget, so this lane lands no net-new test; a test it adds is paid for by deleting one.".into());
+        }
         lines.push(String::new());
         lines.push("Build rule: run `cargo clippy --all-targets -p <touched crates> -- -D warnings` plus the named tests in Done when, then queue the lane; the lander lands it in seconds, runs the full suite once per landed batch afterwards, and reverts the lane and tells you if it fails, unless Done when names a full run.".into());
         lines.join("\n") + "\n"
     })
+}
+
+fn repository(item: Option<&str>) -> String {
+    if let Some((repository, _)) = item.and_then(|item| item.split_once('#')) {
+        return repository.to_owned();
+    }
+    let origin = Command::new("git").args(["remote", "get-url", "origin"]).output().map(|output| String::from_utf8_lossy(&output.stdout).into_owned()).unwrap_or_default();
+    push_ledger::repository(origin.trim())
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -56,7 +73,8 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     };
     let neighborhood = item.map(|item| north_graph_ground::ground(item, Some(Instant::now() + GRAPH_BUDGET))).unwrap_or_default();
-    match skeleton(category, &neighborhood) {
+    let over_budget = verification_budget::is_over(&state_home(), &repository(item.map(String::as_str)));
+    match skeleton(category, &neighborhood, over_budget) {
         Some(text) => {
             print!("{text}");
             0

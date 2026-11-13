@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 
-use crate::platform::push_ledger;
+use crate::platform::{push_ledger, verification_budget};
 use super::test_integrity::{in_vendored, vendored_trees};
 use super::incident_guard;
 use super::test_file::is_test_file;
@@ -288,8 +288,8 @@ fn over_budget(directory: &Path, state_home: &Path, base: &str, head: &str, foun
     let added = found.added.saturating_sub(contracted);
     let origin = git::text(directory, &["remote", "get-url", "origin"]).unwrap_or_default();
     let repository = push_ledger::repository(origin.trim());
-    let measured = limits::measured_seconds(state_home, &repository)?;
-    let budget = limits::budget_seconds();
+    let measured = verification_budget::measured_seconds(state_home, &repository)?;
+    let budget = verification_budget::budget_seconds();
     if measured <= budget || found.deleted >= added {
         return None;
     }

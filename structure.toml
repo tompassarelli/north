@@ -540,7 +540,7 @@ may_use = ["strategy_types", "foundation", "platform.process", "platform.host"]
 
 [[module]]
 name = "platform.harness"
-paths = ["crates/north-base/src/platform/harness*.rs", "crates/north-base/src/platform/signin.rs", "crates/north-base/src/platform/orchestration.rs", "crates/north-base/src/platform/frozen_topics.rs", "crates/north-base/src/platform/disk_budget.rs", "crates/north-base/src/platform/repo_names.rs"]
+paths = ["crates/north-base/src/platform/harness*.rs", "crates/north-base/src/platform/signin.rs", "crates/north-base/src/platform/orchestration.rs", "crates/north-base/src/platform/frozen_topics.rs", "crates/north-base/src/platform/disk_budget.rs", "crates/north-base/src/platform/verification_budget.rs", "crates/north-base/src/platform/repo_names.rs"]
 responsibility = "The harness tables other repos read (defaults, orchestration, disk budget, frozen topics, repo names) and the rules read from them."
 may_use = ["strategy_types", "foundation", "platform.host", "crate-roots"]
 

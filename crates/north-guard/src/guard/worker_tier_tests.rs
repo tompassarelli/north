@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use super::brief_skeleton::skeleton;
 use super::worker_tier::{brief_refusal, routing_refusal};
 use crate::router::tier::Tier;
 
@@ -25,6 +26,10 @@ fn a_brief_that_names_its_issue_or_gives_its_model_reason_and_cites_a_rule_by_nu
     assert_eq!(brief_refusal("worker", false, false, &later_line), None, "only the header's facet line is judged");
     let bad = item.replace("Verify: local-test", "Verify: reading");
     assert!(brief_refusal("worker", false, false, &bad).is_some_and(|why| why.contains("not a facet value")));
+
+    let over = skeleton("tooling", &[], true).expect("tooling is a category");
+    assert_eq!(over.lines().filter(|line| line.contains("no net-new test")).count(), 1, "{over}");
+    assert!(!skeleton("tooling", &[], false).expect("tooling is a category").contains("net-new test"));
 }
 
 #[test]

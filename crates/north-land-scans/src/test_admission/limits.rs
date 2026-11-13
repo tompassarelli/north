@@ -5,9 +5,6 @@ use toml_edit::DocumentMut;
 
 use super::super::git;
 
-const LEDGER: &str = "safe-push/post-land.tsv";
-const WINDOW: usize = 10;
-const TIMED: usize = 3;
 
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
@@ -44,24 +41,6 @@ pub(super) fn unlisted(claims: &[Claim], listed: &[String], patch: &[u8]) -> Vec
 
 fn listed_text(listed: &[String]) -> String {
     if listed.is_empty() { "none: .safe-push has no test-admission.contract".to_owned() } else { listed.join(", ") }
-}
-
-pub(super) fn budget_seconds() -> u64 {
-    DEFAULTS["verification_budget_seconds"]["value"].as_integer().and_then(|seconds| u64::try_from(seconds).ok()).expect("harness/defaults.toml has verification_budget_seconds")
-}
-
-pub(super) fn measured_seconds(state_home: &Path, repository: &str) -> Option<u64> {
-    let text = std::fs::read_to_string(state_home.join(LEDGER)).ok()?;
-    let mut walls: Vec<u64> = text
-        .lines()
-        .filter_map(|line| {
-            let fields: Vec<&str> = line.split('\t').collect();
-            (fields.get(1) == Some(&repository) && fields.get(3) == Some(&"green") && fields.get(7).is_none_or(|covered_by| covered_by.is_empty())).then(|| fields.get(8)?.trim().parse().ok())?
-        })
-        .collect();
-    walls.drain(..walls.len().saturating_sub(WINDOW));
-    walls.sort_unstable();
-    (walls.len() >= TIMED).then(|| walls[walls.len() / 2])
 }
 
 pub(super) fn kill_seconds() -> u64 {
