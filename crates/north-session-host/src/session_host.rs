@@ -12,8 +12,6 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
 
-use north_base::platform::session_host_files::CLIENT_GRACE;
-
 use crate::error::{NorthError, NorthResult};
 
 mod frame_watch;
@@ -32,6 +30,7 @@ pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const PARTIAL_LINE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const STDIN_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const REST_TICK: Duration = Duration::from_secs(5);
+const TERM_GRACE: Duration = Duration::from_secs(10);
 pub const STDIN_BLOCKED: &str = r#"{"error":"stdin-blocked"}"#;
 pub const STDIN_CLOSED: &str = r#"{"error":"stdin-closed"}"#;
 pub const INVALID_FRAME: &str = r#"{"error":"invalid-frame"}"#;
@@ -351,7 +350,7 @@ impl SessionHost {
         tokio::spawn(async move {
             term.recv().await;
             signal(pid, rustix::process::Signal::Term);
-            tokio::time::sleep(CLIENT_GRACE).await;
+            tokio::time::sleep(TERM_GRACE).await;
             signal(pid, rustix::process::Signal::Kill);
         });
     }
@@ -421,7 +420,7 @@ async fn rest_when_idle(stdin: StdinQueue, watcher: Watcher, park_after: Option<
         }
     }
     signal(child, rustix::process::Signal::Term);
-    tokio::time::sleep(CLIENT_GRACE).await;
+    tokio::time::sleep(TERM_GRACE).await;
     signal(child, rustix::process::Signal::Kill);
 }
 

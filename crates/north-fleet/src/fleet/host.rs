@@ -69,9 +69,7 @@ impl Host {
         let mut command = Command::new(binary("setsid"));
         command
             .arg(binary("systemd-run"))
-            .args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "--property=KillMode=control-group", "--property=IOAccounting=yes"])
-            .arg(format!("--property=TimeoutStopSec={}s", session_host_files::HOST_STOP.as_secs()))
-            .arg("--unit")
+            .args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "--property=KillMode=control-group", "--property=IOAccounting=yes", "--property=TimeoutStopSec=5s", "--unit"])
             .arg(&unit)
             .arg("--")
             .arg(std::env::current_exe()?)
@@ -224,10 +222,10 @@ impl Host {
 
 fn await_exit(pid: Option<u32>) -> NorthResult<()> {
     let Some(pid) = pid else { return Ok(()) };
-    let deadline = Instant::now() + session_host_files::HOST_STOP;
+    let deadline = Instant::now() + TERM_GRACE;
     while alive(pid) {
         if Instant::now() > deadline {
-            return Err(NorthError::Refused(format!("session host {pid} was still running {} s after it was stopped", session_host_files::HOST_STOP.as_secs())));
+            return Err(NorthError::Refused(format!("session host {pid} was still running {} s after it was stopped", TERM_GRACE.as_secs())));
         }
         std::thread::sleep(POLL);
     }
