@@ -17,8 +17,6 @@ const GRACE: Duration = Duration::from_secs(20);
 const CARGO_FAILED: i32 = 101;
 const UNCOMPILED: &str = "error: could not compile";
 const NAMED_ERRORS: usize = 3;
-const MANIFEST: [&str; 5] = ["metadata", "--locked", "--offline", "--format-version", "1"];
-const OFFLINE_MISSES: [&str; 2] = ["but --offline was specified", "offline mode (via `--offline`)"];
 
 pub fn enabled() -> bool {
     document(DEFAULTS)[SWITCH]["value"].as_str() != Some("off")
@@ -81,12 +79,6 @@ fn unjudged(logs: &Path, name: &str, why: &str, log: &str) -> Result<Option<Refu
 }
 
 pub fn judge(rebased: &Rebased, program: &Path, logs: &Path, name: &str) -> Result<Option<Refused>, String> {
-    if rebased.checked_on.is_some_and(|checked_on| checked_on != rebased.picked_onto)
-        && rebased.tree.join("Cargo.toml").is_file()
-        && let Some(refused) = manifest(rebased, logs, name)?
-    {
-        return Ok(Some(refused));
-    }
     let scope = match scope(rebased) {
         Ok(Some(scope)) => scope,
         Ok(None) => return Ok(None),
@@ -128,26 +120,4 @@ pub fn joined(gates: Option<Refused>, compile: Option<Refused>) -> Option<Refuse
         (Some(gates), Some(compile)) => Some(Refused { gates: format!("{}, {}", gates.gates, compile.gates), verdict: format!("{}; {}", gates.verdict, compile.verdict), log: gates.log }),
         (gates, compile) => gates.or(compile),
     }
-}
-
-fn manifest(rebased: &Rebased, logs: &Path, name: &str) -> Result<Option<Refused>, String> {
-    let line = format!("cargo {}", MANIFEST.join(" "));
-    let mut command = Command::new("cargo");
-    command.args(MANIFEST).current_dir(rebased.tree).stdin(Stdio::null());
-    let (code, log) = match process::try_run_group_traced_within(command, GRACE) {
-        Ok(Ok(output)) => (output.status.code(), String::from_utf8_lossy(&output.stderr).into_owned()),
-        Ok(Err(stalled)) => return unjudged(logs, name, &format!("`{line}` gave no answer within {} s: {stalled}", GRACE.as_secs()), ""),
-        Err(error) => return unjudged(logs, name, &format!("`{line}`: {error}"), ""),
-    };
-    if code == Some(0) {
-        return Ok(None);
-    }
-    if code != Some(CARGO_FAILED) || OFFLINE_MISSES.iter().any(|miss| log.contains(miss)) {
-        return unjudged(logs, name, &format!("`{line}` ended with {code:?} and named no manifest error"), &log);
-    }
-    let path = written(logs, name, &format!("{line}\n{log}"))?;
-    let tree = format!("{}/", rebased.tree.display());
-    let named: Vec<String> = log.lines().map(str::trim).filter(|line| !line.is_empty() && *line != "Caused by:" && !line.starts_with(|first: char| first == '|' || first.is_ascii_digit())).map(|line| line.replace(&tree, "")).collect();
-    let verdict = format!("failed {REBASE_COMPILE}: the lane rebased onto {} leaves a Cargo manifest or lock cargo cannot read: {}; log: {}", &rebased.picked_onto[..rebased.picked_onto.len().min(10)], named.join("; "), path.display());
-    Ok(Some(Refused { gates: REBASE_COMPILE.to_owned(), verdict, log: path }))
 }
