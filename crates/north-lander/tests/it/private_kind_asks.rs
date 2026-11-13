@@ -3,7 +3,7 @@ use std::fs;
 use super::land_first::{NO_SECRETS, PUBLIC_REPO, Release, calls, checker, enqueue};
 use super::serve::{HANG, World, git, report};
 
-const JUDGE_HOLDS_ONE_LANE: &str = "#!/bin/sh\ntext=$(cat)\ncase \"$text\" in\n  *held*) echo >> \"$0.held\"; while [ ! -e \"$HOME/judge-release\" ]; do sleep 0.05; done ;;\n  *) sleep 1 ;;\nesac\nexit 0\n";
+const JUDGE_HOLDS_ONE_LANE: &str = "#!/bin/sh\ntext=$(cat)\ncase \"$text\" in\n  *held*) echo >> \"$0.held\"; while [ ! -e \"$HOME/judge-release\" ]; do sleep 0.05; done ;;\n  *) while [ ! -e \"$HOME/judge-others\" ]; do sleep 0.05; done ;;\nesac\nexit 0\n";
 
 #[test]
 fn three_lanes_handed_in_together_land_while_one_of_them_still_waits_for_its_private_kind_verdict_north_1199() {
@@ -27,6 +27,7 @@ fn three_lanes_handed_in_together_land_while_one_of_them_still_waits_for_its_pri
         assert!(text.contains("the private-kind judge is still judging this lane's text"), "{branch} was not queued before its private-kind verdict: {text}");
     }
     let enqueue_asks = calls(&bin.join("judge.held"));
+    fs::write(world.path().join("judge-others"), "").unwrap();
 
     let release = Release(world.path().join("judge-release"));
     let mut command = world.land(&["serve", "--repo", north.checkout.to_str().unwrap(), "--checker", bin.join("checker").to_str().unwrap(), "--app-token", bin.join("token").to_str().unwrap()]);
