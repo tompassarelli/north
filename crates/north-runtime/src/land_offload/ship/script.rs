@@ -172,11 +172,11 @@ const TETHER: &str = r#"if [ -n "${bundled:-}" ]; then
     cat <&3 >/dev/null || true
     stay=
     if [ -n "$ran" ] && [ -e "$root/results/${ran#*:}.out" ]; then
-      attached=$root/results/${ran#*:}.attached waited=0 grace=@TETHER_SECONDS@
+      attached=$root/results/${ran#*:}.attached waited=0 grace=${NORTH_OFFLOAD_TETHER_SECONDS:-@TETHER_SECONDS@}
       rm -f "$attached"
       while [ "$waited" -lt "$grace" ]; do
         [ ! -e "$attached" ] || { stay=1; break; }
-        [ -z "$link" ] || [ -e "/proc/$link" ] || grace=@DROPPED_SECONDS@
+        [ -z "$link" ] || [ -e "/proc/$link" ] || grace=${NORTH_OFFLOAD_DROPPED_SECONDS:-@DROPPED_SECONDS@}
         sleep 1
         waited=$((waited + 1))
       done
