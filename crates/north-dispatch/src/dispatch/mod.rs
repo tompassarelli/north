@@ -45,6 +45,7 @@ mod host_needs;
 mod home;
 mod hotspots;
 mod issues;
+mod leads;
 mod manual;
 mod nearest;
 mod pause;
@@ -112,6 +113,8 @@ pub struct Outcome {
     pub ready: Vec<IssueRef>,
     pub free: i64,
     pub revival: revive::Revival,
+    /// The parents over the lead bound and the leads this run stops.
+    pub tree: leads::Tree,
 }
 
 
@@ -269,6 +272,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
     let stopped = execute(&survey, &outcome, dry_run);
+    print_lines(leads::stop_all(&outcome.tree.stops, dry_run, |lead| effects::stop_lead(&survey, lead)));
     print_lines(drafting::pass(&survey, &outcome, &mut pools, None, dry_run));
     print_lines(deepseek::review::queue(&survey.deepseek.review, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run));
     let now = placement::now();
@@ -290,6 +294,7 @@ fn print_plan(survey: &Survey, outcome: &Outcome) {
         let standing = survey.backlog.as_ref().map_or_else(|| "unread graph".to_owned(), |backlog| backlog.standing(&item.to_string()));
         println!("ready {}\t{item}\t{standing}", place + 1);
     }
+    print_lines(&outcome.tree.over);
     for (item, why) in &outcome.skipped {
         println!("skip {item}: {why}");
     }

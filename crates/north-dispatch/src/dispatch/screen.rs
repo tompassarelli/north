@@ -4,13 +4,19 @@ use super::survey::Survey;
 use super::{brief, pack, tier};
 
 pub(super) fn admitted(survey: &Survey, issue: &Issue, world: &issues::World) -> Result<(), String> {
+    parked(survey, issue)?;
+    issues::readiness(issue, world)
+}
+
+/// Why the owner keeps `issue` from any session: its project is paused or its topic frozen.
+pub(super) fn parked(survey: &Survey, issue: &Issue) -> Result<(), String> {
     if let Some(why) = survey.projects.paused(&issue.repo, survey.at) {
         return Err(why);
     }
     if let Some(topic) = crate::platform::frozen_topics::matching(&survey.frozen, &issue.repo, &issue.title) {
         return Err(topic.refusal());
     }
-    issues::readiness(issue, world)
+    Ok(())
 }
 
 /// The route and brief a ready box launches with, or why none may be written.

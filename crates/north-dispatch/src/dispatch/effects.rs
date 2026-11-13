@@ -25,6 +25,9 @@ pub const REVIVED: &str = "revived.json";
 /// `sc-277-d1435`: the session name `north fleet list` shows and the hold reads back, with the box
 /// slug when the launch staffs one box so two boxes of an issue started in one minute take two names.
 pub fn session_name(launch: &Launch, at: f64) -> String {
+    if launch.lineage.lead {
+        return super::leads::name(&launch.item);
+    }
     let short = if launch.item.repo == "makgora" { "sc" } else { launch.item.repo.as_str() };
     let clock = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso_micros_utc_offset();
     let hhmm: String = clock.get(11..16).unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
@@ -48,6 +51,12 @@ pub(super) fn command_in(launch: &Launch, name: &str, survey: &Survey, north: &s
     let mut words: Vec<String> = ["fleet", "launch", "--provider", provider, "--account", label, "--name", name, "--task", &launch.item.to_string(), "--cwd", &cwd]
         .map(str::to_owned)
         .into();
+    if launch.lineage.lead {
+        words.extend(["--role".to_owned(), "lead".to_owned()]);
+    }
+    if let Some(parent) = &launch.lineage.parent {
+        words.extend(["--parent".to_owned(), parent.clone()]);
+    }
     words.extend(super::deepseek::invocation(launch, &survey.cfg)?);
     let held = (!remote && launch.local.is_none()).then(|| format!("north fleet dispatch placed this box on {}", launch.host));
     if let Some(reason) = launch.local.as_ref().or(held.as_ref()) {
@@ -94,7 +103,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         route: None,
     };
     record::append(&record::directory(), &entry)?;
-    if result.is_ok() && !super::deepseek::is(launch) {
+    if result.is_ok() && !super::deepseek::is(launch) && !launch.lineage.lead {
         predict(launch);
     } else if entry.failed() {
         attribution::record(&entry.name, "dispatch", Cause::Harness(Harness::Placement), &format!("{}: {}", launch.host, entry.detail));
@@ -170,6 +179,14 @@ pub fn revive(survey: &Survey, revive: &Revive) -> Result<(), String> {
     revived[&revive.name] = json!(revive.ended_ms);
     remember(REVIVED, &revived);
     Ok(())
+}
+
+/// Stops a dispatched lead through `north fleet stop`, first sending it the reason, which the fleet's message log keeps;
+/// a send that fails stops it all the same and is named in the result.
+pub(super) fn stop_lead(survey: &Survey, lead: &super::leads::Stop) -> Result<(), String> {
+    let told = north_on(survey, &lead.registry, &["fleet".into(), "send".into(), "--now".into(), "--from".into(), SENDER.into(), lead.name.clone(), format!("north fleet dispatch stops you: {}", lead.why)]);
+    north_on(survey, &lead.registry, &["fleet".into(), "stop".into(), lead.name.clone()])?;
+    told.map_err(|why| format!("stopped, but the reason was not sent: {why}"))
 }
 
 pub fn forget(survey: &Survey, name: &str, registry: &str) -> Result<(), String> {

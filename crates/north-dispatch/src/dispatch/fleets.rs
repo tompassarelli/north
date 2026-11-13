@@ -35,6 +35,10 @@ pub struct Session {
     pub worker: bool,
     /// The files its launch predicted it would write, for a brief that named none.
     pub predicted: Vec<String>,
+    /// The session that reads its reports, which a lead's children name.
+    pub parent: Option<String>,
+    /// Whether the registry lists it with role lead.
+    pub lead: bool,
 }
 
 /// The issues a session's name starts with: `sc-277-d1435` holds makgora#277 and
@@ -100,7 +104,7 @@ pub fn running_sessions(listing: &Value) -> Vec<Session> {
             };
             let tasked: Vec<IssueRef> = issues::references(&task_text, "").into_iter().filter(|item| !item.repo.is_empty()).collect();
             let items = if tasked.is_empty() { named_items(&name) } else { tasked };
-            Session { claim_box: session["box"].as_str().map(str::to_owned), machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session), worker: session["role"] != "proxy" && session["provider"] == "claude", predicted: session["predicted"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect() }
+            Session { claim_box: session["box"].as_str().map(str::to_owned), machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session), worker: session["role"] != "proxy" && session["provider"] == "claude", predicted: session["predicted"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect(), parent: session["parent"].as_str().map(str::to_owned), lead: session["role"] == "lead" }
         })
         .collect()
 }

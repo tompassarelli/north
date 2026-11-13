@@ -242,6 +242,11 @@ impl Issue {
         self.body.lines().filter(|line| UNTICKED.is_match(line))
     }
 
+    /// The label that hands the issue to Tom or to a running native job, which no session takes.
+    pub fn handed_off(&self) -> Option<String> {
+        self.labelled(&TOM_LABELS).or_else(|| self.labelled(&RUNNING_LABELS)).map(|label| format!("labelled {label}"))
+    }
+
     pub fn labelled(&self, names: &[&str]) -> Option<&str> {
         self.labels.iter().map(String::as_str).find(|label| names.contains(label))
     }

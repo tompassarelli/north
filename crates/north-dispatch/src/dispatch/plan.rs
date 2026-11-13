@@ -25,6 +25,14 @@ pub struct Launch {
     pub route: Route,
     /// Why the box runs on its host rather than where placement would put it, recorded as `--local`.
     pub local: Option<String>,
+    pub lineage: Lineage,
+}
+
+/// Where a launch sits in the session tree: a lead staffed for a parent issue, and the session that reads its reports when that is not the coordinator.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Lineage {
+    pub lead: bool,
+    pub parent: Option<String>,
 }
 
 /// One machine a box may run on, and why it refuses this box: no slots now, or needs it does not
@@ -77,7 +85,7 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
     pools.take(host);
     pools.take_claude();
     pools.charge(&account.name, capacity.charge(account));
-    Launch { item: ready.item.clone(), host: host.into(), account: account.name.clone(), brief: ready.brief.clone(), route: ready.route.clone(), local: None }
+    Launch { item: ready.item.clone(), host: host.into(), account: account.name.clone(), brief: ready.brief.clone(), route: ready.route.clone(), local: None, lineage: Lineage::default() }
 }
 
 /// Admits reviving a session bound to `host` and `account` by the slot and spend rules a launch

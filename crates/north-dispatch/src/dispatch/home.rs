@@ -63,6 +63,7 @@ mod tests {
             brief: String::new(),
             route: Route { tier: Tier::Sonnet, category: "feature".into(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: None, why: String::new() },
             local: None,
+            lineage: crate::dispatch::plan::Lineage::default(),
         };
         let outcome = Outcome { launches: vec![planned], ready: vec![item], free: 16, ..Outcome::default() };
         let guard = "skip north#1054: dispatch was paused while this run was working: account b is the last headroom".to_owned();

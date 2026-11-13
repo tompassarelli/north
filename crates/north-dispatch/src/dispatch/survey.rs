@@ -53,6 +53,8 @@ pub struct Survey {
     pub live: BTreeSet<String>,
     /// Every session name a reached registry lists, parked or stopped included.
     pub listed: BTreeSet<String>,
+    /// The sessions every reached registry lists as running or parked, each with the registry that lists it.
+    pub sessions: Vec<(Session, String)>,
     /// The host reached through the laptop job queue, when one serves `laptop`.
     pub laptop: Option<String>,
     pub notes: Vec<String>,
@@ -423,7 +425,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     });
     let deepseek = super::deepseek::Seen::read(&cfg, &here, laptop.as_deref(), &reads.fleet_lists, &laptop_reports, &fleet.records, &reads.issues, at, &mut notes);
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues: reads.issues, open: reads.open, holds: fleet.holds, box_holds: fleet.box_holds, predicted: fleet.predicted, box_tries: fleet.box_tries, mainline, live: fleet.live, listed: fleet.listed, laptop, notes, frozen, history, ledger: reads.ledger, grounds: reads.grounds, strands, saturated, revived, backlog, deepseek, learned, at })
+    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues: reads.issues, open: reads.open, holds: fleet.holds, box_holds: fleet.box_holds, predicted: fleet.predicted, box_tries: fleet.box_tries, mainline, live: fleet.live, listed: fleet.listed, sessions: fleet.sessions, laptop, notes, frozen, history, ledger: reads.ledger, grounds: reads.grounds, strands, saturated, revived, backlog, deepseek, learned, at })
 }
 
 mod fleet;

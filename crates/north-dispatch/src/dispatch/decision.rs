@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::issues::{self, Issue};
-use super::plan::{self, Candidate, Capacity, Launch, Ready};
+use super::leads::{self, Tree};
+use super::plan::{self, Candidate, Capacity, Launch, Lineage, Ready};
 use super::scope::Scope;
 use super::slots::Pools;
 use super::survey::Survey;
@@ -75,10 +76,14 @@ fn place_all(survey: &Survey, launched_by: &str, hold_predicted: bool) -> (Outco
     let (box_holds, stale) = issues::settle_box_holds(&survey.issues, &survey.box_holds);
     staffing.outcome.skipped.extend(stale);
     let world = issues::World { open: &survey.open, holds: &holds, box_holds: &box_holds, box_tries: &survey.box_tries, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
-    let round = Round { survey, scope: &scope, capacity: &capacity, world: &world, launched_by };
+    let inputs = leads::Inputs { issues: &survey.issues, open: &survey.open, sessions: &survey.sessions, holds: &holds, box_holds: &box_holds, at: survey.at };
+    let tree = Tree::read(&inputs, |issue| screen::admitted(survey, issue, &world).is_ok(), leads::Bounds::configured());
+    let round = Round { survey, scope: &scope, capacity: &capacity, world: &world, launched_by, tree: &tree };
+    stage_leads(&round, &mut staffing);
     for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
         stage_issue(&round, issue, &mut staffing);
     }
+    staffing.outcome.tree = tree;
     (staffing.outcome, staffing.pools, staffing.deferred)
 }
 
@@ -87,13 +92,15 @@ struct Staffing {
     pools: Pools,
     claims: hotspots::Claims,
     deferred: bool,
+    /// The parents whose lead this run launches, which it staffs no box of.
+    led: BTreeSet<IssueRef>,
 }
 
 impl Staffing {
     fn new(survey: &Survey) -> Self {
         let pools = Pools::new(&survey.hosts, &survey.accounts);
         let outcome = Outcome { free: pools.total(), ..Outcome::default() };
-        Self { outcome, pools, claims: hotspots::Claims::default(), deferred: false }
+        Self { outcome, pools, claims: hotspots::Claims::default(), deferred: false, led: BTreeSet::new() }
     }
 }
 
@@ -103,6 +110,7 @@ struct Round<'a> {
     capacity: &'a Capacity<'a>,
     world: &'a issues::World<'a>,
     launched_by: &'a str,
+    tree: &'a Tree,
 }
 
 enum Placed {
@@ -112,6 +120,10 @@ enum Placed {
 }
 
 fn stage_issue(round: &Round, issue: &Issue, staffing: &mut Staffing) {
+    if staffing.led.contains(&issue.reference()) {
+        staffing.outcome.skipped.push((issue.reference(), format!("its lead {} launches in this run", leads::name(&issue.reference()))));
+        return;
+    }
     if let Err(why) = screen::admitted(round.survey, issue, round.world) {
         staffing.outcome.skipped.push((issue.reference(), why));
         return;
@@ -166,6 +178,7 @@ fn place_box(round: &Round, issue: &Issue, reference: &IssueRef, box_text: Optio
     match staff(round, issue, box_text, &ready, &candidates, &mut staffing.pools) {
         Ok(mut launch) => {
             screen::arm(round.survey, &mut launch);
+            launch.lineage.parent = round.tree.reader(reference);
             staffing.claims.take(&paths, &format!("{named}of {reference}, launched in this run"));
             staffing.outcome.launches.push(launch);
             Placed::Launched
@@ -252,4 +265,41 @@ fn open_boxes(issue: &Issue, running: &BTreeMap<String, String>, tried: &BTreeMa
         boxes.push(None);
     }
     boxes
+}
+
+/// Places one lead for each parent over the bound, the largest load first, while `dispatch_leads` leaves room; a lead
+/// takes its slot, cap and spend admission through `plan::place` as a box does.
+fn stage_leads(round: &Round, staffing: &mut Staffing) {
+    let mut room = round.tree.room;
+    for over in &round.tree.over {
+        if room == 0 {
+            break;
+        }
+        let Some(issue) = round.survey.issues.iter().find(|issue| issue.reference() == over.item) else { continue };
+        match place_lead(round, issue, over, &mut staffing.pools) {
+            Ok(launch) => {
+                room -= 1;
+                staffing.led.insert(over.item.clone());
+                staffing.outcome.launches.push(launch);
+            }
+            Err(why) => staffing.outcome.skipped.push((over.item.clone(), format!("lead not placed: {why}"))),
+        }
+    }
+}
+
+fn place_lead(round: &Round, issue: &Issue, over: &leads::Over, pools: &mut Pools) -> Result<Launch, String> {
+    screen::parked(round.survey, issue)?;
+    if let Some(why) = issue.handed_off() {
+        return Err(why);
+    }
+    if !round.scope.allows_provider("claude") {
+        return Err(round.scope.why_not_provider("claude"));
+    }
+    let route = super::tier::route_for(&over.item.to_string(), &|key: &str| if key == "Category" { leads::CATEGORY.to_owned() } else { super::facets::facet(issue, key) }, &round.survey.history, &round.survey.ledger)?;
+    let (route, written) = screen::written_as(round.survey, issue, round.launched_by, None, route)?;
+    let ready = Ready { item: over.item.clone(), brief: leads::brief(&written, over, round.launched_by), code_only: false, route };
+    let candidates = candidates(round.survey, round.scope, &ready.brief);
+    let mut launch = plan::place(&ready, round.capacity, &candidates, pools)?;
+    launch.lineage = Lineage { lead: true, parent: round.tree.reader_above(&over.item) };
+    Ok(launch)
 }

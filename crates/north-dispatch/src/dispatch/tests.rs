@@ -99,6 +99,7 @@ pub(super) fn survey(issues: Vec<Issue>, hosts: Vec<Host>, accounts: Vec<Account
         mainline: super::retired::Mainline::default(),
         live: BTreeSet::new(),
         listed: BTreeSet::new(),
+        sessions: Vec::new(),
         laptop: Some("whiterabbit".into()),
         notes: Vec::new(),
         frozen: Vec::new(),
@@ -344,7 +345,7 @@ fn a_box_placed_on_the_laptop_is_queued_through_the_north_binary_not_a_threads_p
     let (hosts, accounts) = fleet();
     let survey = survey(Vec::new(), hosts, accounts);
     let route = super::tier::Route { tier: super::tier::Tier::Sonnet, category: "feature".into(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: None, why: String::new() };
-    let launch = super::plan::Launch { item: super::issues::IssueRef { repo: "north".into(), number: 742 }, host: "whiterabbit".into(), account: "claude:a".into(), brief: "brief".into(), route, local: None };
+    let launch = super::plan::Launch { item: super::issues::IssueRef { repo: "north".into(), number: 742 }, host: "whiterabbit".into(), account: "claude:a".into(), brief: "brief".into(), route, local: None, lineage: super::plan::Lineage::default() };
 
     let (program, words) = super::effects::command(&launch, "north-742-d1756", &survey, "/home/tom", "/runtime/bin/north").unwrap();
 
@@ -494,12 +495,45 @@ fn dispatch_staffs_open_leaf_issues_under_their_parent() {
 }
 
 #[test]
-fn a_leaf_s_brief_names_its_item_alone() {
-    use super::issues::ParentRef;
-    let leaf = Issue { parent: Some(ParentRef::new("tompassarelli", "north", 1)), ..issue("north", 3, "Done when: `cargo nextest run -p north-dispatch` exits 0", &[]) };
-    let route = super::tier::Route { tier: super::tier::Tier::Opus, category: "feature".into(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: None, why: String::new() };
-    let brief = super::brief::brief(&leaf, "dispatch", &route, &super::grounds::Grounds::default(), None);
-    assert!(brief.lines().any(|line| line.starts_with("Item: north#3 ")), "{brief}");
-    assert!(!brief.lines().any(|line| line.starts_with("Box: ")), "{brief}");
-    assert!(brief.lines().any(|line| line.starts_with("Done when: north#3 is closed by its check")), "{brief}");
+fn a_parent_over_the_bound_gets_one_lead_and_loses_it_when_its_subtree_closes() {
+    use super::issues::{Children, OWNER, ParentRef};
+    let parent = |number: u64, leaves: u64| Issue { children: Children { total: leaves, ..Children::default() }, ..issue("north", number, "- [ ] every sub-issue is closed", &["roadmap"]) };
+    let leaf = |of: u64, number: u64| Issue { parent: Some(ParentRef::new(OWNER, "north", of)), ..issue("north", number, "Spec: exact", &[]) };
+    let mut issues = vec![parent(1000, 9), parent(2000, 10)];
+    issues.extend((1..=9).map(|n| leaf(1000, 1000 + n)));
+    issues.extend((1..=10).map(|n| leaf(2000, 2000 + n)));
+    let (_, accounts) = fleet();
+    let hosts = vec![host("gex45", 24, Ok(0)), host("nexus", 6, Ok(0))];
+    let quiet = survey(issues.clone(), hosts.clone(), accounts.clone());
+
+    let first = decide(&quiet, "north fleet dispatch on nexus");
+    let over: Vec<String> = first.tree.over.iter().map(ToString::to_string).collect();
+    assert_eq!(over, ["lead north#2000: load 10 over 8", "lead north#1000: load 9 over 8"], "a dry run names each parent over the bound, the largest first");
+    let leads: Vec<_> = first.launches.iter().filter(|launch| launch.lineage.lead).collect();
+    assert_eq!(leads.len(), 1, "dispatch_leads admits one lead at a time: {leads:?}");
+    assert_eq!((leads[0].item.to_string(), super::effects::session_name(leads[0], 0.0), leads[0].lineage.parent.clone()), ("north#2000".to_owned(), "lead-north-2000".to_owned(), None));
+    assert!(leads[0].brief.contains("Category: review") && leads[0].brief.contains("references/lead.md"), "{}", leads[0].brief);
+    let leaf = first.launches.iter().find(|launch| launch.item.number == 1001).expect("an open leaf under a parent launches whole");
+    assert!(leaf.brief.lines().any(|line| line.starts_with("Item: north#1001 ")) && !leaf.brief.lines().any(|line| line.starts_with("Box: ")), "{}", leaf.brief);
+    assert!(leaf.brief.lines().any(|line| line.starts_with("Done when: north#1001 is closed by its check")), "{}", leaf.brief);
+
+    let hand = super::fleets::Session { name: "burn-lead".into(), items: vec![super::IssueRef::new("north", 2000)], claim_box: None, machine: None, working: true, account: Some("claude:a".into()), worker: true, predicted: Vec::new(), parent: None, lead: true };
+    let mut led = survey(issues.clone(), hosts.clone(), accounts.clone());
+    led.sessions = vec![(hand.clone(), "nexus".into())];
+    led.live.insert(hand.name.clone());
+    led.holds.insert(super::IssueRef::new("north", 2000), "fleet session burn-lead on nexus".into());
+    let second = decide(&led, "north fleet dispatch on nexus");
+    let staffed: Vec<String> = second.launches.iter().filter(|launch| launch.lineage.lead).map(|launch| launch.item.to_string()).collect();
+    assert_eq!(staffed, ["north#1000"], "a hand-launched lead under another name leads north#2000, and fills no dispatched lead's room");
+    let under: Vec<_> = second.launches.iter().filter(|launch| launch.item.number > 2000).collect();
+    assert!(!under.is_empty() && under.iter().all(|launch| launch.lineage.parent.as_deref() == Some("burn-lead")), "{under:?}");
+    assert!(second.tree.stops.is_empty());
+
+    let mut closed = survey(issues[..10].iter().cloned().chain([parent(2000, 10)]).collect(), hosts, accounts);
+    let lead = super::fleets::Session { name: "lead-north-2000".into(), lead: true, ..hand };
+    closed.sessions = vec![(lead.clone(), "nexus".into())];
+    let stops: Vec<String> = decide(&closed, "north fleet dispatch on nexus").tree.stops.iter().map(|stop| stop.why.clone()).collect();
+    assert_eq!(stops, ["nothing under north#2000 is ready and no child of it lives"]);
+    closed.sessions.push((super::fleets::Session { name: "north-2003-d0100".into(), parent: Some(lead.name.clone()), lead: false, ..lead }, "nexus".into()));
+    assert!(decide(&closed, "north fleet dispatch on nexus").tree.stops.is_empty(), "a lead with a live child stays");
 }
