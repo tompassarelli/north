@@ -203,6 +203,25 @@ fn a_lane_under_the_agent_users_home_is_read_fetched_and_settled_through_the_age
     assert!(!pull.repository.queue.join(&borrowed).exists() && agent_outbox.join(queue::WITHDRAWN).join(&borrowed).is_file(), "a ticket in the agent's outbox naming the operator's lane was taken:\n{transcript}");
 }
 
+#[test]
+fn an_ask_from_the_agent_users_outbox_about_an_operator_ticket_is_answered_as_unknown_and_the_operators_own_ask_with_its_place() {
+    let pull = Pull::declaring(AGENT_LOGIN);
+    let lane = pull.repository.checkout.parent().unwrap().join("worktrees/behind");
+    git(&pull.repository.checkout, &["worktree", "add", "-q", "-b", "behind", lane.to_str().unwrap()]);
+    let head = commit_in(&lane, "behind");
+    let name = outboxed(&pull.repository.queue, 1_794_020_900_000_000, &lane, "behind", &head);
+    for outbox in [pull.outbox(), pull.agent_outbox()] {
+        std::fs::create_dir_all(outbox.join(queue::ASKS)).unwrap();
+        std::fs::write(outbox.join(queue::ASKS).join(&name), "").unwrap();
+    }
+    let transcript = pull.pull();
+
+    let told = |outbox: PathBuf| std::fs::read_to_string(outbox.join(queue::ANSWERS).join(&name)).unwrap_or_else(|error| panic!("{error}\n{transcript}"));
+    assert!(told(pull.outbox()).contains(&format!("behind ({head})")), "the operator's own ask lost its ticket's place:\n{transcript}");
+    let agent = told(pull.agent_outbox());
+    assert!(agent.contains(&format!("holds no ticket {name}")) && !agent.contains(&head), "the agent user's outbox was told about the operator's ticket: {agent}\n{transcript}");
+}
+
 fn commit_in(repository: &Path, message: &str) -> String {
     git(repository, &["commit", "-q", "--allow-empty", "-m", message]);
     git(repository, &["rev-parse", "HEAD"])

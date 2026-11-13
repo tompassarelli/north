@@ -90,21 +90,20 @@ impl Lander {
         self.tell(&route::lane_login(&host, &ticket.root)?, queue::DECIDED, name, &format!("{text}\n")).map(|()| Some(host))
     }
 
-    /// Answers a waiting hand-in's ask about ticket `name`: its decided ticket when it has one, else where it stands here.
+    /// Answers a waiting hand-in's ask about ticket `name`, filed from `outbox`'s own host and user: its decided ticket when it has one, else where it stands here; a ticket filed from any other outbox is answered as unknown.
     fn answer(&self, outbox: &Outbox, name: &str) -> Result<(), String> {
-        if let Some(path) = land_ticket::directories(&self.queue).into_iter().skip(1).map(|area| area.join(name)).find(|path| path.is_file()) {
-            return self.deliver(&path).map(drop);
-        }
-        let waiting = self.queue.join(name);
+        let decided = land_ticket::directories(&self.queue).into_iter().skip(1).map(|area| area.join(name)).find(|path| path.is_file());
+        let waiting = decided.clone().unwrap_or_else(|| self.queue.join(name));
         let here = crate::platform::land_queue::local_host();
-        let text = match queue::read(&waiting) {
-            Ok(ticket) => {
+        let text = match queue::read(&waiting).ok().filter(|ticket| astray(outbox, ticket).is_none()) {
+            Some(_) if decided.is_some() => return self.deliver(&waiting).map(drop),
+            Some(ticket) => {
                 let checking = Records::open(&self.queue).ok().and_then(|records| records.phase(&waiting)) == Some(Phase::Checking);
                 let place = if checking { "being checked".to_owned() } else { queue::queue_position(&self.queue, &waiting).ok().flatten().map_or_else(|| "waiting".to_owned(), |(place, total)| format!("{place} of {total} queued")) };
                 let deferral = ticket.deferral.as_deref().filter(|reason| !reason.trim().is_empty()).map(|reason| format!("; {reason}")).unwrap_or_default();
                 format!("the lander on {here} has {} ({}) {place}{deferral}", ticket.branch, ticket.head)
             }
-            Err(_) => format!("the lander on {here} holds no ticket {name}"),
+            None => format!("the lander on {here} holds no ticket {name}"),
         };
         self.tell(&outbox.login, queue::ANSWERS, name, &format!("{text}\n"))
     }
