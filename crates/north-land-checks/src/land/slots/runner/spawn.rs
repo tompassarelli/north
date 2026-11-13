@@ -253,6 +253,8 @@ impl Shared {
             .env(carry::LAND_STORE_VIEW, if self.config.host_inputs(command).is_empty() { "" } else { north_base::store_pins::AT_HEAD })
             .env(carry::CHECK_ENDS, check_ends(timeout))
             .env(ONE_LANE_ENV, if self.arguments.one_lane { "1" } else { "" })
+            .envs(self.arguments.twin_away.as_ref().map(|away| (north_base::foundation::offload::TWIN_AWAY_ENV, away.join(" "))))
+            .envs(self.arguments.line_within.or_else(|| std::env::var(carry::LINE_WITHIN).ok().and_then(|left| left.parse().ok())).map(|left: u64| (carry::LINE_WITHIN, left.to_string())))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

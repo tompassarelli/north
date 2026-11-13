@@ -4,6 +4,7 @@ enum Code {
     RedMain = 3,
     NoVerdict = 75,
     SlotsBusy = 96,
+    AlreadyPlaced = 94,
     TimedOut = 124,
     Cancelled = 130,
     Killed = 137,
@@ -16,6 +17,8 @@ pub const NO_VERDICT: u8 = Code::NoVerdict as u8;
 pub const NO_VERDICT_STATUS: i32 = Code::NoVerdict as i32;
 pub const SLOTS_BUSY: u8 = Code::SlotsBusy as u8;
 pub const SLOTS_BUSY_STATUS: i32 = Code::SlotsBusy as i32;
+pub const ALREADY_PLACED: u8 = Code::AlreadyPlaced as u8;
+pub const ALREADY_PLACED_STATUS: i32 = Code::AlreadyPlaced as i32;
 pub const TIMED_OUT: u8 = Code::TimedOut as u8;
 pub const TIMED_OUT_STATUS: i32 = Code::TimedOut as i32;
 pub const CANCELLED_STATUS: i32 = Code::Cancelled as i32;

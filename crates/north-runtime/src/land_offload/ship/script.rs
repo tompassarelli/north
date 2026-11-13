@@ -1,4 +1,4 @@
-use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, RUNTIME_MISSING, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TARGET_KEEP_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, quote};
+use super::{BESIDE_MISSING, RUNTIME_MISSING, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TARGET_KEEP_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, quote};
 
 /// Minutes a run whose client lost its connection keeps going with no client reattached, so a caller killed on purpose does not leave the run holding its slot to its deadline; the runner reattaches within `REATTACH_WINDOW`, which is shorter.
 const REATTACH_MINUTES: u32 = 3;
@@ -12,10 +12,10 @@ const KILL_POLLS: u32 = 1500;
 const WATCH_MARGIN_SECONDS: u32 = 120;
 /// Polls of `DRAIN_POLL` a nested job waits for its watcher to say it started before it refuses to run.
 const WATCH_START_POLLS: u32 = 100;
-const BACKGROUND_WAIT_SECONDS: u32 = 3600;
 const BACKGROUND_SUFFIX: &str = ".background";
+const BACKGROUND_RANK: u8 = 4;
 
-/// Whether the host starts this job now: a lander job (a red fix, an after-landing run, a culprit probe) at once, its floor; a land check while the host's `capacity host admit-job` admits one, since its lease is a landing lease, whose start the pressure reading counts and which opens no settle window; any other job also once the job last admitted here has settled or already ended, so the next pressure reading includes it; `NORTH_OFFLOAD_MAX_JOBS` caps the host's jobs for safety.
+/// Whether the host starts this job now: a floor job (a red fix, the lander's own slot) at once; a landing-rank land check (a hand-in's check) while the host's `capacity host admit-job` admits one, since its lease is a landing lease, whose start the pressure reading counts and which opens no settle window; any other job, an after-landing run among them at rank 3 for its first minutes, also once the job last admitted here has settled or already ended, so the next pressure reading includes it; `NORTH_OFFLOAD_MAX_JOBS` caps the host's jobs for safety.
 pub(super) const ADMIT: &str = r#"host_cap=${NORTH_OFFLOAD_MAX_JOBS:-}
 admitted=$root/admitted why=
 north_bin=
@@ -47,6 +47,21 @@ landing_full() {
   rc=0
   "$north_bin" capacity host admit-job --landing >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 75 ]
+}
+"#;
+
+/// The job's slot-line bookkeeping: its total wait in line (`lock_wait`, its rank's deadline) and the events it appends to the host's record under its check's name and slot class; once it holds a ticket it asks its host how long the line would keep it, and exit `SLOTS_BUSY` with the host's `expected wait N s` text sends it to another host at once while any other answer, an older north's and an unreadable record's among them, admits it as before.
+pub(super) const LINE: &str = r#"case $rank in @DEADLINES@esac
+check=$(printf '%s' "$command" | cksum | cut -d ' ' -f1)
+line_class=land
+[ "$rank" -lt 4 ] || line_class=background
+within=
+case " $carried " in *" @LINE_WITHIN_ENV@='"*) within=${carried#*@LINE_WITHIN_ENV@=\'}; within=${within%%\'*} ;; esac
+case $within in '' | *[!0-9]*) within= ;; esac
+[ -z "$within" ] || [ "$within" -ge "$lock_wait" ] || lock_wait=$within
+line_note() {
+  [ -n "$north_bin" ] || return 0
+  "$north_bin" capacity offload line record "$@" --ticket "$ticket" --rank "$rank" --check "$check" --class "$line_class" </dev/null >/dev/null 2>&1 || true
 }
 "#;
 
@@ -138,10 +153,21 @@ case " $carried " in *" SAFE_PUSH_LANDING='1' "*) rank=2 ;; esac
 kind=
 [ "$rank" -gt 1 ] || kind=floor
 [ "$rank" -ne 2 ] || kind=landing
-ticket=$queue/$rank-$(date +%s%N)-$$@$name
+@JOBS@@ADMIT@@LINE@ticket=$queue/$rank-$(date +%s%N)-$$@$name
+mkdir -p "$root/inflight"
+find "$root/inflight" -type f -mmin +1440 -delete 2>/dev/null || true
+[ -n "$nested" ] || { exec 3>>"$root/inflight/$(printf '%s\n%s' "$head" "$command" | sha256sum | cut -c1-32)"; flock -n 3 || true; }
 [ -n "$nested" ] || { exec 8>"$ticket"; flock 8; }
 trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
-@JOBS@@ADMIT@served=$root/served
+if [ -z "$nested" ] && [ -n "$north_bin" ]; then
+  rc=0
+  line_slots=@SLOTS@
+  [ -z "$host_cap" ] || [ "$host_cap" -ge "$line_slots" ] || line_slots=$host_cap
+  told=$("$north_bin" capacity offload line wait --rank "$rank" --ticket "$ticket" --name "$name" --slots "$line_slots" ${within:+--within "$within"} 2>&1 </dev/null) || rc=$?
+  [ "$rc" -ne @SLOTS_BUSY@ ] || { echo "offload: $told; this job leaves the line at once, so place it on another host" >&2; exit @SLOTS_BUSY@; }
+fi
+[ -n "$nested" ] || line_note queued
+served=$root/served
 mkdir -p "$served"
 turn_order() {
   for t in $(ls "$queue"); do
@@ -195,7 +221,7 @@ while :; do
     done
   fi
   waited=$(( ($(date +%s%N) - started) / 1000000000 ))
-  [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: queued behind other jobs for @LOCK_WAIT@ s ($why)" >&2; exit @SLOTS_BUSY@; }
+  [ "$waited" -lt "$lock_wait" ] || { echo "offload: queued behind other jobs for $lock_wait s ($why)" >&2; exit @SLOTS_BUSY@; }
   [ "$waited" -lt "$noted" ] || { noted=$((waited + 60)); held=$(slot_holders "$name"); echo "offload: waiting for a slot for ${waited}s, in order; $name runs $(slot_jobs "$name") of its @SLOTS@ slots, the host $(host_jobs) jobs; $why; $(ls "$queue" | grep -c .) queued; held by: ${held:-no slot of $name}" >&2; }
   polled=1
   if [ -n "$ahead" ]; then sleep 1; else sleep @POLL@; fi
@@ -208,6 +234,7 @@ exec 4>>"$root/$s.busy"
 flock -s 4
 [ -n "$kind" ] || [ -n "@BACKGROUND@" ] || [ -n "$nested" ] || { echo "$s" >"$admitted.slot"; date +%s >"$admitted"; }
 date +%s%N >"$served/$name"
+[ -n "$nested" ] || line_note started
 rm -f "$ticket"
 exec 8>&-
 slot=$root/$s
@@ -231,6 +258,8 @@ record_slot() {
 [ -n "${nested:-}" ] || rm -rf -- "$HOME/.buck/buckd$(cd "$root" && pwd -P)/${s:?}" || echo "offload: cannot remove the Buck2 daemon state the job before left for $s" >&2
 printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
+  code=$?
+  [ -n "$nested" ] || line_note ended --exit "$code"
   [ -z "${exited:-}" ] || [ -e "$exited" ] || echo 143 >"$exited" 2>/dev/null || true
   rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder"
   rm -f "$placed/$s" 2>/dev/null || true
@@ -325,7 +354,7 @@ checked() {
 if [ -n "${nested:-}" ]; then
   watching=$root/watch.$$.up
   rm -f "$watching"
-  setsid sh -c @WATCH@ offload-watch "$holder" "$$" "$s" "$root" "$limit" </dev/null >/dev/null 2>&1 4>&- 6>&- 8>&- 9>&- &
+  setsid sh -c @WATCH@ offload-watch "$holder" "$$" "$s" "$root" "$limit" </dev/null >/dev/null 2>&1 3>&- 4>&- 6>&- 8>&- 9>&- &
   watcher=$! polls=0
   until [ -e "$watching" ]; do
     polls=$((polls + 1))
@@ -347,7 +376,7 @@ vouch() {
 }
 rc=0
 if [ -z "${ran:-}" ]; then
-  checked </dev/null 4>&- 5>&- 6>&- 9>&- || rc=$?
+  checked </dev/null 3>&- 4>&- 5>&- 6>&- 9>&- || rc=$?
   vouch
   exit "$rc"
 fi
@@ -366,7 +395,7 @@ trap '' PIPE HUP
   grace=${NORTH_OFFLOAD_DRAIN_GRACE_SECONDS:-@DRAIN_GRACE@} waited=0
   while [ "$waited" -lt "$grace" ] && kill -0 "$$" 2>/dev/null; do sleep 1; waited=$((waited + 1)); done
   if kill -0 "$$" 2>/dev/null; then echo "offload: ending the relay of run $id, whose check ended ${grace}s ago while its client read none of the rest" >&2; kill -TERM "-$$" 2>/dev/null || true; fi
-) >"$out" 2>"$err" 4>&- 5>&- 6>&- 9>&- </dev/null &
+) >"$out" 2>"$err" 3>&- 4>&- 5>&- 6>&- 9>&- </dev/null &
 @DRAIN@detached=
 while :; do
   ended=; [ ! -f "$exited" ] || ended=1
@@ -536,23 +565,30 @@ pub(crate) fn slot_ports(name: &str) -> Vec<(String, u32)> {
     (0..SLOTS).map(|index| (slot_name(name, index), SCCACHE_FIRST_PORT + block + index)).collect()
 }
 
+/// The shell `case` arms that set `lock_wait` to the line wait limit of each slot rank, which the capacity crate owns.
+pub(super) fn deadlines() -> String {
+    (0..=BACKGROUND_RANK).map(|rank| format!("{rank}) lock_wait={} ;; ", crate::capacity::line_wait::deadline(rank))).collect()
+}
+
 fn settle_seconds() -> u64 {
     crate::capacity::pressure_target::settle_seconds().round() as u64
 }
 
 pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
-    let (slots, wait, background) = match class {
-        SlotClass::LandCheck => (SLOTS, LOCK_WAIT_SECONDS, ""),
-        SlotClass::Background => (1, BACKGROUND_WAIT_SECONDS, "1"),
+    let (slots, background) = match class {
+        SlotClass::LandCheck => (SLOTS, ""),
+        SlotClass::Background => (1, "1"),
     };
     let ports: String = slot_ports(name).iter().map(|(slot, port)| format!("{}) SCCACHE_SERVER_PORT={port} ;; ", quote(slot))).collect();
     format!("{}{VERIFY}{}{}", slot_part(), beside_part(), run_part())
         .replace("@JOBS@", &jobs_part())
         .replace("@ADMIT@", ADMIT)
+        .replace("@LINE@", LINE)
+        .replace("@DEADLINES@", &deadlines())
+        .replace("@LINE_WITHIN_ENV@", north_base::foundation::carry::LINE_WITHIN)
         .replace("@SETTLE@", &settle_seconds().to_string())
         .replace("@SLOT_PORTS@", &ports)
         .replace("@ROOT@", OFFLOAD_ROOT)
-        .replace("@LOCK_WAIT@", &wait.to_string())
         .replace("@POLL@", POLL_SECONDS)
         .replace("@SLOTS@", &slots.to_string())
         .replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX)

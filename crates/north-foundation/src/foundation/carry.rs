@@ -24,6 +24,8 @@ pub const LAND_HEAD: &str = "SAFE_PUSH_LAND_HEAD";
 pub const REMOTE_MARK: &str = "NORTH_BUILD_OFFLOADED";
 pub const LAND_STORE_VIEW: &str = "SAFE_PUSH_LAND_STORE_VIEW";
 pub const CHECK_ENDS: &str = "SAFE_PUSH_LAND_CHECK_ENDS";
+/// The seconds of its one line deadline a placed check has left, which a build host takes as the most its slot line may keep the check, so a check placed again after a refusal can only wait less in all.
+pub const LINE_WITHIN: &str = "SAFE_PUSH_LINE_WITHIN";
 
 const CARRY: &[(&str, Reach)] = &[
     (LANDING, Reach::Landing),
@@ -40,6 +42,7 @@ const CARRY: &[(&str, Reach)] = &[
     (super::offload::TIPS_ENV, Reach::Landing),
     (super::offload::ONE_LANE_ENV, Reach::Landing),
     (CHECK_ENDS, Reach::Landing),
+    (LINE_WITHIN, Reach::Landing),
     ("PATH", Reach::Host),
     ("HOME", Reach::Host),
     ("USER", Reach::Host),

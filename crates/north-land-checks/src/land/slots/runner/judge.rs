@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS};
 
 use crate::land::slots::select::Config;
 use crate::landing::check_timings::outcomes::Outcome as CheckOutcome;
@@ -27,6 +27,10 @@ impl Shared {
         let class = self.cache_class(command);
         if self.overflows(command, ran.status) {
             say(&format!("safe-push: every build-host slot stayed busy, so land check {command} overflows to GitHub Actions"));
+            let _ = fs::remove_file(&ran.log);
+            return ran.status;
+        }
+        if ran.status == ALREADY_PLACED_STATUS {
             let _ = fs::remove_file(&ran.log);
             return ran.status;
         }

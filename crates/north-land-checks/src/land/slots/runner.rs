@@ -16,6 +16,7 @@ use super::verdict_key;
 use super::select::{Config, changed, path_class};
 use arguments::{Arguments, Environment, Outcome, parse};
 use build_host::{resolve_runner_host, runner_host};
+use line_refusals::Refusals;
 use checkout::Trees;
 use entry::{any, portable, replay, start_stage};
 use selection::{Selections, defined_on_tree, selections, without_empty_test_selections, without_tests};
@@ -29,6 +30,7 @@ mod entry;
 mod execute;
 mod fail_fast;
 mod judge;
+mod line_refusals;
 mod log;
 mod offload_job;
 mod queue_checks;
@@ -43,7 +45,7 @@ pub use steps::{Window, windows as queue_windows};
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
-use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_STATUS, RED_MAIN_STATUS, TIMED_OUT_STATUS};
+use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_STATUS, RED_MAIN_STATUS, SLOTS_BUSY_STATUS, TIMED_OUT_STATUS};
 
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
 pub const BASE_FAILS: &str = "and also fails on base tree";
@@ -200,10 +202,10 @@ struct Chosen {
     ahead: Option<String>,
 }
 
-async fn selected(root: &Path, arguments: &Arguments, (environment, config): (&Environment, &Config), commands: Vec<String>) -> Result<Chosen, i32> {
+async fn selected(root: &Path, arguments: &Arguments, (environment, config): (&Environment, &Config), avoid: &[String], commands: Vec<String>) -> Result<Chosen, i32> {
     let recorded = arguments.after.then(|| selection_record::load(&arguments.head)).flatten();
     let lists = !arguments.leased && verdict_key::reads_it(&commands) && recorded.as_ref().is_none_or(|recorded| recorded.it.is_none());
-    let ahead = if lists { Some(runner_host(&program(), environment, config.runner.as_deref()).await.ok_or_else(no_build_host)?) } else { None };
+    let ahead = if lists { Some(runner_host(&program(), environment, config.runner.as_deref(), avoid).await.ok_or_else(no_build_host)?) } else { None };
     let listing = ahead.as_deref().or(environment.runner.as_deref()).unwrap_or_default();
     let Selections { scope, it, no_test } = selections(root, arguments, &commands, recorded.as_ref(), listing);
     let commands = match &no_test {
@@ -216,10 +218,29 @@ async fn selected(root: &Path, arguments: &Arguments, (environment, config): (&E
     Ok(Chosen { commands, scope, it, ahead })
 }
 
+/// Runs a check set, placing it again while a build host's slot line refuses it at once: the next placement leaves out each refusing host and ranks the others on their expected wait, holds once every host has refused, and never outlasts one line deadline from the first placement, so the after-landing run and the landing checks share the pre-queue checks' bound.
 async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environment: Environment, cancel: watch::Receiver<bool>, commands: Vec<String>) -> i32 {
-    let Chosen { commands, scope, it, ahead } = match selected(&root, &arguments, (&environment, &config), commands).await {
+    if arguments.leased {
+        return run_set_on(root, arguments, config, environment, cancel, commands, &[]).await.0;
+    }
+    let mut lines = Refusals::new();
+    loop {
+        let within = Arguments { line_within: Some(lines.left()), ..arguments.clone() };
+        let (status, host) = run_set_on(root.clone(), within, config.clone(), environment.clone(), cancel.clone(), commands.clone(), &lines.avoiding(&[])).await;
+        if status != SLOTS_BUSY_STATUS {
+            return status;
+        }
+        if let Err(reason) = lines.place_again(&host).await {
+            warn(&format!("safe-push: {reason}"));
+            return status;
+        }
+    }
+}
+
+async fn run_set_on(root: PathBuf, arguments: Arguments, config: Config, environment: Environment, cancel: watch::Receiver<bool>, commands: Vec<String>, avoid: &[String]) -> (i32, String) {
+    let Chosen { commands, scope, it, ahead } = match selected(&root, &arguments, (&environment, &config), avoid, commands).await {
         Ok(chosen) => chosen,
-        Err(status) => return status,
+        Err(status) => return (status, String::new()),
     };
     let trees = Trees::of(&root, &arguments.base, arguments.tree());
     let paths = path_class(&root, &arguments.base, &arguments.head);
@@ -244,22 +265,22 @@ async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environmen
         pinned: 0,
     };
     if shared.arguments.leased {
-        return Arc::new(shared).run_list(&commands).await.status();
+        return (Arc::new(shared).run_list(&commands).await.status(), String::new());
     }
     let commands = if shared.arguments.fresh { commands } else { shared.reuse(commands).await };
     if commands.is_empty() {
-        return 0;
+        return (0, String::new());
     }
     let host = match ahead {
         Some(host) => host,
-        None => match runner_host(&program(), &shared.environment, shared.config.runner.as_deref()).await {
+        None => match runner_host(&program(), &shared.environment, shared.config.runner.as_deref(), avoid).await {
             Some(host) => host,
-            None => return no_build_host(),
+            None => return (no_build_host(), String::new()),
         },
     };
-    shared.arguments.runner_host = host;
+    shared.arguments.runner_host.clone_from(&host);
     shared.free_slots = shared.count_free_slots().await;
-    Arc::new(shared).execute_sharing_build(commands).await
+    (Arc::new(shared).execute_sharing_build(commands).await, host)
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -376,6 +397,7 @@ async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Con
             }
         }
     }
+    arguments.twin_away = Some(failed.to_vec());
     let host = arguments.runner_host.clone();
     let commands = steps::awaited("coverage", async { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() }).await;
     let watched = rewritten(&root, &arguments, watched).await;

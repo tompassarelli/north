@@ -13,6 +13,8 @@ pub(super) struct Arguments {
     pub(super) base: String,
     pub(super) head: String,
     pub(super) one_lane: bool,
+    pub(super) line_within: Option<u64>,
+    pub(super) twin_away: Option<Vec<String>>,
     pub(super) tree: String,
     pub(super) dry: bool,
     pub(super) safe_push: String,

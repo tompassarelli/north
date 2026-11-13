@@ -51,13 +51,12 @@ pub(super) async fn choice(program: &str, away: &[String]) -> Choice {
     Choice::Host(if host.is_empty() { north_base::platform::host::name() } else { host })
 }
 
-/// Where land checks run when `.safe-push` names `value`: that host, or for `build-host` the one `north capacity offload choose --any` picks with `away_from` left out, so a check that must not compile here is never answered with this host as the most room. When this host has the most room it is named like any other, so its checks run in its warm offload slots rather than building the candidate's own cold target; None only when no host has room.
-pub(super) async fn chosen(program: &str, value: &str, away_from: Option<&str>) -> Option<String> {
+/// Where land checks run when `.safe-push` names `value`: that host, or for `build-host` the one `north capacity offload choose --any` picks with each host in `away` left out, so a check that must not compile here is never answered with this host as the most room. When this host has the most room it is named like any other, so its checks run in its warm offload slots rather than building the candidate's own cold target; None only when no host has room.
+pub(super) async fn chosen(program: &str, value: &str, away: &[String]) -> Option<String> {
     if value != "build-host" {
         return Some(value.to_owned());
     }
-    let away: Vec<String> = away_from.map(str::to_owned).into_iter().collect();
-    match choice(program, &away).await {
+    match choice(program, away).await {
         Choice::Host(host) => Some(host),
         _ => None,
     }
@@ -97,10 +96,10 @@ pub(super) async fn placed(program: &str, value: &str, here: &str, failed: &[Str
     }
 }
 
-/// The host a land check set runs on, which the selection's test listing runs on too: an off-host set (a replay's) only ever on a build host, so it is `None` when none has room, whatever `.safe-push` names; any other set on the host `.safe-push` or the order names, or on this host under the land-check capacity lease when no build host has room.
-pub(super) async fn runner_host(program: &str, environment: &Environment, configured: Option<&str>) -> Option<String> {
+/// The host a land check set runs on, leaving out those in `avoid`, which the selection's test listing runs on too: an off-host set (a replay's) only ever on a build host, so it is `None` when none has room, whatever `.safe-push` names; any other set on the host `.safe-push` or the order names, or on this host under the land-check capacity lease when no build host has room.
+pub(super) async fn runner_host(program: &str, environment: &Environment, configured: Option<&str>, avoid: &[String]) -> Option<String> {
     if environment.off_host {
-        return match placed(program, "build-host", &north_base::platform::host::name(), &[]).await {
+        return match placed(program, "build-host", &north_base::platform::host::name(), avoid).await {
             Placed::Host(host) => Some(host),
             Placed::Here | Placed::Unanswered => None,
         };
@@ -109,11 +108,11 @@ pub(super) async fn runner_host(program: &str, environment: &Environment, config
     if land_runner.is_empty() {
         return Some(String::new());
     }
-    Some(resolve_runner_host(program, land_runner).await)
+    Some(resolve_runner_host(program, land_runner, avoid).await)
 }
 
-pub(super) async fn resolve_runner_host(program: &str, value: &str) -> String {
-    chosen(program, value, None).await.unwrap_or_else(|| {
+pub(super) async fn resolve_runner_host(program: &str, value: &str, avoid: &[String]) -> String {
+    chosen(program, value, avoid).await.unwrap_or_else(|| {
         warn("safe-push: no build host has room; the land checks run on this host under the land-check capacity lease");
         String::new()
     })

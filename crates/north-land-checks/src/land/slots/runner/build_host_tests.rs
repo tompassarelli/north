@@ -10,9 +10,9 @@ async fn checks_before_queueing_go_to_an_idle_build_host_when_this_laptop_has_th
     let north = directory.path().join("north");
     write_script(&north, "case \"$*\" in\n  *'--avoid whiterabbit'*) echo gex45 ;;\n  *'--avoid busy'*) echo 'north capacity offload: no host has room' >&2; exit 1 ;;\n  *) echo 'north capacity offload: whiterabbit has the most room, so the land check runs here' >&2 ;;\nesac\n");
     let north = north.to_str().unwrap();
-    assert_eq!(chosen(north, "build-host", Some("whiterabbit")).await.as_deref(), Some("gex45"), "on 2026-11-06 the laptop at load 12 of 24 out-roomed gex45 at 6 of 20, so every lane's checks before queueing got no verdict");
-    assert!(chosen(north, "build-host", None).await.is_some_and(|host| !host.is_empty()), "on 2026-11-08 a probe the laptop out-roomed built in its own cold worktree target for 8 minutes beside the laptop's warm offload slots, so this host is named and its checks run in those slots");
-    assert_eq!(chosen(north, "build-host", Some("busy")).await, None, "with no host having room the checks run in place under the land-check capacity lease");
+    assert_eq!(chosen(north, "build-host", &["whiterabbit".to_owned()]).await.as_deref(), Some("gex45"), "on 2026-11-06 the laptop at load 12 of 24 out-roomed gex45 at 6 of 20, so every lane's checks before queueing got no verdict");
+    assert!(chosen(north, "build-host", &[]).await.is_some_and(|host| !host.is_empty()), "on 2026-11-08 a probe the laptop out-roomed built in its own cold worktree target for 8 minutes beside the laptop's warm offload slots, so this host is named and its checks run in those slots");
+    assert_eq!(chosen(north, "build-host", &["busy".to_owned()]).await, None, "with no host having room the checks run in place under the land-check capacity lease");
 }
 
 #[tokio::test(start_paused = true)]
@@ -39,7 +39,7 @@ async fn a_check_before_queueing_gives_up_only_when_no_build_host_answers_and_ru
     let answers = directory.path().join("answers");
     write_script(&answers, "echo gex45\n");
     let replay = Environment { off_host: true, ..Environment::local() };
-    assert_eq!(runner_host(answers.to_str().unwrap(), &replay, None).await.as_deref(), Some("gex45"), "on 2026-11-12 a promotion replay with no runner configured was placed on the lander's host, and its test listing ran cargo there before any host was chosen");
-    assert_eq!(runner_host(silent.to_str().unwrap(), &replay, Some("build-host")).await, None, "an off-host replay with no build host answering reaches no verdict rather than building on the lander's host");
-    assert_eq!(runner_host(silent.to_str().unwrap(), &Environment::local(), None).await.as_deref(), Some(""), "a set that is not off-host and names no runner runs where it is");
+    assert_eq!(runner_host(answers.to_str().unwrap(), &replay, None, &[]).await.as_deref(), Some("gex45"), "on 2026-11-12 a promotion replay with no runner configured was placed on the lander's host, and its test listing ran cargo there before any host was chosen");
+    assert_eq!(runner_host(silent.to_str().unwrap(), &replay, Some("build-host"), &[]).await, None, "an off-host replay with no build host answering reaches no verdict rather than building on the lander's host");
+    assert_eq!(runner_host(silent.to_str().unwrap(), &Environment::local(), None, &[]).await.as_deref(), Some(""), "a set that is not off-host and names no runner runs where it is");
 }

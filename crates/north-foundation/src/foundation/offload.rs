@@ -10,6 +10,8 @@ pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
 pub const URGENT_ENV: &str = "NORTH_OFFLOAD_URGENT";
 pub const SLOT_ENV: &str = "NORTH_OFFLOAD_SLOT";
+/// Set only on the checks before queueing, whose caller answers a refusal as a reason to place the lane again: it opts the run in to the duplicate-job probe, and names the build hosts the run already failed on, space-separated, which the probe leaves out because a failed attempt may still hold its marker. A run without it is never refused as a twin, since only that caller knows the refusal.
+pub const TWIN_AWAY_ENV: &str = "NORTH_OFFLOAD_TWIN_AWAY";
 /// The script file an offload run hands its leased shell, which admission charges and records as the check it runs rather than as its wrapper.
 pub const SUBJECT_ENV: &str = "NORTH_OFFLOAD_SUBJECT";
 /// The name the directory of that script file begins with, before the nonce `mktemp` gives it: the offload script makes the directory for the one file, and admission reads a subject from no other place.

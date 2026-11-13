@@ -12,7 +12,7 @@ const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
 const STATUS_MARK: &str = "@ADMISSION@";
 const SLOTS_MARK: &str = "@SLOTS@";
 const SLOTS_PROBE: &str = r#"root=$1
-@JOBS@n=$(host_jobs); q=$(ls "$root/queue" 2>/dev/null | grep -c "^[012]-" || true); a=$(ls "$root/queue" 2>/dev/null | grep -c "^[01]-" || true); echo "$n $q $(nproc) $a""#;
+@JOBS@s=@LINE_SLOTS@; [ -z "${NORTH_OFFLOAD_MAX_JOBS:-}" ] || [ "$NORTH_OFFLOAD_MAX_JOBS" -ge "$s" ] || s=$NORTH_OFFLOAD_MAX_JOBS; n=$(host_jobs); q=$(ls "$root/queue" 2>/dev/null | grep -c "^[012]-" || true); a=$(ls "$root/queue" 2>/dev/null | grep -c "^[01]-" || true); w=$(${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity offload line wait --rank 2 --slots "$s" 2>/dev/null </dev/null | sed -n 's/^expected wait \([0-9]*\) s.*/\1/p'); echo "$n $q $(nproc) $a ${w:--}""#;
 const STATUS_PROBE: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host status"#;
 const CLAIM: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host land-waiting"#;
 
@@ -24,20 +24,22 @@ pub struct Room {
     pub slots: Option<Slots>,
 }
 
-/// The host's offload slot jobs: those running in any checkout's slot, the land checks and red fixes queued for one, its cores, and the red fixes and lander jobs queued, which a new lander job waits behind.
+/// The host's offload slot jobs: those running in any checkout's slot, the land checks and red fixes queued for one, its cores, and the red fixes and lander jobs queued, which a new lander job waits behind, and the seconds the host's slot line expects a landing-rank job queued now to wait, when the host's north answers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Slots {
     pub running: u32,
     pub queued: u32,
     pub cores: u32,
     pub ahead: u32,
+    pub wait: Option<u64>,
 }
 
 impl Slots {
     fn parse(text: &str) -> Option<Self> {
-        let mut words = text.split_whitespace().map(str::parse::<u32>);
-        let (running, queued, cores, ahead) = (words.next()?.ok()?, words.next()?.ok()?, words.next()?.ok()?, words.next()?.ok()?);
-        Some(Self { running, queued, cores, ahead })
+        let mut words = text.split_whitespace();
+        let mut count = || words.next()?.parse::<u32>().ok();
+        let (running, queued, cores, ahead) = (count()?, count()?, count()?, count()?);
+        Some(Self { running, queued, cores, ahead, wait: words.next().and_then(|word| word.parse().ok()) })
     }
 
     /// The jobs running or queued, with `taken` more on their way, per job the host runs at once.
@@ -86,7 +88,7 @@ const MEASURE_PROBE: &str = r#"echo "${AGENT_CAPACITY_CORES:-$(nproc)}"; cat "${
 
 fn script() -> String {
     let disk = format!(r#"if [ -n "${{AGENT_CAPACITY_DISK_FREE_GIB:-}}" ]; then awk -v gib="$AGENT_CAPACITY_DISK_FREE_GIB" 'BEGIN {{ printf "pinned 0 0 %d 0%% /\n", gib * 1048576 }}'; else d="{OFFLOAD_ROOT}"; while [ ! -d "$d" ]; do d=$(dirname "$d"); done; df -Pk "$d"; fi"#);
-    format!("{MEASURE_PROBE}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}; echo {SLOTS_MARK}; sh -c {} offload-slots \"{OFFLOAD_ROOT}\"", quote(&SLOTS_PROBE.replace("@JOBS@", &jobs_part())))
+    format!("{MEASURE_PROBE}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}; echo {SLOTS_MARK}; sh -c {} offload-slots \"{OFFLOAD_ROOT}\"", quote(&SLOTS_PROBE.replace("@JOBS@", &jobs_part()).replace("@LINE_SLOTS@", &SLOTS.to_string())))
 }
 
 pub fn read_within(ssh: &str, limit: Duration) -> Option<Room> {
@@ -173,9 +175,12 @@ pub(super) fn check_host(standing: Standing, here: &str, local: impl FnOnce() ->
     chosen.ok_or(refused)
 }
 
+/// The readable remote a land check queues on: the one whose slot line expects the shortest wait when every readable remote reports one, each name in `taken` adding a job ahead that waits as long as the line gives one queued job, else the one with the lowest backlog; a tie goes to the earlier remote.
 fn least_busy(remotes: &[(String, Option<Room>)], taken: &[String], cores: f64) -> Option<String> {
     let on = |name: &str| taken.iter().filter(|host| *host == name).count();
-    remotes.iter().filter_map(|(name, room)| room.as_ref().map(|room| (name, room.busy(cores, on(name))))).fold(None::<(&String, f64)>, |best, (name, busy)| if best.is_none_or(|(_, least)| busy < least) { Some((name, busy)) } else { best }).map(|(name, _)| name.clone())
+    let readable: Vec<(&String, Option<u64>, f64)> = remotes.iter().filter_map(|(name, room)| room.as_ref().map(|room| (name, room.slots.and_then(|slots| slots.wait.map(|wait| wait + on(name) as u64 * wait / (u64::from(slots.queued) + 1))), room.busy(cores, on(name))))).collect();
+    let by_wait = readable.iter().all(|(_, wait, _)| wait.is_some());
+    readable.into_iter().min_by(|(_, first_wait, first), (_, second_wait, second)| if by_wait { first_wait.cmp(second_wait).then(first.total_cmp(second)) } else { first.total_cmp(second) }).map(|(name, _, _)| name.clone())
 }
 
 /// Whether every remote's queue holds more than a round of land checks of `cores`, its job cap, once each name in `taken` counts as one more queued there: only then does a `Peer` run one itself; a remote whose slots are unread counts as not behind.
@@ -289,7 +294,7 @@ mod tests {
         };
         let ccx33 = slotted("1.0", 8.0, "2 9 8 0");
         let gex45 = slotted("8.0", 20.0, "3 0 20 0");
-        assert_eq!(ccx33.slots, Some(Slots { running: 2, queued: 9, cores: 8, ahead: 0 }));
+        assert_eq!(ccx33.slots, Some(Slots { running: 2, queued: 9, cores: 8, ahead: 0, wait: None }));
         assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("ccx33".to_owned(), Some(ccx33)), ("gex45".to_owned(), Some(gex45))], &[], 4.0), Ok(Chosen::Room("gex45".to_owned())), "ccx33 runs 2 jobs at once with 9 queued; gex45 runs 5 with 2 free");
         let taken = ["gex45".to_owned(), "gex45".to_owned()];
         assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("ccx33".to_owned(), Some(slotted("1.0", 8.0, "0 0 8 0"))), ("gex45".to_owned(), Some(gex45))], &taken, 4.0), Ok(Chosen::Room("ccx33".to_owned())), "an idle ccx33 takes the run once gex45's free slots are taken");

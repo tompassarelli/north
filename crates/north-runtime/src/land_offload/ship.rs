@@ -7,14 +7,13 @@ use relay::{Relayed, relay, verdict};
 pub(super) use north_base::foundation::exit::TRANSPORT_FAILED;
 const WRONG_TREE: u8 = 98;
 const LACKS_BASE: u8 = 97;
-use north_base::foundation::exit::{NO_VERDICT, SLOTS_BUSY};
+use north_base::foundation::exit::{ALREADY_PLACED, NO_VERDICT, SLOTS_BUSY};
 const BESIDE_MISSING: u8 = NO_VERDICT;
 const RUNTIME_MISSING: u8 = 95;
 const REPOSITORY_ENV: [&str; 13] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_GRAFT_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE", "GIT_NAMESPACE", "GIT_PREFIX"];
 const WAITED: &str = "offload: waited ";
 const RUNNING: &str = "offload: running ";
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
-const LOCK_WAIT_SECONDS: u32 = 600;
 pub const SLOTS: u32 = 6;
 const SCCACHE_FIRST_PORT: u32 = 20000;
 const SCCACHE_PORTS: u32 = 20000;
@@ -147,6 +146,7 @@ mod pinned;
 mod relay;
 mod proof;
 mod master;
+mod twin;
 mod reattach;
 
 pub(super) fn run(land: &Land) -> u8 {
@@ -219,6 +219,10 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let beside = beside::pin(land.command, relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
+    if let Some(host) = twin::held_elsewhere(land, &beside.command) {
+        eprintln!("north capacity offload: the same head and command already wait or run on {host}, so this run is refused; a second copy of one job only fills build-host lines");
+        return Err(ALREADY_PLACED);
+    }
     let carried = carried(land, |name| std::env::var(name).ok());
     let secret = proof::secret().map_err(|why| unreached(&why))?;
     let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret, land.confined);

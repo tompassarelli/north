@@ -16,6 +16,7 @@ const NIX_SHIM: &str = "echo \"nix $*\"\n";
 const NORTH_SHIM: &str = r#"case "$1 $2 $3" in
   "capacity host admit-job") echo "$4" >>"$HOME/admit-calls"; [ ! -e "$HOME/refuse" ] || { echo "refused for the test"; exit 75; }; [ "${4:-}" != --landing ] || [ ! -e "$HOME/landing-full" ] || { echo "land checks charge the cores for the test"; exit 75; }; exit 0 ;;
   "capacity offload closed") [ ! -e "$HOME/closed" ] || { echo "gex45"; exit 75; }; exit 0 ;;
+  "capacity offload line") case "$4" in wait) shift 4; echo "$*" >>"$HOME/line-asks"; [ ! -e "$HOME/line-full" ] || { echo "expected wait 700 s, over the rank's deadline 600 s"; exit 96; }; echo "expected wait 0 s"; exit 0 ;; record) shift 4; echo "$*" >>"$HOME/line-calls"; exit 0 ;; esac ;;
 esac
 case "$1 $2" in
   "capacity deadline") shift; while [ "$1" != -- ]; do shift; done; shift; exec "$@" ;;
@@ -226,7 +227,7 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     let slot = home.path().join(".cache/land-offload/code-p-main");
     git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap(), &head]);
     fs::remove_dir_all(&slot).unwrap();
-    let script = super::script::slot_part().replace("@JOBS@", &super::script::jobs_part()).replace("@ADMIT@", super::script::ADMIT).replace("@SETTLE@", "0").replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@SLOT_PORTS@", "");
+    let script = super::script::slot_part().replace("@JOBS@", &super::script::jobs_part()).replace("@ADMIT@", super::script::ADMIT).replace("@SETTLE@", "0").replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LINE@", "lock_wait=0\nline_note() { :; }\n").replace("@SLOTS_BUSY@", "96").replace("@SLOTS@", "1").replace("@SLOT_PORTS@", "");
     let script = format!("{script}cp \"$placed/$s\" \"$HOME/read-by-the-job\" 2>/dev/null || :\n");
     let ship = |north: Option<&Path>| {
         let mut shell = Command::new("sh");
@@ -1111,6 +1112,53 @@ fn a_closed_host_takes_no_check_and_refuses_its_queue_at_once() {
         assert_eq!(waiter.wait().unwrap().code(), Some(i32::from(super::SLOTS_BUSY)));
     }
     assert_eq!(late_status, Some(i32::from(super::SLOTS_BUSY)), "a job placed on the closed host is refused as it arrives");
+}
+
+#[test]
+fn a_job_whose_host_line_would_keep_it_past_its_deadline_leaves_at_once_with_the_expected_wait_and_a_job_it_admits_records_its_line_history() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let job = |carried: &str| {
+        Command::new("sh")
+            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", ":", "refs/land-offload/job", carried, "", "", "", "", "", ""])
+            .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+            .env("PATH", &path)
+            .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .env_remove(north_base::foundation::offload::SLOT_ENV)
+            .stdin(fs::File::open(&bundle).unwrap())
+            .output()
+            .unwrap()
+    };
+    fs::write(home.path().join("line-full"), "").unwrap();
+    let refused = job("SAFE_PUSH_LANDING='1'");
+    let told = String::from_utf8_lossy(&refused.stderr);
+    assert_eq!(refused.status.code(), Some(i32::from(super::SLOTS_BUSY)), "{told}");
+    assert!(told.contains("expected wait 700 s, over the rank's deadline 600 s"), "{told}");
+    assert!(!told.contains("waiting for a slot") && !told.contains("running "), "a refused job waited in line or ran: {told}");
+    assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).map(|entries| entries.count()).unwrap_or(0), 0, "a refused job left its ticket in the line");
+    assert!(!home.path().join("line-calls").exists(), "a refused job recorded line events for a ticket it never took");
+    fs::remove_file(home.path().join("line-full")).unwrap();
+    let admitted = job(&format!("SAFE_PUSH_LANDING='1' {}='45'", north_base::foundation::carry::LINE_WITHIN));
+    assert!(admitted.status.success(), "{}", String::from_utf8_lossy(&admitted.stderr));
+    let asks = fs::read_to_string(home.path().join("line-asks")).unwrap();
+    assert!(asks.lines().last().unwrap().starts_with("--rank 2 --ticket ") && asks.lines().last().unwrap().ends_with(&format!(" --name code-p-main --slots {} --within 45", super::SLOTS)), "{asks}");
+    let calls = fs::read_to_string(home.path().join("line-calls")).unwrap();
+    let events: Vec<&str> = calls.lines().map(|line| line.split(' ').next().unwrap_or("")).collect();
+    assert_eq!(events, ["queued", "started", "ended"], "{calls}");
+    assert!(calls.lines().all(|line| line.contains("--rank 2 ") && line.contains("--class land")), "{calls}");
+    assert!(calls.lines().last().unwrap().contains(" --exit 0 "), "{calls}");
+    let markers: Vec<_> = fs::read_dir(home.path().join(".cache/land-offload/inflight")).unwrap().map(|entry| entry.unwrap().path()).collect();
+    assert_eq!(markers.len(), 1, "{markers:?}");
+    assert!(Command::new("flock").arg("-n").arg(&markers[0]).arg("true").status().unwrap().success(), "a job that ended still holds its in-flight marker");
+    let hosts = || vec![("gex45".to_owned(), "a".to_owned()), ("cpx62".to_owned(), "b".to_owned())];
+    assert!(super::twin::targets(None, hosts()).is_empty(), "a run that did not opt in asked a host for a twin");
+    assert_eq!(super::twin::targets(Some(""), hosts()), hosts());
+    assert_eq!(super::twin::targets(Some("gex45"), hosts()), vec![("cpx62".to_owned(), "b".to_owned())]);
 }
 
 fn late_wait(mut job: std::process::Child) -> Option<i32> {

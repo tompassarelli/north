@@ -2,8 +2,9 @@ use std::path::Path;
 
 use super::super::clippy_first;
 use super::super::verdict_key;
+use super::line_refusals::Refusals;
 use super::{Arguments, Config, affected, block_on, run_added_avoiding, say, shared_build, steps, warn};
-use north_base::foundation::exit::{NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
+use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 use north_base::platform::finish_record::acceptance_in_prequeue;
 
 const ATTEMPTS: usize = 3;
@@ -156,14 +157,16 @@ fn attempts(root: &Path, arguments: &Arguments, config: &Config, commands: &[Str
     let mut failed: Vec<String> = Vec::new();
     let (mut status, mut passed) = (NO_VERDICT_STATUS, None);
     let mut attempt = 1;
+    let mut lines = Refusals::new();
     while attempt <= ATTEMPTS {
-        let ran = block_on(run_added_avoiding(root.to_owned(), arguments.clone(), config.clone(), commands.to_vec(), watched, &failed)).map_err(|error| error.to_string())?;
+        let arguments = Arguments { line_within: Some(lines.left()), ..arguments.clone() };
+        let ran = block_on(run_added_avoiding(root.to_owned(), arguments, config.clone(), commands.to_vec(), watched, &lines.avoiding(&failed))).map_err(|error| error.to_string())?;
         (status, passed) = (ran.status, ran.accepted);
         if ran.unanswered {
             return Err("no build host answers over ssh, so the checks before queueing cannot run; the lane is not queued uncompiled, so run safe-push again once a build host is back".to_owned());
         }
         if status == SLOTS_BUSY_STATUS {
-            say("safe-push: every slot on the build host stayed busy for its wait limit; the checks before queueing wait in line again");
+            block_on(lines.place_again(&ran.host)).map_err(|error| error.to_string())?.map_err(|reason| format!("{reason}; the lane is not queued uncompiled, so run safe-push again"))?;
             continue;
         }
         if status != NO_VERDICT_STATUS {
@@ -197,6 +200,9 @@ fn failed_output(outcome: &Path, command: &str) -> (Option<String>, String) {
 }
 
 fn refusal(status: i32, clippy: bool, (root, base, head): (&Path, &str, &str)) -> QueueRefusal {
+    if status == ALREADY_PLACED_STATUS {
+        return QueueRefusal::Unjudged("the same checks of this head already wait or run on a build host, named above, so this run was refused rather than queued a second time; the lane is not queued uncompiled, so run safe-push again once they end".to_owned());
+    }
     if status == NO_VERDICT_STATUS {
         return QueueRefusal::Unjudged(format!("the checks before queueing reached no verdict {ATTEMPTS} times (exit 75: the host or its connection failed before they reported); the lane is not queued uncompiled, so run safe-push again"));
     }
