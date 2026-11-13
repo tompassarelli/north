@@ -20,10 +20,16 @@ confined_here() {
 confine() {
   slot_top=$(git rev-parse --show-toplevel) && common=$(git rev-parse --path-format=absolute --git-common-dir) || return 1
   command -v bwrap >/dev/null 2>&1 || { echo "offload: refusing to run: bwrap is missing, so the check would run with the home and the shared git directory writable" >&2; return 1; }
+  own=$slot_top.own runtime=/run/user/$(id -u)
+  chmod -R u+rwx "$own" 2>/dev/null; rm -rf "$own" && mkdir -p "$own/tmp" "$own/run" || return 1
   set -- -- "$@"
-  for cache in .cargo/registry .cargo/git .cache/sccache .cache/nix; do
-    mkdir -p "$HOME/$cache" || return 1
-    set -- --bind "$HOME/$cache" "$HOME/$cache" "$@"
+  [ ! -d "$runtime/agent-capacity-v1" ] || set -- --ro-bind "$runtime/agent-capacity-v1" "$runtime/agent-capacity-v1" "$@"
+  for cache in .cargo .cache/sccache .cache/nix .local/state/nix; do
+    mkdir -p "$HOME/$cache" "$own/upper/$cache" "$own/work/$cache" || return 1
+    set -- --overlay-src "$HOME/$cache" --overlay "$own/upper/$cache" "$own/work/$cache" "$HOME/$cache" "$@"
   done
-  bwrap --dev-bind / / --die-with-parent --ro-bind "$HOME" "$HOME" --ro-bind "$common" "$common" --bind "$slot_top" "$slot_top" --ro-bind "$slot_top/.git" "$slot_top/.git" "$@"
+  status=0
+  bwrap --dev-bind / / --unshare-pid --proc /proc --die-with-parent --ro-bind "$HOME" "$HOME" --ro-bind "$common" "$common" --bind "$slot_top" "$slot_top" --ro-bind "$slot_top/.git" "$slot_top/.git" --bind "$own/tmp" /tmp --bind "$own/run" "$runtime" "$@" || status=$?
+  chmod -R u+rwx "$own" 2>/dev/null; rm -rf "$own"
+  return "$status"
 }
