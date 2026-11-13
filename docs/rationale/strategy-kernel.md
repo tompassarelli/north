@@ -484,6 +484,49 @@ and `libm` for `north-strategy`). The source text is checked rather than a build
 extra target installed; the 24-hour lane replay, not a 7-day one, carries the time and memory bound.
 The replay report's `measured:` line gives each kind's slowest call and the replay's memory growth, and like the time budget, the scan names a lane for a call or growth bound only when its figure is more than 1.5 times main's of the same build profile on the same host (2026-11-06: a debug lane replaying a day of the laptop's log showed 16.7 ms calls and 238 MiB of growth, mostly the log itself, which main's release build does not match).
 
+## Does replay catch a known failure? (measured 2026-11-13)
+
+The line audit's review (south `agents/decisions/harness/line-audit-review-2026-11-12.md`) set the bar: keep
+`north-replay` if it flags at least one of the last three placement incidents, and retire it if it flags
+none, because a replay that sees no known failure guards nothing (north#1276).
+
+**Registered check** (experiments.toml `n643-placement-and-admission-run-as`, due 2026-11-13). `north ops
+strategy replay --since 7d --budget` on gex45 at 15:38 UTC with the installed north exited 1 with no change
+under test. It replayed 318,491 cases in 0.93 s, and its own code against its own log changed 51,225 of 318,420
+admission decisions and refused three admission counts: DEFER_BATCH_JOBS logged 65, replayed 328;
+DEFER_DISK_FREE 6,678 against 2,054; DEFER_MEMORY_CAPACITY 2,303 against 29,383. It also refused 301 MiB of
+growth over the 64 MiB bound. Placement replayed 71 cases and changed 6. The check fails on main itself, so its
+exit says nothing about a change.
+
+**Incident runs.** Each incident's binary is `cargo build --release --bin north` at the parent of its fix. Each
+binary replayed `--since 7d` over two logs at 19:46 UTC, and main's installed north ran over the same window
+beside it. The two logs are gex45's own log and the laptop's placement log, which `north runtime mirror` copies
+to `~/.local/state/north/records-mirror/north/decisions` on gex45. The laptop log ran with
+`--invariants --budget`, the gex45 log with `--budget`. The laptop log holds 12,366 placement cases, and main
+changes 2,491 of them. Main also breaches the GitHub floor on 230 of them and passes the provider limit on
+22,296 of 22,296.
+
+| Incident | Binary | Laptop placement | Refusals beyond main's | Flagged |
+|---|---|---|---|---|
+| north#1191: 21 launches inside 100 ms all went to the first host in order (2026-11-11), fixed by d9619d9b8d | 7edaad6cf6 | 607 changed; provider limit 22,256 of 22,256 pass | growth 106 MiB (main 39 MiB); on gex45, admission DEFER_CPU_PRESSURE 40,371 against 18,353 and an 11.2 ms admission call, both from admission code of that day | no |
+| north#1054: a worker placed on an account near its week limit while two other accounts had room (2026-11-12 10:01 UTC), fixed by 74aa9ca208 | 2053bb105d | 621 changed; provider limit 22,244 of 22,244 pass | growth 106 MiB | no |
+| north#1309: the placement case dropped `[placement] surfaces`, so decide() never saw the configured Surface lines (2026-11-13), fixed by 4baf5c9f59 | 1fcf898bf1 | 2,379 changed; provider limit 21,702 of 21,702 pass | none | no |
+
+None of the three is flagged, and each misses for a reason inside the design:
+
+- **north#1191.** The burst came from every decision reading the same unmoved host reading. The logged cases
+  hold that same reading, so the old code decides them as it did live.
+- **north#1054.** The provider-limit invariant judges an account at its limit. An account near its limit is
+  not at it, so the placement passes. The old code decided the logged cases closer to the log than main does (621 changes against
+  2,491).
+- **north#1309.** The fault was a missing case input. Every binary replays from the same incomplete case, so
+  none can show the input was lost. This is the gap reviewer finding 1 named, and only an against-live replay
+  could close it.
+
+The only refusals that differ from main's are memory growth and admission shifts from code unrelated to the
+incident. Verdict: by the review's line, `north-replay` is retired. Its removal, with
+`north land scan strategy-replay` and the `north ops strategy replay` verb, is a box of its own on north#1276.
+
 ## Loading
 
 `north-strategy` is a pure `no_std` leaf crate linked into north, as laid out under
