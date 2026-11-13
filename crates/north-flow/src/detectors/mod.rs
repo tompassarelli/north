@@ -1,6 +1,6 @@
 //! The self-detectors: pure functions from recorded state to findings, run by `north ledger flow`. A stalled
 //! plan box, a silent signal, a repeated lander refusal class, a class of Tom's corrections seen twice and a test over its
-//! time line in its newest land check runs, a crate within 5% of its line cap or over it, a lifecycle machine whose code a landed incident fix changed, a move the lifecycle store refused, a repository whose code-health review signal fires, a skill changed, corrected or drifted since its last review and a followed source due under watching.md, each become one box on the owning issue, filed once per key and left to dispatch to staff. A later episode of a cause whose box is still open comments its reading on that issue instead of filing a second box.
+//! time line in its newest land check runs, a crate within 5% of its line cap or over it, a lifecycle machine whose code a landed incident fix changed, a move the lifecycle store refused, a repository whose code-health review signal fires, a skill changed, corrected or drifted since its last review and a followed source due under watching.md, each become one box on the owning issue, filed once per key and left to dispatch to staff. A later episode of a cause whose box is still open comments its reading on that issue instead of filing a second box. An unchecked issue box that no worker names pages the coordinator and dispatch instead and edits no issue body. Detectors and leads file boxes on the ten outcome issues, never a new issue.
 use std::sync::LazyLock;
 use std::time::Instant;
 
@@ -26,6 +26,7 @@ mod gather;
 mod kind;
 mod machine_fix;
 mod machine_refusal;
+mod page;
 mod plan;
 mod refusal;
 mod signal;
@@ -110,13 +111,25 @@ pub struct Spend {
     pub findings: usize,
 }
 
-pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> (Vec<Finding>, Vec<Spend>) {
+/// What one run of the detectors found: the findings that file a box, the findings that page instead, and what each detector cost.
+pub struct Detected {
+    pub findings: Vec<Finding>,
+    pub pages: Vec<Finding>,
+    pub spends: Vec<Spend>,
+}
+
+pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> Detected {
     let mut findings = Vec::new();
+    let mut pages = Vec::new();
     let mut spends = Vec::new();
     for detector in Detector::ALL {
         let started = Instant::now();
         let found = match detector {
-            Detector::StalledPlan => plan::stalled(&gatherer.plans(now), now, limits),
+            Detector::StalledPlan => {
+                let facts = gatherer.plans(now);
+                pages.extend(plan::unstaffed(&facts, now, limits));
+                plan::stalled(&facts, now, limits)
+            }
             Detector::SilentSignal => signal::silent(&gatherer.signals(), now, limits),
             Detector::RepeatedRefusal => refusal::repeated(&gatherer.refusals(now, limits.refusal_window_s), now, limits),
             Detector::LowDisk => disk::low(&gatherer.disks(), now, limits),
@@ -134,7 +147,7 @@ pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> (Vec<Find
         spends.push(Spend { detector, millis: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), findings: found.len() });
         findings.extend(found);
     }
-    (findings, spends)
+    Detected { findings, pages, spends }
 }
 
 pub fn record(places: &Places, spends: &[Spend], filed: &[Finding]) -> Result<(), String> {
@@ -148,7 +161,7 @@ pub fn record(places: &Places, spends: &[Spend], filed: &[Finding]) -> Result<()
 
 pub fn tick(places: &Places, host: &dyn super::flow::Host, now: f64, file: bool) -> Vec<String> {
     let gatherer = Gatherer::new(places, host).profiling(file);
-    let (findings, spends) = detect_timed(&gatherer, now, &Limits::registry());
+    let Detected { findings, pages, spends } = detect_timed(&gatherer, now, &Limits::registry());
     let mut lines: Vec<String> = Vec::new();
     let mut filed = Vec::new();
     if file {
@@ -161,8 +174,10 @@ pub fn tick(places: &Places, host: &dyn super::flow::Host, now: f64, file: bool)
             }
             Err(error) => lines.push(format!("detectors: filing failed: {error}")),
         }
+        lines.extend(page::deliver(places, host, &pages));
     } else {
         lines.extend(findings.iter().map(|finding| format!("detectors: {} {}: {}", finding.detector.name(), finding.key, finding.title)));
+        lines.extend(pages.iter().map(|finding| format!("detectors: {} {}: paged, not filed: {}", finding.detector.name(), finding.key, finding.title)));
     }
     if file && let Err(error) = record(places, &spends, &filed) {
         lines.push(format!("detectors: ledger not written: {error}"));

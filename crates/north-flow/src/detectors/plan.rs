@@ -161,17 +161,26 @@ fn plan_findings(doc: &Doc, facts: &Facts, now: f64, limits: &Limits) -> Vec<Fin
 
 pub fn stalled(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
     let mut findings: Vec<Finding> = facts.docs.iter().flat_map(|doc| plan_findings(doc, facts, now, limits)).collect();
-    let repos = super::issue_stall_repos();
-    findings.extend(facts.issues.iter().filter(|issue| now - issue.ready_since > limits.stall_s && !names_issue(&facts.names, &issue.reference) && repos.iter().any(|repo| issue.reference.starts_with(&format!("{repo}#")))).map(|issue| Finding {
-        detector: Detector::StalledPlan,
-        key: format!("issue:{}", issue.reference),
-        owner: Some(issue.reference.clone()),
-        title: format!("Staff the unchecked box of {}", issue.reference),
-        detail: format!("{} has had an unchecked box with every predecessor closed for {:.1} h and no worker, queued follow or lane names it.", issue.reference, (now - issue.ready_since) / 3600.0),
-        done_when: format!("a lane for {} lands on origin/main, or `threads unowned` no longer lists {} as UNOWNED.", issue.reference, issue.reference),
-        instances: vec![issue.reference.clone()],
-    }));
     findings.sort_by(|a, b| a.key.cmp(&b.key));
     findings
 }
 
+/// The unchecked issue boxes whose predecessors all closed and that no worker names: each is a page to the coordinator
+/// and dispatch, never a box in the issue body.
+pub fn unstaffed(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
+    let repos = super::issue_stall_repos();
+    facts
+        .issues
+        .iter()
+        .filter(|issue| now - issue.ready_since > limits.stall_s && !names_issue(&facts.names, &issue.reference) && repos.iter().any(|repo| issue.reference.starts_with(&format!("{repo}#"))))
+        .map(|issue| Finding {
+            detector: Detector::StalledPlan,
+            key: format!("issue:{}", issue.reference),
+            owner: Some(issue.reference.clone()),
+            title: format!("Staff the unchecked box of {}", issue.reference),
+            detail: format!("{} has had an unchecked box with every predecessor closed for {:.1} h and no worker, queued follow or lane names it.", issue.reference, (now - issue.ready_since) / 3600.0),
+            done_when: format!("a lane for `{0}` lands on origin/main, or `threads unowned` no longer lists `{0}` as UNOWNED.", issue.reference),
+            instances: vec![issue.reference.clone()],
+        })
+        .collect()
+}

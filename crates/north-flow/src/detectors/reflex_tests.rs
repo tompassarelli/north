@@ -5,8 +5,9 @@ use std::path::Path;
 use std::process::{ExitStatus, Output};
 use std::time::Duration;
 
+use super::plan::{self, Facts, IssueBox};
 use super::slow_test::PROFILE_MARK;
-use super::tick;
+use super::{Limits, page, tick};
 use crate::flow::{Host, Places};
 
 const STRACE: &str = "% time     seconds  usecs/call     calls    errors syscall\n------ ----------- ----------- --------- --------- ------------------\n 99.90   16.000500    16000500         1           clock_nanosleep\n  0.10    0.016000           3      3200           read\n------ ----------- ----------- --------- --------- ------------------\n100.00   16.016500                  3201           total\n";
@@ -83,7 +84,7 @@ impl Host for FailsFor {
 }
 
 #[test]
-fn a_test_over_the_line_in_three_land_check_runs_gets_one_profiled_box_on_its_owner_and_never_a_second() {
+fn a_test_over_the_line_in_three_land_check_runs_gets_one_profiled_box_on_its_owner_and_never_a_second_and_an_unstaffed_plan_box_pages_once() {
     let root = tempfile::tempdir().unwrap();
     let places = places(root.path());
     let host = Scripted::default();
@@ -116,6 +117,7 @@ fn a_test_over_the_line_in_three_land_check_runs_gets_one_profiled_box_on_its_ow
     assert!(again.iter().all(|line| !line.contains("filed a box")), "{again:?}");
     assert_eq!((host.offloads.borrow().len(), host.edits.borrow().len()), (1, 1));
     a_dry_run_spends_no_slot_a_failed_profile_does_not_starve_the_next_test_and_a_healed_test_is_left_alone();
+    an_unstaffed_plan_box_pages_the_coordinator_and_dispatch_once_and_clears_without_editing_an_issue();
 }
 
 fn a_dry_run_spends_no_slot_a_failed_profile_does_not_starve_the_next_test_and_a_healed_test_is_left_alone() {
@@ -136,4 +138,41 @@ fn a_dry_run_spends_no_slot_a_failed_profile_does_not_starve_the_next_test_and_a
     let second = tick(&places, &host, 3.0, true);
     assert!(second.iter().any(|line| line.contains("slow-test:north::it:slow::beta_slow: filed a box")), "{second:?}");
     assert_eq!(host.0.offloads.borrow().len(), 1);
+}
+
+#[derive(Default)]
+struct Fleet {
+    argv: RefCell<Vec<Vec<String>>>,
+}
+
+impl Host for Fleet {
+    fn output(&self, argv: &[&str], _: Option<&Path>, _: Option<&str>, _: Duration) -> Option<Output> {
+        self.argv.borrow_mut().push(argv.iter().map(|word| (*word).to_owned()).collect());
+        answer("")
+    }
+}
+
+fn an_unstaffed_plan_box_pages_the_coordinator_and_dispatch_once_and_clears_without_editing_an_issue() {
+    let root = tempfile::tempdir().unwrap();
+    let places = Places { home: root.path().join("home"), state: root.path().join("state"), ledger: root.path().join("threads.db"), graph: root.path().join("graph.db") };
+    let limits = Limits { stall_s: 3600.0, silence_cadences: 1.0, refusal_window_s: 3600.0, refusal_min: 1, disk_floor_gib: 1.0, slow_test_seconds: 1.0, slow_test_runs: 1 };
+    let facts = Facts { issues: vec![IssueBox { reference: "north#1290".to_owned(), title: "Land the dispatch help".to_owned(), ready_since: 0.0 }], ..Facts::default() };
+    let now = 7200.0;
+    let pages = plan::unstaffed(&facts, now, &limits);
+    assert_eq!(pages.iter().map(|finding| finding.key.as_str()).collect::<Vec<_>>(), ["issue:north#1290"], "the unchecked box becomes one finding");
+    assert!(plan::stalled(&facts, now, &limits).is_empty(), "the finding files no box on the issue");
+    let fleet = Fleet::default();
+    page::deliver(&places, &fleet, &pages);
+    let calls = fleet.argv.borrow().clone();
+    assert_eq!(calls.len(), 2, "one page to the coordinator and one to dispatch");
+    assert!(calls.iter().all(|call| call[..3] == ["north", "fleet", "send"]), "only fleet messages leave: no gh call edits an issue body");
+    assert!(calls[0].contains(&"--now".to_owned()) && calls[0].contains(&"proxy".to_owned()), "the coordinator is paged urgently");
+    assert!(calls[1].contains(&"dispatch".to_owned()) && !calls[1].contains(&"--now".to_owned()));
+    fleet.argv.borrow_mut().clear();
+    page::deliver(&places, &fleet, &pages);
+    assert!(fleet.argv.borrow().is_empty(), "the same episode pages once");
+    page::deliver(&places, &fleet, &[]);
+    let cleared = fleet.argv.borrow().clone();
+    assert_eq!(cleared.len(), 2, "the episode clears once its box is staffed");
+    assert!(cleared.iter().all(|call| call.contains(&"--cleared".to_owned()) && call.contains(&"issue:north#1290".to_owned())));
 }
