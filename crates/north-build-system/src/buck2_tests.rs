@@ -31,6 +31,8 @@ fn a_buck2_host_runs_its_own_tests_only_behind_the_test_switch_and_moves_a_lint_
     let generation = Buck2::deciding(true, &file).unwrap();
     assert_eq!(generation.land_line(NEXTEST), NEXTEST, "a store generation does not rewrite a line either");
     assert_eq!(generation.host_cases_daemon(), "north-g3-host-cases", "the host-case build's own daemon is the generation's too");
+    let lint = generation.lint(&crate::Lint { root: Path::new(""), selection: crate::Selection::Workspace, resolution: crate::Resolution::PINNED, shell: crate::Shell::Inherited });
+    assert!(lint.words.windows(2).any(|pair| pair == ["--isolation-dir", "north-g3-lint"]), "the lint line runs in its own directory beside the test line's, so two daemons never share one state dir (north#1115)");
     for malformed in ["3", "three\n", "3\n4\n", "\n"] {
         std::fs::write(&file, malformed).unwrap();
         assert!(Buck2::deciding(true, &file).is_err() && Buck2::tool(true, &file).is_err(), "{malformed:?} is refused, not read as no generation");

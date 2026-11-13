@@ -35,7 +35,11 @@ impl Buck2 {
     }
 
     fn words(&self, verb: &[&str]) -> Vec<String> {
-        let isolation = self.isolation.iter().flat_map(|dir| [generation::FLAG, dir.as_str()]);
+        Self::words_in(self.isolation.as_deref(), verb)
+    }
+
+    fn words_in(isolation: Option<&str>, verb: &[&str]) -> Vec<String> {
+        let isolation = isolation.into_iter().flat_map(|dir| [generation::FLAG, dir]);
         std::iter::once("buck2").chain(isolation).chain(verb.iter().copied()).map(str::to_owned).collect()
     }
 
@@ -80,6 +84,8 @@ const UNMATERIALISED: &str = "--materializations=none";
 const REMOTE_ONLY: &str = "--remote-only";
 /// The isolation dir of the host-case build, beside the generation's own: its own daemon and `buck-out`, where its outputs are materialised in the checkout while the check builds beside it leave theirs in the store.
 const HOST_CASES_DAEMON: &str = "host-cases";
+/// The isolation dir of the lint line beside the generation's own: a land check starts it beside the test line, and two daemons on one state dir fail (north#1115).
+const LINT_DAEMON: &str = "lint";
 /// Buck2's exit status for a build the tree's own targets or code failed; an engine or daemon failure exits with another.
 const USER_ERROR: i32 = 3;
 /// The line of a build whose earlier copies stay: it prints why and exits 1, which no side reads as the tree failing to build.
@@ -533,7 +539,8 @@ impl BuildSystem for Buck2 {
     }
 
     fn lint(&self, request: &Lint) -> Invocation {
-        let mut words = self.words(&["bxl", REMOTE_ONLY, UNMATERIALISED, CLIPPY_GATE, "--", "--targets"]);
+        let lint = self.isolation.as_deref().map(|current| generation::beside(current, LINT_DAEMON));
+        let mut words = Self::words_in(lint.as_deref(), &["bxl", REMOTE_ONLY, UNMATERIALISED, CLIPPY_GATE, "--", "--targets"]);
         words.extend(targets(&request.selection));
         self.invocation(request.root, request.shell, words)
     }
