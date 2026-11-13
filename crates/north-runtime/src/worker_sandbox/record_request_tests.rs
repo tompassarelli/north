@@ -150,6 +150,7 @@ fn serve(root: &Path) {
     let placed = root.join("home/code/alpha/worktrees/placed");
     let placed_tip = git_text(&placed, &["rev-parse", "HEAD"]);
     let other = root.join("home/code/alpha/worktrees/other");
+    let gate = |more: &[&str]| ["gate", "open", "--question", "q", "--option", "a", "--option", "b", "--recommend", "1", "--ask-once", "cost"].iter().chain(more).map(|word| (*word).to_owned()).collect::<Vec<_>>();
     let (code, told) = ask(&north, &host, OPEN_SCOPE, &words("true", &git_text(&other, &["rev-parse", "HEAD"])), &other);
     if code != 0 || records.read(SESSION).is_none_or(|record| !record.passed || record.head != git_text(&other, &["rev-parse", "HEAD"])) || !told.is_empty() {
         failures.push(format!("a lane of another name that the session made after it launched was not admitted: exit {code}: {told}"));
@@ -165,11 +166,14 @@ fn serve(root: &Path) {
         (OPEN_SCOPE, words(&marking, &main_tip), "is no lane of", &main),
         (OPEN_SCOPE, words(&marking, &third_tip), "launched in, not one of", &third),
         (OPEN_SCOPE, words(&marking, &placed_tip), "launched in, not one of", &placed),
+        (OPEN_SCOPE, gate(&["--session", "w-neighbour-118"]), "w-records-118 asks as itself, not as w-neighbour-118", &lane),
+        (outside.as_str(), gate(&[]), "runs in none", &lane),
+        (outside.as_str(), ["fleet", "need", "laptop", "a build there"].map(str::to_owned).to_vec(), "runs in none", &lane),
     ] {
         let before = records.read(SESSION);
         let (code, told) = ask(&north, &host, cgroup, &request, from);
         if code != 126 || !told.contains(naming) || before != records.read(SESSION) || ran.exists() {
-            failures.push(format!("a finish check asked for with {naming:?} against it was not refused, or ran, or changed the record: exit {code}: {told}"));
+            failures.push(format!("a request asked for with {naming:?} against it was not refused, or ran, or changed the record: exit {code}: {told}"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));

@@ -43,6 +43,32 @@ pub(super) fn own_path(arguments: &[String], own: &[(String, String)]) -> Option
     (arguments.first().is_some_and(|verb| ["lane", "home"].contains(&verb.as_str())) || super::broker::reaches_ledger(arguments)).then(|| ("PATH".to_owned(), absolute))
 }
 
+/// The fleet session a brokered `gate open` or `fleet need` speaks as, `None` for every other request: the session whose own scope the caller's `cgroup` names on `host` (lane_grant.rs), never a word or variable of the client's, since a gate's question and default answer reach its session's parent and come back into that session as its decision, and a need is placed for its session's next try. A request whose `--session` names any other session is refused, as is one from a caller in no session's scope.
+pub(super) fn asking_session(arguments: &[String], cgroup: Option<&str>, host: &lane_grant::Host) -> Result<Option<(String, String)>, String> {
+    let flags = match arguments {
+        [noun, verb, flags @ ..] if noun == "gate" && verb == "open" => flags,
+        [noun, verb, ..] if noun == "fleet" && verb == "need" => &[][..],
+        _ => return Ok(None),
+    };
+    let (directory, record) = lane_grant::own_session(cgroup.unwrap_or_default(), host, "a gate or a need is asked from a fleet session's own scope, and this caller runs in none")?;
+    let session = record["name"].as_str().filter(|name| !name.is_empty()).ok_or_else(|| format!("{} names no session", directory.display()))?;
+    if let Some([_, other]) = flags.chunks(2).find(|pair| matches!(pair, [flag, other] if flag == "--session" && other != session)) {
+        return Err(format!("{session} asks as itself, not as {other}"));
+    }
+    Ok(Some((lane_grant::SESSION_ENV.to_owned(), session.to_owned())))
+}
+
+/// `variables` with the session `asker` names in place of any the client sent, unchanged when `asker` is `None`.
+pub(super) fn speaking_as(variables: Vec<(String, String)>, asker: Option<(String, String)>) -> Vec<(String, String)> {
+    match asker {
+        Some(session) => {
+            let kept: Vec<_> = variables.into_iter().filter(|(name, _)| *name != session.0).collect();
+            kept.into_iter().chain([session]).collect()
+        }
+        None => variables,
+    }
+}
+
 /// The XDG homes a brokered command reads and writes: this broker's own, since the command runs as the host's process and its state, cache and data belong under the host's homes. Taking the client's scratch ones would record a build's capacity admissions beside the worker instead of in the host's decision ledger (north#1030).
 pub(super) fn homes(home: Option<PathBuf>, get: impl Fn(&str) -> Option<PathBuf>) -> Vec<(String, String)> {
     let home = home.unwrap_or_else(|| PathBuf::from("/"));

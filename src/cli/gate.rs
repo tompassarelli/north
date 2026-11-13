@@ -78,6 +78,10 @@ fn usage() -> NorthError {
 
 fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
     let request = gate_request(flags)?;
+    let words: Vec<String> = ["gate", "open"].iter().chain(flags).map(|word| (*word).to_owned()).collect();
+    if let Some(code) = north_runtime::worker_sandbox::reenter_outside(&words) {
+        return (code == 0).then_some(()).ok_or_else(|| NorthError::Refused(format!("the outside broker's north gate open exited {code}")));
+    }
     scoped(&request, open_boxes)?;
     let opened = fleet.open_or_spool_gate(&request, &Sender::typed(fleet.caller()))?;
     attribution::record(&request.session, "gate", Cause::Tom, &request.question);
