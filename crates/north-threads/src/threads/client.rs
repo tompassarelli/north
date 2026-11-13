@@ -127,9 +127,14 @@ pub fn run_in(arguments: &[String], env: BTreeMap<String, String>, fleet: Arc<dy
 }
 
 pub fn refresh_mirrored_snapshot() {
-    let Some(client) = ambient_client(unread_fleet()) else { return };
-    if let Ok(destination) = fs::read_to_string(&client.remote) {
-        let _ = client.refresh_snapshot(destination.trim(), Duration::ZERO);
+    if let Some(client) = ambient_client(unread_fleet()) {
+        client.refresh_mirrored();
+    }
+}
+
+pub fn refresh_mirrored_snapshot_now() {
+    if let Some(client) = ambient_client(unread_fleet()) {
+        client.refresh_mirrored_now();
     }
 }
 

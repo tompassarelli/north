@@ -35,6 +35,20 @@ impl Client {
         Ok(())
     }
 
+    pub(super) fn refresh_mirrored(&self) {
+        self.pull_mirrored(true);
+    }
+
+    pub(super) fn refresh_mirrored_now(&self) {
+        self.pull_mirrored(false);
+    }
+
+    fn pull_mirrored(&self, recent: bool) {
+        if let Ok(destination) = fs::read_to_string(&self.remote) {
+            let _ = snapshot::refresh(&self.pull_argv(destination.trim()), &self.snapshot, (Duration::ZERO, recent), snapshot::PULL_TIMEOUT);
+        }
+    }
+
     pub(super) fn refresh_snapshot_later(&self, dest: &str, within: Duration) {
         let Some(program) = &self.background else {
             let _ = self.refresh_snapshot(dest, within);

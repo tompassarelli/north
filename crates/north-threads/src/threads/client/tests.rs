@@ -30,7 +30,7 @@ printf '%s\n' "$*" >> "$ROOT/ssh.log"
 [ -f "$ROOT/refusal" ] && case "$last" in *"threads $(awk '{print $6}' "$ROOT/refusal")"*) cat "$ROOT/refusal" >&2; exit 126 ;; esac
 case "$last" in
   *ingest) cat >> "$ROOT/ingest.log"; [ -f "$ROOT/ingest-code" ] && exit "$(cat "$ROOT/ingest-code")" ;;
-  "north threads snapshot-pages") cat >/dev/null; cat "$ROOT/pages" ;;
+  "north threads snapshot-pages") cat > "$ROOT/manifest"; cat "$ROOT/pages" ;;
   "north fleet row put") { cat; echo; } >> "$ROOT/rows.log" ;;
 esac
 exit "$(cat "$ROOT/code")"
@@ -205,13 +205,21 @@ fn a_claim_leaves_the_spool_to_a_detached_flush_and_that_flush_sends_it() {
 
 /// On 2026-11-07 every usage ingest forced a snapshot pull, so whiterabbit and gex45 pulled about 3 times a minute and
 /// nexus rebuilt its 600 MB ledger image for each at 10 to 15 s of CPU, holding its CPU pressure over 10% (north#800).
+/// On 2026-11-13 gex45's one-minute usage sample, failing to open its snapshot, forced a pull that demanded a fresh image every minute,
+/// so nexus rebuilt its 1.1 GB image each minute for a pull the unit's 55 s timeout killed before it landed (north#1054).
 #[test]
-fn a_second_usage_ingest_inside_five_minutes_pulls_no_second_snapshot() {
+fn a_second_usage_ingest_inside_five_minutes_pulls_no_second_snapshot_and_a_reader_refresh_takes_the_kept_image() {
     let rig = rig(&[]);
     let usage = b"{\"type\": \"usage\", \"n\": 1}\n";
     assert_eq!(call(&rig, &["ingest"], usage).0, 0);
     assert_eq!(call(&rig, &["ingest"], usage).0, 0);
     assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.ends_with("north threads snapshot-pages")).count(), 1, "{:?}", log(&rig, "ssh.log"));
+    let asked = |refresh: fn(&Client)| {
+        refresh(&rig.client);
+        fs::read(rig.root.join("manifest")).unwrap()[..snapshot::MAGIC.len()] == snapshot::manifest_bytes(0, &[], true)[..snapshot::MAGIC.len()]
+    };
+    assert!(asked(Client::refresh_mirrored), "a reader's refresh demanded a fresh image, which the ledger host rebuilds for every pull");
+    assert!(!asked(Client::refresh_mirrored_now), "the filing guard's refresh took a kept image that can predate the hold it looks for");
 }
 
 fn stalled_rig() -> Rig {

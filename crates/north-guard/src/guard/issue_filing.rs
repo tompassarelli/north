@@ -72,7 +72,7 @@ impl World for Live {
     }
 
     fn refresh_claims(&mut self) {
-        crate::threads::client::refresh_mirrored_snapshot();
+        crate::threads::client::refresh_mirrored_snapshot_now();
     }
 
     fn open(&mut self, repo: &str) -> Vec<(u64, String)> {
