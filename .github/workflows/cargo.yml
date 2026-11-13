@@ -100,7 +100,7 @@ jobs:
       - name: Warm the check artifacts the clippy land check restores
         if: github.ref == 'refs/heads/main' && matrix.shard == 1
         shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
-        run: cargo clippy --all-targets --locked
+        run: cargo clippy --all-targets --locked -- -D warnings
   cover:
     needs: test
     if: ${{ !cancelled() }}
