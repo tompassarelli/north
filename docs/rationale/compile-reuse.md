@@ -524,6 +524,8 @@ The store was on cpx62, with Buildbarn workers on gex45 (8 slots), cpx62 and cpx
      the longest first-party compile actions took 3.9 s (north-base check), 5.4 s (north-pace), 6.1 s
      (north-providers) and 8.3 s (north-ops diagnostics), all remote under full load. Box 9 records the
      one-line-edit rebuild before and after.
+   - The remote-only rule covers build, test and bxl. `run` is outside it, because a `buck2 run` binary executes in the client.
+   - `bin/land-shell` refuses `buck2 run --remote-only` (north#1291), so no lane reaches that path.
 6. **The worker sandbox lets a lane's daemon live** (the three failures in [Worker sandbox](#worker-sandbox)).
    - It prepares the lane's own daemon directory under `~/.buck/buckd/` before it builds a domain (north#1116).
    - It prepares `buck-out/` before it builds a domain (north#1116).

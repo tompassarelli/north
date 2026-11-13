@@ -20,7 +20,7 @@ fn link(target: &Path, link: &Path) {
 }
 
 #[test]
-fn a_build_script_run_through_the_agent_path_reads_no_credential_and_reaches_no_network() {
+fn an_agent_build_path_reads_no_credential_reaches_no_network_and_refuses_a_remote_buck2_run() {
     let scratch = tempfile::tempdir().unwrap();
     let home = scratch.path().join("home");
     let secret = home.join(".local/state/north/profiles/claude-a/setup-token");
@@ -55,4 +55,33 @@ fn a_build_script_run_through_the_agent_path_reads_no_credential_and_reaches_no_
     let seen = fs::read_to_string(crate_dir.join("probe.txt")).unwrap_or_default();
     assert!(output.status.success() && seen.contains("ran"), "the build script did not run: {}", String::from_utf8_lossy(&output.stderr));
     assert!(!seen.contains("LEAK"), "the build script reached what it must not: {seen}");
+    let fake = crate_dir.join("fake-bin");
+    fs::create_dir_all(&fake).unwrap();
+    let ran = crate_dir.join("buck2-ran");
+    north_core::foundation::shim::write_script(&fake.join("buck2"), &format!("echo \"$*\" >>'{}'\n", ran.display()));
+    let land_shell = crate::support::manifest_dir().join("bin/land-shell");
+    let land = |words: &[&str]| {
+        Command::new(&land_shell)
+            .arg("--")
+            .arg("buck2")
+            .args(words)
+            .current_dir(&crate_dir)
+            .env("HOME", &home)
+            .env("PATH", format!("{}:{}", fake.display(), std::env::var("PATH").unwrap()))
+            .env("XDG_STATE_HOME", home.join(".local/state"))
+            .env_remove("DEPBOX")
+            .output()
+            .unwrap()
+    };
+    let refused = land(&["run", "--remote-only", "//x:y"]);
+    assert_eq!(refused.status.code(), Some(2), "buck2 run --remote-only was not refused: {}", String::from_utf8_lossy(&refused.stderr));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("would run tree-defined code beside the network"), "{}", String::from_utf8_lossy(&refused.stderr));
+    let cases: [&[&str]; 2] = [&["--isolation-dir", "x", "run", "--remote-only", "//x:y"], &["run", "//x:y", "--remote-only"]];
+    for words in cases {
+        let refused = land(words);
+        assert_eq!(refused.status.code(), Some(2), "buck2 {words:?} was not refused: {}", String::from_utf8_lossy(&refused.stderr));
+    }
+    assert!(!ran.exists(), "a refused buck2 --remote-only invocation executed the binary");
+    let built = land(&["build", "--remote-only", "//x:y"]);
+    assert!(built.status.success() && fs::read_to_string(&ran).unwrap_or_default().contains("build --remote-only //x:y"), "buck2 build --remote-only did not reach buck2: {}", String::from_utf8_lossy(&built.stderr));
 }
