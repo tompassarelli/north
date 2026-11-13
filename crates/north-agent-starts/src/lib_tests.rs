@@ -14,9 +14,9 @@ fn only_a_plain_start_request_in_the_request_directory_starts_a_session() {
     fs::write(queue.join("5.start"), request("code/north", "").replace(r#""account":"a""#, r#""account":"Api""#)).unwrap();
     fs::write(session.join("6.start"), request("code/north", "").replace("f-one", "f-six")).unwrap();
     let entry = root.path().join("entry");
-    fs::write(&entry, "#!/bin/sh\n! read -t 1 early || exit 6; echo 'north-agent-starts: ready'; read line; read -t 1 more; [ $? -gt 128 ] || exit 7; printf '%s\\n' \"$*\" \"$line\" > \"$0.ran\"\n").unwrap();
+    fs::write(&entry, "#!/usr/bin/env bash\n! read -t 1 early || exit 6; echo 'north-agent-starts: ready'; read line; read -t 1 more; [ $? -gt 128 ] || exit 7; printf '%s\\n' \"$*\" \"$line\" > \"$0.ran\"\n").unwrap();
     fs::set_permissions(&entry, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-    let starter = Starter { machinectl: entry, agent: "agent".into(), home: home.clone(), entry: PathBuf::from("/nix/store/entry"), wait: Duration::from_secs(3600) };
+    let starter = Starter { machinectl: entry, agent: "agent".into(), home: home.clone(), entry: PathBuf::from("/nix/store/entry"), wait: Duration::from_secs(10) };
     let mut log = Vec::new();
     starter.serve_once(&Requests::at(&queue), &mut log).unwrap();
     let log = String::from_utf8(log).unwrap();
