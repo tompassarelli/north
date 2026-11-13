@@ -171,7 +171,7 @@ fn a_worker_parked_on_an_unlanded_lane_after_a_not_done_report_stays_and_stale_r
 
 /// On 2026-11-13 the stale-session sweep retired a few sessions per reaper tick and the coordinator was woken every few minutes by one-line digests (north#1235).
 #[test]
-fn retirement_digests_reach_a_parent_at_most_once_per_half_hour_the_first_at_once_and_the_rest_accumulated_across_ticks_and_a_restart() {
+fn retirement_digests_reach_a_parent_at_most_once_per_half_hour_the_first_at_once_and_the_rest_accumulated_across_ticks_and_a_restart_and_held_rows_arrive_as_one_digest_line_per_cause() {
     let home = tempfile::tempdir().unwrap();
     let (before, paper) = fleet(home.path());
     let lead = live(&before, "lead");
@@ -186,9 +186,19 @@ fn retirement_digests_reach_a_parent_at_most_once_per_half_hour_the_first_at_onc
         assert_eq!(retired(&reap_after(fleet, &evidence, 24 * HOUR, at, true)), [name]);
     };
 
+    for (index, text) in ["alarm: a.service failed", "alarm: b.service failed", "alarm: c.service failed", "alarm: d.service failed", "cleared: /tmp/a ok", "cleared: /tmp/b ok", "cleared: /tmp/c ok", "disk is full", "disk is full", "disk is full", "disk is full", "disk is full"].iter().enumerate() {
+        crate::fleet::held::hold(&before.root, "lead", "fleet", text, start + index as u64);
+    }
     retire(&before, &paper, "first", start);
     let sent = digests();
     assert!(sent.len() == 1 && sent[0].contains("1 sessions") && sent[0].contains("first: retired"), "{sent:?}");
+    let held: Vec<String> = lead.frames.lock().unwrap().iter().filter(|frame| frame.contains("held messages")).cloned().collect();
+    assert_eq!(held.len(), 1, "{held:?}");
+    let body: serde_json::Value = serde_json::from_str(&held[0]).unwrap();
+    let lines: Vec<&str> = body["message"]["content"].as_str().unwrap().lines().filter(|line| line.starts_with("- ")).collect();
+    let counts: usize = lines.iter().map(|line| line.split(" x ").nth(1).and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next()).and_then(|n| n.parse::<usize>().ok()).unwrap()).sum();
+    assert!(lines.len() == 3 && counts == 12, "{held:?}");
+    assert_eq!(crate::fleet::held::since(&before.root, 0).len(), 12);
 
     retire(&before, &paper, "second", start + 5 * minute);
     let (restarted, paper) = fleet(home.path());

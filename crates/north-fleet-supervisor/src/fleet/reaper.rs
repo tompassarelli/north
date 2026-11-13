@@ -270,6 +270,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
     }
     if apply {
         fleet.tell_retirement_digests(unlanded.iter().map(|(parent, lanes)| (parent.clone(), lanes.iter().map(digest_line).collect())).collect(), now_ms);
+        fleet.tell_held_digests(now_ms);
     }
     if apply && let Err(why) = fleet.tell_retirement(verdicts, now_ms) {
         eprintln!("fleet reaper: graph tick failed: {why}");

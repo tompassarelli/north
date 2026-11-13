@@ -68,6 +68,18 @@ pub fn join(root: &Path, sender: &str, recipient: &str, text: &str, now_ms: u64,
     joined
 }
 
+pub fn causes(texts: &[String]) -> Vec<String> {
+    let mut groups: Vec<(String, Vec<Vec<String>>)> = Vec::new();
+    for text in texts {
+        let (template, values) = split(&text.split_whitespace().collect::<Vec<_>>().join(" "));
+        match groups.iter_mut().find(|(seen, _)| *seen == template) {
+            Some((_, rows)) => rows.push(values),
+            None => groups.push((template, vec![values])),
+        }
+    }
+    groups.iter().map(|(template, rows)| if rows[0].is_empty() { format!("{template} x {}", rows.len()) } else { render(template, rows) }).collect()
+}
+
 /// Records that `id` is the spooled follow-up of the group `key`.
 pub fn told(root: &Path, key: &str, id: &str) {
     let mut groups = read(root);

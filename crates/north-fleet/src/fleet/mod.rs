@@ -49,7 +49,7 @@ pub mod stage;
 pub mod decision_queue;
 pub use north_session_host::session_host;
 pub mod transcript;
-pub use north_fleet_store::{alarm_stats, alarms, flood, fold, held, ask_once, gate_lifecycle, gates, sender, store};
+pub use north_fleet_store::{alarm_stats, alarms, alike, flood, fold, held, ask_once, gate_lifecycle, gates, sender, store};
 use north_fleet_store::ssh;
 pub mod board;
 pub mod claude_only;

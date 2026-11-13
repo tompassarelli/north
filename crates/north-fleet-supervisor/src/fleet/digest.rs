@@ -24,6 +24,8 @@ pub fn interval() -> Duration {
 struct Parent {
     sent_ms: Option<u64>,
     lines: Vec<String>,
+    held_through_ms: Option<u64>,
+    held_sent_ms: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -71,9 +73,40 @@ impl Fleet {
                 Err(error) => eprintln!("fleet reaper: {parent} was not told of {} unlanded lanes: {}", pending.lines.len(), error.user_message()),
             }
         }
-        book.0.retain(|_, pending| !pending.lines.is_empty() || pending.sent_ms.is_some_and(|sent| now_ms.saturating_sub(sent) < window));
+        book.0.retain(|_, pending| !pending.lines.is_empty() || pending.held_through_ms.is_some() || pending.sent_ms.is_some_and(|sent| now_ms.saturating_sub(sent) < window));
         if let Err(error) = self.keep_digest_book(&book) {
             eprintln!("fleet reaper: the pending retirement digests were not kept: {error}");
+        }
+    }
+
+    pub fn tell_held_digests(&self, now_ms: u64) {
+        let window = u64::try_from(interval().as_millis()).unwrap_or(u64::MAX);
+        let mut book = self.digest_book();
+        let mut by_recipient: BTreeMap<String, Vec<crate::fleet::held::Held>> = BTreeMap::new();
+        for row in self.held_since(0) {
+            if book.0.get(&row.to).and_then(|parent| parent.held_through_ms).is_none_or(|at| row.at_ms > at) {
+                by_recipient.entry(row.to.clone()).or_default().push(row);
+            }
+        }
+        for (recipient, rows) in by_recipient {
+            let parent = book.0.entry(recipient.clone()).or_default();
+            if parent.held_sent_ms.is_some_and(|sent| now_ms.saturating_sub(sent) < window) {
+                continue;
+            }
+            let texts: Vec<String> = rows.iter().map(|row| row.text.chars().take(300).collect()).collect();
+            let causes = crate::fleet::alike::causes(&texts);
+            let lines: String = causes.iter().map(|cause| format!("\n- {cause}")).collect();
+            let text = format!("[north: {} held messages of {} causes since the last digest]{lines}", rows.len(), causes.len());
+            match self.send_signed(&Sender::fleet(), &recipient, &text, Delivery::Queued) {
+                Ok(_) => {
+                    parent.held_through_ms = rows.iter().map(|row| row.at_ms).max();
+                    parent.held_sent_ms = Some(now_ms);
+                }
+                Err(error) => eprintln!("fleet reaper: {recipient} was not sent its {} held messages: {}", rows.len(), error.user_message()),
+            }
+        }
+        if let Err(error) = self.keep_digest_book(&book) {
+            eprintln!("fleet reaper: the held digests were not kept: {error}");
         }
     }
 }
