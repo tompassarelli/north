@@ -131,10 +131,10 @@ fn refused_through_the_hook(host: &Host) {
         let request = serde_json::json!({ "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": typed }, "cwd": host.path("").display().to_string() });
         let mut hook = fleet(host, crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         hook.env("NORTH_AGENT_ACTIVE", host.path("activation.active"));
-        let hooked = hook.args(["hook", "pre-bash"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+        let hooked = hook.args(["hook", "pre-bash"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
         std::io::Write::write_all(&mut hooked.stdin.as_ref().unwrap(), request.to_string().as_bytes()).unwrap();
-        let answer: serde_json::Value = serde_json::from_slice(&hooked.wait_with_output().unwrap().stdout).unwrap_or_default();
-        let routed = answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap_or_else(|| panic!("{typed}: the hook did not route it: {answer}")).to_owned();
+        let output = hooked.wait_with_output().unwrap();
+        let routed = serde_json::from_slice::<serde_json::Value>(&output.stdout).ok().and_then(|answer| answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().map(str::to_owned)).unwrap_or_else(|| panic!("{typed}: the hook did not route it: {}\nstdout: {}\nstderr: {}", output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
         assert!(routed.starts_with("north capacity host run "), "{typed}: {routed}");
         let ran = fleet(host, "bash").args(["-c", &routed.replacen("north", crate::support::bin_exe!("CARGO_BIN_EXE_north"), 1)]).output_exclusive().unwrap();
         refused_for_want_of_a_build_host(&ran, typed);
