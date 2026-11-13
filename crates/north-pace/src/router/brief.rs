@@ -3,7 +3,7 @@ use regex::Regex;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
-pub use north_strategy_types::brief::{CATEGORIES, FACETS};
+pub use north_strategy_types::brief::{CATEGORIES, FACETS, SPEC_EXACT};
 
 pub const ART: [&str; 3] = ["anim", "animation", "art"];
 
@@ -283,6 +283,17 @@ pub fn class_refusal(text: &str) -> Option<String> {
         return None;
     }
     Some(format!("Category {category} has no Class: line; name the class of failure before the first blank line and write a Done when that covers every instance of it"))
+}
+
+/// A launch brief whose Spec, Scope, Surface or Verify line opens with a word outside that facet's list, which the run
+/// ledger would drop.
+pub fn facet_refusal(text: &str) -> Option<String> {
+    let fields = brief_header(text);
+    FACETS.iter().find_map(|(name, values)| {
+        let declared = fields.get(&name.to_lowercase())?.trim().trim_matches('`').to_lowercase();
+        let word = TOKEN.find(&declared)?.as_str();
+        (!values.contains(&word)).then(|| format!("{name}: {word} is not a facet value; use one of {}, so the run ledger records it", values.join(", ")))
+    })
 }
 
 static CITATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"docs/references\.md|\bn\s*=\s*\d+").unwrap());

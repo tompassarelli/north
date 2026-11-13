@@ -1,6 +1,8 @@
+pub const SPEC_EXACT: &str = "exact";
+
 /// The brief facets, each a closed vocabulary, in the order the runs table holds them; the guard, the router and the ledger read these.
 pub const FACETS: [(&str, &[&str]); 4] = [
-    ("Spec", &["exact", "measured", "judged"]),
+    ("Spec", &[SPEC_EXACT, "measured", "judged"]),
     ("Scope", &["one-file", "module", "cross-module", "cross-repo"]),
     ("Surface", &["ts", "rust", "lua", "nix", "shell", "workflow", "docs", "assets"]),
     ("Verify", &["none", "local-test", "farm", "native", "visual", "live-run"]),

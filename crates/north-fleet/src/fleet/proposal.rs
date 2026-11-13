@@ -12,9 +12,10 @@ use std::time::Duration;
 use north_fleet_store::ssh::quote;
 
 use super::model::{Machine, boxed, item_issues, named_line};
+use crate::router::brief::SPEC_EXACT;
 
 pub const CATEGORIES: [&str; 5] = ["mechanical", "docs-policy", "tooling", "bug-known-cause", "feature"];
-pub const SPECS: [&str; 2] = ["exact", "named"];
+pub const SPECS: [&str; 1] = [SPEC_EXACT];
 pub const SCOPES: [&str; 2] = ["one-file", "module"];
 const SUBJECT_CHARS: usize = 72;
 const DANGLING: [&str; 14] = ["a", "an", "and", "at", "by", "for", "from", "in", "its", "of", "on", "or", "the", "with"];
