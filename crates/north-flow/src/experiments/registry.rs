@@ -164,6 +164,7 @@ pub struct Experiment {
     pub change: String,
     pub landed: String,
     pub cited: Option<Cited>,
+    pub crates: Vec<String>,
     pub metric: Metric,
     pub scope: Scope,
     pub direction: Direction,
@@ -190,6 +191,7 @@ pub struct Check {
 
 #[derive(Debug)]
 pub struct Registry {
+    pub crates_before: Vec<String>,
     pub experiments: Vec<Experiment>,
     pub checks: Vec<Check>,
 }
@@ -197,6 +199,8 @@ pub struct Registry {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawFile {
+    #[serde(default)]
+    crates_before: Vec<String>,
     #[serde(default)]
     experiment: Vec<Raw>,
     #[serde(default)]
@@ -224,6 +228,8 @@ struct Raw {
     landed: String,
     note: Option<String>,
     rule: Option<String>,
+    #[serde(default)]
+    crates: Vec<String>,
     metric: String,
     measure: Option<String>,
     class: Option<String>,
@@ -302,7 +308,7 @@ fn entry(raw: Raw) -> Result<Experiment, String> {
     if matches!(metric, Metric::IncidentRows(_)) && scope != Scope::default() {
         return Err(format!("{id}: an incident_rows_per_week entry reads one incident class, not a tier or arm"));
     }
-    Ok(Experiment { id, change: collapse(&raw.change), landed: raw.landed, cited, metric, scope, direction, bar: raw.bar, min_n: raw.min_n, before, after, review, owner })
+    Ok(Experiment { id, change: collapse(&raw.change), landed: raw.landed, cited, crates: raw.crates, metric, scope, direction, bar: raw.bar, min_n: raw.min_n, before, after, review, owner })
 }
 
 fn check(raw: RawCheck) -> Result<Check, String> {
@@ -343,5 +349,5 @@ pub fn parse(text: &str) -> Result<Registry, Vec<String>> {
     if let Some(shared) = checks.iter().find(|check| experiments.iter().any(|experiment| experiment.id == check.id)) {
         problems.push(format!("{}: id appears in both [[experiment]] and [[check]]", shared.id));
     }
-    if problems.is_empty() { Ok(Registry { experiments, checks }) } else { Err(problems) }
+    if problems.is_empty() { Ok(Registry { crates_before: raw.crates_before, experiments, checks }) } else { Err(problems) }
 }

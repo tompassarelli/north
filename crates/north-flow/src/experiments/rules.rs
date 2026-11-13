@@ -2,10 +2,11 @@
 use std::fs;
 use std::path::Path;
 
-use super::registry::{self, Experiment, Metric, collapse};
+use super::registry::{self, Experiment, Metric, Registry, collapse};
 use crate::platform::toml_json;
 
 pub const NOTES: &str = "docs/rationale";
+pub const CRATES: &str = "crates";
 pub const CARDS: &str = "harness/nix/cards.toml";
 const OVERTURNED: &str = "Overturned by:";
 const REVIEW: &str = "## Review";
@@ -89,19 +90,45 @@ pub fn unmeasured(classes: &[String], entries: &[Experiment]) -> Vec<String> {
         .collect()
 }
 
+/// The crate directories under `root/crates`, sorted.
+pub fn crate_names(root: &Path) -> Result<Vec<String>, String> {
+    let directory = root.join(CRATES);
+    let mut names: Vec<String> = fs::read_dir(&directory)
+        .map_err(|why| format!("{}: {why}", directory.display()))?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    Ok(names)
+}
+
+/// What stops a landing: a crate that is neither in `crates_before` nor named by an entry's `crates`.
+pub fn unregistered(names: &[String], registry: &Registry) -> Vec<String> {
+    names
+        .iter()
+        .filter(|name| !registry.crates_before.contains(name) && !registry.experiments.iter().any(|entry| entry.crates.contains(name)))
+        .map(|name| format!("{CRATES}/{name}: new crate has no entry in {} naming it in `crates` with its metric, bar and review date", registry::PATH))
+        .collect()
+}
+
 /// The land check: the registry parses, it and the notes agree, and it measures every card once.
 pub fn check(root: &Path) -> Vec<String> {
     let path = root.join(registry::PATH);
-    let entries = match fs::read_to_string(&path).map_err(|why| vec![format!("{}: {why}", path.display())]).and_then(|text| registry::parse(&text)) {
-        Ok(registry) => registry.experiments,
+    let registry = match fs::read_to_string(&path).map_err(|why| vec![format!("{}: {why}", path.display())]).and_then(|text| registry::parse(&text)) {
+        Ok(registry) => registry,
         Err(problems) => return problems,
     };
     let mut problems = match read(root) {
-        Ok(rules) => uncovered(&rules, &entries),
+        Ok(rules) => uncovered(&rules, &registry.experiments),
         Err(why) => vec![why],
     };
     match card_classes(root) {
-        Ok(classes) => problems.extend(unmeasured(&classes, &entries)),
+        Ok(classes) => problems.extend(unmeasured(&classes, &registry.experiments)),
+        Err(why) => problems.push(why),
+    }
+    match crate_names(root) {
+        Ok(names) => problems.extend(unregistered(&names, &registry)),
         Err(why) => problems.push(why),
     }
     problems
