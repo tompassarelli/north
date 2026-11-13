@@ -6,6 +6,7 @@ use north_base::verdict_cache::{self, Check, Pass};
 use super::affected::{self, CHANGED_ENV, CPUS_ENV, PACKAGES_ENV, Scope};
 use super::graph_selection::Away;
 use super::it_modules::{self, IT_ENV, Stage};
+use super::{lint_gate, listed_crates};
 use crate::landing::land_test_selection::SELECT_PATHS_ENV;
 
 pub fn key(root: &Path, base: &str, tree: &str, command: &str, scope_environment: &[(String, String)]) -> Option<String> {
@@ -15,6 +16,40 @@ pub fn key(root: &Path, base: &str, tree: &str, command: &str, scope_environment
     let (south, nixos) = (north_base::platform::shared_config::operator_root(&home), home.join("code/nixos-config/main"));
     let machine_repos: [(&str, &Path); 2] = [("south", &south), ("nixos-config", &nixos)];
     verdict_cache::key(&Check { repo: root, tree, command, runtime: &verdict_cache::runtime_identity(), environment: &environment, machine_repos: &machine_repos })
+}
+
+fn after_landing_name(command: &str) -> Option<(&'static str, &'static str)> {
+    if lint_gate::wraps(command) {
+        Some(lint_gate::AFTER_LANDING)
+    } else if listed_crates::wraps(command) {
+        Some(listed_crates::AFTER_LANDING_RUN)
+    } else {
+        None
+    }
+}
+
+/// The key entry of an after-landing verdict: the name and value Cargo keyed it by while no host sets `buck2_after_run`, and the hosts that set it once one does, so a pass Buck2 decided is never taken for Cargo's.
+fn after_landing_decider(name: &str, cargo: &str, hosts: &[String]) -> Option<(String, String)> {
+    match hosts {
+        [] => (!cargo.is_empty()).then(|| (name.to_owned(), cargo.to_owned())),
+        hosts => Some((name.to_owned(), format!("buck2-after-landing:{}", hosts.join(",")))),
+    }
+}
+
+pub fn before_landing_key(root: &Path, base: &str, tree: &str, command: &str, scope_environment: &[(String, String)]) -> Option<String> {
+    let selected = scope_environment.iter().find(|(name, _)| name == PACKAGES_ENV).map(|(_, value)| value.as_str());
+    let decider = listed_crates::decides(command, selected).then(|| {
+        let (name, value) = listed_crates::BEFORE_LANDING;
+        (name.to_owned(), value.to_owned())
+    });
+    let environment: Vec<(String, String)> = scope_environment.iter().cloned().chain(decider).collect();
+    key(root, base, tree, command, &environment)
+}
+
+pub fn after_landing_key(root: &Path, base: &str, tree: &str, command: &str, scope_environment: &[(String, String)]) -> Option<String> {
+    let decider = after_landing_name(command).and_then(|(name, cargo)| after_landing_decider(name, cargo, &north_build_system::after_run_hosts()));
+    let environment: Vec<(String, String)> = scope_environment.iter().cloned().chain(decider).collect();
+    key(root, base, tree, command, &environment)
 }
 
 pub fn selection_environment(scope: Option<&Scope>, it: Option<&str>, selected_paths: Option<&str>) -> Vec<(&'static str, String)> {

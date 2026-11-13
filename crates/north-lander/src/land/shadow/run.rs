@@ -43,7 +43,7 @@ pub fn missing(settings: &Settings, worktree: &Path, main: &str, host: &str, pat
     let commands = Config::load(worktree, &built.head).commands(worktree, main, &built.head).ok()?;
     let program = Path::new(settings.north.first()?);
     let environment = verdict_key::lane_environment(worktree, main, &built.head, Away::on(program, host, main, &built.head).as_ref(), &commands);
-    let keyed: Vec<(String, String)> = commands.into_iter().filter_map(|line| Some((line.clone(), verdict_key::key(worktree, main, &built.head, &line, &environment)?))).collect();
+    let keyed: Vec<(String, String)> = commands.into_iter().filter_map(|line| Some((line.clone(), verdict_key::before_landing_key(worktree, main, &built.head, &line, &environment)?))).collect();
     if keyed.is_empty() {
         return None;
     }

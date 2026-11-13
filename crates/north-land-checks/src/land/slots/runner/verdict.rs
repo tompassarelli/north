@@ -8,8 +8,7 @@ use tokio::process::Command;
 use tokio::task::JoinSet;
 
 use super::{ACTIONS_CLASS, Shared, say};
-use crate::land::slots::affected::PACKAGES_ENV;
-use crate::land::slots::{lint_gate, listed_crates, verdict_key};
+use crate::land::slots::verdict_key;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category};
 
@@ -21,45 +20,19 @@ struct Inputs {
     tree: String,
     environment: Vec<(String, String)>,
     after: bool,
-    after_run_hosts: Vec<String>,
-}
-
-fn after_landing_name(command: &str) -> Option<(&'static str, &'static str)> {
-    if lint_gate::wraps(command) {
-        Some(lint_gate::AFTER_LANDING)
-    } else if listed_crates::wraps(command) {
-        Some(listed_crates::AFTER_LANDING_RUN)
-    } else {
-        None
-    }
-}
-
-/// The key entry of an after-landing verdict: the name and value Cargo keyed it by while no host sets `buck2_after_run`, and the hosts that set it once one does, so a pass Buck2 decided is never taken for Cargo's.
-fn after_landing_decider(name: &str, cargo: &str, hosts: &[String]) -> Option<(String, String)> {
-    match hosts {
-        [] => (!cargo.is_empty()).then(|| (name.to_owned(), cargo.to_owned())),
-        hosts => Some((name.to_owned(), format!("buck2-after-landing:{}", hosts.join(",")))),
-    }
 }
 
 impl Inputs {
     fn of(shared: &Shared) -> Arc<Self> {
         let environment = shared.scope_environment().into_iter().map(|(name, value)| (name.to_owned(), value)).collect();
-        Arc::new(Self { root: shared.root.clone(), base: shared.arguments.base.clone(), tree: shared.arguments.tree().to_owned(), environment, after: shared.arguments.after, after_run_hosts: north_build_system::after_run_hosts() })
+        Arc::new(Self { root: shared.root.clone(), base: shared.arguments.base.clone(), tree: shared.arguments.tree().to_owned(), environment, after: shared.arguments.after })
     }
 
     fn key(&self, command: &str) -> Option<String> {
-        let selected = self.environment.iter().find(|(name, _)| name == PACKAGES_ENV).map(|(_, value)| value.as_str());
-        if !self.after && listed_crates::decides(command, selected) {
-            let (name, value) = listed_crates::BEFORE_LANDING;
-            let environment: Vec<(String, String)> = self.environment.iter().cloned().chain([(name.to_owned(), value.to_owned())]).collect();
-            return verdict_key::key(&self.root, &self.base, &self.tree, command, &environment);
+        if self.after {
+            return verdict_key::after_landing_key(&self.root, &self.base, &self.tree, command, &self.environment);
         }
-        if self.after && let Some((name, cargo)) = after_landing_name(command) {
-            let environment: Vec<(String, String)> = self.environment.iter().cloned().chain(after_landing_decider(name, cargo, &self.after_run_hosts)).collect();
-            return verdict_key::key(&self.root, &self.base, &self.tree, command, &environment);
-        }
-        verdict_key::key(&self.root, &self.base, &self.tree, command, &self.environment)
+        verdict_key::before_landing_key(&self.root, &self.base, &self.tree, command, &self.environment)
     }
 }
 
