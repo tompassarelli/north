@@ -2,7 +2,7 @@ use std::fs;
 use std::time::SystemTime;
 
 use super::rescue::{Finished, Rescue, apply_diff};
-use super::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 #[test]
 fn a_clean_main_ahead_of_origin_keeps_its_commits_on_a_keep_branch_and_resets() {

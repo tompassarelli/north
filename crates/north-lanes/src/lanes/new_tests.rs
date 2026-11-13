@@ -5,7 +5,7 @@ use north_base::platform::git;
 
 use super::lane_issue::recorded;
 use super::new::create;
-use super::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 fn tracks_upstream(dir: &Path) -> bool {
     git::run(dir, &["rev-parse", "--verify", "-q", "@{upstream}"]).is_ok_and(|output| output.status.success())

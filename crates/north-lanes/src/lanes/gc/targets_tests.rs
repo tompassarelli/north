@@ -1,7 +1,7 @@
 use std::fs;
 
 use super::targets::{BuildTarget, drop_build_target};
-use crate::lanes::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 #[test]
 fn a_kept_lane_loses_its_ignored_build_target_unless_a_process_holds_it_open() {

@@ -1,4 +1,5 @@
 use super::check;
+use crate::test_inputs::git::git_in;
 
 fn reasons(base: &str, head: &str) -> Vec<String> {
     check("harness/model-catalog.toml", Some(base), Some(head)).into_iter().map(|finding| format!("{} {}", finding.key, finding.reason)).collect()
@@ -87,20 +88,15 @@ fn a_value_the_installed_reader_rejects_is_refused_though_it_parses_and_keeps_it
     assert!(check("harness/other.toml", Some("count = 2\n"), Some("count = 3\n")).is_empty());
 }
 
-fn git(directory: &std::path::Path, arguments: &[&str]) {
-    let status = std::process::Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).current_dir(directory).args(arguments).status().unwrap();
-    assert!(status.success(), "git {arguments:?}");
-}
-
 fn lane(base: &str, head: &str) -> (tempfile::TempDir, String) {
     let directory = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(directory.path().join("harness")).unwrap();
-    git(directory.path(), &["init", "-q"]);
+    git_in(directory.path(), &["init", "-q"]);
     std::fs::write(directory.path().join(DEFAULTS_PATH), base).unwrap();
-    git(directory.path(), &["add", "."]);
-    git(directory.path(), &["commit", "-q", "-m", "base"]);
+    git_in(directory.path(), &["add", "."]);
+    git_in(directory.path(), &["commit", "-q", "-m", "base"]);
     std::fs::write(directory.path().join(DEFAULTS_PATH), head).unwrap();
-    git(directory.path(), &["commit", "-q", "-am", "head"]);
+    git_in(directory.path(), &["commit", "-q", "-am", "head"]);
     (directory, "HEAD~1..HEAD".to_owned())
 }
 

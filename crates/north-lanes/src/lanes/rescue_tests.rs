@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use super::rescue::{Finished, Rescue, apply_diff};
-use super::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 struct Project {
     root: tempfile::TempDir,

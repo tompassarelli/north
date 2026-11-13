@@ -1,17 +1,11 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use super::fingerprint::{Artifacts, Tree, reusable_set, strong, without_selection};
 use super::path_set::{Entry, Kind, render};
 use super::{Pass, Store};
 use crate::foundation::clock::Timestamp;
-
-fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(root).args(["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
+use crate::test_inputs::git::git_in;
 
 fn commit(root: &Path, files: &[(&str, &str)]) -> String {
     for (path, text) in files {
@@ -19,9 +13,9 @@ fn commit(root: &Path, files: &[(&str, &str)]) -> String {
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::write(target, text).unwrap();
     }
-    git(root, &["add", "-A"]);
-    git(root, &["commit", "-q", "--allow-empty", "-m", "fixture"]);
-    git(root, &["rev-parse", "HEAD"])
+    git_in(root, &["add", "-A"]);
+    git_in(root, &["commit", "-q", "--allow-empty", "-m", "fixture"]);
+    git_in(root, &["rev-parse", "HEAD"])
 }
 
 fn content(path: &str) -> Entry {
@@ -39,7 +33,7 @@ fn a_pass_recorded_for_a_test_that_read_a_file_outside_its_crate_is_not_reused_a
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path().join("tree");
     fs::create_dir_all(&root).unwrap();
-    git(&root, &["init", "-q", "-b", "main"]);
+    git_in(&root, &["init", "-q", "-b", "main"]);
     let before = commit(&root, &[("crates/a/src/lib.rs", "fn a() {}"), ("harness/x", "one")]);
     let after = commit(&root, &[("harness/x", "two")]);
     let (tree_before, tree_after) = (Tree::load(&root, &before).unwrap(), Tree::load(&root, &after).unwrap());
@@ -58,7 +52,7 @@ fn a_compiled_test_binary_is_keyed_by_the_sources_of_every_crate_it_links_and_by
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path().join("tree");
     fs::create_dir_all(&root).unwrap();
-    git(&root, &["init", "-q", "-b", "main"]);
+    git_in(&root, &["init", "-q", "-b", "main"]);
     let files = [("crates/a/src/lib.rs", "a"), ("crates/b/src/lib.rs", "b"), ("crates/c/src/lib.rs", "c"), ("harness/y", "y")];
     let first = commit(&root, &files);
     let deps = root.join("target/debug/deps");
@@ -96,7 +90,7 @@ fn a_pass_recorded_for_a_test_that_read_an_absolute_host_file_is_keyed_by_that_f
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path().join("tree");
     fs::create_dir_all(&root).unwrap();
-    git(&root, &["init", "-q", "-b", "main"]);
+    git_in(&root, &["init", "-q", "-b", "main"]);
     let head = commit(&root, &[("crates/a/src/lib.rs", "fn a() {}")]);
     let tree = Tree::load(&root, &head).unwrap();
     let mut artifacts = Artifacts::open(&root, None, &root.join("target"), None);

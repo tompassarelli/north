@@ -1,5 +1,5 @@
 use super::repository_name;
-use super::super::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 #[test]
 fn a_checkout_is_named_by_its_origin_not_its_container_directory() {

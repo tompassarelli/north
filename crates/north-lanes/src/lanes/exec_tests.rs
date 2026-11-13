@@ -1,5 +1,5 @@
 use super::*;
-use crate::lanes::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 const WORKSPACE: &str = "[[package]]\nname = \"north\"\nversion = \"0.1.0\"\n\n[[package]]\nname = \"serde\"\nversion = \"1.0.0\"\nsource = \"registry+https://example.invalid/index\"\nchecksum = \"aa\"\n";
 

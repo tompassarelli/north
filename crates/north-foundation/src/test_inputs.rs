@@ -1,3 +1,5 @@
+pub mod git;
+
 pub fn cases() -> usize {
     if std::env::var_os("CI").is_some() { 2048 } else { 128 }
 }

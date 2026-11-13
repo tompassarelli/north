@@ -1,18 +1,12 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use super::{Check, NORTH_IGNORES, Pass, Store, key};
 use crate::foundation::clock::Timestamp;
+use crate::test_inputs::git::git_in;
 
 const SAFE_PUSH: &str = "[land]\n\tcheck = src/ :: bash bin/check\n\tafter = @rust-input :: cargo clippy\n\tafter = docs/ :: ./bin/head-north docs check\n\tcheck = docs/ :: ./bin/head-north --no-build docs check\n";
 const CHECK: &str = "bash bin/check";
-
-fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(root).args(["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
 
 fn commit(root: &Path, files: &[(&str, &str)], message: &str) -> String {
     for (path, text) in files {
@@ -20,14 +14,14 @@ fn commit(root: &Path, files: &[(&str, &str)], message: &str) -> String {
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::write(target, text).unwrap();
     }
-    git(root, &["add", "-A"]);
-    git(root, &["commit", "-q", "--allow-empty", "-m", message]);
-    git(root, &["rev-parse", "HEAD"])
+    git_in(root, &["add", "-A"]);
+    git_in(root, &["commit", "-q", "--allow-empty", "-m", message]);
+    git_in(root, &["rev-parse", "HEAD"])
 }
 
 fn repository() -> (tempfile::TempDir, String) {
     let scratch = tempfile::tempdir().unwrap();
-    git(scratch.path(), &["init", "-q", "-b", "main"]);
+    git_in(scratch.path(), &["init", "-q", "-b", "main"]);
     let head = commit(scratch.path(), &[(".safe-push", SAFE_PUSH), ("src/lib.rs", "fn a() {}"), ("bin/check", "#!/bin/bash\ncat data/input.txt \"$SAFE_PUSH_LAND_PACKAGES\"\n"), ("data/input.txt", "one"), ("docs/a.md", "a"), ("Cargo.toml", "[workspace]")], "base");
     (scratch, head)
 }

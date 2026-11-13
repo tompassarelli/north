@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use north_base::platform::git;
 use super::reap::{Counts, Sweep, disposable};
-use super::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 const AGED: Duration = Duration::from_secs(3 * 3600);
 

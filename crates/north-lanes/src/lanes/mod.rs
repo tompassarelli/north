@@ -26,8 +26,6 @@ mod target_seed;
 mod target_subvolume;
 mod unlock;
 mod unpushed;
-#[cfg(test)]
-mod test_git;
 mod verdict;
 
 pub use exec::{changed_locks, run as lane_exec};

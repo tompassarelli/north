@@ -6,7 +6,7 @@ use super::lane_rejection;
 use super::reap_tests::Container;
 use super::reject::{reject, reject_branch};
 use super::remove::remove;
-use super::test_git::git_in;
+use north_base::test_inputs::git::git_in;
 
 #[test]
 fn a_rejected_lane_holding_unlanded_work_is_bundled_with_its_verdict_and_removed_north_892() {

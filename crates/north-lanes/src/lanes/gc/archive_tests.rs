@@ -2,7 +2,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use super::archive::{CLOSED_ISSUE_HOURS, Lane, archive, archive_unregistered, broken, note_broken, retire_broken, window_hours};
 use super::evidence::IssueState;
-use crate::lanes::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 #[test]
 fn a_closed_issue_lane_is_bundled_then_reaped_after_its_window() {

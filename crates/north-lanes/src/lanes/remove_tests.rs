@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::reap_tests::Container;
 use super::remove::remove;
-use super::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 fn nested_lane(home: &Path) -> (PathBuf, PathBuf) {
     let main = home.join("code/proj/main");

@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 
 use super::local::{lane_activity_ms, reflog_ms};
 use super::strays::modified_within;
-use crate::lanes::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 struct Rig {
     root: tempfile::TempDir,

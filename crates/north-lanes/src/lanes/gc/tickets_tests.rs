@@ -5,7 +5,7 @@ use north_base::foundation::clock::Timestamp;
 use north_base::platform::land_queue;
 
 use super::{Inputs, run_in};
-use crate::lanes::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 fn commit(dir: &Path, file: &str, text: &str, subject: &str) -> String {
     fs::write(dir.join(file), text).unwrap();

@@ -4,7 +4,7 @@ use std::path::Path;
 use super::content::MainContent;
 use super::evidence::{landed, landed_each};
 use super::judged::Judged;
-use crate::lanes::test_git::{git_in, init_repo};
+use north_base::test_inputs::git::{git_in, init_repo};
 
 fn commit(repo: &Path, file: &str, text: &str, subject: &str) {
     fs::write(repo.join(file), text).unwrap();
