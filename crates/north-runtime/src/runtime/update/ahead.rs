@@ -528,7 +528,9 @@ mod tests {
         assert!(fs::read_to_string(runtime.join(BUILT_ON)).unwrap().starts_with("cpx62 ") && !runtime.join(layout::BUILT_HERE).exists(), "the promoted runtime says which host built it");
         assert_eq!(layout::built_from_own_commit(&runtime), Ok(()));
 
-        let busy = slot(&artifacts, &host("cpx62", Some(12.0))).expect("cpx62's slot is free once its drain ended");
+        let mut busy = None;
+        assert!(north_base::platform::wait::until(std::time::Duration::from_secs(5), || { busy = slot(&artifacts, &host("cpx62", Some(12.0))); busy.is_some() }), "cpx62's slot is free once its drain ended, though a child another test forks keeps a copy of it until its exec");
+        let busy = busy.unwrap();
         let (beside, beside_commit) = ("5".repeat(40), "6".repeat(40));
         let mut beside_on = Vec::new();
         let beside_built = |host: &BuildHost, commit: &str, into: &Path| -> Result<(), Failure> {

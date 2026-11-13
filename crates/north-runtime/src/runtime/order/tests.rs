@@ -259,7 +259,7 @@ fn an_order_holds_the_promotion_lock_while_its_canary_runs() {
 
     let held = held.lock().unwrap();
     assert!(held.len() >= 4 && held.iter().all(|step| step.ends_with("promotion lock held")), "{held:?}");
-    assert!(super::super::update::promotion_waiting(&layout, std::time::Duration::ZERO, "after the order").is_ok(), "the order lets go of the lock when it ends");
+    assert!(super::super::update::promotion_waiting(&layout, std::time::Duration::from_secs(5), "after the order").is_ok(), "the order lets go of the lock when it ends");
 }
 
 #[test]
@@ -286,7 +286,7 @@ fn a_promotion_that_takes_the_lock_between_the_holds_release_and_the_order_leave
     .unwrap();
 
     assert!(matches!(between, Some(Ok(Flight::Joined))), "on 2026-11-12 a landing's promotion took the lock the stopped hold had freed and put a commit above the ordered one live for 24 s");
-    assert!(matches!(update::named_lock(&layout, "runtime-order.lock", rustix::fs::FlockOperation::NonBlockingLockExclusive), Ok(Some(_))), "the order's mark ends with the order");
+    assert!(update::named_lock_waiting(&layout, "runtime-order.lock", std::time::Duration::from_secs(5), "the next order").is_ok(), "the order's mark ends with the order, though a child another test forks keeps a copy of it until its exec");
 }
 
 #[test]
