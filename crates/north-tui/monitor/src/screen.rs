@@ -12,7 +12,7 @@ use ratatui::backend::{CrosstermBackend, TestBackend};
 
 use crate::Options;
 use crate::budget::Budgets;
-use crate::collect::{self, Update, default_hosts, fleet::LOCAL};
+use crate::collect::{self, HostTarget, Update, fleet::LOCAL};
 use crate::frame::{View, draw};
 use crate::snapshot::Snapshot;
 
@@ -83,8 +83,7 @@ fn append(path: &Path, snapshot: &Snapshot) -> Result<(), String> {
     writeln!(file, "{line}").map_err(|error| format!("{}: {error}", path.display()))
 }
 
-pub fn live(options: &Options, budgets: &Budgets) -> Result<(), String> {
-    let hosts = default_hosts();
+pub fn live(options: &Options, budgets: &Budgets, hosts: Vec<HostTarget>) -> Result<(), String> {
     let mut snapshot = collect::seed(&hosts);
     let updates = collect::spawn(hosts);
     let offset_s = offset_s();
@@ -114,8 +113,7 @@ fn settled(snapshot: &Snapshot) -> bool {
     readings.iter().all(Option::is_some) && snapshot.hosts.iter().all(|host| host.state.at.is_some())
 }
 
-pub fn once(options: &Options, budgets: &Budgets) -> Result<(), String> {
-    let hosts = default_hosts();
+pub fn once(options: &Options, budgets: &Budgets, hosts: Vec<HostTarget>) -> Result<(), String> {
     let mut snapshot = collect::seed(&hosts);
     let updates = collect::spawn(hosts);
     let deadline = Instant::now() + Duration::from_secs(options.settle_s);
@@ -160,9 +158,9 @@ pub fn replay(options: &Options, budgets: &Budgets, path: &Path) -> Result<(), S
     }
 }
 
-pub fn rebuild(options: &Options, (from, to): (u64, u64)) -> Result<(), String> {
+pub fn rebuild(options: &Options, (from, to): (u64, u64), hosts: &[HostTarget]) -> Result<(), String> {
     let path = options.record.as_ref().ok_or("--rebuild needs --record FILE")?;
-    let snapshots = crate::rebuild::snapshots(&collect::state_dir(), from, to, options.step)?;
+    let snapshots = crate::rebuild::snapshots(&collect::state_dir(), from, to, options.step, hosts)?;
     for snapshot in &snapshots {
         append(path, snapshot)?;
     }

@@ -1271,12 +1271,12 @@ may_use = []
 name = "north-monitor"
 layer = 7
 paths = ["crates/north-tui/monitor/src/**"]
-may_use = []
+may_use = ["north-shared-config"]
 [[module]]
 name = "monitor"
 paths = ["crates/north-tui/monitor/src/**"]
 responsibility = "Render one live terminal screen of fleet, landing queue, runtime versions per host, health and ladder level from the cheapest direct source of each number, each read off the render thread with a timeout, so a broken north still shows what is broken."
-may_use = []
+may_use = ["crate-roots"]
 [[module]]
 name = "evals"
 paths = ["evals/**"]

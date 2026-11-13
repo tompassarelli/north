@@ -32,7 +32,7 @@ fn a_build_host_without_a_checkout_or_ssh_alias_the_land_checks_read_reports_eac
     assert_eq!(run(&needs, &home, &bin), ["~/code/nixos-config/main", "the ssh alias gex45"]);
 
     std::fs::create_dir_all(home.join("code/nixos-config/main/.git")).unwrap();
-    tool(&bin, "ssh", "echo 'hostname 10.78.0.2'");
+    tool(&bin, "ssh", "echo 'hostname 192.0.2.2'");
     assert_eq!(run(&needs, &home, &bin), Vec::<String>::new(), "a host with every checkout and the alias is ready");
 }
 

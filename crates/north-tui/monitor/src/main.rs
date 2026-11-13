@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use budget::Budgets;
+use toml_edit::DocumentMut;
 
 const USAGE: &str = "usage: north-monitor [--budgets FILE] [--record FILE] [--interval MS]
        north-monitor --once [--ansi] [--size WxH] [--settle SECS]
@@ -84,6 +85,14 @@ fn budgets(options: &Options) -> Budgets {
     }
 }
 
+fn configured_hosts() -> Vec<collect::HostTarget> {
+    let variable = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let path = north_shared_config::orchestration(&home, variable("AGENTS_ORCHESTRATION").as_deref(), variable("AGENTS_OPERATOR_DIR").as_deref());
+    let orchestration = std::fs::read_to_string(path).ok().and_then(|text| text.parse::<DocumentMut>().ok()).unwrap_or_default();
+    collect::hosts_in(&orchestration)
+}
+
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let Some(options) = parse(&arguments) else {
@@ -91,11 +100,12 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
     let budgets = budgets(&options);
+    let hosts = configured_hosts();
     let result = match (&options.rebuild, &options.replay) {
-        (Some(window), _) => screen::rebuild(&options, *window),
+        (Some(window), _) => screen::rebuild(&options, *window, &hosts),
         (None, Some(path)) => screen::replay(&options, &budgets, path),
-        (None, None) if options.once => screen::once(&options, &budgets),
-        (None, None) => screen::live(&options, &budgets),
+        (None, None) if options.once => screen::once(&options, &budgets, hosts),
+        (None, None) => screen::live(&options, &budgets, hosts),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

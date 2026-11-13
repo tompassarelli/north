@@ -12,6 +12,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use toml_edit::{DocumentMut, Item};
+
 use crate::snapshot::{Builds, Fleet, Health, Holds, Host, HostState, Ladder, Lander, Landing, Reading, Rollout, Snapshot};
 
 pub enum Update {
@@ -32,11 +34,9 @@ pub struct HostTarget {
     pub ssh: Option<String>,
 }
 
-pub fn default_hosts() -> Vec<HostTarget> {
-    [("whiterabbit", None), ("gex45", Some("tom@gex45")), ("nexus", Some("nexus")), ("cpx62", Some("tom@cpx62")), ("cpx62b", Some("tom@cpx62b"))]
-        .into_iter()
-        .map(|(name, ssh)| HostTarget { name: name.into(), ssh: ssh.map(str::to_owned) })
-        .collect()
+pub fn hosts_in(orchestration: &DocumentMut) -> Vec<HostTarget> {
+    let configured = orchestration.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter()).filter_map(|(name, host)| Some(HostTarget { name: name.to_owned(), ssh: Some(host.get("ssh")?.as_str()?.to_owned()) }));
+    std::iter::once(HostTarget { name: fleet::LOCAL.into(), ssh: None }).chain(configured).collect()
 }
 
 pub fn now() -> u64 {
