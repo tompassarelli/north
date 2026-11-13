@@ -1,7 +1,18 @@
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::model::Delivery;
 use crate::fleet::registry::{Fleet, Granted};
-use crate::fleet::runtime::SESSION_ENV;
+use crate::fleet::runtime::{SESSION_ENV, SPOOLED_ENV};
 use crate::fleet::store::RowKind;
+
+/// A launch or revive the fleet tick runs from a lead's spool prints only to the tick's launch log, so its failure is told to that lead.
+pub(super) fn told_on_failure(fleet: &Fleet, words: &[&str], result: NorthResult<()>) -> NorthResult<()> {
+    let lead = std::env::var_os(SPOOLED_ENV).and_then(|_| std::env::var(SESSION_ENV).ok()).filter(|lead| !lead.is_empty());
+    if let (Err(error), Some(lead)) = (&result, lead) {
+        let name = words.iter().position(|word| *word == "--name").and_then(|at| words.get(at + 1)).or_else(|| words.get(1)).copied().unwrap_or_default();
+        fleet.tell(&lead, &format!("north fleet {} {name} that you spooled did not start: {}", words.first().copied().unwrap_or_default(), error.user_message()), Delivery::Queued);
+    }
+    result
+}
 
 /// `north fleet launch`: `direct` starts it here, or it is spooled when this process may not write the fleet's session records.
 pub(super) fn or_spool(fleet: &Fleet, words: &[&str], direct: fn(&Fleet, &[&str]) -> NorthResult<()>) -> NorthResult<()> {

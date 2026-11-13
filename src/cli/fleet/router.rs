@@ -132,7 +132,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
             eprintln!("north fleet digest moved to `north work --since DURATION`; it prints the same landed, in-flight, gate, stall and held sections");
             Ok(())
         }
-        ["launch", rest @ ..] => launch(&fleet, rest),
+        ["launch", rest @ ..] => super::spooled_verbs::told_on_failure(&fleet, &words, launch(&fleet, rest)),
         ["adopt", rest @ ..] => adopt::run(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),
         ["tick", rest @ ..] => tick::run(&fleet, rest),
@@ -141,7 +141,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["ask", name, rest @ ..] => ask::run(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
-        words => super::views::run(&fleet, words).unwrap_or_else(|| dispatch_session(&fleet, words)),
+        words => super::views::run(&fleet, words).unwrap_or_else(|| super::spooled_verbs::told_on_failure(&fleet, words, dispatch_session(&fleet, words))),
     }
 }
 

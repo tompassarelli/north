@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Delivery;
-use crate::fleet::runtime::{SESSION_ENV, SPOOLED_ENV};
+use crate::fleet::runtime::{SESSION_ENV, SPOOLED_ENV, binary, new_uuid};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{FleetRow, RowKind};
 
@@ -129,6 +129,13 @@ impl Fleet {
 
 /// Starts `north fleet ARGUMENTS` as `caller` in `cwd` and leaves it running, one at a time: while an earlier one lives it answers `WouldBlock`, so a lead's spooled launches and revives never race each other's claim and hold checks.
 pub(super) fn start_spooled(root: &Path, caller: &str, cwd: &Path, arguments: &[String]) -> io::Result<()> {
+    let exe = std::env::current_exe()?;
+    let north: PathBuf = exe.to_str().and_then(|path| path.strip_suffix(" (deleted)")).map_or(exe.clone(), PathBuf::from);
+    start_scoped(root, caller, cwd, arguments, &binary("systemd-run"), &north)
+}
+
+/// The start of [`start_spooled`] in a transient scope of its own through `systemd_run`: the tick runs as a oneshot unit whose stop kills every process left in its cgroup, so a verb started there died between starting a session host and sending its brief (north#1054).
+pub(super) fn start_scoped(root: &Path, caller: &str, cwd: &Path, arguments: &[String], systemd_run: &Path, north: &Path) -> io::Result<()> {
     let running = root.join(LAUNCH_RUNNING);
     if fs::read_to_string(&running).ok().and_then(|pid| pid.trim().parse::<u32>().ok()).is_some_and(|pid| Path::new("/proc").join(pid.to_string()).exists()) {
         return Err(io::ErrorKind::WouldBlock.into());
@@ -137,9 +144,8 @@ pub(super) fn start_spooled(root: &Path, caller: &str, cwd: &Path, arguments: &[
     if log.metadata()?.len() > LOG_CAP {
         log.set_len(0)?;
     }
-    let exe = std::env::current_exe()?;
-    let north: PathBuf = exe.to_str().and_then(|path| path.strip_suffix(" (deleted)")).map_or(exe.clone(), PathBuf::from);
-    let mut child = Command::new(north).arg("fleet").args(arguments).current_dir(cwd).env(SESSION_ENV, caller).env(SPOOLED_ENV, "1").stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log).process_group(0).spawn()?;
+    let unit = format!("north-spooled-{}", new_uuid().map_err(|error| io::Error::other(error.user_message()))?);
+    let mut child = Command::new(systemd_run).args(["--user", "--scope", "--quiet", "--collect", "--property=RuntimeMaxSec=600", "--unit", &unit, "--"]).arg(north).arg("fleet").args(arguments).current_dir(cwd).env(SESSION_ENV, caller).env(SPOOLED_ENV, "1").stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log).process_group(0).spawn()?;
     let _ = fs::write(&running, child.id().to_string());
     std::thread::spawn(move || child.wait());
     Ok(())

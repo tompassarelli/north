@@ -230,6 +230,11 @@ mod tests {
         fs::write(root.join("started"), format!("{caller} in {}: {}", cwd.display(), words.join(" ")))
     }
 
+    fn scoped(root: &std::path::Path, caller: &str, cwd: &std::path::Path, words: &[String]) -> std::io::Result<()> {
+        let bin = root.join(".bin");
+        super::super::spooled::start_scoped(root, caller, cwd, words, &bin.join("systemd-run"), &bin.join("north"))
+    }
+
     struct SpooledLead {
         fleet: Fleet,
         tick: Fleet,
@@ -342,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn a_sandboxed_lead_launches_holds_and_forgets_through_the_spool() {
+    fn a_sandboxed_lead_launches_holds_and_forgets_through_the_spool_and_its_launch_outlives_the_tick_that_started_it() {
         let tempdir = tempfile::tempdir().unwrap();
         let home = tempdir.path().canonicalize().unwrap();
         let SpooledLead { fleet, tick, forget, hold, launch, revive } = spooled_lead(&home);
@@ -358,5 +363,22 @@ mod tests {
         assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: launch --provider claude --role worker --parent n870-lead --name n870-new --task north#870 --no-wait --cwd {main_text} brief"));
         tick.deliver_row(&revive).unwrap();
         assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: revive n870-stopped --effort high"));
+
+        use std::os::unix::fs::PermissionsExt;
+        let bin = fleet.root.join(".bin");
+        fs::create_dir_all(&bin).unwrap();
+        for (program, body) in [("systemd-run", "case \" $* \" in *' --user --scope '*) echo $$ > \"$0.scoped\";; esac\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n"), ("north", "echo host > \"$0.trace\"\nwhile [ ! -e \"$0.tick-ended\" ]; do sleep 0.05; done\necho brief >> \"$0.trace\"\n")] {
+            fs::write(bin.join(program), format!("#!/bin/sh\n{body}")).unwrap();
+            fs::set_permissions(bin.join(program), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let trace = || fs::read_to_string(bin.join("north.trace")).unwrap_or_default();
+        Fleet { starts: scoped, ..fleet.clone() }.deliver_row(&asking(&launch, "outlives-tick", "--name n870-new --task north#870 brief")).unwrap();
+        assert!(north_base::platform::wait::until(std::time::Duration::from_secs(10), || trace() == "host\n"), "the spooled launch never started its host: {:?}", trace());
+        let launch_pid = fs::read_to_string(fleet.root.join(".spooled-launch.pid")).unwrap();
+        if fs::read_to_string(bin.join("systemd-run.scoped")).ok() != Some(format!("{launch_pid}\n")) {
+            std::process::Command::new("kill").args(["-KILL", &launch_pid]).status().unwrap();
+        }
+        fs::write(bin.join("north.tick-ended"), "").unwrap();
+        assert!(north_base::platform::wait::until(std::time::Duration::from_secs(10), || trace() == "host\nbrief\n"), "the tick's end, which kills every process left in its unit, killed the spooled launch between its host and its brief: {:?}", trace());
     }
 }
