@@ -171,6 +171,11 @@ impl Store {
         Ok(Self { connection, who, liveness })
     }
 
+    /// Stops a commit paying a flush of the log: a crash of the process loses nothing, a power cut loses the last commits but leaves the file consistent. For records a peer or a rescan can rebuild.
+    pub fn sync_on_checkpoint(&self) -> NorthResult<()> {
+        self.connection.execute_batch("PRAGMA synchronous = NORMAL").map_err(sql)
+    }
+
     pub fn current<L: Lifecycle>(&self, instance: &str) -> NorthResult<Option<Record<L::State>>> {
         read(&self.connection, L::NAME, instance)?.map(|row| typed::<L>(instance, row)).transpose()
     }

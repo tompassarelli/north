@@ -125,7 +125,9 @@ pub(super) struct Spool {
 impl Spool {
     /// The spool at `directory` with its records in `ledger`; a file with no record is adopted from its suffix.
     pub(super) fn open(directory: &Path, ledger: &Path, at: Timestamp) -> NorthResult<Self> {
-        Self::adopting(Store::open(ledger)?, directory, at)
+        let store = Store::open(ledger)?;
+        store.sync_on_checkpoint()?;
+        Self::adopting(store, directory, at)
     }
 
     pub(super) fn adopting(store: Store, directory: &Path, at: Timestamp) -> NorthResult<Self> {

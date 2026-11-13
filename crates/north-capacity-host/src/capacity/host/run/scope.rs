@@ -57,7 +57,7 @@ pub(crate) fn scope_command(root: &Path, request: &Request, admitted: &Obj, time
     if request.name != "native" {
         arguments.push(format!("--property=TasksMax={}", super::super::policy::task_cap()));
     }
-    arguments.extend([format!("--property=MemoryHigh={}M", show(field(&scope, "memoryMiB").unwrap_or(f64::NAN))), "--property=KillMode=control-group".to_owned()]);
+    arguments.extend([format!("--property=MemoryHigh={}M", show(field(&scope, "memoryMiB").unwrap_or(f64::NAN))), "--property=KillMode=control-group".to_owned(), "--property=IOAccounting=yes".to_owned()]);
     if FROZEN_CLASSES.contains(&request.name.as_str()) {
         arguments.extend(["--".to_owned(), north.clone(), "capacity".to_owned(), "deadline".to_owned(), exact_lease(root, &lease).to_string_lossy().into_owned(), timeout_text(timeout_seconds), "--".to_owned()]);
     } else {

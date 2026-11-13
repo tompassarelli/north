@@ -136,7 +136,7 @@ fn linked(spec: HostSpec, machine: &Machine, home: &Path, held: Held, session: &
 pub(super) fn launch_script(spec: &HostSpec, held: &Path, unit: &str, dir: &str, nonce: &str, detached: Duration, properties: &[String]) -> String {
     let (q_unit, q_dir) = (quote(unit), quote(dir));
     let mut launch = format!(
-        "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce binding limit {BOUND_CONVERSATION} && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
+        "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce binding limit {BOUND_CONVERSATION} && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group --property=IOAccounting=yes \"--setenv=PATH=$PATH\"",
         quote(PRUNE),
         quote(&held.to_string_lossy()),
         quote(nonce),

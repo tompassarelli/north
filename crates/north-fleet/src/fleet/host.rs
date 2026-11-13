@@ -69,7 +69,7 @@ impl Host {
         let mut command = Command::new(binary("setsid"));
         command
             .arg(binary("systemd-run"))
-            .args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "--property=KillMode=control-group", "--property=TimeoutStopSec=5s", "--unit"])
+            .args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "--property=KillMode=control-group", "--property=IOAccounting=yes", "--property=TimeoutStopSec=5s", "--unit"])
             .arg(&unit)
             .arg("--")
             .arg(std::env::current_exe()?)
