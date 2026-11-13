@@ -274,13 +274,13 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 
 - <a id="codex-app-server"></a>**Codex app-server documentation**, https://learn.chatgpt.com/docs/app-server, and the Codex source at the
   revision `61a44880a85d2fd0d8770908dea5733495e571c8`; accessed: not recorded.
-  Informed: [architecture.md](architecture.md), North's process and TUI split and its stdio JSONL transport.
+  Informed: [ARCHITECTURE.md](../ARCHITECTURE.md), North's process and TUI split and its stdio JSONL transport.
   Outcome: adopted; Codex app-server owns provider communication, so North needs no provider SDK or second
   agent loop.
 
 - <a id="dirge"></a>**DIRGE**, at revision `37785707f3dd3543f76dc5125fd8f331ca1c0813`, GPL-3.0-only; link
   not recorded.
-  Informed: [architecture.md](architecture.md)'s adopt-after list: a central deterministic intervention arbiter,
+  Informed: [ARCHITECTURE.md](../ARCHITECTURE.md)'s adopt-after list: a central deterministic intervention arbiter,
   at most one intervention at a safe boundary, traces of selected and declined actions.
   Outcome: prior only; conceptual prior art, with no implementation copied or adapted because of its licence.
 

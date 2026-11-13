@@ -43,7 +43,7 @@ An agent reads in three rings and stops at the first that answers.
 1. Always: `AGENTS.md`, the agent's entry. It holds the rules for working in the repository and an
    area router: one line per code area (a path prefix) naming the doc to read before touching it.
    `README.md` is the human front door: what north is, how to try it, and the same map in prose.
-2. When touching an area: the doc the router names. Concept docs (`architecture.md`, `harness.md`,
+2. When touching an area: the doc the router names. Concept docs (`ARCHITECTURE.md`, `harness.md`,
    `terms.md`, `feedback-loop.md`) explain how parts fit and link to owners; they never restate a
    flag, default or threshold. The feature entry under `docs/features/` says what one command is for.
 3. On demand: the owner of the exact fact. `north --help` and `north SUB --help` for commands and
@@ -58,7 +58,7 @@ An agent reads in three rings and stops at the first that answers.
 | Commands and flags | the command's usage text (`src/cli/reference.txt`, each module's usage string) | name a command or flag; checked to exist |
 | Tuned numbers and thresholds | `harness/defaults.toml` (`value`, `unit`, `source`, `consumers`) | name the key, never the value |
 | Land checks | `.safe-push` | name the check; `safe-push --help` is the contract |
-| Module boundaries | `structure.toml`, then `architecture.md` for the picture | link the path |
+| Module boundaries | `structure.toml`, then `ARCHITECTURE.md` for the picture | link the path |
 | What a feature is for | one file per feature under `docs/features/<NN-section>/` | be one short paragraph; detail goes to `--help` |
 | Feature index | written from `docs/features/` | never be edited by hand |
 | How parts fit | concept docs under `docs/` | link owners; no numbers |
@@ -212,7 +212,7 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
    signals" and "Still unread" in place for `health/loops.rs` and fixing the links into the moved
    sections (`docs/references.md` links them). Then apply the date, version, percentage and model-id
    rules of `tests/readme_links.rs` (not the count rule: list numerals and quantities are prose) to
-   `docs/harness.md`, `docs/architecture.md` and `docs/terms.md`. Done when: `cargo test --test
+   `docs/harness.md`, `ARCHITECTURE.md` and `docs/terms.md`. Done when: `cargo test --test
    readme_links` passes with those files covered; `awk 'BEGIN{RS=""} length > 900'
    docs/harness.md` prints no paragraph; `north check citations --root .` exits 0.
 

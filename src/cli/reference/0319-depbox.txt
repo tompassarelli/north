@@ -1,0 +1,1 @@
+  depbox fetch|run -- COMMAND [ARGS...]         Run a command in the dependency sandbox: home masked except the checkout, no sudo, and under run no network; fetch may reach the network

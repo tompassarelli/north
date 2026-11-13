@@ -1,1 +1,0 @@
-- Frontier benchmark, retired: the benchmark that replayed landed boxes under north's worker harness and under plain Claude Code is gone with its crate and its scoreboard, because the subsystem ledger gave it 13 fix commits and no decision in 14 days. [rationale/frontier.md](../../rationale/frontier.md) keeps the method and the results it recorded (north#730, north#970).

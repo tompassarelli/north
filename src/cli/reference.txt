@@ -355,11 +355,13 @@ Commands:
   land reuse report [--since DURATION]          Count the land-check units answered from a cache, from the north-reuse lines the lander harvests
   land reuse observe -- COMMAND...              Run a buck2 test line and print one north-reuse unit per test binary, with the action key when Buck2 answered it from its cache
   land follow                                   Run after each landing: ingest the fact graph from every source on this host
+  depbox fetch|run -- COMMAND [ARGS...]         Run a command in the dependency sandbox: home masked except the checkout, no sudo, and under run no network; fetch may reach the network
   fleet need HOST REASON [--item REPO#N]         Record that a session needs a host or local need (laptop, native) that only another host can satisfy
   fleet wait RUN [NAME]                         Register a run (job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME) and park the session until it is over
   fleet waits                                   Revive each parked session whose run is over with the run's result
   fleet spool ...                               Machine-side verbs of the fleet spool (take, drop, set-aside, deliver, cache, registry, api-spend) that a far host's tick calls over ssh
   fleet break-glass --issue REPO#N REASON...    Lift the proxy's look budgets for at most 30 minutes, only while the last two launches failed or the launch probe exits non-zero
+  graph retain [--db PATH]                       Delete graph history no reader needs: occurrences, withdrawals and terms older than the retention horizon, then vacuum
   runtime settle                                Run the core-loop probes on the promoted runtime here, then ship it to the other hosts only when every probe passed
   runtime status                                Print the pinned runtime SHA, when it was promoted, and the promotions and fast paths of the last 24 hours
   runtime build SHA                             Build the runtime of a commit on origin/main under the build host's lease and keep it with the host that built it

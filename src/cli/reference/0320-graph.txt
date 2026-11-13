@@ -1,0 +1,1 @@
+  graph retain [--db PATH]                       Delete graph history no reader needs: occurrences, withdrawals and terms older than the retention horizon, then vacuum

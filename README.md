@@ -66,7 +66,7 @@ Read in three rings and stop at the first one that answers:
   [docs/briefing.md](docs/briefing.md), [docs/landing.md](docs/landing.md) and
   [docs/operator-repository.md](docs/operator-repository.md) follow them, and
   [harness/SKILL-ARCHITECTURE.md](harness/SKILL-ARCHITECTURE.md) says how skills are laid out.
-- [docs/](docs/): the concept documents, the feature entries and [docs/rationale/](docs/rationale/), the notes on why.
+- [docs/README.md](docs/README.md): the reference index: the concept documents, the feature entries and [docs/rationale/](docs/rationale/), the notes on why.
 
 ## Concept documents
 
@@ -76,11 +76,9 @@ Read in three rings and stop at the first one that answers:
 - [docs/operator-repository.md](docs/operator-repository.md): where policy lives.
 - [docs/terms.md](docs/terms.md): the four layer terms.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the crates and the `north` app's owning boundaries.
-- [docs/architecture.md](docs/architecture.md): the `north` app's owning boundaries, until it merges into ARCHITECTURE.md.
 - [docs/features/](docs/features/): one short record per command, what it is for.
 - [docs/feedback-loop.md](docs/feedback-loop.md): each recorded signal, its writer and its reader.
 - [docs/references.md](docs/references.md): outside sources, what they shaped and what came of them.
-- [docs/nexus-run.md](docs/nexus-run.md): running a CPU job on Nexus from an owned worktree, until it moves out.
 - [docs/graph.md](docs/graph.md): the fact graph behind `north graph`: terms, occurrences, the ask query and its timing.
 - [harness/skills/verification/SKILL.md](harness/skills/verification/SKILL.md): how tests are kept and run.
 

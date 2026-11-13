@@ -86,6 +86,10 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 7 command | north-monitor | One live terminal screen of fleet, landing queue, runtime versions and health. |
 | 7 command | north | Command routing and the composition root, and the dash report, launch admission, the eval runner and verify-north. |
 
+## Owning boundary
+
+A keystroke in the fleet screen reaches a session by one path: terminal input, fleet screen state, an authorized fleet operation, the session runtime, transcript and usage events, and back to the screen as a projection. `crates/north-fleet/src/fleet/` owns sessions, delivery, decisions and the runtime boundary. `crates/north-tui/src/tui/fleet/` owns the terminal loop, transcript, launch form and fleet digest. `crates/north-providers/src/providers/` adapts provider protocols behind the fleet runtime. `src/cli/` wires commands and provider implementations. The run ledger records session outcomes and task verdicts; it is not a second session authority. A bare `north` follows the same path as `north fleet`.
+
 ## The life of a task
 
 1. **Brief.** `north work brief` composes the text in north-dispatch from the vocabulary in north-pace and the pack in north-context-pack, over the board in north-threads.
@@ -97,6 +101,12 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 7. **Lander.** north-lander queues the lane, lands batches and promotes; north-landing holds the queue and the steps after a landing.
 8. **Runtime order.** north-runtime builds the landed commit, runs the canary, writes the pin and goes live (`crates/north-runtime/src/runtime/order.rs`); long-lived processes follow through north-runtime-follow.
 9. **Records.** The run's ledger row, its thread and its facts are written by the records layer and read by operations and by the next dispatch.
+
+## Session scopes
+
+Each fleet session owns a `north-session-<uuid>.scope` in the user systemd manager, including its provider host and process descendants. Codex sessions have separate app-servers so stopping one cannot terminate another. The host records its PID separately from the scope runner; its directory retains the scope name in `host.scope` after the host exits. Stop and forget synchronously stop that scope before completing; revive clears the previous scope first.
+
+Launchers that create additional systemd units use `north session-unit` with the usual `systemd-run` arguments. This Rust adapter binds the unit to the inherited `NORTH_FLEET_SCOPE` with `BindsTo` and `After`, so capacity jobs and private desktop clients end with their session even after reparenting. `north capacity bounded` applies the same dependency to its bounded scope.
 
 ## The rules
 
