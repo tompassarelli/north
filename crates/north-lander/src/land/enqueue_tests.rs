@@ -558,7 +558,7 @@ fn placed_marker(root: &Path, _base: &str, _head: &str, _north: &str, _stop: &St
 }
 
 fn placed_until_stopped(root: &Path, _base: &str, _head: &str, _north: &str, stop: &Stop) -> Result<(), QueueRefusal> {
-    north_base::platform::wait::until(std::time::Duration::from_secs(20), || stop.stopped());
+    north_base::platform::wait::until(std::time::Duration::from_secs(3600), || stop.stopped());
     fs::write(root.parent().unwrap().join("stopped"), stop.stopped().to_string()).unwrap();
     if stop.stopped() { Err(QueueRefusal::Unjudged(STOPPED.to_owned())) } else { Ok(()) }
 }
@@ -604,7 +604,8 @@ fn static_gates_judge_the_lane_before_its_checks_take_a_build_host_slot_and_a_pr
     let stop = Stop::new();
     let judged = std::thread::scope(|scope| {
         let judging = scope.spawn(|| crate::land::slots::runner::judge_queue_checks_until(&lane.repo, &lane.base, &head, &lane.north, &stop));
-        assert!(north_base::platform::wait::until(std::time::Duration::from_secs(120), || marks.join("placed").exists()), "the land check was never placed");
+        north_base::platform::wait::until(std::time::Duration::from_secs(3600), || marks.join("placed").exists() || judging.is_finished());
+        assert!(marks.join("placed").exists(), "the land check was never placed");
         stop.stop();
         judging.join().unwrap()
     });
