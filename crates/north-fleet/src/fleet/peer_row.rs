@@ -22,6 +22,9 @@ pub fn admit(row: &FleetRow, peer: &str, ledger: &[SessionRow], owner: Option<&s
     if let Some(why) = row.spooled_by.as_deref().and_then(|writer| row.refused_from(writer)) {
         return Err(Refusal::Spoofed(why));
     }
+    if matches!(row.kind, RowKind::Hold | RowKind::Launch) {
+        return Err(Refusal::Spoofed(format!("row {} is a {} row, which only the spool of a session on this host carries", row.id, row.kind.label())));
+    }
     if row.from != peer {
         return Err(Refusal::Spoofed(format!("row {} names from {} but came from {peer}", row.id, row.from)));
     }

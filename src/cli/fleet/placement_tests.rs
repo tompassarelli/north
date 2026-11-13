@@ -79,7 +79,7 @@ fn a_lead_launched_on_a_worker_host_or_onto_a_worker_machine_is_refused_with_the
 }
 
 #[test]
-fn a_pin_keeps_a_saturated_machine_but_queues_on_it_instead_of_starting() {
+fn a_pin_keeps_a_saturated_machine_but_queues_on_it_and_a_launch_the_tick_spooled_never_dials_as_the_operator() {
     let gex45 = placement::Machine { name: "gex45".into(), ssh: "tom@gex45".into(), agent_ssh: None, serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: Some(8), live: Some(5), accounts: vec!["a".into()], claude_ai: Vec::new(), saturation: None, stale_age_s: None, placed_recently: 0 };
     let mut full = decision(Target::Account("claude:a".into()));
     full.machine = Some(gex45);
@@ -93,6 +93,11 @@ fn a_pin_keeps_a_saturated_machine_but_queues_on_it_instead_of_starting() {
         Err(Refusal::Saturated(why)) => assert!(why.starts_with("gex45 skipped: 4 jobs queued in machine-capacity admission (limit 4); it starts there once the host has room"), "{why}"),
         other => panic!("a pinned launch onto a saturated machine started: {other:?}"),
     }
+    assert!(operator_launch(false, false, false, || true));
+    assert!(!operator_launch(false, true, false, || true), "a sandboxed lead's spooled launch picked the operator login");
+    assert!(!operator_launch(true, false, false, || true));
+    assert!(!operator_launch(false, false, true, || true));
+    assert!(!operator_launch(false, false, false, || false));
 }
 
 #[test]

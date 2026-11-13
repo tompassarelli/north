@@ -41,6 +41,7 @@ mod spend;
 mod spares;
 mod spend_queue;
 mod spool;
+mod spooled_launch;
 mod tick;
 mod tier;
 mod tree;
