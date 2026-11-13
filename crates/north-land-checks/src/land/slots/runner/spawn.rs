@@ -203,10 +203,20 @@ impl Shared {
         } else if self.observes(command) {
             let tested = if listed_crates::wraps(command) { listed_crates::wrapped(north, command) } else { command.to_owned() };
             unit_reuse::wrapped(north, &self.arguments.head, self.environment.record_reuse, &tested)
-        } else if self.arguments.after && listed_crates::wraps(command) {
-            listed_crates::wrapped_after(north, command)
+        } else if self.arguments.after {
+            Self::wrapped_after_landing(north, command)
         } else if self.gated(command) {
-            if self.arguments.after { lint_gate::wrapped_after(north, command) } else { lint_gate::wrapped(north, command) }
+            lint_gate::wrapped(north, command)
+        } else {
+            command.to_owned()
+        }
+    }
+
+    fn wrapped_after_landing(north: &str, command: &str) -> String {
+        if listed_crates::wraps(command) {
+            listed_crates::wrapped_after(north, command)
+        } else if lint_gate::wraps(command) {
+            lint_gate::wrapped_after(north, command)
         } else {
             command.to_owned()
         }
