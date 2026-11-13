@@ -78,7 +78,7 @@ impl Change {
         });
         let paths: Vec<&str> = files.iter().map(|changed| changed.path.as_str()).collect();
         let workspace = Workspace::read(&paths, |revision, path| git(root, &["show", &format!("{revision}:{path}")]), base, head);
-        let apart = crate::apart::read(root, head, &paths);
+        let apart = north_base::build_inputs::separate_workspace::read(root, head, &paths);
         let present = if text.is_empty() { Vec::new() } else { present(root, head)? };
         Ok(Self { files, hunks: hunks::parse(&text), added: added.collect(), present, workspace, apart })
     }

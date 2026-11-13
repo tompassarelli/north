@@ -567,7 +567,7 @@ may_use = []
 
 [[module]]
 name = "build_inputs"
-paths = ["crates/north-base/src/build_inputs.rs", "crates/north-base/src/run_time_data.rs", "crates/north-base/src/run_time_data/**"]
+paths = ["crates/north-base/src/build_inputs.rs", "crates/north-base/src/build_inputs/**", "crates/north-base/src/run_time_data.rs", "crates/north-base/src/run_time_data/**"]
 responsibility = "Which repository files a build reads: the root build files and the run-time data the binary embeds."
 may_use = ["foundation", "platform.git", "platform.harness"]
 
@@ -879,7 +879,7 @@ may_use = ["coverage", "crate-roots", "fleet", "foundation", "github_mirror", "g
 name = "graph_change"
 paths = ["crates/north-graph-change/src/**"]
 responsibility = "The change queries the lander asks of the fact graph: the tests a lane's diff can affect, which lanes share a test, which lanes a failure points at, and how a planned task splits into parts that share no file."
-may_use = ["coverage", "crate-roots", "foundation", "graph", "lifecycle"]
+may_use = ["coverage", "crate-roots", "foundation", "graph", "lifecycle", "build_inputs"]
 
 [[module]]
 name = "graph_ground"

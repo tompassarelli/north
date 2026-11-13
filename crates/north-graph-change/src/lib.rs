@@ -7,7 +7,6 @@
 //! the `north` binary, and the lander reaches it through the command line.
 //! `north graph split` turns a task and a base commit into boxes whose parts share no file, reading only the base
 //! tree and one planning call through the `split::Planner` port its caller fills.
-pub mod apart;
 pub mod blame;
 pub mod carry;
 pub mod cli;

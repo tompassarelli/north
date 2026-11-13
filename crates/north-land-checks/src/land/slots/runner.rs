@@ -19,7 +19,7 @@ use build_host::{resolve_runner_host, runner_host};
 use line_refusals::Refusals;
 use checkout::Trees;
 use entry::{any, portable, replay, start_stage};
-use selection::{Selections, defined_on_tree, selections, without_empty_test_selections, without_tests};
+use selection::{Selections, defined_on_tree, selections, unless_no_test, without_empty_test_selections};
 
 mod arguments;
 mod base_tests;
@@ -213,10 +213,7 @@ async fn selected(root: &Path, arguments: &Arguments, (environment, config): (&E
     let ahead = if lists { Some(runner_host(&environment.north, environment, config.runner.as_deref(), avoid).await.ok_or_else(no_build_host)?) } else { None };
     let listing = ahead.as_deref().or(environment.runner.as_deref()).unwrap_or_default();
     let Selections { scope, it, no_test } = selections(root, arguments, &commands, recorded.as_ref(), (listing, &environment.north));
-    let commands = match &no_test {
-        Some(reason) => without_tests(commands, reason),
-        None => commands,
-    };
+    let commands = unless_no_test(commands, no_test.as_deref());
     if !arguments.after && !arguments.leased {
         selection_record::save(&arguments.head, Recorded { scope: scope.clone(), it: it.clone() });
     }
@@ -412,7 +409,8 @@ async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, (config, mu
     let host = arguments.runner_host.clone();
     let commands = steps::awaited("coverage", async { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() }).await;
     let watched = rewritten(&root, &arguments, watched).await;
-    let Selections { scope, it, .. } = steps::selection(|| selections(&root, &arguments, &commands, None, (&arguments.runner_host, &environment.north)));
+    let Selections { scope, it, no_test } = steps::selection(|| selections(&root, &arguments, &commands, None, (&arguments.runner_host, &environment.north)));
+    let commands = unless_no_test(commands, no_test.as_deref());
     let (trees, paths) = steps::timed("trees", || (Trees::of(&root, &arguments.base, &arguments.head), path_class(&root, &arguments.base, &arguments.head)));
     let outcome = Outcome(arguments.outcome.clone());
     let shared = Arc::new(Shared { root, arguments, environment, config, outcome, cancel, workflow: String::new(), trees, paths, fail_fast: false, stoppable: true, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });

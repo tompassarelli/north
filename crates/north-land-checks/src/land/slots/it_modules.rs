@@ -263,7 +263,7 @@ pub fn selection_of_files_with(program: &Path, root: &Path, base: &str, head: &s
     let units = units(&read(tree_wide_units::TABLE)?, &plan)?;
     let floor = Suites::read(root)?.floor(files);
     let selection = match graph_selection::ask(program, root, base, head, stage.batch()) {
-        Some(tests) if tests.is_empty() && matches!(stage, Stage::AfterLanding(_)) && floor.is_empty() && !files.iter().any(|file| compiled(file) || SELECTION_INPUTS.contains(&file.as_str())) => {
+        Some(tests) if tests.is_empty() && floor.is_empty() && ((matches!(stage, Stage::AfterLanding(_)) && !files.iter().any(|file| compiled(file) || SELECTION_INPUTS.contains(&file.as_str()))) || apart_only(root, head, files)) => {
             return Ok(Selection::NoTest(format!("the change graph reaches no test from {}", files.join(", "))));
         }
         Some(tests) if !tests.is_empty() || matches!(stage, Stage::AfterLanding(_)) => {
@@ -303,6 +303,11 @@ fn start_refresh(program: &Path, root: &Path, unknown: usize, listed: usize) {
         Ok(output) => eprintln!("safe-push: north test coverage refresh --start failed: {}", String::from_utf8_lossy(&output.stderr).trim()),
         Err(error) => eprintln!("safe-push: north test coverage refresh --start: {error}"),
     }
+}
+
+fn apart_only(root: &Path, head: &str, files: &[String]) -> bool {
+    let paths: Vec<&str> = files.iter().map(String::as_str).collect();
+    !files.is_empty() && north_base::build_inputs::separate_workspace::read(root, head, &paths).len() == files.len()
 }
 
 fn units(table: &str, plan: &Plan) -> Result<Units, String> {

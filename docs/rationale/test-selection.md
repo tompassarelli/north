@@ -132,6 +132,9 @@ A test runs before landing when any of these holds:
    string) and the graph holds recorded reads, its change selects only the tests that record reading it (rule 4).
    Without that proof it keeps the root package's closure, which is what had sent an `evals/b`-only lane through
    every root-package test the map knows (north#1204).
+   Before the push an empty graph answer otherwise falls back to the crate map, which calls such a path outside every
+   crate and runs every test; so when every changed file is cleared this way and the graph reaches no test, no test
+   check runs before the ticket, which had cost an `evals/b`-only hand-in eleven minutes of Buck2 tests (north#1039).
 4. **Recorded read.** The test recorded reading, listing or expecting absent a path the lane changes, or its source
    embeds one, whatever package it is in. The change graph's cone already selects these through
    `readers` and `embedders`, and this is how `harness/defaults.toml` reaches the five north-fleet-supervisor tests.

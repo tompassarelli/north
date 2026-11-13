@@ -36,7 +36,14 @@ pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String]
     Selections { scope, it: it.map(|it| it.filters), no_test }
 }
 
-pub(super) fn without_tests(commands: Vec<String>, reason: &str) -> Vec<String> {
+pub(super) fn unless_no_test(commands: Vec<String>, no_test: Option<&str>) -> Vec<String> {
+    match no_test {
+        Some(reason) => without_tests(commands, reason),
+        None => commands,
+    }
+}
+
+fn without_tests(commands: Vec<String>, reason: &str) -> Vec<String> {
     commands
         .into_iter()
         .filter(|command| {

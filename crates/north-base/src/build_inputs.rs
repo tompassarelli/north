@@ -27,6 +27,8 @@ pub const RUN_TIME_DATA: [&str; 19] = [
     "docs/feedback-loop.md",
 ];
 
+pub mod separate_workspace;
+
 pub fn rust_build_input_paths() -> impl Iterator<Item = &'static str> {
     ROOT_FILES.into_iter().chain(ROOT_DIRS).chain(EMBEDDED.iter().copied()).chain([".gitattributes"])
 }

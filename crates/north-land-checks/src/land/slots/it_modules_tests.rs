@@ -250,6 +250,7 @@ fn a_lane_changing_only_harness_data_runs_the_tests_that_read_it() {
     let answer = r#"{"tests":["north-fleet fleet::supervisor::tests::reads_defaults"],"always":[],"added":[],"files":[],"untraced":null,"known":1}"#;
     let graph = graph_stub(directory.path(), "graph", &format!("printf '%s' '{answer}'"));
     let selection = selection_asking_with(&graph, &repo, &base, &head, Stage::BeforePush, |_| listing(&["north-fleet fleet::supervisor::tests::reads_defaults"])).unwrap();
+    a_change_only_inside_a_separate_workspace_runs_no_test_before_the_push_when_the_graph_reaches_none();
     assert!(selection.arguments().contains("(binary_id(north-fleet)&(test(=fleet::supervisor::tests::reads_defaults)))"), "the test that reads harness/defaults.toml runs: {}", selection.arguments());
     assert!(selection.packages().contains("north-fleet"), "the package of that test is built: {:?}", selection.packages());
 
@@ -303,4 +304,24 @@ fn listed_in(workspace: &graph_selection::ListedTests, scope: &graph_selection::
         graph_selection::Scope::Workspace => workspace.clone(),
         graph_selection::Scope::Packages(packages) => workspace.iter().filter(|(_, suite)| packages.contains(&suite.package)).map(|(binary, suite)| (binary.clone(), suite.clone())).collect(),
     })
+}
+
+fn a_change_only_inside_a_separate_workspace_runs_no_test_before_the_push_when_the_graph_reaches_none() {
+    let directory = tempfile::tempdir().unwrap();
+    let repo = directory.path().join("repo");
+    std::fs::create_dir_all(repo.join("evals/b/src")).unwrap();
+    harness_data_repo(&repo);
+    let write = |path: &str, text: &str| std::fs::write(repo.join(path), text).unwrap();
+    write("evals/b/Cargo.toml", "[package]\nname = \"eval-b\"\nversion = \"0.1.0\"\n\n[workspace]\n");
+    write("evals/b/src/main.rs", "fn main() {}\n");
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "Add a runner with its own workspace"]);
+    let base = git(&repo, &["rev-parse", "HEAD"]);
+    write("evals/b/src/main.rs", "fn main() {\n    println!(\"eval\");\n}\n");
+    git(&repo, &["commit", "-qam", "Change only the runner"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    let answer = r#"{"tests":[],"always":[],"added":[],"files":["evals/b/src/main.rs"],"untraced":null,"known":2030}"#;
+    let graph = graph_stub(directory.path(), "graph", &format!("printf '%s' '{answer}'"));
+    let selection = selection_asking_with(&graph, &repo, &base, &head, Stage::BeforePush, |_| None).unwrap();
+    assert!(matches!(selection, Selection::NoTest(_)), "an evals/b-only lane the graph reaches no test from runs none before its ticket, not every test of the workspace (north#1039): {}", selection.summary());
 }
