@@ -86,10 +86,15 @@ pub(super) struct Launch<'a> {
     pub repository: &'a str,
 }
 
-/// Whether this launch comes from the operator, never a confined caller: outside every worker sandbox, not a queue replay, whose original caller is unproven, and judged by the launcher's own cgroup (`Fleet::operator_caller`).
+/// Whether this launch comes from the operator, never a confined caller: outside every worker sandbox, not a queue replay, whose original caller is unproven, not a lead's spooled launch, which the fleet tick runs outside every session scope for a sandboxed lead, and judged by the launcher's own cgroup (`Fleet::operator_caller`).
 pub(super) fn operator_launcher(fleet: &Fleet, caller: Option<&str>, queued: Option<&str>) -> bool {
     let Ok(cgroup) = std::fs::read_to_string("/proc/self/cgroup") else { return false };
-    queued.is_none() && !north_runtime::worker_sandbox::confined() && fleet.operator_caller(caller, &cgroup)
+    let spooled = std::env::var_os(crate::fleet::runtime::SPOOLED_ENV).is_some();
+    operator_launch(queued.is_some(), spooled, north_runtime::worker_sandbox::confined(), || fleet.operator_caller(caller, &cgroup))
+}
+
+fn operator_launch(queued: bool, spooled: bool, confined: bool, outside_every_scope: impl FnOnce() -> bool) -> bool {
+    !queued && !spooled && !confined && outside_every_scope()
 }
 
 /// The brief placement reads: the system prompt file when there is one, then the prompt.

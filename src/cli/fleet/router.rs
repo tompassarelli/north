@@ -140,6 +140,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
 
 fn dispatch_session(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     match words {
+        ["revive", name, rest @ ..] if !fleet.writes_records() => super::spooled_verbs::revive(fleet, name, rest),
         ["relaunch", name, rest @ ..] => relaunch::run(fleet, name, rest),
         ["interactive", name] => interactive::run(fleet, name, false),
         ["interactive", name, interactive::AFTER_TURN] => interactive::run(fleet, name, true),
@@ -199,6 +200,10 @@ pub(in crate::cli) fn fleet_load() -> NorthResult<std::collections::BTreeMap<Str
 }
 
 pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
+    super::spooled_verbs::or_spool(fleet, words, launch_here)
+}
+
+fn launch_here(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);

@@ -217,6 +217,12 @@ fn a_lane_only_opencode_worker_reaches_the_brokers_granted_path_without_moving_i
 fn a_claude_workers_safe_push_runs_outside_with_its_own_environment_and_reads_only_what_it_could_north_1094() {
     let fixture = Fixture::new();
     let worker = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-fleet-n1094-x.service\n";
+    let held = fixture.host.home.join(north_base::platform::session_host_files::HELD).join("north-fleet-n1094-x.service");
+    let placed = fixture.host.fleet.join(north_base::platform::session_host_files::PLACED).join("c0ffee-n1094");
+    std::fs::create_dir_all(&held).unwrap();
+    std::fs::create_dir_all(&placed).unwrap();
+    std::fs::write(held.join(north_base::platform::session_host_files::BOUND_CONVERSATION), "c0ffee-n1094").unwrap();
+    std::fs::write(crate::fleet::records::record_file(&placed), serde_json::json!({ "name": "n1094-x", "provider": "claude" }).to_string()).unwrap();
     let own = vec![("HOME".to_owned(), fixture.host.home.display().to_string()), ("NORTH_FLEET_SESSION".to_owned(), "n1094-x".to_owned()), ("NORTH_WORKER_SANDBOXED".to_owned(), "1".to_owned())];
     let landed = fixture.ask_with(worker, &["safe-push", "--to", "main"], &fixture.lane, own.clone());
     assert_eq!(landed.code, 0, "{}", landed.stderr);

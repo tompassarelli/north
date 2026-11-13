@@ -4,6 +4,7 @@ use crate::foundation::clock::Timestamp;
 
 pub const PROXY: &str = "proxy";
 pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
+pub const SPOOLED_ENV: &str = "NORTH_FLEET_SPOOLED";
 pub const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 
 pub fn binary(name: &str) -> PathBuf {
