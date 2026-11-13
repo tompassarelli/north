@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -129,25 +130,25 @@ impl Hand<'_> {
             println!("safe-push: {answer}");
             waiting.quiet = Instant::now();
         }
-        self.ask_when_quiet(waiting, waiting.quiet.elapsed());
+        self.ask_when_quiet(waiting, waiting.quiet.elapsed(), &mut io::stdout());
     }
 
-    fn ask_when_quiet(&self, waiting: &mut Waiting, quiet: Duration) {
+    fn ask_when_quiet(&self, waiting: &mut Waiting, quiet: Duration, out: &mut impl Write) {
         if quiet >= ASK_AFTER {
             waiting.quiet = Instant::now();
-            waiting.ask = self.ask(waiting);
+            waiting.ask = self.ask(waiting, out);
         }
     }
 
     /// Asks the lander where the ticket stands: through this host's outbox, which the lander reads over its own link
     /// to this host, or straight from the queue when the lander runs here.
-    fn ask(&self, waiting: &Waiting) -> Option<Ask> {
+    fn ask(&self, waiting: &Waiting, out: &mut impl Write) -> Option<Ask> {
         let ticket = &self.queued.ticket;
-        println!("safe-push: no verdict on {} ({}) after {} s; asking the lander on {}", ticket.branch, ticket.head, waiting.started.elapsed().as_secs(), self.lander);
+        let _ = writeln!(out, "safe-push: no verdict on {} ({}) after {} s; asking the lander on {}", ticket.branch, ticket.head, waiting.started.elapsed().as_secs(), self.lander);
         if !self.queued.outbox {
             match status::report(self.state_home, &ticket.origin, waiting.name) {
-                Ok(text) => println!("safe-push: {text}"),
-                Err(error) => println!("safe-push: the lander's queue here does not answer: {error}"),
+                Ok(text) => { let _ = writeln!(out, "safe-push: {text}"); }
+                Err(error) => { let _ = writeln!(out, "safe-push: the lander's queue here does not answer: {error}"); }
             }
             return None;
         }
@@ -156,7 +157,7 @@ impl Hand<'_> {
         match queue::write_atomic(&outbox.join(queue::ASKS).join(waiting.name), &format!("{}\n", ticket.head)) {
             Ok(()) => Some(Ask { at: Instant::now(), told: false }),
             Err(error) => {
-                println!("safe-push: cannot ask the lander, since this host's outbox {} refuses the ask: {error}", outbox.display());
+                let _ = writeln!(out, "safe-push: cannot ask the lander, since this host's outbox {} refuses the ask: {error}", outbox.display());
                 None
             }
         }
