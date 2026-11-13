@@ -523,6 +523,19 @@ after = ["2026-11-12", "2026-11-26"]
 review = "2026-11-28"
 owner = "tompassarelli/north#1147"
 
+[[experiment]]
+id = "urgent-slot-line"
+change = "A job of a session the coordinator launched urgent takes the front of a build host's slot line, behind only a red fix, whether it is offloaded from the session's scope or brokered for a sandboxed session's offload or hand-in gate; it is off while the coordinator launches no session with --priority urgent. Judged on first-commit minutes because the registry's metric list has no per-rank slot-line wait metric"
+landed = "85e719b1ac"
+metric = "first_commit_p50_minutes"
+direction = "down"
+bar = 5.0
+min_n = 15
+before = ["2026-10-30", "2026-11-13"]
+after = ["2026-11-13", "2026-11-18"]
+review = "2026-11-20"
+owner = "tompassarelli/north#1036"
+
 [[check]]
 id = "n637-day-without-timeouts"
 box = "shows no start timeout for a day after it lands"
