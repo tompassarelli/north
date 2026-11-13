@@ -529,6 +529,10 @@ impl BuildSystem for Buck2 {
         !self.tests
     }
 
+    fn lists_by_building(&self) -> bool {
+        true
+    }
+
     fn copies_out(&self) -> bool {
         true
     }

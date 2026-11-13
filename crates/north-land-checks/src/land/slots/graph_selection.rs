@@ -127,8 +127,9 @@ pub fn list(root: &Path, away: Option<&Away<'_>>, scope: &Scope) -> Option<Liste
         Scope::Packages(packages) => Selection::Packages(packages.iter().cloned().collect()),
     };
     let built = away.and_then(|away| away.built(scope).map(|built| (away, built)));
+    let compiled = built.as_ref().filter(|_| !builder.lists_by_building());
     let request = |step, selection| north_build_system::Tests { root, step, selection, resolution: Resolution::PINNED, shell: Shell::LandShell, output: Some(Path::new("target")), uncached: false, coverage: None };
-    if let Some((away, selection)) = &built {
+    if let Some((away, selection)) = &compiled {
         let started = crate::land::telemetry::epoch();
         let exited = run_listing(&mut away.command(root, &builder.tests(&request(Step::Compile, selection.clone())))).map(|(output, _)| output.status);
         TEST_BUILDS.lock().unwrap_or_else(PoisonError::into_inner).push((started, crate::land::telemetry::epoch()));

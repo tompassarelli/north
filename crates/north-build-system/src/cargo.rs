@@ -149,6 +149,10 @@ impl BuildSystem for Cargo {
         true
     }
 
+    fn lists_by_building(&self) -> bool {
+        false
+    }
+
     fn copies_out(&self) -> bool {
         false
     }

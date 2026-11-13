@@ -54,6 +54,8 @@ pub trait BuildSystem {
     /// The report a build with `timings` writes of how long each compile unit took.
     fn timings(&self, request: &Build) -> PathBuf;
     fn tests(&self, request: &Tests) -> Invocation;
+    /// Whether [`Self::listing`]'s run builds the test binaries it lists itself, so a caller that compiled them first only compiles twice: Cargo lists what a Cargo build left, Buck2 builds the binaries on the workers as it lists them.
+    fn lists_by_building(&self) -> bool;
     /// The test binaries a [`Step::List`] run printed.
     fn listing(&self, printed: &str) -> Result<Vec<TestBinary>, String>;
     /// Type-checks one package and every target in it, printing its diagnostics as JSON lines.
