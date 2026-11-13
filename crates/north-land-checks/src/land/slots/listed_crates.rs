@@ -55,16 +55,17 @@ fn counted(summary: &str, label: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
-/// The cases `runs` ran in all, when the record holds one run with the case runner's summary for each of the `passed` targets.
-fn summed(passed: Option<u64>, runs: Option<&[TestRun]>) -> Option<Cases> {
+/// The cases `runs` ran in all, when the record holds one passed run of a target of crate `name` with the case runner's summary for each of the `passed` targets.
+fn summed(name: &str, passed: Option<u64>, runs: Option<&[TestRun]>) -> Option<Cases> {
     let runs = runs.filter(|runs| u64::try_from(runs.len()).ok() == passed)?;
-    runs.iter().try_fold(Cases::default(), |sum, run| run.cases().map(|cases| Cases { run: sum.run + cases.run, failed: sum.failed + cases.failed }))
+    let own = |run: &&TestRun| run.passed && north_build_system::crate_holds(name, &run.target);
+    runs.iter().try_fold(Cases::default(), |sum, run| Some(run).filter(own).and_then(TestRun::cases).map(|cases| Cases { run: sum.run + cases.run, failed: sum.failed + cases.failed }))
 }
 
-/// What Buck2 said of one crate, from its exit status, its summary line and its own record of the run.
-fn verdict(status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>) -> Verdict {
+/// What Buck2 said of crate `name`, from its exit status, its summary line and its own record of the run.
+fn verdict(name: &str, status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>) -> Verdict {
     let counts = |label| summary.and_then(|summary| counted(summary, label));
-    match (status, counts("Fail"), summed(counts("Pass"), runs)) {
+    match (status, counts("Fail"), summed(name, counts("Pass"), runs)) {
         (Some(0), Some(0), Some(Cases { run, failed: 0 })) if run > 0 => Verdict::Passed,
         (Some(BUILD_FAILED), ..) => Verdict::Failed,
         (Some(TESTS_FAILED), Some(failed), _) if failed > 0 => Verdict::Failed,
@@ -104,7 +105,7 @@ fn execute(declared: &str) -> u8 {
         eprintln!("north land crate-tests: this host tests {name} with Buck2: {line}");
         let (status, summary) = observed(line);
         let record = north_build_system::test_record(line).filter(|_| status == Some(0)).and_then(|record| runs::read(&record).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of {name}: {why}")).ok());
-        match verdict(status, summary.as_deref(), record.as_deref()) {
+        match verdict(name, status, summary.as_deref(), record.as_deref()) {
             Verdict::Passed => {
                 passed.insert(name.clone());
             }

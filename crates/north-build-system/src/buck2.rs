@@ -51,6 +51,11 @@ fn package(name: &str) -> String {
     }
 }
 
+/// Whether the target `label`, as Buck2's record names it (`root//crates/NAME:TARGET`), is in the package of crate `name`.
+pub(crate) fn holds(name: &str, label: &str) -> bool {
+    label.split_once("//").is_some_and(|(_, target)| package(name).strip_prefix("//").is_some_and(|package| target.starts_with(package)))
+}
+
 fn targets(selection: &Selection) -> Vec<String> {
     match selection {
         Selection::Default | Selection::Workspace => vec!["//...".to_owned()],

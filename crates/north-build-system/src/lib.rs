@@ -96,6 +96,11 @@ pub fn crate_tests(root: &Path, base: Option<&str>, declared: &str, variable: &s
     buck2::crate_tests(root, base?, declared, (variable, selected.filter(|selected| !selected.trim().is_empty()).unwrap_or("--workspace")), &listed)
 }
 
+/// Whether the target `label` of a test record is in the package of workspace crate `name`.
+pub fn crate_holds(name: &str, label: &str) -> bool {
+    buck2::holds(name, label)
+}
+
 /// Whether `command` is the nextest line of `.safe-push` whose listed crates a host's `buck2_test_crates` moves: the one
 /// that reads its selection from the environment variable `variable`.
 pub fn selects_packages(command: &str, variable: &str) -> bool {
