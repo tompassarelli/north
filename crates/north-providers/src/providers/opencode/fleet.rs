@@ -84,7 +84,7 @@ impl Deepseek {
         if let Some(effort) = request.effort.filter(|_| !self.harness.effort_arms().is_empty()).filter(|effort| !self.harness.effort_arms().contains(effort)) {
             return Err(NorthError::Refused(format!("{} runs only at {} effort, not {}", self.harness.provider(), self.harness.effort_arms().iter().map(|effort| effort.label()).collect::<Vec<_>>().join(" or "), effort.label())));
         }
-        if route == Route::Free {
+        if route == Route::Free || (visibility == Visibility::Public && (self.today)() > until) {
             let private: Vec<String> = settings["private"]["repos"].as_array().into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
             screen::refuse_for_free(brief, &private).map_err(NorthError::Refused)?;
         }
