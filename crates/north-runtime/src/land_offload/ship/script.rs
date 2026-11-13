@@ -234,7 +234,8 @@ nearest=$(printf '%s\n' $nearest | { grep -vx "$reserved" || true; }; echo "$res
 queue=$root/queue
 mkdir -p "$queue"
 rank=3
-case " $carried " in *" SAFE_PUSH_LANDING='1' "*) rank=2 ;; *" SAFE_PUSH_LANDING='after' "*) [ -z "$owner" ] || rank=1 ;; esac
+# The hand-in and after-landing words name a rank only on the lander's own jobs: a worker's offload request drops the owner word, so no word it carries can claim one.
+case " $carried " in *" SAFE_PUSH_LANDING='1' "*) [ -z "$owner" ] || rank=2 ;; *" SAFE_PUSH_LANDING='after' "*) [ -z "$owner" ] || rank=1 ;; esac
 [ -z "$urgent" ] || rank=1
 [ "$lander_slot" != 1 ] || rank=1
 [ -z "$red_fix" ] || rank=0

@@ -404,19 +404,20 @@ pub(crate) fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
 }
 
 #[test]
-fn a_red_fix_then_any_land_check_takes_the_first_freed_slot_ahead_of_earlier_worker_builds_while_a_background_sweep_holds_none_of_their_slots() {
+fn a_red_fix_then_a_lander_placed_hand_in_takes_the_first_freed_slot_ahead_of_earlier_worker_builds_while_a_background_sweep_holds_none_of_their_slots() {
     let landing = "SAFE_PUSH_LANDING='1'";
     let order = order_through_one_slot(&[
         Queued { label: "sweep", name: "code-p-main", carried: "", red_fix: "", owner: "", urgent: "", hold: true, class: super::SlotClass::Background },
         Queued { label: "holder", name: "code-p-main", carried: "", red_fix: "", owner: "", urgent: "", hold: true, class: super::SlotClass::LandCheck },
         Queued { label: "worker", name: "code-p-main", carried: "", red_fix: "", owner: "", urgent: "", hold: false, class: super::SlotClass::LandCheck },
-        Queued { label: "land", name: "code-p-main", carried: landing, red_fix: "", owner: "", urgent: "", hold: false, class: super::SlotClass::LandCheck },
+        Queued { label: "forged-land", name: "code-p-main", carried: landing, red_fix: "", owner: "", urgent: "", hold: false, class: super::SlotClass::LandCheck },
+        Queued { label: "land", name: "code-p-main", carried: landing, red_fix: "", owner: "land-check", urgent: "", hold: false, class: super::SlotClass::LandCheck },
         Queued { label: "red-fix", name: "code-p-main", carried: landing, red_fix: "1", owner: "", urgent: "", hold: false, class: super::SlotClass::LandCheck },
         Queued { label: "forged", name: "code-p-main", carried: "SAFE_PUSH_LANDING='after'", red_fix: "", owner: "", urgent: "", hold: false, class: super::SlotClass::LandCheck },
         Queued { label: "after", name: "code-p-main", carried: "SAFE_PUSH_LANDING='after'", red_fix: "", owner: "land-check", urgent: "", hold: false, class: super::SlotClass::LandCheck },
     ]);
     let foreground: Vec<&str> = order.iter().map(String::as_str).filter(|event| *event != "start-sweep").collect();
-    assert_eq!(foreground, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-after", "end-after", "start-land", "end-land", "start-worker", "end-worker", "start-forged", "end-forged", "end-sweep"], "each queued after the worker build and still took the slot first, the red fix ahead of the lander's after-landing job and that ahead of the hand-in land check, an after word with no lander owner stayed behind the worker, and the sweep outlasted them all");
+    assert_eq!(foreground, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-after", "end-after", "start-land", "end-land", "start-worker", "end-worker", "start-forged-land", "end-forged-land", "start-forged", "end-forged", "end-sweep"], "the red fix took the slot first, the lander's after-landing job next and its hand-in land check after that, then the worker builds in arrival order with the hand-in word that carries no lander owner among them, and the sweep outlasted them all");
     let at = |event: &str| order.iter().position(|seen| seen == event);
     assert!(at("start-sweep") < at("end-holder"), "the sweep ran in its own slot beside the holder, outside the one-job cap: {order:?}");
 }
@@ -985,7 +986,7 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
             git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), &job_ref]);
             git(&repo, &["update-ref", "-d", &job_ref]);
             Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "sleep 8", &job_ref, "SAFE_PUSH_LANDING='1'"])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "sleep 8", &job_ref, "SAFE_PUSH_LANDING='1'", "land-check"])
                 .env("HOME", home.path())
                 .env("NORTH_OFFLOAD_SETTLE_SECONDS", "30")
                 .env("PATH", &path)
@@ -1066,11 +1067,11 @@ fn a_worker_build_passes_a_land_check_the_host_cannot_lease_yet_which_waits_out_
     let log = home.path().join("order.log");
     let release = home.path().join("release");
     let script = remote_script("code-p-main", super::SlotClass::LandCheck);
-    let spawn = |label: &str, carried: &str, hold: bool| {
+    let spawn = |label: &str, carried: &str, owner: &str, hold: bool| {
         let gate = if hold { format!("while [ ! -e {} ]; do sleep 0.02; done", release.display()) } else { ":".to_owned() };
         let command = format!("echo start-{label} >>{log}; {gate}; echo end-{label} >>{log}", log = log.display());
         Command::new("setsid")
-            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", carried, "", "", ""])
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", carried, owner, "", ""])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -1082,12 +1083,12 @@ fn a_worker_build_passes_a_land_check_the_host_cannot_lease_yet_which_waits_out_
             .unwrap()
     };
     let landing = "SAFE_PUSH_LANDING='1'";
-    let mut leased = spawn("leased", landing, true);
+    let mut leased = spawn("leased", landing, "land-check", true);
     assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.contains("start-leased"))), "the lone land check never took its slot");
     fs::write(home.path().join("landing-full"), "").unwrap();
-    let charged = spawn("charged", landing, false);
+    let charged = spawn("charged", landing, "land-check", false);
     wait_until_in_line(home.path(), &log, 2);
-    let worker = spawn("worker", "", false).wait().unwrap();
+    let worker = spawn("worker", "", "", false).wait().unwrap();
     assert!(worker.success(), "a worker build queued behind a land check the host cannot lease yet takes a free slot");
     assert!(!fs::read_to_string(&log).unwrap().contains("start-charged"), "the land check whose charge does not fit waits in line, out of a slot");
     let waiting = fs::read_to_string(home.path().join("charged.err")).unwrap();
@@ -1200,7 +1201,7 @@ fn a_job_whose_host_line_would_keep_it_past_its_deadline_leaves_at_once_with_the
     let script = remote_script("code-p-main", super::SlotClass::LandCheck);
     let job = |carried: &str| {
         Command::new("sh")
-            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", ":", "refs/land-offload/job", carried, "", "", "", "", "", ""])
+            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", ":", "refs/land-offload/job", carried, "land-check", "", "", "", "", "", ""])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
