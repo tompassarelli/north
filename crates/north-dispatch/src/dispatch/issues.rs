@@ -246,7 +246,25 @@ impl Issue {
     }
 
     fn product_lines(&self) -> impl Iterator<Item = &str> {
-        self.body.lines().filter(|line| UNTICKED.is_match(line))
+        self.headed_boxes().filter(|(_, heading)| !is_parked(*heading)).map(|(line, _)| line)
+    }
+
+    /// Each unticked box line with the text of the heading it sits under, if any.
+    fn headed_boxes(&self) -> impl Iterator<Item = (&str, Option<&str>)> {
+        let headed = self.body.lines().scan(None, |heading, line| {
+            if line.trim().starts_with('#') {
+                *heading = Some(line.trim().trim_start_matches('#').trim());
+            }
+            Some((line, *heading))
+        });
+        headed.filter(|(line, _)| UNTICKED.is_match(line))
+    }
+
+    /// The first `Parked` heading an unticked box sits under, when no unticked box sits elsewhere: dispatch staffs none of them.
+    fn only_parked(&self) -> Option<&str> {
+        let mut boxes = self.headed_boxes().peekable();
+        let first = boxes.peek().and_then(|(_, heading)| *heading).filter(|heading| is_parked(Some(heading)))?;
+        boxes.all(|(_, heading)| is_parked(heading)).then_some(first)
     }
 
     /// The label that hands the issue to Tom or to a running native job, which no session takes.
@@ -295,6 +313,10 @@ impl fmt::Display for Hold {
             Self::Parked => write!(f, "it is moved out from under the issue's `## Parked` heading"),
         }
     }
+}
+
+fn is_parked(heading: Option<&str>) -> bool {
+    heading.is_some_and(|text| text.to_lowercase().starts_with("parked"))
 }
 
 fn live_reading(line: &str) -> Option<&'static str> {
@@ -461,6 +483,8 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
         }
     } else if issue.unticked() == 0 {
         return Err(if issue.needs_box() { NEEDS_BOX } else { "no unticked Done-when box" }.into());
+    } else if let Some(heading) = issue.only_parked() {
+        return Err(format!("parked: box sits under the heading `{heading}`"));
     }
     if super::facets::category(issue).is_none() {
         return Err(super::facets::UNCATEGORISED.into());

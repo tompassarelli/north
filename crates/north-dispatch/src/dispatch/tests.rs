@@ -175,7 +175,7 @@ fn a_claude_routed_box_launches_under_the_cap_and_never_on_the_cloud_lane() {
 }
 
 #[test]
-fn an_issue_whose_every_open_box_names_a_live_owner_or_whose_planning_box_adds_an_agent_with_no_simplest_line_is_skipped_and_others_are_staffed() {
+fn an_issue_whose_open_boxes_all_name_a_live_owner_or_sit_under_a_parked_heading_or_whose_planning_box_adds_an_agent_with_no_simplest_line_is_skipped_and_others_are_staffed() {
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
     let live: BTreeSet<String> = ["n-land-first", "n-cull-it", "n-cull-landing", "lead-88"].map(str::to_owned).into();
@@ -192,6 +192,11 @@ fn an_issue_whose_every_open_box_names_a_live_owner_or_whose_planning_box_adds_a
     assert_eq!(ready("Category: planning\nSimplest: one more column in the ledger; it cannot rank tiers\n- [ ] Plan a new review agent"), Ok(()));
     assert_eq!(ready("Category: feature\n- [ ] Add a new crate for the probe"), Ok(()), "a feature box with no design work is not held");
     assert_eq!(ready("Category: planning\n- [x] a new agent\n- [ ] tick the plan"), Ok(()), "only open boxes count");
+    let parked = "## Parked (gate 242, 2026-11-13)";
+    assert_eq!(ready(&format!("{parked}\n- [ ] held box")), Err(format!("parked: box sits under the heading `{}`", &parked[3..])));
+    assert_eq!(ready("## parked for later\n- [ ] held box\n## Next\n- [ ] open box"), Ok(()), "a box under another heading is still staffed");
+    let mixed = issue("north", 633, &format!("- [ ] open box\n{parked}\n- [ ] held box"), &[]);
+    assert_eq!(mixed.takeable(0.0).collect::<Vec<_>>(), ["- [ ] open box"], "the box under the Parked heading is not picked");
 }
 
 #[test]
