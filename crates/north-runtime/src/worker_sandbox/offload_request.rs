@@ -45,15 +45,15 @@ impl Offload {
     }
 }
 
-/// Why an offload request is refused, if it is: a lane-only session sends none, and the host it names is another host `reaches` holds, never the caller's word alone, since these verbs are the one way a worker command runs anything on another host.
-pub(super) fn offload_refusal(arguments: &[String], lane_only: bool, reaches: impl Fn(&str) -> bool) -> Option<String> {
+/// Why an offload request is refused, if it is: a lane-only session sends none, and the host it names is one the asker's `reaches` list holds, never the caller's word alone, since these verbs are the one way a worker command runs anything on another host.
+pub(super) fn offload_refusal(arguments: &[String], lane_only: bool, reached: impl Fn(&str) -> Result<String, String>) -> Option<String> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     let ["capacity", "offload", rest @ ..] = words.as_slice() else { return None };
     if lane_only {
         return Some("a lane-only session's command reaches no build host through the broker".to_owned());
     }
     match crate::land_offload::worker_request(rest) {
-        Some(Some(host)) if !reaches(host) => Some(format!("{host} is not another host this one declares with an ssh destination")),
+        Some(Some(host)) => reached(host).err(),
         _ => None,
     }
 }

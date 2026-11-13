@@ -111,14 +111,31 @@ pub(super) fn offloads_builds(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("offload_builds")).and_then(Item::as_bool) == Some(true)
 }
 
-/// The hosts this host may send a build to, or take one from: those it declares in `reaches` that offload builds. A host that declares no `reaches` list reaches only itself, so it sends nothing and is polled instead.
-pub(super) fn build_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
+/// The other hosts `here` reaches over ssh, each with its destination, in the order `[hosts]` declares them. A host that declares no `reaches` list reaches only itself.
+pub(super) fn reached_destinations(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
     let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return Vec::new() };
     hosts
         .iter()
-        .filter(|(name, _)| *name != here && reaches(cfg, here, name) && offloads_builds(cfg, name))
+        .filter(|(name, _)| *name != here && reaches(cfg, here, name))
         .filter_map(|(name, host)| Some((name.to_owned(), ssh_destination(host.get("ssh")?.as_str()?)?.to_owned())))
         .collect()
+}
+
+/// The login a lane's check runs as on `host` when `here` reaches it, else why an offload to it is refused before any dial, naming the hosts `here` reaches.
+pub(super) fn reached_destination(cfg: &DocumentMut, here: &str, host: &str) -> Result<String, String> {
+    let reached = reached_destinations(cfg, here);
+    if reached.iter().any(|(name, _)| name == host) {
+        let machines = crate::pacing::placement::gate::machines(cfg);
+        return machines.iter().find(|machine| machine.name == host).and_then(|machine| check_login(cfg, machine)).ok_or_else(|| format!("{host} has no login a check may run as, so no offload is dialed for it"));
+    }
+    let names: Vec<&str> = reached.iter().map(|(name, _)| name.as_str()).collect();
+    let names = if names.is_empty() { "no other host".to_owned() } else { names.join(", ") };
+    Err(format!("{host} is not a host this one reaches over ssh, so no offload is dialed for it; this one reaches {names}"))
+}
+
+/// The hosts this host may send a build to, or take one from: those it reaches that offload builds.
+pub(super) fn build_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
+    reached_destinations(cfg, here).into_iter().filter(|(name, _)| offloads_builds(cfg, name)).collect()
 }
 
 pub(super) fn pull_sources(cfg: &DocumentMut, here: &str) -> Vec<String> {

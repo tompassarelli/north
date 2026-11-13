@@ -236,15 +236,15 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     let master = scratch.path().join(format!("{}0a1b", north_base::foundation::offload::MASTER_SOCKET));
     let _listening = UnixListener::bind(&master).unwrap();
     assert_eq!(super::sockets::hidden(scratch.path(), &scratch.path().join("tmux-0"), &[]), [master], "an offload master is hidden although its name begins as north's own sockets do");
-    let declared = |host: &str| host == "gex45";
+    let declared = |host: &str| (host == "gex45").then(|| format!("tom@{host}")).ok_or_else(|| format!("{host} is not a host this one reaches"));
     let run = "capacity offload run --host gex45 --base aaa --head bbb --timeout 60 -- true";
     for allowed in [run, "capacity offload run --background --host gex45 --base aaa --head bbb --timeout 60 -- true", "capacity offload free --host gex45", "capacity offload hosts", "capacity offload slots"] {
         assert!(super::broker::permitted(&words(allowed)), "{allowed}");
         assert_eq!(super::broker::offload_refusal(&words(allowed), false, declared), None, "{allowed}");
     }
     let undeclared = super::broker::offload_refusal(&words("capacity offload run --host elsewhere --base aaa --head bbb --timeout 60 -- true"), false, declared);
-    assert!(undeclared.as_deref().is_some_and(|why| why.contains("elsewhere")), "a host this one does not declare: {undeclared:?}");
-    assert!(super::broker::offload_refusal(&words("capacity offload free --host here"), false, |host| host != "here").is_some(), "this host's own name, whose run stays in the caller's domain");
+    assert!(undeclared.as_deref().is_some_and(|why| why.contains("elsewhere")), "a host this one does not reach: {undeclared:?}");
+    assert!(super::broker::offload_refusal(&words("capacity offload free --host here"), false, declared).is_some(), "this host's own name, whose run stays in the caller's domain");
     assert!(super::broker::offload_refusal(&words(run), true, declared).is_some(), "a lane-only session");
     let north = Path::new("/nonexistent/north");
     let asked_of = |older: bool| {

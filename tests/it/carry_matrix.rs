@@ -152,7 +152,7 @@ impl Matrix {
         shim::write_script(&bin.join("nix"), &FAKE_NIX.replace("@TOOLCHAIN@", &toolchain.display().to_string()));
         shim::write_script(&bin.join("ssh"), FAKE_SSH);
         shim::write_script(&toolchain.join("cargo"), "echo \"$0\"\n");
-        fs::write(host.path("orchestration.toml"), "[hosts.gex45]\nssh = \"tom@gex45\"\n").unwrap();
+        fs::write(host.path("orchestration.toml"), "[hosts.lane-host]\nreaches = [\"gex45\"]\n[hosts.gex45]\nssh = \"tom@gex45\"\n").unwrap();
         let [base, head] = <[String; 2]>::try_from(repository(&project, &[("Base", &[FLAKE]), ("Lane", &[("change", "lane\n"), FLAKE])], None)).unwrap();
         let remote = host.path("remotes/gex45/code/proj/main");
         fs::create_dir_all(&remote).unwrap();
@@ -166,6 +166,7 @@ impl Matrix {
         command
             .current_dir(&self.project)
             .env("PATH", path)
+            .env("RESIDENT_CAP_HOST", "lane-host")
             .env("HOME", &self.home)
             .env("XDG_STATE_HOME", self.home.join(".local/state"))
             .env("SAFE_PUSH_LAND_BASE", &self.base)

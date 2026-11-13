@@ -12,10 +12,15 @@ fn only_the_host_that_settles_the_fleet_publishes_the_facts_of_a_host_that_may_n
 }
 
 #[test]
-fn a_host_sends_builds_only_to_the_hosts_it_reaches_and_one_that_reaches_none_is_polled_instead() {
+fn an_offload_to_a_host_the_asker_does_not_reach_is_refused_before_any_dial() {
     let cfg: DocumentMut = HOSTS.parse().expect("fixture");
     assert_eq!(build_hosts(&cfg, "whiterabbit"), [("gex45".to_owned(), "tom@gex45".to_owned())]);
     assert!(build_hosts(&cfg, "gex45").is_empty());
+    assert_eq!(reached_destination(&cfg, "whiterabbit", "gex45"), Ok("tom@gex45".to_owned()));
+    let refused = reached_destination(&cfg, "gex45", "whiterabbit").expect_err("gex45 reaches no other host");
+    assert!(refused.contains("whiterabbit") && refused.contains("this one reaches no other host"), "{refused}");
+    let refused = reached_destination(&cfg, "whiterabbit", "elsewhere").expect_err("elsewhere is not declared");
+    assert!(refused.contains("elsewhere") && refused.contains("this one reaches gex45"), "{refused}");
 }
 
 #[test]

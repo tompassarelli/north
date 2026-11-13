@@ -407,20 +407,20 @@ pub(crate) fn worker_request<'a>(words: &[&'a str]) -> Option<Option<&'a str>> {
     }
 }
 
-/// Whether `host` is another host this one declares with an ssh destination, the only kind a brokered offload request names: this host's own name runs in its own slots, which a worker command does inside its domain.
+/// The ssh destination of `host` when this host reaches it over its `reaches` list, else why an offload to it is refused before any dial: the only kind a brokered offload request names. This host's own name runs in its own slots, which a worker command does inside its domain.
+pub(crate) fn reached_destination(host: &str) -> Result<String, String> {
+    destinations::reached_destination(&config()?, &crate::platform::host::name(), host)
+}
+
 pub(crate) fn reaches(host: &str) -> bool {
-    host != crate::platform::host::name() && machines().iter().any(|machine| machine.name == host)
+    reached_destination(host).is_ok()
 }
 
 fn destination(host: &str) -> Option<String> {
     if host == crate::platform::host::name() {
         return Some(String::new());
     }
-    let found = machines().into_iter().find(|machine| machine.name == host).and_then(|machine| check_login(&machine));
-    if found.is_none() {
-        eprintln!("north capacity offload: no [hosts.{host}] with an ssh destination that a check may run on");
-    }
-    found
+    reached_destination(host).inspect_err(|why| eprintln!("north capacity offload: {why}")).ok()
 }
 
 fn free(host: &str) -> u8 {
