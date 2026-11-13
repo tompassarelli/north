@@ -11,6 +11,7 @@ use north_base::platform::finish_record::{FinishRecords, Finished};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen, Stand};
 
 mod acceptance;
+mod kept;
 mod lane_sync;
 mod other_lanes;
 
@@ -21,8 +22,6 @@ pub const USAGE: &str = "usage: north hand-in --message TEXT [--] PATH...";
 pub const FINISH_USAGE: &str = "usage: north finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH... | north finish --judge-message SESSION < MESSAGE | north finish --brief-trailers SESSION < TRAILERS";
 const JUDGE_MESSAGE: &str = "--judge-message";
 const PROPOSAL_FILE: &str = "north-proposed-message";
-const TRAILERS_FILE: &str = "north-brief-trailers";
-const BRIEF_TRAILERS: &str = "--brief-trailers";
 const PROPOSALS: &str = "north/land/proposed-messages.jsonl";
 pub const PROPOSED: &str = "proposed";
 pub const REFUSED: &str = "refused";
@@ -103,9 +102,9 @@ pub fn finish(arguments: &[String], road: impl Road) -> u8 {
         return judge_message(session);
     }
     if let [flag, session] = arguments
-        && flag == BRIEF_TRAILERS
+        && flag == kept::FLAG
     {
-        return keep_trailers(session);
+        return kept::keep_trailers(session);
     }
     let (check, message, rest) = match arguments {
         [check_flag, check, message_flag, message, rest @ ..] if check_flag == "--check" && message_flag == "--message" => (check, message, rest),
@@ -273,10 +272,7 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     if request.check.is_some() && proposed_message(&root).is_some_and(|proposed| proposed == message) {
         record_proposal(&root, "used", &message);
     }
-    let message = match kept_for_session(&root, TRAILERS_FILE) {
-        Some(kept) => north_base::platform::brief_trailers::apply(&message, &kept, request.check),
-        None => message,
-    };
+    let message = kept::apply_trailers(&root, message, request.check);
     let destination = default_branch(&root);
     match git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
         Ok(branch) if branch != destination => {}
@@ -429,34 +425,12 @@ fn judge_message(session: &str) -> u8 {
     u8::from(verdict.stand != Stand::Pass)
 }
 
-fn kept_path(root: &Path, file: &str) -> Option<PathBuf> {
-    git(root, &["rev-parse", "--path-format=absolute", "--git-path", file]).ok().map(PathBuf::from)
-}
-
 fn proposal_path(root: &Path) -> Option<PathBuf> {
-    kept_path(root, PROPOSAL_FILE)
+    kept::path(root, PROPOSAL_FILE)
 }
 
 fn proposed_message(root: &Path) -> Option<String> {
-    kept_for_session(root, PROPOSAL_FILE)
-}
-
-fn kept_for_session(root: &Path, file: &str) -> Option<String> {
-    let own = std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.trim().is_empty())?;
-    let kept = fs::read_to_string(kept_path(root, file)?).ok()?;
-    let (session, text) = kept.split_once('\n')?;
-    Some(text.to_owned()).filter(|text| session == own && !text.trim().is_empty())
-}
-
-fn keep_trailers(session: &str) -> u8 {
-    let trailers = io::read_to_string(io::stdin()).unwrap_or_default();
-    let Some(kept) = std::env::current_dir().ok().and_then(|directory| checkout(&directory)).and_then(|root| kept_path(&root, TRAILERS_FILE)) else { return 1 };
-    let _ = fs::remove_file(&kept);
-    if trailers.trim().is_empty() || session.trim().is_empty() || session.contains('\n') || fs::write(&kept, format!("{session}\n{}", trailers.trim())).is_err() {
-        return 1;
-    }
-    println!("kept");
-    0
+    kept::for_session(root, PROPOSAL_FILE)
 }
 
 fn record_proposal(root: &Path, event: &str, message: &str) {

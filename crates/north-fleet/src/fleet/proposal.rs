@@ -100,8 +100,12 @@ fn capitalized(text: &str) -> String {
 
 /// Runs `north finish --judge-message` in `cwd`'s lane, here or over ssh on its build host, and returns once its deny-list
 /// scan has answered: `Asked` with the message when the scan passed and the judge was asked, which goes on after this
-/// returns, `Refused` when the scan refused it, and `Unasked` when nothing was judged.
-pub fn judge(message: &str, session: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) -> Verdict {
+/// returns, `Refused` when the scan refused it, and `Unasked` when nothing was judged. A launch of a `brief` first keeps
+/// the brief's trailers for `session` (north#1367); a verification launch passes None and keeps none.
+pub fn judge(brief: Option<&str>, message: &str, session: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) -> Verdict {
+    if let Some(brief) = brief {
+        keep_trailers(brief, session, cwd, north, machine);
+    }
     match ask("--judge-message", session, message, cwd, north, machine).as_deref() {
         Some(PROPOSED) => Verdict::Asked(message.to_owned()),
         Some(REFUSED) => Verdict::Refused,
@@ -110,7 +114,7 @@ pub fn judge(message: &str, session: &str, cwd: &Path, north: &Path, machine: Op
 }
 
 /// Runs `north finish --brief-trailers` in `cwd`'s lane, which keeps the brief's item, box and Done-when command for `session`, replacing what an earlier launch kept, and clearing it for a brief that names no item, so its finish and hand-in messages take them (north#1367).
-pub fn keep_trailers(brief: &str, session: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) {
+fn keep_trailers(brief: &str, session: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) {
     ask("--brief-trailers", session, &trailers(brief).unwrap_or_default(), cwd, north, machine);
 }
 
