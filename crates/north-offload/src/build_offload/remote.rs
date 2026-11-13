@@ -201,7 +201,7 @@ pub(super) fn hand_over(mut peer: UnixStream, lane: &Lane, job: &Job, sink: Opti
             Ok(code)
         }
         Received::NotSynced(why) => Err(Some(Declined::Failed(why))),
-        Received::Lost(why) => Err(sent.err().map_or_else(|| Some(Declined::Failed(why)), gone)),
+        Received::Lost(why) => Err(sent.err().map_or(Some(Declined::Failed(why)), gone)),
     }
 }
 

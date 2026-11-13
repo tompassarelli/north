@@ -120,10 +120,9 @@ pub fn notice(child: &str, state: State, turn: u64, reply: &str, lane: Option<&L
         let lane = held.map(|lane| format!("; its lane {} holds {} not on origin/main", lane.label(), commits(lane.ahead))).unwrap_or_default();
         let lane = if unread { "; its lane could not be read".to_owned() } else { lane };
         format!("its last turn ended with no Done:, Not done:, Split:, Stop: or Blocked: report{lane}")
-    } else if let Some(lane) = held.filter(|_| reported_done(reply) && !queued(reply)) {
-        format!("it reported Done: but its lane {} holds {} not on origin/main", lane.label(), commits(lane.ahead))
     } else {
-        return None;
+        let lane = held.filter(|_| reported_done(reply) && !queued(reply))?;
+        format!("it reported Done: but its lane {} holds {} not on origin/main", lane.label(), commits(lane.ahead))
     };
     let quiet = silence.map(Silence::text).unwrap_or_default();
     let tail = silence.filter(|silence| !silence.lines.is_empty()).map(|silence| format!("\n{}", last_lines(silence.lines))).unwrap_or_default();

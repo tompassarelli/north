@@ -73,7 +73,7 @@ fn removed_executables(directory: &Path, from: &str, head: &str, own: &str) -> V
     .unwrap_or_default();
     let fields: Vec<&[u8]> = raw.split(|byte| *byte == 0).collect();
     fields
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .filter(|entry| entry[0].starts_with(b":100755 ") || entry[0].starts_with(b":120000 "))
         .map(|entry| String::from_utf8_lossy(entry[1]).into_owned())
         .collect()

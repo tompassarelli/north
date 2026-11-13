@@ -55,7 +55,8 @@ fn call_signal(frame: &Value, conversation: &str) -> Option<TurnSignal> {
     let usage = &message["usage"];
     let count = |key: &str| usage[key].as_u64().unwrap_or(0);
     let tokens = Tokens { input: count("input_tokens"), output: count("output_tokens"), cache_read: count("cache_read_input_tokens"), cache_write: count("cache_creation_input_tokens") };
-    Some(TurnSignal::Call { conversation: conversation.to_owned(), call: message["id"].as_str()?.to_owned(), tokens }).filter(|_| usage.is_object())
+    let call = message["id"].as_str()?.to_owned();
+    usage.is_object().then(|| TurnSignal::Call { conversation: conversation.to_owned(), call, tokens })
 }
 
 /// The servers the session's init frame lists as failed: Claude Code connects its MCP servers before the first turn and names each with its status there.

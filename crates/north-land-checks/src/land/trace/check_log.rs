@@ -122,10 +122,9 @@ pub fn cargo_seconds(text: &str) -> Option<f64> {
     for part in tail.split_whitespace() {
         if let Some(minutes) = part.strip_suffix('m') {
             seconds += minutes.parse::<f64>().ok()? * 60.0;
-        } else if let Some(value) = part.strip_suffix('s') {
-            seconds += value.parse::<f64>().ok()?;
         } else {
-            return None;
+            let value = part.strip_suffix('s')?;
+            seconds += value.parse::<f64>().ok()?;
         }
     }
     Some(seconds)

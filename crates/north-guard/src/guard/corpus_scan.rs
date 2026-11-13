@@ -354,7 +354,7 @@ pub(super) fn refusal(command: &str, cwd: &str, home: &str) -> Option<String> {
                 if seen.get(&real).is_some_and(|earlier| *earlier != path) {
                     doubled = true;
                 }
-                seen.insert(real, path.clone());
+                seen.insert(real, path);
             }
             if hit.is_none() && expensive(&segments) {
                 hit = Some((resolved, search.tool.clone()));

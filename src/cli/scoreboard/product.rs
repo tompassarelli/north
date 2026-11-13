@@ -44,7 +44,7 @@ impl Product {
     }
 
     pub fn share(&self) -> Option<f64> {
-        (self.total > 0.0).then(|| self.product / self.total)
+        (self.total > 0.0).then_some(self.product / self.total)
     }
 
     pub fn text(&self, counted: Counted) -> String {

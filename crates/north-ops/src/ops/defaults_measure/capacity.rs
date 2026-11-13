@@ -44,7 +44,7 @@ pub(super) fn sweep_capacity_sizing(db: &Connection, margin: f64) -> rusqlite::R
                 slack += charged / xs[i];
             }
         }
-        out.push(Row::new().with("value", n).with("n", k).with("under_charged", under).with("mean_charged_over_peak", (k > 0).then(|| slack / k as f64)));
+        out.push(Row::new().with("value", n).with("n", k).with("under_charged", under).with("mean_charged_over_peak", (k > 0).then_some(slack / k as f64)));
     }
     Ok(out)
 }

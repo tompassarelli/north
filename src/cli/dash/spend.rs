@@ -78,7 +78,7 @@ impl Spend {
                     class.week_pct.entry(letter.clone()).or_insert(0.0);
                 }
                 let sized: f64 = by_account.iter().filter(|(letter, _)| capacity.contains_key(*letter)).map(|(_, usd)| usd).sum();
-                class.all_pct = (total_capacity > 0.0).then(|| sized / total_capacity * 100.0);
+                class.all_pct = (total_capacity > 0.0).then_some(sized / total_capacity * 100.0);
                 class
             })
             .collect();

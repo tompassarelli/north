@@ -97,7 +97,7 @@ impl Mixes {
             }
         }
         for row in rows.values_mut() {
-            row.usd_per_first_try_landed = (row.first_tries_landed > 0).then(|| row.usd / row.first_tries_landed as f64);
+            row.usd_per_first_try_landed = (row.first_tries_landed > 0).then_some(row.usd / row.first_tries_landed as f64);
         }
         let mut rows: Vec<Row> = rows.into_values().collect();
         for row in &mut rows {

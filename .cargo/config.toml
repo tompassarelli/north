@@ -14,3 +14,7 @@ incremental = true
 
 [env]
 NORTH_DECISION_LOG = { value = "target/decision-log", relative = true }
+
+# Cranelift lacks llvm.x86.sse2.pmulhu.w, which zmij's float formatting emits.
+[profile.dev.package.zmij]
+codegen-backend = "llvm"

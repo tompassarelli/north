@@ -40,7 +40,7 @@ pub fn cpu_max_cpus(cpu_max: &str) -> Option<f64> {
     let mut fields = cpu_max.split_whitespace();
     let quota = fields.next()?.parse::<f64>().ok()?;
     let period = fields.next().map_or(Some(100_000.0), |period| period.parse::<f64>().ok())?;
-    (quota > 0.0 && period > 0.0).then(|| quota / period)
+    (quota > 0.0 && period > 0.0).then_some(quota / period)
 }
 
 pub fn grantable_maximum(profile: &str, cores: f64, slice_cpus: Option<f64>, memory_total_mib: f64) -> Resources {

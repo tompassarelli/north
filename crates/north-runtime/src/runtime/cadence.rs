@@ -186,7 +186,7 @@ fn record(layout: &Layout, schedule: Schedule, now: i64, outcome: Outcome, faile
         Outcome::Promoted => due(),
         Outcome::Refused { .. } => due().or_else(|| pin::waiting_since(&events).filter(|&landed| landed <= schedule.slot(now)).map(|_| schedule.slot(now))),
         Outcome::Failed { .. } => events.iter().rev().find_map(|event| match event {
-            Event::Due { reason: Reason::Slot, at, sha } => Some(Some(*at).filter(|_| failed_sha == Some(sha.as_str()))),
+            Event::Due { reason: Reason::Slot, at, sha } => Some((failed_sha == Some(sha.as_str())).then_some(*at)),
             Event::Due { .. } => Some(None),
             _ => None,
         }).flatten(),

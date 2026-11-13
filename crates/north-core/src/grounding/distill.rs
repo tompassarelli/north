@@ -675,7 +675,7 @@ fn convo_records(messages: &[Message]) -> Vec<Row> {
             (Some(p), Kind::Approval) if !p.is_empty() => utf16_tail(p, 600),
             _ => "",
         };
-        let mut found = row(rid(&key), at.clone(), kind, &format!("{text} {asked}"), trim_quote(&text, pattern), format!("tom {place}"));
+        let mut found = row(rid(&key), at, kind, &format!("{text} {asked}"), trim_quote(&text, pattern), format!("tom {place}"));
         if kind == Kind::Correction {
             found.class = Some(correction_class(&text).map_or(UNCLASSIFIED, |(class, _)| class).to_owned());
             found.digest = Some(digest(&text));

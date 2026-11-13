@@ -90,7 +90,7 @@ fn memory_flags(window: &[&Value]) -> (Vec<String>, f64, f64) {
     let span = (parse_time(last["at"].as_str().unwrap_or_default()).unwrap_or(0) - parse_time(first["at"].as_str().unwrap_or_default()).unwrap_or(0)) as f64 / 60000.0;
     let available = number(&last["memAvailableMiB"]);
     let slope = if span > 0.0 { (available - number(&first["memAvailableMiB"])) / span } else { 0.0 };
-    let to_floor = (slope < 0.0).then(|| (available - floor) / -slope);
+    let to_floor = (slope < 0.0).then_some((available - floor) / -slope);
     let mut flags = Vec::new();
     if available < floor {
         flags.push(format!("memory available {available} MiB is under the {floor} MiB floor"));

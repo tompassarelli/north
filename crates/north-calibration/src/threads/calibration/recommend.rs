@@ -50,7 +50,7 @@ fn shrunk_stats(knobs: &Knobs, runs: &[&Run], pooled: f64) -> Vec<(String, TierS
             let ok = group.iter().filter(|run| run.ok).count();
             let shrunk = (ok as f64 + ARM_RUNS as f64 * pooled) / (group.len() + ARM_RUNS) as f64;
             let spent = compensated_sum(priced.iter().filter_map(|run| run.api_usd));
-            let usd = (priced.len() >= knobs.usd_min && shrunk > 0.0).then(|| spent / priced.len() as f64 / shrunk);
+            let usd = (priced.len() >= knobs.usd_min && shrunk > 0.0).then_some(spent / priced.len() as f64 / shrunk);
             (tier, TierStat { rate: (ok * 100 / group.len()) as i64, n: group.len(), ok, shrunk, usd_n: priced.len(), spent, usd })
         })
         .collect()

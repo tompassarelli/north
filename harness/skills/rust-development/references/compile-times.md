@@ -30,7 +30,7 @@ Claims marked **(unverified)** were not found in any source opened.
 
 ## Toolchains we actually have
 
-- This host repository: `rust-toolchain.toml` pins `nightly-2026-04-10` (the
+- This host repository: `rust-toolchain.toml` pins `nightly-2026-11-10` (the
   1.96 branch point) with `rustc-codegen-cranelift-preview`, and `flake.nix`
   builds it with rust-overlay (rustup's distribution); devShell = toolchain
   plus bun. `.cargo/config.toml` sets `codegen-backend = "cranelift"` for dev and test;

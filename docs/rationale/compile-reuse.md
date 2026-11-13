@@ -13,7 +13,7 @@ measurements.
   binary is pinned by hash through the flake.
 - The prelude is the copy bundled in that binary (`[external_cells] prelude = bundled`), so the prelude cannot drift
   from the binary that interprets it and needs no pin of its own.
-- `toolchains//:rust` runs the flake's rust-overlay toolchain for nightly-2026-04-10 by absolute store path. The dev
+- `toolchains//:rust` runs the flake's rust-overlay toolchain for nightly-2026-11-10 by absolute store path. The dev
   shell links `.buckconfig.flake` to `packages.x86_64-linux.buck2-toolchain`, a buckconfig of store paths (rustc,
   rustdoc, clippy-driver, cc, c++, ar, python3) that `.buckconfig` includes. A store path changes with every input of
   the tool it names, so each action's command line, and therefore its cache key, names the exact toolchain; a
@@ -1200,7 +1200,7 @@ the runtime build; this section measures only the edit-run loop. Nothing is adop
 ### Method
 
 - Relax at `ce52155e0aa8e1ce273ca08627b714e875f04b9d` (`relax 0.1.0 (beta)`, build `1aecaaf10d49`), cloned into its own
-  directory on the build host, outside every north checkout, and built there with north's pinned `nightly-2026-04-10`
+  directory on the build host, outside every north checkout, and built there with north's pinned `nightly-2026-11-10`
   (`cargo build --release -p relax-runner --bin relax`). North was cloned once at the lane's base; each crate had its own
   Relax and cargo target directory. The headline numbers were taken on cpx62b, which also serves land checks; a first
   set on cpx62 was taken beside another registered job and is quoted only where marked.

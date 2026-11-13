@@ -150,7 +150,8 @@ impl Policy {
                 invokes_apply_patch(stripped.unwrap_or(&strip_heredoc_bodies(text))),
                 text.to_owned(),
             )
-        } else if let Some(argv) = command.as_array() {
+        } else {
+            let argv = command.as_array()?;
             let argv: Vec<_> = argv.iter().map(serde_json::Value::as_str).collect::<Option<_>>()?;
             let mut invoked = argv.first().is_some_and(|s| basename(s) == "apply_patch");
             if !invoked
@@ -167,8 +168,6 @@ impl Policy {
                 }
             }
             (invoked, argv.join("\n"))
-        } else {
-            return None;
         };
         if !invoked {
             return None;

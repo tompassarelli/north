@@ -69,7 +69,7 @@ pub(super) fn debt(paths: &[String], only_due: bool) -> Result<(), String> {
         }
         let log = String::from_utf8_lossy(&output.stdout);
         let parts: Vec<_> = log.split('\0').collect();
-        let commits: Vec<_> = parts.chunks_exact(2).map(|v| (v[0], v[1])).collect();
+        let commits: Vec<_> = parts.as_chunks::<2>().0.iter().map(|v| (v[0], v[1])).collect();
         let paid: Vec<_> = commits
             .iter()
             .flat_map(|(_, body)| records(body, "Target-paid:"))

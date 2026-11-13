@@ -84,7 +84,7 @@ pub(super) fn take_far(fleet: &Fleet, records: &[SessionRecord], cached: Vec<Ses
                 }
                 taken.push(Taken { host, ids, refused });
             }
-            Ok(Err(error)) => ticked.pull_failed.push((host.name.clone(), error.user_message())),
+            Ok(Err(error)) => ticked.pull_failed.push((host.name, error.user_message())),
             Err(late) => ticked.put_off(&format!("take_far on {}", host.name), &late, budget),
         }
     }

@@ -114,7 +114,7 @@ fn collect(options: &Options) -> Result<Vec<Row>, String> {
             let Some((source, flag)) = hit else { continue };
             let row = row(&message, source, flag, if source == "tom-typed" { 360 } else { 220 });
             let key = (source, row.text.chars().take(200).collect::<String>().to_lowercase());
-            let thread = (message.session.clone(), message.agent.clone(), flag);
+            let thread = (message.session.clone(), message.agent, flag);
             let count = per_thread.get(&thread).copied().unwrap_or(0);
             if seen.contains(&key) || (source == "assistant" && count >= options.per_thread) {
                 continue;

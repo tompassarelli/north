@@ -24,7 +24,7 @@ pub struct RungRow {
 
 impl RungRow {
     pub fn lift_delta(&self) -> Option<f64> {
-        (self.lift_checks > 0).then(|| {
+        (self.lift_checks > 0).then_some({
             (self.higher_landed as f64 - self.lower_landed as f64) / self.lift_checks as f64
         })
     }

@@ -405,7 +405,7 @@ fn load_per_core(load: &str) -> Option<f64> {
     let mut lines = load.lines();
     let one_minute: f64 = lines.next()?.split_whitespace().next()?.parse().ok()?;
     let cores: f64 = lines.next()?.trim().parse().ok()?;
-    (cores > 0.0).then(|| one_minute / cores)
+    (cores > 0.0).then_some(one_minute / cores)
 }
 
 #[cfg(test)]

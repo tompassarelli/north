@@ -206,7 +206,7 @@ pub struct ClosedReport {
 impl SpendRun {
     fn minutes(&self) -> Option<f64> {
         let wall = Timestamp::parse(&self.ended).ok()?.unix_seconds() - Timestamp::parse(&self.started).ok()?.unix_seconds();
-        (wall >= 0).then(|| wall as f64 / 60.0)
+        (wall >= 0).then_some(wall as f64 / 60.0)
     }
 
     pub(super) fn usd(&self, prices: &PriceTable) -> f64 {
@@ -352,7 +352,7 @@ impl ClosedReport {
     }
 
     fn per_closed(&self, usd: f64) -> Option<f64> {
-        (self.closed > 0).then(|| usd / self.closed as f64)
+        (self.closed > 0).then_some(usd / self.closed as f64)
     }
 
     pub fn all_usd_per_closed(&self) -> Option<f64> {

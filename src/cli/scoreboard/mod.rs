@@ -105,8 +105,8 @@ impl Figure {
         match self {
             Self::Rate { hours, count } => (*hours > 0.0).then(|| (*count as f64 / hours, *hours as usize)),
             Self::Spread { seconds, .. } => (!seconds.is_empty()).then(|| (percentile(seconds, 0.5), seconds.len())),
-            Self::Share { hits, of, .. } => (*of > 0).then(|| (*hits as f64 / *of as f64, *of)),
-            Self::Per { spent, verified, .. } => (*verified > 0).then(|| (*spent / *verified as f64, *verified)),
+            Self::Share { hits, of, .. } => (*of > 0).then_some((*hits as f64 / *of as f64, *of)),
+            Self::Per { spent, verified, .. } => (*verified > 0).then_some((*spent / *verified as f64, *verified)),
             Self::Product { product, .. } => product.share().map(|share| (share, product.runs)),
         }
     }

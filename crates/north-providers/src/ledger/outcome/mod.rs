@@ -93,7 +93,7 @@ impl Cohort {
     }
 
     pub fn rework_rate(&self) -> Option<f64> {
-        (self.landed > 0).then(|| self.reworked as f64 / self.landed as f64)
+        (self.landed > 0).then_some(self.reworked as f64 / self.landed as f64)
     }
 
     pub fn usd_per_surviving(&self) -> Option<f64> {

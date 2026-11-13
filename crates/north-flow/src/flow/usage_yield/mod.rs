@@ -50,7 +50,7 @@ pub struct Reading {
 
 impl Reading {
     pub fn per_landing(&self) -> Option<f64> {
-        (self.landed > 0).then(|| (self.subscription_pct + self.api_usd) / self.landed as f64)
+        (self.landed > 0).then_some((self.subscription_pct + self.api_usd) / self.landed as f64)
     }
 
     pub fn stranded(&self) -> f64 {

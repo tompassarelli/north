@@ -33,7 +33,7 @@ impl Side {
     }
 
     fn per_closed(&self) -> Option<f64> {
-        (self.closed > 0.0).then(|| self.usd / self.closed)
+        (self.closed > 0.0).then_some(self.usd / self.closed)
     }
 
     fn figures(&self) -> String {

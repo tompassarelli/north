@@ -125,7 +125,7 @@ fn score_picks(decisions: &[Decision]) -> Row {
     let (n, wins) = (hit.len(), hit.iter().filter(|decision| decision.ok).count());
     let priced: Vec<(bool, f64)> = hit.iter().filter_map(|decision| decision.run.cost_usd.map(|usd| (decision.ok, usd))).collect();
     let priced_wins = priced.iter().filter(|(ok, _)| *ok).count();
-    let rate = (n > 0).then(|| wins as f64 / n as f64);
+    let rate = (n > 0).then_some(wins as f64 / n as f64);
     let (lo, hi) = rate.map_or((0.into(), 0.into()), |rate| {
         let (lo, hi) = crate::ops::report::wilson(rate, n);
         (serde_json::Value::from(lo), serde_json::Value::from(hi))
@@ -286,7 +286,7 @@ fn box_item_gaps(db: &Connection) -> rusqlite::Result<Vec<f64>> {
 
 pub(super) fn sweep_box_gap(db: &Connection, defaults: &Registry) -> rusqlite::Result<Vec<Row>> {
     let (base, gaps, rows) = (knobs(defaults), box_item_gaps(db)?, box_rows(db)?);
-    let share = |within: usize| (!gaps.is_empty()).then(|| within as f64 / gaps.len() as f64);
+    let share = |within: usize| (!gaps.is_empty()).then_some(within as f64 / gaps.len() as f64);
     Ok(BOX_GAP_GRID
         .iter()
         .map(|gap| {

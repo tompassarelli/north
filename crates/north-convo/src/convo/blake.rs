@@ -29,7 +29,7 @@ fn mix(v: &mut [u64; 16], lanes: [usize; 4], x: u64, y: u64) {
 }
 
 fn compress(state: &mut [u64; 8], block: &[u8], counter: u128, last: bool) {
-    let words: Vec<u64> = block.chunks_exact(8).map(|part| u64::from_le_bytes(part.try_into().unwrap_or([0; 8]))).collect();
+    let words: Vec<u64> = block.as_chunks::<8>().0.iter().map(|part| u64::from_le_bytes(*part)).collect();
     let mut v = [0u64; 16];
     v[..8].copy_from_slice(state);
     v[8..].copy_from_slice(&IV);

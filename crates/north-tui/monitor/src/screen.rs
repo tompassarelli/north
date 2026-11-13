@@ -103,8 +103,8 @@ pub fn live(options: &Options, budgets: &Budgets) -> Result<(), String> {
 }
 
 fn print_frame(options: &Options, view: &View) -> Result<(), String> {
-    let mut terminal = Terminal::new(TestBackend::new(options.size.0, options.size.1)).map_err(|error| error.to_string())?;
-    terminal.draw(|frame| draw(frame, view)).map_err(|error| error.to_string())?;
+    let Ok(mut terminal) = Terminal::new(TestBackend::new(options.size.0, options.size.1));
+    let Ok(_) = terminal.draw(|frame| draw(frame, view));
     print!("{}", crate::ansi::render(terminal.backend().buffer(), options.ansi));
     Ok(())
 }

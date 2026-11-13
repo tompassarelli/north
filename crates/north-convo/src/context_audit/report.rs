@@ -12,7 +12,7 @@ fn tokens(chars: usize) -> usize {
 }
 
 fn share(part: usize, whole: usize) -> Option<f64> {
-    (whole > 0).then(|| part as f64 / whole as f64)
+    (whole > 0).then_some(part as f64 / whole as f64)
 }
 
 fn session_json(audit: &Audit) -> Value {

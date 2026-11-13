@@ -99,7 +99,7 @@ fn open_served(path: &Path, database: &Path, within: Duration) -> Option<Served>
     }
     let mut listing = vec![0; 32 * (count + 1)];
     file.read_exact_at(&mut listing, 8).ok()?;
-    let mut hashes: Vec<Hash> = listing.chunks_exact(32).map(|chunk| chunk.try_into().expect("32 bytes")).collect();
+    let mut hashes: Vec<Hash> = listing.as_chunks::<32>().0.to_vec();
     let digest = hashes.pop()?;
     Some(Served { file, size, hashes, digest, body: listed as u64 })
 }

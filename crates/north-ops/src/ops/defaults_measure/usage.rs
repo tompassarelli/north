@@ -47,7 +47,7 @@ pub(super) fn sweep_money_ceiling(db: &Connection, horizon: f64) -> rusqlite::Re
     );
     for ceiling in [85, 88, 90, 92, 95] {
         let overshoot = all.iter().filter(|rise| **rise > f64::from(100 - ceiling)).count();
-        out.push(Row::new().with("value", ceiling).with("overshoot", overshoot).with("share", (!all.is_empty()).then(|| overshoot as f64 / all.len() as f64)));
+        out.push(Row::new().with("value", ceiling).with("overshoot", overshoot).with("share", (!all.is_empty()).then_some(overshoot as f64 / all.len() as f64)));
     }
     Ok(out)
 }

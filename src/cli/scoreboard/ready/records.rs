@@ -104,7 +104,7 @@ fn spread(held: &HashMap<String, Vec<(i64, f64)>>, repo: &str, window: Window, q
 
 /// The share of `hits` out of `of`, scaled to a percentage.
 fn share(hits: usize, of: usize, scale: f64) -> Option<Reading> {
-    (of > 0).then(|| Reading { value: hits as f64 / of as f64 * scale, sample: of })
+    (of > 0).then_some(Reading { value: hits as f64 / of as f64 * scale, sample: of })
 }
 
 impl Records {
@@ -190,7 +190,7 @@ impl Records {
             }
             Bar::Corrections => {
                 let (count, hours) = self.tom.correcting(window);
-                (hours > 0).then(|| Reading { value: count as f64 / hours as f64, sample: hours })
+                (hours > 0).then_some(Reading { value: count as f64 / hours as f64, sample: hours })
             }
             _ => self.priority(repo, window),
         }

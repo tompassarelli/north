@@ -275,11 +275,11 @@ fn exempt(repo: &Path, head: &str, paths: &[&str]) -> Result<BTreeSet<String>, S
     args.extend(paths);
     let listing = git(repo, &args)?;
     let fields: Vec<&str> = listing.split('\0').collect();
-    let skipped = |entry: &&[&str]| match entry[1] {
+    let skipped = |entry: &&[&str; 3]| match entry[1] {
         "merge" => super::merge_set::DRIVERS.iter().any(|driver| driver.name == entry[2]),
         _ => matches!(entry[2], "set" | "true"),
     };
-    Ok(fields.chunks_exact(3).filter(skipped).map(|entry| entry[0].to_owned()).collect())
+    Ok(fields.as_chunks::<3>().0.iter().filter(skipped).map(|entry| entry[0].to_owned()).collect())
 }
 
 /// The lane merged onto `base` as one commit, the tree the lander would land, so a lane based on older main is judged by its own patch.

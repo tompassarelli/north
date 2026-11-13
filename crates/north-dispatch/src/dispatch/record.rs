@@ -176,10 +176,9 @@ pub fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>, go
                 let spared: Vec<String> = spared.iter().map(|record| format!("{}, which {}", record.name, unspent[&record.name])).collect();
                 let spared = if spared.is_empty() { String::new() } else { format!("; not counted: {}", spared.join("; ")) };
                 format!("north fleet dispatch, {} tries in 24 h without closing ({}){spared}; the proxy decides the next one", counted.len(), names.join(", "))
-            } else if let Some(last) = last.filter(|last| at - last.at < hold(last)) {
-                format!("north fleet dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0)
             } else {
-                return None;
+                let last = last.filter(|last| at - last.at < hold(last))?;
+                format!("north fleet dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0)
             };
             Some((item, reason))
         })
