@@ -228,8 +228,10 @@ pub enum Profile {
 pub struct Build<'a> {
     pub root: &'a Path,
     pub profile: Profile,
-    /// One binary, or every binary of the workspace's default members when `None`.
+    /// One binary, or when `None` every binary of the workspace's default members.
     pub binary: Option<&'a str>,
+    /// The programs a `None` binary builds on Buck2, one build each, since its `--out` takes one output; Cargo builds every default member whatever this holds.
+    pub programs: &'a [&'a str],
     pub jobs: Option<usize>,
     pub resolution: Resolution,
     pub shell: Shell,

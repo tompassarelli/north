@@ -91,7 +91,7 @@ fn forget_incremental_of(built: &Path, archives: &[PathBuf]) -> io::Result<()> {
 
 /// The release build of every runtime program of `lane` into `built`, held to the confinement's jobs when the host is in game-reserve.
 pub(super) fn release_build<'a>(lane: &'a Path, built: &'a Path, confined: Option<&Confinement>) -> Build<'a> {
-    Build { root: lane, profile: Profile::Release, binary: None, jobs: confined.map(|confinement| confinement.jobs as usize), resolution: Resolution::LOCKED, shell: Shell::NixDevelop, output: Some(built), uncached: false, timings: true }
+    Build { root: lane, profile: Profile::Release, binary: None, programs: &north_base::platform::store_refs::RUNTIME_PROGRAMS, jobs: confined.map(|confinement| confinement.jobs as usize), resolution: Resolution::LOCKED, shell: Shell::NixDevelop, output: Some(built), uncached: false, timings: true }
 }
 
 /// The words that run a confined build at idle CPU and I/O priority, none for a build that is not confined.

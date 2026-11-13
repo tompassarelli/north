@@ -47,7 +47,7 @@ fn admitting_north() -> PathBuf {
 
 pub fn build(root: &Path, notes: &Notes) -> Result<PathBuf, String> {
     let builder = north_build_system::here();
-    let request = Build { root, profile: Profile::Dev, binary: Some("north"), jobs: None, resolution: Resolution::OFFLINE, shell: Shell::NixDevelop, output: None, uncached: false, timings: false };
+    let request = Build { root, profile: Profile::Dev, binary: Some("north"), programs: &[], jobs: None, resolution: Resolution::OFFLINE, shell: Shell::NixDevelop, output: None, uncached: false, timings: false };
     let invocation = builder.build(&request);
     let mut command = Command::new(admitting_north());
     command.args(["capacity", "host", "run", "--owner", "verify-north", "--timeout-seconds", &BUILD_WAIT.as_secs().to_string(), "--"]).args(&invocation.words);

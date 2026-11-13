@@ -15,7 +15,7 @@ pub(super) enum Kind {
 
 impl Builder {
     fn build<'a>(workspace: &'a Path, target: &'a Path, timings: bool) -> Build<'a> {
-        Build { root: workspace, profile: Profile::Dev, binary: None, jobs: None, resolution: Resolution::OPEN, shell: Shell::Inherited, output: Some(target), uncached: true, timings }
+        Build { root: workspace, profile: Profile::Dev, binary: None, programs: &[], jobs: None, resolution: Resolution::OPEN, shell: Shell::Inherited, output: Some(target), uncached: true, timings }
     }
 
     pub(super) fn timings(&self, workspace: &Path, target: &Path) -> PathBuf {

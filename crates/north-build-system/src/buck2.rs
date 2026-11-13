@@ -90,6 +90,24 @@ const GATE_ORIGIN: [&str; 6] = ["lint", ".buckconfig", ".buckconfig.local", ".bu
 const TOOLCHAIN_LINK: &str = ".buckconfig.flake";
 const NIX_STORE: &str = "/nix/store";
 
+impl Buck2 {
+    /// The build of the one program `binary`: Buck2's `--out` copies a target's one output onto the path itself, so each program is its own build and the path names the file, never its directory.
+    fn build_words(&self, request: &Build, out: &Path, binary: &str) -> Vec<String> {
+        let mut words = self.words(&["build", REMOTE_ONLY]);
+        words.extend((request.profile == Profile::Release).then(|| "@mode/release".to_owned()));
+        words.push(format!("//:{binary}"));
+        words.extend(request.jobs.into_iter().flat_map(|jobs| ["--num-threads".to_owned(), jobs.to_string()]));
+        words.extend(["--out".to_owned(), out.join(binary).display().to_string()]);
+        words.extend(request.uncached.then(|| "--no-remote-cache".to_owned()));
+        words.extend(request.timings.then(|| ["--build-report".to_owned(), self.timings(request).display().to_string()]).into_iter().flatten());
+        words
+    }
+}
+
+fn quoted(word: &str) -> String {
+    format!("'{}'", word.replace('\'', "'\\''"))
+}
+
 fn package(name: &str) -> String {
     match name {
         "north" => "//:".to_owned(),
@@ -439,14 +457,14 @@ impl BuildSystem for Buck2 {
         if let Err(why) = generation::clear(&out) {
             return Invocation::new(request.root, Shell::Inherited, ["sh", "-c", UNCLEARED, "sh", &why].map(str::to_owned).to_vec());
         }
-        let mut words = self.words(&["build", REMOTE_ONLY]);
-        words.extend((request.profile == Profile::Release).then(|| "@mode/release".to_owned()));
-        words.push(request.binary.map_or_else(|| "//:".to_owned(), |binary| format!("//:{binary}")));
-        words.extend(request.jobs.into_iter().flat_map(|jobs| ["--num-threads".to_owned(), jobs.to_string()]));
-        // Buck2's `--out` format: a target's one output is copied onto the path itself, so the path names the file, never its directory.
-        words.extend(["--out".to_owned(), request.binary.map_or_else(|| format!("{}/", out.display()), |binary| out.join(binary).display().to_string())]);
-        words.extend(request.uncached.then(|| "--no-remote-cache".to_owned()));
-        words.extend(request.timings.then(|| ["--build-report".to_owned(), self.timings(request).display().to_string()]).into_iter().flatten());
+        let words = match request.binary {
+            Some(binary) => self.build_words(request, &out, binary),
+            None if request.programs.is_empty() => ["sh", "-c", UNCLEARED, "sh", "it names no binary and no programs"].map(str::to_owned).to_vec(),
+            None => {
+                let each = request.programs.iter().map(|program| self.build_words(request, &out, program).iter().map(|word| quoted(word)).collect::<Vec<_>>().join(" ")).collect::<Vec<_>>();
+                ["sh", "-c", &each.join(" && ")].map(str::to_owned).to_vec()
+            }
+        };
         self.invocation(request.root, request.shell, words)
     }
 
@@ -455,7 +473,7 @@ impl BuildSystem for Buck2 {
     }
 
     fn tree_binary(&self, root: &Path, binary: &str) -> (Invocation, PathBuf) {
-        let request = Build { root, profile: Profile::Dev, binary: Some(binary), jobs: None, resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, timings: false };
+        let request = Build { root, profile: Profile::Dev, binary: Some(binary), programs: &[], jobs: None, resolution: Resolution::PINNED, shell: Shell::LandShell, output: None, uncached: false, timings: false };
         (self.build(&request), self.built(&request, binary))
     }
 
