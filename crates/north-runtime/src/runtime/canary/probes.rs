@@ -273,7 +273,7 @@ git -C "$main" config user.name canary
 git -C "$main" config user.email canary@example.invalid
 git -C "$main" config commit.gpgsign false
 printf 'the scratch repository the runtime canary lands into\n' > "$main/README.md"
-printf '[landing]\n\tqueue = lander\n\tlander-host = %s\n\tremote-hosts =\n[land]\n\tcheck = ** :: true\n' "$(hostname -s 2>/dev/null || hostname)" > "$main/.safe-push"
+printf '[landing]\n\tqueue = lander\n\tlander-host = %s\n\tremote-hosts =\n[land]\n\tlocal-only = the canary scratch check builds nothing and reads nothing of this host :: true\n\tcheck = ** :: true\n' "$(hostname -s 2>/dev/null || hostname)" > "$main/.safe-push"
 git -C "$main" add .
 git -C "$main" commit -q -m 'Start the scratch repository'
 git clone -q --bare "$main" "$origin"
