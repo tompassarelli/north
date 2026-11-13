@@ -6,7 +6,7 @@
 //! waits for the next crossing. Between passes only caps are kept. Land-offload slots, the lander's reserved slot of each checkout last,
 //! are held to their cap on every pass, so a host closes for disk only once nothing its rules may reclaim is left. Within a slot store the least recently used slot whose lock no
 //! job holds goes first. The lines are free space, not a percent, so a large disk keeps the same headroom as a small one. The lease
-//! reaper starts it every 30 s on each build host as its own unit, and a disk-floor
+//! reaper starts it every 30 s on each build host, and the laptop-auto tick on the laptop, as its own unit, and a disk-floor
 //! admission defer runs it after the other reclaim sweeps before deciding again.
 use std::collections::HashSet;
 use std::fs;

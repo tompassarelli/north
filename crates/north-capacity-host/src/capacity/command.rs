@@ -13,6 +13,7 @@ fn route(arguments: &[String], host: &Host) -> Option<u8> {
         Some("laptop-auto") => {
             let status = laptop_auto::run(&arguments[1..]);
             if arguments.len() == 1 {
+                (host.tend_disk)();
                 (host.tend_slots)();
             }
             status
