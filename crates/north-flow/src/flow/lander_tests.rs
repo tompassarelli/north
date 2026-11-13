@@ -21,6 +21,8 @@ fn the_lander_stall_of_2026_11_08_alarms_on_the_first_flow_tick_past_ten_minutes
     let reading = judge(&night_of_2026_11_08(1_794_078_600.0));
     assert!(reading.stalled, "19:10 UTC (2:10 AM +07), main unmoved 11.4 min, over the 10 min floor: {reading:?}");
     assert_eq!(reading.stall_limit_minutes, 10.0);
+    let cold: Vec<Vec<serde_json::Value>> = [1, 1, 1, 6].iter().map(|minutes| vec![serde_json::json!({ "name": "test", "conclusion": "success", "started_at": "2026-11-11T15:00:00Z", "completed_at": format!("2026-11-11T15:0{minutes}:00Z"), "steps": [{ "conclusion": "success" }] })]).collect();
+    assert_eq!(super::super::stall::job_slowest(&cold).get("test"), Some(&6.0), "a cold-cache run in the history sets the job's limit, so the next one is not a stall");
 }
 
 #[test]

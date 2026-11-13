@@ -1,5 +1,5 @@
 //! The stall verdict: whether main has stopped moving while lanes wait, or a landing job has run
-//! past twice its own median on its runner pool, or the job's or workflow's median when it has no history there.
+//! past twice its slowest successful run on its runner pool, else on any pool, else twice its workflow's median.
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -37,7 +37,7 @@ pub struct Verdict {
     pub runner: Option<String>,
 }
 
-/// A workflow's median whole-run minutes and, per job name, the median minutes of the runs where
+/// A workflow's median whole-run minutes and, per job name, the slowest minutes of the successful runs where
 /// that job executed its steps, over all runners and again per runner pool.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct WorkflowMedians {
@@ -65,7 +65,7 @@ pub fn pool_of(job: &Value) -> Option<&'static str> {
 
 pub type Medians = BTreeMap<String, WorkflowMedians>;
 
-/// How many of a workflow's newest successful runs have their jobs read for per-job medians.
+/// How many of a workflow's newest successful runs have their jobs read for per-job slowest times.
 pub const JOB_HISTORY_RUNS: usize = 40;
 
 pub struct Facts<'a> {
@@ -113,7 +113,7 @@ pub fn newest_run_ids<'a>(runs: impl IntoIterator<Item = &'a Value>, now: f64) -
     week.into_iter().filter_map(|(_, _, item)| item["databaseId"].as_u64()).take(JOB_HISTORY_RUNS).collect()
 }
 
-fn executed_medians<'a>(runs: &'a [Vec<Value>], key: impl Fn(&'a Value) -> Option<(&'a str, &'a str)>) -> BTreeMap<(&'a str, &'a str), f64> {
+fn executed_slowest<'a>(runs: &'a [Vec<Value>], key: impl Fn(&'a Value) -> Option<(&'a str, &'a str)>) -> BTreeMap<(&'a str, &'a str), f64> {
     let mut seen: BTreeMap<(&str, &str), Vec<(usize, f64)>> = BTreeMap::new();
     for job in runs.iter().flatten().filter(|job| job["conclusion"].as_str() == Some("success")) {
         let (Some(key), Some(started), Some(completed)) = (key(job), job["started_at"].as_str().and_then(seconds), job["completed_at"].as_str().and_then(seconds)) else { continue };
@@ -124,30 +124,30 @@ fn executed_medians<'a>(runs: &'a [Vec<Value>], key: impl Fn(&'a Value) -> Optio
         .filter_map(|(key, samples)| {
             let most = samples.iter().map(|(ran, _)| *ran).max()?;
             let minutes: Vec<f64> = samples.iter().filter(|(ran, _)| *ran == most).map(|(_, minutes)| *minutes).collect();
-            Some((key, median(&minutes)?))
+            Some((key, minutes.into_iter().reduce(f64::max)?))
         })
         .collect()
 }
 
-/// Median minutes per job name over successful jobs of the given runs' REST job lists, counting
+/// Slowest minutes per job name over successful jobs of the given runs' REST job lists, counting
 /// only runs where the job ran as many steps as in any run: a cache hit skips the steps that do
 /// the work and finishes early.
-pub fn job_medians(runs: &[Vec<Value>]) -> BTreeMap<String, f64> {
-    executed_medians(runs, |job| Some((job["name"].as_str()?, ""))).into_iter().map(|((name, _), minutes)| (name.to_owned(), minutes)).collect()
+pub fn job_slowest(runs: &[Vec<Value>]) -> BTreeMap<String, f64> {
+    executed_slowest(runs, |job| Some((job["name"].as_str()?, ""))).into_iter().map(|((name, _), minutes)| (name.to_owned(), minutes)).collect()
 }
 
-/// The same medians per job name and runner pool, each pool's step count judged on its own: a
+/// The same slowest times per job name and runner pool, each pool's step count judged on its own: a
 /// hosted runner and a farm runner run the same job at different speeds.
-pub fn pool_medians(runs: &[Vec<Value>]) -> BTreeMap<String, BTreeMap<String, f64>> {
+pub fn pool_slowest(runs: &[Vec<Value>]) -> BTreeMap<String, BTreeMap<String, f64>> {
     let mut pools: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
-    for ((name, pool), minutes) in executed_medians(runs, |job| Some((job["name"].as_str()?, pool_of(job)?))) {
+    for ((name, pool), minutes) in executed_slowest(runs, |job| Some((job["name"].as_str()?, pool_of(job)?))) {
         pools.entry(name.to_owned()).or_default().insert(pool.to_owned(), minutes);
     }
     pools
 }
 
-/// Twice the median minutes of the job on its own runner pool, else of the job on any pool, else
-/// of its workflow.
+/// Twice the slowest successful minutes of the job on its own runner pool, else of the job on any pool, else
+/// twice its workflow's median.
 pub fn limit_minutes(medians: &Medians, job: &Job) -> Option<f64> {
     let known = medians.get(&job.workflow)?;
     let own_pool = job.pool.as_ref().and_then(|pool| known.pools.get(&job.name)?.get(pool)).copied();

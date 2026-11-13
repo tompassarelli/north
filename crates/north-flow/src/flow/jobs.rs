@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::guards::CACHE_SECONDS;
 use super::host::{Host, Places, iso, read_json, seconds, write_atomic};
-use super::stall::{Job, Medians, WorkflowMedians, job_medians, landing_run, newest_run_ids, pool_medians, pool_of, workflow_median};
+use super::stall::{Job, Medians, WorkflowMedians, job_slowest, landing_run, newest_run_ids, pool_slowest, pool_of, workflow_median};
 
 const MEDIAN_SECONDS: f64 = 6.0 * 3600.0;
 const DAY: f64 = 86_400.0;
@@ -112,7 +112,7 @@ fn history_medians(host: &dyn Host, slug: &str, workflow: &str, now: f64, runs: 
         history.extend(samples.as_array()?.iter().filter_map(|item| Some((item["databaseId"].as_u64()?, item.clone()))));
     }
     let listed: Vec<Vec<Value>> = newest_run_ids(history.values(), now).into_iter().filter_map(|run_id| runs.of(run_id)).collect();
-    Some(WorkflowMedians { run: workflow_median(history.values(), now), jobs: job_medians(&listed), pools: pool_medians(&listed) })
+    Some(WorkflowMedians { run: workflow_median(history.values(), now), jobs: job_slowest(&listed), pools: pool_slowest(&listed) })
 }
 
 fn running_jobs(host: &dyn Host, slug: &str, workflow: &str, runs: &mut RunJobs) -> Option<Vec<Job>> {
