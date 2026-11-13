@@ -183,6 +183,10 @@ fn a_settled_wait_leaves_its_registration_in_the_wait_history_and_a_ledger_from_
     let live: Vec<String> = db.prepare("SELECT key FROM fleet_waits").unwrap().query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
     let kept: Vec<(String, String)> = db.prepare("SELECT session, key FROM fleet_wait_history").unwrap().query_map([], |row| Ok((row.get(0)?, row.get(1)?))).unwrap().map(Result::unwrap).collect();
     assert_eq!((live, kept), (vec!["n1-fix".to_owned()], vec![("north-730-d0351".to_owned(), "abcd1234".to_owned())]));
+
+    db.execute_batch("PRAGMA ignore_check_constraints = ON; INSERT INTO fleet_waits VALUES ('held', 'later', 'x', '2026-11-14T00:00:00Z', '2026-11-13T00:00:00Z');").unwrap();
+    let listed: Vec<String> = store.waits().unwrap().into_iter().map(|wait| wait.key).collect();
+    assert_eq!(listed, ["n1-fix"], "a wait of a kind this binary does not know is left out of the listing, not an error");
 }
 
 #[test]

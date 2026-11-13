@@ -144,7 +144,7 @@ pub(super) fn all(db: &Connection) -> NorthResult<Vec<WaitRow>> {
         .map_err(sql)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(sql)?;
-    rows.into_iter().map(|(session, kind, key, deadline, created)| Ok(WaitRow { session, kind: WaitKind::parse(&kind)?, key, deadline, created })).collect()
+    Ok(rows.into_iter().filter_map(|(session, kind, key, deadline, created)| WaitKind::parse(&kind).map_err(|_| eprintln!("north fleet: skipped {session}'s wait of kind {kind}, which this binary does not know")).ok().map(|kind| WaitRow { session, kind, key, deadline, created })).collect())
 }
 
 pub(super) fn job_leased(db: &Connection, session: &str, now: Timestamp) -> NorthResult<bool> {
