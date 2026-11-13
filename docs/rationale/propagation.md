@@ -131,7 +131,7 @@ it. The north#1081 ask (propagation at the speed of the network) is about how fa
 cadence keeps that: each promotion still goes live everywhere within the 2-minute propagation target.
 
 - **Slots.** The settling host promotes at fixed slots every 4 hours: 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00
-  UTC (7 AM, 11 AM, 3 PM, 7 PM, 11 PM and 3 AM +07). The spacing lives in harness/defaults.toml, not
+  UTC. The spacing lives in harness/defaults.toml, not
   in a constant. A slot promotes origin/main's newest head that has a release artifact ready, and only if some commit
   since the pin changes a runtime input. Otherwise the slot passes and the pin stays.
 - **Fast path.** A landing whose commit carries a `Live-fix: REASON` trailer is promoted at once. REASON names what
