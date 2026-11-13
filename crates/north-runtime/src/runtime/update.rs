@@ -5,7 +5,6 @@ use super::host_facts;
 use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, Layout, TREE};
 use super::lifecycle::{self, Promoting, Promotion};
-use super::live;
 use super::peers;
 use super::pin::{self, Outcome};
 use super::pull;
@@ -176,7 +175,6 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
         return Err(failed(DEFERRED, format!("no previous runtime to roll {} back to; nothing to roll back", layout::short(failed_sha))));
     };
     swap(layout, &layout::link(&previous))?;
-    live::note_swap(layout, &layout::link(&previous));
     if fs::read_link(layout.lander()).is_ok_and(|lander| lander == layout::link(failed_sha)) {
         relink(&layout.lander(), &layout::link(&previous))?;
         println!("north runtime: lander link rolled back with current to {previous}");
@@ -292,7 +290,6 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     let (synced, _flipping) = promoted.map_err(|(_, failure)| failure)?;
     lifecycle::went_live(layout, target, was)?;
     note_promotion(layout, target, "live");
-    live::note_swap(layout, &layout::link(target));
     println!("{synced}north runtime promoted: {short} (was {})", was.unwrap_or("none"));
     host_facts::record_after_promotion(layout, target);
     canary::retire_services(layout, target);

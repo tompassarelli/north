@@ -27,7 +27,13 @@ fn an_unpublished_generation_keeps_the_code_runtime_and_notifies_the_proxy_once_
     assert_eq!(notices.len(), 1, "{notices:?}");
     assert!(notices[0].contains("startup tokens grew 3974→4525") && notices[0].contains("last published one stays live"), "{}", notices[0]);
 
-    assert!(settle(&layout, Some(&previous), &new, steps(0), &mut |text: &str| notices.push(text.to_owned())).is_ok());
+    let mut recorded = steps(0);
+    recorded[0].1 = Command::new("grep");
+    recorded[0].1.args(["-q", &new]).arg(layout.swaps());
+    fs::remove_file(layout.swaps()).unwrap();
+    fs::remove_file(layout.current()).unwrap();
+    symlink(&previous, layout.current()).unwrap();
+    assert!(settle(&layout, Some(&previous), &new, recorded, &mut |text: &str| notices.push(text.to_owned())).is_ok(), "on 2026-11-13 a canary that judged a host between its swap and the swap record named the runtime just replaced a service following no promotion");
     assert!(settle(&layout, Some(&previous), &new, steps(POLICY_HELD), &mut |text: &str| notices.push(text.to_owned())).is_ok());
     assert_eq!(notices.len(), 2, "a hold after a published generation is news again");
 

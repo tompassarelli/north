@@ -1,6 +1,7 @@
 use super::super::bounded;
 use super::super::failure::{Failure, code, failed};
 use super::super::layout::{self, Layout};
+use super::super::live;
 use super::super::remote;
 use north_base::agents_sync::{POLICY_HELD, UNPUBLISHED};
 use std::fs;
@@ -14,7 +15,12 @@ const LOG_TAIL: usize = 8;
 const AGENTS_SYNC: &str = "agents sync";
 
 pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
-    relink(&layout.current(), link)
+    let moved = fs::read_link(layout.current()).ok().as_deref() != Some(link);
+    relink(&layout.current(), link)?;
+    if moved {
+        live::note_swap(layout, link);
+    }
+    Ok(())
 }
 
 /// Points the symlink `at` at `link` in one rename, so a reader sees the old target or the new one and never neither.
