@@ -37,35 +37,35 @@ path = "src/cli/help.txt"
 kind = "regenerate"
 command = "north docs help-index"
 sources = ["src/cli/help/"]
-generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/help_index/"]
+generator = ["crates/north-docs/src/docs.rs", "crates/north-docs/src/help_index.rs"]
 
 [[set]]
 path = "src/cli/reference.txt"
 kind = "regenerate"
 command = "north docs reference-index"
 sources = ["src/cli/reference/"]
-generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/reference_index/", "crates/north-registries/src/"]
+generator = ["crates/north-docs/src/docs.rs", "crates/north-docs/src/reference_index.rs", "crates/north-registries/src/"]
 
 [[set]]
 path = "src/cli/verbs.rs"
 kind = "regenerate"
 command = "north docs verbs-index"
 sources = ["src/cli/verbs/"]
-generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/verbs_index/", "crates/north-registries/src/"]
+generator = ["crates/north-docs/src/docs.rs", "crates/north-docs/src/verbs_index.rs", "crates/north-registries/src/"]
 
 [[set]]
 path = "structure.toml"
 kind = "regenerate"
 command = "north docs structure-index"
 sources = ["structure/"]
-generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/structure_index/", "crates/north-registries/src/"]
+generator = ["crates/north-docs/src/docs.rs", "crates/north-docs/src/structure_index.rs", "crates/north-registries/src/"]
 
 [[set]]
 path = "docs/rationale/README.md"
 kind = "regenerate"
 command = "north docs rationale-index"
 sources = ["docs/rationale/"]
-generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/rationale_index/"]
+generator = ["crates/north-docs/src/docs.rs", "crates/north-docs/src/rationale_index.rs"]
 
 [[set]]
 path = "docs/rationale/kinds.toml"

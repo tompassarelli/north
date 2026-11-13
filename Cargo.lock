@@ -963,6 +963,7 @@ dependencies = [
  "north-core",
  "north-coverage",
  "north-dispatch",
+ "north-docs",
  "north-fleet-store",
  "north-flow",
  "north-github-mirror",
@@ -1292,6 +1293,15 @@ dependencies = [
  "serde_json",
  "tempfile",
  "time",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-docs"
+version = "0.1.0"
+dependencies = [
+ "north-registries",
+ "tempfile",
  "toml_edit",
 ]
 

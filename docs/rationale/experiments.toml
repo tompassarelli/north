@@ -747,3 +747,11 @@ command = "b=$(gh issue view 1233 -R tompassarelli/north --json comments -q '.co
 review = "2026-11-27"
 owner = "tompassarelli/north#1233"
 lead = "proxy"
+
+[[check]]
+id = "n1276-north-docs-thirty-modules"
+box = "north-ops holds at most 30 top-level modules"
+command = "test $(grep -c '^pub mod' crates/north-ops/src/ops/mod.rs) -le 30"
+review = "2026-11-26"
+owner = "tompassarelli/north#1276"
+lead = "proxy"

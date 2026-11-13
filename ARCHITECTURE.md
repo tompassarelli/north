@@ -76,7 +76,8 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 6 operations | north-tune | Tuned values and the learning-loop checks. |
 | 6 operations | north-replay | Strategy replay: logged decision cases decided again by the linked code. |
 | 6 operations | north-flow | The flow report, and agents, detectors, experiments, tempo and tool mining. |
-| 6 operations | north-ops | Thirty-eight unrelated operations verb families, from docs indexes to desktop upkeep. |
+| 6 operations | north-docs | The north docs command: each generated index written from its per-unit source tree. |
+| 6 operations | north-ops | Thirty unrelated operations verb families, from agent capture to desktop upkeep. |
 | 6 operations | north-health | Health facts: failed starts, flows, issues, loops, red main, rework. |
 | 6 operations | north-convo | Transcript search, and policy replay, and the context audit. |
 | 6 operations | north-lander-doctor | The lander doctor: each health bound read live and the remedy for each stuck state. |

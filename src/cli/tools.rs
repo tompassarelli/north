@@ -45,7 +45,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("pin-retire", crate::lanes::pin_retire),
     ("graph", graph),
     ("resident-cap", crate::resident_cap::run),
-    ("docs", crate::ops::docs::run),
+    ("docs", north_docs::docs::run),
     ("convo", crate::convo::run),
     ("incident-mine", crate::ops::incident_mine::run),
     ("tool-mine", crate::tool_mine::run),

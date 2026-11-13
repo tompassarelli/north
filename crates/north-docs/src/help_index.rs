@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::docs::Index;
+use crate::docs::Index;
 
 const HEADER_FILE: &str = "_header.txt";
 const FOOTER_FILE: &str = "_footer.txt";

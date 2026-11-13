@@ -2,8 +2,8 @@
 //! lane that adds a verb edits its own file and never the generated table.
 use std::path::Path;
 
-use super::docs::Index;
-use super::registry::{files, read};
+use crate::docs::Index;
+use crate::registry::{files, read};
 
 fn notes(source: &Path) -> Result<Vec<String>, String> {
     let mut notes = Vec::new();

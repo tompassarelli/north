@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{features_index, help_index, rationale_index, reference_index, structure_index, verbs_index};
+use crate::{features_index, help_index, rationale_index, reference_index, structure_index, verbs_index};
 
 const USAGE: &str = "usage: north docs features-index|help-index|rationale-index|reference-index|structure-index|verbs-index [--check] [--root DIR]";
 

@@ -10,7 +10,7 @@ fn span(id: &str, parent: &str, name: &str, start: f64, end: f64, exit: Option<&
 #[test]
 fn a_family_over_its_budget_in_each_newest_green_run_files_one_box_counting_only_its_own_time() {
     let clippy = "CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets";
-    let docs = "CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-ops/src/ops/docs.rs docs rationale-index --check";
+    let docs = "CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-docs/src/docs.rs docs rationale-index --check";
     let mut log = String::new();
     for (run, own) in [(0.0, 70.0), (1000.0, 80.0), (2000.0, 90.0)] {
         let root = format!("r{run}");

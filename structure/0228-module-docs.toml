@@ -1,0 +1,5 @@
+[[module]]
+name = "docs"
+paths = ["crates/north-docs/src/**"]
+responsibility = "The north docs command: each generated index and the per-unit source tree it is written from."
+may_use = ["crate-roots", "registries"]

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use super::docs::Index;
+use crate::docs::Index;
 
 const README: &str = "README.md";
 const KINDS: &str = "kinds.toml";
