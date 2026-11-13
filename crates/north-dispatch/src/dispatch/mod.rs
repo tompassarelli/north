@@ -2,16 +2,13 @@
 //! resident sessions, which accounts the out-rule keeps out and the staffed repositories' open issues,
 //! launches each ready box it can place through `north fleet launch`, records the launch, and tells
 //! Tom in one line when ready work and free slots coexist and nothing could launch.
-use std::collections::{BTreeMap, BTreeSet};
 use crate::error::NorthResult;
 use crate::fleet::roster::Roster;
-use crate::pacing::placement::{self, gate};
-use issues::Issue;
-use north_graph_ground::Backlog;
+use crate::pacing::placement;
 pub use issues::{IssueRef, OWNER, no_box_refusal, product_boxes, references};
-use plan::{Candidate, Capacity, Launch, Ready};
-use scope::Scope;
-use slots::Pools;
+pub use decision::{boxless, decide};
+use decision::{candidates, decide_leaving, revive};
+use plan::Launch;
 use survey::Survey;
 
 pub use host_needs::{is_need, register as register_need};
@@ -31,6 +28,7 @@ mod brief;
 pub mod cells;
 pub mod deepseek;
 mod cloud;
+mod decision;
 pub mod drafts;
 pub mod drafting;
 #[cfg(test)]
@@ -116,191 +114,16 @@ pub struct Outcome {
     pub revival: revive::Revival,
 }
 
-/// The issues in the fact graph's measured order (`north graph ready`), each issue with no ready box there after them, by
-/// priority label, backlog rank, age, project and number; an issue the survey read twice is staffed once, so a run never
-/// launches a box it already launched.
-fn ordered<'a>(issues: &'a [Issue], projects: &crate::threads::projects::Projects, backlog: Option<&Backlog>) -> Vec<&'a Issue> {
-    let leaders = backlog.map(Backlog::leaders).unwrap_or_default();
-    let place = |issue: &Issue| leaders.iter().position(|leader| *leader == issue.reference().to_string()).unwrap_or(usize::MAX);
-    let rank = |issue: &Issue| backlog.and_then(|backlog| backlog.rank(&issue.reference().to_string())).unwrap_or(i64::MAX);
-    let mut seen = BTreeSet::new();
-    let mut ordered: Vec<&Issue> = issues.iter().filter(|issue| seen.insert(issue.reference())).collect();
-    ordered.sort_by(|a, b| {
-        place(a)
-            .cmp(&place(b))
-            .then(a.priority().cmp(&b.priority()))
-            .then(rank(a).cmp(&rank(b)))
-            .then(a.created.total_cmp(&b.created))
-            .then_with(|| projects.position(&a.repo).cmp(&projects.position(&b.repo)))
-            .then(a.number.cmp(&b.number))
-    });
-    ordered
-}
 
-/// The machines a box may run on, soonest expected start first and in `[placement] order` among
-/// equals, each with why it refuses this box; a host dispatch cannot measure waits no time.
-fn candidates(survey: &Survey, scope: &Scope, brief: &str) -> Vec<Candidate> {
-    let order: Vec<String> = survey.cfg.get("placement").and_then(|rules| rules.get("order")).and_then(toml_edit::Item::as_array).into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
-    let class = wait::class(brief);
-    let unreadable = survey.home.as_deref().map(|home| crate::platform::home_paths::home_paths(brief, home)).unwrap_or_default();
-    let mut ranked: Vec<(f64, usize, Candidate)> = survey
-        .hosts
-        .iter()
-        .map(|host| {
-            let waits = host.measure.as_ref().map_or(Ok(0.0), |measure| wait::wait(class, measure));
-            let apart = host.name != survey.here && survey.laptop.as_deref() != Some(host.name.as_str());
-            let refusal = match (host.free(), gate::lacks(&survey.cfg, &host.name, brief), &waits) {
-                _ if scope.excludes_host(&host.name) => Some(scope.why_not_host(&host.name)),
-                (Err(why), _, _) => Some(format!("takes nothing: {why}")),
-                (_, Some(need), _) => Some(format!("does not serve {need}")),
-                (_, _, Err(why)) => Some(why.clone()),
-                _ if apart && !unreadable.is_empty() => Some(format!("cannot read {}, under {}'s home", unreadable.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", "), survey.here)),
-                _ => None,
-            };
-            let position = order.iter().position(|name| *name == host.name).unwrap_or(order.len());
-            (waits.unwrap_or(f64::INFINITY), position, Candidate { host: host.name.clone(), refusal })
-        })
-        .collect();
-    ranked.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-    ranked.into_iter().map(|(_, _, candidate)| candidate).collect()
-}
 
-/// The boxes of `issue` that may be staffed now, each running box's paths already held in `claims`; a bare issue is one box with no text.
-fn open_boxes(issue: &Issue, running: &BTreeMap<String, String>, tried: &BTreeMap<String, String>, at: f64, claims: &mut hotspots::Claims) -> Vec<Option<String>> {
-    for text in issue.takeable(at) {
-        if let Some(holder) = crate::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
-            claims.take(&hotspots::paths(issue, Some(text)), holder);
-        }
-    }
-    let taken: BTreeSet<String> = running.keys().chain(tried.keys()).cloned().collect();
-    let mut boxes: Vec<Option<String>> = issue.free_boxes(&taken, at).map(|text| Some(text.to_owned())).collect();
-    if issue.takeable(at).next().is_none() {
-        boxes.push(None);
-    }
-    boxes
-}
 
 /// The first words of a box's text, enough to tell it from its issue's other boxes.
 fn box_words(text: &str) -> String {
     text.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").split_whitespace().take(8).collect::<Vec<_>>().join(" ")
 }
 
-/// Every ready box placed on a free slot, or skipped with its reason.
-pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
-    decide_leaving(survey, launched_by).0
-}
 
-fn decide_leaving(survey: &Survey, launched_by: &str) -> (Outcome, Pools) {
-    let scope = Scope::parse(&survey.cfg);
-    let mut pools = Pools::new(&survey.hosts, &survey.accounts);
-    let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
-    let planned = issues::planned_predecessors(&survey.issues);
-    let capacity = Capacity { accounts: &survey.accounts, charge: survey.rules.charge, ceiling: survey.rules.money_ceiling, claude_sessions: survey.rules.claude_sessions, spend: &survey.spend, scope: &scope };
-    let revival = revive::plan(&revive::Inputs { strands: &survey.strands, saturated: &survey.saturated, revived: &survey.revived }, &capacity, &mut pools);
-    let mut holds = survey.holds.clone();
-    holds.extend(revival.holds.clone());
-    outcome.revival = revival;
-    let (box_holds, stale) = issues::settle_box_holds(&survey.issues, &survey.box_holds);
-    outcome.skipped.extend(stale);
-    let world = issues::World { open: &survey.open, holds: &holds, box_holds: &box_holds, box_tries: &survey.box_tries, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
-    let mut claims = hotspots::Claims::default();
-    for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
-        if let Err(why) = screen::admitted(survey, issue, &world) {
-            outcome.skipped.push((issue.reference(), why));
-            continue;
-        }
-        outcome.ready.push(issue.reference());
-        let reference = issue.reference();
-        let none = std::collections::BTreeMap::new();
-        let running = box_holds.get(&reference).unwrap_or(&none);
-        let tried = survey.box_tries.get(&reference).unwrap_or(&none);
-        let boxes = open_boxes(issue, running, tried, survey.at, &mut claims);
-        for text in issue.takeable(survey.at) {
-            if let Some(holder) = crate::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
-                outcome.skipped.push((reference.clone(), format!("box `{}` held: {holder}", box_words(text))));
-            }
-        }
-        let boxes = survey.mainline.unretired(issue, boxes, &mut outcome.skipped);
-        let mut staffed = running.len();
-        for box_text in &boxes {
-            let box_text = box_text.as_deref();
-            if issue.worker_cap().is_some_and(|cap| staffed >= cap) {
-                break;
-            }
-            let paths = hotspots::paths(issue, box_text);
-            let named = box_text.map_or_else(String::new, |text| format!("box `{text}` "));
-            if let Some((path, holder)) = claims.conflict(&paths) {
-                outcome.skipped.push((reference.clone(), format!("ready, not placed: {named}{}", hotspots::hold_reason(&path, holder))));
-                continue;
-            }
-            let (route, brief) = match screen::written(survey, issue, launched_by, box_text) {
-                Ok(written) => written,
-                Err(why) => {
-                    outcome.skipped.push((reference.clone(), format!("ready, not placed: {why}")));
-                    break;
-                }
-            };
-            let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
-            let ready = Ready { item: reference.clone(), brief, code_only, route };
-            let candidates = candidates(survey, &scope, &ready.brief);
-            let claude = |pools: &mut Pools| if scope.allows_provider("claude") { plan::place(&ready, &capacity, &candidates, pools) } else { Err(scope.why_not_provider("claude")) };
-            let staffed_on = match (scope.allows_provider(deepseek::PROVIDER), scope.allows_provider("claude")) {
-                (false, _) => claude(&mut pools),
-                (true, true) => survey.deepseek.staff(issue, box_text, &ready, &candidates, &mut pools, claude),
-                (true, false) => match band::outside(issue, &ready.route.category, &survey.cfg) {
-                    Some(why) => Err(format!("{}; {why}", scope.why_not_provider("claude"))),
-                    None => survey.deepseek.takes(issue, box_text).and_then(|()| survey.deepseek.place(&ready, &candidates, &mut pools)).map_err(|why| format!("DeepSeek does not take it: {why}; {}", scope.why_not_provider("claude"))),
-                },
-            };
-            match staffed_on {
-                Ok(mut launch) => {
-                    screen::arm(survey, &mut launch);
-                    claims.take(&paths, &format!("{named}of {reference}, launched in this run"));
-                    outcome.launches.push(launch);
-                }
-                Err(why) => {
-                    outcome.skipped.push((ready.item, format!("ready, not placed: {why}")));
-                    break;
-                }
-            }
-            staffed += 1;
-        }
-    }
-    (outcome, pools)
-}
 
-/// The open issues dispatch skipped because they have no Done-when box.
-pub fn boxless<'a>(survey: &'a Survey, outcome: &Outcome) -> Vec<&'a Issue> {
-    outcome.skipped.iter().filter(|(_, why)| why == issues::NEEDS_BOX).filter_map(|(item, _)| survey.issues.iter().find(|issue| issue.reference() == *item)).collect()
-}
-
-/// The lines reviving `revival` prints, in its order.
-fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool, standing: fn() -> Option<String>) -> Vec<String> {
-    let mut lines: Vec<String> = revival.waiting.iter().map(|(name, why)| format!("stranded {name} waits: {why}")).collect();
-    for step in &revival.steps {
-        let line = match step {
-            revive::Step::Revive(revive) => format!("revive {} on {} {} ({}; {})", revive.name, revive.host, revive.account, revive.stop.label(), revive.lanes.join(", ")),
-            revive::Step::Forget { name, registry } => format!("forget {name} on {registry}: its lanes' work is on origin/main"),
-        };
-        if dry_run {
-            lines.push(format!("would {line}"));
-            continue;
-        }
-        if let (revive::Step::Revive(_), Some(reason)) = (step, standing().filter(|_| !dry_run)) {
-            lines.push(format!("skip {line}: dispatch was paused while this run was working: {reason}"));
-            continue;
-        }
-        let done = match step {
-            revive::Step::Revive(revive) => effects::revive(survey, revive),
-            revive::Step::Forget { name, registry } => effects::forget(survey, name, registry),
-        };
-        lines.push(match done {
-            Ok(()) => line,
-            Err(why) => format!("{line} failed: {why}"),
-        });
-    }
-    lines
-}
 
 /// What one planned launch came to: started, skipped by a guard the run met after planning it, or failed.
 enum Started {
@@ -368,33 +191,50 @@ fn mode(arguments: &[String]) -> Result<(bool, Vec<IssueRef>), u8> {
         rest => (false, rest),
     };
     match rest {
-        [] => return Ok((dry_run, Vec::new())),
-        [flag, items @ ..] if flag == "--draft" && !items.is_empty() => {
-            return items.iter().map(|item| IssueRef::parse(item).ok_or(item)).collect::<Result<Vec<_>, _>>().map(|items| (dry_run, items)).map_err(|item| {
-                eprintln!("north fleet dispatch --draft: {item} is no REPO#N");
-                2
-            });
-        }
-        _ if dry_run => {
-            eprintln!("{USAGE}");
-            return Err(2);
-        }
-        _ => {}
+        [] => Ok((dry_run, Vec::new())),
+        [flag, items @ ..] if flag == "--draft" && !items.is_empty() => draft_items(items).map(|items| (dry_run, items)),
+        _ if dry_run => Err(usage_error()),
+        _ => Err(verb(arguments)),
     }
-    match arguments {
-        [verb, rest @ ..] if verb == "route-replay" => Err(nearest::replay(rest)),
-        [verb, rest @ ..] if verb == "pause" => Err(pause::pause(rest)),
-        [verb] if verb == "resume" => Err(pause::resume()),
-        [verb, rest @ ..] if verb == "review" => Err(deepseek::review::serve(rest)),
-        [verb, rest @ ..] if verb == "verdict" => Err(deepseek::review::verdict(rest)),
-        [verb] if verb == "paused" => Err(queued::paused()),
-        [verb, rest @ ..] if verb == "queued" => Err(queued::serve(rest)),
-        [verb, item] if verb == "needs" => Err(host_needs::serve(item)),
-        [verb, session, need, item @ ..] if verb == "need" && item.len() < 2 => Err(host_needs::serve_need(session, need, item.first().map(String::as_str))),
-        _ => {
-            eprintln!("{USAGE}");
-            Err(2)
-        }
+}
+
+fn draft_items(items: &[String]) -> Result<Vec<IssueRef>, u8> {
+    items.iter().map(|item| IssueRef::parse(item).ok_or(item)).collect::<Result<Vec<_>, _>>().map_err(|item| {
+        eprintln!("north fleet dispatch --draft: {item} is no REPO#N");
+        2
+    })
+}
+
+fn usage_error() -> u8 {
+    eprintln!("{USAGE}");
+    2
+}
+
+fn verb(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((verb, rest)) => review_verb(verb, rest).or_else(|| queue_verb(verb, rest)).unwrap_or_else(usage_error),
+        None => usage_error(),
+    }
+}
+
+fn review_verb(verb: &str, rest: &[String]) -> Option<u8> {
+    match (verb, rest) {
+        ("route-replay", _) => Some(nearest::replay(rest)),
+        ("pause", _) => Some(pause::pause(rest)),
+        ("resume", []) => Some(pause::resume()),
+        ("review", _) => Some(deepseek::review::serve(rest)),
+        ("verdict", _) => Some(deepseek::review::verdict(rest)),
+        _ => None,
+    }
+}
+
+fn queue_verb(verb: &str, rest: &[String]) -> Option<u8> {
+    match (verb, rest) {
+        ("paused", []) => Some(queued::paused()),
+        ("queued", _) => Some(queued::serve(rest)),
+        ("needs", [item]) => Some(host_needs::serve(item)),
+        ("need", [session, need, item @ ..]) if item.len() < 2 => Some(host_needs::serve_need(session, need, item.first().map(String::as_str))),
+        _ => None,
     }
 }
 
@@ -420,30 +260,18 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     report::print(&survey, dry_run);
     let (outcome, mut pools) = decide_leaving(&survey, &format!("north fleet dispatch on {}", survey.here));
     if !drafted.is_empty() {
-        for line in drafting::pass(&survey, &outcome, &mut pools, Some(&drafted), dry_run) {
-            println!("{line}");
-        }
+        print_lines(drafting::pass(&survey, &outcome, &mut pools, Some(&drafted), dry_run));
         return 0;
     }
-    for (place, item) in outcome.ready.iter().enumerate() {
-        let standing = survey.backlog.as_ref().map_or_else(|| "unread graph".to_owned(), |backlog| backlog.standing(&item.to_string()));
-        println!("ready {}\t{item}\t{standing}", place + 1);
-    }
-    for (item, why) in &outcome.skipped {
-        println!("skip {item}: {why}");
-    }
+    print_plan(&survey, &outcome);
     let boxless = boxless(&survey, &outcome);
     if !boxless.is_empty() {
         println!("needs a box: {}", boxless.iter().map(|issue| issue.reference().to_string()).collect::<Vec<_>>().join(", "));
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
     let stopped = execute(&survey, &outcome, dry_run);
-    for line in drafting::pass(&survey, &outcome, &mut pools, None, dry_run) {
-        println!("{line}");
-    }
-    for line in deepseek::review::queue(&survey.deepseek.review, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run) {
-        println!("{line}");
-    }
+    print_lines(drafting::pass(&survey, &outcome, &mut pools, None, dry_run));
+    print_lines(deepseek::review::queue(&survey.deepseek.review, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run));
     let now = placement::now();
     let frozen = freeze::frozen(&outcome, &stopped, &freeze::guards(&survey));
     let told = match &frozen {
@@ -456,6 +284,22 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     let reported = effects::report_failures(&record::read(&record::directory()), now, dry_run);
     let watched = freeze::watch(&survey.here, frozen, dry_run, now);
     exit(told, reported, watched)
+}
+
+fn print_plan(survey: &Survey, outcome: &Outcome) {
+    for (place, item) in outcome.ready.iter().enumerate() {
+        let standing = survey.backlog.as_ref().map_or_else(|| "unread graph".to_owned(), |backlog| backlog.standing(&item.to_string()));
+        println!("ready {}\t{item}\t{standing}", place + 1);
+    }
+    for (item, why) in &outcome.skipped {
+        println!("skip {item}: {why}");
+    }
+}
+
+fn print_lines(lines: impl IntoIterator<Item = impl std::fmt::Display>) {
+    for line in lines {
+        println!("{line}");
+    }
 }
 
 /// The run's exit code: 1 when any of its alert sinks failed, so the fleet tick and the unit's log
