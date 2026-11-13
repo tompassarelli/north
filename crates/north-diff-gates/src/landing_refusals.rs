@@ -18,10 +18,11 @@ pub fn enforcing() -> bool {
 }
 
 pub const TEST_ADMISSION: &str = "test admission";
+pub const REBASE_COMPILE: &str = "rebase compile";
 
-/// Whether `gates`, one gate's label or several joined by `, `, names a gate that refuses whatever `landing_refusals` says: test admission, whose refusals are the repository's test policy (north#1048).
+/// Whether `gates`, one gate's label or several joined by `, `, names a gate that refuses whatever `landing_refusals` says: test admission, whose refusals are the repository's test policy (north#1048), and the compile of a lane rebased onto a moved main, which is a broken build (north#1036).
 pub fn always_refuses(gates: &str) -> bool {
-    gates.split(", ").any(|gate| gate == TEST_ADMISSION)
+    gates.split(", ").any(|gate| gate == TEST_ADMISSION || gate == REBASE_COMPILE)
 }
 
 /// The lane a gate judged and the place it judged it: `enqueue`, `pick` or `candidate`.

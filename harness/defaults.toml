@@ -1807,6 +1807,14 @@ source = "prior: one build-host admission per hand-in (north#1036 slice B1, nort
 fallback = "any value but off reads as on"
 consumers = ["crates/north-base/src/platform/finish_record.rs"]
 
+[rebase_compile]
+value = "on"
+allowed = { one_of = ["on", "off"] }
+unit = "on: when the lander picks a lane onto a main that moved since the lane's checks before queueing, and a crate the new main commits changed is one of the lane's crates or in their dependency closure either way, it runs `cargo check --all-targets --locked --offline` over those crates (the workspace when either side changes a manifest, the lock file or a build script) on a build host through the offload, capped at 90 s, and refuses the lane with the compile errors when cargo fails to compile it; any other end leaves the lane to land; off skips the compile"
+source = "north#1036 (2026-11-13): main froze red when the lander pushed a lane that compiled against its old base and not against the moved one: one commit added a field to a struct and another, checked on the older main, built it without the field"
+fallback = "any value but off reads as on"
+consumers = ["crates/north-landing/src/land/rebase_compile.rs"]
+
 [review_holds]
 value = "on"
 allowed = { one_of = ["on", "off"] }

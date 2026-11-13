@@ -12,6 +12,7 @@ use super::landed_copy;
 use super::on_main::{self, OnMain};
 use super::queue::{self, Ticket};
 use super::lane_gates::{self, Lane};
+use super::rebase_compile::{self, Rebased};
 use super::reservation::{self, Attempt, Judged};
 use crate::landing::{merge_continue, merge_set, stale_revert};
 use crate::landing_refusals;
@@ -244,11 +245,14 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         shadowed.record(&state_home, "revert guard", &stale_revert::refusal(&found));
     }
     let head = git(worktree, &["rev-parse", "HEAD"])?;
-    *gating = (!lane_gates::judged_before_queueing(worktree, ticket.gated_from.as_deref(), &ticket.head, &picked_onto)).then_some(Gating { picked_onto, head });
+    let checked_on = ticket.passed_alone_on().or(ticket.gated_from.as_deref()).map(str::to_owned);
+    *gating = (!lane_gates::judged_before_queueing(worktree, ticket.gated_from.as_deref(), &ticket.head, &picked_onto)).then(|| Gating { base: base.to_owned(), checked_on, picked_onto, head });
     Ok(Pick::Included)
 }
 
 struct Gating {
+    base: String,
+    checked_on: Option<String>,
     picked_onto: String,
     head: String,
 }
@@ -269,7 +273,16 @@ fn gate_lane(worktree: &Path, job: &GateJob, logs: &Path) -> Gated {
         let (state_home, code_health) = (crate::platform::records_mirror::state_home(), super::after::gates::code_health_program());
         let advisory_db = crate::advisory_gate::database(&state_home);
         let lane = Lane { worktree: &tree, base: &job.gating.picked_onto, head: &job.gating.head, state_home: &state_home, code_health: &code_health, registry: &crate::dep_gate::PublicRegistries, advisory_db: &advisory_db };
-        lane_gates::judge(&lane, logs, &job.name)
+        let rebased = Rebased { tree: &tree, checked_on: job.gating.checked_on.as_deref(), picked_onto: &job.gating.picked_onto, head: &job.gating.head, shipped_from: &job.gating.base };
+        std::thread::scope(|scope| {
+            let compiled = rebase_compile::enabled().then(|| scope.spawn(|| rebase_compile::judge(&rebased, Path::new(&super::after::follow::program()), logs, &job.name)));
+            let gates = lane_gates::judge(&lane, logs, &job.name)?;
+            let compile = match compiled {
+                Some(compiled) => compiled.join().map_err(|_| "the compile after the rebase panicked".to_owned())??,
+                None => None,
+            };
+            Ok(rebase_compile::joined(gates, compile))
+        })
     });
     let _ = change_worktrees_alone(worktree, &["worktree", "remove", "--force", path]);
     judged

@@ -57,6 +57,7 @@ fn emptied_pick_a_lane_whose_change_is_already_carried_is_named_by_its_carrier_o
     let decided = match &built.picks[0] { Pick::Decided(text) => text.clone(), _ => String::new() };
     assert_eq!(decided, format!("landed {carrier}"), "on 2026-11-08 model-catalog-argon, whose change da2941ea10 had already landed, was told it landed as bde3db9c68, the base it was checked against");
     emptied_pick_scenario(&dir.path().join("emptied"));
+    rebase_compile_scenario(&dir.path().join("rebase"));
 }
 
 fn lanes_repo(dir: &Path) -> (PathBuf, String) {
@@ -107,7 +108,7 @@ fn emptied_pick_scenario(dir: &Path) {
 
 #[test]
 fn a_candidate_of_ten_lanes_runs_its_pick_time_gates_outside_the_serving_loop() {
-    let jobs: Vec<GateJob> = (0..10).map(|at| GateJob { name: format!("lane-{at}"), gating: Gating { picked_onto: String::new(), head: String::new() } }).collect();
+    let jobs: Vec<GateJob> = (0..10).map(|at| GateJob { name: format!("lane-{at}"), gating: Gating { base: String::new(), checked_on: None, picked_onto: String::new(), head: String::new() } }).collect();
     let together = std::sync::Barrier::new(5);
     let judged = gate_lanes_with(&jobs, 5, |job| {
         together.wait();
@@ -115,4 +116,41 @@ fn a_candidate_of_ten_lanes_runs_its_pick_time_gates_outside_the_serving_loop() 
     });
     assert_eq!(judged.len(), 10);
     assert_eq!(judged[3].as_ref().err().map(String::as_str), Some("lane-3"), "each verdict stays with its lane");
+}
+
+fn rebase_compile_scenario(dir: &Path) {
+    let repo = dir.join("main");
+    for (name, manifest, source) in [("a", "", "pub struct Context { pub user: u32 }\n"), ("b", "a = { path = \"../a\" }\n", "pub fn context() -> a::Context { a::Context { user: 1 } }\n")] {
+        fs::create_dir_all(repo.join(format!("crates/{name}/src"))).unwrap();
+        fs::write(repo.join(format!("crates/{name}/Cargo.toml")), format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n{manifest}")).unwrap();
+        fs::write(repo.join(format!("crates/{name}/src/lib.rs")), source).unwrap();
+    }
+    fs::write(repo.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"3\"\n").unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]).unwrap();
+    for (key, value) in [("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
+        git(&repo, &["config", key, value]).unwrap();
+    }
+    commit_all(&repo, "base");
+    let checked_on = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    fs::write(repo.join("crates/a/src/lib.rs"), "pub struct Context { pub user: u32, pub user_runtime: u32 }\n").unwrap();
+    commit_all(&repo, "Add a field to the context");
+    let moved = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    fs::write(repo.join("crates/b/src/lib.rs"), "pub fn context() -> a::Context { a::Context { user: 2 } }\n").unwrap();
+    commit_all(&repo, "Build the context in the lane");
+    let head = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    let north = dir.join("north");
+    fs::write(&north, format!("#!/bin/sh\necho \"$*\" >> {}\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) printf 'error[E0063]: missing field `user_runtime` in initializer of `a::Context`\\n --> crates/b/src/lib.rs:1:35\\nerror: could not compile `b`\\n' >&2; exit 101 ;;\nesac\n", dir.join("asked").display())).unwrap();
+    fs::set_permissions(&north, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let logs = dir.join("logs");
+    let unmoved = Rebased { tree: &repo, checked_on: Some(&moved), picked_onto: &moved, head: &head, shipped_from: &moved };
+    assert!(rebase_compile::judge(&unmoved, &north, &logs, "lane").unwrap().is_none() && !dir.join("asked").exists(), "a lane checked on the main it is picked onto compiles nothing");
+    let rebased = Rebased { tree: &repo, checked_on: Some(&checked_on), picked_onto: &moved, head: &head, shipped_from: &moved };
+    let refused = rebase_compile::judge(&rebased, &north, &logs, "lane").unwrap().expect("the lane rebased onto the moved main does not compile");
+    assert_eq!(refused.gates, crate::landing_refusals::REBASE_COMPILE);
+    assert!(refused.verdict.contains("error[E0063]: missing field `user_runtime`") && refused.verdict.contains("--> crates/b/src/lib.rs:1:35"), "on 2026-11-13 80b143969c, checked on an older main, was pushed onto 68f3121884 without a compile and main stayed red with E0063: {}", refused.verdict);
+    assert!(fs::read_to_string(dir.join("asked")).unwrap().contains("cargo check --all-targets --locked --offline -p a -p b"), "the base changed crate a, which the lane's crate b depends on, so both are checked");
+    let offline = dir.join("offline");
+    fs::write(&offline, "#!/bin/sh\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) echo 'error: no matching package named `a` found' >&2; exit 101 ;;\nesac\n").unwrap();
+    fs::set_permissions(&offline, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    assert!(rebase_compile::judge(&rebased, &offline, &logs, "lane").unwrap().is_none(), "cargo exits 101 for a resolver failure too, which says nothing about the lane");
 }

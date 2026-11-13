@@ -267,6 +267,45 @@ fn dependency_closure<'a>(members: &[Member<'a>], listed: BTreeSet<&'a str>) -> 
     reached
 }
 
+fn shared_closure(metadata: &str, lane: &[String], moved: &[String]) -> Result<Option<Scope>, String> {
+    let metadata = parse(metadata)?;
+    let members = members(&metadata)?;
+    let embedders = Embedders::new();
+    let owned = |files: &[String]| -> Option<BTreeSet<&str>> {
+        let mut names = BTreeSet::new();
+        for file in files {
+            if file == "Cargo.lock" || file.ends_with("Cargo.toml") || file == "build.rs" || file.ends_with("/build.rs") {
+                return None;
+            }
+            match owner(&members, &embedders, file) {
+                Owner::Everything => return None,
+                Owner::Package(name) => {
+                    names.insert(name);
+                }
+                Owner::Packages(found) => names.extend(found),
+                Owner::Nothing => {}
+            }
+        }
+        Some(names)
+    };
+    let (lane, moved) = match (owned(lane), owned(moved)) {
+        (Some(lane), Some(moved)) => (lane, moved),
+        (None, None) => return Ok(Some(Scope::Workspace)),
+        (Some(owned), None) | (None, Some(owned)) => return Ok((!owned.is_empty()).then_some(Scope::Workspace)),
+    };
+    let reached: BTreeSet<&str> = dependency_closure(&members, lane.clone()).union(&dependents(&members, lane.clone())).copied().collect();
+    let shared: BTreeSet<&str> = moved.intersection(&reached).copied().collect();
+    if shared.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Scope::Packages { affected: lane.union(&shared).map(|name| (*name).to_owned()).collect(), changed: lane.iter().map(|name| (*name).to_owned()).collect() }))
+}
+
+pub fn rebase_scope(root: &Path, checked_on: &str, picked_onto: &str, head: &str) -> Result<Option<Scope>, String> {
+    let metadata = north_build_system::here().workspace(root)?;
+    shared_closure(&metadata, &changed(root, picked_onto, head, &[])?, &changed(root, checked_on, picked_onto, &[])?)
+}
+
 pub fn scope(root: &Path, base: &str, head: &str) -> Result<Scope, String> {
     let metadata = north_build_system::here().workspace(root)?;
     select(&metadata, &changed(root, base, head, &[])?, &read_dep_info(&metadata))
