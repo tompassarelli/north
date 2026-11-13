@@ -59,13 +59,6 @@ impl Fleet {
         Some(format!("only the coordinator grants urgent priority, so {name} launches at normal priority"))
     }
 
-    /// Whether the launcher may place work on a host's operator login: it runs outside every fleet session's scope, or in the scope of the lead or coordinator session it names; a cgroup it cannot read or parse proves neither, so it is not the operator. `cgroup` is the launcher's `/proc/self/cgroup`; a worker's processes cannot leave its session's scope, and naming a lead it does not run in proves nothing, so a confined caller is never the operator.
-    pub fn operator_caller(&self, caller: Option<&str>, cgroup: &str) -> bool {
-        let Some(path) = cgroup.lines().last().and_then(|line| line.split_once("::")).map(|(_, path)| path).filter(|path| path.starts_with('/')) else { return false };
-        let in_session = path.split('/').any(|leaf| leaf.starts_with(north_base::platform::session_scope::SESSION_UNIT_PREFIX));
-        !in_session || caller.is_some_and(|caller| matches!(self.role_of(caller), Some(Role::Lead | Role::Proxy)) && self.in_scope_of(caller, cgroup))
-    }
-
     fn in_operator_login(&self, cgroup: &str) -> bool {
         std::fs::metadata(&self.root).is_ok_and(|root| in_login_scope(cgroup, std::os::unix::fs::MetadataExt::uid(&root)))
     }
@@ -124,10 +117,6 @@ mod tests {
         assert!(laptop.urgent_denied(true, "child", None, None, EVAL).is_none());
         let operator = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(home.path()).unwrap());
         assert!(laptop.urgent_denied(true, "child", None, None, &format!("0::/user.slice/user-{operator}.slice/session-3.scope\n")).is_none());
-        assert!(laptop.operator_caller(None, &format!("0::/user.slice/user-{operator}.slice/session-3.scope\n")));
-        assert!(!laptop.operator_caller(None, ""), "an unreadable cgroup counted as the operator");
-        assert!(!laptop.operator_caller(None, "not a cgroup"), "an unparsable cgroup counted as the operator");
-        assert!(!laptop.operator_caller(Some("worker"), WORKER));
         assert!(laptop.urgent_denied(true, "child", None, None, &format!("0::/user.slice/user-{}.slice/session-3.scope\n", operator + 1)).is_some(), "an agent-uid login is not the operator's");
         for unit in ["0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-land@main.service\n", "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-worker-outside-1.service\n"] {
             assert!(laptop.urgent_denied(true, "child", None, None, unit).is_some(), "{unit}");

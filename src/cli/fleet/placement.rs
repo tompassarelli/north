@@ -80,16 +80,8 @@ pub(super) struct Launch<'a> {
     /// The model the launch records, whose family decides which meter placement reads.
     pub model: Option<&'a str>,
     pub family: ModelFamily,
-    /// The launcher is the operator, never a confined caller: see `Fleet::operator_caller`.
-    pub operator: bool,
     /// The repository the launch carries in its task reference or working container, never one its brief names.
     pub repository: &'a str,
-}
-
-/// Whether this launch comes from the operator, never a confined caller: outside every worker sandbox, not a queue replay, whose original caller is unproven, and judged by the launcher's own cgroup (`Fleet::operator_caller`).
-pub(super) fn operator_launcher(fleet: &Fleet, caller: Option<&str>, queued: Option<&str>) -> bool {
-    let Ok(cgroup) = std::fs::read_to_string("/proc/self/cgroup") else { return false };
-    queued.is_none() && !north_runtime::worker_sandbox::confined() && fleet.operator_caller(caller, &cgroup)
 }
 
 /// The brief placement reads: the system prompt file when there is one, then the prompt.
@@ -124,15 +116,15 @@ pub(super) fn home_path_refusal(name: &str, written: &str, cwd: &Path, machine: 
 /// harness launch (DeepSeek on opencode) is gated on its host's saturation alone. `report`
 /// prints its verdict lines; `written` is the prompt as the caller wrote it, before the launch added its own lines. A refusal
 /// is a loss row written here, by the gate that saw it, since a launch that never starts leaves no run for the ledger to charge.
-pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String], overrides: &Overrides, report: bool, operator: bool) -> NorthResult<Result<Placed, Refusal>> {
-    let settled = place(fleet, request, written, needs, overrides, report, operator)?;
+pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
+    let settled = place(fleet, request, written, needs, overrides, report)?;
     if let Err(refusal) = &settled {
         attribution::record(&request.name, "launch", Cause::Harness(Harness::LaunchRefusal), &refusal.to_string());
     }
     Ok(settled)
 }
 
-fn place(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String], overrides: &Overrides, report: bool, operator: bool) -> NorthResult<Result<Placed, Refusal>> {
+fn place(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
     if let Some(why) = home_path_refusal(&request.name, written, &request.cwd, request.machine.as_ref()) {
         return Ok(Err(Refusal::Final(why)));
     }
@@ -166,7 +158,6 @@ fn place(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String]
         role: request.role(),
         model,
         family: family_of(model),
-        operator,
         repository: &repository,
     };
     if let Some(why) = lead_refusal(fleet.host(), &launch, |host| trusted(host, fleet.host())) {
@@ -286,7 +277,6 @@ fn recorded_launch(launch: &Launch, overrides: &Overrides) -> record::Launch {
         verification: false,
         model: launch.model.map(str::to_owned),
         role: Some(launch.role.label().to_owned()),
-        operator: launch.operator,
         repository: launch.repository.to_owned(),
     }
 }

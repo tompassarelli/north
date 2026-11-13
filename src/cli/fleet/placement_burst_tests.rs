@@ -11,7 +11,7 @@ fn a_burst_placed_from_a_slow_survey_spreads_over_the_build_hosts_and_keeps_none
             machine.hosted = 0;
         }
     }
-    let launch = Launch { name: "t01-l21", account: "d", brief: None, cwd: Some(Path::new("/tmp/eval-b/worktrees/t01-l21")), machine: None, lead: false, role: Role::Worker, model: None, family: ModelFamily::Opus, operator: false, repository: "" };
+    let launch = Launch { name: "t01-l21", account: "d", brief: None, cwd: Some(Path::new("/tmp/eval-b/worktrees/t01-l21")), machine: None, lead: false, role: Role::Worker, model: None, family: ModelFamily::Opus, repository: "" };
     let mut placed: BTreeMap<String, i64> = BTreeMap::new();
     for _ in 0..21 {
         let mut case = recorded.clone();

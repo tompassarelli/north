@@ -92,11 +92,11 @@ impl Machine {
         super::hosts::Login { destination: self.session_login(), agent: self.agent_ssh.is_some() }
     }
 
-    /// The machine as a launch reaches it: over the operator login when an unconfined `operator` caller launches work on its own repository, which this host serves its operator, by a serves entry for that repository or a local need of the repository's configured surface it covers, and over its agent login otherwise, so neither a brief's own words nor a confined caller ever reach the operator login.
-    pub fn for_launch(self, cfg: &DocumentMut, repo: &str, operator: bool) -> Self {
+    /// The machine as a launch reaches it: over the operator login when this host serves the launch's own repository a local need, by a serves entry for that repository or a local need of the repository's configured surface it covers, whoever launches or revives it, and over its agent login for code-only work, so a brief's own words never reach the operator login.
+    pub fn for_launch(self, cfg: &DocumentMut, repo: &str) -> Self {
         let scoped = self.serves.iter().any(|served| served.split_once(':').is_some_and(|(_, there)| !repo.is_empty() && there == repo));
         let surfaced = repository_surface(repo, cfg).is_some_and(|surface| listed(&surface).iter().any(|need| is_local_need(need) && covers(&self.serves, need, repo)));
-        if operator && (scoped || surfaced) { Self { agent_ssh: None, ..self } } else { self }
+        if scoped || surfaced { Self { agent_ssh: None, ..self } } else { self }
     }
 }
 
