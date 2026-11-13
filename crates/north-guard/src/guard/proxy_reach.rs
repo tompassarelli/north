@@ -152,19 +152,24 @@ impl Look<'_> {
     }
 
     fn status_only(&self, text: &str) -> bool {
-        let Some(tokens) = words(text) else { return false };
-        split(&tokens).into_iter().all(|(segment, _)| {
-            let start = command(segment, PREFIXES);
-            let Some((program, args)) = segment.get(start..).and_then(<[String]>::split_first) else { return true };
-            let program = basename(program);
-            let words: Vec<&str> = args.iter().map(String::as_str).filter(|word| !word.starts_with('-')).collect();
-            match program {
-                "north" => words.first().is_some_and(|verb| ROUTING.contains(verb)) || (self.status_verb)(&words),
-                "cd" | "export" => true,
-                _ => GLUE.contains(&program) && !args.iter().any(|arg| arg.starts_with(['/', '~', '.'])),
-            }
-        })
+        status_only(text, self.status_verb)
     }
+}
+
+/// Whether every segment of `text` runs only the fleet, threads and gate verbs or a status verb, and glue between them.
+pub(super) fn status_only(text: &str, status_verb: &dyn Fn(&[&str]) -> bool) -> bool {
+    let Some(tokens) = words(text) else { return false };
+    split(&tokens).into_iter().all(|(segment, _)| {
+        let start = command(segment, PREFIXES);
+        let Some((program, args)) = segment.get(start..).and_then(<[String]>::split_first) else { return true };
+        let program = basename(program);
+        let words: Vec<&str> = args.iter().map(String::as_str).filter(|word| !word.starts_with('-')).collect();
+        match program {
+            "north" => words.first().is_some_and(|verb| ROUTING.contains(verb)) || status_verb(&words),
+            "cd" | "export" => true,
+            _ => GLUE.contains(&program) && !args.iter().any(|arg| arg.starts_with(['/', '~', '.'])),
+        }
+    })
 }
 
 fn data_blanked(text: &str) -> (String, Vec<String>) {

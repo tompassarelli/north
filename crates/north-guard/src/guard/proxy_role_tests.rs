@@ -342,7 +342,6 @@ fn the_proxy_has_no_diagnosis_budget_without_break_glass() {
         assert_eq!(decide(&Fake { glass: true, ..proxy() }, input), Verdict::Allow, "break-glass lifts {:?}", input.tool_input);
     }
     let open = [
-        bash("north fleet launch --provider claude --task north#1106 --box x 'brief'"),
         bash("north fleet send n1106 'go'"),
         bash("north gate open --session x --question q --option a --option b --recommend 1 --ask-once cost"),
         bash("north fleet tree | rg -v exited | head -40"),

@@ -6,6 +6,16 @@ wherever one can carry it. This page measures what the proxy did in one day, the
 that code, hooks, gates and alarmed metrics hold it, and prose only where nothing can check the rule.
 Each design part ends with an **Enforced by** line.
 
+## 0. The org chart
+
+North has one primary coordinator, the proxy, accountable to Tom, who sets goals and steers; every
+other session reports up a chain that ends at it, a lead's or worker's `--parent` and then that
+session's parent. Anything the proxy cannot answer at once — an investigation, a debug, engineering,
+a deep analysis — goes to a worker or a lead, and whatever can run in the background does, so a
+report to the proxy never waits behind the proxy's own work (Tom's direction, 2026-11-11). The guard
+carries the last line: `crates/north-guard/src/guard/proxy_background.rs` refuses a proxy foreground
+call that can wait past 30 s on a launch, a remote command or a job, and names `run_in_background: true`.
+
 ## 1. Evidence: one day of the proxy
 
 Source: the terminal proxy's transcript, conversation `895929a7-6218-4168-b513-3dced3440bf6` (on the

@@ -2,6 +2,11 @@
 
 Read this when you launch a child session, message one, or hand a proxy or lead to a successor.
 
+- North has one primary coordinator, the proxy, accountable to Tom, who sets goals and steers; every
+  other session reports up a chain that ends at it, a child's `--parent` and then that session's parent.
+- Anything the proxy cannot answer at once (an investigation, a debug, engineering, a deep analysis)
+  goes to a worker or a lead, and whatever can run in the background does, so a report to the proxy never
+  waits behind its own work (Tom's direction, 2026-11-11).
 - The proxy lives in Tom's interactive window, never in a headless session: a revive, an account move or a report wake leaves it in a window Tom can type into, and a successor takes the window rather than a session no one can type into.
 - The proxy coordinates fleet sessions directly. Set `--parent` when launching a child; `north fleet tree` shows the org. A parent whose subtree load exceeds `[dispatch] lead_reports` gets a lead ([lead.md](lead.md)): dispatch staffs it once it staffs leads (north#1137 box S1a), and until then the coordinator launches it by hand. Message a session with `north fleet send NAME TEXT...`, or with `north fleet ask NAME QUESTION...` when you need an answer.
 - The proxy's own work is the `proxy_role` table in harness/defaults.toml (`north config proxy role` prints it). Its budget for reading repository source, other hosts, traces, journals and process tables is 0: each such call is refused with the brief to write, and only `north fleet break-glass --issue REPO#N REASON`, granted while workers cannot launch, lifts it for at most 30 minutes.

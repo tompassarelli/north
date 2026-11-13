@@ -81,7 +81,7 @@ fn stopped_after(call: &Call, budgets: &Budgets) -> Verdict {
 
 fn stop_of(message: &[Call], budgets: &Budgets) -> Option<(usize, String)> {
     message.iter().enumerate().find_map(|(at, call)| match (refused_before(call), stopped_after(call, budgets)) {
-        (Verdict::Deny(reason), _) | (_, Verdict::Deny(reason)) => Some((at, reason)),
+        (Verdict::Deny(reason), _) | (_, Verdict::Deny(reason)) if !reason.contains("proxy-background-guard") => Some((at, reason)),
         _ => None,
     })
 }

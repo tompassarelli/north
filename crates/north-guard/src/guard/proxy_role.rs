@@ -124,7 +124,8 @@ pub fn decide(world: &impl World, input: &HookInput) -> Verdict {
     }
     match reach(world, input) {
         Some(what) if !world.break_glass() => Verdict::Deny(reach_message(&what)),
-        _ => Verdict::Allow,
+        _ if world.break_glass() => Verdict::Allow,
+        _ => crate::guard::proxy_background::evaluate(input, &|words: &[&str]| world.status_verb(words)),
     }
 }
 
