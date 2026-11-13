@@ -91,6 +91,13 @@ impl Machine {
     pub(super) fn login(&self) -> super::hosts::Login<'_> {
         super::hosts::Login { destination: self.session_login(), agent: self.agent_ssh.is_some() }
     }
+
+    /// The machine as a launch of `text` reaches it: over the operator login when an unconfined `operator` caller launches work needing what this host itself serves its operator, a local need it covers or the private inputs it holds for the brief's repository, and over its agent login otherwise, so neither a brief's words nor a confined caller ever reach the operator login.
+    pub fn for_launch(self, text: &str, operator: bool) -> Self {
+        let repo = repository(text);
+        let served = local_needs(text).iter().any(|need| covers(&self.serves, need, &repo)) || covers(&self.serves, "private", &repo);
+        if operator && served { Self { agent_ssh: None, ..self } } else { self }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

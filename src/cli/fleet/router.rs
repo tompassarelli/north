@@ -243,8 +243,9 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     let written = request.prompt.clone();
     let started = tier::apply(&mut request, &mut overrides, &mut issues)?;
     let waiting = admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
+    let operator = super::placement::operator_launcher(fleet, caller.as_deref(), queued);
     let placing_ms = now_ms();
-    let settled = admission::admitted(&request.name, waiting, |first| super::placement::placed(fleet, &request, &written, started.as_ref().map_or(&[][..], |start| start.needs.as_slice()), &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
+    let settled = admission::admitted(&request.name, waiting, |first| super::placement::placed(fleet, &request, &written, started.as_ref().map_or(&[][..], |start| start.needs.as_slice()), &overrides, first, operator), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
     let mut placed = match settled {
         Ok(placed) => placed,
         Err(refusal) if queued.is_none() && refusal.queues(request.provider.label()) => {

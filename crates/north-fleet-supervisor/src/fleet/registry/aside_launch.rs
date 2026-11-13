@@ -59,6 +59,12 @@ impl Fleet {
         Some(format!("only the coordinator grants urgent priority, so {name} launches at normal priority"))
     }
 
+    /// Whether the launcher may place work on a host's operator login: it runs outside every fleet session's scope, or in the scope of the lead or coordinator session it names. `cgroup` is the launcher's `/proc/self/cgroup`; a worker's processes cannot leave its session's scope, and naming a lead it does not run in proves nothing, so a confined caller is never the operator.
+    pub fn operator_caller(&self, caller: Option<&str>, cgroup: &str) -> bool {
+        let in_session = cgroup.lines().flat_map(|line| line.rsplit('/')).any(|leaf| leaf.starts_with(north_base::platform::session_scope::SESSION_UNIT_PREFIX));
+        !in_session || caller.is_some_and(|caller| matches!(self.role_of(caller), Some(Role::Lead | Role::Proxy)) && self.in_scope_of(caller, cgroup))
+    }
+
     fn in_operator_login(&self, cgroup: &str) -> bool {
         std::fs::metadata(&self.root).is_ok_and(|root| in_login_scope(cgroup, std::os::unix::fs::MetadataExt::uid(&root)))
     }

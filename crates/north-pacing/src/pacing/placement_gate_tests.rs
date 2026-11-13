@@ -358,3 +358,22 @@ fn a_replayed_launch_on_a_host_with_an_agent_login_places_it_through_that_login(
     let decision = super::placement::case::decide(&case).unwrap();
     assert_eq!(decision.machine.as_ref().map(Machine::session_login), Some("agent@far"), "the placed machine lost the host's agent login, so the launch dials the operator");
 }
+
+#[test]
+fn a_launch_needing_what_a_host_serves_its_operator_dials_the_operator_and_code_only_work_dials_its_agent_login() {
+    let host = record::Host { name: "far".into(), ssh: Some("tom@far".into()), agent_ssh: Some("agent@far".into()), serves: vec!["native:wisp".into(), "private:makgora".into()], launches: true, ..Default::default() };
+    let placed = |brief: &str, operator: bool| {
+        let case = record::Case {
+            launch: record::Launch { name: "worker".into(), fresh: true, provider: "claude".into(), named_machine: Some("far".into()), operator, ..Default::default() },
+            config: record::Config { hosts: vec![host.clone()], ..Default::default() },
+            brief: brief.into(),
+            ..coordinator_case([10.0, 10.0], [10.0, 10.0])
+        };
+        super::placement::case::decide(&case).unwrap().machine.map(|machine| machine.session_login().to_owned())
+    };
+    assert_eq!(placed("Item: wisp#4 window check\nSurface: rust\nNeeds: native\n", true).as_deref(), Some("tom@far"), "a native box went to the agent login");
+    assert_eq!(placed("Item: makgora#4 tidy\nSurface: rust\n", true).as_deref(), Some("tom@far"), "a box on a repository whose private inputs the host serves went to the agent login");
+    assert_eq!(placed("Item: north#12 tidy placement\nSurface: rust\n", true).as_deref(), Some("agent@far"));
+    assert_eq!(placed("Item: north#5 window check\nSurface: rust\nNeeds: native\n", true).as_deref(), Some("agent@far"), "a need the host does not serve took the operator login");
+    assert_eq!(placed("Item: wisp#4 window check\nSurface: rust\nNeeds: native\n", false).as_deref(), Some("agent@far"), "a confined caller's native box took the operator login");
+}
