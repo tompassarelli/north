@@ -61,7 +61,14 @@ pub fn agent_login(cfg: &DocumentMut, host: &str) -> Option<String> {
     login(cfg, host, "agent_ssh")
 }
 
-/// The operator's ssh destination `[hosts.NAME].ssh`, which operator work dials: the lander's fetch and outbox, and the private-kind verdict ask.
+/// The home of the Unix user `login` logs in as, None when it names no user name or names the operator, whose home is `operator_home`.
+pub fn login_home(login: &str, operator_home: &Path) -> Option<PathBuf> {
+    let user = login.split_once('@').map(|(user, _)| user).filter(|user| user.starts_with(|first: char| first.is_ascii_alphabetic() || first == '_') && user.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-')))?;
+    let home = PathBuf::from(format!("/home/{user}"));
+    (home != operator_home).then_some(home)
+}
+
+/// The operator's ssh destination `[hosts.NAME].ssh`, which operator work dials: the lander's fetch, outbox and private-kind verdict ask for every lane outside the agent user's home.
 pub fn operator_login(cfg: &DocumentMut, host: &str) -> Option<String> {
     login(cfg, host, "ssh")
 }

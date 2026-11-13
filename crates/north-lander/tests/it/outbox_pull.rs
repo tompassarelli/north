@@ -13,7 +13,21 @@ use super::serve::{Repository, World, git};
 
 const CHECKOUT: &str = "NORTH_LAND_IT_OUTBOX_CHECKOUT";
 const SSH: &str = "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -o|-p) shift 2 ;; -*) shift ;; *) break ;; esac; done\nshift\n[ \"$1\" = -- ] && shift\nexec sh -c \"$*\"\n";
-const REMOTE_SSH: &str = "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -o|-p) shift 2 ;; -*) shift ;; *) break ;; esac; done\nhost=$1\nshift\n[ \"$1\" = -- ] && shift\nprintf '%s\\n' \"$host\" >> \"${FAKE_REMOTE_SSH_LOG:-/dev/null}\"\nexport XDG_STATE_HOME=\"$FAKE_REMOTE_STATE\"\nexec sh -c \"$*\"\n";
+const REMOTE_SSH: &str = r#"#!/bin/sh
+while [ $# -gt 0 ]; do case "$1" in -o|-p) shift 2 ;; -*) shift ;; *) break ;; esac; done
+host=$1
+shift
+[ "$1" = -- ] && shift
+printf '%s\n' "$host" >> "${FAKE_REMOTE_SSH_LOG:-/dev/null}"
+REFUSED
+c=$*
+case "$host" in agent@*) export XDG_STATE_HOME="$FAKE_AGENT_STATE"; c=$(printf '%s' "$c" | sed "s#/home/agent/#$FAKE_AGENT_HOME/#g") ;; *) export XDG_STATE_HOME="$FAKE_REMOTE_STATE" ;; esac
+exec sh -c "$c"
+"#;
+
+fn remote_ssh(refused: &str) -> String {
+    REMOTE_SSH.replace("REFUSED", refused)
+}
 
 #[test]
 fn outbox_puller() {
@@ -26,8 +40,6 @@ fn outbox_puller() {
         println!("waiting: {waiting}");
     }
 }
-
-const NO_FETCH_SSH: &str = "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -o|-p) shift 2 ;; -*) shift ;; *) break ;; esac; done\nhost=$1\nshift\n[ \"$1\" = -- ] && shift\nprintf '%s\\n' \"$host\" >> \"${FAKE_REMOTE_SSH_LOG:-/dev/null}\"\ncase \"$*\" in *git-upload-pack*) exit 255 ;; esac\nexport XDG_STATE_HOME=\"$FAKE_REMOTE_STATE\"\nexec sh -c \"$*\"\n";
 
 fn outboxed(outbox: &Path, micros: u128, root: &Path, branch: &str, head: &str) -> String {
     let name = queue::file_name(micros, branch);
@@ -97,7 +109,7 @@ impl Pull {
     fn declaring(hosts: &str) -> Self {
         let world = World::new();
         let repository = world.repository("north");
-        write_executable(&world.path().join("bin/ssh"), REMOTE_SSH);
+        write_executable(&world.path().join("bin/ssh"), remote_ssh(""));
         let fleet = world.path().join("code/south/main/agents");
         std::fs::create_dir_all(&fleet).unwrap();
         std::fs::write(fleet.join("orchestration.toml"), hosts).unwrap();
@@ -114,6 +126,8 @@ impl Pull {
             .env("HOME", self.world.path())
             .env("XDG_STATE_HOME", self.world.path().join("state"))
             .env("FAKE_REMOTE_STATE", &self.remote)
+            .env("FAKE_AGENT_STATE", self.agent_state())
+            .env("FAKE_AGENT_HOME", self.world.path().join("agent-root"))
             .env("FAKE_REMOTE_SSH_LOG", &self.calls)
             .env("NORTH_LAND_NORTH", self.world.path().join("bin/north"))
             .env("GIT_CONFIG_GLOBAL", self.world.path().join("gitconfig"))
@@ -127,6 +141,14 @@ impl Pull {
 
     fn outbox(&self) -> PathBuf {
         self.remote.join("north/land-queue").join(&self.key).join(queue::OUTBOX)
+    }
+
+    fn agent_state(&self) -> PathBuf {
+        self.world.path().join("agent-state")
+    }
+
+    fn agent_outbox(&self) -> PathBuf {
+        self.agent_state().join("north/land-queue").join(&self.key).join(queue::OUTBOX)
     }
 
     fn lane_outboxed(&self) -> String {
@@ -146,23 +168,40 @@ impl Pull {
     }
 }
 
-#[test]
-fn a_pull_dials_the_declared_operator_destination_with_or_without_an_agent_login_and_leaves_no_queue_where_no_outbox_is() {
-    for (hosts, login) in [("[hosts.gex45]\nssh = \"tom@gex45\"\n", "tom@gex45"), ("[hosts.gex45]\nssh = \"tom@gex45\"\nagent_ssh = \"agent@gex45\"\n", "tom@gex45")] {
-        let empty = Pull::declaring(hosts);
-        let transcript = empty.pull();
-        assert!(!empty.logins().is_empty() && empty.logins().iter().all(|asked| asked == login), "{hosts}: {:?}\n{transcript}", empty.logins());
-        assert!(!empty.remote.join("north/land-queue").join(&empty.key).exists(), "a host with no outbox for {} gained its queue:\n{transcript}", empty.key);
-
-        let pull = Pull::declaring(hosts);
-        let name = pull.lane_outboxed();
-        let transcript = pull.pull();
-        assert!(pull.repository.queue.join(&name).is_file(), "{hosts}: the ticket was not taken:\n{transcript}");
-        assert!(pull.logins().len() >= 2 && pull.logins().iter().all(|asked| asked == login), "{hosts}: {:?}\n{transcript}", pull.logins());
-    }
-}
-
 const AGENT_LOGIN: &str = "[hosts.gex45]\nssh = \"tom@gex45\"\nagent_ssh = \"agent@gex45\"\n";
+
+#[test]
+fn a_lane_under_the_agent_users_home_is_read_fetched_and_settled_through_the_agent_login_and_an_operator_lane_on_the_same_host_through_the_operator_login() {
+    let empty = Pull::declaring(AGENT_LOGIN);
+    let transcript = empty.pull();
+    let mut dialed = empty.logins();
+    dialed.sort();
+    dialed.dedup();
+    assert_eq!(dialed, ["agent@gex45", "tom@gex45"], "{transcript}");
+    assert!(!empty.remote.join("north/land-queue").join(&empty.key).exists() && !empty.agent_state().join("north/land-queue").join(&empty.key).exists(), "a host with no outbox for {} gained its queue:\n{transcript}", empty.key);
+
+    let pull = Pull::declaring(AGENT_LOGIN);
+    let operator = pull.lane_outboxed();
+    let agent_root = pull.world.path().join("agent-root/code/north");
+    git(pull.world.path(), &["clone", "-q", pull.repository.origin.to_str().unwrap(), agent_root.to_str().unwrap()]);
+    git(&agent_root, &["checkout", "-q", "-b", "agent-lane"]);
+    let head = commit_in(&agent_root, "agent lane");
+    let agent_outbox = pull.agent_outbox();
+    let agent = outboxed(&agent_outbox, 1_794_020_950_000_000, Path::new("/home/agent/code/north"), "agent-lane", &head);
+    let astray = outboxed(&agent_outbox, 1_794_020_955_000_000, Path::new("/home/agent/code/north"), "agent-lane", &head);
+    let elsewhere = Ticket { host: "cpx62".into(), ..queue::read(&agent_outbox.join(&astray)).unwrap() };
+    queue::write(&agent_outbox.join(&astray), &elsewhere).unwrap();
+    let operator_lane = pull.repository.checkout.parent().unwrap().join("worktrees/behind");
+    let borrowed = outboxed(&agent_outbox, 1_794_020_960_000_000, &operator_lane, "behind", &git(&operator_lane, &["rev-parse", "HEAD"]));
+    let transcript = pull.pull();
+
+    assert!(pull.repository.queue.join(&operator).is_file() && pull.outbox().join("taken").join(&operator).is_file(), "the operator's lane was not taken and settled through the operator login:\n{transcript}");
+    assert!(pull.repository.queue.join(&agent).is_file() && agent_outbox.join("taken").join(&agent).is_file(), "the agent's lane was not taken and settled through the agent login:\n{transcript}");
+    assert_eq!(git(&pull.repository.checkout, &["rev-parse", "refs/land-remote/agent@gex45/agent-lane"]), head, "{transcript}");
+    assert!(!pull.repository.queue.join(&astray).exists() && agent_outbox.join(queue::WITHDRAWN).join(&astray).is_file() && pull.logins().iter().all(|login| login.ends_with("@gex45")), "a ticket in gex45's agent outbox naming another host was taken or reached that host: {:?}\n{transcript}", pull.logins());
+    assert!(pull.remote.join("north/land-queue").join(&pull.key).join(queue::LANDER_LEDGER).is_file() && !pull.agent_state().join("north/land-queue").join(&pull.key).join(queue::LANDER_LEDGER).exists(), "the lander's ledger was mirrored into the agent user's home:\n{transcript}");
+    assert!(!pull.repository.queue.join(&borrowed).exists() && agent_outbox.join(queue::WITHDRAWN).join(&borrowed).is_file(), "a ticket in the agent's outbox naming the operator's lane was taken:\n{transcript}");
+}
 
 fn commit_in(repository: &Path, message: &str) -> String {
     git(repository, &["commit", "-q", "--allow-empty", "-m", message]);
@@ -177,7 +216,7 @@ fn bundled(outbox: &Path, ticket: &str, repository: &Path, branch: &str) {
 #[test]
 fn a_lane_is_taken_as_the_objects_of_its_bundle_whatever_its_repository_configures_and_a_head_the_bundle_lacks_is_not_taken() {
     let pull = Pull::declaring(AGENT_LOGIN);
-    write_executable(&pull.world.path().join("bin/ssh"), NO_FETCH_SSH);
+    write_executable(&pull.world.path().join("bin/ssh"), remote_ssh(r#"case "$*" in *git-upload-pack*) exit 255 ;; esac"#));
     let agent = pull.world.path().join("agent-home/north");
     git(pull.world.path(), &["clone", "-q", pull.repository.origin.to_str().unwrap(), agent.to_str().unwrap()]);
     let outbox = pull.outbox();

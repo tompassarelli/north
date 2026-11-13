@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 
-use super::after::route::{self, SSH_OPTIONS};
+use super::after::route::{self, Outbox, SSH_OPTIONS};
 use super::candidate::git;
 use super::lander::{Lander, OFFLOAD_OWNER, plain};
 use super::queue::{self, Ticket};
@@ -32,8 +32,8 @@ fn ssh_with_input(host: &str, script: &str, input: &[u8]) -> Result<String, Stri
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn lane_ref(host: &str, branch: &str) -> String {
-    format!("refs/land-remote/{host}/{}", queue::slug(branch))
+fn lane_ref(outbox: &Outbox, branch: &str) -> String {
+    format!("refs/land-remote/{}/{}", outbox.name(), queue::slug(branch))
 }
 
 enum Refusal {
@@ -42,13 +42,13 @@ enum Refusal {
 }
 
 impl Lander {
-    fn fetch_lane(&self, host: &str, ticket: &Ticket) -> Result<(), String> {
-        north_git_locks::retry_after_clearing(&self.repo, || self.fetch_lane_once(host, ticket))
+    fn fetch_lane(&self, outbox: &Outbox, ticket: &Ticket) -> Result<(), String> {
+        north_git_locks::retry_after_clearing(&self.repo, || self.fetch_lane_once(outbox, ticket))
     }
 
-    fn fetch_lane_once(&self, host: &str, ticket: &Ticket) -> Result<(), String> {
-        let url = format!("ssh://{}{}", route::operator_login(host)?, ticket.root.display());
-        let target = format!("+refs/heads/{}:{}", ticket.branch, lane_ref(host, &ticket.branch));
+    fn fetch_lane_once(&self, outbox: &Outbox, ticket: &Ticket) -> Result<(), String> {
+        let url = format!("ssh://{}{}", outbox.login, ticket.root.display());
+        let target = format!("+refs/heads/{}:{}", ticket.branch, lane_ref(outbox, &ticket.branch));
         let ssh_command = std::iter::once("ssh").chain(SSH_OPTIONS.iter().copied()).collect::<Vec<_>>().join(" ");
         let output = Command::new("git").arg("-C").arg(&self.repo).args(["fetch", "-q", "--no-tags", &url, &target]).env("GIT_SSH_COMMAND", ssh_command).output().map_err(|error| format!("git fetch {url}: {error}"))?;
         if !output.status.success() {
@@ -72,26 +72,26 @@ impl Lander {
         self.remote_hosts().into_iter().find(|host| host.split('.').next() == Some(named) && plain(host))
     }
 
-    /// Writes `text` as `AREA/NAME` in `host`'s outbox for this queue, where the hand-in waiting on that ticket reads it.
-    pub fn tell(&self, host: &str, area: &str, name: &str, text: &str) -> Result<(), String> {
+    /// Writes `text` as `AREA/NAME` in the outbox `login` reads for this queue, where the hand-in waiting on that ticket reads it.
+    pub fn tell(&self, login: &str, area: &str, name: &str, text: &str) -> Result<(), String> {
         if !plain(name) || !plain(area) {
             return Err(format!("{name:?} in {area:?} is not a ticket name"));
         }
-        let outbox = self.remote_outbox()?;
-        ssh_with_input(&route::operator_login(host)?, &format!("d={outbox}/{area};mkdir -p \"$d\" && cat >\"$d/.{name}.part\" && mv -f \"$d/.{name}.part\" \"$d/{name}\""), text.as_bytes()).map(drop)
+        let dir = self.remote_outbox()?;
+        ssh_with_input(login, &format!("d={dir}/{area};mkdir -p \"$d\" && cat >\"$d/.{name}.part\" && mv -f \"$d/.{name}.part\" \"$d/{name}\""), text.as_bytes()).map(drop)
     }
 
     /// Sends the decided ticket at `path` to the outbox host it was handed in on, where its waiting hand-in reads the
-    /// verdict at once, and names that host; a ticket handed in on this host needs no delivery.
+    /// verdict at once, through the login that owns its lane, and names that host; a ticket handed in on this host needs no delivery.
     pub fn deliver(&self, path: &Path) -> Result<Option<String>, String> {
         let ticket = queue::read(path).map_err(|error| error.to_string())?;
         let (Some(host), Some(name), Some(_)) = (self.outbox_host(&ticket), path.file_name().and_then(|name| name.to_str()), ticket.verdict.as_ref()) else { return Ok(None) };
         let text = serde_json::to_string_pretty(&ticket).map_err(|error| error.to_string())?;
-        self.tell(&host, queue::DECIDED, name, &format!("{text}\n")).map(|()| Some(host))
+        self.tell(&route::lane_login(&host, &ticket.root)?, queue::DECIDED, name, &format!("{text}\n")).map(|()| Some(host))
     }
 
     /// Answers a waiting hand-in's ask about ticket `name`: its decided ticket when it has one, else where it stands here.
-    fn answer(&self, host: &str, name: &str) -> Result<(), String> {
+    fn answer(&self, outbox: &Outbox, name: &str) -> Result<(), String> {
         if let Some(path) = land_ticket::directories(&self.queue).into_iter().skip(1).map(|area| area.join(name)).find(|path| path.is_file()) {
             return self.deliver(&path).map(drop);
         }
@@ -106,18 +106,20 @@ impl Lander {
             }
             Err(_) => format!("the lander on {here} holds no ticket {name}"),
         };
-        self.tell(host, queue::ANSWERS, name, &format!("{text}\n"))
+        self.tell(&outbox.login, queue::ANSWERS, name, &format!("{text}\n"))
     }
 
-    pub fn pull_host(&self, host: &str, wait: Duration, taken: &mut Vec<String>) -> Result<usize, String> {
+    pub fn pull_host(&self, outbox: &Outbox, wait: Duration, taken: &mut Vec<String>) -> Result<usize, String> {
+        let host = outbox.host.as_str();
         let home = self.remote_queue()?;
-        let outbox = self.remote_outbox()?;
-        let mirror = format!("q={home}; mkdir -p \"$q\" && cat >\"$q/{0}.part\" && mv -f \"$q/{0}.part\" \"$q/{0}\" || exit 1; ", queue::LANDER_LEDGER);
+        let dir = self.remote_outbox()?;
+        let mirror = if outbox.agent { String::new() } else { format!("q={home}; mkdir -p \"$q\" && cat >\"$q/{0}.part\" && mv -f \"$q/{0}.part\" \"$q/{0}\" || exit 1; ", queue::LANDER_LEDGER) };
         let ticks = wait.as_millis() / WAIT_TICK.as_millis();
+        let ledger = if outbox.agent { String::new() } else { ledger_tail() };
         let settle = settle_script(taken);
         let asks = format!("for f in \"$d\"/{}/*.json; do [ -f \"$f\" ] || continue; printf '?%s\\n\\000' \"${{f##*/}}\"; rm -f -- \"$f\"; done; ", queue::ASKS);
         let bundle = format!("b=\"${{f%.json}}.{}\"; [ -f \"$b\" ] && {{ printf '=%s\\n' \"${{f##*/}}\"; head -c {} \"$b\" | base64 -w0; printf '\\000'; }}; ", queue::BUNDLE, BUNDLE_LIMIT + 1);
-        let listing = ssh_with_input(&route::operator_login(host)?, &format!("d={outbox}; {settle}n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json \"$d\"/{0}/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; {asks}set -- \"$d\"/*.json; [ -e \"$1\" ] || exit 0; {mirror} for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; {bundle}printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", queue::ASKS, tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
+        let listing = ssh_with_input(&outbox.login, &format!("d={dir}; {settle}n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json \"$d\"/{0}/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; {asks}set -- \"$d\"/*.json; [ -e \"$1\" ] || exit 0; {mirror} for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; {bundle}printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", queue::ASKS, tick = WAIT_TICK.as_secs_f32()), ledger.as_bytes())?;
         taken.clear();
         let mut records = Records::open(&self.queue).map_err(|error| format!("cannot read the records of {}: {error}", self.queue.display()))?;
         let mut failures = Vec::new();
@@ -146,10 +148,14 @@ impl Lander {
                     continue;
                 }
             };
-            match self.take_lane(host, &ticket, bundles.remove(name).as_deref()) {
+            if let Some(reason) = astray(outbox, &ticket) {
+                withdrawn.push((name.to_owned(), ticket, reason));
+                continue;
+            }
+            match self.take_lane(outbox, &ticket, bundles.remove(name).as_deref()) {
                 Ok(()) => arrived.push((name.to_owned(), ticket)),
                 Err(Refusal::Moved(reason)) => withdrawn.push((name.to_owned(), ticket, reason)),
-                Err(Refusal::Unreachable(_)) if lane_gone(host, &ticket) => {
+                Err(Refusal::Unreachable(_)) if lane_gone(outbox, &ticket) => {
                     let reason = format!("its worktree {} is gone from {host}, so the lander cannot fetch {}", ticket.root.display(), ticket.head);
                     withdrawn.push((name.to_owned(), ticket, reason));
                 }
@@ -165,15 +171,16 @@ impl Lander {
             taken.push(name);
         }
         if !withdrawn.is_empty() {
-            self.withdraw(host, &outbox, withdrawn)?;
+            self.withdraw(outbox, &dir, withdrawn)?;
         }
-        failures.extend(asked.iter().filter_map(|name| self.answer(host, name).err().map(|error| format!("cannot answer {host}'s ask about {name}: {error}"))));
+        failures.extend(asked.iter().filter_map(|name| self.answer(outbox, name).err().map(|error| format!("cannot answer {host}'s ask about {name}: {error}"))));
         if failures.is_empty() { Ok(taken.len()) } else { Err(failures.join("; ")) }
     }
 
-    fn take_lane(&self, host: &str, ticket: &Ticket, bundle: Option<&str>) -> Result<(), Refusal> {
-        let from_bundle = bundle.map(|bundle| self.unbundle(host, ticket, bundle));
-        if from_bundle.as_ref().is_some_and(Result::is_ok) && self.holds(host, ticket) {
+    fn take_lane(&self, outbox: &Outbox, ticket: &Ticket, bundle: Option<&str>) -> Result<(), Refusal> {
+        let host = &outbox.host;
+        let from_bundle = bundle.map(|bundle| self.unbundle(outbox, ticket, bundle));
+        if from_bundle.as_ref().is_some_and(Result::is_ok) && self.holds(outbox, ticket) {
             println!("north land: took {} from {host}'s bundle", ticket.branch);
             return Ok(());
         }
@@ -182,16 +189,16 @@ impl Lander {
             Some(Ok(())) => println!("north land: fetching {} from {host}, since the bundle its ticket carried does not hold {}", ticket.branch, ticket.head),
             None => {}
         }
-        self.fetch_lane(host, ticket).map_err(Refusal::Unreachable)?;
-        if self.holds(host, ticket) { Ok(()) } else { Err(Refusal::Moved(format!("{} on {host} no longer holds {}, so the lander cannot take it", ticket.branch, ticket.head))) }
+        self.fetch_lane(outbox, ticket).map_err(Refusal::Unreachable)?;
+        if self.holds(outbox, ticket) { Ok(()) } else { Err(Refusal::Moved(format!("{} on {host} no longer holds {}, so the lander cannot take it", ticket.branch, ticket.head))) }
     }
 
-    fn holds(&self, host: &str, ticket: &Ticket) -> bool {
+    fn holds(&self, outbox: &Outbox, ticket: &Ticket) -> bool {
         let head = &ticket.head;
-        !head.is_empty() && head.chars().all(|digit| digit.is_ascii_hexdigit()) && git(&self.repo, &["merge-base", "--is-ancestor", head, &lane_ref(host, &ticket.branch)]).is_ok()
+        !head.is_empty() && head.chars().all(|digit| digit.is_ascii_hexdigit()) && git(&self.repo, &["merge-base", "--is-ancestor", head, &lane_ref(outbox, &ticket.branch)]).is_ok()
     }
 
-    fn unbundle(&self, host: &str, ticket: &Ticket, encoded: &str) -> Result<(), String> {
+    fn unbundle(&self, outbox: &Outbox, ticket: &Ticket, encoded: &str) -> Result<(), String> {
         let bytes = base64::engine::general_purpose::STANDARD.decode(encoded.trim()).map_err(|error| format!("the bundle is not base64: {error}"))?;
         if bytes.len() > BUNDLE_LIMIT {
             return Err(format!("the bundle is over {BUNDLE_LIMIT} bytes"));
@@ -199,11 +206,12 @@ impl Lander {
         let mut file = tempfile::Builder::new().suffix(".bundle").tempfile().map_err(|error| format!("cannot hold the bundle: {error}"))?;
         file.write_all(&bytes).map_err(|error| format!("cannot hold the bundle: {error}"))?;
         let path = file.path().to_str().ok_or("the bundle's path is not UTF-8")?.to_owned();
-        let target = format!("+refs/heads/{}:{}", ticket.branch, lane_ref(host, &ticket.branch));
+        let target = format!("+refs/heads/{}:{}", ticket.branch, lane_ref(outbox, &ticket.branch));
         north_git_locks::retry_after_clearing(&self.repo, || git(&self.repo, &["fetch", "-q", "--no-tags", &path, &target]).map(drop))
     }
 
-    fn withdraw(&self, host: &str, outbox: &str, withdrawn: Vec<(String, Ticket, String)>) -> Result<(), String> {
+    fn withdraw(&self, outbox: &Outbox, dir: &str, withdrawn: Vec<(String, Ticket, String)>) -> Result<(), String> {
+        let host = &outbox.host;
         let mut told = Vec::new();
         for (name, mut ticket, reason) in withdrawn {
             ticket.verdict = Some(format!("withdrawn by {OFFLOAD_OWNER}: {reason}"));
@@ -214,7 +222,7 @@ impl Lander {
             told.push((name, ticket, reason));
         }
         let names: Vec<&str> = told.iter().map(|(name, _, _)| name.as_str()).collect();
-        ssh(&route::operator_login(host)?, &format!("d={outbox}; mkdir -p \"$d/{0}\" && cd \"$d\" && mv -f -- {1} {0}/ && rm -f -- {2}", queue::WITHDRAWN, names.join(" "), bundles(&names)))?;
+        ssh(&outbox.login, &format!("d={dir}; mkdir -p \"$d/{0}\" && cd \"$d\" && mv -f -- {1} {0}/ && rm -f -- {2}", queue::WITHDRAWN, names.join(" "), bundles(&names)))?;
         for (_, ticket, reason) in told {
             if let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) {
                 super::after::send(session, &format!("north land: {} ({}) was withdrawn from {host}'s outbox: {reason}; queue it again from a worktree on its branch", ticket.branch, ticket.head));
@@ -230,19 +238,33 @@ impl Lander {
                 waiting.push(format!("the outbox hosts name {host:?}, which is not an ssh host name; skipped"));
                 continue;
             }
-            let mut taken = Vec::new();
-            match self.pull_host(&host, Duration::ZERO, &mut taken) {
-                Ok(0) => {}
-                Ok(pulled) => println!("north land: pulled {pulled} tickets from {host}'s outbox"),
-                Err(error) => waiting.push(format!("{host}'s outbox skipped this round: {error}")),
-            }
-            if !taken.is_empty()
-                && let Err(error) = self.remote_outbox().and_then(|outbox| route::operator_login(&host).and_then(|login| ssh(&login, &format!("d={outbox}; {}", settle_script(&taken)))))
-            {
-                waiting.push(format!("{host}'s outbox keeps its taken tickets this round: {error}"));
+            let outboxes = match route::outboxes(&host) {
+                Ok(outboxes) => outboxes,
+                Err(error) => {
+                    waiting.push(format!("{host}'s outbox skipped this round: {error}"));
+                    continue;
+                }
+            };
+            for outbox in outboxes {
+                self.pull_once(&outbox, &mut waiting);
             }
         }
         waiting
+    }
+
+    fn pull_once(&self, outbox: &Outbox, waiting: &mut Vec<String>) {
+        let named = outbox.name();
+        let mut taken = Vec::new();
+        match self.pull_host(outbox, Duration::ZERO, &mut taken) {
+            Ok(0) => {}
+            Ok(pulled) => println!("north land: pulled {pulled} tickets from {named}'s outbox"),
+            Err(error) => waiting.push(format!("{named}'s outbox skipped this round: {error}")),
+        }
+        if !taken.is_empty()
+            && let Err(error) = self.remote_outbox().and_then(|dir| ssh(&outbox.login, &format!("d={dir}; {}", settle_script(&taken))))
+        {
+            waiting.push(format!("{named}'s outbox keeps its taken tickets this round: {error}"));
+        }
     }
 }
 
@@ -264,7 +286,15 @@ fn ledger_tail() -> String {
     lines[lines.len().saturating_sub(500)..].iter().map(|line| format!("{line}\n")).collect()
 }
 
-fn lane_gone(host: &str, ticket: &Ticket) -> bool {
+fn astray(outbox: &Outbox, ticket: &Ticket) -> Option<String> {
+    let host = &outbox.host;
+    if ticket.host.split('.').next() != host.split('.').next() {
+        return Some(format!("it names the host {:?}, not {host}, whose outbox it came from", ticket.host));
+    }
+    (route::lane_login(host, &ticket.root).ok().as_ref() != Some(&outbox.login)).then(|| format!("its worktree {} on {host} does not belong to the user whose outbox it came from", ticket.root.display()))
+}
+
+fn lane_gone(outbox: &Outbox, ticket: &Ticket) -> bool {
     let root = ticket.root.to_string_lossy().replace('\'', "'\\''");
-    route::operator_login(host).is_ok_and(|login| ssh(&login, &format!("[ -e '{root}/.git' ] && echo present || echo gone")).is_ok_and(|answer| answer.trim() == "gone"))
+    ssh(&outbox.login, &format!("[ -e '{root}/.git' ] && echo present || echo gone")).is_ok_and(|answer| answer.trim() == "gone")
 }

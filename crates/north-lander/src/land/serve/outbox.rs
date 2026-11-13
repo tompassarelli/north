@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use super::super::after::route::{self, Outbox};
 use super::super::lander::{Lander, plain};
 use super::super::wake::Wake;
 
@@ -43,25 +44,42 @@ fn supervise(lander: &Arc<Lander>, stop: &Arc<AtomicBool>, wake: &Arc<Wake>) {
                 }
                 continue;
             }
-            if live.get(&host).is_some_and(|follower| !follower.is_finished()) {
-                continue;
-            }
-            let (lander, stop, wake, named) = (Arc::clone(lander), Arc::clone(stop), Arc::clone(wake), host.clone());
-            match std::thread::Builder::new().name(format!("land outbox {host}")).spawn(move || follow(&lander, &named, &stop, &wake)) {
-                Ok(follower) => {
-                    live.insert(host, follower);
+            let outboxes = match route::outboxes(&host) {
+                Ok(outboxes) => outboxes,
+                Err(error) => {
+                    if skipped.insert(host.clone()) {
+                        println!("north land: waiting: {host}'s outbox: {error}");
+                    }
+                    continue;
                 }
-                Err(error) => println!("north land: could not start watching {host}'s outbox: {error}"),
+            };
+            for outbox in outboxes {
+                start(lander, outbox, &mut live, stop, wake);
             }
         }
         pause(DISCOVERY, stop);
     }
 }
 
-fn follow(lander: &Lander, host: &str, stop: &AtomicBool, wake: &Wake) {
+fn start(lander: &Arc<Lander>, outbox: Outbox, live: &mut HashMap<String, JoinHandle<()>>, stop: &Arc<AtomicBool>, wake: &Arc<Wake>) {
+    let named = outbox.name().to_owned();
+    if live.get(&named).is_some_and(|follower| !follower.is_finished()) {
+        return;
+    }
+    let (lander, stop, wake) = (Arc::clone(lander), Arc::clone(stop), Arc::clone(wake));
+    match std::thread::Builder::new().name(format!("land outbox {named}")).spawn(move || follow(&lander, &outbox, &stop, &wake)) {
+        Ok(follower) => {
+            live.insert(named, follower);
+        }
+        Err(error) => println!("north land: could not start watching {named}'s outbox: {error}"),
+    }
+}
+
+fn follow(lander: &Lander, outbox: &Outbox, stop: &AtomicBool, wake: &Wake) {
+    let host = outbox.name();
     let mut taken = Vec::new();
     while !stop.load(Ordering::Relaxed) {
-        match lander.pull_host(host, WAIT, &mut taken) {
+        match lander.pull_host(outbox, WAIT, &mut taken) {
             Ok(0) => {}
             Ok(pulled) => {
                 println!("north land: pulled {pulled} tickets from {host}'s outbox");
@@ -72,7 +90,7 @@ fn follow(lander: &Lander, host: &str, stop: &AtomicBool, wake: &Wake) {
                 pause(REST, stop);
             }
         }
-        if !lander.remote_hosts().iter().any(|listed| listed == host) {
+        if !lander.remote_hosts().contains(&outbox.host) || !route::outboxes(&outbox.host).is_ok_and(|outboxes| outboxes.contains(outbox)) {
             return;
         }
     }

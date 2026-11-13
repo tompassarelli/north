@@ -1,3 +1,5 @@
+use std::path::{Component, Path, PathBuf};
+
 use north_base::platform::{land_queue, orchestration};
 use toml_edit::DocumentMut;
 
@@ -14,6 +16,46 @@ pub fn session_login(host: &str) -> Result<String, String> {
 
 pub fn operator_login(host: &str) -> Result<String, String> {
     login_in(fleet().as_ref(), host, orchestration::operator_login)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Outbox {
+    pub host: String,
+    pub login: String,
+    pub agent: bool,
+}
+
+impl Outbox {
+    pub fn name(&self) -> &str {
+        if self.agent { &self.login } else { &self.host }
+    }
+}
+
+/// The outboxes the lander reads on `host`: the operator's, and the agent user's where `[hosts.NAME].agent_ssh` logs in as a user other than the operator.
+pub fn outboxes(host: &str) -> Result<Vec<Outbox>, String> {
+    let fleet = fleet();
+    let operator = Outbox { host: host.to_owned(), login: login_in(fleet.as_ref(), host, orchestration::operator_login)?, agent: false };
+    let agent = agent_in(fleet.as_ref(), host).map(|(login, _)| Outbox { host: host.to_owned(), login, agent: true });
+    Ok(std::iter::once(operator).chain(agent).collect())
+}
+
+/// The login that reads, fetches and settles the lane at `root` on `host`: the agent user's when `root` lies under that user's home, the operator's otherwise.
+pub fn lane_login(host: &str, root: &Path) -> Result<String, String> {
+    let fleet = fleet();
+    match agent_in(fleet.as_ref(), host) {
+        Some((login, home)) if within(root, &home) => Ok(login),
+        _ => login_in(fleet.as_ref(), host, orchestration::operator_login),
+    }
+}
+
+fn agent_in(fleet: Option<&DocumentMut>, host: &str) -> Option<(String, PathBuf)> {
+    let login = fleet.and_then(|fleet| orchestration::agent_login(fleet, host)).filter(|login| plain(login))?;
+    let home = orchestration::login_home(&login, Path::new(&std::env::var_os("HOME").unwrap_or_default()))?;
+    Some((login, home))
+}
+
+fn within(root: &Path, home: &Path) -> bool {
+    root.components().all(|part| matches!(part, Component::RootDir | Component::Normal(_))) && root.starts_with(home)
 }
 
 fn fleet() -> Option<DocumentMut> {

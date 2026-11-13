@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use north_base::foundation::exit::NO_VERDICT;
 
-use crate::land::after::route::{REMOTE_NORTH, SSH_OPTIONS, operator_login, plain, quote};
+use crate::land::after::route::{REMOTE_NORTH, SSH_OPTIONS, lane_login, plain, quote};
 use crate::land::enqueue::default_branch;
 use crate::land::queue::Ticket;
 use crate::land::repositories;
@@ -18,7 +18,7 @@ pub(super) fn verdict(repo: &Path, ticket: &Ticket, base: &str, wait: Option<Dur
     }
     let script = script(ticket, base, &default_branch(repo), wait);
     let named = ticket.host.split('.').next().unwrap_or(&ticket.host);
-    let login = match operator_login(named) {
+    let login = match lane_login(named, &ticket.root) {
         Ok(login) if login != named => login,
         Ok(_) if plain(&ticket.host) => ticket.host.clone(),
         Ok(_) => return unreachable(&ticket.host, "its host is not an ssh host name"),
