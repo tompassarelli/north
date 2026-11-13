@@ -112,6 +112,7 @@ pub(super) struct Land<'a> {
     pub(super) timeout_seconds: u64,
     pub(super) command: &'a str,
     pub(super) class: SlotClass,
+    pub(super) confined: bool,
 }
 
 fn fail(why: &str) -> u8 {
@@ -134,7 +135,7 @@ pub(super) mod beside;
 mod script;
 pub(super) use script::jobs_part;
 pub use script::{SlotClass, is_lander_slot};
-pub(crate) use script::{FILL, slot_ports};
+pub(crate) use script::{fill_part, slot_ports};
 use script::remote_script;
 mod bundle;
 mod held;
@@ -218,7 +219,7 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
     let beside = beside::pin(land.command, relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
     let carried = carried(land, |name| std::env::var(name).ok());
     let secret = proof::secret().map_err(|why| unreached(&why))?;
-    let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret);
+    let header = bundle::spilled(&beside.command, &carried, &beside.pins, &secret, land.confined);
     let spilled = header.len().to_string();
     let generated = generated::paths(land);
     let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled, &generated];

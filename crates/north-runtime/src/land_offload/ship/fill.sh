@@ -11,3 +11,9 @@ place() {
   if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree remove --force "$slot" 2>/dev/null || true; git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
   git -C "$slot" clean -ffdxq -e /target
 }
+confine() {
+  common=$(git rev-parse --path-format=absolute --git-common-dir) && own=$(git rev-parse --absolute-git-dir) || return 1
+  command -v bwrap >/dev/null 2>&1 || { echo "offload: refusing to run: bwrap is missing, so the check would run with the shared git directory writable" >&2; return 1; }
+  touch "$HOME/.gitconfig" && mkdir -p "$HOME/.config/git" || return 1
+  bwrap --dev-bind / / --ro-bind "$common" "$common" --bind "$own" "$own" --ro-bind "$HOME/.gitconfig" "$HOME/.gitconfig" --ro-bind "$HOME/.config/git" "$HOME/.config/git" --die-with-parent -- "$@"
+}

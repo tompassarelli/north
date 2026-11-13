@@ -80,7 +80,12 @@ host_jobs() {
 "#;
 
 /// The steps that fill the host's checkout from the shipped bundle and place a slot on the shipped head, with hooks, fsmonitor and auto gc off for every git call the script makes; firn's agent-offload VM test runs this file as the agent.
-pub(crate) const FILL: &str = include_str!("fill.sh");
+const FILL: &str = include_str!("fill.sh");
+
+/// FILL as a script defines it, kept in `fill_text` as well so a confined check's shell sources the same steps.
+pub(crate) fn fill_part() -> String {
+    format!("fill_text={}\neval \"$fill_text\"\n", quote(FILL))
+}
 
 pub(super) const REMOTE: &str = r#"set -eu
 @FILL@repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-} spilled=${15:-0} generated=${16:-}
@@ -308,6 +313,12 @@ lease_owner=land-offload
 leased() {
   if command -v north >/dev/null 2>&1; then @SUBJECT_ENV@="$script" @OWNER_ENV@="${owner:-}" north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
+checked() {
+  if [ -z "${confined:-}" ]; then leased bash -euo pipefail "$script"; return; fi
+  printf '%s\n' "$fill_text" >"$script_directory/fill.sh"
+  leased sh -c '. "$0" && confine "$@"' "$script_directory/fill.sh" bash -euo pipefail "$script"
+}
+[ -z "${confined:-}" ] || command -v bwrap >/dev/null 2>&1 || { echo "offload: refusing to run: bwrap is missing on this host, so the check would run with the shared git directory writable" >&2; exit @TRANSPORT_FAILED@; }
 if [ -n "${nested:-}" ]; then
   watching=$root/watch.$$.up
   rm -f "$watching"
@@ -333,7 +344,7 @@ vouch() {
 }
 rc=0
 if [ -z "${ran:-}" ]; then
-  leased bash -euo pipefail "$script" </dev/null 4>&- 5>&- 6>&- 9>&- || rc=$?
+  checked </dev/null 4>&- 5>&- 6>&- 9>&- || rc=$?
   vouch
   exit "$rc"
 fi
@@ -347,7 +358,7 @@ rm -f "$exited" "$lost" "$attached" "$results/$id.sent_out" "$results/$id.sent_e
 trap '' PIPE HUP
 (
   rc=0
-  leased bash -euo pipefail "$script" || rc=$?
+  checked || rc=$?
   echo "$rc" >"$exited.part" && mv "$exited.part" "$exited"
   grace=${NORTH_OFFLOAD_DRAIN_GRACE_SECONDS:-@DRAIN_GRACE@} waited=0
   while [ "$waited" -lt "$grace" ] && kill -0 "$$" 2>/dev/null; do sleep 1; waited=$((waited + 1)); done
@@ -496,7 +507,7 @@ pub(crate) fn jobs_part() -> String {
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@FILL@", FILL).replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@FILL@", &fill_part()).replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
 }
 
 pub(super) fn beside_part() -> String {

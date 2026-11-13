@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 fn carried_from(caller: &[(&str, &str)]) -> String {
-    let land = Land { ssh: "", checkout: Path::new("."), base: Some(CommitId("b".to_owned())), head: CommitId("h".to_owned()), timeout_seconds: 10, command: "", class: super::SlotClass::LandCheck };
+    let land = Land { ssh: "", checkout: Path::new("."), base: Some(CommitId("b".to_owned())), head: CommitId("h".to_owned()), timeout_seconds: 10, command: "", class: super::SlotClass::LandCheck, confined: false };
     carried(&land, |name| caller.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned()))
 }
 
@@ -186,7 +186,7 @@ fn two_concurrent_jobs_at_the_same_head_bundle_under_distinct_refs() {
         let jobs: Vec<_> = references
             .iter()
             .map(|reference| {
-                let land = Land { ssh: "", checkout: dir.path(), base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck };
+                let land = Land { ssh: "", checkout: dir.path(), base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck, confined: false };
                 let checkout = dir.path();
                 scope.spawn(move || {
                     let file = bundle(&land, reference, None).unwrap();
@@ -267,7 +267,7 @@ fn a_job_whose_base_is_its_head_bundles_the_head_over_its_parent() {
     let (dir, _, _) = repository_with_two_commits();
     let head = CommitId::resolve(dir.path(), "HEAD").unwrap();
     let reference = job_ref(&head);
-    let land = Land { ssh: "", checkout: dir.path(), base: Some(head.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck };
+    let land = Land { ssh: "", checkout: dir.path(), base: Some(head.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck, confined: false };
     let file = bundle(&land, &reference, None).unwrap();
     let listed = Command::new("git").current_dir(dir.path()).args(["bundle", "list-heads", "-"]).stdin(file).output().unwrap();
     assert_eq!(String::from_utf8(listed.stdout).unwrap().trim(), format!("{} {reference}", head.as_str()));
@@ -895,7 +895,7 @@ fn a_200_kb_land_check_command_reaches_the_host_intact() {
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
     let command = format!("printf 'x' >{0}\n# {1}\nprintf 'y' >>{0}", seen.display(), "z".repeat(200 * 1024));
-    let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "", "secret");
+    let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "", "secret", false);
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let spilled = header.len().to_string();
     let mut child = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", "", &spilled], &[])
@@ -958,7 +958,7 @@ fn slot_run(slot: &Path, (base, head): (&str, &str), command: &str) -> Output {
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let home = tempfile::tempdir().unwrap();
-    let land = Land { ssh: "", checkout: slot, base: Some(CommitId(base.to_owned())), head: CommitId(head.to_owned()), timeout_seconds: 10, command, class: super::SlotClass::LandCheck };
+    let land = Land { ssh: "", checkout: slot, base: Some(CommitId(base.to_owned())), head: CommitId(head.to_owned()), timeout_seconds: 10, command, class: super::SlotClass::LandCheck, confined: false };
     let generated = super::generated::paths(&land);
     let script = format!("set -eu\nslot={} head={} command={} limit=10 generated={}\n{}{}", shell(slot), super::quote(head), super::quote(command), super::quote(&generated), VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string()), run_part());
     Command::new("sh")

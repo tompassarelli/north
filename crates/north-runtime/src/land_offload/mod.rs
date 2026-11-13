@@ -78,7 +78,7 @@ fn run_job(words: &[&str], class: ship::SlotClass) -> u8 {
             let Ok(timeout_seconds) = seconds.parse() else { return usage() };
             let resolved = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|checkout| commits_in(&checkout, base, head).map(|commits| (checkout, commits)));
             match resolved {
-                Ok((checkout, (base, head))) => offload(host, ship::Land { ssh: "", checkout: &checkout, base, head, timeout_seconds, command, class }),
+                Ok((checkout, (base, head))) => offload(host, ship::Land { ssh: "", checkout: &checkout, base, head, timeout_seconds, command, class, confined: false }),
                 Err(why) => {
                     eprintln!("north capacity offload: {why}");
                     2
@@ -439,6 +439,7 @@ fn free(host: &str) -> u8 {
 
 fn offload(host: &str, land: ship::Land) -> u8 {
     let Some(ssh) = destination(host) else { return ship::TRANSPORT_FAILED };
-    ship::run(&ship::Land { ssh: &ssh, ..land })
+    let confined = config().is_ok_and(|cfg| destinations::runs_as_agent(&cfg, host, &ssh));
+    ship::run(&ship::Land { ssh: &ssh, confined, ..land })
 }
 

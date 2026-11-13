@@ -101,6 +101,11 @@ pub(super) fn check_login(cfg: &DocumentMut, machine: &crate::pacing::placement:
     login
 }
 
+/// Whether `login` is the agent login of `host`, so the check runs confined (land_offload/ship/fill.sh confine).
+pub(super) fn runs_as_agent(cfg: &DocumentMut, host: &str, login: &str) -> bool {
+    crate::pacing::placement::gate::machines(cfg).iter().any(|machine| machine.name == host && machine.agent_ssh.as_deref() == Some(login) && machine.ssh != login)
+}
+
 /// Each build host `here` reaches, with the login a lane's check runs as there (check_login); a host whose agent login does not parse, or that sets agent_offload with no agent login, is left out rather than dialed as the operator.
 pub(super) fn check_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
     let machines = crate::pacing::placement::gate::machines(cfg);
