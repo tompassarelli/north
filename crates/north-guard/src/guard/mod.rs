@@ -34,6 +34,7 @@ mod heavy_command_tests;
 pub mod scratch_log;
 pub mod brief_skeleton;
 pub mod poll_loop;
+mod poll_loop_bounded;
 mod poll_loop_measured;
 pub mod session_kill;
 pub mod clipboard;

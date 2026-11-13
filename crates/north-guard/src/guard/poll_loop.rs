@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use super::poll_loop_bounded;
 use super::poll_loop_measured::{self, MeasuredDuration};
 use crate::hook_input::{HookInput, Verdict};
 use crate::shell;
@@ -42,7 +43,7 @@ pub fn verdict(input: &HookInput) -> Verdict {
 
 pub(super) fn decide_with(command: &str, bound: f64, capacity: &Path) -> Option<String> {
     let wait = waited(command, bound, 0);
-    (wait > LIMIT_SECONDS).then(|| refusal(wait, poll_loop_measured::waited_on(command, capacity)))
+    (wait > LIMIT_SECONDS).then(|| refusal(command, wait, poll_loop_measured::waited_on(command, capacity)))
 }
 
 fn advice(measured: Option<MeasuredDuration>) -> String {
@@ -57,14 +58,22 @@ fn advice(measured: Option<MeasuredDuration>) -> String {
     format!("`{shape}` has a measured p75 of {seconds:.0} s over {runs} runs: {verdict}. ")
 }
 
-fn refusal(wait: f64, measured: Option<MeasuredDuration>) -> String {
+fn parses(source: &str) -> bool {
+    std::process::Command::new("bash").args(["-n", "-c", source]).output().is_ok_and(|output| output.status.success())
+}
+
+fn refusal(command: &str, wait: f64, measured: Option<MeasuredDuration>) -> String {
     let measured = advice(measured);
     let span = if wait.is_finite() { format!("up to {wait:.0} s") } else { "until its condition holds".into() };
+    let inline = poll_loop_bounded::command(command, LIMIT_SECONDS)
+        .filter(|bounded| waited(bounded, f64::INFINITY, 0) <= LIMIT_SECONDS && parses(bounded))
+        .map(|bounded| format!(" Run the wait as `{bounded}` and run it again while it times out."))
+        .unwrap_or_default();
     format!(
         "{measured}No. This call waits {span} in a sleep or poll loop, and every wait over {LIMIT_SECONDS:.0} s holds a full-context request open. \
          For work that ends on its own, run `north job-run --notify NAME -- CMD` and end your turn: its exit arrives as a fleet message. \
          To wake on a condition, use Monitor with an until-loop, or run the loop with run_in_background so its exit notifies you. \
-         A sleep or a loop bounded by `timeout` at {LIMIT_SECONDS:.0} s or less runs inline."
+         A sleep or a loop bounded by `timeout` at {LIMIT_SECONDS:.0} s or less runs inline.{inline}"
     )
 }
 
