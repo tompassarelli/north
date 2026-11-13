@@ -81,9 +81,10 @@ impl Runtime for Claude {
         }
         argv.extend(session_env::model_args(request));
         argv.extend(session_env::agent_args(request));
-        let programs = tool_server::launch_programs(request, &operator_home, crate::fleet::remote::answer_on)?;
-        argv.extend(tool_server::tool_server_args(&programs.north, &tool_server::configured_verbs()));
-        argv.extend(launch_prompt::args(account, request, instructions, &programs.prefix)?);
+        let north = tool_server::launch_north(request);
+        let prefix = tool_server::shell_prefix(&north)?;
+        argv.extend(tool_server::tool_server_args(&north, &tool_server::configured_verbs()));
+        argv.extend(launch_prompt::args(account, request, instructions, &prefix)?);
         Ok(HostSpec {
             key: request.name.clone(),
             shared: false,

@@ -65,13 +65,8 @@ fn unguarded_where_it_runs(runtime: &dyn Runtime, account: &Account, machine: Op
 /// What `path` holds on `machine`, read through its session login, the user the session runs as there: absent only when no such path exists there, unreachable when the machine does not answer or the file is there but unreadable.
 pub fn read_on(machine: &Machine, path: &Path) -> Seen {
     let quoted = quote(&path.to_string_lossy());
-    answer_on(machine, &format!("[ -e {quoted} ] || exit {ABSENT}; cat -- {quoted}"))
-}
-
-/// What `script` prints run on `machine` through its session login: its output when it succeeds, absent when it exits 3, unreachable when it fails otherwise or the machine does not answer.
-pub fn answer_on(machine: &Machine, script: &str) -> Seen {
     let mut ssh = Command::new(binary("ssh"));
-    ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", script]);
+    ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &format!("[ -e {quoted} ] || exit {ABSENT}; cat -- {quoted}")]);
     match try_run_command_within(ssh, None, SSH_WAIT).ok().flatten() {
         Some(output) if output.status.success() => Seen::Text(String::from_utf8_lossy(&output.stdout).into_owned()),
         Some(output) if output.status.code() == Some(ABSENT) => Seen::Absent,
@@ -160,12 +155,12 @@ pub fn leave_record(record: &SessionRecord, placed: &Path) {
     }
 }
 
-/// Mirrors `record` to the machine it runs on, under the session login's home in place of the operator's `home`, then binds the held unit its CLI runs in there to its conversation, in that unit's own directory, so the outside broker there takes a caller in that unit for this session and no other (north#1054).
-pub(super) fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path, home: &Path) -> NorthResult<()> {
+/// Mirrors `record` to the machine it runs on, then binds the held unit its CLI runs in there to its conversation, in that unit's own directory under `home`, so the outside broker there takes a caller in that unit for this session and no other (north#1054).
+fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path, home: &Path) -> NorthResult<()> {
     let (Some(machine), Some(conversation)) = (&record.machine, &record.conversation) else { return Ok(()) };
-    let directory = machine.session_path(&placed.join(conversation), home);
+    let directory = placed.join(conversation);
     let file = record_file(&directory).to_string_lossy().into_owned();
-    let held = held_dir(&machine.session_path(home, home), &record.held_unit.as_deref().map_or_else(|| unit(&record.name), str::to_owned));
+    let held = held_dir(home, &record.held_unit.as_deref().map_or_else(|| unit(&record.name), str::to_owned));
     let bound = held.join(BOUND_CONVERSATION).to_string_lossy().into_owned();
     let script = format!(
         "mkdir -p {} && cat > {} && mv {} {} && {{ ! [ -d {} ] || {{ printf %s {} > {} && mv {} {}; }}; }}",

@@ -157,18 +157,6 @@ async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_the
     let placed = held_under(spec, &agent, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
     let held_on_agent = Link::parse(&placed.argv[2..]).unwrap().dir;
     assert!(held_on_agent.starts_with("/home/agent/.local/state/north/held/"), "{held_on_agent}");
-    let (ssh, sent) = (root.path().join("ssh"), root.path().join("sent"));
-    crate::foundation::shim::write_script(&ssh, &format!("cat >/dev/null\nfor word; do script=$word; done\nprintf %s \"$script\" > '{}'\n", sent.display()));
-    let record: crate::fleet::model::SessionRecord = serde_json::from_value(serde_json::json!({
-        "name": "agent-first-turn", "provider": "claude", "account": "e", "cwd": "/home/agent/code/north/main", "model": null, "created_ms": 0,
-        "conversation": "conversation-one", "machine": {"name": "cpx62", "ssh": "tom@cpx62", "agent_ssh": "agent@cpx62"}
-    }))
-    .unwrap();
-    super::super::remote::mirror_through(&ssh, &record, Path::new("/home/tom/.local/state/north/fleet/placed"), Path::new("/home/tom")).unwrap();
-    let script = fs::read_to_string(&sent).unwrap();
-    assert!(script.contains("/home/agent/.local/state/north/fleet/placed/conversation-one/"), "the record is not written under the agent's fleet root: {script}");
-    assert!(script.contains("/home/agent/.local/state/north/held/north-fleet-agent-first-turn-"), "the bound conversation is not written in the agent's held unit: {script}");
-    assert!(!script.contains("/home/tom"), "the agent login was sent a path under the operator's home: {script}");
 
     let shims = machine(root.path());
     let (ssh, far, home) = (shims.join("ssh"), Machine { name: "far".into(), ssh: "far".into(), agent_ssh: None }, root.path());

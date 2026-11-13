@@ -3,7 +3,6 @@ use super::super::layout::{self, Layout, PROGRAMS};
 use super::super::store;
 use super::sync::relink;
 use north_base::platform::agent_runtime;
-use north_base::platform::entry_points::EntryPoint;
 use rustix::fs::{Access, access};
 use std::ffi::OsString;
 use std::fs;
@@ -65,7 +64,7 @@ pub(super) struct Published {
     claude: Option<PathBuf>,
 }
 
-/// Adds the runtime's programs, with `worker-sandbox` linked beside its `north` for the shell prefix of an agent session, to the Nix store as one path rooted at `agent-runtime` in the runtime, and the operator's Claude Code as another rooted at `agent-claude`, so the agent runs copies no one can change in place.
+/// Adds the runtime's programs to the Nix store as one path rooted at `agent-runtime` in the runtime, and the operator's Claude Code as another rooted at `agent-claude`, so the agent runs copies no one can change in place.
 pub(super) fn publish(runtime: &Path) -> Result<Option<Published>, Failure> {
     if configured().is_none() {
         return Ok(None);
@@ -76,7 +75,6 @@ pub(super) fn publish(runtime: &Path) -> Result<Option<Published>, Failure> {
     for program in PROGRAMS {
         fs::copy(runtime.join(program), staging.join(program))?;
     }
-    std::os::unix::fs::symlink("north", staging.join(EntryPoint::WorkerSandbox.name()))?;
     let added = store::add_rooted(&staging, &runtime.join(ROOT), "the agent runtime");
     fs::remove_dir_all(&staging)?;
     let claude = publish_claude(runtime, operator_claude().as_deref()).inspect_err(|failure| eprintln!("north runtime update: the agent keeps the Claude Code it had: {}", failure.message)).ok();
