@@ -112,6 +112,20 @@ pub fn runs_no_checks(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("runs_no_checks")).and_then(Item::as_bool) == Some(true)
 }
 
+/// Whether the capacity tick on `HOST` starts the disk keep pass; `[hosts.HOST] disk_keep = false` stops it there.
+pub fn keeps_disk(cfg: &DocumentMut, host: &str) -> bool {
+    switch(cfg, host, "disk_keep")
+}
+
+/// Whether the lander on `HOST` asks for release norths ahead of promotion; `[hosts.HOST] build_ahead = false` stops it there.
+pub fn builds_ahead(cfg: &DocumentMut, host: &str) -> bool {
+    switch(cfg, host, "build_ahead")
+}
+
+fn switch(cfg: &DocumentMut, host: &str, key: &str) -> bool {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get(key)?.as_bool()).unwrap_or(true)
+}
+
 /// Whether `[hosts.HOST]` builds north with Buck2 (`build_system = "buck2"`, the key the build seam reads); a host without the key builds with Cargo.
 pub fn builds_with_buck2(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get("build_system")?.as_str()) == Some("buck2")

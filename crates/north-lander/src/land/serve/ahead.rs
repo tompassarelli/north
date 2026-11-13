@@ -54,6 +54,9 @@ pub(super) fn queued(lander: &Lander, tickets: &[(PathBuf, Ticket)]) {
 }
 
 fn ask(lander: &Lander, head: &str, kind: &str, lane: &str) {
+    if north_base::platform::orchestration::read().is_ok_and(|cfg| !north_base::platform::orchestration::builds_ahead(&cfg, &north_base::platform::host::name())) {
+        return;
+    }
     let Ok(tree) = git(&lander.worktree, &["rev-parse", &format!("{head}^{{tree}}")]) else { return };
     let key = format!("{kind} {tree}");
     if ready(&tree) || !requested().lock().is_ok_and(|mut asked| asked.insert(key.clone())) {

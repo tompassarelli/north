@@ -340,7 +340,7 @@ fn evict_here(home: &Path, budget: &DiskBudget, disk: &mut dyn FnMut() -> Option
 /// systemd ends every process left in the oneshot reaper's cgroup when it exits; the fixed unit name keeps a second pass from starting
 /// beside a running one, and a pass ended at its bound is reported here once before the next one starts.
 pub fn tend() {
-    if fixture() {
+    if fixture() || north_base::platform::orchestration::read().is_ok_and(|cfg| !north_base::platform::orchestration::keeps_disk(&cfg, &north_base::platform::host::name())) {
         return;
     }
     let marker = north_capacity_host::capacity::agent_load::capacity_root().join(KEEP_STARTED);

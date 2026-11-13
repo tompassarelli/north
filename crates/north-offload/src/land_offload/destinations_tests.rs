@@ -76,11 +76,15 @@ fn a_host_that_declares_an_agent_login_runs_offloaded_checks_as_the_operator_unt
 }
 
 #[test]
-fn a_laptop_closed_by_runs_no_checks_sends_every_check_to_a_remote_or_queues_it_there_never_here_north_1036() {
+fn a_laptop_closed_by_its_host_switches_runs_no_check_disk_keep_or_build_ahead_there_north_1036_north_1362() {
     use crate::land_offload::room::{Room, Standing, check_host};
+    use north_base::platform::orchestration::{builds_ahead, keeps_disk};
     let cfg: DocumentMut = "[hosts.laptop]\nruns_no_checks = true\noffload_builds = true\n\n[hosts.cpx62]\noffload_builds = true\n".parse().unwrap();
     assert!(runs_no_checks(&cfg, "laptop"));
     assert!(!runs_no_checks(&cfg, "cpx62"), "the switch defaults off");
+    let paused: DocumentMut = "[hosts.whiterabbit]\ndisk_keep = false\nbuild_ahead = false\n".parse().unwrap();
+    assert!(!keeps_disk(&paused, "whiterabbit") && !builds_ahead(&paused, "whiterabbit"), "the capacity tick starts no disk keep pass and the lander asks for no release north ahead there");
+    assert!(keeps_disk(&cfg, "laptop") && builds_ahead(&cfg, "laptop") && keeps_disk(&paused, "cpx62"), "absent, both keys keep today's behavior");
     let closed = runs_no_checks(&cfg, "laptop");
     let standing = crate::land_offload::standing(closed, false, Some(&cfg), "laptop");
     assert_eq!(standing, Standing::Reserved, "offload_builds = true would make the laptop a Peer that runs a check itself once the remotes' queues pass a round");
