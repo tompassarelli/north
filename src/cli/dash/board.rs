@@ -15,6 +15,8 @@ use super::Screen;
 
 const NAMED_FAILURES: usize = 3;
 const DETAIL_ROWS: usize = 5;
+const WHOLE_FROM_COMMIT: &str = "291d551ce";
+const WHOLE_FROM_UNIX_SECONDS: i64 = 1_794_592_920;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Work {
@@ -47,10 +49,11 @@ pub(super) fn of(screen: &Screen) -> Board {
     let hours = ((screen.now - screen.since).max(60) as f64) / 3_600.0;
     let landings = screen.work.as_ref().ok().map(|work| work.landed.len());
     let closed = screen.runs.as_ref().ok().map(|(_, report)| report.closed);
+    let whole = whole_from_note(screen.since);
     let first_line = match (landings, closed) {
-        (Some(landings), Some(closed)) => format!("{landings} landings ({:.1}/h) · {closed} boxes closed ({:.1}/h)", landings as f64 / hours, closed as f64 / hours),
+        (Some(landings), Some(closed)) => format!("{landings} landings ({:.1}/h) · {closed} boxes closed ({:.1}/h{whole})", landings as f64 / hours, closed as f64 / hours),
         (Some(landings), None) => format!("{landings} landings ({:.1}/h) · boxes unread", landings as f64 / hours),
-        (None, Some(closed)) => format!("landings unread · {closed} boxes closed ({:.1}/h)", closed as f64 / hours),
+        (None, Some(closed)) => format!("landings unread · {closed} boxes closed ({:.1}/h{whole})", closed as f64 / hours),
         (None, None) => "landings and boxes unread".to_owned(),
     };
     Board {
@@ -246,6 +249,10 @@ pub(super) fn window_words(window: &str) -> String {
         "d" => format!("{count} days"),
         _ => format!("{count} {unit}"),
     }
+}
+
+fn whole_from_note(since: i64) -> String {
+    Some(since).filter(|since| *since < WHOLE_FROM_UNIX_SECONDS).map_or_else(String::new, |_| format!("; whole from {WHOLE_FROM_COMMIT} at {}", Timestamp::from_unix_seconds(WHOLE_FROM_UNIX_SECONDS).local_twelve_hour()))
 }
 
 fn money(usd: f64) -> String {
