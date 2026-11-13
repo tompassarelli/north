@@ -41,7 +41,7 @@ struct Canary {
 
 impl Canary {
     fn new() -> Self {
-        let root = tempfile::Builder::new().prefix("hand-in").tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+        let root = tempfile::Builder::new().prefix("hand-in").tempdir_in(crate::support::target_tmpdir()).unwrap();
         let run = tempfile::Builder::new().prefix("hand-in-run").tempdir_in("/tmp").unwrap();
         let path = |name: &str| root.path().join(name);
         let runtimes = path("home/.local/state/north/runtimes");

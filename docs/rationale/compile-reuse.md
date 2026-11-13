@@ -923,7 +923,7 @@ Decisions, each carried from what Cargo does:
   the package's path from the repository root, set through rustc by `manifest_dir_flags()`, for the reason the
   Tests section gives. An integration test gets `CARGO_BIN_EXE_<bin> = $(location :<bin>)` in `run_env` for every
   binary of its package, whether or not its sources name one, because the sites read it through `bin_exe!`'s
-  `option_env!` of a macro argument, which no scan of literals sees. `CARGO_TARGET_TMPDIR` is `/tmp`.
+  `option_env!` of a macro argument, which no scan of literals sees. `CARGO_TARGET_TMPDIR` is `target/tmp` under the project root a test runs from, outside the scratch a worker sandbox may write.
 - Sources: a target's sources are its source directory (`src/`, `tests/` or `examples/`). A file it reads through
   `include_str!`, `include_bytes!`, `include!` or a `#[path]` module outside that directory is found by scanning the
   sources' tokens (string literals and comments skipped); when the file belongs to another package, that package

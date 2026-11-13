@@ -668,7 +668,7 @@ north_rust_test(
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
     env = {
-        "CARGO_TARGET_TMPDIR": "/tmp",
+        "CARGO_TARGET_TMPDIR": "target/tmp",
     },
     run_env = {
         "CARGO_BIN_EXE_fake_claude": "$(location :fake_claude)",
@@ -692,14 +692,6 @@ north_rust_test(
         "worker_sandbox::a_delete_whose_target_is_computed_at_run_time_cannot_remove_a_protected_directory_north_706",
         "worker_sandbox::a_lane_created_after_the_session_started_runs_its_scripts_in_a_fresh_domain_that_hides_every_older_lane_north_1033",
         "worker_sandbox::a_sandboxed_hand_in_for_another_projects_lane_is_refused_and_leaves_no_index_lock_north_1172",
-        "worker_sandbox::a_sandboxed_worker_fast_forwards_a_main_checkout_through_the_broker",
-        "worker_sandbox::a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_harness_state",
-        "worker_sandbox::a_worker_command_cannot_write_a_north_runtime_that_unconfined_sessions_execute",
-        "worker_sandbox::a_worker_command_cannot_write_another_sessions_fleet_record",
-        "worker_sandbox::a_worker_command_cannot_write_a_projects_git_config_and_still_fetches_and_branches_from_origin",
-        "worker_sandbox::a_worker_command_cannot_write_a_projects_git_hooks",
-        "worker_sandbox::a_worker_command_reads_the_lifecycle_ledger_and_cannot_write_it",
-        "worker_sandbox::a_worker_send_to_a_session_on_its_host_or_another_exits_0_with_no_error_and_leaves_the_row_for_the_fleet_tick_north_1219",
     ],
     deps = [
         "//crates/north-base:north-base",

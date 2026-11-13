@@ -19,7 +19,7 @@ struct Home {
 
 impl Home {
     fn new() -> Self {
-        let root = tempfile::Builder::new().prefix("north-706-home").tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+        let root = tempfile::Builder::new().prefix("north-706-home").tempdir_in(crate::support::target_tmpdir()).unwrap();
         let home = root.path();
         file(&home.join("Library/Application Support/App/cache.db"));
         file(&home.join("code/p/pins/abc/file"));
@@ -390,7 +390,7 @@ fn a_lane_only_shell_ends_with_done_instead_of_running_safe_push_north_1041() {
 
 #[test]
 fn a_git_stash_run_through_the_wrapper_with_no_hook_is_refused_with_the_hooks_message_north_1041() {
-    let home = tempfile::Builder::new().prefix("north-1041-home").tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let home = tempfile::Builder::new().prefix("north-1041-home").tempdir_in(crate::support::target_tmpdir()).unwrap();
     let repository = home.path().join("repository");
     std::fs::create_dir_all(&repository).unwrap();
     git(&repository, &["init", "-q", "-b", "main"]);

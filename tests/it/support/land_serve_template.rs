@@ -12,7 +12,7 @@ impl Template {
     pub fn get(build: fn(&Path) -> String) -> &'static Template {
         static BUILT: OnceLock<Template> = OnceLock::new();
         BUILT.get_or_init(|| {
-            let parent = Path::new(env!("CARGO_TARGET_TMPDIR"));
+            let parent = crate::support::target_tmpdir();
             fs::create_dir_all(parent).unwrap();
             remove_stale(parent);
             let root = parent.join(format!("land-serve-{}", std::process::id()));

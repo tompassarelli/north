@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::workspace::{Kind, Package, Target};
 
-const TARGET_TMPDIR: &str = "/tmp";
+const TARGET_TMPDIR: &str = "target/tmp";
 
 pub struct Context<'a> {
     pub package: &'a Package,

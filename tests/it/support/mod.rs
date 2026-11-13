@@ -20,6 +20,16 @@ pub fn manifest_dir() -> &'static std::path::Path {
     &ABSOLUTE
 }
 
+/// Cargo's scratch directory for integration tests as an absolute path that exists: Cargo compiles it in absolute, a Buck2 target as target/tmp relative to the project root, outside the system scratch a worker sandbox may write.
+pub fn target_tmpdir() -> &'static std::path::Path {
+    static ABSOLUTE: LazyLock<std::path::PathBuf> = LazyLock::new(|| {
+        let path = std::path::absolute(env!("CARGO_TARGET_TMPDIR")).unwrap_or_else(|error| panic!("CARGO_TARGET_TMPDIR: {error}"));
+        std::fs::create_dir_all(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        path
+    });
+    &ABSOLUTE
+}
+
 pub fn resolve_bin_exe(variable: &'static str, built: Option<&'static str>) -> &'static str {
     built.unwrap_or_else(|| {
         let mut resolved = RESOLVED.lock().unwrap_or_else(PoisonError::into_inner);
