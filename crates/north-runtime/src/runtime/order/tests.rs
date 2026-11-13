@@ -3,7 +3,7 @@ use super::super::failure::Failure;
 use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Canarying};
 use super::super::pin::{Event, read};
-use super::super::review_hold::{Ask, Caller, Holds, Screen, landed_in, lane_of, now};
+use super::super::review_hold::{Ask, Caller, Holds, Screen, in_checkout, landed_in, lane_of, now};
 use super::super::update::{self, Flight};
 use super::{Host, Order, run};
 use std::fs;
@@ -366,6 +366,9 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
     lift(&coordinator).unwrap();
     let named = cleared(NEW).unwrap();
     assert!(named.iter().any(|line| line.contains("f-review") && line.contains("proxy lifted it: the fix is reviewed")), "{named:?}");
+    let unresolved = screen_of(Holds(store.clone()), |_, _| Err("fatal: Not a valid object name".to_owned()), landings);
+    assert!(unresolved.order(NEW, &["whiterabbit"], now()).is_ok(), "on 2026-11-13 a lifted hold on a commit the checkout lacks refused every order and promotion for a day");
+    place(&reviewer).unwrap();
 
     let (unlisted, unparsed, misnamed) = (state.path().join("not-a-store"), state.path().join("unparsed"), state.path().join("misnamed"));
     fs::write(&unlisted, "").unwrap();
@@ -390,4 +393,12 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
     for branches in [vec!["main".to_owned()], vec!["f-fix".to_owned(), "f-other".to_owned()]] {
         assert!(lane_of(REVIEWED, "", &branches).is_err(), "a hold whose lane is not one branch is refused at placement: {branches:?}");
     }
+    let checkout = tempfile::tempdir().unwrap();
+    let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();
+    git(&["init", "-q"]);
+    let absent = in_checkout(checkout.path(), REVIEWED).unwrap_err();
+    assert!(absent.contains(REVIEWED) && absent.contains("no commit in the north checkout"), "a hold placed on a commit the checkout lacks made every later screen fail: {absent}");
+    git(&["-c", "user.name=north", "-c", "user.email=north@invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "reviewed"]);
+    let head = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout).unwrap();
+    assert_eq!(in_checkout(checkout.path(), head.trim()), Ok(()));
 }

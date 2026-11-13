@@ -5,7 +5,7 @@ use std::io::Write;
 use std::os::fd::OwnedFd;
 
 use super::lane_grant::{self, Host};
-use crate::runtime::review_hold::{Ask, COORDINATOR, Caller, Holds, now};
+use crate::runtime::review_hold::{self, Ask, COORDINATOR, Caller, Holds, now};
 
 /// The session whose scope `cgroup` names on `host`, and whether its fleet record names it the coordinator.
 pub(super) fn caller(cgroup: &str, host: &Host) -> Result<Caller, String> {
@@ -14,9 +14,12 @@ pub(super) fn caller(cgroup: &str, host: &Host) -> Result<Caller, String> {
     Ok(Caller { session, coordinator: record["role"].as_str() == Some(COORDINATOR) })
 }
 
-/// Places or lifts what `ask` names for the session `cgroup` names, in the verdict store of the broker's own environment; the line saying what was done.
+/// Places or lifts what `ask` names for the session `cgroup` names, in the verdict store of the broker's own environment, placing no hold on a commit the north checkout lacks; the line saying what was done.
 fn served(ask: Ask, cgroup: &str, host: &Host) -> Result<String, String> {
     let caller = caller(cgroup, host)?;
+    if let Ask::Place { commit, .. } = &ask {
+        review_hold::in_checkout(&review_hold::checkout(), commit)?;
+    }
     Holds::of(&host.environment, &host.home).serve(ask, &caller, now())
 }
 

@@ -1,4 +1,4 @@
-//! A reviewer's hold on a commit (north#1022): a record in the verdict store, which no worker domain writes, that keeps every head containing the commit, or a landing of the lane that holds it, from going live. `north runtime order` refuses such a head and so do the slot and `Live-fix:` promotions, each naming the commit and the reviewer. `north runtime hold` places and lifts a hold for the fleet session the caller's cgroup scope names, read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or a trailer; only that session or the fleet's coordinator (a session whose record names the role `proxy`) lifts it, and the record keeps who lifted it and why. Every read fails closed: a store, a ledger or a git answer that cannot be read refuses the head. The switch `review_holds` in harness/defaults.toml turns every screen off.
+//! A reviewer's hold on a commit (north#1022): a record in the verdict store, which no worker domain writes, that keeps every head containing the commit, or a landing of the lane that holds it, from going live. `north runtime order` refuses such a head and so do the slot and `Live-fix:` promotions, each naming the commit and the reviewer. `north runtime hold` places and lifts a hold for the fleet session the caller's cgroup scope names, read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or a trailer; only that session or the fleet's coordinator (a session whose record names the role `proxy`) lifts it, and the record keeps who lifted it and why. Every read for a standing hold fails closed: a store, a ledger or a git answer that cannot be read refuses the head, while a lifted hold that cannot be screened, such as one on a commit the checkout lacks, is passed over. The broker places no hold on a commit the north checkout lacks. The switch `review_holds` in harness/defaults.toml turns every screen off.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -229,8 +229,11 @@ impl Screen {
         let unread = |why: String| format!("{} is not screened, so it does not go live: {why}", layout::short(head));
         let mut held = Vec::new();
         for hold in self.holds.all().map_err(unread)? {
-            if self.holds_in(&hold, head).map_err(unread)? {
-                held.push(hold);
+            match self.holds_in(&hold, head) {
+                Ok(true) => held.push(hold),
+                Ok(false) => {}
+                Err(_) if hold.lifted.is_some() => {}
+                Err(why) => return Err(unread(why)),
             }
         }
         let standing: Vec<String> = held.iter().filter(|hold| hold.lifted.is_none() && applies(hold.host.as_deref())).map(refusal).collect();
@@ -257,6 +260,21 @@ impl Screen {
 fn refusal(hold: &Hold) -> String {
     let on = hold.host.as_deref().map_or(String::new(), |host| format!(" on {host}"));
     format!("{} of the lane {}, held{on} by {}: {}; only {} or the coordinator lifts it (north runtime hold --lift {} --why TEXT)", hold.commit, hold.lane, hold.session, hold.why, hold.session, hold.commit)
+}
+
+/// Refuses a hold on `commit` unless `checkout` holds it as a commit, since every screen asks git there about each hold and one on a commit git cannot find refuses every head.
+pub(crate) fn in_checkout(checkout: &Path, commit: &str) -> Result<(), String> {
+    let object = format!("{commit}^{{commit}}");
+    let output = crate::platform::process::run("git", Some(checkout), &["cat-file", "-e", object.as_str()]).map_err(|error| format!("git cat-file: {error}"))?;
+    match output.status.success() {
+        true => Ok(()),
+        false => Err(format!("{commit} is no commit in the north checkout {}, and a hold on it would refuse every head the order and the promotions screen: {}", checkout.display(), String::from_utf8_lossy(&output.stderr).trim())),
+    }
+}
+
+/// The north checkout the order and the promotions screen heads in.
+pub(crate) fn checkout() -> PathBuf {
+    super::update::checkout()
 }
 
 /// Whether `head` is `commit` or descends from it in `checkout`: git's exit 1 is no, and any other failure is an error, never a no.
