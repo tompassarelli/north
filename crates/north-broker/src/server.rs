@@ -199,9 +199,12 @@ impl Broker {
     }
 
     fn github_child(&self, peer: Peer, caller: &Caller, body: &Value, now: i64) -> (Response, String) {
-        let what = format!("github child {:?}", body["repository"].as_str().unwrap_or_default());
+        let what = format!("github child {:?}#{}", body["repository"].as_str().unwrap_or_default(), body["parent"]);
         let granted = (|| -> Result<Value, (u16, String)> {
-            let child = Child::from_json(body).ok_or((400, "a child needs repository, repository_id, parent_id, issue_type_id, label_ids, title and body".to_owned()))?;
+            if let Some(field) = ["repository_id", "parent_id"].into_iter().find(|field| body.get(field).is_some()) {
+                return Err((403, format!("a child names its repository and parent number; the broker resolves {field} itself")));
+            }
+            let child = Child::from_json(body).ok_or((400, "a child needs repository, parent, issue_type_id, label_ids, title and body".to_owned()))?;
             let ceiling = caller.github.get("agent").ok_or_else(|| (403, format!("uid {} may not create issues", peer.uid)))?;
             let permissions = Permissions::from([("issues".to_owned(), "write".to_owned())]);
             let scope = ceiling.scope("agent", std::slice::from_ref(&child.repository), &permissions).map_err(|why| (403, why))?;

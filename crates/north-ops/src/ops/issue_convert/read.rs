@@ -49,20 +49,18 @@ fn issue(node: &Value) -> Option<Issue> {
 }
 
 pub struct Target {
-    pub repository_id: String,
-    pub parent_id: String,
     pub children: u64,
     pub labels: BTreeMap<String, String>,
     pub issue_types: BTreeMap<String, String>,
 }
 
-const TARGET_QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { id labels(first: 100) { totalCount nodes { id name } } issueTypes(first: 20) { nodes { id name } } issue(number: $number) { id subIssuesSummary { total } } } }";
+const TARGET_QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { labels(first: 100) { totalCount nodes { id name } } issueTypes(first: 20) { nodes { id name } } issue(number: $number) { subIssuesSummary { total } } } }";
 
 fn pairs(nodes: &Value) -> BTreeMap<String, String> {
     nodes.as_array().into_iter().flatten().filter_map(|node| Some((node["name"].as_str()?.to_owned(), node["id"].as_str()?.to_owned()))).collect()
 }
 
-/// The ids a child is created with and the parent's children count: one read of the repository and its parent.
+/// The type and label ids a child is created with and the parent's children count: one read of the repository and its parent.
 pub fn target(owner: &str, name: &str, number: u64) -> Result<Target, String> {
     let reference = format!("{owner}/{name}#{number}");
     let (query, owner_field, name_field, number_field) = (format!("query={TARGET_QUERY}"), format!("owner={owner}"), format!("name={name}"), format!("number={number}"));
@@ -81,8 +79,6 @@ pub fn target(owner: &str, name: &str, number: u64) -> Result<Target, String> {
         return Err(format!("{owner}/{name} has more labels than one page returns"));
     }
     Ok(Target {
-        repository_id: found["id"].as_str().ok_or_else(|| format!("{owner}/{name} has no id"))?.to_owned(),
-        parent_id: issue["id"].as_str().ok_or_else(|| format!("{reference} has no id"))?.to_owned(),
         children: issue["subIssuesSummary"]["total"].as_u64().unwrap_or(0),
         labels,
         issue_types: pairs(&found["issueTypes"]["nodes"]),

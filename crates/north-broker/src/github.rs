@@ -16,6 +16,7 @@ const EXCHANGE_LIMIT: Duration = Duration::from_secs(30);
 const INSTALLATION_TOKEN_MARGIN: i64 = 60;
 const CHILD_VALIDITY: i64 = 60;
 const GRAPHQL_LIMIT: Duration = Duration::from_secs(30);
+const OWNER: &str = "tompassarelli";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct App {
@@ -51,23 +52,32 @@ impl Minter {
 
     pub fn create_child(&self, application: App, scope: &Scope, ceiling: &Ceiling, child: &Child, now: i64) -> Result<Value, (u16, String)> {
         let minted = self.mint(application, scope, ceiling, CHILD_VALIDITY, now)?;
-        let headers = format!("header = \"Authorization: Bearer {}\"\nheader = \"Accept: application/vnd.github+json\"\nheader = \"X-GitHub-Api-Version: 2022-11-28\"\nuser-agent = \"north-broker\"\n", minted.token);
-        let config = format!("{headers}data-raw = {}\n", curl::quoted(&child.request().to_string()).map_err(|why| (400, why))?);
+        let target = self.graphql(&minted.token, &child.target(OWNER)).map_err(|why| (502, format!("the parent read failed: {why}")))?;
+        let repository = &target["repository"];
+        let (Some(repository_id), Some(parent_id)) = (repository["id"].as_str(), repository["issue"]["id"].as_str()) else {
+            return Err((404, format!("{OWNER}/{}#{} is not an issue", child.repository, child.parent)));
+        };
+        let created = self.graphql(&minted.token, &child.request(repository_id, parent_id)).map_err(|why| (502, format!("the create mutation failed: {why}")))?;
+        let issue = &created["createIssue"]["issue"];
+        if issue.is_object() { Ok(issue.clone()) } else { Err((502, "the create mutation returned no issue".to_owned())) }
+    }
+
+    fn graphql(&self, token: &str, request: &Value) -> Result<Value, String> {
+        let headers = format!("header = \"Authorization: Bearer {token}\"\nheader = \"Accept: application/vnd.github+json\"\nheader = \"X-GitHub-Api-Version: 2022-11-28\"\nuser-agent = \"north-broker\"\n");
+        let config = format!("{headers}data-raw = {}\n", curl::quoted(&request.to_string())?);
         let url = format!("{}/graphql", self.api);
         let scheme = if self.api.starts_with("https://") { "=https" } else { "=http,https" };
         let arguments = ["--max-time", "30", "--request", "POST", "--write-out", "\n%{http_code}", "--proto", scheme, url.as_str()];
-        let unreachable = || (502, format!("could not reach {}", self.api));
+        let unreachable = || format!("could not reach {}", self.api);
         let output = curl::run(&arguments, &config, GRAPHQL_LIMIT).ok_or_else(unreachable)?;
         let text = String::from_utf8_lossy(&output);
         let (answer, status) = text.rsplit_once('\n').ok_or_else(unreachable)?;
         let status: u16 = status.trim().parse().unwrap_or(0);
-        let data: Value = serde_json::from_str(answer).unwrap_or(Value::Null);
-        let issue = &data["data"]["createIssue"]["issue"];
-        if (200..300).contains(&status) && data.get("errors").is_none() && issue.is_object() {
-            return Ok(issue.clone());
+        let mut data: Value = serde_json::from_str(answer).unwrap_or(Value::Null);
+        if (200..300).contains(&status) && data.get("errors").is_none() && data["data"].is_object() {
+            return Ok(data["data"].take());
         }
-        let message = data["errors"][0]["message"].as_str().map_or_else(|| format!("HTTP {status}"), str::to_owned);
-        Err((502, format!("the create mutation failed: {message}")))
+        Err(data["errors"][0]["message"].as_str().map_or_else(|| format!("HTTP {status}"), str::to_owned))
     }
 
     pub fn holds_installation_token(&self) -> bool {

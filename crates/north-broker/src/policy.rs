@@ -223,12 +223,12 @@ fn matches(pattern: &[String], segments: &[&str]) -> bool {
 }
 
 const CHILD_CREATE: &str = "mutation($input: CreateIssueInput!) { createIssue(input: $input) { issue { number url } } }";
+const CHILD_TARGET: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { id issue(number: $number) { id } } }";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Child {
     pub repository: String,
-    pub repository_id: String,
-    pub parent_id: String,
+    pub parent: u64,
     pub issue_type_id: String,
     pub label_ids: Vec<String>,
     pub title: String,
@@ -239,11 +239,15 @@ impl Child {
     pub fn from_json(body: &Value) -> Option<Self> {
         let text = |name: &str| body[name].as_str().filter(|text| !text.is_empty()).map(str::to_owned);
         let label_ids = body["label_ids"].as_array()?.iter().map(|id| id.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>()?;
-        Some(Self { repository: text("repository")?, repository_id: text("repository_id")?, parent_id: text("parent_id")?, issue_type_id: text("issue_type_id")?, label_ids, title: text("title")?, body: body["body"].as_str()?.to_owned() })
+        Some(Self { repository: text("repository")?, parent: body["parent"].as_u64().filter(|number| *number > 0)?, issue_type_id: text("issue_type_id")?, label_ids, title: text("title")?, body: body["body"].as_str()?.to_owned() })
     }
 
-    pub fn request(&self) -> Value {
-        json!({ "query": CHILD_CREATE, "variables": { "input": { "repositoryId": self.repository_id, "parentIssueId": self.parent_id, "issueTypeId": self.issue_type_id, "labelIds": self.label_ids, "title": self.title, "body": self.body } } })
+    pub fn target(&self, owner: &str) -> Value {
+        json!({ "query": CHILD_TARGET, "variables": { "owner": owner, "name": self.repository, "number": self.parent } })
+    }
+
+    pub fn request(&self, repository_id: &str, parent_id: &str) -> Value {
+        json!({ "query": CHILD_CREATE, "variables": { "input": { "repositoryId": repository_id, "parentIssueId": parent_id, "issueTypeId": self.issue_type_id, "labelIds": self.label_ids, "title": self.title, "body": self.body } } })
     }
 }
 

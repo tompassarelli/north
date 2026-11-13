@@ -111,8 +111,7 @@ fn create(asked: &Asked) -> Result<bool, String> {
     let label_ids: Vec<String> = asked.labels.iter().map(|label| target.labels[label].clone()).collect();
     let answer = Client::discover().github_child(&json!({
         "repository": asked.name,
-        "repository_id": target.repository_id,
-        "parent_id": target.parent_id,
+        "parent": asked.number,
         "issue_type_id": issue_type_id,
         "label_ids": label_ids,
         "title": asked.title,
