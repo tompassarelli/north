@@ -1917,3 +1917,11 @@ unit = "child issues one worker session may file under the issue it holds"
 source = "prior: a worker splits its own item into a few leaves; a handful bounds a flood (north#1137 2j)"
 fallback = "none: the filing guard refuses a sixth child"
 consumers = ["crates/north-guard/src/guard/issue_filing.rs"]
+
+[after_landing_below_handins]
+value = true
+allowed = {}
+unit = "whether an after-landing run's offloaded checks wait behind hand-in checks in a build host's slot line (rank 3 below rank 2) until 600 s past the landed commit's pick time, after which they take a hand-in's rank back; false ranks them beside hand-ins from the start"
+source = "proxy: the hand-in bar is 60 s median and 180 s p90 to origin/main (north#1247); after-landing runs never reuse a verdict because they check a tree nothing checked before the push, and they held build-host slots at a hand-in's rank (north#1036, 2026-11-13)"
+fallback = "an unreadable value reads as true"
+consumers = ["crates/north-land-checks/src/land/slots/runner/arguments.rs"]

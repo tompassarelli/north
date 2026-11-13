@@ -51,6 +51,20 @@ pub(super) fn exit_code(status: ExitStatus) -> i32 {
     status.code().or_else(|| status.signal().map(|signal| 128 + signal)).unwrap_or(1)
 }
 
+const AFTER_LANDING_YIELDS_SECONDS: u64 = 600;
+
+fn landing_mark(landed_at: Option<u64>, now: u64) -> &'static str {
+    match landed_at {
+        Some(landed) if now < landed + AFTER_LANDING_YIELDS_SECONDS => "after",
+        _ => "1",
+    }
+}
+
+async fn landed_at(root: &Path, head: &str) -> Option<u64> {
+    let output = Command::new("git").arg("-C").arg(root).args(["log", "-1", "--format=%ct", head]).stdin(Stdio::null()).stderr(Stdio::null()).output().await.ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().parse().ok()).flatten()
+}
+
 fn check_ends(timeout: u64) -> String {
     let own = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs()) + timeout;
     std::env::var(carry::CHECK_ENDS).ok().and_then(|ends| ends.parse::<u64>().ok()).map_or(own, |outer| outer.min(own)).to_string()
@@ -150,6 +164,14 @@ impl Shared {
         vec![program(), "capacity".into(), "offload".into(), "run".into(), "--host".into(), host.to_owned(), "--base".into(), self.arguments.base.clone(), "--head".into(), tree.to_owned(), "--timeout".into(), timeout.to_string(), "--".into(), command.to_owned()]
     }
 
+    async fn landing(&self) -> &'static str {
+        if !self.arguments.after || !self.environment.after_below_handins {
+            return "1";
+        }
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+        landing_mark(landed_at(&self.root, &self.arguments.head).await, now)
+    }
+
     pub(super) fn observes(&self, command: &str) -> bool {
         !self.arguments.after && unit_reuse::runs_tests(command)
     }
@@ -216,6 +238,7 @@ impl Shared {
             warn("safe-push: could not create a land check log; NOT pushed.");
             return Err(1);
         };
+        let landing = self.landing().await;
         let started = Instant::now();
         let started_at = epoch();
         let mut child = match Command::new(&argv[0])
@@ -226,7 +249,7 @@ impl Shared {
             .env("SAFE_PUSH_LAND_HEAD", tree)
             .env("SAFE_PUSH_LAND_RUNTIME_HEAD", self.arguments.tree())
             .env("SAFE_PUSH_LAND_REF", &self.arguments.published)
-            .env("SAFE_PUSH_LANDING", "1")
+            .env(carry::LANDING, landing)
             .env(carry::LAND_STORE_VIEW, if self.config.host_inputs(command).is_empty() { "" } else { north_base::store_pins::AT_HEAD })
             .env(carry::CHECK_ENDS, check_ends(timeout))
             .env(ONE_LANE_ENV, if self.arguments.one_lane { "1" } else { "" })

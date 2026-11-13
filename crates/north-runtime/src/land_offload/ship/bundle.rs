@@ -34,9 +34,9 @@ pub(super) fn bundle(land: &Land, reference: &str, held: Option<&[CommitId]>) ->
     Ok(file)
 }
 
-/// The landing context a land check carries to the offload host as `NAME='value'` words, naming the shipped base and head; empty for any other run.
+/// The landing context a land check carries to the offload host as `NAME='value'` words, naming the shipped base and head; empty for any other run. A landing marked `after` carries the same context, and the host's line ranks it below a hand-in's checks.
 pub(super) fn carried(land: &Land, value: impl Fn(&str) -> Option<String>) -> String {
-    if value(carry::LANDING).as_deref() != Some("1") {
+    if !matches!(value(carry::LANDING).as_deref(), Some("1" | "after")) {
         return String::new();
     }
     let words = carry::names(carry::Boundary::Offload).filter_map(|name| {
