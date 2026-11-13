@@ -180,6 +180,17 @@ pub(crate) fn gate(side: &Buck2, root: &Path, base: &str, declared: &str) -> Opt
     Some(behind(shell, side.lint(&Lint { root: Path::new(""), selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::Inherited })))
 }
 
+/// The build of the whole Buck2 graph of the tree at `root`, for a lane that changes what defines a target: on the workers, leaving its outputs in the store, and only while the tree's Buck2 configuration is `base`'s, since a tree's own `.buckconfig` outranks the host's and names the endpoint its actions go to.
+pub(crate) fn graph_build(side: &Buck2, root: &Path, base: &str) -> Result<Invocation, String> {
+    if !side.governs(root) {
+        return Err(format!("{} has no Buck2 targets", root.display()));
+    }
+    if !unchanged_since(root, base) {
+        return Err("the tree's Buck2 configuration is not the base's".to_owned());
+    }
+    Ok(side.invocation(root, Shell::LandShell, side.words(&["build", REMOTE_ONLY, UNMATERIALISED, "//..."])))
+}
+
 /// `issued` run behind `shell`, the part of a declared line before its Cargo command, without the line's Cargo settings.
 fn behind(shell: &str, issued: Invocation) -> String {
     lead(shell).into_iter().chain(issued.words).collect::<Vec<_>>().join(" ")

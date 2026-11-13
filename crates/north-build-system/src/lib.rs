@@ -97,6 +97,12 @@ pub fn after_run_here() -> bool {
     switched(AFTER_RUN_SWITCH)
 }
 
+/// The Buck2 build of every target of the tree at `root` that a lane changing a target file gets before it lands, ready to spawn, on a host that holds a readable store generation, for a run that names its `base`. `Err` says why this host cannot give a verdict.
+pub fn graph_build(root: &Path, base: Option<&str>) -> Result<Invocation, String> {
+    let side = Buck2::deciding(false, Path::new(buck2::generation::FILE))?;
+    buck2::graph_build(&side, root, base.ok_or("the run names no base")?)
+}
+
 /// The sides that build the tree's own binary for a check that runs it from the tree, in the order `north runtime
 /// tree-build` tries them: Buck2 first when `[hosts.NAME] buck2_tree_build` is true, the host holds a readable store
 /// generation, the run names a `base`, and the tree has Buck2 targets whose configuration and definitions are `base`'s,

@@ -3,6 +3,7 @@ Command { name: "checks", usage: "north land checks --base BASE --head HEAD [--d
 Command { name: "crate-tests", usage: "north land crate-tests available | north land crate-tests host-cases [PACKAGE...] | north land crate-tests -- COMMAND", run: slots::listed_crates::run },
 Command { name: "enqueue", usage: "north land enqueue [--repo DIR] [--message FILE]", run: enqueue::run },
 Command { name: "follow", usage: "", run: after::follow::run },
+Command { name: "graph-build", usage: "north land graph-build", run: slots::graph_build::run },
 Command { name: "lint", usage: "north land lint available | north land lint -- COMMAND", run: slots::lint_gate::run },
 Command { name: "profile", usage: "north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--host NAME] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]", run: trace::report::run },
 Command { name: "promote", usage: "north land promote [--dry-run] [--judge CANDIDATE [--held RUNTIME]] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]", run: promote::run },
