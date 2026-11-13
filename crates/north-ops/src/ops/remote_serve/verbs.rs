@@ -10,6 +10,7 @@ const THREADS_INCIDENT: &str = "incident";
 const INCIDENT_RECORD: &str = "record";
 const NORTH_ONLY_THREADS: [&str; 2] = ["ingest", "snapshot-pages"];
 const FLEET_ROW: [&str; 6] = ["put", "wait", "exchange", "settle", "register", "retire"];
+const OPERATOR_THREADS: [&str; 3] = ["queue", "job-run", "ingest"];
 
 pub(super) fn authorize(argv: &[String]) -> Result<String, Refusal> {
     let words: Vec<&str> = argv.iter().map(String::as_str).collect();
@@ -44,7 +45,10 @@ fn threads(rest: &[&str], north: bool) -> Option<&'static str> {
         .or_else(|| north.then(|| named(&NORTH_ONLY_THREADS)).flatten())
 }
 
-/// What a threads-only peer key reaches: a threads verb and nothing else, so the key an agent host's broker holds runs no fleet row, dispatch or south land.
+/// What a threads-only peer key reaches: a threads verb and nothing else, so the key an agent host's broker holds runs no fleet row, dispatch or south land; queue, job-run and ingest stay refused too, since a queued job runs on the peer as its operator and a job-run or ingest writes the operator's run history.
 pub(super) fn authorize_threads(argv: &[String]) -> Result<String, Refusal> {
-    authorize(argv).and_then(|verb| if verb.starts_with("threads ") { Ok(verb) } else { Err(Refusal::Verb(verb)) })
+    authorize(argv).and_then(|verb| match verb.strip_prefix("threads ") {
+        Some(name) if !OPERATOR_THREADS.contains(&name) => Ok(verb),
+        _ => Err(Refusal::Verb(verb)),
+    })
 }
