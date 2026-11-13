@@ -1,16 +1,18 @@
 //! What the mechanism-discovery detector reads: the last 7 days' first tries lost to the harness by class, from
-//! `north dash losses`, and the loss keys the turn log holds in its last 28 days, read from origin/main.
+//! `north dash losses`, the weekly scoreboard rows that moved for the worse, and the loss keys the turn log
+//! holds in its last 28 days, read from origin/main.
 use std::collections::BTreeMap;
 use std::time::Duration;
 
 use toml_edit::{DocumentMut, Item};
 
 use super::{Gatherer, default_text};
-use crate::detectors::mechanism_discovery::{Evidence, Facts, Mechanism, Turn};
+use crate::detectors::mechanism_discovery::{self, Evidence, Facts, Mechanism, Turn};
 use crate::foundation::clock::Timestamp;
 
 const LOSSES_WINDOW: &str = "7d";
 const LOSSES_LIMIT: Duration = Duration::from_secs(60);
+const WEEKLY_LIMIT: Duration = Duration::from_secs(60);
 const CLASSES_PREFIX: &str = "classes: ";
 const LOSS_KEY_PREFIX: &str = "first-try-lost:";
 const TURN_LOG: &str = "docs/rationale/discovery-turns.toml";
@@ -49,7 +51,8 @@ impl Gatherer<'_> {
     pub fn mechanism_discovery(&self, now: f64) -> Facts {
         let owner = Some(default_text("detector_mechanism_discovery_owner"));
         let today = Timestamp::from_unix_seconds_f64(now).iso_date();
-        let losses = self.first_try_losses().unwrap_or_default();
+        let mut losses = self.first_try_losses().unwrap_or_default();
+        losses.extend(self.scoreboard_losses());
         let held = self.held_loss_keys(now);
         Facts { owner, today, losses, held }
     }
@@ -57,6 +60,22 @@ impl Gatherer<'_> {
     fn first_try_losses(&self) -> Option<Vec<(String, usize)>> {
         let output = self.host.output(&["north", "dash", "losses", "--since", LOSSES_WINDOW], None, None, LOSSES_LIMIT)?;
         output.status.success().then(|| classes(&String::from_utf8_lossy(&output.stdout)))
+    }
+
+    /// The weekly scoreboard's rows that moved for the worse, in runs. The row's better direction comes from
+    /// the weekly record; a row it does not hold is left to the first-try source rather than guessed.
+    fn scoreboard_losses(&self) -> Vec<(String, usize)> {
+        let Some(output) = self.host.output(&["north", "dash", "--weekly"], None, None, WEEKLY_LIMIT) else {
+            return Vec::new();
+        };
+        if !output.status.success() {
+            return Vec::new();
+        }
+        let weekly = String::from_utf8_lossy(&output.stdout);
+        let directions: BTreeMap<String, bool> = north_graph_loops::scoreboard::read(&self.places.graph)
+            .map(|told| told.readings.into_iter().map(|reading| (reading.number, reading.higher_is_better)).collect())
+            .unwrap_or_default();
+        mechanism_discovery::scoreboard_losses(&weekly, &directions)
     }
 
     fn held_loss_keys(&self, now: f64) -> Vec<String> {

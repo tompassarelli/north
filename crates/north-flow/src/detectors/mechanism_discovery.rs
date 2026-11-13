@@ -1,5 +1,7 @@
-//! The mechanism-discovery turn: one box a UTC day on the largest first-try loss class that no turn of the last 28 days
-//! holds, naming the brief that runs the turn (north#1279, rung three of docs/rationale/self-improvement-loop.md).
+//! The mechanism-discovery turn: one box a UTC day on the largest loss in runs, from the first tries lost to the
+//! harness and the weekly scoreboard's rows, that no turn of the last 28 days holds, naming the brief that runs the
+//! turn (north#1279, rung three of docs/rationale/self-improvement-loop.md).
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::Path;
@@ -25,20 +27,52 @@ pub fn due(facts: &Facts) -> Vec<Finding> {
     let Some((top, _)) = unheld.first() else {
         return Vec::new();
     };
-    let named: Vec<String> = unheld.iter().take(NAMED_CLASSES).map(|(key, runs)| format!("{key} ({runs} first tries lost)")).collect();
+    let named: Vec<String> = unheld.iter().take(NAMED_CLASSES).map(|(key, runs)| format!("{key} ({runs} runs lost)")).collect();
     vec![Finding {
         detector: Detector::MechanismDiscovery,
         key: format!("mechanism-discovery:{}:{top}", facts.today),
         owner: facts.owner.clone(),
         title: "Run the mechanism-discovery turn".to_owned(),
         detail: format!(
-            "Follow {BRIEF} for {today}: take the first key below that no open issue owns, separate its two explanations on the recorded cases, and append the turn to {TURN_LOG}. The largest unheld classes over the last 7 days: {classes}.",
+            "Follow {BRIEF} for {today}: take the first key below that no open issue owns, separate its two explanations on the recorded cases, and append the turn to {TURN_LOG}. The largest unheld losses over the last 7 days: {classes}.",
             today = facts.today,
             classes = named.join("; ")
         ),
         done_when: format!("`git show origin/main:{TURN_LOG} | rg -q '^date = {}'` exits 0.", facts.today),
         instances: named,
     }]
+}
+
+/// Each `north dash --weekly` row whose k/n figure stands in both weeks and moved against its better
+/// direction, keyed `scoreboard:<row>` with the row's own name, worth this week's n times that move in
+/// runs. `higher_is_better` is the direction the weekly record holds for the row; a row it does not hold
+/// is left out, since a move cannot be called worse without it.
+pub fn scoreboard_losses(rows: &str, higher_is_better: &BTreeMap<String, bool>) -> Vec<(String, usize)> {
+    rows.lines()
+        .filter_map(|line| {
+            let (name, columns) = line.strip_prefix("- ")?.split_once(": ")?;
+            let (now, before) = columns.split_once(" | ")?;
+            let (hits_now, of_now) = share(now)?;
+            let (hits_before, of_before) = share(before)?;
+            let higher = *higher_is_better.get(name)?;
+            let moved = if higher { fraction(hits_before, of_before) - fraction(hits_now, of_now) } else { fraction(hits_now, of_now) - fraction(hits_before, of_before) };
+            let lost = (of_now as f64 * moved).round();
+            (lost > 0.0).then(|| (format!("scoreboard:{name}"), lost as usize))
+        })
+        .collect()
+}
+
+fn fraction(hits: usize, of: usize) -> f64 {
+    if of == 0 { 0.0 } else { hits as f64 / of as f64 }
+}
+
+/// The k/n inside a weekly figure, as `north dash --weekly` renders a share (`59% (1180/2000)`, with any
+/// trailing note inside the parentheses); a text without one, such as a median's `(n=935)`, holds none.
+fn share(text: &str) -> Option<(usize, usize)> {
+    let inside = &text[text.find('(')? + 1..];
+    let (hits, rest) = inside.split_once('/')?;
+    let of: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    Some((hits.parse().ok()?, of.parse().ok()?))
 }
 
 pub struct Turn {

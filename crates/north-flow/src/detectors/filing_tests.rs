@@ -113,6 +113,29 @@ fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_seco
     assert_eq!(turns.edits.borrow().len(), 1, "the open turn box is not filed twice");
     assert_eq!(turns.comments.borrow().len(), 1);
 
+    let directions: std::collections::BTreeMap<String, bool> = [
+        ("worker first-try success, all categories", true),
+        ("worker first-try success, DOCS", true),
+        ("rework within 48 h per landing", false),
+        ("boxes graded by their own check", true),
+    ]
+    .into_iter()
+    .map(|(name, higher)| (name.to_owned(), higher))
+    .collect();
+    let weekly = "- worker first-try success, all categories: 59% (1180/2000) | 69% (1380/2000)\n\
+                  - worker first-try success, DOCS: 80% (80/100) | 70% (70/100)\n\
+                  - rework within 48 h per landing: 13% (130/1000, 4 still inside 48 h) | 10% (100/1000)\n\
+                  - boxes graded by their own check: 40% (4/10) | no record\n";
+    let ranked = mechanism_discovery::scoreboard_losses(weekly, &directions);
+    assert_eq!(
+        ranked,
+        [("scoreboard:worker first-try success, all categories".to_owned(), 200), ("scoreboard:rework within 48 h per landing".to_owned(), 30)],
+        "a k/n row is worth this week's n times its move for the worse; an improved row and a row without both weeks' k/n are left out"
+    );
+    let scored = mechanism_discovery::due(&mechanism_discovery::Facts { owner: Some("north#1279".to_owned()), today: "2026-11-13".to_owned(), losses: ranked, held: Vec::new() });
+    assert_eq!(scored[0].key, "mechanism-discovery:2026-11-13:scoreboard:worker first-try success, all categories");
+    assert!(scored[0].detail.contains("(200 runs lost)"), "{}", scored[0].detail);
+
     let evidence = |dates: &[&str]| mechanism_discovery::Evidence {
         turns: dates.iter().map(|date| mechanism_discovery::Turn { date: (*date).to_owned(), landed: format!("{date}T09:00:00+00:00") }).collect(),
         mechanisms: ["- [x] Keep discovery-a (abc): kept", "- [ ] Revert abc (x): origin experiment discovery-b", "", "- [ ] Tom decides discovery-d"].iter().map(|verdict| mechanism_discovery::Mechanism { verdict: (*verdict).to_owned() }).collect(),
