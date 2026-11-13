@@ -394,19 +394,6 @@ fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>) -> BTreeMap
     categories.iter().map(|category| ((*category).to_owned(), Evidence::default().priced(report, category))).collect()
 }
 
-fn read<'scope, T: Send + 'scope>(scope: &'scope std::thread::Scope<'scope, '_>, reader: impl FnOnce(&mut Vec<String>) -> T + Send + 'scope) -> std::thread::ScopedJoinHandle<'scope, (T, Vec<String>)> {
-    scope.spawn(move || {
-        let mut notes = Vec::new();
-        (reader(&mut notes), notes)
-    })
-}
-
-fn joined<T>(handle: std::thread::ScopedJoinHandle<'_, (T, Vec<String>)>, notes: &mut Vec<String>) -> T {
-    let (value, read) = handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
-    notes.extend(read);
-    value
-}
-
 pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let cfg = placement::config()?;
     let projects = Projects::read(&cfg)?;
@@ -414,88 +401,30 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let at = placement::now();
     let mut notes = Vec::new();
     let laptop = fleets::laptop(&cfg, &here);
-    let (cfg_ref, here_ref, repos) = (&cfg, here.as_str(), projects.repos());
-    let (fleet_lists, gates, (mut issues, open), claim_lists, (report, ledger), remote_arms, grounds, cloud, strands, jobs) = std::thread::scope(|scope| {
-        let fleet_lists = read(scope, |notes| fleets::everywhere(cfg_ref, here_ref, &["fleet", "list", "--json"], "fleet", at, PROBE, notes));
-        let gates = read(scope, |notes| fleets::everywhere(cfg_ref, here_ref, &["gate", "list", "--json"], "gates", at, PROBE, notes));
-        let issues = read(scope, |notes| github::open_issues(repos, at, notes));
-        let claim_lists = read(scope, |notes| claim_listings(cfg_ref, here_ref, at, notes));
-        let evidence = read(scope, |notes| {
-            let report = closed(notes);
-            let ledger = evidence_from(&tier::evidenced(), report.as_ref());
-            (report, ledger)
-        });
-        let remote_arms = read(scope, |notes| remote_arm_boxes(cfg_ref, here_ref, notes));
-        let grounds = read(scope, Ledger::read);
-        let cloud = read(scope, |_| cloud(cfg_ref, here_ref, at));
-        let strands = read(scope, |notes| super::strands::read(cfg_ref, here_ref, at, notes));
-        let jobs = read(scope, |notes| remote_json(None, &["threads", "queue", "--json"]).unwrap_or_else(|why| {
-            notes.push(format!("threads queue unread, so a laptop launch waiting there over {:.0} min reads as forgotten: {why}", record::LAPTOP_SHOW_S / 60.0));
-            Value::Null
-        }));
-        (
-            joined(fleet_lists, &mut notes),
-            joined(gates, &mut notes),
-            joined(issues, &mut notes),
-            joined(claim_lists, &mut notes),
-            joined(evidence, &mut notes),
-            joined(remote_arms, &mut notes),
-            joined(grounds, &mut notes),
-            joined(cloud, &mut notes),
-            joined(strands, &mut notes),
-            joined(jobs, &mut notes),
-        )
-    });
-    let sessions: Vec<(Session, String)> = fleet_lists.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
-    let (elsewhere, mut holds) = fleets::tally(&sessions);
-    let live: BTreeSet<String> = sessions.iter().map(|(session, _)| session.name.clone()).collect();
-    let records = record::read(&record::directory());
-    let stopped_sessions = fleets::stopped_names(&fleet_lists);
-    holds.extend(claim_lists.iter().flat_map(|(host, listing)| claim_rows(listing, host, &stopped_sessions)));
-    let predicted = fleets::predicted_writes(&sessions);
-    let mut box_holds = fleets::box_tally(&sessions);
-    for (item, slug, why) in claim_lists.iter().flat_map(|(host, listing)| claim_box_rows(listing, host, &stopped_sessions)) {
-        box_holds.entry(item).or_default().entry(slug).or_insert(why);
-    }
+    let mut reads = inputs::read(&cfg, &projects, &here, at, &mut notes);
+    let mut fleet = fleet::sessions(&reads);
     let laptop_reports = laptop.as_deref().map_or(Value::Null, |host| fleets::mirrored_reports(&record::directory(), host, &mut notes));
-    let laptop_listing = laptop.as_deref().and_then(|host| fleet_lists.iter().find(|(name, _)| name == host)).map_or(&Value::Null, |(_, listing)| listing);
+    let laptop_listing = laptop.as_deref().and_then(|host| reads.fleet_lists.iter().find(|(name, _)| name == host)).map_or(&Value::Null, |(_, listing)| listing);
     let laptop_registry = laptop.as_deref().map(|host| LaptopRegistry { host, listing: laptop_listing, reports: &laptop_reports });
     let copies = fleets::copy_times(&record::directory(), "fleet", laptop.as_deref());
-    let queued = fleets::queued_launches(&jobs);
-    let forgotten = fleets::forgotten(&fleet_lists, &copies, &queued, &records, at);
-    let listed = fleets::listed(&fleet_lists);
-    let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop_registry.as_ref()), &issues, &grounds, &mut notes);
-    holds.extend(record::holds(&records, at, &unspent, &fleets::gone(&fleet_lists, &copies, &queued, &records, at)));
-    let mut box_tries = record::BoxHolds::new();
-    for (item, boxes) in record::box_retries(&records, at, &unspent) {
-        let Some(issue) = issues.iter().find(|issue| issue.reference() == item) else { continue };
-        let unticked: BTreeSet<String> = issue.takeable(at).filter_map(crate::threads::claims::box_slug).collect();
-        for (slug, why) in boxes.into_iter().filter(|(slug, _)| unticked.contains(slug)) {
-            box_tries.entry(item.clone()).or_default().insert(slug, why);
-        }
-    }
-    for (item, boxes) in record::box_launching(&records, at, &fleets::gone(&fleet_lists, &copies, &queued, &records, at)) {
-        for (slug, why) in boxes {
-            box_holds.entry(item.clone()).or_default().entry(slug).or_insert(why);
-        }
-    }
-    let mut held = gate_holds(gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)), &issues, at, &mut box_holds);
-    held.sort();
-    held.dedup();
-    holds.extend(held);
-    let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&sessions, name, record::recent_on(&records, name, &open, at)));
+    let queued = fleets::queued_launches(&reads.jobs);
+    let forgotten = fleets::forgotten(&reads.fleet_lists, &copies, &queued, &fleet.records, at);
+    let gone = fleets::gone(&reads.fleet_lists, &copies, &queued, &fleet.records, at);
+    let unspent = unspent(&fleet.records, at, &forgotten, |launch| shown(launch, laptop_registry.as_ref()), &reads.issues, &reads.grounds, &mut notes);
+    fleet::place_holds(&reads, &mut fleet, &unspent, &gone, at);
+    let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&fleet.sessions, name, record::recent_on(&fleet.records, name, &reads.open, at)));
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
-    let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();
+    let hosts = names.iter().map(|name| host(&cfg, name, &here, fleet.elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();
     let accounts = accounts(&cfg, roster, &here, at, &mut notes);
     if accounts.is_empty() {
         notes.push("usage-gate.json names no Claude account, so no slot is free".into());
     }
     let rules = Rules::configured();
-    let spend = spend_view(&cfg, roster, &here, &rules, &sessions, at);
-    stopped(&records, &mut issues, |launch| shown(launch, laptop_registry.as_ref()), crate::fleet::registry::retired_report_here, &grounds, &mut notes);
-    let launches = super::stops::last_launches(&records);
+    let spend = spend_view(&cfg, roster, &here, &rules, &fleet.sessions, at);
+    stopped(&fleet.records, &mut reads.issues, |launch| shown(launch, laptop_registry.as_ref()), crate::fleet::registry::retired_report_here, &reads.grounds, &mut notes);
+    let launches = super::stops::last_launches(&fleet.records);
     let learned = super::host_needs::read(&record::directory());
-    for issue in &mut issues {
+    for issue in &mut reads.issues {
         issue.needs = super::host_needs::of(issue, &learned, at);
         let reference = issue.reference();
         issue.stop.relay = launches.get(&reference).and_then(|launch| super::host_needs::relay(&learned, &reference.to_string(), &launch.name));
@@ -503,20 +432,22 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
             issue.landings = landings::since(issue);
         }
     }
-    let mainline = mainline::read(&issues, at, &mut notes);
-    let history = History::new(&records);
-    let arm_boxes: Vec<ArmBox> = report.iter().flat_map(|report| report.arms.iter().cloned()).chain(remote_arms).collect();
+    let mainline = mainline::read(&reads.issues, at, &mut notes);
+    let history = History::new(&fleet.records);
+    let arm_boxes: Vec<ArmBox> = reads.report.iter().flat_map(|report| report.arms.iter().cloned()).chain(reads.remote_arms).collect();
     notes.extend(tier::context_figures(&arm_boxes));
-    let super::strands::Read { strands, saturated, revived } = strands;
+    let super::strands::Read { strands, saturated, revived } = reads.strands;
     let frozen = crate::platform::frozen_topics::load().map(crate::threads::catalog::canonical_topics).unwrap_or_else(|why| {
         notes.push(why);
         Vec::new()
     });
-    let deepseek = super::deepseek::Seen::read(&cfg, &here, laptop.as_deref(), &fleet_lists, &laptop_reports, &records, &issues, at, &mut notes);
+    let deepseek = super::deepseek::Seen::read(&cfg, &here, laptop.as_deref(), &reads.fleet_lists, &laptop_reports, &fleet.records, &reads.issues, at, &mut notes);
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, predicted, box_tries, mainline, live, listed, cloud, laptop, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, deepseek, learned, at })
+    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues: reads.issues, open: reads.open, holds: fleet.holds, box_holds: fleet.box_holds, predicted: fleet.predicted, box_tries: fleet.box_tries, mainline, live: fleet.live, listed: fleet.listed, cloud: reads.cloud, laptop, notes, frozen, history, ledger: reads.ledger, grounds: reads.grounds, strands, saturated, revived, backlog, deepseek, learned, at })
 }
 
+mod fleet;
+mod inputs;
 pub(super) mod github;
 mod landings;
 mod mainline;
