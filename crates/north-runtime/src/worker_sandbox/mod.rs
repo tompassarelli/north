@@ -281,11 +281,20 @@ fn without_agent(mut command: Command, confined: bool) -> Command {
 }
 
 fn report(confined: Result<RulesetStatus, String>) {
-    match confined {
-        Ok(RulesetStatus::FullyEnforced) => {}
-        Ok(status) => eprintln!("north worker-sandbox: Landlock {status:?} on this kernel, so removal, personal logins and build output are not confined"),
-        Err(error) => eprintln!("north worker-sandbox: Landlock unavailable ({error}), so removal, personal logins and build output are not confined"),
+    let why = match confined {
+        Ok(RulesetStatus::FullyEnforced) => return,
+        Ok(status) => format!("Landlock {status:?} on this kernel"),
+        Err(error) => format!("Landlock unavailable ({error})"),
+    };
+    if north_base::platform::orchestration::read().is_ok_and(|policy| declares_no_landlock(&policy, &north_base::platform::host::name())) {
+        return;
     }
+    eprintln!("north worker-sandbox: {why}, so removal, personal logins and build output cannot be confined and the command was not run; a host without Landlock says `landlock = false` under its `[hosts.NAME]` in the orchestration policy");
+    std::process::exit(126);
+}
+
+fn declares_no_landlock(policy: &toml_edit::DocumentMut, host: &str) -> bool {
+    policy.get("hosts").and_then(|hosts| hosts.get(host)?.get("landlock")?.as_bool()) == Some(false)
 }
 
 /// Runs `north ARGUMENTS` outside the worker's Landlock domain when called inside it, for a verb that enforces its own removal rule (`north lane unlock`, `north lane stray`) or for `safe-push`, whose checks before queueing run tests that build their own mount namespace, which Landlock refuses to any process in a domain (north#1094); `None` outside a worker sandbox, where the verb runs in place.

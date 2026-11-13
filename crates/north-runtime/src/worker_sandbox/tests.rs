@@ -668,3 +668,23 @@ fn a_hand_in_call_that_prints_a_long_log_returns_a_short_result_ending_in_its_ve
     std::fs::remove_file(&log).unwrap();
     assert!(kept.lines().count() > 4_000 && kept.trim_end().ends_with(VERDICT), "the kept log is not the whole output: {} lines", kept.lines().count());
 }
+
+
+#[test]
+fn a_command_the_kernel_cannot_confine_is_refused_unless_the_host_names_itself_without_landlock_north_1041() {
+    if std::env::var_os("NORTH_TEST_LANDLOCK_CHILD").is_some() {
+        super::report(Err("no Landlock".to_owned()));
+        println!("RAN");
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    for (declared, ran) in [("", false), ("landlock = false\n", true)] {
+        let policy = directory.path().join("orchestration.toml");
+        std::fs::write(&policy, format!("[hosts.probe]\n{declared}")).unwrap();
+        let output = Command::new(std::env::current_exe().unwrap()).args(["worker_sandbox::tests::a_command_the_kernel_cannot_confine", "--nocapture"]).env("NORTH_TEST_LANDLOCK_CHILD", "1").env("RESIDENT_CAP_HOST", "probe").env("AGENTS_ORCHESTRATION", &policy).output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("running 1 test"), "the child test was not found: {stdout}");
+        assert_eq!(stdout.contains("RAN"), ran, "{declared:?}: {stdout}");
+        assert_eq!(output.status.code() == Some(126), !ran, "{declared:?}: {stdout}");
+    }
+}
