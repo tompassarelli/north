@@ -95,9 +95,10 @@ pub fn template(worker: LaunchRequest, name: String) -> LaunchRequest {
     LaunchRequest { name, prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, placement: None, capacity_need: None, role: Some(Role::Worker), resume: None, compact_window: None, ..worker }
 }
 
-/// The spare's spec: `spec` with the binding variable naming the file a take seals in its held directory.
-pub fn spare_spec(mut spec: HostSpec, home: &Path, spare: &str) -> HostSpec {
-    spec.env.push((BINDING_ENV.into(), remote::held_dir(home, &unit(spare)).join("bound/binding").into()));
+/// The spare's spec: `spec` staged in the place's login home, with the binding variable naming the file a take seals in its held directory.
+pub fn spare_spec(spec: HostSpec, place: &Place, spare: &str) -> HostSpec {
+    let mut spec = remote::staged_on(spec, place.machine, place.home);
+    spec.env.push((BINDING_ENV.into(), remote::held_dir(&place.far_home(), &unit(spare)).join("bound/binding").into()));
     spec
 }
 

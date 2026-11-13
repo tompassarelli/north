@@ -53,7 +53,7 @@ impl Fleet {
         for _ in 0..start {
             let (spare, conversation) = (spares::spare_name()?, new_uuid()?);
             let request = LaunchRequest { name: spare.clone(), ..template.clone() };
-            let spec = spares::spare_spec(self.worker_spec(&request, &account, runtime.as_ref(), record.effort, &conversation)?, &place.far_home(), &spare);
+            let spec = spares::spare_spec(self.worker_spec(&request, &account, runtime.as_ref(), record.effort, &conversation)?, &place, &spare);
             spares::start(&place, &spec, &kind, &fingerprint, &spare, &conversation)?;
         }
         std::fs::write(self.spares_hint(&machine, &fingerprint), (held + start).to_string())?;

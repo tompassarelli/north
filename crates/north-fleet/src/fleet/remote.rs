@@ -83,7 +83,13 @@ pub fn over_ssh(spec: HostSpec, machine: &Machine, session: &str, trace: &Path) 
     held_under(spec, machine, Path::new(&home), session, trace)
 }
 
+/// The spec `machine` starts a session from: its working directory moved under the session login's own home, so an agent login stages in the checkout it reads and never in the operator's.
+pub fn staged_on(spec: HostSpec, machine: &Machine, home: &Path) -> HostSpec {
+    HostSpec { cwd: machine.session_path(&spec.cwd, home), ..spec }
+}
+
 pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path, session: &str, trace: &Path) -> NorthResult<HostSpec> {
+    let spec = staged_on(spec, machine, home);
     let held = machine.session_home(home).unwrap_or_else(|| home.to_path_buf()).join(HELD);
     let unit = unit(&spec.key);
     let dir = held.join(&unit).to_string_lossy().into_owned();

@@ -178,7 +178,7 @@ async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_the
     let spools = home.join(".local/state/north/fleet/spool/sessions");
     fs::create_dir_all(spools.join("spare-one")).unwrap();
     fs::write(spools.join("spare-one/left-by-the-spare"), "").unwrap();
-    spares::start(&place, &spares::spare_spec(spec, home, "spare-one"), "kind", "fp-one", "spare-one", "conversation-one").unwrap();
+    spares::start(&place, &spares::spare_spec(spec, &place, "spare-one"), "kind", "fp-one", "spare-one", "conversation-one").unwrap();
     assert_eq!(spares::take(&place, "fp-two", "box-two", &spares::binding("box-two", None)), None, "a launch whose spec fits no spare starts its own client");
     let taken = spares::take(&place, "fp-one", "box-two", &spares::binding("box-two", None)).expect("the launch takes the spare that fits it");
     assert_eq!(taken.conversation, "conversation-one");
@@ -209,9 +209,21 @@ async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_the
     assert_eq!(template, LaunchRequest { name: "spare-two".into(), prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, capacity_need: None, compact_window: None, ..worker }, "a fill's template carries no task, box, brief or prompt file of the worker it was modelled on");
 }
 
-fn spare_in(place: &Place, home: &Path, cwd: &Path, name: &str) {
+#[test]
+fn a_session_on_an_agent_login_stages_in_that_logins_own_checkout_north_1041() {
+    let root = tempfile::tempdir().unwrap();
+    let agent = Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: Some("agent@far".into()) };
+    let operator_checkout = Path::new("/home/tom/code/north/main");
+    let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["claude".into()], env: Vec::new(), env_remove: Vec::new(), cwd: operator_checkout.to_path_buf() };
+    let placed = held_under(spec, &agent, Path::new("/home/tom"), "box one", &root.path().join("hops.jsonl")).unwrap();
+    let launch = Link::parse(&placed.argv[2..]).unwrap().launch;
+    assert!(launch.contains(&format!("cd {}", quote("/home/agent/code/north/main"))), "the session did not stage in its agent login's own checkout: {launch}");
+    assert!(!launch.contains("/home/tom"), "the agent login was sent a path under the operator's home: {launch}");
+}
+
+fn spare_in(place: &Place, cwd: &Path, name: &str) {
     let spec = HostSpec { key: name.into(), shared: false, argv: vec!["sleep".into(), "600".into()], env: Vec::new(), env_remove: Vec::new(), cwd: cwd.to_path_buf() };
-    spares::start(place, &spares::spare_spec(spec, home, name), "kind", "fp", name, &format!("conversation-{name}")).unwrap();
+    spares::start(place, &spares::spare_spec(spec, place, name), "kind", "fp", name, &format!("conversation-{name}")).unwrap();
 }
 
 fn pooled(place: &Place) -> Vec<String> {
@@ -227,8 +239,8 @@ async fn a_spare_whose_directory_was_removed_is_retired_by_the_next_survey_and_i
     let (kept, gone) = (home.join("lanes/kept"), home.join("lanes/gone"));
     fs::create_dir_all(&kept).unwrap();
     fs::create_dir_all(&gone).unwrap();
-    spare_in(&place, home, &kept, "spare-kept");
-    spare_in(&place, home, &gone, "spare-gone");
+    spare_in(&place, &kept, "spare-kept");
+    spare_in(&place, &gone, "spare-gone");
     assert_eq!(pooled(&place).len(), 2);
 
     fs::remove_dir_all(&gone).unwrap();
@@ -257,9 +269,9 @@ async fn retiring_a_directory_tree_stops_every_spare_under_it_and_none_outside()
     for dir in [&one, &two, &outside] {
         fs::create_dir_all(dir).unwrap();
     }
-    spare_in(&place, home, &one, "spare-one");
-    spare_in(&place, home, &two, "spare-two");
-    spare_in(&place, home, &outside, "spare-out");
+    spare_in(&place, &one, "spare-one");
+    spare_in(&place, &two, "spare-two");
+    spare_in(&place, &outside, "spare-out");
 
     assert_eq!(spares::retire_under(&place, &home.join("empty")), Some(Vec::new()), "a tree with no spare retires nothing");
     let lines = spares::retire_under(&place, &tree).unwrap();
