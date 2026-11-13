@@ -2,6 +2,7 @@ use super::*;
 
 const OLD: &str = "1111111111111111111111111111111111111111";
 const LIVE: &str = "2222222222222222222222222222222222222222";
+const FAKE_UPTIME_SECS: u64 = 1_000_000;
 
 fn north(runtime: &str) -> String {
     format!("/home/tom/.local/state/north/runtimes/{runtime}/tree/bin/../../north")
@@ -13,7 +14,7 @@ impl FakeProc {
     fn new() -> Self {
         let proc = Self(tempfile::tempdir().unwrap(), 100);
         std::fs::write(proc.0.path().join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
-        std::fs::write(proc.0.path().join("uptime"), "1000000.00 0.00\n").unwrap();
+        std::fs::write(proc.0.path().join("uptime"), format!("{FAKE_UPTIME_SECS}.00 0.00\n")).unwrap();
         proc
     }
 
@@ -22,11 +23,15 @@ impl FakeProc {
     }
 
     fn spawn_under(&mut self, parent: u32, comm: &str, argv: &[&str]) -> u32 {
+        self.spawn_aged(parent, comm, argv, 0)
+    }
+
+    fn spawn_aged(&mut self, parent: u32, comm: &str, argv: &[&str], age_secs: u64) -> u32 {
         self.1 += 1;
         let pid = self.0.path().join(self.1.to_string());
         std::fs::create_dir(&pid).unwrap();
         std::fs::write(pid.join("comm"), format!("{comm}\n")).unwrap();
-        std::fs::write(pid.join("stat"), format!("{} ({comm}) S {parent} 0 0\n", self.1)).unwrap();
+        std::fs::write(pid.join("stat"), format!("{} ({comm}) S {parent}{} {}\n", self.1, " 0".repeat(17), (FAKE_UPTIME_SECS - age_secs) * 100)).unwrap();
         std::fs::write(pid.join("cmdline"), argv.iter().map(|word| format!("{word}\0")).collect::<String>()).unwrap();
         self.1
     }
@@ -68,7 +73,7 @@ fn only_processes_named_north_count_and_a_multi_line_argument_stays_one_process(
     proc.spawn("rustc", &["rustc", "--crate-name", "north_core", "/home/tom/code/north/main/crates/north-core/src/lib.rs"]);
     let (problems, record) = proc.problems();
     assert_eq!(problems, Vec::<String>::new());
-    assert_eq!(record, json!({"transient": 0, "liveSessions": 3, "residents": {"session-host": 3, "session-link": 2, "fleet watchdog": 2, "land serve": 0}, "strayWatchdogs": 0}));
+    assert_eq!(record, json!({"transient": 0, "outlasting": 0, "liveSessions": 3, "residents": {"session-host": 3, "session-link": 2, "fleet watchdog": 2, "land serve": 0}, "strayWatchdogs": 0}));
 }
 
 #[test]
@@ -189,4 +194,21 @@ fn a_remote_job_counts_once_with_its_wrapper_chain_and_orphaned_wrappers_still_c
         proc.spawn("north", &[&north, "capacity", "offload", "run", "--host", "gex45", "--head", &orphan.to_string()]);
     }
     assert_eq!(proc.problems().1["transient"], json!(101));
+}
+
+#[test]
+fn sessions_dispatch_kept_placing_on_gex45_for_an_hour_on_2026_11_13_outlast_no_leak_window() {
+    let mut proc = FakeProc::new();
+    let north = north(LIVE);
+    for session in 0..48 {
+        proc.spawn_aged(1, "north", &[&north, "--tool-server", "hand-in", "finish"], 50 * session);
+    }
+    proc.spawn_aged(1, "north", &[&north, "--worker-sandbox", "--broker"], 5 * 3600);
+    let (problems, record) = proc.problems();
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(
+        (record["transient"].clone(), record["outlasting"].clone()),
+        (json!(49), json!(1)),
+        "on 2026-11-13 settle called gex45 leaking as the fewest transient north processes per 10 min rose from 11 to 36 in an hour of dispatched sessions, though none but the 5-hour broker had run 40 minutes"
+    );
 }
