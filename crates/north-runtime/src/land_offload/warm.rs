@@ -2,7 +2,7 @@
 //! build host has room. While the host's job admission (`north capacity host admit-job`) starts another job and no land check waits in the slot queue or a lease in the capacity queue, the lease reaper (the laptop-auto tick on the laptop) starts
 //! one warm job: it takes the unlocked slot whose last warm build is furthest behind its repository's origin/main (a land check that left a
 //! slot at the head may not have built what the next one needs), a slot that has never built while the disk keeps its eviction line and the slots their
-//! land_offload budget with one more of the largest target here, never the lander's reserved one, checks it out at
+//! land_offload budget with one more of the largest target here, the lander's reserved one among them (its pick-time rebase compile and revert runs build there), checks it out at
 //! that head and runs the repository's `landing.warm` command there under a heavy lease at the lowest CPU priority, so the next check on any
 //! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since. A land check that queues for a slot, or a lease that queues in the capacity queue, stops the warm job, which holds a slot or cores the check could take.
 use std::collections::{BTreeMap, HashSet};
@@ -17,7 +17,7 @@ use north_base::foundation::offload;
 
 use rustix::fs::{FlockOperation, flock};
 
-use super::ship::{SLOTS, is_lander_slot, slot_ports};
+use super::ship::{SLOTS, slot_ports};
 use super::slot_lock;
 use crate::offload_cache::{Disk, closing, disk_of, land_slots_take};
 use crate::platform::disk_budget::DiskBudget;
@@ -142,9 +142,6 @@ fn slots(root: &Path) -> Vec<Slot> {
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
             let path = entry.path();
-            if is_lander_slot(&name) {
-                return None;
-            }
             let gitdir = fs::read_to_string(path.join(".git")).ok()?;
             let repo = PathBuf::from(gitdir.strip_prefix("gitdir:")?.trim()).ancestors().nth(3)?.to_path_buf();
             let checkout = (1..SLOTS).find_map(|index| name.strip_suffix(&format!("-{index}"))).unwrap_or(&name).to_owned();
