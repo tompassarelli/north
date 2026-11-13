@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::os::unix::fs::MetadataExt;
 use std::fs::File;
 use std::collections::BTreeSet;
+use crate::foundation::exit::TIMED_OUT_STATUS;
 
 /// The live owners a test writes to a JSON file; it opens no gate.
 struct FleetFile(PathBuf);
