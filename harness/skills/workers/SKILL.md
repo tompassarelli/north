@@ -33,6 +33,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 ## Run, park and land
 
 - Read [run-and-land.md](references/run-and-land.md) when you plan a tick, wait on a long run, a report is late, you land or own lanes, landings fail across lanes, staff native workers or get a `north ledger flow` alert; [fleet.md](references/fleet.md) when you launch a child session, message one, wait on its report, or hand a proxy or lead to a successor.
+- Read [lead.md](references/lead.md) when you are a lead, or staff or hand over one.
 - Finish an issue's last unchecked box before new work, and after an hour with no closure start nothing new until an open box closes.
 - Tell Tom only what changes his next action: a landed fix (with its build), a result, or a decision; never relay a worker's interim "still waiting".
 
