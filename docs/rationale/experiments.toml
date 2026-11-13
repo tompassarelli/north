@@ -836,6 +836,14 @@ review = "2026-11-20"
 owner = "tompassarelli/north#1339"
 lead = "scoreboard-lead"
 
+[[check]]
+id = "n1235-ladder-conflict-verdict-seconds"
+box = "on the load ladder at 21 at once, the lanes refused for a conflict receive their verdict within 2 seconds (the rows' times from the lander's decision to the worker's next action), recorded here from one live run"
+command = "gh issue view 1235 -R tompassarelli/north --json comments --jq '.comments[].body' | rg -q '^Ladder conflict rows: '"
+review = "2026-11-21"
+owner = "tompassarelli/north#1235"
+lead = "scoreboard-lead"
+
 [[experiment]]
 id = "n1039-ambient-test-inputs-verdict"
 change = "The Rust habits check refuses a test that reads the wall clock or ambient host state (statvfs, available_space, available_parallelism, /proc) outside a named fixture"
