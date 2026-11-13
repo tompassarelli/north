@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use north_build_system::TestRun;
 
-use super::{Verdict, remote_error, verdict};
+use super::{Verdict, infrastructure_record, remote_error, verdict};
 
 fn target(name: &str, printed: &str) -> TestRun {
     TestRun { target: format!("root//crates/{name}:{name}-unittest"), action: None, reused: false, passed: true, seconds: 0.1, printed: format!("---- STDOUT ----\n{printed}\n---- STDERR ----\n\n") }
@@ -35,6 +35,9 @@ fn buck2_passes_a_crate_only_on_cases_its_own_targets_record_and_fails_the_check
     let cancelled = [remote, "Error: (Error was returned on the stream by RE: Failed to run command: stream terminated by RST_STREAM with error code: CANCEL)", failed.as_str(), "1 TESTS FAILED", target].map(str::to_owned);
     assert_eq!(remote_error(&cancelled), Some(remote), "a remote worker that cancels an action before any case ran is infrastructure, not a red (north#1115)");
     assert_eq!(verdict(Some(32), Some(&failed), None, &owner, &BTreeSet::new(), remote_error(&cancelled).is_some()), passed(&[]), "that target is left to the declared line, which runs it once more");
+    let written = infrastructure_record("a52e364", "root//crates/north-lander:north-lander-test-it", remote, "passed", 7);
+    assert_eq!(written[..6], ["ledger", "incident", "record", "--key", "remote-execution-infrastructure:a52e364:7", "--class"], "the attempt is written as an incident of its own class under its own key (north#1115)");
+    assert!(written.last().is_some_and(|detail| detail.starts_with("head=a52e364 target=root//crates/north-lander:north-lander-test-it error=Remote Execution Error") && detail.ends_with("outcome=passed")), "the head, target, error text and outcome are the detail: {written:?}");
     let deadline = [remote, "Error: (Error was returned on the stream by RE: Failed to run command: context deadline exceeded)", failed.as_str(), "1 TESTS FAILED", target].map(str::to_owned);
     assert_eq!(remote_error(&deadline), None, "a deadline at the action's own test timeout is a red, not infrastructure (north#1115)");
     assert_eq!(verdict(Some(32), Some(&failed), None, &owner, &BTreeSet::new(), remote_error(&deadline).is_some()), Verdict::Failed, "and it fails the check");

@@ -42,6 +42,8 @@ const FAILED: u8 = 1;
 const REMOTE_EXECUTION_ERROR: &str = "Remote Execution Error";
 /// The end of an action whose deadline ran out, which is the test's own timeout and so a red, not infrastructure (north#1115).
 const DEADLINE_EXCEEDED: &str = "deadline exceeded";
+/// The incident class a remote worker's lost action is recorded under, apart from the lander's own classes (north#1115).
+const INFRASTRUCTURE_CLASS: &str = "remote-execution-infrastructure";
 /// The mark Buck2 puts before each target it counts as failed: `  ✗ root//crates/NAME:TARGET`.
 const FAILED_MARK: &str = "✗ ";
 /// Keys a nextest verdict that Buck2 may have decided part of apart from the one the run after a landing looks up.
@@ -264,9 +266,30 @@ fn execute(declared: &str) -> u8 {
     let rerun = split.left(&passed).map_or(0, |packages| declared_line(&split.left_line(line, &passed), Some(&packages)));
     if let Some(error) = error {
         let outcome = if rerun == 0 { "passed" } else { "failed" };
-        eprintln!("north land crate-tests: infrastructure: head={} target={} error={error} outcome={outcome} on the declared line, run once more", head(), failed_targets(&output).join(", "));
+        let (head, targets) = (head(), failed_targets(&output).join(", "));
+        eprintln!("north land crate-tests: infrastructure: head={head} target={targets} error={error} outcome={outcome} on the declared line, run once more");
+        record_infrastructure(&infrastructure_record(&head, &targets, error, outcome, epoch_seconds()));
     }
     rerun
+}
+
+fn epoch_seconds() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs())
+}
+
+/// The `north ledger incident record` arguments for one infrastructure attempt: the head, the failed targets, the error
+/// text and the outcome of the rerun, each attempt under its own key (north#1115).
+fn infrastructure_record(head: &str, targets: &str, error: &str, outcome: &str, at: u64) -> Vec<String> {
+    let detail = format!("head={head} target={targets} error={error} outcome={outcome}");
+    ["ledger", "incident", "record", "--key", &format!("{INFRASTRUCTURE_CLASS}:{head}:{at}"), "--class", INFRASTRUCTURE_CLASS, "--noticed-by", "land-check", "--detail", &detail].map(str::to_owned).into()
+}
+
+/// Writes one infrastructure attempt through this north's `ledger incident record`; a failed write is printed and the check goes on.
+fn record_infrastructure(arguments: &[String]) {
+    let written = std::env::current_exe().map_err(|why| why.to_string()).and_then(|north| Command::new(north).args(arguments).stdin(Stdio::null()).status().map_err(|why| why.to_string()));
+    if let Err(why) = written.and_then(|status| if status.success() { Ok(()) } else { Err(format!("exit {status}")) }) {
+        eprintln!("north land crate-tests: could not record the infrastructure attempt: {why}");
+    }
 }
 
 /// `north land crate-tests host-cases [PACKAGE...]`: the host cases of `packages`, every crate of the class when none, run
