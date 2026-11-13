@@ -99,7 +99,7 @@ pub(super) fn recorded(unit: &str, fleet: &Path) -> Result<(PathBuf, Value), Str
 
 /// The directory and record of the fleet session whose own unit the caller's `cgroup` names, or `absent` when it runs in none: a session scope this host's fleet started, or a held service another host placed a session's CLI in here, whose session is the placed record of the conversation that host bound the unit to in the unit's own directory (remote.rs). The caller chooses neither its unit nor what the launcher wrote, and a placed lane-only session is refused, since its held unit carries no lane-only mark to grant it by (north#1054).
 pub(super) fn own_session(cgroup: &str, host: &Host, absent: &str) -> Result<(PathBuf, Value), String> {
-    let leaves = || cgroup.lines().filter_map(|line| line.rsplit('/').next());
+    let leaves = || cgroup.lines().flat_map(|line| line.split('/'));
     if let Some(unit) = leaves().find(|leaf| leaf.starts_with(SESSION_UNIT_PREFIX) && leaf.ends_with(".scope")) {
         return recorded(unit, &host.fleet);
     }

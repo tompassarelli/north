@@ -43,3 +43,17 @@ pub(in crate::worker_sandbox) fn joins_only_on_a_build_host_the_brokers_own_plac
     let placed = granted(&lane, &head, &scratch.path().join("turn")).joining(&north);
     assert_eq!(placed.arguments, ["land", "checks", "--accept", "echo ran >> /tmp/outside-the-lane", "--base", &head, "--head", &head, "--runner-host", "builder"], "a joined finish check did not go to the broker's build host alone, on the destination's tip");
 }
+
+/// A finish check asked from a process in a scope nested under the session's own scope is the session's, found by its record.
+#[test]
+fn a_finish_check_from_a_scope_nested_in_the_sessions_own_is_attributed_to_its_record() {
+    let scratch = tempfile::tempdir().unwrap();
+    let fleet = scratch.path().join("fleet/w-nested");
+    std::fs::create_dir_all(&fleet).unwrap();
+    std::fs::write(fleet.join("host.scope"), "north-session-1352.scope\n").unwrap();
+    std::fs::write(fleet.join("session.json"), serde_json::json!({ "name": "w-nested", "cwd": scratch.path().join("code/p/main") }).to_string()).unwrap();
+    let host = super::lane_grant::Host { fleet: scratch.path().join("fleet"), home: scratch.path().join("home"), code: Vec::new(), environment: Vec::new(), cgroups: scratch.path().join("cgroup") };
+    let cgroup = "0::/user.slice/user@1000.service/app.slice/north-session-1352.scope/tool-7.scope\n";
+    let (directory, record) = super::lane_grant::own_session(cgroup, &host, "no session").unwrap();
+    assert_eq!((directory, record["name"].as_str()), (fleet, Some("w-nested")));
+}
