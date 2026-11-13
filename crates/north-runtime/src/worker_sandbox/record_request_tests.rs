@@ -83,7 +83,8 @@ pub(super) fn a_worker_lane_writes_its_slot_and_finish_records_through_the_broke
 fn serve(root: &Path) {
     let north = root.join("north");
     write_script(&north, &format!("{ROLE}=north {SCRATCH}={} {WORDS}=\"$*\" exec {} --exact {TEST} --nocapture\n", root.display(), std::env::current_exe().unwrap().display()));
-    let host = Host::own();
+    let host = Host { cgroups: root.join("cgroup"), ..Host::own() };
+    std::fs::create_dir_all(root.join("cgroup/user.slice/user@1000.service/agent.slice/north-fleet-w-placed-118-0a1b2c3d.service")).unwrap();
     let lane = root.join("home/code/alpha/worktrees/lane");
     let main = root.join("home/code/alpha/main");
     let head = String::from_utf8(Command::new("git").arg("-C").arg(&lane).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_owned();

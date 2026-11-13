@@ -252,3 +252,29 @@ fn a_lane_whose_git_config_sets_a_filter_driver_or_ssh_command_is_not_landed_and
     git(&["config", "--unset", "core.sshCommand"]);
     assert_eq!(fixture.ask(&["safe-push", "--to", "main"], &fixture.lane).code, 0);
 }
+
+#[test]
+fn a_lane_path_a_retired_placed_session_used_is_not_its_live_owner_north_1352() {
+    use north_base::platform::session_host_files::{BOUND_CONVERSATION, HELD, PLACED};
+    let fixture = Fixture::new();
+    let lane = fixture.host.home.join("code/north/worktrees/reused");
+    git(&fixture.host.home.join("code/north/main"), &["worktree", "add", "-q", lane.to_str().unwrap(), "-b", "reused"]);
+    let live = fixture.host.fleet.join("evalb-live");
+    std::fs::create_dir_all(&live).unwrap();
+    std::fs::write(live.join("host.scope"), "north-session-live-1352.scope\n").unwrap();
+    std::fs::write(live.join("session.json"), serde_json::json!({ "name": "evalb-live", "cwd": fixture.host.home.join("code/north/main") }).to_string()).unwrap();
+    let held = fixture.host.home.join(HELD).join("north-fleet-evalb-old-1352.service");
+    let placed = fixture.host.fleet.join(PLACED).join("c0ffee-old-1352");
+    std::fs::create_dir_all(&held).unwrap();
+    std::fs::create_dir_all(&placed).unwrap();
+    std::fs::write(held.join(BOUND_CONVERSATION), "c0ffee-old-1352").unwrap();
+    std::fs::write(crate::fleet::records::record_file(&placed), serde_json::json!({ "name": "evalb-old", "cwd": lane, "status": null, "ended": null }).to_string()).unwrap();
+    let record = serde_json::from_slice::<serde_json::Value>(&std::fs::read(live.join("session.json")).unwrap()).unwrap();
+    let checkout = super::super::request_checkout::Checkout { top: lane.canonicalize().unwrap(), git_dir: PathBuf::new(), common: PathBuf::new() };
+    let cgroup = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-session-live-1352.scope\n";
+    let admitted = || super::super::finish_request::admitted("evalb-live", &record, &live, &checkout, cgroup, &fixture.host);
+    assert_eq!(admitted(), Ok(()), "a retired session's placed record, left behind with no status and no end, took a live session's lane");
+    let unit = fixture.host.cgroups.join("user.slice/user-1000.slice/user@1000.service/agent.slice/north-fleet-evalb-old-1352.service");
+    std::fs::create_dir_all(&unit).unwrap();
+    assert!(admitted().is_err_and(|refused| refused.contains("launched in, not one of")), "a placed session whose unit runs here no longer owns its lane");
+}

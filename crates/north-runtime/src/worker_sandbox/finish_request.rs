@@ -67,7 +67,7 @@ pub(super) fn granted(check: Check, checkout: &Checkout, cgroup: &str, host: &Ho
 }
 
 /// Why `checkout` is not a lane the session `name`, whose record is `record` in the fleet directory `directory`, may run a finish check in, if it is not. An ordinary session's lanes are those under `worktrees/` of the project of the directory it launched in, one it made after launch among them (the sandbox gives it the same reach), never the main checkout and never the lane another live fleet session launched in, one placed here by another host among them, by its recorded directory or by its name; a lane-only session's is its own lane alone, since the scratch directory that would say which lanes it made since is not a fact the broker holds. The record vouches only for the tree the command ran on (`Granted::record`), so a lane another session could make is no gain to a caller.
-fn admitted(name: &str, record: &serde_json::Value, directory: &Path, checkout: &Checkout, cgroup: &str, host: &Host) -> Result<(), String> {
+pub(super) fn admitted(name: &str, record: &serde_json::Value, directory: &Path, checkout: &Checkout, cgroup: &str, host: &Host) -> Result<(), String> {
     let own = lane_grant::own_lane(name, record)?;
     if north_base::platform::session_scope::lane_only_cgroup(cgroup) {
         return if own.canonicalize().ok().as_deref() == Some(checkout.top.as_path()) { Ok(()) } else { Err(format!("{} is not the lane of {name} ({}): a lane-only session's finish check runs in its own lane only", checkout.top.display(), own.display())) };
