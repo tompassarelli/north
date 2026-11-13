@@ -548,6 +548,16 @@ fn finish_runs_acceptance_inside_the_pre_queue_run() {
     git(&north.checkout, &["commit", "-qam", "Run a land check before queueing"]);
     git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
     git(&north.checkout, &["fetch", "-q", "origin"]);
+    let (harness, harness_home) = (Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../harness")), world.path().join("harness-home"));
+    fs::create_dir_all(harness_home.join("harness")).unwrap();
+    for entry in fs::read_dir(harness).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_name() != "defaults.toml" {
+            std::os::unix::fs::symlink(entry.path(), harness_home.join("harness").join(entry.file_name())).unwrap();
+        }
+    }
+    let defaults = fs::read_to_string(harness.join("defaults.toml")).unwrap().replace("[finish_acceptance_in_prequeue]\nvalue = \"off\"", "[finish_acceptance_in_prequeue]\nvalue = \"on\"");
+    fs::write(harness_home.join("harness/defaults.toml"), defaults).unwrap();
     let store = north_base::platform::finish_record::FinishRecords(world.path().join("verdicts").join("finished"));
     let count = |path: &Path| fs::read_to_string(path).unwrap_or_default().lines().count();
     for (code, session) in [(3, "red"), (0, "green")] {
@@ -556,7 +566,7 @@ fn finish_runs_acceptance_inside_the_pre_queue_run() {
         fs::write(lane.join("note.txt"), format!("the {session} note\n")).unwrap();
         let (queued_before, accepted_before) = (count(&queued), count(&accepted));
         let mut call = queueing(&world, PREQUEUE, PREQUEUE_ARGUMENTS, &["--check", &check, "--message", "Add the note (north#1036)", "--", lane.join("note.txt").to_str().unwrap()]);
-        let output = call.env("NORTH_FLEET_SESSION", session).env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts")).output().unwrap();
+        let output = call.env("NORTH_FLEET_SESSION", session).env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts")).env("NORTH_HOME", &harness_home).output().unwrap();
         let text = report(&output);
         let runs: Vec<&str> = text.lines().filter(|line| line.contains("check(s) before queueing the lane") && line.contains(&check)).collect();
         assert!(matches!(runs[..], [run] if run.contains(&check)), "the acceptance command did not run as one more check of one run before queueing: {text}");
