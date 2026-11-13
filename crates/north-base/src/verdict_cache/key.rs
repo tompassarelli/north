@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 
 use sha2::{Digest, Sha256};
 
-use crate::build_inputs::{ENQUEUE_PATTERN, rust_build_input_paths};
+use crate::build_inputs::{ENQUEUE_PATTERN, LANE_PATTERN, rust_build_input_paths};
 
 const SEPARATOR: &str = " :: ";
 const RUST_INPUT: &str = "@rust-input";
@@ -50,7 +50,7 @@ fn selectors(repo: &Path, tree: &str, command: &str) -> Option<BTreeSet<String>>
         .filter(|(_, line_command)| *line_command == command)
         .flat_map(|(paths, _)| paths.split(','))
         .map(str::trim)
-        .filter(|path| !path.is_empty() && *path != ENQUEUE_PATTERN)
+        .filter(|path| !path.is_empty() && *path != ENQUEUE_PATTERN && *path != LANE_PATTERN)
         .flat_map(|path| if path == RUST_INPUT { rust_build_input_paths().map(str::to_owned).collect() } else { vec![path.to_owned()] })
         .collect();
     (!patterns.is_empty()).then_some(patterns)

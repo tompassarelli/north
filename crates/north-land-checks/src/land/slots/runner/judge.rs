@@ -12,6 +12,7 @@ use crate::landing::check_findings;
 use crate::landing::check_timings::{Base, BaseResult, Deadline, Timings};
 use super::{Shared, host_name, say, timeout_row, warn};
 use super::checkout::BaseTree;
+use super::lane_scope;
 use super::log::{log_findings, first_error};
 use super::spawn::{Attempt, Ended, Ran};
 
@@ -109,7 +110,12 @@ impl Shared {
         warn(&format!("safe-push: land check {command} exited {status}; log: {log}; NOT pushed."));
         self.cache_record(status, &[command.to_owned()]).await;
         self.outcome.record(&["event", "land check", "failed", &format!("{command}; log: {log}")]);
-        self.outcome.record(&["failed-step", command, &log.to_string()]);
+        if self.lane_scoped(command) {
+            let lanes = lane_scope::failed(&fs::read_to_string(&ran.log).unwrap_or_default()).join(",");
+            self.outcome.record(&["failed-step", command, &log.to_string(), &lanes]);
+        } else {
+            self.outcome.record(&["failed-step", command, &log.to_string()]);
+        }
         status
     }
 
@@ -125,7 +131,7 @@ impl Shared {
 
     async fn base_failure(&self, command: &str, leased: bool, timeout: u64) -> Option<String> {
         let round = std::env::var(ROUND).unwrap_or_default();
-        let judged = !round.is_empty() && !*self.cancel.borrow() && !self.trees.base.is_empty() && self.trees.base != self.trees.head && Config::load(&self.root, &self.arguments.base).runs(command);
+        let judged = !round.is_empty() && !self.lane_scoped(command) && !*self.cancel.borrow() && !self.trees.base.is_empty() && self.trees.base != self.trees.head && Config::load(&self.root, &self.arguments.base).runs(command);
         if !judged {
             return None;
         }

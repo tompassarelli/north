@@ -3,7 +3,7 @@ use std::process::Command;
 
 use super::infer::infer;
 use north_base::foundation::exit::SLOTS_BUSY_STATUS;
-use north_base::build_inputs::{ENQUEUE_PATTERN, rust_build_input};
+use north_base::build_inputs::{ENQUEUE_PATTERN, LANE_PATTERN, rust_build_input};
 use north_base::store_pins::{pinned_entries, store_input};
 
 const SEPARATOR: &str = " :: ";
@@ -161,6 +161,10 @@ impl Config {
         self.checks.iter().any(|entry| entry.split_once(SEPARATOR).is_some_and(|(_, listed)| listed == command)) || self.is_inferred(command)
     }
 
+    pub fn lane_scoped(&self, command: &str) -> bool {
+        self.checks.iter().chain(&self.after).any(|entry| entry.split_once(SEPARATOR).is_some_and(|(patterns, listed)| listed == command && patterns.split(',').any(|spec| spec == LANE_PATTERN)))
+    }
+
     pub fn after_without_reason(&self) -> Vec<&str> {
         let commands = self.after.iter().chain(&self.after_landing).filter_map(|entry| entry.split_once(SEPARATOR).map(|(_, command)| command));
         commands.filter(|command| !self.runs(command) && reason(&self.after_only, command).is_none()).collect()
@@ -265,7 +269,7 @@ fn queued(entries: &[String]) -> impl Iterator<Item = &String> {
 }
 
 fn touches(repo: &Path, base: &str, head: &str, patterns: &str) -> bool {
-    let (rust, specs): (Vec<&str>, Vec<&str>) = patterns.split(',').filter(|spec| *spec != ENQUEUE_PATTERN).partition(|spec| *spec == RUST_INPUT);
+    let (rust, specs): (Vec<&str>, Vec<&str>) = patterns.split(',').filter(|spec| *spec != ENQUEUE_PATTERN && *spec != LANE_PATTERN).partition(|spec| *spec == RUST_INPUT);
     (!rust.is_empty() && changed(repo, base, head, &[]).map_or(true, |files| files.iter().any(|path| rust_build_input(path)))) || (!specs.is_empty() && changed(repo, base, head, &specs).map_or(true, |files| !files.is_empty()))
 }
 

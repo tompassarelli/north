@@ -32,6 +32,7 @@ mod execute;
 mod fail_fast;
 mod hold;
 mod judge;
+mod lane_scope;
 mod line_refusals;
 mod log;
 mod offload_job;

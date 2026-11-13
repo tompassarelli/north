@@ -19,6 +19,7 @@ use crate::landing::check_timings::Timing;
 use super::{ACTIONS_CLASS, CANCELLED_STATUS, KILLED_STATUS, OFFLOAD_GRACE, REAP, Shared, TIMED_OUT_STATUS, say, warn};
 use super::log::{new_log, Sink, tee};
 use super::steps;
+use super::lane_scope;
 
 const STORE_SYNC: std::time::Duration = std::time::Duration::from_secs(90);
 
@@ -192,8 +193,14 @@ impl Shared {
         !self.arguments.after && lint_gate::wraps(command)
     }
 
+    pub(super) fn lane_scoped(&self, command: &str) -> bool {
+        self.arguments.after && !self.arguments.batch.lanes.is_empty() && self.config.lane_scoped(command)
+    }
+
     fn wrapped(&self, north: &str, command: &str) -> String {
-        if self.observes(command) {
+        if self.lane_scoped(command) {
+            lane_scope::wrapped(command, &self.arguments.batch.lanes)
+        } else if self.observes(command) {
             let tested = if listed_crates::wraps(command) { listed_crates::wrapped(north, command) } else { command.to_owned() };
             unit_reuse::wrapped(north, &self.arguments.head, self.environment.record_reuse, &tested)
         } else if self.gated(command) {

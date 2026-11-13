@@ -179,3 +179,16 @@ pub(super) fn test_run_seconds(log: &str) -> Option<u64> {
     let runs: Vec<f64> = log.lines().filter_map(|line| line.trim_start().strip_prefix("Summary [")?.split_once("s]")?.0.trim().parse().ok()).collect();
     (!runs.is_empty()).then(|| runs.iter().sum::<f64>().round() as u64)
 }
+
+pub(crate) fn apart(failing: BTreeSet<Failure>, outcome: &Path, lanes: &[String]) -> (BTreeSet<Failure>, Vec<usize>) {
+    let text = fs::read_to_string(outcome).unwrap_or_default();
+    let scoped: Vec<(&str, &str)> = text.lines().filter_map(|line| line.strip_prefix("failed-step\t")).filter_map(|rest| {
+        let mut fields = rest.split('\t');
+        Some((fields.next()?, fields.nth(1)?))
+    }).collect();
+    let mut named: Vec<usize> = scoped.iter().flat_map(|(_, names)| names.split(',')).filter_map(|name| lanes.iter().position(|lane| lane == name)).collect();
+    named.sort_unstable();
+    named.dedup();
+    let rest = failing.into_iter().filter(|failure| !matches!(failure, Failure::Step(command) if scoped.iter().any(|(scoped, _)| scoped == command))).collect();
+    (rest, named)
+}

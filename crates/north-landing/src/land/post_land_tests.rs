@@ -4,7 +4,7 @@ use std::process::ExitStatus;
 use std::time::Duration;
 
 use super::{Landed, Run, reap_scratch, settle};
-use super::execute::{execute, judged, record};
+use super::execute::{apart, execute, judged, record};
 use super::settle::announce;
 use crate::land::checks::Verdict;
 use crate::landing::red_check::Failure;
@@ -354,4 +354,16 @@ fn a_landing_check_that_fails_on_a_stale_host_token_is_not_a_red_main() {
 
     std::fs::write(&placed.log, "error: North configuration failed: cannot fetch /home/tom/code/south/main origin/main; refusing landing\n").unwrap();
     assert!(matches!(judged(ExitStatus::from_raw(1 << 8), &placed), Verdict::RedMain(_)), "a failure that shows no stale token is judged as before");
+}
+
+#[test]
+fn a_red_lane_scoped_check_over_a_batch_range_enters_no_blame() {
+    let scratch = tempfile::tempdir().unwrap();
+    let outcome = scratch.path().join("post-land.outcome");
+    std::fs::write(&outcome, "failed-step\tland scan test-admission kills\t/kills.log\tlane-b\nfailed-step\tcargo clippy\t/clippy.log\n").unwrap();
+    let failing = std::collections::BTreeSet::from([Failure::Step("land scan test-admission kills".to_owned()), Failure::Step("cargo clippy".to_owned())]);
+    let lanes = ["lane-a".to_owned(), "lane-b".to_owned()];
+    let (blamed, named) = apart(failing, &outcome, &lanes);
+    assert_eq!(blamed, std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned())]), "the lane-scoped check is not a failure the batch is searched for");
+    assert_eq!(named, [1], "the red names the lane whose own range failed");
 }

@@ -29,7 +29,7 @@ mod runner;
 mod settle;
 pub use runner::{Record, abandon, adopt, adoptable, after_owner, reap_scratch};
 pub(crate) use execute::{Checked, failing, steps};
-use execute::{check, judged, record};
+use execute::{apart, check, judged, record};
 use probe::Probe;
 pub(crate) use settle::rerun;
 pub use settle::settle;
@@ -290,6 +290,13 @@ pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
     Task::spawn(wake, move || {
         let Search { landed, run, failing } = search;
         let started = telemetry::epoch();
+        let (failing, named) = apart(failing, &run.outcome, &landed.lanes);
+        for &at in &named {
+            println!("north land: {} is a landed lane whose own range is red on a lane-scoped check of {}, which no other lane's tests or mutants enter", landed.lanes[at], landed.head);
+        }
+        if failing.is_empty() {
+            return Found { culprits: named, span: (started, telemetry::epoch()), superseded: run.superseded(), cancelled_by: run.cancel.sender().map(str::to_owned), unreproduced: None };
+        }
         let reproduced = at_the_tip(&landed, &run, &failing);
         let stopped = |unreproduced| Found { culprits: Vec::new(), span: (started, telemetry::epoch()), superseded: run.superseded(), cancelled_by: run.cancel.sender().map(str::to_owned), unreproduced };
         if run.superseded() {
@@ -300,7 +307,10 @@ pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
             Ok(failing) => failing,
             Err(again) => return stopped(Some(again)),
         };
-        let culprits = locate(&landed, &run, &failing);
+        let mut culprits = locate(&landed, &run, &failing);
+        culprits.extend(named);
+        culprits.sort_unstable();
+        culprits.dedup();
         if run.superseded() {
             println!("north land: the culprit search of {} stopped because {} changed its check lines", landed.head, cancelled_by(&run));
             return stopped(None);
