@@ -6,6 +6,7 @@
 //! push (north#944). Depends only on north-base; the lander reaches it through `north test coverage`.
 pub mod cadence;
 pub mod exec;
+mod handoff;
 pub mod hosts;
 pub mod hunks;
 pub mod index;
@@ -15,6 +16,7 @@ pub mod pick;
 pub mod reads;
 pub mod record;
 pub mod refresh;
+mod refresh_start;
 pub mod run_selected;
 
 const USAGE: &str = "usage: north test coverage select BASE HEAD [--map FILE]\n       north test coverage miss BASE HEAD --log FILE [--map FILE]\n       north test coverage record [NEXTEST-ARGUMENT...]\n       north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION] | --start [--unknown N --listed M]\n       north test coverage exec BINARY [ARGUMENT...]";
@@ -24,7 +26,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Some((verb, rest)) if verb == "select" => run_selected::select(rest),
         Some((verb, rest)) if verb == "miss" => miss::run(rest),
         Some((verb, rest)) if verb == "record" => record::run(rest),
-        Some((verb, rest)) if verb == "refresh" && rest.first().is_some_and(|flag| flag == "--start") => cadence::run_start(&rest[1..]),
+        Some((verb, rest)) if verb == "refresh" && rest.first().is_some_and(|flag| flag == "--start") => refresh_start::run(&rest[1..]),
         Some((verb, rest)) if verb == "refresh" => refresh::run(rest),
         Some((verb, rest)) if verb == "exec" => exec::run(rest),
         _ => {

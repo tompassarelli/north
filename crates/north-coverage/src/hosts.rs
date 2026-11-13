@@ -72,8 +72,8 @@ fn setting(root: &Path, key: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_owned())
 }
 
-fn plain(name: &str) -> bool {
-    !name.is_empty() && name.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'))
+pub(crate) fn plain(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && name.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'))
 }
 
 fn ingest_on(destination: &str, map: &[u8], repository: &str) -> Result<(), String> {

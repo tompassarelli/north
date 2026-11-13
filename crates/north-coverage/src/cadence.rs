@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 
+use crate::handoff;
 use crate::map;
 use crate::run_selected::{north, repository};
 
@@ -21,57 +22,14 @@ pub fn unknown_reason(unknown: usize, listed: usize) -> Option<String> {
     (listed > 0 && unknown * 100 > listed * UNKNOWN_SHARE).then(|| format!("{unknown} of the {listed} tests the lane's build lists are unknown to the map, over {UNKNOWN_SHARE}%"))
 }
 
-pub fn run_start(arguments: &[String]) -> u8 {
-    let (mut unknown, mut listed) = (None, None);
-    let mut rest = arguments.iter();
-    while let Some(flag) = rest.next() {
-        match (flag.as_str(), rest.next()) {
-            ("--unknown", Some(value)) => match value.parse::<usize>() {
-                Ok(count) => unknown = Some(count),
-                Err(_) => return usage(),
-            },
-            ("--listed", Some(value)) => match value.parse::<usize>() {
-                Ok(count) => listed = Some(count),
-                Err(_) => return usage(),
-            },
-            _ => return usage(),
-        }
-    }
-    let root = Path::new(".");
-    let repository = repository(root);
-    let reason = match (unknown, listed) {
-        (Some(unknown), Some(listed)) => match unknown_reason(unknown, listed) {
-            Some(reason) => reason,
-            None => return 0,
-        },
-        (None, None) => match due(&map::path_for(&repository), SystemTime::now()) {
-            Some(reason) => reason,
-            None => return 0,
-        },
-        _ => return usage(),
-    };
-    match start(root, &reason) {
-        Ok(started) => {
-            println!("north test coverage: {started}");
-            0
-        }
-        Err(why) => {
-            eprintln!("north test coverage refresh: {why}");
-            1
-        }
-    }
-}
-
-fn usage() -> u8 {
-    eprintln!("usage: north test coverage refresh --start [--unknown N --listed M]");
-    2
-}
-
 pub fn start(root: &Path, reason: &str) -> Result<String, String> {
     let repository = repository(root);
     let checkout = crate::refresh::checkout(&repository);
     if !checkout.is_dir() {
         return Err(format!("{repository} has no checkout at {}, where a refresh runs, so none starts ({reason})", checkout.display()));
+    }
+    if let Some(outcome) = handoff::forwarded(&repository, &["--reason".to_owned(), reason.to_owned()]) {
+        return outcome;
     }
     let log = log_path(&repository);
     if let Some(directory) = log.parent() {
