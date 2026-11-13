@@ -16,13 +16,19 @@ pub fn record_file(session_dir: &Path) -> PathBuf {
     session_dir.join(RECORD)
 }
 
+/// The session record in `session_dir`, phased from the lifecycle store only once the record is read, so a hook asking after a session with no record opens and migrates no store (north#1036).
 pub fn read_record(session_dir: &Path) -> NorthResult<SessionRecord> {
-    read_phased(Phases::beside(session_dir).as_mut(), session_dir)
+    let text = fs::read_to_string(session_dir.join(RECORD))?;
+    phased(Phases::beside(session_dir).as_mut(), &text)
 }
 
 /// A session record with the phase this host's lifecycle store holds for its launch, unread when the store is.
 pub fn read_phased(phases: Option<&mut Phases>, session_dir: &Path) -> NorthResult<SessionRecord> {
-    let legacy: Value = serde_json::from_str(&fs::read_to_string(session_dir.join(RECORD))?)?;
+    phased(phases, &fs::read_to_string(session_dir.join(RECORD))?)
+}
+
+fn phased(phases: Option<&mut Phases>, text: &str) -> NorthResult<SessionRecord> {
+    let legacy: Value = serde_json::from_str(text)?;
     let mut record: SessionRecord = serde_json::from_value(legacy.clone())?;
     record.phase = phases.and_then(|phases| phases.read(record.launch(), &legacy));
     Ok(record)

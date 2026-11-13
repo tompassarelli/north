@@ -144,7 +144,10 @@ fn refused_through_the_hook(host: &Host) {
         hook.env("NORTH_AGENT_ACTIVE", host.path("activation.active"));
         hook.env("AGENT_HOOK_ERRORS", host.path("hook-errors.tsv"));
         fs::write(host.path("hook-request.json"), request.to_string()).unwrap();
+        let ledger = host.path("state/north/ledger.db");
+        let ledger_before = ledger.exists();
         let output = hook.args(["hook", "pre-bash"]).stdin(fs::File::open(host.path("hook-request.json")).unwrap()).output_exclusive().unwrap();
+        assert_eq!(ledger.exists(), ledger_before, "{typed}: the hook created and migrated the fleet ledger, whose fsyncs outran its deadline under load, to read a session record that does not exist (north#1036)");
         let routed = serde_json::from_slice::<serde_json::Value>(&output.stdout).ok().and_then(|answer| answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().map(str::to_owned)).unwrap_or_else(|| panic!("{typed}: the hook did not route it: {}\nstdout: {}\nstderr: {}\nhook errors: {}", output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr), fs::read_to_string(host.path("hook-errors.tsv")).unwrap_or_default()));
         assert!(routed.starts_with("north capacity host run "), "{typed}: {routed}");
         let ran = fleet(host, "bash").args(["-c", &routed.replacen("north", crate::support::bin_exe!("CARGO_BIN_EXE_north"), 1)]).output_exclusive().unwrap();
