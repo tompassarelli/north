@@ -1120,7 +1120,7 @@ fn a_job_whose_host_line_would_keep_it_past_its_deadline_leaves_at_once_with_the
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
-    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let script = remote_script("code-p-main", super::SlotClass::LandCheck);
     let job = |carried: &str| {
         Command::new("sh")
             .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", ":", "refs/land-offload/job", carried, "", "", "", "", "", ""])
