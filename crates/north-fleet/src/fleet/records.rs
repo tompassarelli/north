@@ -57,6 +57,7 @@ pub struct RecordedSession {
     pub name: String,
     pub provider: String,
     pub file: PathBuf,
+    pub cwd: PathBuf,
     pub ended: bool,
 }
 
@@ -67,7 +68,7 @@ pub fn recorded_sessions(root: &Path) -> Vec<RecordedSession> {
     for (directory, archived) in [(root.to_path_buf(), false), (root.join(ARCHIVE), true)] {
         for entry in fs::read_dir(directory).into_iter().flatten().flatten() {
             let Ok(record) = read_phased(phases.as_mut(), &entry.path()) else { continue };
-            sessions.push(RecordedSession { ended: archived || record.ended(), file: record_file(&entry.path()), provider: record.provider.label().to_owned(), name: record.name });
+            sessions.push(RecordedSession { ended: archived || record.ended(), file: record_file(&entry.path()), cwd: record.cwd, provider: record.provider.label().to_owned(), name: record.name });
         }
     }
     sessions

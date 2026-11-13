@@ -1,6 +1,7 @@
 mod build_output;
 mod capture_batches;
 mod cache_cap;
+mod ended_lanes;
 mod evidence_budget;
 mod held;
 mod lan_clients;
@@ -48,6 +49,7 @@ pub(super) struct Inputs {
     evidence: PathBuf,
     capture_queue: PathBuf,
     disk_budget: DiskBudget,
+    host: String,
     open_issue_text: fn() -> Result<String, String>,
     uid: u32,
     now: SystemTime,
@@ -72,6 +74,7 @@ impl Inputs {
             evidence: state.join("makgora/evidence"),
             capture_queue: state.join("makgora/capture-queue"),
             disk_budget: DiskBudget::local(),
+            host: crate::platform::land_queue::local_host(),
             open_issue_text: evidence_budget::open_issue_text,
             uid: rustix::process::getuid().as_raw(),
             now: SystemTime::now(),
@@ -160,6 +163,7 @@ pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Reclaimed>
     }
     removals.extend(lan_clients::sweep(inputs, policy, &held)?);
     removals.extend(lan_residue::sweep(inputs, policy, &held)?);
+    removals.extend(ended_lanes::sweep(inputs, policy, &held));
     removals.extend(build_output::sweep(inputs, policy, &held)?);
     removals.extend(cache_cap::sweep(inputs, policy, &held)?);
     if let Some(budget) = evidence_budget::Budget::of(&inputs.disk_budget) {

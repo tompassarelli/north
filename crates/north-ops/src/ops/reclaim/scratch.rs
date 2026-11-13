@@ -58,6 +58,6 @@ fn named_scratch(inputs: &Inputs) -> BTreeMap<PathBuf, Vec<RecordedSession>> {
     named
 }
 
-fn fleet_root(state: &Path) -> PathBuf {
+pub(super) fn fleet_root(state: &Path) -> PathBuf {
     state.join("north/fleet")
 }
