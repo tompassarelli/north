@@ -1,62 +1,35 @@
-use std::fmt;
-
 use crate::term::TermError;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum GraphError {
+    #[error("invalid graph input: {0}")]
     Invalid(String),
-    Storage(rusqlite::Error),
+    #[error("graph storage: {0}")]
+    Storage(#[from] rusqlite::Error),
+    #[error("graph store is corrupt: {0}")]
     Corrupt(String),
-    Query(QueryError),
+    #[error(transparent)]
+    Query(#[from] QueryError),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum QueryError {
+    #[error("invalid query: {0}")]
     Invalid(String),
+    #[error("query exceeded its step budget of {steps}")]
     StepBudgetExceeded { steps: u64 },
+    #[error("query exceeded its timeout of {milliseconds} ms")]
     Timeout { milliseconds: u64 },
+    #[error("invalid query snapshot: {0}")]
     InvalidSnapshot(String),
+    #[error(
+        "query snapshot expired: bound {bound} is below the retention horizon {horizon}, whose history is gone"
+    )]
     SnapshotExpired { bound: i64, horizon: i64 },
+    #[error(
+        "text relation {relation} reads the live text index, which cannot answer asOf or since"
+    )]
     TextUnderView { relation: String },
-}
-
-impl fmt::Display for GraphError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Invalid(why) => write!(formatter, "invalid graph input: {why}"),
-            Self::Storage(why) => write!(formatter, "graph storage: {why}"),
-            Self::Corrupt(why) => write!(formatter, "graph store is corrupt: {why}"),
-            Self::Query(why) => why.fmt(formatter),
-        }
-    }
-}
-
-impl fmt::Display for QueryError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Invalid(why) => write!(formatter, "invalid query: {why}"),
-            Self::StepBudgetExceeded { steps } => write!(formatter, "query exceeded its step budget of {steps}"),
-            Self::Timeout { milliseconds } => write!(formatter, "query exceeded its timeout of {milliseconds} ms"),
-            Self::InvalidSnapshot(why) => write!(formatter, "invalid query snapshot: {why}"),
-            Self::SnapshotExpired { bound, horizon } => write!(formatter, "query snapshot expired: bound {bound} is below the retention horizon {horizon}, whose history is gone"),
-            Self::TextUnderView { relation } => write!(formatter, "text relation {relation} reads the live text index, which cannot answer asOf or since"),
-        }
-    }
-}
-
-impl std::error::Error for GraphError {}
-impl std::error::Error for QueryError {}
-
-impl From<rusqlite::Error> for GraphError {
-    fn from(why: rusqlite::Error) -> Self {
-        Self::Storage(why)
-    }
-}
-
-impl From<QueryError> for GraphError {
-    fn from(why: QueryError) -> Self {
-        Self::Query(why)
-    }
 }
 
 impl From<TermError> for GraphError {

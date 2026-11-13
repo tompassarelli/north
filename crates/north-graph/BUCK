@@ -26,6 +26,7 @@ rust_library(
         "//third-party:rusqlite",
         "//third-party:serde_json",
         "//third-party:sha2",
+        "//third-party:thiserror",
     ],
     visibility = ["PUBLIC"],
 )
@@ -43,6 +44,7 @@ north_rust_test(
         "//third-party:serde_json",
         "//third-party:sha2",
         "//third-party:tempfile",
+        "//third-party:thiserror",
     ],
     visibility = ["PUBLIC"],
 )
@@ -59,6 +61,7 @@ rust_binary(
         "//third-party:serde_json",
         "//third-party:sha2",
         "//third-party:tempfile",
+        "//third-party:thiserror",
         ":north-graph",
     ],
     visibility = ["PUBLIC"],
