@@ -15,6 +15,7 @@ pub(super) struct Arguments {
     pub(super) one_lane: bool,
     pub(super) line_within: Option<u64>,
     pub(super) twin_away: Option<Vec<String>>,
+    pub(super) hold: Option<String>,
     pub(super) tree: String,
     pub(super) dry: bool,
     pub(super) safe_push: String,
@@ -84,6 +85,10 @@ pub(super) fn parse(arguments: &[String]) -> Option<Arguments> {
 }
 
 impl Arguments {
+    pub(super) fn line_budget(&self) -> Option<u64> {
+        self.line_within.or_else(|| std::env::var(north_base::foundation::carry::LINE_WITHIN).ok().and_then(|left| left.parse().ok()))
+    }
+
     pub(super) fn tree(&self) -> &str {
         if self.tree.is_empty() { &self.head } else { &self.tree }
     }

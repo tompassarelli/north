@@ -705,6 +705,12 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     assert!(!home.path().join(".cache/land-offload/code-p-main.hold").exists(), "an ended hold left its token's hash behind");
     let calls = fs::read_to_string(home.path().join("line-calls")).unwrap();
     assert!(calls.lines().any(|line| line.starts_with("started --deadline 4200 ")), "a hold's deadline is cut to the hold ceiling in its line record: {calls}");
+    let mut expiring = on_host("1", &header, "");
+    let mut input = expiring.stdin.take().unwrap();
+    input.write_all(&header).and_then(|()| std::io::copy(&mut fs::File::open(&bundle).unwrap(), &mut input).map(drop)).unwrap();
+    let expired = expiring.wait_with_output().unwrap();
+    assert_eq!(expired.status.code(), Some(i32::from(super::NO_VERDICT)), "a hold that reached its deadline must read as no verdict, never as a result: {}", String::from_utf8_lossy(&expired.stderr));
+    drop(input);
 }
 
 #[test]

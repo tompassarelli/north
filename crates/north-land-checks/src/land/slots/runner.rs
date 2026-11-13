@@ -29,6 +29,7 @@ mod checkout;
 mod entry;
 mod execute;
 mod fail_fast;
+mod hold;
 mod judge;
 mod line_refusals;
 mod log;
@@ -398,16 +399,19 @@ async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Con
         }
     }
     arguments.twin_away = Some(failed.to_vec());
+    let (_cancel_sender, cancel) = watch::channel(false);
+    let held = steps::awaited("hold", hold::taken(&root, &arguments, cancel.clone())).await;
+    arguments.hold = held.as_ref().map(|held| held.value.clone());
     let host = arguments.runner_host.clone();
     let commands = steps::awaited("coverage", async { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() }).await;
     let watched = rewritten(&root, &arguments, watched).await;
-    let (_cancel_sender, cancel) = watch::channel(false);
-    let Selections { scope, it, .. } = steps::timed("selection", || selections(&root, &arguments, &commands, None, &arguments.runner_host));
+    let Selections { scope, it, .. } = steps::selection(|| selections(&root, &arguments, &commands, None, &arguments.runner_host));
     let (trees, paths) = steps::timed("trees", || (Trees::of(&root, &arguments.base, &arguments.head), path_class(&root, &arguments.base, &arguments.head)));
     let outcome = Outcome(arguments.outcome.clone());
     let shared = Arc::new(Shared { root, arguments, environment, config, outcome, cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
     let pending = steps::awaited("key lookup", shared.cached(&commands)).await;
     let status = if pending.is_empty() { 0 } else { shared.run_list(&pending).await.status() };
     let accepted = shared.passed(&watched, status).await;
+    drop(held);
     Added { status, host, unanswered: false, accepted }
 }

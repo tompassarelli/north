@@ -1972,7 +1972,7 @@ allowed = {}
 unit = "whether a hand-in's checks before queueing take one build-host slot as a hold and run their steps inside it, each step joining the hold by its token with no ticket of its own, so the checks wait in a slot line once"
 source = "prior: capacity scheduler box one slot per hand-in (north#1036), 2026-11-13"
 fallback = "false sends every step with a ticket of its own, so a hand-in's checks wait in a slot line once per step as before"
-consumers = ["crates/north-runtime/src/land_offload/ship/hold.rs"]
+consumers = ["crates/north-runtime/src/land_offload/ship/hold.rs", "crates/north-land-checks/src/land/slots/runner/hold.rs"]
 
 [laptop_system_check_gate]
 value = "on"
@@ -1981,3 +1981,11 @@ unit = "on: a host's delivery-liveness floor builds its whole system only after 
 source = "prior: six system-configuration landings on 2026-11-13 each started the laptop's after-landing flake check and its delivery-liveness build beside the lander and every lead, and the laptop's load reached 41 (north#1036)"
 fallback = "anything but a readable on, a missing or unparsable harness/defaults.toml included, reads as off"
 consumers = ["crates/north-lander-doctor/src/host_gate.rs"]
+
+[prequeue_tests_built_once]
+value = true
+allowed = {}
+unit = "whether a held run of a hand-in's checks before queueing builds the test binaries of the Rust test check's packages in the held slot first, then lists them there over the same packages, so the listing and the test check compile nothing again"
+source = "prior: capacity scheduler box one slot per hand-in, slice tests built once (north#1036), 2026-11-13"
+fallback = "false lists the tests as a job with a slot ticket of its own over the listing's own packages, and the test check builds its binaries again in its slot as before"
+consumers = ["crates/north-land-checks/src/land/slots/runner/hold.rs"]

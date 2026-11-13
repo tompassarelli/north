@@ -11,7 +11,7 @@ use super::super::verdict_key;
 use super::super::select::{Config, changed};
 use super::super::selection_record::Recorded;
 use super::arguments::{Arguments, Outcome};
-use super::super::graph_selection::{Away, SELECTED, Selected};
+use super::super::graph_selection::{self, Away, SELECTED, Selected};
 use crate::platform::records_mirror::state_home;
 use super::{say, warn};
 use crate::platform::north_binary::land_north as program;
@@ -29,9 +29,10 @@ struct It {
 }
 
 pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str) -> Selections {
-    let it = it_for(root, arguments, commands, recorded, runner);
+    let closure = scope_for(root, arguments, commands, recorded);
+    let it = it_for(root, arguments, commands, recorded, runner, closure.as_ref());
     let packages = it.as_ref().map(|it| it.packages.clone()).unwrap_or_default();
-    let scope = scope_for(root, arguments, commands, recorded).map(|scope| scope.including(&packages));
+    let scope = closure.map(|scope| scope.including(&packages));
     let no_test = it.as_ref().and_then(|it| it.no_test.clone());
     Selections { scope, it: it.map(|it| it.filters), no_test }
 }
@@ -99,7 +100,7 @@ fn checked_out(root: &Path, tree: &str) -> bool {
     clean && commit("HEAD").is_some_and(|head| Some(head) == commit(tree))
 }
 
-fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str) -> Option<It> {
+fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>, runner: &str, closure: Option<&Scope>) -> Option<It> {
     if !verdict_key::reads_it(commands) {
         return None;
     }
@@ -108,7 +109,12 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
         return Some(It { filters, packages: BTreeSet::new(), no_test: None });
     }
     let program = program();
-    let away = Away::on(Path::new(&program), runner, &arguments.base, arguments.tree());
+    let closure = closure.map(packages_of);
+    let held = arguments.hold.as_deref().filter(|_| super::hold::builds_tests_once());
+    let away = Away::on(Path::new(&program), runner, &arguments.base, arguments.tree()).map(|away| match held {
+        Some(hold) => away.holding(hold, closure.as_ref()),
+        None => away,
+    });
     let stage = if arguments.after { Stage::AfterLanding(&arguments.batch) } else { Stage::BeforePush };
     let selection = verdict_key::lane_it(root, &arguments.base, &arguments.head, stage, away.as_ref(), commands, |error| warn(&format!("safe-push: {error}; the tests/it run covers every module")))?;
     if !arguments.leased {
@@ -120,6 +126,13 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
     shadow_row(arguments, &selected, &since);
     let no_test = if let Selection::NoTest(reason) = &selection { Some(reason.clone()) } else { None };
     Some(It { filters: selection.arguments(), packages: selection.packages(), no_test })
+}
+
+fn packages_of(scope: &Scope) -> graph_selection::Scope {
+    match scope {
+        Scope::Workspace => graph_selection::Scope::Workspace,
+        Scope::Packages { affected, .. } => graph_selection::Scope::Packages(affected.iter().cloned().collect()),
+    }
 }
 
 fn selected(selection: &Selection) -> Selected {

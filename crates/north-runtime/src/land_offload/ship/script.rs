@@ -392,7 +392,7 @@ const HOLD: &str = r#"if [ -n "$holding" ]; then
   echo "@HOLDING@$s as $$"
   while [ "$(date +%s)" -lt "$ends" ]; do sleep 1; done
   echo "offload: the hold on $s ends: it reached its deadline of $limit s" >&2
-  exit 0
+  exit @NO_VERDICT@
 fi
 "#;
 
@@ -632,7 +632,7 @@ pub(super) fn slot_part() -> String {
 }
 
 pub(super) fn hold_part() -> String {
-    HOLD.replace("@HOLDING@", super::hold::HOLDING)
+    HOLD.replace("@HOLDING@", super::hold::HOLDING).replace("@NO_VERDICT@", &super::NO_VERDICT.to_string())
 }
 
 pub(super) fn beside_part() -> String {

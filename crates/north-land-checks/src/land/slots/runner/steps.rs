@@ -14,10 +14,12 @@ pub type Window = (&'static str, f64, f64);
 
 pub const LINE_WAIT: &str = "line wait";
 pub const SANDBOX_START: &str = "sandbox start";
+const TEST_BUILD: &str = "test build";
 
 pub(super) fn begin() {
     STEPS.lock().unwrap_or_else(PoisonError::into_inner).clear();
     let _ = graph_selection::listing_waits();
+    let _ = graph_selection::test_builds();
     *WINDOWS.lock().unwrap_or_else(PoisonError::into_inner) = (crate::land::telemetry::epoch(), Vec::new());
     RECORDING.store(true, Ordering::Relaxed);
 }
@@ -37,6 +39,22 @@ pub(super) fn timed<T>(name: &'static str, run: impl FnOnce() -> T) -> T {
     let began = Instant::now();
     let value = run();
     add(name, began.elapsed());
+    value
+}
+
+/// Times `run` as the selection, less the builds of test binaries its listing ran first in a held slot, which count as a step and a window of their own before it.
+pub(super) fn selection<T>(run: impl FnOnce() -> T) -> T {
+    let began = Instant::now();
+    let value = run();
+    let builds = graph_selection::test_builds();
+    let built = seconds(builds.iter().map(|(started_at, ended_at)| ended_at - started_at).sum());
+    for (started_at, ended_at) in builds {
+        window(TEST_BUILD, started_at, ended_at);
+    }
+    if !built.is_zero() {
+        add(TEST_BUILD, built);
+    }
+    add("selection", began.elapsed().saturating_sub(built));
     value
 }
 

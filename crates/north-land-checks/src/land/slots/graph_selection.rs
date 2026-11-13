@@ -3,6 +3,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, PoisonError};
 
+use north_base::foundation::exit::NO_VERDICT_STATUS;
 use north_build_system::{Resolution, Selection, Shell, Step};
 
 use serde::{Deserialize, Serialize};
@@ -17,9 +18,15 @@ const IT_PACKAGE: &str = "north";
 const FILTER_LIMIT: usize = 96 * 1024;
 
 static LISTING_WAITS: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
+static TEST_BUILDS: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
 
 pub fn listing_waits() -> Vec<(f64, f64)> {
     std::mem::take(&mut *LISTING_WAITS.lock().unwrap_or_else(PoisonError::into_inner))
+}
+
+/// When each build of the test binaries a listing ran first in a held slot started and ended, since the last call.
+pub fn test_builds() -> Vec<(f64, f64)> {
+    std::mem::take(&mut *TEST_BUILDS.lock().unwrap_or_else(PoisonError::into_inner))
 }
 
 #[derive(Deserialize)]
@@ -64,11 +71,28 @@ pub struct Away<'a> {
     pub host: &'a str,
     pub base: &'a str,
     pub tree: &'a str,
+    pub hold: Option<&'a str>,
+    pub closure: Option<&'a Scope>,
 }
 
 impl<'a> Away<'a> {
     pub fn on(program: &'a Path, host: &'a str, base: &'a str, tree: &'a str) -> Option<Self> {
-        (!host.is_empty() && host != "build-host" && host != north_base::platform::host::name()).then_some(Self { program, host, base, tree })
+        (!host.is_empty() && host != "build-host" && host != north_base::platform::host::name()).then_some(Self { program, host, base, tree, hold: None, closure: None })
+    }
+
+    /// This listing joining the slot `hold` names, as a landing run, instead of taking a ticket of its own, and building first the test binaries of the packages `closure` names, which the Rust test check runs, so the listing and that check compile nothing again in that slot.
+    pub fn holding(self, hold: &'a str, closure: Option<&'a Scope>) -> Self {
+        Self { hold: Some(hold), closure, ..self }
+    }
+
+    /// The packages a held listing builds and lists in place of `scope`, so the build covers the Rust test check's packages as well: none for a listing that joins no hold, or whose scope is the workspace while the check's is not.
+    fn built(&self, scope: &Scope) -> Option<Selection> {
+        self.hold?;
+        match (self.closure?, scope) {
+            (Scope::Workspace, _) => Some(Selection::Workspace),
+            (Scope::Packages(_), Scope::Workspace) => None,
+            (Scope::Packages(closure), Scope::Packages(packages)) => Some(Selection::Packages(closure.union(packages).cloned().collect())),
+        }
     }
 }
 
@@ -84,6 +108,9 @@ impl Away<'_> {
         let line = environment.chain(words).collect::<Vec<_>>().join(" ");
         let mut command = Command::new(self.program);
         command.args(["capacity", "offload", "run", "--host", self.host, "--base", self.base, "--head", self.tree, "--timeout", &AWAY_SECONDS.to_string(), "--", &line]).current_dir(root);
+        if let Some(hold) = self.hold {
+            command.env(north_base::foundation::offload::HOLD_ENV, hold).env(north_base::foundation::carry::LANDING, "1");
+        }
         command
     }
 }
@@ -99,19 +126,44 @@ pub fn list(root: &Path, away: Option<&Away<'_>>, scope: &Scope) -> Option<Liste
         Scope::Packages(packages) if packages.is_empty() => return Some(BTreeMap::new()),
         Scope::Packages(packages) => Selection::Packages(packages.iter().cloned().collect()),
     };
-    let request = north_build_system::Tests { root, step: Step::List, selection, resolution: Resolution::PINNED, shell: Shell::LandShell, output: Some(Path::new("target")), uncached: false, coverage: None };
-    let invocation = builder.tests(&request);
+    let built = away.and_then(|away| away.built(scope).map(|built| (away, built)));
+    let request = |step, selection| north_build_system::Tests { root, step, selection, resolution: Resolution::PINNED, shell: Shell::LandShell, output: Some(Path::new("target")), uncached: false, coverage: None };
+    if let Some((away, selection)) = &built {
+        let started = crate::land::telemetry::epoch();
+        let exited = run_listing(&mut away.command(root, &builder.tests(&request(Step::Compile, selection.clone())))).map(|(output, _)| output.status);
+        TEST_BUILDS.lock().unwrap_or_else(PoisonError::into_inner).push((started, crate::land::telemetry::epoch()));
+        no_verdict(away, "build of the test binaries", "the listing builds what it lists itself", exited.as_ref());
+    }
+    let invocation = builder.tests(&request(Step::List, built.as_ref().map_or(selection, |(_, selection)| selection.clone())));
     let mut command = away.map_or_else(|| invocation.command(), |away| away.command(root, &invocation));
     let started = crate::land::telemetry::epoch();
     let (output, waited) = run_listing(&mut command)?;
     if let Some(waited) = waited.filter(|_| away.is_some()) {
         LISTING_WAITS.lock().unwrap_or_else(PoisonError::into_inner).push((started, started + waited));
     }
+    if let Some((away, _)) = &built {
+        no_verdict(away, "test listing", "the selection falls back to the crate closure", Some(&output.status));
+    }
     if !output.status.success() {
         return None;
     }
     let binaries = builder.listing(&String::from_utf8_lossy(&output.stdout)).ok()?;
-    Some(binaries.into_iter().map(|binary| (binary.id, Listed { package: binary.package, tests: binary.tests })).filter(|(_, listed)| !listed.tests.is_empty()).collect())
+    let listed = binaries.into_iter().map(|binary| (binary.id, Listed { package: binary.package, tests: binary.tests })).filter(|(_, listed)| !listed.tests.is_empty()).collect();
+    Some(within(listed, scope))
+}
+
+/// The suites of `listed` whose package `scope` names, by each suite's own package name, so a listing over more packages than the selection asked for hands it only those it asked for.
+pub fn within(listed: ListedTests, scope: &Scope) -> ListedTests {
+    match scope {
+        Scope::Workspace => listed,
+        Scope::Packages(packages) => listed.into_iter().filter(|(_, suite)| packages.contains(&suite.package)).collect(),
+    }
+}
+
+fn no_verdict(away: &Away<'_>, what: &str, then: &str, exited: Option<&std::process::ExitStatus>) {
+    if exited.and_then(std::process::ExitStatus::code) == Some(NO_VERDICT_STATUS) {
+        eprintln!("safe-push: the held slot on {} gave the {what} no verdict (exit {NO_VERDICT_STATUS}), so {then}", away.host);
+    }
 }
 
 /// The listing's output, and the wait in a slot line its standard error reported, which is drained to its end as it streams so the listing never blocks on a full pipe or writes to a closed one.

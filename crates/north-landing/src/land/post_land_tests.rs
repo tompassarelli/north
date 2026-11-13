@@ -310,7 +310,7 @@ fn an_after_landing_suite_is_placed_on_a_build_host_and_never_on_the_control_hos
     let north = scratch.path().join("north");
     let listing = r#"{"rust-suites":{"north-landing::it":{"binary-id":"north-landing::it","package-name":"north-landing","binary-path":"/x","testcases":{"a::b":{}}}}}"#;
     north_base::foundation::shim::write_script(&north, &format!("printf '%s\\n' \"$*\" >> {}\nprintf '%s\\n' 'offload: running in a slot' '{listing}'\n", record.display()));
-    let away = Away { program: &north, host: "cpx62b", base: "base", tree: "tree" };
+    let away = Away { program: &north, host: "cpx62b", base: "base", tree: "tree", hold: None, closure: None };
     let listed = list(&root, Some(&away), &Scope::Workspace).unwrap_or_default();
     assert_eq!(listed.keys().collect::<Vec<_>>(), ["north-landing::it"], "the listing the build host printed is the one the selection reads");
     assert!(!here.exists(), "listing an after-landing run's tests compiled the workspace on the control host");

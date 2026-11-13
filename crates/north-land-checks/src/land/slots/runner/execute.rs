@@ -149,7 +149,7 @@ impl Shared {
         }
         jobs.extend(ordered.iter().filter(|command| !joined.contains(command) && movable(command)).map(|command| vec![command]));
         let pinned = self.pinned + usize::from(batched_here) + ordered.iter().filter(|command| !joined.contains(command) && self.offload_host_for(command).is_some() && !movable(command)).count();
-        if jobs.is_empty() || jobs.len() + pinned < 2 || !self.environment.offload_host.is_empty() {
+        if jobs.is_empty() || jobs.len() + pinned < 2 || !self.environment.offload_host.is_empty() || self.arguments.hold.is_some() {
             return Arc::clone(self);
         }
         let count = jobs.len().to_string();

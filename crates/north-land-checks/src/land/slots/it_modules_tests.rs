@@ -264,6 +264,12 @@ fn a_lane_changing_only_harness_data_runs_the_tests_that_read_it() {
     assert!(collapsed.contains("package(north-a)") && !collapsed.contains("a::whole"), "a wholly included package is one term, and the listing finds its unknown test: {collapsed}");
     assert!(!collapsed.contains("north-gone"), "a binary the listing no longer has, such as a retired crate's, is not named: {collapsed}");
     assert!(!collapsed.contains("north-b"), "a package with no selected test is not run: {collapsed}");
+    let suite = |package: &str| super::super::graph_selection::Listed { package: package.to_owned(), tests: ["t".to_owned()].into() };
+    let held = BTreeMap::from([("north-lander".to_owned(), suite("north-lander")), ("north-lander::it".to_owned(), suite("north-lander")), ("north-lander-doctor".to_owned(), suite("north-lander-doctor"))]);
+    let asked = super::super::graph_selection::Scope::Packages(["north-lander".to_owned()].into());
+    let cut = super::super::graph_selection::within(held.clone(), &asked);
+    assert_eq!(cut.keys().map(String::as_str).collect::<Vec<_>>(), ["north-lander", "north-lander::it"], "a listing over the test check's wider packages hands the selection only the suites of the packages it asked for, by each suite's package, not a name prefix");
+    assert_eq!(super::super::graph_selection::within(held.clone(), &super::super::graph_selection::Scope::Workspace), held, "a workspace listing is not cut");
     let unlisted = super::super::graph_selection::Tests::parse(r#"{"tests":["north-gone gone::test"],"known":1}"#).unwrap();
     assert!(unlisted.with_listed(None).is_none(), "with nothing listed, a binary the graph names cannot be checked, so the selection falls back to the crate closure instead of a filter nextest refuses (north#1099)");
     let many: Vec<String> = (0..8_000).map(|index| format!("north-a a::test_{index:05}")).collect();
