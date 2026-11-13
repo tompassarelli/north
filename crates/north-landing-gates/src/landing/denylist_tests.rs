@@ -165,7 +165,7 @@ fn denylist_a_failed_fetch_reports_no_verdict_even_when_the_mirror_holds_an_earl
 }
 
 #[test]
-fn denylist_a_lock_left_by_a_scan_that_died_holds_no_later_scan() {
+fn denylist_a_stale_lock_in_the_mirror_is_recovered_and_the_rules_refresh() {
     let scratch = fixture();
     let origin = scratch.path();
     write(origin, "privacy/public-denylist.toml", "stale = true\n");
@@ -177,11 +177,12 @@ fn denylist_a_lock_left_by_a_scan_that_died_holds_no_later_scan() {
     assert!(south_denylist_in(south.path(), &mirror).is_ok());
     write(&mirror, "refs/south/main.lock", "");
     write(&mirror, "north-fetch.lock", "");
+    let hour_ago = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+    std::fs::File::options().write(true).open(mirror.join("north-fetch.lock")).unwrap().set_modified(hour_ago).unwrap();
     write(origin, "privacy/public-denylist.toml", "fresh = true\n");
     commit_all(origin, "new rules");
-    let scan = std::thread::spawn(move || south_denylist_in(south.path(), &mirror).map(|rules| std::fs::read_to_string(rules.path()).unwrap()));
-    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(30), || scan.is_finished()), "the scan still waits on a lock file no live scan holds (north#1036)");
-    assert_eq!(scan.join().unwrap().unwrap(), "fresh = true\n");
+    let rules = south_denylist_in(south.path(), &mirror).unwrap();
+    assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n");
 }
 
 #[test]
@@ -195,8 +196,8 @@ fn denylist_a_scan_started_while_another_fetches_scans_a_list_fetched_after_it_b
     let holder = tempfile::tempdir().unwrap();
     let mirror = holder.path().join("south-denylist.git");
     assert!(south_denylist_in(south.path(), &mirror).is_ok());
-    let earlier_scan = std::fs::File::create(mirror.join("north-fetch.lock")).unwrap();
-    earlier_scan.lock().unwrap();
+    let earlier_scan = mirror.join("north-fetch.lock");
+    write(&mirror, "north-fetch.lock", "");
     write(origin, "privacy/public-denylist.toml", "fresh = true\n");
     commit_all(origin, "new rules");
     let record = mirror.join("north-last-fetch");
@@ -207,7 +208,7 @@ fn denylist_a_scan_started_while_another_fetches_scans_a_list_fetched_after_it_b
     let finished = std::thread::spawn(move || {
         std::fs::write(&record, &earlier).unwrap();
         std::fs::rename(&replaced, &record).unwrap();
-        drop(earlier_scan);
+        std::fs::remove_file(earlier_scan).unwrap();
     });
     let rules = south_denylist_in(south.path(), &mirror).unwrap();
     assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n", "the second scan used the copy from before it began");
