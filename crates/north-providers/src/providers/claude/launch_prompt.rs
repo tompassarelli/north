@@ -5,6 +5,8 @@ use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, LaunchRequest, Role};
+use crate::fleet::remote;
+use crate::fleet::runtime::Seen;
 
 const SHELL_PREFIX_ENV: &str = "CLAUDE_CODE_SHELL_PREFIX";
 const WORKER_TOOLS: &str = "Bash,Read,Edit,Write,Grep,Glob,TaskStop";
@@ -20,14 +22,10 @@ pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &st
         }
         return Ok(args);
     }
-    let settings = worker_settings(account, prefix)?;
+    let settings = worker_settings(account, request, prefix)?;
     let tools = if researches(request) { format!("{WORKER_TOOLS}{RESEARCH_TOOLS}") } else { WORKER_TOOLS.to_owned() };
     let mut args = ["--tools", &tools, "--setting-sources", "project,local", "--settings", &settings].map(str::to_owned).to_vec();
-    let policy = match std::fs::read_to_string(account.home.join(POLICY_FILE)) {
-        Ok(text) => text,
-        Err(error) if error.kind() == ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(NorthError::State(format!("{}: {error}", account.home.join(POLICY_FILE).display()))),
-    };
+    let policy = where_it_runs(request, &account.home.join(POLICY_FILE))?.unwrap_or_default();
     let prompt = [instructions, policy.trim_end()].iter().filter(|text| !text.is_empty()).copied().collect::<Vec<_>>().join("\n\n");
     if !prompt.is_empty() {
         args.extend(["--system-prompt".to_owned(), prompt]);
@@ -35,12 +33,31 @@ pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &st
     Ok(args)
 }
 
-fn worker_settings(account: &Account, prefix: &Path) -> NorthResult<String> {
+fn worker_settings(account: &Account, request: &LaunchRequest, prefix: &Path) -> NorthResult<String> {
     let path = account.home.join("settings.json");
-    let unreadable = |error: String| NorthError::State(format!("{}: {error}", path.display()));
-    let text = std::fs::read_to_string(&path).map_err(|error| unreadable(error.to_string()))?;
-    let profile = serde_json::from_str(&text).map_err(|error| unreadable(error.to_string()))?;
+    let text = where_it_runs(request, &path)?.ok_or_else(|| NorthError::State(format!("{}{}: no such file", path.display(), on(request))))?;
+    let profile = serde_json::from_str(&text).map_err(|error| NorthError::State(format!("{}{}: {error}", path.display(), on(request))))?;
     Ok(with_prefix(profile, prefix).to_string())
+}
+
+/// The text of the profile file at `path` where the session runs: on its machine through the session login when it is placed on one, here otherwise; None when no such file is there, an error naming the path and the login when it cannot be read.
+fn where_it_runs(request: &LaunchRequest, path: &Path) -> NorthResult<Option<String>> {
+    let Some(machine) = request.machine.as_ref() else {
+        return match std::fs::read_to_string(path) {
+            Ok(text) => Ok(Some(text)),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(NorthError::State(format!("{}: {error}", path.display()))),
+        };
+    };
+    match remote::read_on(machine, path) {
+        Seen::Text(text) => Ok(Some(text)),
+        Seen::Absent => Ok(None),
+        Seen::Unreachable => Err(NorthError::State(format!("{}{}: unreadable there, or the machine did not answer", path.display(), on(request)))),
+    }
+}
+
+fn on(request: &LaunchRequest) -> String {
+    request.machine.as_ref().map(|machine| format!(" on {} as {}", machine.name, machine.session_login())).unwrap_or_default()
 }
 
 fn with_prefix(mut settings: Value, prefix: &Path) -> Value {

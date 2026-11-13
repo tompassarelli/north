@@ -227,6 +227,62 @@ fn the_script_that_carries_a_conversation_between_account_homes_copies_it_under_
 }
 
 const PROFILE_ENV: &str = "NORTH_TEST_LAUNCH_PROFILE";
+const THERE_ENV: &str = "NORTH_TEST_LAUNCH_THERE";
+const STAND_IN_SSH: &str = r#"while [ $# -gt 0 ]; do case "$1" in -o|-p) shift 2 ;; -*) shift ;; *) break ;; esac; done
+[ -z "$NORTH_TEST_LAUNCH_THERE" ] || printf '%s\n' "$1" >> "$NORTH_TEST_LAUNCH_THERE.logins"
+shift
+[ "$1" = -- ] && shift
+exec sh -c "$(printf '%s' "$*" | sed "s#'/#'$NORTH_TEST_LAUNCH_THERE/#g")"
+"#;
+
+fn stand_in_ssh(scratch: &std::path::Path) -> String {
+    let bin = scratch.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    north_base::foundation::shim::write_script(&bin.join("ssh"), STAND_IN_SSH);
+    format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default())
+}
+
+fn placed_worker_reads_its_profile_there(there: &std::path::Path) {
+    let home = PathBuf::from("/home/agent/.local/state/north/profiles/claude-e");
+    let account = Account { provider: Claude.provider(), label: "e".into(), home: home.clone(), token_file: None, api: None };
+    let machine = Machine { name: "cpx62".into(), ssh: "tom@cpx62".into(), agent_ssh: Some("agent@cpx62".into()) };
+    let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), machine: Some(machine), ..request() };
+    let argv = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap().argv;
+    let settings: serde_json::Value = serde_json::from_str(&argv[argv.iter().position(|arg| arg == "--settings").unwrap() + 1]).unwrap();
+    assert_eq!(settings["hooks"], serde_json::from_str::<serde_json::Value>(HOOKED).unwrap()["hooks"], "{argv:?}");
+    assert!(argv.windows(2).any(|pair| pair == ["--system-prompt", "orders\n\nagent policy"]), "{argv:?}");
+    let logins = std::fs::read_to_string(format!("{}.logins", there.display())).unwrap();
+    assert!(!logins.is_empty() && logins.lines().all(|login| login == "agent@cpx62"), "{logins}");
+    std::fs::remove_file(there.join(home.strip_prefix("/").unwrap()).join("settings.json")).unwrap();
+    let refused = Claude.host(&account, &worker, Opening::Fresh(None), "orders").err().map(|error| error.to_string()).unwrap_or_default();
+    assert!(refused.contains("/home/agent/.local/state/north/profiles/claude-e/settings.json on cpx62 as agent@cpx62"), "{refused}");
+}
+
+#[test]
+fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_machine_through_its_session_login() {
+    if let Some(there) = std::env::var_os(THERE_ENV) {
+        return placed_worker_reads_its_profile_there(std::path::Path::new(&there));
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let north = scratch.path().join("runtime/north");
+    std::fs::create_dir_all(scratch.path().join("runtime")).unwrap();
+    north_base::foundation::shim::write_script(&north, "exit 0\n");
+    let there = scratch.path().join("there");
+    let profile = there.join("home/agent/.local/state/north/profiles/claude-e");
+    std::fs::create_dir_all(&profile).unwrap();
+    std::fs::write(profile.join("settings.json"), HOOKED).unwrap();
+    std::fs::write(profile.join("CLAUDE.md"), "agent policy\n").unwrap();
+
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_machine_through_its_session_login", "--nocapture", "--test-threads=1"])
+        .env(THERE_ENV, &there)
+        .env("PATH", stand_in_ssh(scratch.path()))
+        .env("NORTH_BIN", &north)
+        .env_remove("AGENT_CAPACITY_NORTH")
+        .output()
+        .unwrap();
+    assert!(child.status.success(), "{}{}", String::from_utf8_lossy(&child.stdout), String::from_utf8_lossy(&child.stderr));
+}
 const SHELL_PREFIX: &str = "CLAUDE_CODE_SHELL_PREFIX";
 
 fn the_spawned_tool_server_is_an_existing_executable(profile: &std::path::Path) {
@@ -269,6 +325,7 @@ fn a_worker_launch_writes_a_tool_server_entry_whose_command_is_an_existing_execu
     let child = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["a_worker_launch_writes_a_tool_server_entry_whose_command_is_an_existing_executable", "--nocapture", "--test-threads=1"])
         .env(PROFILE_ENV, &profile)
+        .env("PATH", stand_in_ssh(scratch.path()))
         .env("NORTH_BIN", &north)
         .env_remove("AGENT_CAPACITY_NORTH")
         .output()

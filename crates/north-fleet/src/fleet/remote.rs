@@ -31,6 +31,7 @@ use super::runtime::{HostSpec, Runtime, Seen, binary, new_uuid};
 use super::ssh::SSH_WAIT;
 
 const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
+const ABSENT: i32 = 3;
 
 /// The session's host spec as it runs: here, or over ssh on the machine its record names.
 pub fn placed(spec: HostSpec, record: &SessionRecord, trace: &Path) -> NorthResult<HostSpec> {
@@ -58,16 +59,19 @@ impl HooksCheck {
 
 fn unguarded_where_it_runs(runtime: &dyn Runtime, account: &Account, machine: Option<&Machine>) -> Option<String> {
     let Some(machine) = machine else { return runtime.unguarded(account, &|path| std::fs::read_to_string(path).map_or(Seen::Absent, Seen::Text)) };
-    let read = |path: &Path| {
-        let mut ssh = Command::new(binary("ssh"));
-        ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &format!("cat -- {}", quote(&path.to_string_lossy()))]);
-        match try_run_command_within(ssh, None, SSH_WAIT).ok().flatten() {
-            Some(output) if output.status.success() => Seen::Text(String::from_utf8_lossy(&output.stdout).into_owned()),
-            Some(output) if output.status.code() == Some(1) => Seen::Absent,
-            _ => Seen::Unreachable,
-        }
-    };
-    runtime.unguarded(account, &read).map(|reason| format!("{reason} on {}", machine.name))
+    runtime.unguarded(account, &|path| read_on(machine, path)).map(|reason| format!("{reason} on {}", machine.name))
+}
+
+/// What `path` holds on `machine`, read through its session login, the user the session runs as there: absent only when no such path exists there, unreachable when the machine does not answer or the file is there but unreadable.
+pub fn read_on(machine: &Machine, path: &Path) -> Seen {
+    let quoted = quote(&path.to_string_lossy());
+    let mut ssh = Command::new(binary("ssh"));
+    ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &format!("[ -e {quoted} ] || exit {ABSENT}; cat -- {quoted}")]);
+    match try_run_command_within(ssh, None, SSH_WAIT).ok().flatten() {
+        Some(output) if output.status.success() => Seen::Text(String::from_utf8_lossy(&output.stdout).into_owned()),
+        Some(output) if output.status.code() == Some(ABSENT) => Seen::Absent,
+        _ => Seen::Unreachable,
+    }
 }
 
 pub fn over_ssh(spec: HostSpec, machine: &Machine, session: &str, trace: &Path) -> NorthResult<HostSpec> {
