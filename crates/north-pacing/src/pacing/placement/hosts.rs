@@ -4,6 +4,7 @@ use super::{line_wait, local};
 use crate::capacity::saturation::{self, Saturation};
 use serde_json::{Value, json};
 use super::gate::Machine;
+use north_base::platform::agent_runtime;
 use toml_edit::DocumentMut;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -45,7 +46,7 @@ pub(in crate::pacing) fn resident(name: &str, destination: &str) -> Option<i64> 
     }
     let result = process::run(
         "ssh",
-        &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, ".local/state/north/current/tree/bin/north", "resident-cap", "status"],
+        &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, agent_runtime::OPERATOR_NORTH, "resident-cap", "status"],
         None,
         20.0,
     );
@@ -179,6 +180,8 @@ const STALE_LIMIT_SECONDS: f64 = 600.0;
 
 const ACCOUNTS_CACHE_SECONDS: f64 = 600.0;
 
+const PROFILES: &str = ".local/state/north/profiles";
+
 const SHARED_SECONDS: f64 = 30.0;
 
 const DIRECTORY_SECONDS: f64 = 60.0;
@@ -235,7 +238,14 @@ enum Asked {
     Refresh,
 }
 
-type Asker = dyn Fn(&str, &str, Option<&str>, Asked) -> Facts + Send + Sync;
+/// The login a survey asks a host through: its ssh destination, and whether it is the host's agent login, whose north is the root-named agent runtime and never a program under its own home.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Login<'a> {
+    pub destination: &'a str,
+    pub agent: bool,
+}
+
+type Asker = dyn Fn(&str, Login<'_>, Option<&str>, Asked) -> Facts + Send + Sync;
 
 type Ask = Arc<Asker>;
 
@@ -271,7 +281,7 @@ fn answered(records: &Path, machine: &Machine, cwd: Option<&str>, ask: &Ask) -> 
     let directory = || match cwd {
         Some(dir) if seen_there(records, &machine.name, dir, storage::now()) => Some(true),
         Some(dir) => {
-            let found = ask(&machine.name, machine.session_login(), cwd, Asked::Directory).has_cwd;
+            let found = ask(&machine.name, machine.login(), cwd, Asked::Directory).has_cwd;
             if found == Some(true) {
                 mark_there(records, &machine.name, dir, true);
             }
@@ -280,7 +290,7 @@ fn answered(records: &Path, machine: &Machine, cwd: Option<&str>, ask: &Ask) -> 
         None => None,
     };
     let reused = |facts: Facts, has_cwd: Option<bool>| if cwd.is_some() { Facts { has_cwd, ..facts } } else { facts };
-    let everything = || ask(&machine.name, machine.session_login(), cwd, Asked::Everything);
+    let everything = || ask(&machine.name, machine.login(), cwd, Asked::Everything);
     if let Some(facts) = shared(records, &machine.name, storage::now()) {
         return reused(facts, directory());
     }
@@ -332,7 +342,7 @@ pub(super) fn refresh_every_host() {
 
 fn refresh(machine: &Machine) {
     let records = records();
-    fetch(&machine.name, machine.session_login(), None, Asked::Refresh);
+    fetch(&machine.name, machine.login(), None, Asked::Refresh);
     let here = machine.name == local();
     let seen = load(&records.join(format!("{}.dirs.json", machine.name)));
     for directory in seen.as_object().into_iter().flat_map(|entries| entries.keys()) {
@@ -493,7 +503,8 @@ impl Machine {
     }
 }
 
-fn fetch(name: &str, destination: &str, cwd: Option<&str>, asked: Asked) -> Facts {
+fn fetch(name: &str, login: Login<'_>, cwd: Option<&str>, asked: Asked) -> Facts {
+    let destination = login.destination;
     if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
         let has_cwd = cwd.map(|_| load(Path::new(&path))[name]["has_cwd"].as_bool().unwrap_or(false));
         let saturation = saturation(name, destination);
@@ -511,7 +522,7 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>, asked: Asked) -> Fact
     facts.saturation_age_s = facts.saturation.and(cached["at"].as_f64()).map(|at| now - at);
     let want_saturation = !fresh && !here;
     let known = recorded_accounts(name, now);
-    let reply = ssh_script(destination, &script(!here, want_saturation, known.is_none(), cwd));
+    let reply = ssh_script(destination, &script(login.agent, !here, want_saturation, known.is_none(), cwd));
     if let Some(failure) = probe_failure(destination, &reply).filter(|_| !here && announce_once(destination)) {
         eprintln!("north: {failure}");
     }
@@ -519,7 +530,8 @@ fn fetch(name: &str, destination: &str, cwd: Option<&str>, asked: Asked) -> Fact
     if let Some(sections) = answer.as_deref().map(sections) {
         let section = |label: &str| sections.iter().find(|(name, _)| name == label).map(|(_, body)| body.as_str());
         facts.live = section("live").and_then(live_count);
-        let (accounts, claude_ai) = known.unwrap_or_else(|| (section("accounts").map(claude_labels).unwrap_or_default(), section("claude_ai").map(claude_labels).unwrap_or_default()));
+        let held = |listing: Option<&str>| held_profiles(listing.map(claude_labels).unwrap_or_default(), section("profiles"));
+        let (accounts, claude_ai) = known.unwrap_or_else(|| (held(section("accounts")), held(section("claude_ai"))));
         facts.accounts = accounts;
         facts.claude_ai = claude_ai;
         facts.has_cwd = cwd.map(|_| section("cwd").is_some());
@@ -549,11 +561,9 @@ fn directory_there(here: bool, destination: &str, directory: &str) -> Option<boo
     if here {
         return Some(Path::new(directory).is_dir());
     }
-    let answer = ssh_script(destination, &script(false, false, false, Some(directory))).ok().filter(|r| r.code == 0);
+    let answer = ssh_script(destination, &script(false, false, false, false, Some(directory))).ok().filter(|r| r.code == 0);
     answer.map(|r| sections(&r.out).iter().any(|(label, _)| label == "cwd"))
 }
-
-const RESIDENT_BINARY: &str = ".local/state/north/current/tree/bin/north";
 
 /// The signed-in accounts the last answer recorded when it is under `ACCOUNTS_CACHE_SECONDS` old; they change when a person signs in, not per launch.
 fn recorded_accounts(name: &str, now: f64) -> Option<(Vec<String>, Vec<String>)> {
@@ -563,14 +573,18 @@ fn recorded_accounts(name: &str, now: f64) -> Option<(Vec<String>, Vec<String>)>
     (!facts.accounts.is_empty()).then_some((facts.accounts, facts.claude_ai))
 }
 
-fn script(live: bool, saturation: bool, accounts: bool, cwd: Option<&str>) -> String {
+fn script(agent: bool, live: bool, saturation: bool, accounts: bool, cwd: Option<&str>) -> String {
     let mut parts = Vec::new();
+    if live || accounts {
+        parts.push(agent_runtime::login_north(agent));
+    }
     if live {
-        parts.push(format!("echo '@@live'; {RESIDENT_BINARY} resident-cap status; echo \"@@rc $?\""));
+        parts.push("echo '@@live'; \"$n\" resident-cap status; echo \"@@rc $?\"".to_owned());
     }
     if accounts {
-        parts.push("echo '@@accounts'; north fleet accounts 2>&1; echo \"@@rc $?\"".to_owned());
-        parts.push("echo '@@claude_ai'; north fleet accounts --claude-ai 2>&1; echo \"@@rc $?\"".to_owned());
+        parts.push("echo '@@accounts'; \"$n\" fleet accounts 2>&1; echo \"@@rc $?\"".to_owned());
+        parts.push("echo '@@claude_ai'; \"$n\" fleet accounts --claude-ai 2>&1; echo \"@@rc $?\"".to_owned());
+        parts.push(format!("echo '@@profiles'; ls -1 -- \"$HOME/{PROFILES}\"; echo \"@@rc $?\""));
     }
     if saturation {
         parts.push(format!("echo '@@saturation'; {}; echo \"@@rc $?\"", saturation::PROBE));
@@ -633,6 +647,12 @@ pub(in crate::pacing) fn signed_in(name: &str, destination: &str, claude_ai: boo
 
 fn claude_labels(listing: &str) -> Vec<String> {
     listing.lines().filter_map(|line| line.strip_prefix("claude\t")?.split('\t').next()).map(|label| label.trim().to_owned()).collect()
+}
+
+/// The `labels` whose Claude profile directory the probed login holds, so placement never offers a host for an account its session login cannot run.
+fn held_profiles(labels: Vec<String>, profiles: Option<&str>) -> Vec<String> {
+    let held: BTreeSet<&str> = profiles.unwrap_or_default().lines().map(str::trim).collect();
+    labels.into_iter().filter(|label| held.contains(format!("claude-{label}").as_str())).collect()
 }
 
 /// The live count from `north resident-cap status`, which prints `HOST: LIVE/CAP resident agent CLIs`.

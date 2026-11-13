@@ -88,3 +88,31 @@ fn a_placement_probe_that_cannot_list_accounts_names_its_destination_exit_code_a
     assert_eq!(probe_failure("agent@cpx62", &unreached), Some("probe of agent@cpx62 failed: exit 255: \"ssh: connect to cpx62 port 22: Connection refused\"".to_owned()));
     assert_eq!(probe_failure("agent@cpx62", &listed(0, "@@accounts\n@@rc 0\n@@claude_ai\n@@rc 0\n")), None, "a probe that ran and found no accounts is not a failure");
 }
+
+#[test]
+fn a_probe_as_the_agent_login_runs_the_root_named_agent_runtime_never_one_in_its_home_and_offers_only_accounts_it_holds_a_profile_for() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let (home, runtime, shims) = (root.path().join("agent"), root.path().join("current"), root.path().join("shims"));
+    for directory in [home.join(PROFILES).join("claude-e"), runtime.clone(), shims.clone()] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    let executable = |path: &Path, text: &str| {
+        std::fs::write(path, text).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    executable(&runtime.join("north"), "#!/bin/sh\ncase \"$1\" in resident-cap) echo 'cpx62: 2/8 resident agent CLIs';; fleet) [ \"$AGENTS_OPERATOR_DIR\" = /etc/north/agents ] && printf 'claude\\ta\\nclaude\\te\\n';; esac\n");
+    let planted = home.join(agent_runtime::OPERATOR_NORTH);
+    std::fs::create_dir_all(planted.parent().unwrap()).unwrap();
+    executable(&planted, "#!/bin/sh\necho 'cpx62: 0/8 resident agent CLIs'\nprintf 'claude\\ta\\nclaude\\te\\n'\n");
+    executable(&shims.join("stat"), "#!/bin/sh\ncase \"$3\" in %u) echo 0;; %a) echo 644;; esac\n");
+    let naming = root.path().join("agent-runtime-link");
+    std::fs::write(&naming, format!("{}\n", runtime.display())).unwrap();
+    let probe = script(true, true, false, true, None).replace(agent_runtime::NAMING_FILE, &naming.to_string_lossy());
+    let path = format!("{}:{}", shims.display(), std::env::var("PATH").unwrap_or_default());
+    let ran = std::process::Command::new("sh").env("HOME", &home).env("PATH", path).env_remove("AGENTS_OPERATOR_DIR").args(["-c", &probe]).output().unwrap();
+    let found = sections(&String::from_utf8_lossy(&ran.stdout));
+    let section = |label: &str| found.iter().find(|(name, _)| name == label).map(|(_, body)| body.as_str());
+    assert_eq!(section("live").and_then(live_count), Some(2), "the agent login's probe did not run the root-named agent runtime: {ran:?}");
+    assert_eq!(held_profiles(section("accounts").map(claude_labels).unwrap_or_default(), section("profiles")), vec!["e".to_owned()], "{ran:?}");
+}

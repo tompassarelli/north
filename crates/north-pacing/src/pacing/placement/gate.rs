@@ -87,6 +87,10 @@ impl Machine {
     pub fn session_login(&self) -> &str {
         self.agent_ssh.as_deref().unwrap_or(&self.ssh)
     }
+
+    pub(super) fn login(&self) -> super::hosts::Login<'_> {
+        super::hosts::Login { destination: self.session_login(), agent: self.agent_ssh.is_some() }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -508,7 +512,7 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
                 return why;
             }
             match machine.live {
-                None => format!("{name} unreachable over ssh {}", machine.ssh),
+                None => format!("{name} unreachable over ssh {}", machine.session_login()),
                 Some(live) if machine.cap.is_some_and(|cap| live >= cap) => format!("{name} full: {live}/{} resident CLIs{}", machine.cap.unwrap_or(0), stale_note(machine)),
                 Some(live) => {
                     open.push(machine.clone());
