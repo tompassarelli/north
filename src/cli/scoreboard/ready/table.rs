@@ -2,7 +2,8 @@ use std::fmt::Write;
 
 use north_concerns::registry::{Bound, Concern};
 
-use super::{Bar, Goals, NEEDED_DAYS, Reading, Repo, View, counts};
+use super::bar::{Bar, Goals, Reading, counts};
+use super::{NEEDED_DAYS, Repo, View};
 use crate::cli::scoreboard::duration;
 use crate::foundation::clock::Timestamp;
 

@@ -7,7 +7,8 @@ use std::collections::HashMap;
 use rusqlite::Connection;
 use serde::Deserialize;
 
-use super::{Reading, Window, state_root};
+use super::bar::Reading;
+use crate::cli::scoreboard::{Window, state_root};
 use crate::foundation::clock::Timestamp;
 use crate::platform::watch_named;
 

@@ -1,6 +1,11 @@
 //! The bars read from the runtime's own records, one fleet for every repository: the pinned runtime's journal, how long
 //! a landing took to reach every host, and how far a host's processes lag the live runtime.
-use super::{Bar, DAY_S, Reading, Records, Window, percentile, propagation};
+use super::bar::{Bar, Reading};
+use super::propagation;
+use super::records::Records;
+use super::bar::DAY_S;
+use crate::cli::scoreboard::Window;
+use crate::land::trace::profile::percentile;
 
 impl Records {
     pub(super) fn runtime(&self, bar: Bar, window: Window) -> Option<Reading> {
