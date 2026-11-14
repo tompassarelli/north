@@ -9,6 +9,8 @@ use super::peer::Peer;
 use super::lane_only::readable_in_lane;
 use super::readable::{Reader, readable};
 
+const HOST_NAMED: [&str; 3] = ["HOME", "XDG_CONFIG_HOME", super::sockets::AGENT_ENV];
+
 const SAFE_PUSH_VALUED: [&str; 4] = ["--to", "--tag", "--delete-tag", "--several-commits"];
 
 /// The file a brokered verb opens by its client's word, taken from the client's working directory as the verb would open it: the plan of `north home move`, its one operand that is not a flag, and the `--message FILE` of `safe-push`, whose text becomes the message of the commit it lands.
@@ -33,12 +35,19 @@ fn named_file(arguments: &[String], directory: &Path) -> Option<PathBuf> {
     }
 }
 
+/// What the client of a request with `arguments`, `directory` and `environment` may read, as its domain was built: the lanes of a lane-only caller `peer`, else everything but the logins. The variables that say where the host keeps those logins (`HOST_NAMED`: the home, the configuration home and the agent socket) come from the broker's own environment `own`, never the client's, since a client that sent another `HOME` would move the logins it is refused out of the way (north#1574).
+fn caller_readable(arguments: &[String], directory: &Path, environment: &[(String, String)], own: &[(String, String)], peer: &Peer) -> Vec<PathBuf> {
+    let named = |name: &str| HOST_NAMED.contains(&name);
+    let trusted: Vec<(String, String)> = environment.iter().filter(|(name, _)| !named(name)).chain(own.iter().filter(|(name, _)| named(name))).cloned().collect();
+    let context = Context::from_request(&arguments.join(" "), directory, &trusted);
+    if peer.cgroup().is_none_or(session_scope::lane_only_cgroup) { readable_in_lane(&context, &[]) } else { readable(&context, Reader::Worker) }
+}
+
 /// Refuses a brokered verb that would read a file its client cannot: `north home move` opens its plan and `safe-push` its `--message` file from outside the client's domain, so a path beyond what the client's domain lets it read (the logins, a lane-only client's other lanes and state) would hand back the first two tab fields of that file in a failure message, or publish it as a commit message. Every other brokered verb reads nothing the client names: depbox, the capacity gate and the `--built`, `--lane` and `--program` commands run the client's program in a new domain at least as narrow, `lane unlock|stray|remove|gc|sync` read lane names or checkout paths and enforce their own removal rule, and the `lane_grant` verbs read only the session's own lane.
-pub(super) fn named_file_readable(arguments: &[String], directory: &Path, environment: &[(String, String)], peer: &Peer) -> Result<(), String> {
+pub(super) fn named_file_readable(arguments: &[String], directory: &Path, environment: &[(String, String)], peer: &Peer, own: &[(String, String)]) -> Result<(), String> {
     let Some(file) = named_file(arguments, directory) else { return Ok(()) };
     let real = file.canonicalize().map_err(|error| format!("cannot read {}: {error}", file.display()))?;
-    let context = Context::from_request(&arguments.join(" "), directory, environment);
-    let roots = if peer.cgroup().is_none_or(session_scope::lane_only_cgroup) { readable_in_lane(&context, &[]) } else { readable(&context, Reader::Worker) };
+    let roots = caller_readable(arguments, directory, environment, own, peer);
     if roots.iter().any(|root| real.starts_with(root)) {
         Ok(())
     } else {
@@ -47,13 +56,12 @@ pub(super) fn named_file_readable(arguments: &[String], directory: &Path, enviro
 }
 
 /// Refuses a depbox run that asks for its checkout's pinned store entries when one lies outside what the client's own domain reads, since depbox runs outside that domain and would otherwise hand a lane-only client the store.
-pub(super) fn pinned_entries_readable(arguments: &[String], top: &Path, directory: &Path, environment: &[(String, String)], peer: &Peer, home: &Path) -> Result<Option<String>, String> {
+pub(super) fn pinned_entries_readable(arguments: &[String], top: &Path, directory: &Path, environment: &[(String, String)], peer: &Peer, home: &Path, own: &[(String, String)]) -> Result<Option<String>, String> {
     let Some((_, view)) = environment.iter().find(|(name, value)| name == carry::LAND_STORE_VIEW && !value.is_empty()) else { return Ok(None) };
     if arguments.first().is_none_or(|word| word != "depbox") {
         return Ok(None);
     }
-    let context = Context::from_request(&arguments.join(" "), directory, environment);
-    let roots = if peer.cgroup().is_none_or(session_scope::lane_only_cgroup) { readable_in_lane(&context, &[]) } else { readable(&context, Reader::Worker) };
+    let roots = caller_readable(arguments, directory, environment, own, peer);
     let head = store_pins::viewed_commit(top, view)?;
     for entry in store_pins::pinned_store_entries(top, &head, home) {
         if !entry.canonicalize().is_ok_and(|real| roots.iter().any(|root| real.starts_with(root))) {
@@ -82,9 +90,15 @@ mod tests {
         std::fs::write(lane.join("plan.tsv"), "a\tb\n").unwrap();
         std::fs::write(other.join("secret"), "hidden\tfield\tthird\n").unwrap();
         let environment = vec![("HOME".to_owned(), home.display().to_string())];
-        let ask = |plan: &Path| named_file_readable(&["home".to_owned(), "move".to_owned(), plan.display().to_string()], &lane, &environment, &Peer::from(None));
+        let ask = |plan: &Path| named_file_readable(&["home".to_owned(), "move".to_owned(), plan.display().to_string()], &lane, &environment, &Peer::from(None), &environment);
         assert!(ask(&lane.join("plan.tsv")).is_ok(), "a plan inside the client's own lane is read");
         assert!(ask(&other.join("secret")).is_err(), "a lane-only client's plan beside it is refused");
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        std::fs::write(home.join(".ssh/id_ed25519"), "key\tfield\n").unwrap();
+        let forged = vec![("HOME".to_owned(), root.path().join("elsewhere").display().to_string())];
+        let worker = Peer::from(Some("0::/user.slice/north-worker-n1.scope"));
+        let key = ["safe-push".to_owned(), "--message".to_owned(), home.join(".ssh/id_ed25519").display().to_string()];
+        assert!(named_file_readable(&key, &lane, &forged, &worker, &environment).is_err(), "a client that sends another HOME still cannot have the broker read the logins its domain refuses (north#1574)");
         let entry = home.join(".local/share/makgora-build-inputs/store/base").join("a".repeat(64));
         std::fs::create_dir_all(&entry).unwrap();
         std::fs::create_dir_all(lane.join("pins")).unwrap();
@@ -95,7 +109,7 @@ mod tests {
         }
         let declared = vec![("HOME".to_owned(), home.display().to_string()), (carry::LAND_STORE_VIEW.to_owned(), "pinned".to_owned())];
         let depbox = ["depbox".to_owned(), "run".to_owned(), "--".to_owned(), "bun".to_owned()];
-        assert!(pinned_entries_readable(&depbox, &lane, &lane, &declared, &Peer::from(None), &home).is_err(), "a lane-only client's depbox run binds no store entry its own domain cannot read");
-        assert!(pinned_entries_readable(&depbox, &lane, &lane, &declared, &Peer::from(Some("0::/user.slice/north-worker-n1.scope")), &home).is_ok(), "a client whose domain reads the store binds the entry its head pins");
+        assert!(pinned_entries_readable(&depbox, &lane, &lane, &declared, &Peer::from(None), &home, &environment).is_err(), "a lane-only client's depbox run binds no store entry its own domain cannot read");
+        assert!(pinned_entries_readable(&depbox, &lane, &lane, &declared, &Peer::from(Some("0::/user.slice/north-worker-n1.scope")), &home, &environment).is_ok(), "a client whose domain reads the store binds the entry its head pins");
     }
 }

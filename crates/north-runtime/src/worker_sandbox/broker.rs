@@ -354,9 +354,9 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if let Some(asked) = finish_request::asked(&request.arguments) {
         return run_finish_check(north, asked, &checkout, streams, stream, peer, host);
     }
-    super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, peer)?;
+    super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, peer, &host.environment)?;
     let own_home = own_homes().into_iter().find(|(name, _)| name == "HOME").map(|(_, home)| PathBuf::from(home)).unwrap_or_default();
-    let viewed = super::brokered_reads::pinned_entries_readable(&request.arguments, &checkout.top, &request.directory, &request.environment, peer, &own_home)?;
+    let viewed = super::brokered_reads::pinned_entries_readable(&request.arguments, &checkout.top, &request.directory, &request.environment, peer, &own_home, &host.environment)?;
     let [stdin, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     if !request.directory.is_absolute() {
         return Err(format!("working directory {} is not absolute", request.directory.display()));
