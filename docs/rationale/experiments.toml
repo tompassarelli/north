@@ -887,6 +887,20 @@ after = ["2026-11-15", "2026-12-13"]
 review = "2026-12-15"
 owner = "tompassarelli/north#1435"
 
+[[experiment]]
+id = "north-trusted-mirror"
+change = "the lander reads its candidates and landed commits from a trusted mirror no worker writes, made and read through the new crate north-trusted-mirror"
+landed = "bb72d81f93"
+crates = ["north-trusted-mirror"]
+metric = "none"
+measure = "git log on origin/main over the 28 days after bb72d81f93: commits that fold north-trusted-mirror back into north-landing or move its git invocation elsewhere; keep the crate when there are none"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-15", "2026-12-13"]
+review = "2026-12-15"
+owner = "tompassarelli/north#1485"
+
 [[check]]
 id = "n1039-settle-fleet-session-stopped"
 box = "Settle fleet-session's refused move to stopped."
