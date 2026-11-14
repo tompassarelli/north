@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 const USAGE: &str = "usage:
   eval-b workload --seed S --count N --lander-host HOST --out DIR
-  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A[,A...]] [--parent SESSION] [--hosts H,H] [--burst INITIAL:AFTER_S] [--kill-lander QUEUED:DOWN_S] [--model M] [--effort E] [--checks-on HOST] --work DIR --results FILE
+  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A[,A...]] [--parent SESSION] [--hosts H,H] [--burst INITIAL:AFTER_S] [--kill-lander QUEUED:DOWN_S] [--provider P] [--model M] [--effort E] [--arm NAME] [--checks-on HOST] --work DIR --results FILE
   eval-b t3-tasks --workload DIR --count N --out FILE
   eval-b t3-rows --workload DIR --from EVAL_A_ROWS --results FILE
   eval-b summary --results FILE
@@ -81,7 +81,7 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     let work = PathBuf::from(need(flags, "work")?).join(format!("l{level}-{stamp}"));
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let tasks: Vec<Value> = manifest["tasks"].as_array().into_iter().flatten().skip(first - 1).take(count).map(|task| ladder::unseen(task, &format!("{stamp}-l{level}"))).collect();
-    let plan = ladder::Plan { level, tasks, accounts: flags.get("account").map_or_else(|| vec!["d".to_owned()], |list| list.split(',').map(str::to_owned).collect()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), model: flags.get("model").cloned().unwrap_or_else(|| ladder::PINNED_MODEL.to_owned()), effort: flags.get("effort").cloned().unwrap_or_else(|| ladder::PINNED_EFFORT.to_owned()), checks_on: flags.get("checks-on").cloned() };
+    let plan = ladder::Plan { level, tasks, accounts: flags.get("account").map_or_else(|| vec!["d".to_owned()], |list| list.split(',').map(str::to_owned).collect()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), model: flags.get("model").cloned().unwrap_or_else(|| ladder::PINNED_MODEL.to_owned()), effort: flags.get("effort").cloned().unwrap_or_else(|| ladder::PINNED_EFFORT.to_owned()), provider: flags.get("provider").cloned().unwrap_or_else(|| "claude".to_owned()), arm: flags.get("arm").cloned().unwrap_or_else(|| "north".to_owned()), checks_on: flags.get("checks-on").cloned() };
     let kill = pair(flags, "kill-lander")?;
     let branches: Vec<String> = plan.tasks.iter().map(|t| format!("{}-l{level}", t["id"].as_str().unwrap_or_default())).collect();
     scratch::prepare_laptop(&dir.join("repo"), &branches)?;

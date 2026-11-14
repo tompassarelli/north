@@ -28,6 +28,8 @@ pub struct Plan {
     pub burst: Option<(usize, f64)>,
     pub model: String,
     pub effort: String,
+    pub provider: String,
+    pub arm: String,
     pub checks_on: Option<String>,
 }
 
@@ -74,7 +76,7 @@ fn launch_words(plan: &Plan, task: &Value, account: &str, branch: &str, name: &s
     let tier_reason = format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort);
     let pin = format!("Eval B runs every arm on {}", plan.hosts[0]);
     [
-        "--provider", "claude", "--account", account, "--model", &plan.model, "--effort", &plan.effort, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
+        "--provider", &plan.provider, "--account", account, "--model", &plan.model, "--effort", &plan.effort, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
         "--tier-reason", &tier_reason, "--pin", &pin, "--cwd", &cwd, "--gates-aside", "--no-wait", &text,
     ]
     .map(str::to_owned)

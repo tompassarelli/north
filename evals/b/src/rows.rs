@@ -16,7 +16,7 @@ pub fn conditions(plan: &Plan, base: &str, seed: u64) -> Value {
         "shared_file_share": plan.tasks.iter().filter(|t| t["shared"] == true).count() as f64 / plan.tasks.len().max(1) as f64,
         "orchestrator": sh("hostname -s").out.trim(), "laptop_load_at_start": sh("cut -d' ' -f1-3 /proc/loadavg").out.trim(),
         "host_load_at_start": crate::proc::host_loads(&plan.hosts), "laptop_north_built_from": sh("cut -c1-12 ~/.local/state/north/current/built-from").out.trim(), "other_fleet_sessions_working": working,
-        "model": plan.model, "effort_requested": plan.effort, "context_arm": "context-500k, pinned in every brief so the spare fill before the first wave and the launches draw the same compaction window", "account": plan.accounts.join(","), "harness_north_built_from": harness,
+        "provider": plan.provider, "model": plan.model, "effort_requested": plan.effort, "context_arm": "context-500k, pinned in every brief so the spare fill before the first wave and the launches draw the same compaction window", "account": plan.accounts.join(","), "harness_north_built_from": harness,
         "repo": format!("eval-b synthetic workload, seed {seed}"), "base": base,
         "caches": "cold lanes: fresh worktrees on every host; the workload has no dependencies to warm",
         "local_time_at_start": local_time(crate::proc::now()),
@@ -69,7 +69,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
     let session: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap_or_default()).unwrap_or(Value::Null);
     let transcript = collect::transcript(&dir);
     let attempts = collect::spans(scratch::queue_dir().as_deref(), &run.branch, run.launch_start);
-    let (cost, total) = collect::spend(&dir);
+    let (cost, total) = collect::cost(&dir, &transcript);
     let (resolved_at, reason) = run.resolved.clone().unwrap_or((run.launch_end, "unresolved".to_owned()));
     let landed = reason == "landed";
     let (acceptance, hidden) = if landed { accepted(&plan.work, plan.checks_on.as_deref(), expect, &run.task) } else { (false, "not-run") };
@@ -87,7 +87,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
     conditions["models_observed"] = transcript["models"].clone();
     conditions["effort_observed"] = transcript["efforts"].clone();
     let mut row = json!({
-        "arm": "north", "level": plan.level, "task": run.task["id"], "shared": run.task["shared"], "session": run.name, "branch": run.branch,
+        "arm": plan.arm, "level": plan.level, "task": run.task["id"], "shared": run.task["shared"], "session": run.name, "branch": run.branch,
         "launched_at": local_time(run.launch_start), "launch_epoch": run.launch_start, "launch_s": (run.launch_end - run.launch_start).round(), "launch_exit": run.launch_exit,
         "launch_output": run.launch_output.chars().rev().take(1500).collect::<Vec<_>>().into_iter().rev().collect::<String>(),
         "first_request_s": after(run.launch_start, transcript["first_request_at"].as_f64()),

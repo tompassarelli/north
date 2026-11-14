@@ -80,7 +80,7 @@ pub fn print(rows: &[Value]) {
         for line in level_block(arm, *level, group) {
             println!("{line}");
         }
-        if arm != "north" {
+        if !arm.starts_with("north") {
             for line in sequential_scale(group) {
                 println!("{line}");
             }

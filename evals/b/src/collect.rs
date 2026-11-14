@@ -4,7 +4,17 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::proc::{rfc3339_epoch, run, ssh};
+use crate::proc::{TOOLPATH, rfc3339_epoch, run, ssh};
+
+const OPENCODE: &str = "opencode";
+const STORE: &str = "opencode-steps.jsonl";
+const PRICES: &str = include_str!("../../../crates/north-pace/src/router/prices.json");
+
+/// The assistant messages of `conversation` in the store of the opencode host that served `name`, one JSON object a line: the host keeps opencode's data under `north-opencode-NAME` in the temp directory of the launch that `--scratch` named.
+fn opencode_steps(name: &str, conversation: &str) -> String {
+    let store = std::env::temp_dir().join(format!("north-opencode-{name}")).join("data/opencode/opencode.db");
+    format!("PATH={TOOLPATH}:$PATH sqlite3 -readonly '{}' \"SELECT data FROM session_message WHERE session_id = '{conversation}' AND type = 'assistant' ORDER BY seq\"", store.display())
+}
 
 pub fn session(work: &Path, name: &str) {
     let dir = work.join(name);
@@ -14,10 +24,13 @@ pub fn session(work: &Path, name: &str) {
     let _ = fs::write(dir.join("spend.txt"), run("north", &["fleet", "spend", name], None).out);
     let session: Value = serde_json::from_str(&shown).unwrap_or(Value::Null);
     if let Some(conversation) = session["conversation"].as_str() {
-        let find = format!("fd -t f -H -I -g '{conversation}.jsonl' ~/.local/state/north/profiles -x cat");
+        let (file, read) = match session["provider"].as_str() {
+            Some(OPENCODE) => (STORE, opencode_steps(name, conversation)),
+            _ => ("transcript.jsonl", format!("fd -t f -H -I -g '{conversation}.jsonl' ~/.local/state/north/profiles -x cat")),
+        };
         let machine = machine(&session);
-        let text = if machine == here() { crate::proc::sh(&find).out } else { ssh(&machine, &find).out };
-        let _ = fs::write(dir.join("transcript.jsonl"), text);
+        let text = if machine == here() { crate::proc::sh(&read).out } else { ssh(&machine, &read).out };
+        let _ = fs::write(dir.join(file), text);
     }
     let _ = fs::write(dir.join("gates.json"), aside_gates(name));
     let stopped = run("north", &["fleet", "stop", name], None);
@@ -59,7 +72,42 @@ fn tool_texts(record: &Value) -> Vec<(bool, String)> {
         .collect()
 }
 
+/// The cost and total tokens of a session whose usage its own store priced, else what `north fleet spend` printed for it.
+pub fn cost(dir: &Path, usage: &Value) -> (Option<f64>, Option<u64>) {
+    let total = usage["tokens"].as_object().map(|tokens| tokens.values().filter_map(Value::as_u64).sum::<u64>());
+    usage["cost_usd"].as_f64().map_or_else(|| spend(dir), |dollars| (Some(dollars), total))
+}
+
+/// The tokens, models and first request of an opencode session's assistant messages, reasoning counted as output as north's opencode host counts it, priced at the list prices in `crates/north-pace/src/router/prices.json` because the Go plan records every request at zero.
+fn opencode(text: &str) -> Value {
+    let steps: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+    let prices: Value = serde_json::from_str(PRICES).unwrap_or(Value::Null);
+    let model = |step: &Value| format!("{}/{}", step["model"]["providerID"].as_str().unwrap_or_default(), step["model"]["id"].as_str().unwrap_or_default());
+    let count = |step: &Value, key: &str| step.pointer(key).and_then(Value::as_u64).unwrap_or(0);
+    let mut tokens = [0u64; 4];
+    let mut dollars = Some(0.0);
+    for step in &steps {
+        let used = [count(step, "/tokens/input"), count(step, "/tokens/output") + count(step, "/tokens/reasoning"), count(step, "/tokens/cache/read"), count(step, "/tokens/cache/write")];
+        let price = &prices["models"][model(step)];
+        let priced: Option<f64> = used.iter().zip(["input", "output", "cache_read", "cache_write"]).map(|(n, key)| Some(*n as f64 * price[key].as_f64()? / 1e6)).sum();
+        dollars = dollars.zip(priced).map(|(a, b)| a + b);
+        tokens.iter_mut().zip(used).for_each(|(total, n)| *total += n);
+    }
+    let unique = |pick: &dyn Fn(&Value) -> Option<String>| steps.iter().filter_map(pick).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    json!({
+        "first_request_at": steps.first().and_then(|s| s.pointer("/time/created")?.as_f64()).map(|ms| ms / 1000.0),
+        "tokens": {"input": tokens[0], "output": tokens[1], "cache_read": tokens[2], "cache_write": tokens[3]},
+        "cost_usd": dollars.map(|d| (d * 1e6).round() / 1e6), "price_source": "crates/north-pace/src/router/prices.json",
+        "model_requests": steps.len(), "handins": null, "refusal_mentions": null,
+        "models": unique(&|s| Some(model(s))), "efforts": unique(&|s| s["model"]["variant"].as_str().map(str::to_owned)), "claude_code": [],
+        "records": steps.len(),
+    })
+}
+
 pub fn transcript(dir: &Path) -> Value {
+    if let Ok(text) = fs::read_to_string(dir.join(STORE)) {
+        return opencode(&text);
+    }
     let text = fs::read_to_string(dir.join("transcript.jsonl")).unwrap_or_default();
     let records: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
     let assistant: Vec<&Value> = records.iter().filter(|r| r["type"] == "assistant" && r["message"]["usage"].is_object()).collect();
