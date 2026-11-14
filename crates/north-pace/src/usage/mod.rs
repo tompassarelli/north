@@ -176,12 +176,15 @@ pub struct Host<'a> {
     pub token_headers: &'a dyn Fn(&Path) -> TokenHeaders,
 }
 
-/// The reading `north fleet usage --refresh` takes, recorded in the usage table and the pace gate, with nothing printed.
+/// One reading of every configured account, recorded in the usage table and the pace gate, with nothing printed: the
+/// sampler's reading first, which alone reads a token-only account from its response headers, then `--refresh`'s.
 pub fn refresh(host: &Host) -> Result<(), String> {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let source = store::Source::locate(&home, std::env::var_os("THREADS_DB"));
     let db = store::open_writable(&source, host.refresh_snapshot)?;
-    refresh::refresh_readings(&db, &source, &Places::from_env(), true, host)
+    let places = Places::from_env();
+    refresh::sample_readings(&db, &source, &places, host)?;
+    refresh::refresh_readings(&db, &source, &places, true, host)
 }
 
 pub fn run(arguments: &[String], host: &Host) -> u8 {

@@ -21,6 +21,7 @@ const POLL: Duration = Duration::from_millis(50);
 
 pub const SOCKET: &str = "host.sock";
 const SERVED_BY: &str = "host.account";
+const START_STDERR: &str = "host-start.stderr";
 
 pub struct Host {
     dir: PathBuf,
@@ -66,6 +67,7 @@ impl Host {
         fs::write(self.dir.join(SERVED_BY), served_by).map_err(|error| NorthError::io_at(error, || format!("writing {}", self.dir.join(SERVED_BY).display())))?;
         let unit = session_scope::session_unit(provider.label(), &new_uuid()?);
         fs::write(session_host_files::scope_path(&self.dir), &unit).map_err(|error| NorthError::io_at(error, || format!("writing {}", session_host_files::scope_path(&self.dir).display())))?;
+        let start_stderr = fs::File::create(self.dir.join(START_STDERR)).map_err(|error| NorthError::io_at(error, || format!("creating {}", self.dir.join(START_STDERR).display())))?;
         let mut command = Command::new(binary("setsid"));
         command
             .arg(binary("systemd-run"))
@@ -87,7 +89,7 @@ impl Host {
             .current_dir(&spec.cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(start_stderr);
         if let Some(path) = session_scope::login_path(&binary("systemctl")) {
             command.env("PATH", path);
         }
@@ -101,10 +103,21 @@ impl Host {
         let _ = fs::remove_file(session_host_files::pid_path(&self.dir));
         let pid = command.spawn().map_err(|error| NorthError::io_at(error, || format!("starting the session host in {}", spec.cwd.display())))?.id();
         if let Err(error) = self.await_socket(pid) {
-            self.terminate()?;
-            return Err(error);
+            return Err(self.start_failure(&error, self.terminate()));
         }
         self.pid().ok_or_else(|| NorthError::State("session host did not record its pid".into()))
+    }
+
+    fn start_failure(&self, cause: &NorthError, stopped: NorthResult<()>) -> NorthError {
+        let said = fs::read_to_string(self.dir.join(START_STDERR)).unwrap_or_default();
+        let mut text = format!("the session host did not start: {cause}");
+        if !said.trim().is_empty() {
+            text.push_str(&format!("; its start command said: {}", said.trim()));
+        }
+        if let Err(error) = stopped {
+            text.push_str(&format!("; stopping its scope also failed: {error}"));
+        }
+        NorthError::Refused(text)
     }
 
     pub fn send(&self, frames: &[String]) -> NorthResult<()> {
