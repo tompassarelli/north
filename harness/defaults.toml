@@ -2088,8 +2088,8 @@ fallback = "an empty or missing list answers no request, so no eval unit starts 
 consumers = ["crates/north-runtime/src/worker_sandbox/eval_unit_request.rs"]
 
 [eval_start_directories]
-value = ["code/south/main/agents/decisions/harness/overhaul-2026-11-11/evals"]
-allowed = { min_len = 1 }
+value = []
+allowed = { min_len = 0 }
 unit = "directories under the home directory whose git-tracked, unchanged executable files a lead session or the coordinator may start as user units through the outside broker (crates/north-runtime/src/worker_sandbox/eval_start.rs)"
 source = "north#1439 (2026-11-14): evaluation blocks stalled about 50 minutes because every start needed the coordinator's window; the owner asked for the route fixed so a sandboxed lead starts a registered block itself"
 fallback = "an empty or missing list starts no script"

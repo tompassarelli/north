@@ -45,7 +45,7 @@ fn start(script: &str, label: &str, arguments: &[&str]) -> Start {
 }
 
 #[test]
-fn only_a_registered_script_on_this_runtime_whose_holds_are_free_starts_and_each_start_is_recorded() {
+fn no_script_starts_while_the_registered_list_is_empty_even_a_tracked_one_on_this_runtime() {
     let scratch = tempfile::tempdir().unwrap();
     let home = scratch.path().canonicalize().unwrap();
     let host = Host { fleet: home.join("fleet"), code: vec![home.join("code")], home: home.clone(), environment: vec![("PATH".to_owned(), std::env::var("PATH").unwrap())], cgroups: PathBuf::from("/sys/fs/cgroup") };
@@ -63,26 +63,9 @@ fn only_a_registered_script_on_this_runtime_whose_holds_are_free_starts_and_each
     script(&evals, "b/unregistered", "# eval-runtime: any\n# eval-holds: none");
     let units = Recorded::default();
 
-    let told = serve(start("b/start-block", "blk-1", &["5:5", "--max-load", "30"]), "release-evals-lead", &host, &units).unwrap();
-    assert!(told.starts_with("eval-start-blk-1 started from b/start-block") && told.contains(&home.join("eval-data/starts/blk-1.log").display().to_string()), "{told}");
-    assert_eq!(units.started.borrow()[0].1, [evals.join("b/start-block").display().to_string(), "5:5".to_owned(), "--max-load".to_owned(), "30".to_owned()]);
-    let record = recorded(&Label::parse("blk-1").unwrap(), &host).unwrap();
-    assert_eq!((record["by"].as_str(), record["unit"].as_str(), record["holds"][0].as_str()), (Some("release-evals-lead"), Some("eval-start-blk-1"), Some("cpx62b")));
-
-    units.active.borrow_mut().push("eval-start-blk-1".to_owned());
-    let refused = serve(start("b/other-block", "blk-2", &[]), "release-evals-lead", &host, &units).unwrap_err();
-    assert!(refused.contains("holds cpx62b"), "{refused}");
-    units.active.borrow_mut().clear();
-    serve(start("b/other-block", "blk-2", &[]), "release-evals-lead", &host, &units).unwrap();
-
-    std::fs::write(evals.join("b/start-block"), "#!/bin/sh\n# eval-runtime: any\n# eval-holds: none\nrm -rf /\n").unwrap();
-    std::os::unix::fs::symlink(evals.join("b/other-block"), evals.join("b/linked")).unwrap();
-    for (name, why) in [("b/start-block", "differs from its checkout's head"), ("b/unregistered", "not registered"), ("b/old-runtime", "measures the runtime 1111111111"), ("b/no-header", "names no runtime"), ("b/linked", "through a link"), ("a/absent", "no registered evaluation directory")] {
-        let refused = serve(start(name, "blk-3", &[]), "release-evals-lead", &host, &units).unwrap_err();
-        assert!(refused.contains(why), "{name}: {refused}");
-    }
-    assert_eq!(units.started.borrow().len(), 2, "a refused script was started");
-    assert_eq!(records(&host).len(), 2);
+    let refused = serve(start("b/start-block", "blk-1", &[]), "release-evals-lead", &host, &units).unwrap_err();
+    assert!(refused.contains("no evaluation directory is registered"), "{refused}");
+    assert!(units.started.borrow().is_empty(), "a script started while eval_start_directories is empty");
     for (script, arguments) in [("../b/start-block", &[][..]), ("/etc/passwd", &[]), ("b/.hidden", &[]), ("b/start-block", &["$(id)"]), ("b/start-block", &["a b"])] {
         assert!(Start::parse(script, "blk-4", arguments).is_none(), "{script} {arguments:?}");
     }

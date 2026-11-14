@@ -64,6 +64,9 @@ fn git(directory: &Path, host: &Host, arguments: &[&str]) -> Result<std::process
 
 /// The registered file `script` names under one of `roots`, with its bytes: a regular executable file reached through no link, tracked by git and unchanged against its checkout's head.
 fn registered(script: &Script, roots: &[PathBuf], host: &Host) -> Result<(PathBuf, Vec<u8>), String> {
+    if roots.is_empty() {
+        return Err(format!("no evaluation directory is registered ({DIRECTORIES} is empty), so no script starts"));
+    }
     let (root, path) = roots.iter().map(|root| (root, root.join(&script.0))).find(|(_, path)| path.symlink_metadata().is_ok()).ok_or_else(|| format!("{} is in no registered evaluation directory ({DIRECTORIES})", script.0))?;
     if path.canonicalize().ok().as_ref() != Some(&path) {
         return Err(format!("{} is reached through a link", path.display()));
