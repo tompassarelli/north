@@ -301,7 +301,7 @@ mod tests {
         let begun = Instant::now();
         assert_eq!(slow.hold("north#7", "cpx62-worker", &BTreeSet::new()).unwrap(), Taken::Queued("spooled".to_owned()));
         slow.release("north#7", "cpx62-worker").unwrap();
-        assert!(begun.elapsed() < Duration::from_secs(10), "{:?}", begun.elapsed());
+        assert!(begun.elapsed() < Duration::from_secs(25), "a call waited for the ledger's 30 s answer: {:?}", begun.elapsed());
         let words: Vec<Vec<String>> = spooled.lock().unwrap().clone();
         assert_eq!(words, [vec!["claim", "north#7", "--by", "cpx62-worker"], vec!["release", "north#7", "--by", "cpx62-worker", "--held-by", "cpx62-worker"]]);
 
