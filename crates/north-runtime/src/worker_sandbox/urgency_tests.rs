@@ -49,30 +49,32 @@ impl Fixture {
         git(&main, &["init", "-q", "-b", "main"]);
         git(&main, &["commit", "-q", "--allow-empty", "-m", "one"]);
         git(&main, &["worktree", "add", "-q", lane.to_str().unwrap(), "-b", "urgent"]);
-        for (name, unit, urgent) in [("coordinated", URGENT_SCOPE, true), ("worker", NORMAL_SCOPE, false)] {
+        for (name, unit, urgent, role) in [("coordinated", URGENT_SCOPE, true, "lead"), ("worker", NORMAL_SCOPE, false, "worker")] {
             std::fs::create_dir_all(fleet.join(name)).unwrap();
             std::fs::write(session_host_files::scope_path(&fleet.join(name)), format!("{unit}\n")).unwrap();
-            std::fs::write(crate::fleet::records::record_file(&fleet.join(name)), serde_json::json!({ "name": name, "urgent": urgent }).to_string()).unwrap();
+            std::fs::write(crate::fleet::records::record_file(&fleet.join(name)), serde_json::json!({ "name": name, "urgent": urgent, "role": role }).to_string()).unwrap();
         }
         std::fs::write(home.join(session_host_files::HELD).join(HELD_UNIT).join(session_host_files::BOUND_CONVERSATION), PLACED).unwrap();
-        std::fs::write(crate::fleet::records::record_file(&fleet.join(session_host_files::PLACED).join(PLACED)), serde_json::json!({ "name": "placed", "urgent": true }).to_string()).unwrap();
+        std::fs::write(crate::fleet::records::record_file(&fleet.join(session_host_files::PLACED).join(PLACED)), serde_json::json!({ "name": "placed", "urgent": true, "parent": "coordinated" }).to_string()).unwrap();
         for program in ["ssh", "git"] {
             write_executable(&bin.join(program), "#!/bin/sh\nexit 0\n");
         }
         let north = root.path().join("north");
-        write_executable(&north, format!("#!/bin/sh\nprintf '%s' \"${{{URGENT_ENV}:-}}\" > {}\nprintf '%s' \"${{NORTH_FLEET_SESSION:-}}\" > {}\n", root.path().join("mark").display(), root.path().join("session").display()));
+        write_executable(&north, format!("#!/bin/sh\nprintf '%s' \"${{{URGENT_ENV}:-}}\" > {}\nprintf '%s' \"${{NORTH_FLEET_SESSION:-}}\" > {}\nprintf '%s' \"${{NORTH_FLEET_ROLE:-}}\" > {}\n", root.path().join("mark").display(), root.path().join("session").display(), root.path().join("role").display()));
         let environment = vec![("HOME".to_owned(), home.display().to_string()), ("PATH".to_owned(), bin.display().to_string())];
         let host = Host { fleet, code: vec![home.join("code")], home, environment, cgroups: root.path().join("cgroup") };
         Self { root, host, north, lane }
     }
 
     fn mark(&self, cgroup: &str, words: &str) -> String {
-        let _ = std::fs::remove_file(self.root.path().join("mark"));
+        for written in ["mark", "session", "role"] {
+            let _ = std::fs::remove_file(self.root.path().join(written));
+        }
         let (client, server) = UnixStream::pair().unwrap();
         let (_out, out_writer) = std::io::pipe().unwrap();
         let (_err, err_writer) = std::io::pipe().unwrap();
         let stdin = File::open("/dev/null").unwrap();
-        let claimed = vec![(URGENT_ENV.to_owned(), "1".to_owned()), ("NORTH_FLEET_SESSION".to_owned(), "coordinated".to_owned())];
+        let claimed = vec![(URGENT_ENV.to_owned(), "1".to_owned()), ("NORTH_FLEET_SESSION".to_owned(), "coordinated".to_owned()), ("NORTH_FLEET_ROLE".to_owned(), "proxy".to_owned())];
         std::thread::scope(|scope| {
             let served = scope.spawn(|| broker::answer(&self.north, &server, &Peer::from(Some(cgroup)), &self.host));
             let request = Request { arguments: words.split(' ').map(str::to_owned).collect(), directory: self.lane.clone(), environment: claimed };
@@ -109,7 +111,8 @@ fn an_urgent_job_queued_after_a_normal_one_is_taken_first_and_a_brokered_command
     let gate = "safe-push --to main";
     let offload = "capacity offload slots";
     let mut failures = Vec::new();
-    for (caller, words, expected, session) in [(in_unit(URGENT_SCOPE), gate, "1", "coordinated"), (in_unit(URGENT_SCOPE), offload, "1", "coordinated"), (in_unit(HELD_UNIT), gate, "1", "placed"), (in_unit(NORMAL_SCOPE), gate, "", "worker"), (in_unit(NORMAL_SCOPE), offload, "", "worker")] {
+    let built = "--worker-sandbox --built -- true";
+    for (caller, words, expected, session, role) in [(in_unit(URGENT_SCOPE), gate, "1", "coordinated", "lead"), (in_unit(URGENT_SCOPE), offload, "1", "coordinated", "lead"), (in_unit(HELD_UNIT), gate, "1", "placed", "worker"), (in_unit(NORMAL_SCOPE), gate, "", "worker", "worker"), (in_unit(NORMAL_SCOPE), offload, "", "worker", "worker"), (in_unit(NORMAL_SCOPE), built, "", "worker", "worker")] {
         let seen = fixture.mark(&caller, words);
         if seen != expected {
             failures.push(format!("the broker gave `{words}` from {} the urgent mark {seen:?}, not {expected:?}", caller.trim()));
@@ -117,6 +120,10 @@ fn an_urgent_job_queued_after_a_normal_one_is_taken_first_and_a_brokered_command
         let ran_as = std::fs::read_to_string(fixture.root.path().join("session")).unwrap_or_default();
         if ran_as != session {
             failures.push(format!("the broker ran `{words}` from {} as the session {ran_as:?}, not its own {session:?}, though the request named coordinated", caller.trim()));
+        }
+        let ran_role = std::fs::read_to_string(fixture.root.path().join("role")).unwrap_or_default();
+        if ran_role != role {
+            failures.push(format!("the broker ran `{words}` from {} with the role {ran_role:?}, not its recorded {role:?}, though the request named proxy, so a worker's build output run left its domain (north#1574)", caller.trim()));
         }
     }
     let places = fixture.places();

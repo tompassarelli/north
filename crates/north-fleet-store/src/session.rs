@@ -99,6 +99,15 @@ impl Role {
             .find(|role| role.label() == text)
             .ok_or_else(|| NorthError::Usage(format!("no role {text}; use one of {}", Self::ALL.map(Self::label).join(", "))))
     }
+
+    /// The role of a session record that names none: a worker's when it was launched for a parent or a task (`coordinated`), the proxy seat's when it carries that seat's `name`, else a lead's.
+    pub fn unnamed(coordinated: bool, name: &str) -> Self {
+        match (coordinated, name == crate::runtime::PROXY) {
+            (true, _) => Self::Worker,
+            (false, true) => Self::Proxy,
+            (false, false) => Self::Lead,
+        }
+    }
 }
 
 
@@ -264,11 +273,7 @@ impl SessionRecord {
     }
 
     pub fn role(&self) -> Role {
-        self.role.unwrap_or_else(|| match (self.parent.is_some() || self.task_ref.is_some(), self.name == crate::runtime::PROXY) {
-            (true, _) => Role::Worker,
-            (false, true) => Role::Proxy,
-            (false, false) => Role::Lead,
-        })
+        self.role.unwrap_or_else(|| Role::unnamed(self.parent.is_some() || self.task_ref.is_some(), &self.name))
     }
 
     /// Every issue this session holds a claim on: its task and the others its Item line named.
