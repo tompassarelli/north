@@ -106,6 +106,8 @@ fn a_second_session_cannot_hold_the_proxy_name_while_the_first_is_live() {
     assert_eq!(fleet.session("proxy").unwrap().addressed_since(), 5, "the window takes every message sent since the old holder began");
     let refused = fleet.revive("proxy", None).unwrap_err().user_message();
     assert!(refused.contains("interactive window"), "{refused}");
+    let followed = fleet.follow_recent("proxy").expect("north fleet lists an adopted name it cannot tail");
+    assert_eq!(followed.transcript().status, crate::fleet::model::Status::Idle, "the fleet window shows the live window idle");
 
     let sender = std::thread::spawn(move || fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "proxy", "hello", crate::fleet::model::Delivery::Queued).map(|_| fleet));
     let lines = received(&first);
