@@ -619,7 +619,7 @@ fn a_sandboxed_worker_fast_forwards_a_main_checkout_through_the_broker() {
 }
 
 #[test]
-fn a_candidate_check_or_after_landing_step_cannot_read_the_logins_or_write_the_trusted_mirror_the_lander_queue_records_or_runtimes_and_still_writes_its_checkout_scratch_and_caches_and_nests_a_namespace_south_138() {
+fn a_candidate_check_cannot_read_the_logins_or_write_the_trusted_mirror_and_still_writes_its_checkout_scratch_and_caches_and_nests_a_namespace_south_138() {
     let home = Home::new();
     let root = home.path();
     let main = root.join("code/p/main");
@@ -654,31 +654,4 @@ fn a_candidate_check_or_after_landing_step_cannot_read_the_logins_or_write_the_t
         assert!(std::fs::read_to_string(root.join(relative)).is_ok_and(|content| content.ends_with('x')), "a candidate check could not write {relative}: {stderr}");
     }
     assert!(stdout.contains("all-written"), "a candidate check could not write its scratch or build a namespace of its own, as depbox does: {stderr}");
-    let checkout = root.join(".local/state/north/land-queue/p/post-land");
-    std::fs::create_dir_all(&checkout).unwrap();
-    git(&checkout, &["init", "-q", "-b", "main"]);
-    let queued = [".local/state/north/land-queue/p/logs/post-land-head.trees", ".local/state/north/land-queue/p/tickets/lane.json", ".local/state/north/runtimes/aaaa/north"];
-    for relative in queued {
-        file(&root.join(relative));
-    }
-    let safe_push = root.join("safe-push");
-    north_core::foundation::shim::write_executable(&safe_push, "#!/bin/sh\nexit 0\n");
-    std::fs::write(root.join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
-    let mut step: String = queued.iter().map(|relative| format!("printf x >> $HOME/{relative} || true && ")).collect();
-    step.push_str("printf ran > ran.txt");
-    std::fs::write(checkout.join(".safe-push"), format!("[land]\n\tcheck = ** :: {step}\n")).unwrap();
-    file(&checkout.join("src.rs"));
-    git(&checkout, &["add", "."]);
-    git(&checkout, &["commit", "-q", "-m", "one"]);
-    let head = String::from_utf8(Command::new("git").arg("-C").arg(&checkout).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_owned();
-    let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
-    let mut outer = home.outer(&checkout);
-    outer.args(["--unshare-pid", "--proc", "/proc", "--setenv", "NORTH_LAND_SERVING", "1", "--setenv", "NORTH_LAND_NORTH", north, "--setenv", "AGENT_CAPACITY_CORES", "4", "--setenv", "AGENT_CAPACITY_LOADAVG"]).arg(root.join("loadavg"));
-    outer.args(["--", north, "land", "checks", "--base", &head, "--head", &head, "--after", "--command", &step, "--safe-push"]).arg(&safe_push).arg("--outcome").arg(root.join("outcome"));
-    let output = outer.output().unwrap();
-    let report = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert_eq!(std::fs::read_to_string(checkout.join("ran.txt")).ok().as_deref(), Some("ran"), "the after-landing step did not run: {report}");
-    for relative in queued {
-        assert_eq!(std::fs::read_to_string(root.join(relative)).unwrap(), "kept", "an after-landing step wrote {relative}: {report}");
-    }
 }

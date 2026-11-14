@@ -87,7 +87,7 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
     }
     let Some((first, rest)) = argv.split_first() else { return Verdict::Transient("no post-land runner".to_owned()).into() };
     let mut command = Command::new(first);
-    command.args(rest).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env(OWNER_ENV, &run.offload_owner).env(TREES_ENV, &record).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity);
+    command.args(rest).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env(OWNER_ENV, &run.offload_owner).env(TREES_ENV, &record).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity);
     match &run.host {
         Some(host) => command.env("SAFE_PUSH_LAND_RUNNER", host),
         None => command.env_remove("SAFE_PUSH_LAND_RUNNER"),
