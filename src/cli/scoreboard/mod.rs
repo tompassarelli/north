@@ -15,7 +15,7 @@ use crate::ledger::outcome::{self, read::Places};
 mod audit;
 mod cause;
 mod chain;
-mod graded;
+pub(super) mod graded;
 mod landing;
 mod lanes;
 mod losses;

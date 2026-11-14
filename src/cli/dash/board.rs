@@ -56,6 +56,7 @@ pub(super) fn of(screen: &Screen) -> Board {
         (None, Some(closed)) => format!("landings unread · {closed} boxes closed ({:.1}/h{whole})", closed as f64 / hours),
         (None, None) => "landings and boxes unread".to_owned(),
     };
+    let first_line = format!("{first_line} · {}", super::scoreboard::graded::line(screen.graded.as_ref().ok()));
     Board {
         first_line,
         panels: vec![work_panel(screen, &window), accounts_panel(screen, &window), infra_panel(screen), health_panel(screen, &window)],

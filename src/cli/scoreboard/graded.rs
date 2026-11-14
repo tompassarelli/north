@@ -1,6 +1,7 @@
 use super::{Better, Figure, Measure};
 use crate::ledger::ClosedReport;
 
+const NAME: &str = "boxes graded by their own check";
 const SOURCE: &str = "boxes a worker run landed in each window that are ticked in their issue (open or closed) or whose issue closed, counted graded when the graph holds their own Done-when command passed by the checker on a commit that landed on main (north#872's bar: machine-verified boxes at least as many as self-ticked ones); a window the ledger could not read shows no record (ledger closed-box report, graph corroborated rule)";
 
 fn figure(report: Option<&ClosedReport>) -> Figure {
@@ -9,5 +10,9 @@ fn figure(report: Option<&ClosedReport>) -> Figure {
 }
 
 pub fn graded(reports: Option<&(ClosedReport, ClosedReport)>) -> Measure {
-    Measure { name: "boxes graded by their own check".into(), better: Better::Higher, source: SOURCE, weeks: [figure(reports.map(|pair| &pair.0)), figure(reports.map(|pair| &pair.1))] }
+    Measure { name: NAME.into(), better: Better::Higher, source: SOURCE, weeks: [figure(reports.map(|pair| &pair.0)), figure(reports.map(|pair| &pair.1))] }
+}
+
+pub fn line(report: Option<&ClosedReport>) -> String {
+    format!("{NAME}: {}", figure(report).text())
 }

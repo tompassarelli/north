@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
@@ -204,13 +205,26 @@ pub fn runs_inside_in(database: &Path, window: &str, now: Timestamp) -> NorthRes
 }
 
 /// The runs of every role that started in the last `window`, each priced at API-equivalent rates, and the closed-box
-/// report over those runs alone, so a box closed in the window counts only the spend its runs made inside it.
-pub fn inside(window: &str) -> NorthResult<(Vec<WindowRun>, ClosedReport)> {
+/// report over those runs alone, so a box closed in the window counts only the spend its runs made inside it, and the
+/// report over every run, as [`closed_report`] reads it, from the same GitHub listing.
+pub fn inside(window: &str) -> NorthResult<(Vec<WindowRun>, ClosedReport, ClosedReport)> {
     let database = threads_database();
     let (since, until) = window_bounds(window, Timestamp::now())?;
     let corroborated = super::corroborated::checked_boxes(&north_graph::default_path())?;
+    let listed = Mutex::new(HashMap::new());
+    let listing = |repo: &str, since: &str, until: &str| -> NorthResult<Listing> {
+        let key = (repo.to_owned(), since.to_owned(), until.to_owned());
+        if let Some(found) = listed.lock().unwrap_or_else(PoisonError::into_inner).get(&key) {
+            return Ok(Listing::clone(found));
+        }
+        let found = live_listing(repo, since, until)?;
+        listed.lock().unwrap_or_else(PoisonError::into_inner).insert(key, found.clone());
+        Ok(found)
+    };
     let started = |run: &SpendRun| run.started.as_str() >= since.as_str() && run.started.as_str() < until.as_str();
-    Ok((window_runs(&database, &since, &until)?, report_over(&database, &since, &until, started, corroborated, live_listing)?))
+    let spent = report_over(&database, &since, &until, started, corroborated.clone(), listing)?;
+    let every = report_over(&database, &since, &until, |_| true, corroborated, listing)?;
+    Ok((window_runs(&database, &since, &until)?, spent, every))
 }
 
 /// How often a run took over another run's work (a handover, revive or relaunch in a new conversation) and what the

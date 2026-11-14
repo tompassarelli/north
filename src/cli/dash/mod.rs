@@ -33,6 +33,7 @@ pub struct Screen {
     pub bars: Result<Vec<ready::Line>, String>,
     pub accounts: Result<Vec<AccountOutlook>, String>,
     pub runs: Result<(Vec<WindowRun>, ClosedReport), String>,
+    pub graded: Result<ClosedReport, String>,
     pub attempts: Result<Vec<workers::Attempt>, String>,
     /// The dispatch records inside the window, from which each escalation and lift check are read.
     pub launches: Vec<north_dispatch::dispatch::LaunchRecord>,
@@ -148,7 +149,11 @@ pub(crate) fn read_with_fleet(window: &str, fleet: Option<&Fleet>) -> Result<Scr
         (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))), handovers.join().unwrap_or_else(|_| Err(joined("handovers"))), work.join().unwrap_or_else(|_| Err(joined("work"))), infra.join().unwrap_or_else(|_| (Err(joined("infra")), Vec::new(), Vec::new())))
     });
     let (billing, resources, unread) = infra;
-    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, handovers, billing, infra: Ok((resources, unread)), credit: credit(), work })
+    let (runs, graded) = match runs {
+        Ok((runs, spent, every)) => (Ok((runs, spent)), Ok(every)),
+        Err(why) => (Err(why.clone()), Err(why)),
+    };
+    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, graded, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, handovers, billing, infra: Ok((resources, unread)), credit: credit(), work })
 }
 
 /// The Board the fleet screen reads: the same snapshot `north dash` prints, over the board's day window.
