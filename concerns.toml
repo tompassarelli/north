@@ -84,13 +84,6 @@ max = 0
 class = "contract"
 
 [[concern]]
-name = "features-index-current"
-source = "AGENTS.md: docs/features.md is generated and never edited by hand"
-oracle = "./bin/head-north --code crates/north-docs/src/docs.rs,crates/north-docs/src/features_index.rs docs features-index --check >/dev/null 2>&1; echo $?"
-max = 0
-class = "contract"
-
-[[concern]]
 name = "layer-terms"
 source = "AGENTS.md: use the four layer terms of docs/terms.md; never call a model an agent"
 oracle = "{ rg -n -i '\\b(claude|opus|sonnet|haiku|gpt|codex)[ -]agent\\b|\\bagent model\\b|\\bmodel agent\\b' README.md AGENTS.md docs --glob '*.md' || [ $? -eq 1 ]; } | wc -l"

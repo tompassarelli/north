@@ -98,3 +98,7 @@ issue = "north#1544"
 hosts = ["cpx62", "cpx62b"]
 decisions = 166
 correct = 17
+
+# The after-landing run reverts, through the landing queue, the landing that turned a contract concern of concerns.toml red: red in the landed tree twice and green at the landing's base (north#1537). Read from the landed tree's harness/gates.toml, so a mode change takes effect at the next landing, not the next promotion. Shadow rows: $XDG_STATE_HOME/north/gates/concern-revert.jsonl on the lander host. On 2026-11-15 it reverted 7 unrelated landings in an hour for features-index-current, whose oracle checks the git-ignored docs/features.md the lander generates, so its reading turned on whether a tree had just generated that file; the coordinator ordered it to shadow until a base and a candidate are each read twice in the same slot (concern-1537).
+[gate.concern-revert]
+mode = "shadow"
