@@ -108,6 +108,9 @@ const LEDGER_LIMIT: Duration = Duration::from_secs(2);
 /// How long the background claims sweep waits on one threads ledger call: no verb waits on it, so it outlasts the threads client's own 20 s ssh bound.
 const SWEEP_LIMIT: Duration = Duration::from_secs(30);
 
+/// How long a launch waits on its claim before queueing it: a box claim from a build host crosses ssh to the ledger host, which reads the issue from GitHub twice, and took 1.3 to 5 s from gex45 on 2026-11-11, past the 2 s verb bound; it stays under the threads client's own 20 s ssh bound, so a ledger that never answers still leaves the claim queued.
+const CLAIM_LIMIT: Duration = Duration::from_secs(15);
+
 type Spooler = Box<dyn Fn(&[&str]) -> NorthResult<Option<String>> + Send + Sync>;
 
 /// How the ledger met a write: its answer, or the name of the write the spool holds because it did not answer within the bound.
@@ -119,18 +122,24 @@ enum Written {
 pub struct ThreadsCli {
     program: Option<PathBuf>,
     limit: Duration,
+    claim_limit: Duration,
     spool: Spooler,
 }
 
 impl ThreadsCli {
     pub fn new() -> Self {
-        Self { program: None, limit: LEDGER_LIMIT, spool: Box::new(client::spool_write) }
+        Self { program: None, limit: LEDGER_LIMIT, claim_limit: CLAIM_LIMIT, spool: Box::new(client::spool_write) }
     }
 
     /// The ledger adapter for the verb `arguments` name: the background claims sweep waits longer on each call than a verb someone is waiting on.
     pub fn for_verb(arguments: &[String]) -> Self {
         let limit = if arguments.first().is_some_and(|verb| verb == SWEEP_VERB) { SWEEP_LIMIT } else { LEDGER_LIMIT };
-        Self { program: None, limit, spool: Box::new(client::spool_write) }
+        Self { program: None, limit, claim_limit: CLAIM_LIMIT, spool: Box::new(client::spool_write) }
+    }
+
+    /// How long the call `args` names may wait on the ledger: a claim, which a launch waits on anyway, longer than any other call.
+    fn bound(&self, args: &[&str]) -> Duration {
+        if args.first() == Some(&"claim") { self.claim_limit } else { self.limit }
     }
 
     /// The ledger's answer, or None when it did not answer within the bound.
@@ -141,7 +150,7 @@ impl ThreadsCli {
         };
         let mut command = Command::new(program);
         command.arg("threads").args(args);
-        let Some(output) = process::run_group_within(command, self.limit) else {
+        let Some(output) = process::run_group_within(command, self.bound(args)) else {
             return Ok(None);
         };
         if output.status.success() {
@@ -151,7 +160,7 @@ impl ThreadsCli {
     }
 
     fn unanswered(&self, args: &[&str]) -> NorthError {
-        NorthError::State(format!("the threads ledger did not answer `threads {}` within {} s", args.join(" "), self.limit.as_secs()))
+        NorthError::State(format!("the threads ledger did not answer `threads {}` within {} s", args.join(" "), self.bound(args).as_secs()))
     }
 
     fn threads(&self, args: &[&str]) -> NorthResult<String> {
@@ -254,7 +263,7 @@ mod tests {
             queue.lock().unwrap().push(args.iter().map(|arg| (*arg).to_owned()).collect());
             Ok(Some("spooled".to_owned()))
         });
-        (directory, ThreadsCli { program: Some(program), limit: Duration::from_millis(300), spool })
+        (directory, ThreadsCli { program: Some(program), limit: Duration::from_millis(300), claim_limit: Duration::from_millis(300), spool })
     }
 
     /// On 2026-11-11 a launch on cpx62 whose box the laptop had claimed under its name was refused after 30 s: its claim timed out into the spool, and the ledger answered the box by its slug while the launch looked for its text.
@@ -267,10 +276,16 @@ mod tests {
         crate::fleet::claims::hold_all(&slow, &keys, "cpx62-n1054-proof", &BTreeSet::new()).unwrap();
     }
 
-    /// On 2026-11-07 from cpx62 every launch's claim on a loaded nexus passed the 2 s bound and was dropped, so dispatch staffed the item beside its owner.
+    /// On 2026-11-11 every launch on gex45, cpx62 and cpx62b printed that the ledger did not answer its box claim within 2 s and left the claim in the spool, because a claim from a build host takes the ledger host 1.3 to 5 s to answer; on 2026-11-07 from cpx62 every launch's claim on a loaded nexus passed the bound and was dropped, so dispatch staffed the item beside its owner.
     #[test]
-    fn a_claim_or_release_past_the_bound_is_spooled_while_a_refusal_in_time_still_refuses() {
+    fn a_claim_from_a_build_host_is_held_when_the_ledger_answers_late() {
         let spooled = Arc::new(Mutex::new(Vec::new()));
+        let (_late, mut late) = ledger("sleep 3; echo 'cpx62-worker owns north#7 box the-box'", &spooled);
+        let production = ThreadsCli::new();
+        (late.limit, late.claim_limit) = (production.limit, production.claim_limit);
+        assert_eq!(late.hold("north#7@the box", "cpx62-worker", &BTreeSet::new()).unwrap(), Taken::Held);
+        assert!(spooled.lock().unwrap().is_empty(), "the claim was left in the spool: {:?}", spooled.lock().unwrap());
+
         let (_slow, slow) = ledger("sleep 30", &spooled);
         let begun = Instant::now();
         assert_eq!(slow.hold("north#7", "cpx62-worker", &BTreeSet::new()).unwrap(), Taken::Queued("spooled".to_owned()));
