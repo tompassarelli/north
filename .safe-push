@@ -5,7 +5,7 @@
 	lander-host = whiterabbit
 	push-app = lander
 	remote-hosts = gex45 cpx62b
-	after-runs = 3
+	after-runs = 1
 	warm = "CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --workspace --locked --offline -- -D warnings && CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --workspace --locked --offline --no-run"
 [mutant]
 	class = heavy
