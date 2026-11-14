@@ -44,7 +44,7 @@ pub(super) fn a_promotion_an_order_and_a_review_screen_refuse_what_a_worker_writ
         let holds = Holds(dir.path().join(name));
         holds.serve(Ask::Place { commit: commit.to_owned(), lane: name.to_owned(), host: None, until: None, why: "under review".to_owned() }, &Caller { session: "reviewer".to_owned(), coordinator: false, reviewer: true }, 1).unwrap();
         let contains = contains_in(store.clone());
-        Screen { holds, contains: Box::new(move |commit, head| Ok(commit == FIXTURE_ANCESTOR || contains(commit, head)?)), landed: Box::new(|_| Ok(Vec::new())), answered: Box::new(|_, _| false), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(dir.path().join("trips")), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) }
+        Screen { holds, contains: Box::new(move |commit, head| Ok(commit == FIXTURE_ANCESTOR || contains(commit, head)?)), landed: Box::new(|_| Ok(Vec::new())), answered: Box::new(|_, _| false), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(dir.path().join("trips")), runs: MainRuns::none(), revert: Box::new(|_| Ok(())), replay: crate::runtime::replay::regressing() }
     };
     let refused = screen("held", &held).order(&head, &[], 2).expect_err("a replace ref in the main checkout's store does not hide the held commit from the screen (south#138)");
     assert!(refused.contains(&held), "{refused}");

@@ -10,7 +10,7 @@ use rustix::fs::{FlockOperation, flock};
 
 use super::bounded;
 use super::failure::{Failure, failed};
-use super::follow::own_scope;
+use super::scope::own_scope;
 use super::layout::{self, Layout};
 use super::remote::ssh;
 use north_offload::land_offload::{self, ship::quote};

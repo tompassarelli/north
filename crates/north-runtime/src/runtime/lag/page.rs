@@ -217,7 +217,7 @@ pub fn publish() -> Vec<String> {
         .map_err(|error| error.to_string())
         .and_then(|()| std::env::current_exe().map_err(|error| error.to_string()))
         .and_then(|north| {
-            crate::runtime::follow::own_scope(north).args(["runtime", "lag", "--sample"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().map_err(|error| error.to_string())
+            crate::runtime::scope::own_scope(north).args(["runtime", "lag", "--sample"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().map_err(|error| error.to_string())
         });
     match started {
         Ok(_) => Vec::new(),

@@ -64,3 +64,14 @@ fn page(number: u32) -> Result<Option<Vec<MainRun>>, String> {
     ))
 }
 
+
+/// The steps a run's failed log names, in order: the field after the job on each line.
+pub(crate) fn failed_steps(log: &str) -> Vec<String> {
+    let mut steps: Vec<String> = Vec::new();
+    for step in log.lines().filter_map(|line| line.split('\t').nth(1)) {
+        if !steps.iter().any(|named| named == step) {
+            steps.push(step.to_owned());
+        }
+    }
+    steps
+}

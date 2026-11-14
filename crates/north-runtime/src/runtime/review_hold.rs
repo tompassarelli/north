@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use super::after_landing::{self, AfterLanding, Ledger};
 use super::failure::{Failure, failed};
 use super::layout;
-use super::main_runs::{self, Kept, MainRun, MainRuns};
+use super::main_runs::MainRuns;
+use super::replay::{self, Replay};
 use super::trip::{Trip, Trips};
 
 pub(crate) const VERB: &str = "review-hold";
@@ -229,7 +230,7 @@ pub(crate) type Revert = Box<dyn Fn(&Trip) -> Result<(), String>>;
 pub(crate) type Landed = Box<dyn Fn(&str) -> Result<Vec<String>, String>>;
 pub(crate) type Answered = Box<dyn Fn(&Hold, &str) -> bool>;
 
-/// The facts a promotion screens a head by: the holds, `contains(commit, head)` saying whether `head` is `commit` or descends from it, `landed(lane)` naming the commits on main each landing of a lane made, since the lander squashes a lane into a commit of its own, and `answered(hold, landed)` whether the landing `landed` of a hold's `--until` lane answers that hold, `after_landing(head)` the verdict of `head`'s after-landing run (after_landing.rs), none while that read is off, and `revert(trip)` asking the sheriff to revert the commit a trip names (trip.rs).
+/// The facts a promotion screens a head by: the holds, `contains(commit, head)` saying whether `head` is `commit` or descends from it, `landed(lane)` naming the commits on main each landing of a lane made, since the lander squashes a lane into a commit of its own, and `answered(hold, landed)` whether the landing `landed` of a hold's `--until` lane answers that hold, `after_landing(head)` the verdict of `head`'s after-landing run (after_landing.rs), none while that read is off,, `revert(trip)` asking the sheriff to revert the commit a trip names (trip.rs), and `replay(trips, asked)` reading a red hosted run's new cases again on a build host (replay.rs).
 pub(crate) struct Screen {
     pub holds: Holds,
     pub contains: Contains,
@@ -239,6 +240,7 @@ pub(crate) struct Screen {
     pub trips: Trips,
     pub runs: MainRuns,
     pub revert: Revert,
+    pub replay: Replay,
 }
 
 fn unscreened(head: &str, why: String) -> String {
@@ -250,7 +252,7 @@ impl Screen {
     pub(crate) fn here(store: &Path) -> Self {
         let ledger = state_home().join(PUSH_LEDGER);
         let after = Ledger::here(store);
-        Self { holds: Holds::here(), contains: contains_in(store.to_path_buf()), landed: landed_in(ledger), answered: answered_in(store.to_path_buf(), Accepts::here()), after_landing: after_landing::enabled().then(|| Box::new(move |head: &str| after.landing(head, now())) as AfterLanding), trips: Trips::here(), runs: MainRuns::main(), revert: { let store = store.to_path_buf(); Box::new(move |trip| super::trip::ask_revert(&store, trip)) } }
+        Self { holds: Holds::here(), contains: contains_in(store.to_path_buf()), landed: landed_in(ledger), answered: answered_in(store.to_path_buf(), Accepts::here()), after_landing: after_landing::enabled().then(|| Box::new(move |head: &str| after.landing(head, now())) as AfterLanding), trips: Trips::here(), runs: MainRuns::main(), revert: { let store = store.to_path_buf(); Box::new(move |trip| super::trip::ask_revert(&store, trip)) }, replay: replay::here() }
     }
 
     /// Why `head` may not go live through an order that promotes the hosts `hosts`: a standing hold that `head` holds and that names no host or one of them, or a fact that cannot be read; else a line for each hold `head` holds that was lifted within the last day, naming who lifted it and why.
@@ -265,8 +267,8 @@ impl Screen {
     }
 
     fn screened(&self, head: &str, applies: &dyn Fn(Option<&str>) -> bool, now: u64) -> Result<Vec<String>, String> {
-        let passed = self.passed(head)?;
-        self.tripped(head, passed, now)?;
+        self.passed(head)?;
+        self.tripped(head, now)?;
         self.held(head, applies, now)
     }
 
@@ -292,68 +294,27 @@ impl Screen {
         Ok(held.iter().filter_map(|hold| hold.lifted.as_ref().filter(|lift| now.saturating_sub(lift.at) < SHOWN_FOR).map(|lift| format!("{} was held by {} ({}); {} lifted it: {}", hold.commit, hold.session, hold.why, lift.by, lift.why))).collect())
     }
 
-    /// Whether `head`'s own after-landing run ended green, refusing one whose run did not; false while the after-landing read is off.
-    fn passed(&self, head: &str) -> Result<bool, String> {
-        let Some(after_landing) = &self.after_landing else { return Ok(false) };
+    /// Refuses `head` when its own after-landing run did not end green; nothing while the after-landing read is off.
+    fn passed(&self, head: &str) -> Result<(), String> {
+        let Some(after_landing) = &self.after_landing else { return Ok(()) };
         match after_landing(head).refusal() {
             Some(why) => Err(format!("{} has not ended its after-landing run green: {why}", layout::short(head))),
-            None => Ok(true),
+            None => Ok(()),
         }
     }
 
-    /// The newest completed run of main whose head is on `head`'s ancestry and that gives a verdict, the one that decides whether `head` is tripped; runs are read page by page until one is found or the list ends.
-    fn newest_run(&self, head: &str) -> Result<Option<MainRun>, String> {
-        let mut number = 1;
-        while let Some(runs) = (self.runs.page)(number)? {
-            for run in runs {
-                if (self.contains)(&run.head, head)? && !self.unjudged(&run)? {
-                    return Ok(Some(run));
-                }
-            }
-            number += 1;
-        }
-        Ok(None)
-    }
-
-    /// Whether red `run` gives no verdict (main_runs::judge), recorded once with the proxy told; a run already tripped or cleared keeps its verdict, and a read of the run that fails is an error that records nothing, so the head is refused as not screened and the next screen reads it again.
-    fn unjudged(&self, run: &MainRun) -> Result<bool, String> {
-        if !run.red || self.trips.cleared(&run.head)? || self.trips.read(&run.head)?.is_some() {
-            return Ok(false);
-        }
-        if self.trips.unjudged(&run.head)? {
-            return Ok(true);
-        }
-        let main_runs::Verdict::NotJudged(why) = main_runs::judge(run.red, || (self.runs.kept)(&run.id))? else { return Ok(false) };
-        self.trips.write_unjudged(&run.head, &run.id, &why)?;
-        (self.runs.alert)(&format!("north runtime: the hosted Buck2 run {} on {} is not judged and trips nothing: {why}", run.id, run.head));
-        Ok(true)
-    }
-
-    /// Refuses `head` when the newest completed Buck2 run on its ancestry that gives a verdict is red and no clear answers its trip, or when a lander's trip record (one no run names) stands on it or an ancestor (trip.rs); every such trip is recorded, paged and asks the sheriff to revert its commit once it has held REVERT_AFTER_SECONDS, but refuses a descendant only while `head` has not `passed` its own after-landing run; a run list or git that cannot say refuses the head.
-    fn tripped(&self, head: &str, passed: bool, now: u64) -> Result<(), String> {
+    /// Refuses `head` when a red hosted run on its ancestry since its last green run trips the head it ran on and that head is `head`, or when a lander's trip record (one no run names) stands on `head` itself (trip.rs); a trip on an ancestor asks the sheriff to revert its commit once it has held REVERT_AFTER_SECONDS but refuses no later head, which goes live and is verified after (north#1537); a run list or git that cannot say refuses the head.
+    fn tripped(&self, head: &str, now: u64) -> Result<(), String> {
         let unread = |why: String| unscreened(head, why);
-        self.hosted_trip(head, passed, now).map_err(unread)??;
-        self.lander_trip(head, passed, now).map_err(unread)?
-    }
-
-    /// The refusal, if any, of the newest red hosted run on `head`'s ancestry, recording and paging its trip the first time it is seen.
-    fn hosted_trip(&self, head: &str, passed: bool, now: u64) -> Result<Result<(), String>, String> {
-        let newest = self.newest_run(head)?.ok_or_else(|| "no completed run of main is on its ancestry".to_owned())?;
-        if !newest.red || self.trips.cleared(&newest.head)? {
-            return Ok(Ok(()));
-        }
-        let trip = match self.trips.read(&newest.head)? {
-            Some(trip) => trip,
-            None => self.record(&newest)?,
-        };
-        self.stands(&trip, head, passed, now)
+        self.hosted_trip(head, now).map_err(unread)??;
+        self.lander_trip(head, now).map_err(unread)?
     }
 
     /// The refusal, if any, of the first lander's trip record (one no run names) on `head` or its ancestry.
-    fn lander_trip(&self, head: &str, passed: bool, now: u64) -> Result<Result<(), String>, String> {
+    fn lander_trip(&self, head: &str, now: u64) -> Result<Result<(), String>, String> {
         for trip in self.trips.open()? {
             if trip.run.is_none() && (trip.head == head || (self.contains)(&trip.head, head)?) {
-                let stood = self.stands(&trip, head, passed, now)?;
+                let stood = self.stands(&trip, head, now)?;
                 if stood.is_err() {
                     return Ok(stood);
                 }
@@ -362,9 +323,9 @@ impl Screen {
         Ok(Ok(()))
     }
 
-    /// Asks for the revert of a trip on `head` or its ancestry once due, then refuses `head` when the trip is its own or `head` has not `passed` its own run; a failed ask under a head the trip does not refuse is paged and holds nothing.
-    fn stands(&self, trip: &Trip, head: &str, passed: bool, now: u64) -> Result<Result<(), String>, String> {
-        let refused = trip.head == head || !passed;
+    /// Asks for the revert of a trip on `head` or its ancestry once due, then refuses `head` only when the trip is its own; a failed ask under a head the trip does not refuse is paged and holds nothing.
+    fn stands(&self, trip: &Trip, head: &str, now: u64) -> Result<Result<(), String>, String> {
+        let refused = trip.head == head;
         match self.trips.revert_when_due(trip, now, &self.revert) {
             Err(why) if !refused => (self.runs.alert)(&format!("north runtime: the revert of tripped {} could not be asked: {why}", trip.head)),
             asked => {
@@ -375,18 +336,6 @@ impl Screen {
             true => Err(format!("{} contains {}", layout::short(head), trip.refusal())),
             false => Ok(()),
         })
-    }
-
-    /// Writes the trip of a red run of main, with its failed cases read from the run's log, and tells the proxy of it.
-    fn record(&self, run: &MainRun) -> Result<Trip, String> {
-        let cases = match (self.runs.kept)(&run.id) {
-            Ok(Kept::Log(text)) => main_runs::failed_cases(&text),
-            _ => Vec::new(),
-        };
-        let trip = Trip { head: run.head.clone(), run: Some(run.id.clone()), cases };
-        self.trips.write(&trip)?;
-        (self.runs.alert)(&format!("north runtime: {}", trip.refusal()));
-        Ok(trip)
     }
 
     /// The first standing hold naming `host` or no host that keeps `head` off `host`, as its refusal reads; a store or git answer that cannot be read names none, so the host counts as late.
@@ -564,3 +513,7 @@ fn valued(mut rest: &[String], allowed: &[&str]) -> Option<[Option<String>; 3]> 
     }
     rest.is_empty().then_some(values)
 }
+
+mod hosted;
+#[cfg(test)]
+mod tests;

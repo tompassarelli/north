@@ -1,12 +1,13 @@
 use super::failure::{Failure, failed};
 use super::layout::{Layout, TREE};
 use super::review_hold::{self, Screen};
+use super::scope::own_scope;
 use super::{deploy, update, walk};
 use north_offload::land_offload;
 use crate::platform::{host, process};
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread::ScopedJoinHandle;
 use std::time::{Duration, Instant};
@@ -19,8 +20,6 @@ const LANDER_REPLAY_LIMIT: Duration = Duration::from_secs(30 * 60);
 const LANDER_RETAKE: Duration = Duration::from_secs(5);
 const LANDER_RETAKE_POLL: Duration = Duration::from_millis(20);
 const SCOPED: &str = "NORTH_RUNTIME_PROMOTE_SCOPED";
-const SYSTEMD_RUN: &str = "systemd-run";
-const SCOPE: [&str; 5] = ["--user", "--scope", "--slice=agent.slice", "--quiet", "--collect"];
 
 pub(super) fn follow(layout: &Layout, repo: &Path) -> Result<(), Failure> {
     if !names_north(&origin(repo)) {
@@ -36,17 +35,6 @@ pub(super) fn follow(layout: &Layout, repo: &Path) -> Result<(), Failure> {
         .process_group(0)
         .spawn()?;
     Ok(())
-}
-
-/// The lander's unit runs `north land follow` and systemd kills its whole control group when the lander restarts on a new runtime, so the promote runs in a scope of its own, under agent.slice so its runtime build counts against the agent CPU quota: in the default app.slice it compiled outside the 12-CPU desk bound (north#892).
-pub(super) fn own_scope(north: PathBuf) -> Command {
-    let scopes = Command::new(SYSTEMD_RUN).args(SCOPE).arg("true").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success());
-    if !scopes {
-        return Command::new(north);
-    }
-    let mut command = Command::new(SYSTEMD_RUN);
-    command.args(SCOPE).arg("--").arg(north);
-    command
 }
 
 /// A promotion started in a worker's scope froze with it while holding runtime-update.lock, so it runs in a scope of its own.

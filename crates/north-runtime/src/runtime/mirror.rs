@@ -1,6 +1,6 @@
 use super::bounded;
 use super::failure::{Failure, failed};
-use super::follow::own_scope;
+use super::scope::own_scope;
 use super::remote::OWN_RSH;
 use north_offload::land_offload;
 use crate::platform::host;

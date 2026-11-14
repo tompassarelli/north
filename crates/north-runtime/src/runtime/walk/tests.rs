@@ -127,7 +127,7 @@ fn a_failed_spine_walk_keeps_the_failing_step_s_report_and_log() {
 }
 
 fn screen_holding(holds: &std::path::Path) -> Screen {
-    Screen { holds: Holds(holds.to_path_buf()), contains: Box::new(|_, _| Ok(true)), landed: Box::new(|_| Ok(Vec::new())), answered: Box::new(|_, _| false), after_landing: Some(Box::new(|_| Landing::Green)), runs: MainRuns::none(), trips: Trips(holds.join("trips")), revert: Box::new(|_| Ok(())) }
+    Screen { holds: Holds(holds.to_path_buf()), contains: Box::new(|_, _| Ok(true)), landed: Box::new(|_| Ok(Vec::new())), answered: Box::new(|_, _| false), after_landing: Some(Box::new(|_| Landing::Green)), runs: MainRuns::none(), trips: Trips(holds.join("trips")), revert: Box::new(|_| Ok(())), replay: crate::runtime::replay::regressing() }
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn a_shipped_runtime_is_swapped_in_on_every_unheld_host_when_a_red_run_on_its_an
     std::os::unix::fs::symlink(layout::link(MAIN), layout.current()).unwrap();
     let red_ancestor = MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: PINNED.to_owned(), id: "43638604894".to_owned(), red: true }]))), kept: Box::new(|_| Ok(Kept::Log("test\tTest\t2026-11-14T20:55:41.0Z [2026-11-14T20:55:41.000+00:00]         FAIL [   0.526s] north::it cli::parses".to_owned()))), alert: Box::new(|_| {}) };
     let screen = Screen { after_landing: None, runs: red_ancestor, trips: Trips(state.path().join("trips")), ..screen_holding(&state.path().join("holds")) };
-    assert!(screen.order(MAIN, &[host::name().as_str()], now()).is_err(), "the red run of the ancestor still refuses the next promotion");
+    assert!(screen.order(PINNED, &[host::name().as_str()], now()).is_err() && screen.order(MAIN, &[host::name().as_str()], now()).is_ok(), "the red run of the ancestor trips the ancestor alone, and the later head goes live and is verified after (north#1537)");
     let shipped = std::cell::Cell::new(false);
     let ship = |sha: &str, _: &[String]| {
         shipped.set(sha == MAIN);

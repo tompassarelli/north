@@ -1799,6 +1799,14 @@ source = "north#1022 (2026-11-13): no host's runtime may take a head whose after
 fallback = "any value but off reads as on"
 consumers = ["crates/north-runtime/src/runtime/after_landing.rs", "crates/north-runtime/src/runtime/review_hold.rs"]
 
+[hosted_replay_timeout_sec]
+value = 1800
+allowed = { min = 300, max = 7200 }
+unit = "seconds each of the four slot runs of `north runtime trip replay` may take on a build host, reading a red hosted run's new cases twice at its commit and twice at its parent; a replay recorded as started more than four such runs and 600 s ago ended without an answer and the next screen starts it again"
+source = "north#1537 (2026-11-15): a red hosted run trips only when its new cases fail again at its commit on a build host and pass at its parent; 1800 s is a guess at one slot's build and case run, settled by the replay logs beside the trips"
+fallback = "none: read when a replay starts"
+consumers = ["crates/north-runtime/src/runtime/replay.rs"]
+
 [proxy_read_streak]
 value = 15
 allowed = { min = 3, max = 200 }

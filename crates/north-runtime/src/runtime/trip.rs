@@ -1,9 +1,12 @@
-//! A Buck2 trip (north#1115): the record of a red run of main's Buck2 workflow, written by the screen on the host that settles the
-//! fleet (main_runs.rs) when the newest completed run on a head's ancestry is red. The trip holds the promotion of that head, and of
-//! every later head whose own after-landing run has not passed (review_hold.rs `Screen`), until `north runtime trip clear COMMIT
-//! --why TEXT` clears it, the clear is kept with who cleared it and why, or a newer completed run on that ancestry is green. A red
-//! run whose job was cut off before it finished, or whose log shows only timeouts, is recorded as not judged and trips nothing;
-//! a run that cannot be read is not recorded. A record that names no run is the lander's (north-landing `trip`) and holds the same heads until cleared.
+//! A Buck2 trip (north#1115): the record of a red run of main's Buck2 workflow, written on the host that settles the fleet when
+//! a completed run on a head's ancestry since its last green run fails a case that the run before it on that ancestry, the last
+//! verified head, did not fail, and that case fails again at the run's commit on a build host and passes at its parent (`north runtime trip replay`,
+//! north#1537). The trip refuses that commit alone and asks the sheriff to revert it; later heads go live and are verified after
+//! (review_hold.rs `Screen`). `north runtime trip clear COMMIT --why TEXT` clears it, the clear kept with who cleared it and why,
+//! and a newer completed green run on that ancestry passes it. A red run whose job was cut off before it finished, or whose log
+//! shows only timeouts, is recorded as not judged and trips nothing; a red run whose new cases, or for a run that fails no case its
+//! failed build or lint step, do not fail again trips nothing and each of them gets a row in unreproduced.tsv; a run that cannot be read is
+//! not recorded. A record that names no run is the lander's (north-landing `trip`) and refuses its own commit until cleared.
 
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
@@ -18,6 +21,10 @@ const RUN: &str = "run";
 const REVERT_ASKED: &str = "revert-asked";
 const UNJUDGED: &str = "unjudged";
 const FAILED_READ: &str = "why\tits log cannot be read";
+const FAILED: &str = "failed";
+const REPLAYING: &str = "replaying";
+const UNREPRODUCED: &str = "unreproduced";
+const UNREPRODUCED_LEDGER: &str = "unreproduced.tsv";
 const REQUESTS: &str = "refs/heads/claude/land-revert-";
 
 /// Seconds a trip holds before the sheriff is asked to revert the commit it names, unless a fix lands first and its run turns main green (north#1508).
@@ -77,7 +84,11 @@ impl Trips {
 
     /// The trip record of `head`, whether or not it is cleared; a record that cannot be read is an error naming it, since a trip that cannot be read must not let its head through.
     pub fn read(&self, head: &str) -> Result<Option<Trip>, String> {
-        let path = self.0.join(format!("{head}.{TRIP}"));
+        self.record(head, TRIP)
+    }
+
+    fn record(&self, head: &str, kind: &str) -> Result<Option<Trip>, String> {
+        let path = self.0.join(format!("{head}.{kind}"));
         if !exists(&path)? {
             return Ok(None);
         }
@@ -95,16 +106,74 @@ impl Trips {
         Ok(Some(Trip { head: head.to_owned(), run, cases }))
     }
 
-    /// Writes the trip record of `trip`: the run that concluded red, then its failed cases, which may be none when its log cannot be read.
+    /// Writes the trip record of `trip`: the run that concluded red, then the failed cases that trip it.
     pub fn write(&self, trip: &Trip) -> Result<(), String> {
-        let path = self.0.join(format!("{}.{TRIP}", trip.head));
+        self.write_record(trip, TRIP, true)
+    }
+
+    fn write_record(&self, trip: &Trip, kind: &str, once: bool) -> Result<(), String> {
+        let path = self.0.join(format!("{}.{kind}", trip.head));
         fs::create_dir_all(&self.0).map_err(|error| format!("{} cannot be created: {error}", self.0.display()))?;
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&path).map_err(|error| format!("{} cannot be created: {error}", path.display()))?;
+        let mut file = OpenOptions::new().write(true).create_new(once).create(true).truncate(!once).open(&path).map_err(|error| format!("{} cannot be created: {error}", path.display()))?;
         let mut text = trip.run.as_ref().map_or_else(String::new, |run| format!("{RUN}\t{run}\n"));
         for (name, case) in &trip.cases {
             text.push_str(&format!("{name}\t{case}\n"));
         }
         file.write_all(text.as_bytes()).map_err(|error| format!("{} cannot be written: {error}", path.display()))
+    }
+
+    /// The failed cases of the red run on `head`, as its log was first read, or none before it was.
+    pub(crate) fn failed(&self, head: &str) -> Result<Option<Vec<(String, String)>>, String> {
+        Ok(self.record(head, FAILED)?.map(|read| read.cases))
+    }
+
+    /// Keeps the failed cases read from the log of `run`, so the run is judged and compared again without reading GitHub.
+    pub(crate) fn write_failed(&self, run: &Trip) -> Result<(), String> {
+        self.write_record(run, FAILED, false)
+    }
+
+    /// The replay asked of `head`: its run and the new cases a build host reads at it and its parent.
+    pub(crate) fn replaying(&self, head: &str) -> Result<Option<Trip>, String> {
+        self.record(head, REPLAYING)
+    }
+
+    /// Records the replay of `asked` as started at `now`, true when none was, or the one recorded started `stale_after` seconds ago or more and so ended without an answer.
+    pub(crate) fn start_replay(&self, asked: &Trip, now: u64, stale_after: u64) -> Result<bool, String> {
+        let path = self.0.join(format!("{}.{REPLAYING}", asked.head));
+        let started = match fs::metadata(&path).and_then(|meta| meta.modified()) {
+            Ok(at) => Some(at.duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs())),
+            Err(error) if error.kind() == ErrorKind::NotFound => None,
+            Err(error) => return Err(format!("{} has no time: {error}", path.display())),
+        };
+        if started.is_some_and(|at| now < at + stale_after) {
+            return Ok(false);
+        }
+        self.write_record(asked, REPLAYING, false)?;
+        Ok(true)
+    }
+
+    pub(crate) fn finish_replay(&self, head: &str) -> Result<(), String> {
+        let path = self.0.join(format!("{head}.{REPLAYING}"));
+        match fs::remove_file(&path) {
+            Err(error) if error.kind() != ErrorKind::NotFound => Err(format!("{} cannot be removed: {error}", path.display())),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether the new cases of the red run on `head` were replayed and did not fail again, which trips nothing.
+    pub(crate) fn unreproduced(&self, head: &str) -> Result<bool, String> {
+        exists(&self.0.join(format!("{head}.{UNREPRODUCED}")))
+    }
+
+    /// Records that the red run `asked` names trips nothing and why, with a row for each of its cases in unreproduced.tsv: time, commit, run, crate, case, why.
+    pub(crate) fn write_unreproduced(&self, asked: &Trip, why: &str, at: u64) -> Result<(), String> {
+        fs::create_dir_all(&self.0).map_err(|error| format!("{} cannot be created: {error}", self.0.display()))?;
+        let run = asked.run.as_deref().unwrap_or_default();
+        let ledger = self.0.join(UNREPRODUCED_LEDGER);
+        let rows: String = asked.cases.iter().map(|(name, case)| format!("{at}\t{}\t{run}\t{name}\t{case}\t{why}\n", asked.head)).collect();
+        OpenOptions::new().create(true).append(true).open(&ledger).and_then(|mut file| file.write_all(rows.as_bytes())).map_err(|error| format!("{} cannot be written: {error}", ledger.display()))?;
+        let path = self.0.join(format!("{}.{UNREPRODUCED}", asked.head));
+        fs::write(&path, format!("{RUN}\t{run}\nwhy\t{why}\n")).map_err(|error| format!("{} cannot be written: {error}", path.display()))
     }
 
     /// Whether a red run on `head` was recorded as giving no verdict, which trips nothing; a record whose why is a failed read
@@ -147,10 +216,15 @@ impl Trips {
         Ok(trips)
     }
 
+    /// Whether the sheriff was asked to revert the commit the trip on `head` names.
+    pub(crate) fn revert_asked(&self, head: &str) -> Result<bool, String> {
+        exists(&self.0.join(format!("{head}.{REVERT_ASKED}")))
+    }
+
     /// Asks once, through `ask`, for the revert of the commit `trip` names after the trip has stood REVERT_AFTER_SECONDS; true when it asked now.
     pub(crate) fn revert_when_due(&self, trip: &Trip, now: u64, ask: &dyn Fn(&Trip) -> Result<(), String>) -> Result<bool, String> {
         let asked = self.0.join(format!("{}.{REVERT_ASKED}", trip.head));
-        if exists(&asked)? {
+        if self.revert_asked(&trip.head)? {
             return Ok(false);
         }
         let record = self.0.join(format!("{}.{TRIP}", trip.head));
