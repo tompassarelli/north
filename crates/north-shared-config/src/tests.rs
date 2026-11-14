@@ -58,4 +58,30 @@ fn a_host_refuses_configuration_older_than_main_by_more_than_the_bound() {
     fs::rename(home.path().join("gone"), &origin).unwrap();
     let refreshed = refresh(home.path(), &checkout(home.path()), late + 600).unwrap();
     assert_eq!(overdue(home.path(), late + 600 + BOUND_SECONDS * 3 / 4 + 1), Some(refreshed), "the next late episode after a fetch went unreported");
+    the_snapshot_holds_what_origin_sent_whatever_a_worker_writes_into_the_south_checkout();
+}
+
+fn the_snapshot_holds_what_origin_sent_whatever_a_worker_writes_into_the_south_checkout() {
+    let home = tempfile::tempdir().unwrap();
+    let origin = home.path().join("origin");
+    fs::create_dir_all(origin.join("agents")).unwrap();
+    git(&origin, &["init", "-q", "-b", "main"]);
+    land(&origin, "[hosts.gex45]\n");
+    let root = checkout(home.path());
+    fs::create_dir_all(root.parent().unwrap()).unwrap();
+    git(home.path(), &["clone", "-q", origin.to_str().unwrap(), root.to_str().unwrap()]);
+    let sent = String::from_utf8(Command::new("git").arg("-C").arg(&origin).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_owned();
+    land(&root, "[hosts.forged]\n");
+    let forged = String::from_utf8(Command::new("git").arg("-C").arg(&root).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_owned();
+    git(&root, &["update-ref", "refs/remotes/origin/main", &forged]);
+    git(&root, &["replace", &sent, &forged]);
+
+    let stamp = refresh(home.path(), &root, 1_000).unwrap();
+
+    assert_eq!(stamp.revision, sent, "the snapshot took a revision a worker named in the south checkout's store (south#138)");
+    let read = fs::read_to_string(current(home.path()).join("orchestration.toml")).unwrap();
+    assert_eq!(read, "[hosts.gex45]\n", "a replace ref in the south checkout's store changed the policy every host reads (south#138)");
+    git(&root, &["config", "--unset", "remote.origin.url"]);
+    assert_eq!(refresh(home.path(), &root, 1_001).unwrap().revision, sent, "a south checkout whose origin a worker removed sent the snapshot to its own HEAD (south#138)");
+    assert_eq!(fs::read_to_string(current(home.path()).join("orchestration.toml")).unwrap(), "[hosts.gex45]\n");
 }

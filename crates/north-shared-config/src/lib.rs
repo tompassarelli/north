@@ -1,6 +1,6 @@
 //! Shared configuration a host reads: the top-level files of south's `agents/` at a fetched origin/main, materialized
 //! under the state directory, never the south checkout's work tree, which lags (north#892).
-//! Depends only on std and the git binary.
+//! Depends on std, the git binary and north-trusted-mirror, whose origin/main it reads (south#138).
 #![forbid(unsafe_code)]
 
 use std::env;
@@ -8,6 +8,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use north_trusted_mirror::Mirror;
 
 /// The longest a host may run on shared configuration after its last successful fetch of south's origin/main.
 pub const BOUND_SECONDS: u64 = 60 * 60;
@@ -18,7 +20,6 @@ pub const FETCH_LIMIT: Duration = Duration::from_secs(15);
 /// What keeps the snapshot fresh, named whenever a read finds it stale.
 pub const REFRESHER: &str = "the fleet tick (north fleet tick) refreshes it every 5 min";
 const SOURCE: &str = "origin/main";
-const FETCHED: &str = "refs/north/shared-config";
 const LOCK: &str = "refresh.lock";
 const WARNED: &str = "warned";
 const TREE: &str = "agents";
@@ -99,31 +100,43 @@ pub fn fresh(home: &Path, now: u64) -> Result<Stamp, String> {
     Ok(stamp)
 }
 
-/// Fetch south's main from its origin, with the checkout's own remote and credential, into a ref only this refresh writes, and
-/// materialize `agents/`'s top-level files at that revision, never reading the checkout's work tree. One refresh runs per host at a
-/// time under `refresh.lock`; the fetch writes neither FETCH_HEAD nor a remote-tracking ref and starts no maintenance, so it takes no
-/// lock another git command in the checkout takes; the snapshot, its `current` link and its stamp each appear by one rename.
+/// Fetch south's main from its origin into south's trusted mirror (north-trusted-mirror), with the checkout's remote and
+/// credential, and materialize `agents/`'s top-level files at the mirror's origin/main, read with replace objects off, so nothing a
+/// worker writes into the checkout's work tree, git store or configuration reaches the snapshot; a south whose mirror has no origin is read at its own HEAD.
+/// One refresh runs per host at a time under `refresh.lock`; the snapshot, its `current` link and its stamp each appear by one rename.
 pub fn refresh(home: &Path, repo: &Path, now: u64) -> Result<Stamp, String> {
-    let ran = |args: &[&str]| -> Result<Vec<u8>, String> {
-        let output = Command::new("git").arg("-C").arg(repo).args(args).output().map_err(|error| format!("git {}: {error}", args.join(" ")))?;
-        match output.status.success() {
-            true => Ok(output.stdout),
-            false => Err(format!("git {} in {}: {}", args.join(" "), repo.display(), String::from_utf8_lossy(&output.stderr).trim())),
-        }
-    };
     let root = directory(home);
     fs::create_dir_all(&root).map_err(|error| format!("{}: {error}", root.display()))?;
     let lock = fs::File::create(root.join(LOCK)).map_err(|error| format!("{}: {error}", root.join(LOCK).display()))?;
     lock.lock().map_err(|error| format!("{}: {error}", root.join(LOCK).display()))?;
-    let left = String::from_utf8_lossy(&ran(&["rev-parse", "--git-path", &format!("{FETCHED}.lock")])?).trim().to_owned();
-    let _ = fs::remove_file(repo.join(left));
-    let revision = if ran(&["config", "--get", "remote.origin.url"]).is_ok() {
-        fetch(repo)?;
-        ran(&["rev-parse", "--verify", &format!("{FETCHED}^{{commit}}")])?
-    } else {
-        ran(&["rev-parse", "--verify", "HEAD^{commit}"])?
+    let mirror = Some(Mirror::open(repo)?).filter(|mirror| north_trusted_mirror::command(mirror.git_dir()).args(["config", "--get", "remote.origin.url"]).output().is_ok_and(|output| output.status.success()));
+    let place = mirror.as_ref().map_or(repo, Mirror::git_dir).to_owned();
+    let git = || match &mirror {
+        Some(mirror) => north_trusted_mirror::command(mirror.git_dir()),
+        None => {
+            let mut command = Command::new("git");
+            command.arg("-C").arg(repo);
+            command
+        }
     };
-    let revision = String::from_utf8_lossy(&revision).trim().to_owned();
+    let ran = |args: &[&str]| -> Result<Vec<u8>, String> {
+        let output = git().args(args).output().map_err(|error| format!("git {}: {error}", args.join(" ")))?;
+        match output.status.success() {
+            true => Ok(output.stdout),
+            false => Err(format!("git {} in {}: {}", args.join(" "), place.display(), String::from_utf8_lossy(&output.stderr).trim())),
+        }
+    };
+    let revision = match &mirror {
+        Some(mirror) => {
+            let left = mirror.git_dir().join(format!("{}.lock", north_trusted_mirror::ORIGIN_MAIN));
+            if fs::metadata(&left).and_then(|stamp| stamp.modified()).is_ok_and(|made| made.elapsed().unwrap_or_default() > FETCH_LIMIT) {
+                let _ = fs::remove_file(&left);
+            }
+            fetch(mirror.git_dir())?;
+            mirror.origin_main()?
+        }
+        None => String::from_utf8_lossy(&ran(&["rev-parse", "--verify", "HEAD^{commit}"])?).trim().to_owned(),
+    };
     let snapshot = root.join(&revision);
     if !snapshot.is_dir() {
         let listing = ran(&["ls-tree", "-z", &revision, &format!("{TREE}/")])?;
@@ -180,10 +193,10 @@ pub fn overdue_line(stamp: &Stamp, now: u64) -> String {
     )
 }
 
-fn fetch(repo: &Path) -> Result<(), String> {
-    let args = ["fetch", "-q", "--no-write-fetch-head", "--no-auto-maintenance", "--refmap=", "origin", &format!("+refs/heads/main:{FETCHED}")];
-    let said = |why: &str| format!("git {} in {}: {why}", args.join(" "), repo.display());
-    let mut child = Command::new("git").arg("-C").arg(repo).args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().map_err(|error| said(&error.to_string()))?;
+fn fetch(store: &Path) -> Result<(), String> {
+    let args = ["fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin"];
+    let said = |why: &str| format!("git {} in {}: {why}", args.join(" "), store.display());
+    let mut child = north_trusted_mirror::command(store).args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().map_err(|error| said(&error.to_string()))?;
     let until = Instant::now() + FETCH_LIMIT;
     let status = loop {
         match child.try_wait().map_err(|error| said(&error.to_string()))? {

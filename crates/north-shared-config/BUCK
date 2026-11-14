@@ -22,6 +22,9 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
+    deps = [
+        "//crates/north-trusted-mirror:north-trusted-mirror",
+    ],
     visibility = ["PUBLIC"],
 )
 
@@ -34,6 +37,7 @@ north_rust_test(
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
     deps = [
+        "//crates/north-trusted-mirror:north-trusted-mirror",
         "//third-party:tempfile",
     ],
     visibility = ["PUBLIC"],
