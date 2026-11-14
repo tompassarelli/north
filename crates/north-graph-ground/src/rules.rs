@@ -90,3 +90,11 @@ pub fn worth_query() -> Value {
 pub fn label_query() -> Value {
     json!({"find": "labelled", "rules": [rule(("labelled", &["?issue", "?label"]), vec![fact("?issue", "state", ":open"), fact("?issue", "label", "?label")])]})
 }
+
+pub fn created_query() -> Value {
+    json!({"find": "created", "rules": [rule(("created", &["?issue", "?at"]), vec![fact("?issue", "created", "?at")])]})
+}
+
+pub fn parent_query() -> Value {
+    json!({"find": "parent", "rules": [rule(("parent", &["?issue", "?parent"]), vec![fact("?issue", "parent", "?parent")])]})
+}

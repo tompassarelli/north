@@ -4,7 +4,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::Value;
 
 pub const OWNER: &str = "tompassarelli";
-pub const REPOS: [&str; 4] = ["north", "makgora", "wisp", "firn"];
+pub const REPOS: [&str; 5] = ["north", "makgora", "wisp", "firn", "south"];
 pub const FRESH_S: f64 = 5.0 * 60.0;
 pub const OPEN_ISSUES: &str = "issues/open";
 pub const ISSUES_PROBE: &str = "issues/probe";

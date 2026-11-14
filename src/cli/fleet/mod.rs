@@ -26,7 +26,6 @@ pub(super) mod page_flood;
 mod list;
 mod placement;
 mod promises;
-mod ranked;
 mod typed;
 mod proxy;
 mod rebooted;

@@ -8,10 +8,6 @@ reviewed = "2026-11-08"
 by = "n706-gateshadow"
 decisions = 58
 
-# A proxy launches a worker only on one of the top five issues of `north graph ready` or an issue it filed or edited in a turn answering a message Tom typed (north#734). Would-be refusals: $XDG_STATE_HOME/north/gates/proxy-launch-rank.jsonl on the launching host.
-[gate.proxy-launch-rank]
-mode = "shadow"
-
 # A lane that drops the test, concern, eval or land check a live hold of harness/holdlist.toml names, or removes a hold or turns it from live to missing with no `Holdlist: REASON` commit trailer (north#1127, docs/rationale/holdlist.md). A hold whose guard is already missing at the merge base refuses nothing. It enforces since the 2026-11-14 review (north#1544).
 [gate.holdlist-guards-resolve]
 mode = "enforce"

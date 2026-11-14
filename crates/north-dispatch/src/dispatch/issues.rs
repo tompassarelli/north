@@ -258,7 +258,7 @@ impl Issue {
         self.labels.iter().map(String::as_str).find(|label| names.contains(label))
     }
 
-    /// The rank `threads unowned` staffs by: priority:now, unprioritized, next, later; within a priority, docs/rationale/backlog-ranking.md's order.
+    /// The rank `threads unowned` staffs by: main-red, priority:now, unprioritized, next, later; within a priority, docs/rationale/backlog-ranking.md's order.
     pub fn priority(&self) -> usize {
         north_graph_ground::priority(self.labels.iter().map(String::as_str))
     }

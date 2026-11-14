@@ -285,20 +285,14 @@ The measured order puts first the issue whose fix removes the most measured usag
 boxes: the `losses` ingest source tells each issue the 24 h usage of the harness cause classes it owns (`:loss-usd`, the
 classes `north ledger flow` charges, each owned by the issue `harness_loss_owners` in harness/defaults.toml names) and what
 one of its boxes costs (`:box-usd`, its worker usage per Done run over 14 days, else the fleet's), and the figure prints as
-`7.8 = $9.35 lost 24 h / $1.20 a box`. Priority label, then rank, break ties, so an issue that owns no measured loss keeps
-its label and rank order; boxes of issues with no rank come last among equals. `--query ready` and `--query held` print the `north graph ask` query behind each list,
+`7.8 = $9.35 lost 24 h / $1.20 a box`. Priority label (`main-red`, then `priority:now`, then none, then `priority:next`, then
+`priority:later`), then rank, then age (oldest first), then project, then issue number as a number break ties, so an issue that owns no measured loss keeps
+its label and rank order; an issue with no priority label or no rank takes its parent issue's, and boxes of issues with no rank of their own or their parent's come last among equals. `--query ready` and `--query held` print the `north graph ask` query behind each list,
 so `north graph ask "$(north graph ready --query ready)"` prints the same rows as tab-separated terms.
 
 `north fleet dispatch` reads the same set (`crates/north-graph-ground/src/backlog.rs`): it orders issues as `north graph ready` lists their
 ready boxes, issues with no ready box after them by priority label and rank, and skips an issue whose every unticked box is held with `no box is ready: box "..." waits on ...`. The graph is as fresh as the last ingest, which `north land follow` runs after each landing; when the graph cannot
 be read dispatch prints a `note:` and falls back to label and age order and the issue-level waits it reads from text.
-
-A proxy-role session launches a worker only on one of the first five issues of that order, or on an issue it created or
-edited in a turn that answers a message Tom typed (the newest prompt of its transcript carries no `[from NAME]` or `[gate ID]`
-sender); otherwise `north fleet launch` names the top five and refuses. The rule is the `proxy-launch-rank` gate of
-harness/gates.toml, in shadow: it warns the proxy and appends each would-be refusal to
-`$XDG_STATE_HOME/north/gates/proxy-launch-rank.jsonl`. A launch whose Item names no issue (a worker that files its own, a red main to repair) is outside the rule (north#706). Dispatch's own launches run without the caller's fleet session, so
-the rule never reads them as the proxy's.
 
 ## Grounding
 

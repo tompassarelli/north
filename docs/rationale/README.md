@@ -36,7 +36,7 @@ Nothing here is needed to use north: these notes record why it is built the way 
 ## Plans
 
 - [Architecture layers: the map, the target and the boxes that close the gap](architecture-layers.md): Every north crate sits in one of seven layers with one responsibility each, dependencies point down, and each place the code departs from that is a box on north#1276.
-- [Backlog ranking: north's open issues ranked by leverage, with the edges between them](backlog-ranking.md): North's open issues on 2026-11-06, ranked by how much other work each one unblocks or speeds up, then by cost, with the waits between them as an edge list.
+- [Backlog ranking: north's open issues in the roadmap's stage order, with the edges between them](backlog-ranking.md): North's open issues on 2026-11-14, ranked by the roadmap stages decided that day (south#142, record `agents/decisions/harness/north-roadmap-2026-11-14.md` in south), with the waits between them as an edge list.
 - [Build cost: where north's compiles burn cores, and what to cut first](build-cost.md): Tom asked for the smartest durable cut of north's compile cost per lane, per landing and per runtime promotion, build caches included (2026-11-04).
 - [Capacity scheduler: elastic, learned, fleet-wide placement by predicted finish time](capacity-scheduler.md): The newer plan for the same subject is [placement.md](placement.md) (2026-11-11); read it first, and this note for the measurements and the review.
 - [Compile reuse: every compile input is built once across the fleet](compile-reuse.md): North moves from Cargo to Buck2 with remote execution and one shared content-addressed store, so that no rustc invocation, link or test runs twice for the same inputs on any host (north#1115, decided 2026-11-11).

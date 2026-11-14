@@ -11,6 +11,7 @@ use north_threads::threads::attribution::losses;
 use rusqlite::{Connection, OpenFlags};
 
 use crate::facts::{Facts, Sourced, issue_ref, text};
+use crate::issues;
 use crate::places::Places;
 
 pub(crate) const WRITER: &str = "ledger";
@@ -30,13 +31,14 @@ fn owners() -> BTreeMap<String, String> {
 }
 
 pub fn read(places: &Places) -> Result<Sourced, String> {
-    let (owners, now) = (owners(), Timestamp::now().unix_seconds());
+    let (owners, now, open) = (owners(), Timestamp::now().unix_seconds(), issues::bodies(places));
     let db = Connection::open_with_flags(&places.threads, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(|why| format!("{}: {why}", places.threads.display()))?;
     let reading = losses(&db, now - DAY_S).map_err(|why| format!("{}: losses: {why}", places.threads.display()))?;
     let mut owned: BTreeMap<String, f64> = BTreeMap::new();
     let mut facts = Facts::new(&REPLACED);
     for loss in reading.losses.iter().filter(|loss| loss.usd > 0.0) {
         match owners.get(loss.harness.label()) {
+            Some(owner) if !open.contains_key(owner) => facts.note(format!("harness class {} (${:.2} over 24 h) is owned by {owner}, which is not open, so it counts toward no rank", loss.harness.label(), loss.usd)),
             Some(owner) => *owned.entry(owner.clone()).or_default() += loss.usd,
             None => facts.note(format!("harness class {} (${:.2} over 24 h) has no owner in harness_loss_owners", loss.harness.label(), loss.usd)),
         }

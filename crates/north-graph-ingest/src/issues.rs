@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use north_github_mirror::store::{CLOSED_ISSUES, OPEN_ISSUES, REPOS, key};
+use north_base::foundation::clock::Timestamp;
 use north_graph::{Atom, Term};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
@@ -13,7 +14,7 @@ use crate::waits::{self, Wait};
 
 pub(crate) const WRITER: &str = "mirror";
 pub(crate) const RUNS: &str = "ledger";
-const REPLACED: [&str; 15] = ["title", "state", "label", "blocked-by", "follows", "has-box", "text", "ticked", "owner", "claims", "waits-on", "unparsed-wait", "parent", "leaf", "done-when"];
+const REPLACED: [&str; 16] = ["title", "created", "state", "label", "blocked-by", "follows", "has-box", "text", "ticked", "owner", "claims", "waits-on", "unparsed-wait", "parent", "leaf", "done-when"];
 const HELD: [&str; 4] = ["has-box", "text", "ticked", "done-when"];
 
 fn open_issues(places: &Places, repo: &str) -> Option<Vec<Value>> {
@@ -59,6 +60,9 @@ fn tell_issue(facts: &mut Facts, box_ids: &mut BTreeMap<String, Vec<String>>, sh
     facts.tell(WRITER, text(&name), "state", keyword("open"));
     if let Some(title) = issue["title"].as_str() {
         facts.tell(WRITER, text(&name), "title", text(title));
+    }
+    if let Some(created) = issue["createdAt"].as_str().and_then(Timestamp::parse_rfc3339) {
+        facts.tell(WRITER, text(&name), "created", Term::int(created.unix_seconds()));
     }
     for label in issue["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|label| label["name"].as_str()) {
         facts.tell(WRITER, text(&name), "label", text(label));

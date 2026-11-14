@@ -89,3 +89,17 @@ fn an_open_leaf_is_ready_unless_a_blocker_is_open_and_the_box_path_is_unchanged(
     assert!(backlog.held.iter().any(|held| held.entry.issue == "north#11" && held.edge == "north#2"));
     assert!(ready.contains(&"north#1"), "box issues keep their verdicts");
 }
+
+#[test]
+fn a_red_main_leads_priority_now_and_unranked_ties_go_oldest_first_then_by_number_with_a_child_taking_its_parents_label() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    for (name, created) in [("firn#41", 300), ("makgora#1122", 100), ("makgora#889", 100), ("north#1495", 200), ("north#1537", 400), ("north#1550", 500)] {
+        issue(&mut graph, name, None, &[(format!("box:{name}").as_str(), "Do it")]);
+        tell(&mut graph, name, "created", Term::int(created));
+    }
+    tell(&mut graph, "north#1537", "label", Term::string("main-red"));
+    tell(&mut graph, "north#1495", "label", Term::string("priority:now"));
+    tell(&mut graph, "north#1550", "parent", Term::string("north#1495"));
+    let backlog = read_from(&graph).unwrap();
+    assert_eq!(backlog.leaders(), ["north#1537", "north#1495", "north#1550", "makgora#889", "makgora#1122", "firn#41"], "on 2026-11-14 string order put firn#41 and makgora#1122 first");
+}

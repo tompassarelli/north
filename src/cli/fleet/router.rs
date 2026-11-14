@@ -23,7 +23,7 @@ use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
 use super::placement::Overrides;
-use super::{admission, desktop, gated, ranked, spend_queue, tier};
+use super::{admission, desktop, gated, spend_queue, tier};
 use super::run_ingest::IngestRuns;
 use super::usage_ingest::IngestUsage;
 use super::accounts;
@@ -249,7 +249,6 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     super::claude_only::admit(&request)?;
     let mut issues = super::claim_box::IssueReads::github();
     super::claim_box::admit(&request, &mut issues)?;
-    ranked::admit(fleet, &request, caller.as_deref())?;
     tier::admit_class(&request)?;
     let written = request.prompt.clone();
     let started = tier::apply(&mut request, &mut overrides, &mut issues)?;

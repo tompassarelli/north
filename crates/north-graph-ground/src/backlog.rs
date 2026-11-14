@@ -1,9 +1,10 @@
 //! The ready set of north's backlog: each unticked box of an open issue with no live wait on an unticked box or an
 //! open issue, and each box that does wait, with the edge that holds it. It reads what `north graph ingest` told
 //! (`waits-on`, `doc-waits-on`, `blocked-by`, `follows`, `rank`, `label`, `loss-usd`, `box-usd`), so a dependency and
-//! an order live in the graph once and dispatch, the stop guard, the proxy's launch guard and `north graph ready` agree.
+//! an order live in the graph once and dispatch, the stop guard and `north graph ready` agree.
 //! The ready boxes run in measured order: the 24 h harness usage an issue owns per dollar one of its boxes costs, most
-//! first, with priority label, then backlog-ranking.md's rank, breaking ties (north#734). A ready box whose dated check is still ahead
+//! first, with priority label, then backlog-ranking.md's rank, then age, project and issue number breaking ties (north#734,
+//! north#1544); an issue with no priority label or rank takes its parent's. A ready box whose dated check is still ahead
 //! (`due`) is held behind it, so an issue with nothing takeable yet leads nothing (north#706).
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -12,17 +13,28 @@ use std::time::Duration;
 use north_graph::{Atom, Graph, Term, default_path, parse_query};
 use serde_json::Value;
 
-use crate::rules::{held_query, label_query, rank_query, ready_query, worth_query};
+use crate::rules::{created_query, held_query, label_query, parent_query, rank_query, ready_query, worth_query};
 use crate::show::name;
 
 const PATIENCE: Duration = Duration::from_millis(400);
 const DATED_CHECK: &str = "its dated check";
-const PRIORITIES: [&str; 4] = ["priority:now", "-", "priority:next", "priority:later"];
+const PRIORITIES: [&str; 5] = ["main-red", "priority:now", "-", "priority:next", "priority:later"];
+const UNLABELLED: usize = 2;
+const ANCESTORS: usize = 8;
 
-/// Where a priority label puts an issue among equals, `priority:now` first and an unlabelled issue second.
+/// Where a priority label puts an issue among equals, a red main first, `priority:now` second and an unlabelled issue third.
 pub fn priority<'a>(labels: impl IntoIterator<Item = &'a str>) -> usize {
+    labelled(labels).unwrap_or(UNLABELLED)
+}
+
+fn labelled<'a>(labels: impl IntoIterator<Item = &'a str>) -> Option<usize> {
     let labels: Vec<&str> = labels.into_iter().collect();
-    PRIORITIES.iter().position(|priority| labels.contains(priority)).unwrap_or(1)
+    PRIORITIES.iter().position(|priority| labels.contains(priority))
+}
+
+fn number(issue: &str) -> (&str, u64) {
+    let (project, number) = issue.split_once('#').unwrap_or((issue, ""));
+    (project, number.parse().unwrap_or(u64::MAX))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -58,6 +70,8 @@ pub struct Backlog {
     pub ranks: BTreeMap<String, i64>,
     pub worth: BTreeMap<String, Worth>,
     pub priorities: BTreeMap<String, usize>,
+    pub created: BTreeMap<String, i64>,
+    pub parents: BTreeMap<String, String>,
     pub ready: Vec<Entry>,
     pub held: Vec<Held>,
 }
@@ -115,7 +129,9 @@ pub fn read_from_at(graph: &Graph, now: i64) -> Result<Backlog, String> {
             labels.entry(string(issue)).or_default().push(string(label));
         }
     }
-    let priorities = labels.into_iter().map(|(issue, labels)| (issue, priority(labels.iter().map(String::as_str)))).collect();
+    let priorities = labels.into_iter().filter_map(|(issue, labels)| Some((issue, labelled(labels.iter().map(String::as_str))?))).collect();
+    let created = ask(graph, &created_query())?.iter().filter_map(|row| Some((string(row.first()?), integer(row.get(1)?)?))).collect();
+    let parents = ask(graph, &parent_query())?.iter().filter_map(|row| Some((string(row.first()?), string(row.get(1)?)))).collect();
     let ready: Vec<Entry> = ask(graph, &ready_query())?
         .iter()
         .filter_map(|row| Some(Entry { issue: string(row.get(1)?), node: string(row.get(2)?), text: string(row.get(3)?) }))
@@ -126,27 +142,45 @@ pub fn read_from_at(graph: &Graph, now: i64) -> Result<Backlog, String> {
         .collect();
     let (ready, dated): (Vec<Entry>, Vec<Entry>) = ready.into_iter().partition(|entry| crate::due::pending(&entry.text, now).is_none());
     held.extend(dated.into_iter().filter_map(|entry| Some(Held { edge: DATED_CHECK.to_owned(), edge_text: crate::due::pending(&entry.text, now)?.1, entry })));
-    let mut backlog = Backlog { ranks, worth, priorities, ready, held };
+    let mut backlog = Backlog { ranks, worth, priorities, created, parents, ready, held };
     backlog.order();
     Ok(backlog)
 }
 
 impl Backlog {
+    /// The issue's rank in backlog-ranking.md, else its nearest ranked parent's.
     pub fn rank(&self, issue: &str) -> Option<i64> {
-        self.ranks.get(issue).copied()
+        self.lineage(issue).find_map(|issue| self.ranks.get(issue).copied())
+    }
+
+    /// Where the issue's priority label, else its nearest labelled parent's, puts it among equals.
+    pub fn priority(&self, issue: &str) -> usize {
+        self.lineage(issue).find_map(|issue| self.priorities.get(issue).copied()).unwrap_or(UNLABELLED)
+    }
+
+    fn lineage<'a>(&'a self, issue: &'a str) -> impl Iterator<Item = &'a str> {
+        std::iter::successors(Some(issue), |issue| self.parents.get(*issue).map(String::as_str)).take(ANCESTORS)
     }
 
     pub fn worth(&self, issue: &str) -> Worth {
         self.worth.get(issue).copied().unwrap_or_default()
     }
 
-    /// Sorts the ready boxes most measured worth first, then by priority label and rank; a sort is stable, so the
-    /// query's order holds among equals.
+    /// Sorts the ready boxes most measured worth first, then by priority label, rank, age, project and issue number;
+    /// a sort is stable, so the query's order holds among one issue's boxes.
     fn order(&mut self) {
         let mut ready = std::mem::take(&mut self.ready);
-        let priority = |entry: &Entry| self.priorities.get(&entry.issue).copied().unwrap_or(1);
         let rank = |entry: &Entry| self.rank(&entry.issue).unwrap_or(i64::MAX);
-        ready.sort_by(|a, b| self.worth(&b.issue).ratio().total_cmp(&self.worth(&a.issue).ratio()).then(priority(a).cmp(&priority(b))).then(rank(a).cmp(&rank(b))));
+        let created = |entry: &Entry| self.created.get(&entry.issue).copied().unwrap_or(i64::MAX);
+        ready.sort_by(|a, b| {
+            self.worth(&b.issue)
+                .ratio()
+                .total_cmp(&self.worth(&a.issue).ratio())
+                .then(self.priority(&a.issue).cmp(&self.priority(&b.issue)))
+                .then(rank(a).cmp(&rank(b)))
+                .then(created(a).cmp(&created(b)))
+                .then_with(|| number(&a.issue).cmp(&number(&b.issue)))
+        });
         self.ready = ready;
     }
 
