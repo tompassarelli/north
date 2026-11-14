@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -uo pipefail
 export PATH=/home/tom/.local/bin:/home/tom/.nix-profile/bin:/run/current-system/sw/bin:$PATH
-B=/tmp/north-assessment/evals/b
-A=/tmp/north-assessment/evals/a
+B=$HOME/eval-data/eval-b
+A=$HOME/eval-a/evals/a
+L=$HOME/eval-data/eval-a/work
 E=$B/bin/eval-b
 R=$B/results.jsonl
 LOG=$B/ladder.log
@@ -36,9 +37,9 @@ line() {
 }
 rows() { jq -s --argjson l "$1" '[.[] | select(.level == $l and .arm == "north")] | length' "$R" 2> /dev/null || echo 0; }
 bent() { jq -se --argjson l "$1" '[.[] | select(.level == $l and .arm == "north")] | (map(select(.failed)) | length) * 4 > length' "$R" > /dev/null; }
-mkdir -p "$B/work"
+mkdir -p "$B/work" "$L"
 echo "---- $(date '+%I:%M %p') ladder $*" >> "$LOG"
-exec 9> /tmp/north-assessment/evals/work/.lock
+exec 9> "$L/.lock"
 flock -n 9 || { tell "another eval run holds the eval lock; not started"; exit 75; }
 if $smoke; then
   rm -f "$B/smoke-results.jsonl"

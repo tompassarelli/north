@@ -71,13 +71,13 @@ at a time (`run --arms t3-vanilla`); `eval-b t3-rows` turns those rows into Eval
 ## Rerun
 
 ```
-B=/tmp/north-assessment/evals/b
+B=~/eval-data/eval-b
 eval-b workload --seed 20261111 --count 60 --lander-host whiterabbit --out $B/workload
 eval-b ladder --workload $B/workload --level 1 --count 5 --parent w-eval-b --work $B/work --results $B/results.jsonl
 eval-b ladder --workload $B/workload --level 5 --parent w-eval-b --work $B/work --results $B/results.jsonl
 eval-b ladder --workload $B/workload --level 21 --parent w-eval-b --work $B/work --results $B/results.jsonl
 eval-b t3-tasks --workload $B/workload --count 20 --out $B/t3-tasks.json
-/tmp/north-assessment/evals/a/run --tasks $B/t3-tasks.json --arms t3-vanilla --runs 1 --account d --results $B/t3-eval-a.jsonl
+~/eval-a/evals/a/run --tasks $B/t3-tasks.json --arms t3-vanilla --runs 1 --account d --results $B/t3-eval-a.jsonl
 eval-b t3-rows --workload $B/workload --from $B/t3-eval-a.jsonl --results $B/results.jsonl
 eval-b summary --results $B/results.jsonl
 eval-b queue --archive $B
