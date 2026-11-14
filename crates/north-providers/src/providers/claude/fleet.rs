@@ -324,6 +324,7 @@ fn observe_assistant(frame: &Value, transcript: &mut Transcript) {
     for block in frame["message"]["content"].as_array().into_iter().flatten() {
         match block["type"].as_str() {
             Some("text") => observe_assistant_text(block["text"].as_str().unwrap_or_default(), transcript),
+            Some("thinking") => push(transcript, EntryKind::Thinking, block["thinking"].as_str().unwrap_or_default().trim().to_owned()),
             Some("tool_use") => push(transcript, EntryKind::Tool, tool_use_text(block)),
             _ => {}
         }

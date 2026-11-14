@@ -296,6 +296,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   https://github.com/earendil-works/pi/releases and https://github.com/anomalyco/opencode/releases, both MIT (LICENSE
   in each repository; GitHub reports `MIT` for both); accessed 2026-11-09, Pi 1.5.0 (`pi-linux-x64.tar.gz`) and OpenCode
   2.2.6 (`opencode-linux-x64.tar.gz`).
+- <a id="pi-thinking-look"></a>**Pi transcript display, thinking look**: the fleet screen shows a model's thinking as dim italic paragraphs under the tinted prompt, after the look of Pi's transcript. The look was described from the owner's screenshots of 2026-11-14 and ported in Rust; no Pi source or text was copied. Pi is MIT (see [pi-opencode-releases](#pi-opencode-releases)); north#1281.
   Informed: [vendor_runtime](../crates/north-ops/src/ops/vendor_runtime/mod.rs), which downloads each program's newest
   stable release asset, checks it against the SHA-256 GitHub records for that asset and installs it under
   `~/.local/lib/pi` and `~/.local/lib/opencode`; north#1023.

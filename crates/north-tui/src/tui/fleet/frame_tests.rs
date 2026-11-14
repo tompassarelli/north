@@ -7,7 +7,8 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Color;
+use ratatui::style::{Color, Modifier};
+use ratatui::widgets::{Paragraph, Widget};
 
 use super::desk::SessionSummary;
 use super::digest_view::digest_lines;
@@ -123,14 +124,34 @@ fn help_shows_the_proxys_account_and_log_path_and_closes_when_its_slash_is_backs
 }
 
 #[test]
-fn a_reply_with_tabs_keeps_its_columns_apart() {
+fn a_transcript_paints_each_entry_in_its_own_look() {
     let entries = [Entry { kind: EntryKind::Assistant, text: "name\tstatus\tage".into() }];
     let lines = paint(&entries, "", &[], 80);
     let mut buffer = Buffer::empty(Rect::new(0, 0, 80, 1));
     buffer.set_line(0, 0, &lines[0], 80);
     let row: String = buffer.content().iter().map(|cell| cell.symbol()).collect::<String>().trim_end().to_owned();
     assert_eq!(row, "• name    status  age");
+
+    let entries = [
+        Entry { kind: EntryKind::User, text: "why".into() },
+        Entry { kind: EntryKind::Thinking, text: "weighing it\n\nsecond paragraph".into() },
+        Entry { kind: EntryKind::Assistant, text: "because".into() },
+    ];
+    let lines = paint(&entries, "", &[], 40);
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 40, lines.len() as u16));
+    Paragraph::new(lines).render(buffer.area, &mut buffer);
+    let cells = |y: u16| (0..40).map(|x| buffer[(x, y)].symbol()).collect::<String>();
+    let line_of = |text: &str| (0..buffer.area.height).find(|y| cells(*y).contains(text)).unwrap();
+    let prompt = line_of("why");
+    assert!((0..40).all(|x| buffer[(x, prompt)].bg == Color::Rgb(52, 58, 62)), "{}", cells(prompt));
+    for thought in ["weighing", "second paragraph"] {
+        assert!(buffer[(2, line_of(thought))].modifier.contains(Modifier::DIM | Modifier::ITALIC), "{thought}");
+    }
+    let reply = line_of("because");
+    assert!(!buffer[(2, reply)].modifier.intersects(Modifier::DIM | Modifier::ITALIC), "the reply is plain text");
+    assert_ne!(buffer[(2, reply)].bg, Color::Rgb(52, 58, 62), "the reply is not tinted");
 }
+
 
 fn frame_buffer(screen: &mut Screen, width: u16) -> Buffer {
     let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();

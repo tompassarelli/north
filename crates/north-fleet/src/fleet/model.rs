@@ -344,6 +344,7 @@ pub fn first_item_issue(text: &str) -> Option<String> {
 pub enum EntryKind {
     User,
     Assistant,
+    Thinking,
     Tool,
     ToolResult,
     TurnEnd,
@@ -358,6 +359,7 @@ impl EntryKind {
         match self {
             EntryKind::User => "user",
             EntryKind::Assistant => "assistant",
+            EntryKind::Thinking => "thinking",
             EntryKind::Tool => "tool",
             EntryKind::ToolResult => "result",
             EntryKind::TurnEnd => "turn",

@@ -7,6 +7,7 @@ use super::table::{self, Block};
 
 const OPERATOR: Style = Style::new().fg(Color::Rgb(226, 220, 199)).bg(Color::Rgb(52, 58, 62));
 const PENDING: Style = OPERATOR.add_modifier(Modifier::DIM);
+const THINKING: Style = Style::new().add_modifier(Modifier::DIM.union(Modifier::ITALIC));
 
 #[derive(Default)]
 pub struct TranscriptPainter {
@@ -77,6 +78,7 @@ fn paint_entry(entry: &Entry, width: usize, lines: &mut Vec<Line<'static>>) {
     match entry.kind {
         EntryKind::User => paint_user(&entry.text, width, OPERATOR, lines),
         EntryKind::Assistant => paint_markdown(&entry.text, width, lines),
+        EntryKind::Thinking => paint_thinking(&entry.text, width, lines),
         EntryKind::Tool => lines.push(Line::from(vec![Span::styled("  ↳ ", dim), Span::styled(one_line(&entry.text, width.saturating_sub(4)), dim)])),
         EntryKind::ToolResult => lines.push(Line::from(Span::styled(format!("    {}", one_line(&entry.text, width.saturating_sub(4))), dim))),
         EntryKind::Error => lines.extend(prefixed(&entry.text, Style::default().fg(Color::Red))),
@@ -105,6 +107,14 @@ fn paint_markdown(text: &str, width: usize, lines: &mut Vec<Line<'static>>) {
         started = true;
         let mut spans = vec![prefix];
         spans.extend(line.spans);
+        lines.push(Line::from(spans));
+    }
+}
+
+fn paint_thinking(text: &str, width: usize, lines: &mut Vec<Line<'static>>) {
+    for line in markdown_lines(&expand_tabs(text), width.saturating_sub(2)) {
+        let mut spans = vec![Span::raw("  ")];
+        spans.extend(line.spans.into_iter().map(|span| Span::styled(span.content.into_owned(), THINKING.patch(span.style))));
         lines.push(Line::from(spans));
     }
 }
