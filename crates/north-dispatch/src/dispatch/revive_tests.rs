@@ -19,10 +19,11 @@ fn one_stop_wakes_once_a_local_capacity_stop_is_the_resume_passs_and_a_session_i
         strand("remote-capacity", Stop::Capacity, Some("gex45"), false),
         strand("local-wait", Stop::Wait, None, false),
         strand("woken", Stop::Wait, None, true),
+        strand("gated", Stop::Decision, Some("gex45"), false),
     ];
     let revival = decide(&surveyed, "test").revival;
     let revived: Vec<&str> = revival.steps.iter().filter_map(|step| if let Step::Revive(revive) = step { Some(revive.name.as_str()) } else { None }).collect();
     assert_eq!(revived, ["remote-capacity", "local-wait"], "{:?}", revival.waiting);
     let waiting: Vec<&str> = revival.waiting.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(waiting, ["local-capacity", "woken"]);
+    assert_eq!(waiting, ["local-capacity", "woken", "gated"]);
 }
