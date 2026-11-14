@@ -543,11 +543,12 @@ fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_a_stopped_rebase_o
     assert_eq!(fs::read_to_string(conflicting.join("README")).unwrap(), "the lane's readme\n", "a conflicting lane lost its change: {text}");
 
     fs::write(stopped.join("stopped.txt"), "a change the stopped rebase must not leave behind\n").unwrap();
+    let open = fs::metadata(stopped.join("zzz")).unwrap().permissions();
     fs::set_permissions(stopped.join("zzz"), fs::Permissions::from_mode(0o555)).unwrap();
     let queued = || queue::pending(&north.queue).is_ok_and(|pending| !pending.is_empty());
     let mut stopping = verb(&world, "Add the note the stopped rebase must not leave behind", &[&stopped.join("stopped.txt")]);
     assert!(wait::until(HANG, || queued() || stopping.try_wait().unwrap().is_some()), "the stopped hand-in neither queued nor exited");
-    fs::set_permissions(stopped.join("zzz"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(stopped.join("zzz"), open).unwrap();
     let untracked = git(&stopped, &["ls-files", "--others", "--exclude-standard"]);
     let added = stopped.join("added").exists();
     if queued() {

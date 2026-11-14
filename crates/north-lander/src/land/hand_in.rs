@@ -5,6 +5,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use self::stageable::{in_lane, stageable};
 use super::enqueue::{Facts, default_branch, fetch_base, git};
 use crate::land::slots::runner;
 use north_base::platform::finish_record::{FinishRecords, Finished};
@@ -15,6 +16,7 @@ mod early_facts;
 mod kept;
 mod lane_sync;
 mod other_lanes;
+mod stageable;
 
 const EARLY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 const ATTEMPT: &str = "north-attempt.json";
@@ -292,7 +294,7 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     if !unnamed_deletions.is_empty() {
         return Err(format!("the lane's commits also delete {}, which the hand-in did not name", unnamed_deletions.join(" ")));
     }
-    let named: Vec<String> = named.into_iter().zip(&relative).filter(|(path, name)| Path::new(path).exists() || tracked(&root, name)).map(|(path, _)| path).collect();
+    let named = stageable(&root, named, &relative);
     Ok(Named { lane: Lane { root, destination, message }, paths: named, targets, committed: !committed.is_empty(), added: unnamed })
 }
 
@@ -353,16 +355,6 @@ fn commit(named: &Named) -> Result<(), String> {
 
 fn literal(root: &Path, arguments: &[&str]) -> Result<String, String> {
     git(root, &[&["--literal-pathspecs"][..], arguments].concat())
-}
-
-fn in_lane(root: &Path, relative: &str, committed: &[String]) -> bool {
-    let under = format!("{}/", relative.trim_end_matches('/'));
-    committed.iter().any(|change| change == relative || change.starts_with(&under)) || tracked(root, relative)
-}
-
-fn tracked(root: &Path, relative: &str) -> bool {
-    let known = |arguments: &[&str]| literal(root, &[arguments, &["--", relative]].concat()).is_ok_and(|names| !names.is_empty());
-    known(&["ls-files", "--cached"]) || known(&["ls-tree", "-r", "--name-only", "HEAD"])
 }
 
 fn lane_changes(root: &Path, destination: &str) -> Result<Vec<String>, String> {
