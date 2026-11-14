@@ -2,7 +2,7 @@
 
 North against plain T3 Code with the model held equal, on small tasks at one to twenty at once, single real tasks, large tasks split across workers and an outside benchmark: for each kind the tasks completed, the time and the cost of each arm, the line it is read against, and where its rows are kept.
 
-Status (2026-11-14): draft, not approved for publication. On the release runtime, after the hand-in stage that cost north about 180 s was fixed, the valid runs give R 0.79 in the small one-worker cell (one run) and 0.64 in the small five-at-once cell (two runs, 0.65 and 0.61) against the faster T3 Code arm, at about 0.3 of its cost per task. Every cell is undecided until T3 Code's noise band is measured and has three valid runs; the large cells, which the general claims need, have not run.
+Status (2026-11-14): both small cells are read. In block w5, three valid runs of each on the pinned release runtime, north is ahead of T3 Code given the file text (the faster T3 Code arm) at one worker with low confidence (R 0.78, outside T3 Code's noise band by a margin smaller than the interval) and ahead at five at once (R 0.70), at about 0.3 of its cost per task in both. Neither cell meets the 0.67 small-task bar. The large cells, which the general claims need, have not yet run their three valid runs.
 
 ## The line
 
@@ -20,6 +20,8 @@ Written on north#1281 before the release runs; a kind that fails is fixed at its
 | Small tasks, five at once | 15 of 15 / 15 of 15 | run medians 10 s / 17 to 22 s; R 0.51 | as above | met: 49 percent faster | 2026-11-12, 3 runs | lost; figures as recorded |
 | Small tasks, ten at once | 10 of 10 / 10 of 10 | all landed 37 s / 46 s (0.80); median 15 s / 20.5 s (0.73) | $0.049 / $0.173 | at the line on time to all landed, met on the median | 2026-11-12, 1 run | lost; figures as recorded |
 | Small tasks, twenty at once | 20 of 20 / 19 of 20 | all landed 60 s / 63 s (0.95); median 17 s / 31 s (0.55) | $0.050 / $0.174 | loss on time to all landed; met on the median and on tasks completed | 2026-11-12, 1 run | lost; figures as recorded |
+| Small one-worker cell, block w5 | 15 of 15 / 15 of 15 | median 12 s / 16 s; R 0.78 (80% 0.73 to 0.84) | $0.050 / $0.165 | ahead, low confidence: outside the noise band (1/N 0.84); the 0.67 bar is not met | c427610f1c, 2026-11-14, 3 runs | kept, and committed as docs/readme/comparison.toml |
+| Small five-at-once cell, block w5 | 15 of 15 / 15 of 15 | median 13 s / 21 s; R 0.70 (80% 0.64 to 0.78) | $0.055 / $0.193 | ahead: outside the noise band (1/N 0.91) and 30 percent faster; the 0.67 bar is not met | c427610f1c, 2026-11-14, 3 runs | kept, and committed as docs/readme/comparison.toml |
 | Small one-worker cell, release runtime after the hand-in fix | 5 of 5 / 5 of 5 | median 15 s / 18 s; R 0.79 (80% 0.71 to 0.83) | $0.050 / $0.172 | undecided: one valid run, no noise band; the 0.67 line is not met | 2026-11-14 | kept, and committed as docs/readme/comparison.toml |
 | Small five-at-once cell, release runtime after the hand-in fix | 10 of 10 / 10 of 10 | median 13.5 s / 21 s; R 0.64 (80% 0.60 to 0.67) | $0.054 / $0.191 | undecided: two valid runs, no noise band | 2026-11-14 | kept, and committed as docs/readme/comparison.toml |
 | Small tasks, one worker, release runtime | 5 of 5 / 5 of 5 | median 199 s / 17 s | $0.072 / $0.155 | loss: 11.7 times T3 Code's time, against a bar of 0.67 | 4903316be5, 2026-11-13, 1 run | kept |
@@ -28,7 +30,7 @@ Written on north#1281 before the release runs; a kind that fails is fixed at its
 | Small tasks, twenty at once, release runtime | not run | | | not run | | |
 | Single real tasks | 10 of 10 / 10 of 10 | median 97 s / 89 s; median ratio over tasks 1.09 (0.30 to 1.81) | $0.61 / $0.50 | at the line, low confidence; an earlier set the same day read 1.34 | 2026-11-11, 5 tasks, 2 runs per arm | kept |
 | Single real tasks, release runtime | 1 of 1 / 2 of 2 | 249 s / 42 and 45 s | not read | loss on the one task run; the pilot was stopped there | 4903316be5, 2026-11-13, 1 task | kept |
-| Large tasks | not run | | | not run | | |
+| Large tasks | first start: north 2 of 5, three stalled on harness defects (north#1509); T3 Code not run | | | not read: no valid run | 2026-11-14, 1 start | kept |
 | Outside benchmark | 9 of 12 / 9 of 12, then 5 of 8 / 5 of 8 | second slice, the five tasks both solved: 297 s / 330 s in sum | not read | equal on tasks completed; uncounted | 2026-11-12 and 13, probe slices | kept |
 
 T3 Code's figures in the small-task rows are those of its stronger arm for that measure. R is defined under the method below.
@@ -124,9 +126,20 @@ R against the faster T3 Code arm, with its 80 percent interval (10,000 resamples
 | small one-worker | 1 | 0.79 (with file text) | 0.79 | 0.71 to 0.83 | undecided: T3 Code's noise band is not measured; the 0.67 line is not met |
 | small five-at-once | 2 | 0.65 (plain), 0.61 (with file text) | 0.64 | 0.60 to 0.67 | undecided: T3 Code's noise band is not measured |
 
-Each reading holds for its cell alone. The protocol reads a cell only after its third valid run and against T3 Code's noise band, and its general sentences (north ahead of T3 Code on time or on cost, at one worker or at five) need the large cells too, which have not run; so nothing here says north is ahead in general.
+These runs on the earlier runtime stay undecided: their cells never reached three valid runs. Block w5 below replaces them as the reading of both small cells.
 
 Where north's time goes now: the first model request 8 to 18 s after launch, the hand-in 2 to 5 s after that, then a queue wait under 1.5 s in all but one task. North's worker makes one or two model requests from a short brief, which is where its lower token count and cost come from.
+
+### Block w5: three runs of each small cell and T3 Code's noise band
+
+Three valid runs of each small cell on 2026-11-14, in 23 minutes back to back, on the pinned release runtime c427610f1c with warm spares, one subscription account for every session, against T3 Code given the file text (the faster T3 Code arm in every earlier block). Every start held a one-minute load below 2, no sample reached 4, and every row of both arms landed: 30 rows per arm, with north's hidden check passing on all 30 and no intervention. The rows are cells 31 and 35 of [docs/readme/comparison.toml](../readme/comparison.toml).
+
+The noise band N is the median over the five tasks of T3 Code's slowest over fastest time across its three runs, and a cell is outside it when R is below 1/N (the registered statistic). The 80 percent interval is the bootstrap described in the method, over tasks and then runs within tasks, 10,000 resamples, seed 20261114.
+
+- The noise band of the small one-worker cell is N 1.19 (1/N 0.84), from T3 Code's per-task spreads of 1.07, 1.15, 1.19, 1.19 and 1.21. North's R is 0.78, 80 percent interval 0.73 to 0.84: ahead, with low confidence, because the interval's top crosses 1/N by 0.002. Cost R 0.31 (0.28 to 0.33): far ahead. North took 12 s and T3 Code 16 s at the median of the 15 pairs, with 19.8k tokens per task against 209k.
+- The noise band of the small five-at-once cell is N 1.10 (1/N 0.91), from per-task spreads of 1.05, 1.06, 1.10, 1.17 and 1.21. North's R is 0.70, 80 percent interval 0.64 to 0.78: ahead, the whole interval outside the band, and 30 percent faster, which meets the at-scale line's 20 percent. Cost R 0.29 (0.27 to 0.32): far ahead. North took 13 s and T3 Code 21 s at the median, with 25.5k tokens per task against 221k. Without its first run, R is 0.71 (0.67 to 0.83), still ahead.
+
+Neither cell meets the 0.67 small-task bar of north#1239, so that bar stays a loss at both levels. Each reading holds for its own cell. The general sentences (north ahead of T3 Code on time or on cost) also need the large cells, so nothing here says north is ahead in general.
 
 ### Results north did not meet
 
@@ -173,7 +186,7 @@ On the release runtime a pilot on the build host ran one task before it was stop
 
 ## Large tasks
 
-Five change sets from north's own history, each at least ten files across three modules, frozen with their checks in north#1236 before any run. Nothing has run. The plain arm and north at one worker have a runner; the arms that split a task across three and nine workers do not yet.
+Five change sets from north's own history, each at least ten files across three modules, frozen with their checks in north#1236 before any run. A first start of five at once on one build host (2026-11-14) landed 2 of 5 on north's side and stalled on the other three, each on a harness defect in north: a finish call refused for a lane outside every project of the host, a worker that ended its turn waiting on its own lint job, and one that parked without handing in. They are recorded as north's losses, fixed under north#1509, and T3 Code's side of that start did not run, so it gives no reading. The registered three runs of each one-session cell, five at once and one at a time, run on one build host at one held runtime. The arms that split a task along the code graph across one, three and nine workers have no runner yet.
 
 ## Outside benchmark
 
@@ -189,7 +202,7 @@ Terminal-Bench 2.0, with both harnesses on the host and only tool calls reaching
 
 ## What this does not show
 
-- Three valid runs of each small cell after the hand-in fix and T3 Code's noise band, which the protocol needs before a cell is read.
+- T3 Code's noise band for the small cells of the earlier runtimes, which stay undecided; only block w5's cells are read.
 - Ten and twenty at once after the fix, or how north handles conflicting lanes there.
 - Large tasks at all, and the benchmark beyond twenty probe tasks.
 - More than one model and effort, or more than one subscription account. The 2026-11-13 rows ran beside other fleet work; the 2026-11-14 rows on a quiet host; each row carries its loads.
@@ -198,7 +211,7 @@ Terminal-Bench 2.0, with both harnesses on the host and only tool calls reaching
 
 ## What would settle it
 
-- A third run of one and five at once on the same host and tasks, then ten and twenty.
+- Ten and twenty at once on the pinned release runtime, three runs each, with T3 Code's noise band at each level.
 - The single real tasks on the release runtime after that fix, with where north's seconds go on the short ones.
 - The large tasks: the plain arm and north at one worker first, then the split arms.
 - The benchmark's counted run on a host held for it.
