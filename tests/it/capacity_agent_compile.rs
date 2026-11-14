@@ -127,7 +127,7 @@ fn refused_inside_depbox(host: &Host) {
     }
     let carried = fleet(host, crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["capacity", "carry", "--list", "--into", "sandbox"]).output_exclusive().unwrap();
     assert!(String::from_utf8_lossy(&carried.stdout).lines().any(|name| name == "NORTH_FLEET_SESSION"), "depbox drops the fleet session");
-    let inside = fleet(host, crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["capacity", "gate", "cargo", "build"]).env("DEPBOX", format!("run:{}", project.display())).output_exclusive().unwrap();
+    let inside = fleet(host, crate::support::bin_exe!("CARGO_BIN_EXE_north")).current_dir(&project).args(["capacity", "gate", "cargo", "build"]).env("DEPBOX", format!("run:{}", project.display())).output_exclusive().unwrap();
     let stderr = String::from_utf8_lossy(&inside.stderr);
     assert_eq!(inside.status.code(), Some(75), "{stderr}");
     assert!(stderr.contains("inside depbox reaches no build host"), "{stderr}");
