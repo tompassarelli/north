@@ -38,6 +38,42 @@ fn accept(accepts: &Accepts, repo: &Path, base: &str, head: &str, session: &str)
 const LANDER: &str = "crates/north-lander/src/land.rs";
 
 #[test]
+fn a_live_fix_lane_that_changes_verify_north_login_with_no_review_accepts_is_refused_f9f0d1ddf9() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let accepts = Accepts(root.path().join("accepts"));
+    git_in(&repo, &["init", "-q", "-b", "main"]);
+    let files = ["README.md", "docs/rationale/0027-product-verification.md", "docs/onboarding.md", "flake.nix", "src/bin/verify_north/login.rs", "src/bin/verify_north/main.rs"];
+    let base = commit(&repo, &files.map(|file| (file, "a\n")), "base");
+    let lane = commit(&repo, &files.map(|file| (file, "b\n")), "Make the Quickstart one command\n\nLive-fix: launch gate for north#1281");
+    let refusal = check(&repo, &base, &lane, &accepts, &[]).unwrap_err();
+    assert!(refusal.contains("holds 0 of 2 review accepts") && refusal.contains("src/bin/verify_north/login.rs"), "{refusal}");
+    accept(&accepts, &repo, &base, &lane, "reviewer-a");
+    assert!(check(&repo, &base, &lane, &accepts, &[]).unwrap_err().contains("holds 1 of 2 review accepts"), "Live-fix does not cut a credential change to one accept");
+}
+
+#[test]
+fn a_live_fix_speed_cut_lands_on_one_accept() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let accepts = Accepts(root.path().join("accepts"));
+    git_in(&repo, &["init", "-q", "-b", "main"]);
+    let base = commit(&repo, &[(LANDER, "a\n")], "base");
+    let plain = commit(&repo, &[(LANDER, "b\n")], "a lander change");
+    accept(&accepts, &repo, &base, &plain, "reviewer-a");
+    assert!(check(&repo, &base, &plain, &accepts, &[]).unwrap_err().contains("holds 1 of 2 review accepts"), "without Live-fix one accept does not land it");
+    git_in(&repo, &["reset", "-q", "--hard", &base]);
+    let fix = commit(&repo, &[(LANDER, "b\n")], "a lander change\n\nLive-fix: landing p90");
+    assert_eq!(check(&repo, &base, &fix, &accepts, &[]), Ok(()), "a Live-fix lane outside two_accept_paths lands on one accept");
+    git_in(&repo, &["reset", "-q", "--hard", &base]);
+    let claims = commit(&repo, &[("crates/north-fleet/src/fleet/claims.rs", "b\n")], "a claims change\n\nLive-fix: landing p90");
+    accept(&accepts, &repo, &base, &claims, "reviewer-a");
+    assert!(check(&repo, &base, &claims, &accepts, &[]).unwrap_err().contains("holds 1 of 2 review accepts"), "Live-fix does not cut a claims change to one accept");
+}
+
+#[test]
 fn a_lane_that_changes_a_trust_boundary_path_lands_with_two_review_accepts_from_distinct_sessions_and_one_for_a_test_or_an_exact_revert_north_1036() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("repo");

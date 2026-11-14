@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 
+use north_base::build_inputs::live_fix;
 use north_base::platform::finish_record::{FinishRecords, Finished};
 use north_base::platform::review_accept::{Accepts, patch_id};
 use north_base::platform::trust_boundary;
@@ -45,7 +46,7 @@ pub(crate) fn reviewers(directory: &Path, fork: &str, head: &str, accepts: &Acce
     Ok((patch, accepted))
 }
 
-/// `Err` is a lane that changes a `trust_boundary_paths` file and holds fewer accepts than it needs: the accepts of two distinct reviewer sessions for its patch id, or one for a change of test files alone or an exact revert.
+/// `Err` is a lane that changes a `trust_boundary_paths` or `two_accept_paths` file and holds fewer accepts than it needs: the accepts of two distinct reviewer sessions for its patch id, or one for a change of test files alone, an exact revert, or a lane whose commits carry a `Live-fix:` trailer and change no `two_accept_paths` file.
 pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     let fork = git::merge_base(directory, base, head);
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
@@ -54,7 +55,9 @@ pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finish
         return Ok(());
     }
     let (patch, accepted) = reviewers(directory, &fork, head, accepts, finished)?;
-    let needed = if files.iter().all(is_test_file) || reverts(directory, &fork, head, &patch) { 1 } else { 2 };
+    let two = trust_boundary::needing_two(&files).unwrap_or_default();
+    let speed_cut = two.is_empty() && live_fix(&git::messages(directory, &fork, head)).is_some();
+    let needed = if speed_cut || files.iter().all(is_test_file) || reverts(directory, &fork, head, &patch) { 1 } else { 2 };
     if accepted.len() >= needed {
         return Ok(());
     }
