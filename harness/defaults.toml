@@ -2065,10 +2065,10 @@ fallback = "an empty or missing list starts no script"
 consumers = ["crates/north-runtime/src/worker_sandbox/eval_start.rs"]
 
 [host_op_units]
-value = ["north-worker-outside.service", "north-gh-broker.service", "north-runtime-follow.service", "north-land-rest.service", "north-pace.service", "north-fleet-held.service", "north-watch.service"]
+value = ["north-worker-outside.service", "north-gh-broker.service", "north-runtime-follow.service", "north-land-rest.service", "north-pace.service", "north-fleet-held.service", "north-watch.service", "north-clean-install.service"]
 allowed = { min_len = 0 }
 unit = "north user units whose state the outside broker reads and which it restarts on a host for a lead session or the coordinator (crates/north-runtime/src/worker_sandbox/host_op_request.rs)"
-source = "north#1485 (2026-11-14): a confined lead can no longer ssh, so it could not read a host's unit and load state or restart a north unit; the list is the north user units the hosts run"
+source = "north#1485 (2026-11-14): a confined lead can no longer ssh, so it could not read a host's unit and load state or restart a north unit; the list is the north user units the hosts run; north-clean-install is the build-host unit from south 281b8725 that runs the install command in an empty home with no fleet credentials, started and read here; each start runs unpinned public north main from GitHub with network and the nix daemon, acceptable because that code is public and landed through review (north#1484)"
 fallback = "an empty or missing list reads and restarts no unit"
 consumers = ["crates/north-runtime/src/worker_sandbox/host_op_request.rs"]
 
