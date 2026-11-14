@@ -9,6 +9,7 @@ use crate::fleet::model::{SessionRecord, Status, Transcript};
 use super::form::{Field, LaunchForm};
 use super::screen::{Dialog, Focus, Notice, Screen};
 use super::digest_view::draw_digest;
+use super::strip_view::{draw_strip, status_style};
 use super::help_view::{draw_help, rows as help_rows};
 use super::painter::TranscriptPainter;
 
@@ -22,16 +23,17 @@ pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Tran
     let panel_rows = help_rows(screen, ceiling).min(frame.area().height.saturating_sub(composer_rows + 2 + 1 + 3));
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)])
+        .constraints([Constraint::Min(3), Constraint::Length(1), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)])
         .split(frame.area());
     if screen.digest.shown {
         draw_digest(frame, screen, rows[0], now_ms);
     } else {
         draw_transcript(frame, screen, transcript, painter, rows[0]);
     }
-    draw_composer(frame, screen, rows[1]);
-    draw_help(frame, screen, rows[2]);
-    draw_status(frame, screen, rows[3]);
+    draw_strip(frame, screen, rows[1]);
+    draw_composer(frame, screen, rows[2]);
+    draw_help(frame, screen, rows[3]);
+    draw_status(frame, screen, rows[4]);
     match &screen.dialog {
         Some(Dialog::Launch(form)) => draw_launch_form(frame, form),
         Some(Dialog::ConfirmStop(name)) => draw_confirm_stop(frame, name),
@@ -45,16 +47,6 @@ fn pane(title: Line<'static>, focused: bool) -> Block<'static> {
         .border_type(BorderType::Rounded)
         .border_style(if focused { Style::default().fg(Color::Cyan) } else { MUTED })
         .title(title)
-}
-
-pub fn status_style(status: Status) -> Style {
-    match status {
-        Status::Working => Style::default().fg(Color::Green),
-        Status::Starting => Style::default().fg(Color::Cyan),
-        Status::Idle => Style::default().fg(Color::Gray),
-        Status::Parked => Style::default().fg(Color::Blue),
-        Status::Exited => Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
-    }
 }
 
 pub fn age(now_ms: u64, then_ms: u64) -> String {

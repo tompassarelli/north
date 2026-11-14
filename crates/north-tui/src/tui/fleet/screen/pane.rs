@@ -14,7 +14,12 @@ impl Screen {
 
     pub(super) fn toggle_digest(&mut self) {
         self.digest.shown = !self.digest.shown;
-        self.focus = if self.digest.shown { Focus::List } else { Focus::Composer };
+        if self.digest.shown {
+            self.focus_before_digest = self.focus;
+            self.focus = Focus::List;
+        } else {
+            self.focus = self.focus_before_digest;
+        }
     }
 
     pub(super) fn decide(&mut self, decision: Decision) -> Option<Command> {

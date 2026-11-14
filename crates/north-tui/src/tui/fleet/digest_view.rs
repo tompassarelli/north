@@ -96,7 +96,7 @@ fn session_lines(digest: &DigestPane, session: &SessionSummary, width: usize, no
     let task = one_line(facts.task.as_deref().unwrap_or("no task yet"), width.saturating_sub(indent.len() + name.chars().count() + status.len() + up.len() + 6));
     let headline = Line::from(vec![
         Span::styled(format!("  {indent}{name} "), BOLD),
-        Span::styled(status, super::view::status_style(session.status)),
+        Span::styled(status, super::strip_view::status_style(session.status)),
         Span::styled(up, MUTED),
         Span::styled(format!(" · {task}"), MUTED),
     ]);

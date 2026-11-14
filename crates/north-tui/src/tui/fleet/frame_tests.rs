@@ -129,3 +129,32 @@ fn a_reply_with_tabs_keeps_its_columns_apart() {
     let row: String = buffer.content().iter().map(|cell| cell.symbol()).collect::<String>().trim_end().to_owned();
     assert_eq!(row, "• name    status  age");
 }
+
+fn frame_rows(screen: &mut Screen, width: u16) -> Vec<String> {
+    let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+    let mut painter = TranscriptPainter::default();
+    terminal.draw(|frame| draw(frame, screen, None, &mut painter, 0)).unwrap();
+    let buffer = terminal.backend().buffer();
+    buffer.content().chunks(usize::from(width)).map(|row| row.iter().map(|cell| cell.symbol()).collect()).collect()
+}
+
+#[test]
+fn the_main_view_names_each_session_and_the_focused_pane() {
+    let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
+    let empty = frame_rows(&mut screen, 80).join("\n");
+    assert!(empty.contains("Ctrl+N starts one"), "{empty}");
+    screen.sync(vec![family("alpha", None, 1, Status::Working, 0), family("beta", None, 2, Status::Idle, 0)]);
+    screen.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    screen.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    screen.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    let strip = |screen: &mut Screen| frame_rows(screen, 80).into_iter().find(|row| row.contains("alpha")).unwrap_or_default();
+    let row = strip(&mut screen);
+    assert!(row.contains("alpha") && row.contains("working") && row.contains("▸beta") && row.contains("idle"), "{row}");
+    assert!(!row.contains("▸alpha"), "{row}");
+    assert!(row.contains("keys: composer"), "{row}");
+    screen.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(strip(&mut screen).contains("keys: session list"));
+    screen.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+    screen.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+    assert!(strip(&mut screen).contains("keys: session list"), "closing the digest returns focus to where it was");
+}
