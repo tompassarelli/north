@@ -381,7 +381,7 @@ impl Rig {
 }
 
 #[test]
-fn the_origin_sweep_abandons_branches_whose_changes_are_on_main_and_files_a_box_for_each_unlanded_one() {
+fn the_origin_sweep_abandons_branches_whose_changes_are_on_main_boxes_unlanded_ones_on_open_issues_and_opens_no_issue() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     let rig = Rig::new(root, &root.join("home"));
@@ -459,7 +459,7 @@ fn the_origin_sweep_abandons_branches_whose_changes_are_on_main_and_files_a_box_
         assert!(body(892).contains(&format!("`{branch}`")), "north#892 names no box for {branch}:\n{}\n{out}", body(892));
     }
     assert!(body(842).contains("`q902-bets`") && body(903).contains("`scratch/n903-waits-wip`"), "{}\n{}", body(842), body(903));
-    let created = rig.read("created.txt");
-    assert!(created.contains("`n706-pin-retire`") && created.contains("`scratch/n882-lines`"), "{created}");
+    assert_eq!(rig.read("created.txt"), "", "{out}");
+    assert!(!out.contains("opened "), "{out}");
     assert!(out.contains("origin scratch/n882-lines: KEEP unlanded"), "{out}");
 }
