@@ -491,7 +491,7 @@ struct Choice {
 
 /// The machines that serve every local need of the box, are unsaturated and below their cap, in order, with one line per
 /// machine, the need here does not serve with why no host serves it, and the machines skipped as saturated.
-fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_gaming: bool, reach: &Reach) -> Choice {
+fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_gaming: bool, reach: &Reach, excluded: &[String]) -> Choice {
     let declared = !words(text, "Surface").is_empty();
     let needs = if declared || !here_gaming { local_needs(text) } else { GAMING_NEEDS.iter().map(|need| (*need).to_owned()).collect() };
     let repo = repository(text);
@@ -507,6 +507,9 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
             }
             if !machine.launches {
                 return format!("{name} skipped: not a launch host");
+            }
+            if excluded.contains(name) {
+                return format!("{name} skipped: dispatch_hosts_excluded names it");
             }
             if let Some(need) = missing(&machine.serves) {
                 return format!("{name} skipped: needs {need}");
@@ -639,7 +642,8 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
     let (code_only, surface) = surface(text, cfg);
     let here_serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(here)).and_then(|host| host.get("serves")));
     let reach = Reach::of(text, cfg, here);
-    let Choice { open, lines: machine_lines, here_lacks, crowded } = machine_for(text, machines, &here_serves, here_gaming, &reach);
+    let excluded = strings(cfg.get("dispatch_hosts_excluded"));
+    let Choice { open, lines: machine_lines, here_lacks, crowded } = machine_for(text, machines, &here_serves, here_gaming, &reach, &excluded);
     let mut decision = Decision {
         target: Target::Held(String::new()),
         family: None,

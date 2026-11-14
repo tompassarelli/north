@@ -425,6 +425,26 @@ fn the_lines_waited_on_are_those_of_every_build_host_a_landing_goes_to_though_it
     assert_eq!(names("whiterabbit"), ["gex45", "cpx62"]);
 }
 
+/// Opened by north#1036: a host closed for an eval block (`dispatch_hosts_excluded`) took a worker launched without --cwd, which voided the block.
+#[test]
+fn a_launch_placement_skips_a_host_dispatch_excludes_and_places_on_another_until_the_hold_lifts() {
+    let placed = |excluded: Vec<String>| {
+        let mut case = coordinator_case([10.0, 10.0], [10.0, 10.0]);
+        case.launch = record::Launch { name: "worker".into(), role: Some("worker".into()), ..case.launch };
+        case.brief = "Item: north#1036 fs-look\nSurface: rust\n".into();
+        let host = |name: &str| record::Host { name: name.into(), ssh: Some(format!("tom@{name}")), launches: true, ..Default::default() };
+        case.config = record::Config { hosts: vec![host("cpx62b"), host("gex45")], hosts_excluded: excluded, ..Default::default() };
+        case.machines = ["cpx62b", "gex45"].into_iter().map(|name| record::Machine { name: name.into(), live: Some(0), accounts: vec!["a".into(), "b".into()], ..Default::default() }).collect();
+        case.here = record::Here { name: "whiterabbit".into(), ..Default::default() };
+        super::placement::case::decide(&case).unwrap()
+    };
+    let held = placed(vec!["cpx62b".into()]);
+    assert!(held.machine_lines.contains(&"cpx62b skipped: dispatch_hosts_excluded names it".to_owned()), "{:?}", held.machine_lines);
+    assert_eq!(held.machine.map(|machine| machine.name), Some("gex45".to_owned()), "{:?}", held.machine_lines);
+    let lifted = placed(Vec::new());
+    assert!(lifted.open.iter().any(|machine| machine.name == "cpx62b"), "{:?}", lifted.machine_lines);
+}
+
 #[test]
 fn a_launch_needing_what_a_host_serves_its_operator_dials_the_operator_and_code_only_work_dials_its_agent_login() {
     let host = record::Host { name: "far".into(), ssh: Some("tom@far".into()), agent_ssh: Some("agent@far".into()), serves: vec!["native:wisp".into(), "private:makgora".into()], launches: true, ..Default::default() };

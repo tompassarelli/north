@@ -324,6 +324,9 @@ fn document(config: &Config) -> DocumentMut {
     document.insert("placement", Item::Table(placement));
     document.insert("hosts", Item::Table(hosts));
     document.insert("accounts", Item::Table(accounts));
+    if !config.hosts_excluded.is_empty() {
+        document.insert("dispatch_hosts_excluded", array(&config.hosts_excluded));
+    }
     document
 }
 

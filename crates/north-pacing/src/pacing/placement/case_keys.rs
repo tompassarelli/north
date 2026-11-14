@@ -3,6 +3,8 @@ use toml_edit::{DocumentMut, Item, Value};
 
 /// An orchestration document holding every key `gate.rs` reads while it decides a launch.
 const EVERY_KEY: &str = r#"
+dispatch_hosts_excluded = ["cpx62b"]
+
 [placement]
 order = ["gex45"]
 public_repos = ["north"]
@@ -52,6 +54,7 @@ const DECIDED: &[&str] = &[
     "accounts.claude.api_hold.reason",
     "accounts.claude.reserve",
     "accounts.claude.api_beside_plans",
+    "dispatch_hosts_excluded",
 ];
 
 fn at<'a>(document: &'a DocumentMut, path: &str) -> Option<&'a Item> {
